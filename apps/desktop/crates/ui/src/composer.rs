@@ -19,15 +19,15 @@
 //! EXP-790: the submit slot is one round button that is either Send or
 //! Stop ([`SubmitKind`]): same ring, the glyph swaps.
 //!
-//! EXP-1334: the card's bottom row holds the inline TOOLS (the "+" options
-//! menu, attach, `#`, emoji) and the round button; the run's controls
-//! ([`SessionComposerControls`]: the model pin, the Plan switch, the usage
-//! ring) sit UNDER the card, like Home's options line.
+//! N-12 (the iOS row ×4): the card's bottom row holds the "+" options menu
+//! (the only tool), the run's controls ([`SessionComposerControls`]: the
+//! Device glyph, the model pin, the Plan switch), then the usage ring
+//! beside the round button; nothing sits under the card.
 //!
 //! Every slot is optional except the field; the caller owns all state and
 //! handlers, this only lays the card out.
 //!
-//! EXP-1294: [`session_composer_box`] is THE session composer box — Home's
+//! EXP-1294: [`session_composer_card`] is THE session composer box — Home's
 //! launcher card (a 2–8 line field, the "+" bottom-left, the round send
 //! bottom-right) on the work column. Dispatcher roots (2026-10-15): the
 //! thread screen and the agent channel no longer build a reply of their
@@ -55,6 +55,8 @@ pub(crate) struct GlassComposer {
     strip: Option<AnyElement>,
     tools: Vec<AnyElement>,
     submit: Option<AnyElement>,
+    /// N-14: the bottom row is a ROW host ([`GlassComposer::row_host`]).
+    row_host: Option<ElementId>,
 }
 
 /// EXP-790: what the composer's one round button does right now.
@@ -83,7 +85,17 @@ impl GlassComposer {
             strip: None,
             tools: Vec::new(),
             submit: None,
+            row_host: None,
         }
+    }
+
+    /// N-14 (`picker-presentation.json`): the bottom row (the tools, the
+    /// pins, the submit) is a ROW host — an inline pin opened in it
+    /// discloses its rows UNDER THE WHOLE ROW, as wide as it, and the pins
+    /// never move ([`crate::picker::InlinePickerRow`]).
+    pub(crate) fn row_host(mut self, id: impl Into<ElementId>) -> Self {
+        self.row_host = Some(id.into());
+        self
     }
 
     /// A row INSIDE the card, above everything else — the issue composer's
@@ -124,6 +136,7 @@ pub(crate) fn glass_composer(composer: GlassComposer) -> Div {
         strip,
         tools,
         submit,
+        row_host,
     } = composer;
     let card = v_flex()
         .w_full()
@@ -133,7 +146,7 @@ pub(crate) fn glass_composer(composer: GlassComposer) -> Div {
         .rounded(px(t::radius::XL))
         .border_1()
         .border_color(t::glass::STROKE_CARD.to_hsla())
-        .bg(t::glass::FILL_CARD.to_hsla())
+        .bg(crate::dock::card_fill())
         .children(leading)
         .children(strip);
     // EXP-525: a flex-COLUMN slot, not a nested row — the view child's
@@ -142,17 +155,19 @@ pub(crate) fn glass_composer(composer: GlassComposer) -> Div {
     // some window sizes; a column stretches its child to the definite
     // slot width instead.
     let field = v_flex().flex_1().w_full().min_w_0().child(field);
-    card.child(field).child(
-        h_flex()
-            .w_full()
-            .gap_1()
-            .px_1()
-            .pb_1()
-            .items_center()
-            .children(tools)
-            .child(div().flex_1())
-            .children(submit),
-    )
+    let row = h_flex()
+        .w_full()
+        .gap_1()
+        .px_1()
+        .pb_1()
+        .items_center()
+        .children(tools)
+        .child(div().flex_1())
+        .children(submit);
+    match row_host {
+        Some(id) => card.child(crate::picker::InlinePickerRow::new(id, row)),
+        None => card.child(row),
+    }
 }
 
 /// One leading tool of the composer's bottom row: a muted 24px ghost glyph
@@ -216,7 +231,7 @@ fn composer_round(
         .disabled(disabled)
 }
 
-/// EXP-1294: the round button of [`session_composer_box`] — Send or Stop
+/// EXP-1294: the round button of [`session_composer_card`] — Send or Stop
 /// ([`SubmitKind`]), its own disabled and loading state, the click handler.
 pub(crate) struct SessionComposerSubmit {
     pub(crate) id: ElementId,
@@ -369,13 +384,12 @@ pub(crate) fn session_composer_field(
     (input, mention)
 }
 
-/// EXP-1294 — THE session composer box = Home's launcher card
-/// (`chat_screen::render_launcher`): the field over a tool row with the "+"
-/// bottom-left and the ONE round button bottom-right (the run controls in
-/// that same row, web's layout: the model pin and plan read after the "+",
-/// the context ring before the button), on the centred work column (EXP-1191:
-/// `WORK_COLUMN_W` with the `WORK_GUTTER` padding) like the transcript.
-pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyElement {
+/// N-12 — THE session composer card ×4 (the iOS session view's row): the
+/// field over ONE tool row: the "+" (the only tool) · the Device pin as its
+/// glyph alone · the model pin · the Plan switch … the context ring · Send
+/// ⇄ Stop, all INSIDE the card; nothing under it. The quick replies sit
+/// directly above the card.
+pub(crate) fn session_composer_card(props: SessionComposerBox, cx: &App) -> AnyElement {
     let SessionComposerBox {
         mention,
         above_field,
@@ -392,6 +406,8 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
         Some(hook) => hook(field_wrap),
         None => field_wrap,
     };
+    // N-14: THE one row is a row host: an opened pin (the device pin, the
+    // model pin) discloses its rows under the whole row.
     let mut composer = GlassComposer::new(
         gpui_component::v_flex()
             .w_full()
@@ -400,7 +416,8 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
             .child(field_wrap.child(mention))
             .into_any_element(),
     )
-    .strip(strip);
+    .strip(strip)
+    .row_host(ElementId::Name(format!("{:?}-row", submit.id).into()));
     for tool in tools {
         composer = composer.tool(tool);
     }
@@ -410,23 +427,22 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
         plan,
         context_ring,
     } = controls;
-    // EXP-1334: the options line UNDER the card (Home's): (EXP-1252: device ·)
-    // model · Plan, the usage ring right-aligned.
-    let options = (device_pin.is_some() || model_pin.is_some() || plan.is_some() || context_ring.is_some())
-        .then(|| {
-        h_flex()
-            .w_full()
-            .min_w_0()
-            .px_1()
-            .pt_1p5()
-            .gap_2()
-            .items_center()
-            .children(device_pin)
-            .children(model_pin)
-            .children(plan)
-            .child(div().flex_1())
-            .children(context_ring)
-    });
+    // The run's options after the "+" (web `pl-1 gap-x-2.5`, xs muted).
+    if device_pin.is_some() || model_pin.is_some() || plan.is_some() {
+        composer = composer.tool(
+            h_flex()
+                .min_w_0()
+                .pl_1()
+                .gap(px(10.))
+                .items_center()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .children(device_pin)
+                .children(model_pin)
+                .children(plan)
+                .into_any_element(),
+        );
+    }
     let SessionComposerSubmit {
         id,
         kind,
@@ -434,33 +450,28 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
         loading,
         on_click,
     } = submit;
+    let button = composer_submit_kind(id, kind, disabled, cx)
+        .loading(loading)
+        .on_click(move |event, window, cx| on_click(event, window, cx));
     let composer = composer.submit(
-        composer_submit_kind(id, kind, disabled, cx)
-            .loading(loading)
-            .on_click(move |event, window, cx| on_click(event, window, cx)),
+        h_flex()
+            .flex_shrink_0()
+            .gap_2()
+            .items_center()
+            .children(context_ring)
+            .child(button)
+            .into_any_element(),
     );
     let card = glass_composer(composer);
     let card = match card_hook {
         Some(hook) => hook(card),
         None => card,
     };
-    div()
+    gpui_component::v_flex()
         .w_full()
-        .flex_shrink_0()
-        .flex()
-        .flex_col()
-        .items_center()
-        .py_2()
-        .child(
-            gpui_component::v_flex()
-                .w_full()
-                .min_w_0()
-                .max_w(px(crate::work_header::WORK_COLUMN_W))
-                .px(px(crate::work_header::WORK_GUTTER))
-                .children(replies.map(|replies| div().w_full().min_w_0().pb_2().child(replies)))
-                .child(card)
-                .children(options),
-        )
+        .min_w_0()
+        .children(replies.map(|replies| div().w_full().min_w_0().pb_2().child(replies)))
+        .child(card)
         .into_any_element()
 }
 
@@ -473,10 +484,10 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
 // ---------------------------------------------------------------------------
 
 /// EXP-877 — the run's controls in THE session composer's bottom row
-/// (web `session-composer.tsx`): [`session_model_pin`] and the plan read
-/// (`plan`) and [`session_context_ring`] right-aligned, on the options line
-/// UNDER the card (EXP-1334). Everything here is ABOUT the run rather than
-/// part of the message.
+/// (web `session-composer.tsx`): the Device glyph, [`session_model_pin`] and
+/// the plan read (`plan`) after the "+", [`session_context_ring`] beside
+/// Send ⇄ Stop (N-12: all inside the card). Everything here is ABOUT the run
+/// rather than part of the message.
 #[derive(Default)]
 pub(crate) struct SessionComposerControls {
     /// EXP-1252: the Device pin BEFORE the model

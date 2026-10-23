@@ -30,7 +30,7 @@ mod action_run;
 mod actions;
 mod agent_screen;
 // THE ask dock (waiting question/plan cards in the composer's slot), ask-dock.json ×4.
-mod ask_dock;
+mod dock;
 mod app_title_bar;
 mod attachment_markdown_preview;
 mod attachments_row;

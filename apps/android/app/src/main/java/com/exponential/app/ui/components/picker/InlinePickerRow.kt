@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 
 /**
@@ -66,6 +67,10 @@ fun InlinePickerRow(
     modifier: Modifier = Modifier,
     rowModifier: Modifier = Modifier,
     horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
+    verticalAlignment: Alignment.Vertical = Alignment.Top,
+    /** False = a row that lays its children out itself (weights, a trailing
+     *  Send): THE composer row inside its card. */
+    scroll: Boolean = true,
     content: @Composable RowScope.() -> Unit,
 ) {
     val slot = remember { InlinePickerSlot() }
@@ -74,15 +79,22 @@ fun InlinePickerRow(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
+                    .then(if (scroll) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
                     .then(rowModifier),
                 horizontalArrangement = horizontalArrangement,
+                verticalAlignment = verticalAlignment,
                 content = content,
             )
         }
-        val rows = slot.content
-        if (rows != null) {
-            Box(Modifier.fillMaxWidth()) { rows() }
-        }
+        InlinePickerSlotRows(slot)
+    }
+}
+
+/** The slot's rows (the one picker's), as wide as the host; nothing folded. */
+@Composable
+fun InlinePickerSlotRows(slot: InlinePickerSlot) {
+    val rows = slot.content
+    if (rows != null) {
+        Box(Modifier.fillMaxWidth()) { rows() }
     }
 }

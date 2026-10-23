@@ -29,13 +29,16 @@ use crate::queries::LaunchDevice;
 // `SessionDeviceMove.swift` and Android `domain/SessionDeviceMove.kt` (the web
 // copy-lock test reads this file for the literals).
 
-/// The picker's title (the pin's tooltip leads with it).
+/// The picker's title (copy-locked ×4; N-12: the glyph pin's tooltip is
+/// the device name).
+#[allow(dead_code)]
 pub(crate) const PICKER_TITLE: &str = "Move to device";
 
 /// The pin while `move_to_device_id` is set; `{device}` = the target's name.
 pub(crate) const MOVING_LABEL: &str = "Moving to {device}…";
 
-/// What a move does, said once where it is offered (the pin's tooltip).
+/// What a move does (copy-locked ×4).
+#[allow(dead_code)]
 pub(crate) const NOTE: &str =
     "The session ends here and continues on that device on the same branch; its conversation goes with it, logins stay on each device.";
 
@@ -407,15 +410,15 @@ pub(crate) fn session_device_pin(
         .unwrap_or_else(|| current.clone());
     let moving_name = moving_to.as_deref().map(|target| target_name(&candidates, target, cx));
     let label = pin_label(&current_label, moving_name.as_deref());
-    let glyph = crate::icons::device_icon(
-        Some(crate::launch_options::device_glyph_name(&current, cx)),
-        false,
-    );
+    // N-12: the pin is its glyph alone (the target's while a move is
+    // pending); the name, or the pending move, is the tooltip.
+    let shown = moving_to.as_deref().unwrap_or(current.as_str());
+    let glyph = crate::icons::device_icon(Some(crate::launch_options::device_glyph_name(shown, cx)), false);
     let tooltip = match state {
-        PinState::Disabled(reason) => SharedString::from(reason),
-        _ => SharedString::from(format!("{PICKER_TITLE}\n{NOTE}")),
+        PinState::Disabled(reason) => SharedString::from(format!("{label}\n{reason}")),
+        _ => SharedString::from(label),
     };
-    let trigger = crate::launch_options::inline_pin_trigger_with(id.clone(), Some(glyph), label, cx)
+    let trigger = crate::launch_options::inline_pin_glyph_trigger(id.clone(), glyph, cx)
         .tooltip(tooltip)
         .into_any_element();
     // The launch line's rows ([`crate::launch_options::launch_device_rows`]:

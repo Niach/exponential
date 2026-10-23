@@ -106,6 +106,56 @@ final class Round1NativesTests: XCTestCase {
         }
     }
 
+    /// N-12: THE DockCard (`exponential-ui-dock-card`, the kitchen sink's
+    /// "dock-card"): the macro expands to the pressable trigger row over a
+    /// bottom Drawer, the `footer` slot rides the sheet, and the painter
+    /// draws the open sheet's body and footer in the Drawer's layer.
+    func testDockCardExpandsToTriggerOverABottomDrawerWithItsFooter() throws {
+        let specimens = try Fixtures.json("specimens.json")["specimens"]?.array ?? []
+        let spec = try XCTUnwrap(specimens.first { $0["id"]?.string == "exponential-ui-dock-card" })
+        let m = try model("dock-card")
+        try m.setNested(json: try XCTUnwrap(spec["node"]).json)
+        let painted = paint(m)
+        XCTAssertNil(m.nodes.first { $0.component == "Unknown" })
+        let trigger = try XCTUnwrap(m.nodes.first { $0.id == "c0-dock-card.trigger" })
+        XCTAssertTrue(painted.contains(trigger.index), "the collapsed card paints")
+        XCTAssertEqual(trigger.layer, 0)
+        let drawer = try XCTUnwrap(m.layers.first { $0.kind == "Drawer" }, "the open card's sheet is a Drawer layer")
+        XCTAssertEqual(drawer.owner, "c0-dock-card.sheet")
+        XCTAssertEqual(drawer.position, "bottom")
+        // The `footer` slot lands in the Drawer's own footer part.
+        let footerPart = try XCTUnwrap(m.nodes.first { $0.id == "c0-dock-card.sheet.footer" })
+        XCTAssertEqual(footerPart.part, "footer")
+        XCTAssertEqual(m.nodes.first { $0.id == "c0-footer" }?.parent, footerPart.index)
+        XCTAssertTrue(drawer.modal)
+        for id in ["c0-p", "c0-no", "c0-yes"] {
+            let n = try XCTUnwrap(m.nodes.first { $0.id == id }, id)
+            XCTAssertGreaterThan(n.layer, 0, "\(id) rides the sheet")
+            XCTAssertTrue(painted.contains(n.index), "\(id) paints")
+        }
+        // The footer sits under the body inside the sheet.
+        let body = try XCTUnwrap(m.nodes.first { $0.id == "c0-p" })
+        let yes = try XCTUnwrap(m.nodes.first { $0.id == "c0-yes" })
+        XCTAssertGreaterThan(m.frame(yes.index).minY, m.frame(body.index).minY)
+        XCTAssertGreaterThanOrEqual(m.frame(yes.index).minY, drawer.frame.minY)
+    }
+
+    /// The kitchen sink's "dock-card" opens its Drawer from the trigger.
+    func testKitchenSinkDockCardOpensItsDrawer() throws {
+        let m = try model("dock-sink")
+        try m.setNested(json: Fixtures.text("kitchen-sink.json"))
+        m.setViewport(width: 390, height: 900)
+        XCTAssertNotNil(m.nodes.first { $0.id == "dock-card.trigger" })
+        XCTAssertFalse(m.layers.contains { $0.kind == "Drawer" }, "closed until pressed")
+        let sheet = try XCTUnwrap(m.nodes.first { $0.id == "dock-card.sheet" && $0.component == "Drawer" })
+        m.setOpen(sheet.id, true)
+        let drawer = try XCTUnwrap(m.layers.first { $0.kind == "Drawer" })
+        XCTAssertEqual(drawer.position, "bottom")
+        let footer = try XCTUnwrap(m.nodes.first { $0.id == "dock-card-yes" })
+        XCTAssertGreaterThan(footer.layer, 0)
+        XCTAssertGreaterThan(m.frame(footer.index).height, 0)
+    }
+
     // MARK: - geometry
 
     /// The round-1 controls measure to `control-geometry.json` in every

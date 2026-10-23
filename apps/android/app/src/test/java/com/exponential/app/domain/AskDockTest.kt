@@ -39,43 +39,13 @@ class AskDockTest {
 
     private fun kind(wire: String): AskDock.Kind = AskDock.Kind.entries.first { it.wire == wire }
 
-    private fun pending(json: JsonObject) = AskDock.Pending(
-        id = json.str("id")!!,
-        kind = kind(json.str("kind")!!),
-        text = json.str("text")!!,
-        sessionName = json.str("sessionName"),
-        createdAt = json.getValue("createdAt").jsonPrimitive.long,
-    )
-
     private fun pendingJson(p: AskDock.Pending) = buildJsonObject {
         put("id", p.id)
         put("kind", p.kind.wire)
         put("text", p.text)
         put("sessionName", nullable(p.sessionName))
         put("createdAt", p.createdAt)
-    }
-
-    private fun viewJson(view: AskDock.View) = buildJsonObject {
-        put("mode", view.mode.wire)
-        put("composerHidden", view.composerHidden)
-        put("back", view.back)
-        put("cardId", nullable(view.cardId))
-        put(
-            "rows",
-            buildJsonArray {
-                view.rows.forEach { row ->
-                    add(
-                        buildJsonObject {
-                            put("id", row.id)
-                            put("kind", row.kind.wire)
-                            put("label", row.label)
-                            put("title", row.title)
-                            put("caption", nullable(row.caption))
-                        },
-                    )
-                }
-            },
-        )
+        p.questions?.let { put("questions", it) }
     }
 
     @Test
@@ -85,21 +55,10 @@ class AskDockTest {
         assertEquals(copy.str("question"), AskDock.Copy.QUESTION)
         assertEquals(copy.str("back"), AskDock.Copy.BACK)
         assertEquals(copy.str("feedbackPlaceholder"), AskDock.Copy.FEEDBACK_PLACEHOLDER)
+        assertEquals(copy.str("cancel"), AskDock.Copy.CANCEL)
+        assertEquals(setOf("planReady", "question", "back", "feedbackPlaceholder", "cancel"), copy.keys)
         val icons = fixture.getValue("icons").jsonObject
-        assertEquals(icons.str("plan"), AskDock.Icons.PLAN)
-        assertEquals(icons.str("question"), AskDock.Icons.QUESTION)
-        assertEquals(icons.str("back"), AskDock.Icons.BACK)
-        assertEquals(icons.str("open"), AskDock.Icons.OPEN)
-        val ids = fixture.getValue("testIds").jsonObject
-        assertEquals(ids.str("dock"), AskDock.TestIds.DOCK)
-        assertEquals(ids.str("row"), AskDock.TestIds.ROW)
-        assertEquals(ids.str("back"), AskDock.TestIds.BACK)
-        assertEquals(ids.str("card"), AskDock.TestIds.CARD)
-        val motion = fixture.getValue("motion").jsonObject
-        assertEquals("standard", motion.str("resize"))
-        assertEquals("standard", motion.str("enter"))
-        assertEquals(fixture.getValue("bodyMaxHeightFraction").jsonPrimitive.float, AskDock.BODY_MAX_HEIGHT_FRACTION)
-        assertEquals(fixture.getValue("stackGap").jsonPrimitive.int, AskDock.STACK_GAP)
+        assertEquals(mapOf("plan" to AskDock.Icons.PLAN, "question" to AskDock.Icons.QUESTION), icons.mapValues { it.value.jsonPrimitive.content })
         val options = array("planOptions").map {
             AskDock.PlanOption(
                 key = it.str("key")!!,
@@ -110,20 +69,6 @@ class AskDockTest {
             )
         }
         assertEquals(options, AskDock.PLAN_OPTIONS)
-    }
-
-    @Test
-    fun `dock cases`() {
-        val cases = array("cases")
-        assertTrue(cases.isNotEmpty())
-        for (case in cases) {
-            val input = case.getValue("input").jsonObject
-            val view = AskDock.askDock(
-                pending = input.getValue("pending").jsonArray.map { pending(it.jsonObject) },
-                focusedId = input.str("focusedId"),
-            )
-            assertEquals(case.str("name"), case.getValue("expected"), viewJson(view))
-        }
     }
 
     @Test

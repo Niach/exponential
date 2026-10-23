@@ -1,16 +1,15 @@
 name: web-tests
 
-# EXP-1364: the web gate, shared by test.yml (the pull request) and
-# build-web.yml (the image never ships on a red run). The web vitest suite was
-# one 13-minute job; it runs as SHARDS parallel GitHub-hosted jobs now, next to
-# one job for the typecheck and every other bun suite. GitHub-hosted on
-# purpose: four free parallel runners beat one self-hosted machine here.
+# EXP-1364: the web gate of test.yml (the pull request). Every piece runs in
+# parallel: the typecheck (+ the small bun suites), the package tests, and the
+# web vitest suite as four shards. The Exponential UI React + Solid suites are
+# NOT here: exponential-ui.yml runs them on every change to the SDK.
 
 on:
   workflow_call: {}
 
 jobs:
-  checks:
+  typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,8 +17,6 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Typecheck web
         run: bun run typecheck
-      - name: Package unit tests (contract, Exponential UI, @exp/ui, MCP apps)
-        run: bun run test:packages
       # EXP-566: the view-catalog drift gates (catalog ↔ native shot names ↔
       # recipe registry ↔ route coverage) and the store writer's tests — vitest
       # doesn't run bun-test packages, so they need their own step.
@@ -35,6 +32,15 @@ jobs:
         run: bun run --filter @exp/push-relay typecheck
       - name: Push relay tests
         run: bun run test:push-relay
+
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Package unit tests (contract, the Exponential UI catalog, @exp/ui, MCP apps)
+        run: bun --filter @exp/domain-contract test && bun --filter @exponential-at/ui test && bun --filter @exp/ui --filter @exp/mcp-apps test
 
   unit:
     name: unit (${{ matrix.shard }}/4)

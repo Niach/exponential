@@ -26,7 +26,7 @@ use crate::chat_screen::{
     PLUS_TOOLTIP,
 };
 use crate::composer::{
-    composer_tool, session_composer_box, session_composer_field, session_context_ring, session_model_pin,
+    composer_tool, session_composer_card, session_composer_field, session_context_ring, session_model_pin,
     ContextRingProps, SessionComposerBox, SessionComposerControls, SessionComposerSubmit, SubmitKind,
     PLAN_MODE_FALLBACK,
 };
@@ -122,15 +122,32 @@ fn start_pins(prefix: &str, cx: &App) -> Vec<AnyElement> {
 /// EXP-1252 — a session's Device pin (before the model): the launch line's
 /// pin trigger with the session's device, or `Moving to <device>…` while a
 /// move is pending ([`crate::device_move::pin_label`]).
+/// N-12: the session's Device pin as its glyph alone; the name (or the
+/// pending move) is the tooltip.
 pub(super) fn session_device_pin(prefix: &str, moving: bool, cx: &App) -> AnyElement {
     let label = crate::device_move::pin_label(SAMPLE_DEVICE, moving.then_some(SAMPLE_MOVE_TARGET));
-    inline_pin_trigger_with(
-        SharedString::from(format!("{prefix}-device")),
-        Some(registry::NAV_COMPUTER),
-        label,
-        cx,
-    )
-    .into_any_element()
+    crate::launch_options::inline_pin_glyph_trigger(SharedString::from(format!("{prefix}-device")), registry::NAV_COMPUTER, cx)
+        .tooltip(label)
+        .into_any_element()
+}
+
+/// N-12 (web `ComposerSessionRowSpecimen`): a session composer's in-card
+/// row: the Device glyph · the model pin · the Plan switch.
+pub(super) fn session_row(prefix: &str, phase: Phase, moving: bool, cx: &App) -> Div {
+    h_flex()
+        .min_w_0()
+        .pl_1()
+        .gap(px(10.))
+        .items_center()
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
+        .child(session_device_pin(prefix, moving, cx))
+        .child(inline_pin_trigger(
+            SharedString::from(format!("{prefix}-model")),
+            crate::steer_viewer::model_label(sample_model(phase)),
+            cx,
+        ))
+        .child(plan_switch(format!("{prefix}-plan"), phase, cx))
 }
 
 /// The repository pin, the start line's last word.
@@ -163,9 +180,9 @@ pub(super) fn context_ring(prefix: &str, phase: Phase, cx: &App) -> Option<AnyEl
     )
 }
 
-/// The options line alone (web `ComposerOptionsSpecimen`): before a start
-/// device · account · model · Plan · repository; in a session model · Plan
-/// … the context ring. The model pin here is the static word (the live
+/// The options line UNDER the start composer (web
+/// `ComposerOptionsSpecimen`): device · account · model · Plan ·
+/// repository (N-12: a session's pins sit in the card, [`session_row`]). The model pin here is the static word (the live
 /// menu is the whole composer's, [`ComposerSpecimen`]).
 pub(super) fn options_line(prefix: &str, phase: Phase, cx: &App) -> Div {
     let model = inline_pin_trigger(
@@ -182,18 +199,9 @@ pub(super) fn options_line(prefix: &str, phase: Phase, cx: &App) -> Div {
         .px_1()
         .text_xs()
         .text_color(cx.theme().muted_foreground);
-    if phase == Phase::Start {
-        line = line.children(start_pins(prefix, cx));
-    } else {
-        // EXP-1252: a session's line leads with its Device pin.
-        line = line.child(session_device_pin(prefix, false, cx));
-    }
+    line = line.children(start_pins(prefix, cx));
     line = line.child(model).child(plan_switch(format!("{prefix}-plan"), phase, cx));
-    if phase == Phase::Start {
-        line.child(repository_pin(prefix, cx))
-    } else {
-        line.child(div().flex_1()).children(context_ring(prefix, phase, cx))
-    }
+    line.child(repository_pin(prefix, cx))
 }
 
 /// THE whole composer (web `ComposerSpecimen`): the card (the field, the
@@ -279,34 +287,31 @@ impl Render for ComposerSpecimen {
         };
         // NEW-3: a message to an agent runs on the agent's own device and
         // login: no options line at all.
-        let controls = if self.to_agent {
-            SessionComposerControls::default()
+        // N-12: before a start the options line sits UNDER the card; in a
+        // session the pins sit IN its tool row, the ring beside Stop.
+        let (controls, under) = if self.to_agent {
+            (SessionComposerControls::default(), None)
+        } else if phase == Phase::Start {
+            (
+                SessionComposerControls::default(),
+                Some(h_flex().w_full().min_w_0().px_1().pt_1p5().gap_2().items_center().children(model_pin).children(plan)),
+            )
         } else {
-            SessionComposerControls {
-                device_pin,
-                model_pin,
-                plan,
-                context_ring,
-            }
+            (SessionComposerControls { device_pin, model_pin, plan, context_ring }, None)
         };
         let replies = self
             .replies
             .as_ref()
             .map(|replies| crate::composer::composer_replies_row(replies, false, cx));
-        session_composer_box(
+        let card = session_composer_card(
             SessionComposerBox::new(self.mention.clone(), submit)
                 .replies(replies)
-                // EXP-1334: the "+" (the options menu), then web's
-                // `ComposerEditTools`: Add image, Attach files, Insert issue
-                // reference, Insert emoji.
+                // N-12: the "+" (the options menu) is the only tool.
                 .tool(composer_tool(id("plus"), registry::UI_ADD, cx).tooltip(PLUS_TOOLTIP))
-                .tool(composer_tool(id("image"), registry::EDITOR_IMAGE, cx).tooltip("Add image"))
-                .tool(composer_tool(id("attach"), registry::UI_ATTACH, cx).tooltip("Attach files"))
-                .tool(composer_tool(id("issue"), registry::EDITOR_ISSUE_REF, cx).tooltip("Insert issue reference"))
-                .tool(composer_tool(id("emoji"), registry::EDITOR_EMOJI, cx).tooltip("Insert emoji"))
                 .controls(controls),
             cx,
-        )
+        );
+        v_flex().w_full().min_w_0().py_2().child(card).children(under)
     }
 }
 

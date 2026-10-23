@@ -4,48 +4,131 @@
     "Stack": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box",
+        "part": "root",
+        "component": "Box",
         "style": {
           "display": "flex",
-          "flexDirection": { "$map": { "from": "props.direction", "cases": { "horizontal": "row" }, "default": "column" } },
-          "flexWrap": { "$cond": ["props.wrap", "wrap", "nowrap"] },
+          "flexDirection": {
+            "$map": {
+              "from": "props.direction",
+              "cases": {
+                "horizontal": "row"
+              },
+              "default": "column"
+            }
+          },
+          "flexWrap": {
+            "$cond": [
+              "props.wrap",
+              "wrap",
+              "nowrap"
+            ]
+          },
           "gap": "$spacing.{props.gap|md}",
           "alignItems": "{props.align|stretch}",
-          "justifyContent": { "$map": { "from": "props.justify", "cases": { "between": "space-between", "around": "space-around", "evenly": "space-evenly" }, "default": "{props.justify|start}" } }
+          "justifyContent": {
+            "$map": {
+              "from": "props.justify",
+              "cases": {
+                "between": "space-between",
+                "around": "space-around",
+                "evenly": "space-evenly"
+              },
+              "default": "{props.justify|start}"
+            }
+          }
         },
-        "children": ["$children"]
+        "children": [
+          "$children"
+        ]
       }
     },
     "Grid": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box",
+        "part": "root",
+        "component": "Box",
         "style": {
           "display": "grid",
           "gridTemplateColumns": "repeat({props.columns|2}, minmax(0, 1fr))",
           "gap": "$spacing.{props.gap|md}"
         },
-        "children": ["$children"]
+        "children": [
+          "$children"
+        ]
       }
     },
     "Card": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box", "$a11y": { "role": "group", "label": "{props.title}" },
-        "style": { "display": "flex", "flexDirection": "column", "borderRadius": "$radius.xl", "overflow": "hidden" },
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "group",
+          "label": "{props.title}"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "borderRadius": "$radius.xl",
+          "overflow": "hidden"
+        },
         "children": [
           {
-            "part": "header", "component": "Box", "$any": ["props.title", "props.description"],
-            "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xxs", "paddingTop": "$spacing.lg", "paddingHorizontal": "$spacing.lg" },
+            "part": "header",
+            "component": "Box",
+            "$any": [
+              "props.title",
+              "props.description"
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "paddingTop": "$spacing.lg",
+              "paddingHorizontal": "$spacing.lg"
+            },
             "children": [
-              { "part": "title", "component": "Text", "$if": "props.title", "props": { "text": "{props.title}", "variant": "title" } },
-              { "part": "description", "component": "Text", "$if": "props.description", "props": { "text": "{props.description}", "variant": "muted" } }
+              {
+                "part": "title",
+                "component": "Text",
+                "$if": "props.title",
+                "props": {
+                  "text": "{props.title}",
+                  "variant": "title"
+                }
+              },
+              {
+                "part": "description",
+                "component": "Text",
+                "$if": "props.description",
+                "props": {
+                  "text": "{props.description}",
+                  "variant": "muted"
+                }
+              }
             ]
           },
           {
-            "part": "body", "component": "Box",
-            "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": { "$map": { "from": "props.padded", "cases": { "false": "$spacing.none" }, "default": "$spacing.lg" } } },
-            "children": ["$children"]
+            "part": "body",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "padding": {
+                "$map": {
+                  "from": "props.padded",
+                  "cases": {
+                    "false": "$spacing.none"
+                  },
+                  "default": "$spacing.lg"
+                }
+              }
+            },
+            "children": [
+              "$children"
+            ]
           }
         ]
       }
@@ -53,62 +136,291 @@
     "Separator": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box", "$a11y": { "role": "separator" },
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "separator"
+        },
         "style": {
           "alignSelf": "stretch",
           "flexShrink": 0,
-          "width": { "$map": { "from": "props.orientation", "cases": { "vertical": 1 }, "default": "auto" } },
-          "height": { "$map": { "from": "props.orientation", "cases": { "vertical": "auto" }, "default": 1 } }
+          "width": {
+            "$map": {
+              "from": "props.orientation",
+              "cases": {
+                "vertical": 1
+              },
+              "default": "auto"
+            }
+          },
+          "height": {
+            "$map": {
+              "from": "props.orientation",
+              "cases": {
+                "vertical": "auto"
+              },
+              "default": 1
+            }
+          }
         }
       }
     },
     "Section": {
-      "recipeProps": ["tint", "tree", "open", "collapsible"],
+      "recipeProps": [
+        "tint",
+        "tree",
+        "open",
+        "collapsible"
+      ],
       "root": {
-        "part": "root", "component": "Box",
-        "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xs" },
+        "part": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.xs"
+        },
         "children": [
           {
-            "part": "header", "component": "Box", "$if": ["props.title", { "$not": "props.collapsible" }],
-            "$a11y": { "role": "heading", "level": 3 },
-            "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "height": "$control.row", "paddingHorizontal": "$spacing.md", "borderRadius": "$radius.md" },
+            "part": "header",
+            "component": "Box",
+            "$if": [
+              "props.title",
+              {
+                "$not": "props.collapsible"
+              }
+            ],
+            "$a11y": {
+              "role": "heading",
+              "level": 3
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "height": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
             "children": [
-              { "part": "chevron", "component": "Icon", "$if": "props.collapsible", "props": { "name": "ui-chevron-right", "size": "sm", "tone": "neutral" } },
+              {
+                "part": "chevron",
+                "component": "Icon",
+                "$if": "props.collapsible",
+                "props": {
+                  "name": "ui-chevron-right",
+                  "size": "sm",
+                  "tone": "neutral"
+                }
+              },
               "$slot:leading",
-              { "part": "icon", "component": "Icon", "$if": "props.icon", "props": { "name": "{props.icon}", "size": "sm" } },
-              { "part": "title", "component": "Text", "props": { "text": "{props.title}", "variant": "label", "lines": 1 }, "style": { "flexShrink": 1, "minWidth": 0 } },
-              { "part": "caption", "component": "Text", "$if": "props.caption", "props": { "text": "{props.caption}", "variant": "muted", "lines": 1 }, "style": { "flexShrink": 1, "minWidth": 0 } },
-              { "part": "loading", "component": "Spinner", "$if": "props.loading", "props": { "size": "xs", "label": "$string.loading" } },
-              { "part": "count", "component": "Text", "$if": "props.count", "props": { "text": { "$text": "props.count" }, "variant": "muted" } },
-              { "part": "spacer", "component": "Box", "style": { "flexGrow": 1, "minWidth": 0 } },
+              {
+                "part": "icon",
+                "component": "Icon",
+                "$if": "props.icon",
+                "props": {
+                  "name": "{props.icon}",
+                  "size": "sm"
+                }
+              },
+              {
+                "part": "title",
+                "component": "Text",
+                "props": {
+                  "text": "{props.title}",
+                  "variant": "label",
+                  "lines": 1
+                },
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0
+                }
+              },
+              {
+                "part": "caption",
+                "component": "Text",
+                "$if": "props.caption",
+                "props": {
+                  "text": "{props.caption}",
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0
+                }
+              },
+              {
+                "part": "loading",
+                "component": "Spinner",
+                "$if": "props.loading",
+                "props": {
+                  "size": "xs",
+                  "label": "$string.loading"
+                }
+              },
+              {
+                "part": "count",
+                "component": "Text",
+                "$if": "props.count",
+                "props": {
+                  "text": {
+                    "$text": "props.count"
+                  },
+                  "variant": "muted"
+                }
+              },
+              {
+                "part": "spacer",
+                "component": "Box",
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                }
+              },
               "$slot:trailing"
             ]
           },
           {
-            "part": "header", "component": "Box", "$if": ["props.title", "props.collapsible"],
-            "$a11y": { "role": "button", "expanded": "{props.open|true}" },
-            "props": { "pressable": true },
-            "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "height": "$control.row", "paddingHorizontal": "$spacing.md", "borderRadius": "$radius.md" },
-            "$on": { "press": "change" },
-            "$context": { "open": { "$not": "props.open|true" } },
-            "$set": { "press": { "prop": "open", "value": { "$not": "props.open|true" } } },
+            "part": "header",
+            "component": "Box",
+            "$if": [
+              "props.title",
+              "props.collapsible"
+            ],
+            "$a11y": {
+              "role": "button",
+              "expanded": "{props.open|true}"
+            },
+            "props": {
+              "pressable": true
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "height": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "$on": {
+              "press": "change"
+            },
+            "$context": {
+              "open": {
+                "$not": "props.open|true"
+              }
+            },
+            "$set": {
+              "press": {
+                "prop": "open",
+                "value": {
+                  "$not": "props.open|true"
+                }
+              }
+            },
             "children": [
-              { "part": "chevron", "component": "Icon", "$if": "props.collapsible", "props": { "name": "ui-chevron-right", "size": "sm", "tone": "neutral" } },
+              {
+                "part": "chevron",
+                "component": "Icon",
+                "$if": "props.collapsible",
+                "props": {
+                  "name": "ui-chevron-right",
+                  "size": "sm",
+                  "tone": "neutral"
+                }
+              },
               "$slot:leading",
-              { "part": "icon", "component": "Icon", "$if": "props.icon", "props": { "name": "{props.icon}", "size": "sm" } },
-              { "part": "title", "component": "Text", "props": { "text": "{props.title}", "variant": "label", "lines": 1 }, "style": { "flexShrink": 1, "minWidth": 0 } },
-              { "part": "caption", "component": "Text", "$if": "props.caption", "props": { "text": "{props.caption}", "variant": "muted", "lines": 1 }, "style": { "flexShrink": 1, "minWidth": 0 } },
-              { "part": "loading", "component": "Spinner", "$if": "props.loading", "props": { "size": "xs", "label": "$string.loading" } },
-              { "part": "count", "component": "Text", "$if": "props.count", "props": { "text": { "$text": "props.count" }, "variant": "muted" } },
-              { "part": "spacer", "component": "Box", "style": { "flexGrow": 1, "minWidth": 0 } },
+              {
+                "part": "icon",
+                "component": "Icon",
+                "$if": "props.icon",
+                "props": {
+                  "name": "{props.icon}",
+                  "size": "sm"
+                }
+              },
+              {
+                "part": "title",
+                "component": "Text",
+                "props": {
+                  "text": "{props.title}",
+                  "variant": "label",
+                  "lines": 1
+                },
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0
+                }
+              },
+              {
+                "part": "caption",
+                "component": "Text",
+                "$if": "props.caption",
+                "props": {
+                  "text": "{props.caption}",
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0
+                }
+              },
+              {
+                "part": "loading",
+                "component": "Spinner",
+                "$if": "props.loading",
+                "props": {
+                  "size": "xs",
+                  "label": "$string.loading"
+                }
+              },
+              {
+                "part": "count",
+                "component": "Text",
+                "$if": "props.count",
+                "props": {
+                  "text": {
+                    "$text": "props.count"
+                  },
+                  "variant": "muted"
+                }
+              },
+              {
+                "part": "spacer",
+                "component": "Box",
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                }
+              },
               "$slot:trailing"
             ]
           },
           {
-            "part": "body", "component": "List", "$if": "props.open|true",
-            "$a11y": { "role": { "$cond": ["props.tree", "tree", "list"] } },
-            "props": { "divided": true, "gap": "none", "style": "{props.style}" },
-            "children": ["$children"]
+            "part": "body",
+            "component": "List",
+            "$if": "props.open|true",
+            "$a11y": {
+              "role": {
+                "$cond": [
+                  "props.tree",
+                  "tree",
+                  "list"
+                ]
+              }
+            },
+            "props": {
+              "divided": true,
+              "gap": "none",
+              "style": "{props.style}"
+            },
+            "children": [
+              "$children"
+            ]
           }
         ]
       }
@@ -116,144 +428,1234 @@
     "Group": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box", "$a11y": { "role": "group", "label": "{props.title}", "description": "{props.footer}" },
-        "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xs" },
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "group",
+          "label": "{props.title}",
+          "description": "{props.footer}"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.xs"
+        },
         "children": [
-          { "part": "title", "component": "Text", "$if": "props.title", "props": { "text": "{props.title}", "variant": "label" }, "style": { "paddingHorizontal": "$spacing.md" } },
           {
-            "part": "body", "component": "Box",
-            "style": { "display": "flex", "flexDirection": "column", "borderRadius": "$radius.lg", "overflow": "hidden" },
-            "children": ["$children"]
+            "part": "title",
+            "component": "Text",
+            "$if": "props.title",
+            "props": {
+              "text": "{props.title}",
+              "variant": "label"
+            },
+            "style": {
+              "paddingHorizontal": "$spacing.md"
+            }
           },
-          { "part": "footer", "component": "Text", "$if": "props.footer", "props": { "text": "{props.footer}", "variant": "muted" }, "style": { "paddingHorizontal": "$spacing.md" } }
+          {
+            "part": "body",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "borderRadius": "$radius.lg",
+              "overflow": "hidden"
+            },
+            "children": [
+              "$children"
+            ]
+          },
+          {
+            "part": "footer",
+            "component": "Text",
+            "$if": "props.footer",
+            "props": {
+              "text": "{props.footer}",
+              "variant": "muted"
+            },
+            "style": {
+              "paddingHorizontal": "$spacing.md"
+            }
+          }
         ]
       }
     },
     "Heading": {
-      "recipeProps": ["level"],
-      "root": { "part": "root", "component": "Text", "$a11y": { "role": "heading", "level": { "$map": { "from": "props.level", "cases": { "h1": 1, "h2": 2, "h3": 3, "h4": 4 }, "default": 2 } } }, "props": { "text": "{props.text}", "variant": "title" } }
+      "recipeProps": [
+        "level"
+      ],
+      "root": {
+        "part": "root",
+        "component": "Text",
+        "$a11y": {
+          "role": "heading",
+          "level": {
+            "$map": {
+              "from": "props.level",
+              "cases": {
+                "h1": 1,
+                "h2": 2,
+                "h3": 3,
+                "h4": 4
+              },
+              "default": 2
+            }
+          }
+        },
+        "props": {
+          "text": "{props.text}",
+          "variant": "title"
+        }
+      }
     },
     "Collapsible": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box",
-        "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xs" },
+        "part": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.xs"
+        },
         "children": [
           {
-            "part": "trigger", "component": "Box", "$a11y": { "role": "button", "expanded": "{props.open|false}" }, "props": { "pressable": true },
-            "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "minHeight": "$control.row", "paddingHorizontal": "$spacing.sm", "borderRadius": "$radius.md" },
-            "$recipe": { "open": "{props.open|false}" },
-            "$on": { "press": "change" }, "$context": { "open": "{!props.open}" }, "$set": { "press": { "prop": "open", "value": "{!props.open}" } },
+            "part": "trigger",
+            "component": "Box",
+            "$a11y": {
+              "role": "button",
+              "expanded": "{props.open|false}"
+            },
+            "props": {
+              "pressable": true
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "minHeight": "$control.row",
+              "paddingHorizontal": "$spacing.sm",
+              "borderRadius": "$radius.md"
+            },
+            "$recipe": {
+              "open": "{props.open|false}"
+            },
+            "$on": {
+              "press": "change"
+            },
+            "$context": {
+              "open": "{!props.open}"
+            },
+            "$set": {
+              "press": {
+                "prop": "open",
+                "value": "{!props.open}"
+              }
+            },
             "children": [
-              { "part": "chevron", "component": "Icon", "props": { "name": "ui-chevron-right", "size": "sm", "tone": "neutral" }, "$recipe": { "open": "{props.open|false}" } },
-              { "part": "title", "component": "Text", "props": { "text": "{props.title}", "variant": "label", "lines": 1 }, "style": { "flexGrow": 1, "minWidth": 0 } },
-              { "part": "count", "component": "Text", "$if": "props.count", "props": { "text": { "$text": "props.count" }, "variant": "muted" } }
+              {
+                "part": "chevron",
+                "component": "Icon",
+                "props": {
+                  "name": "ui-chevron-right",
+                  "size": "sm",
+                  "tone": "neutral"
+                },
+                "$recipe": {
+                  "open": "{props.open|false}"
+                }
+              },
+              {
+                "part": "title",
+                "component": "Text",
+                "props": {
+                  "text": "{props.title}",
+                  "variant": "label",
+                  "lines": 1
+                },
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                }
+              },
+              {
+                "part": "count",
+                "component": "Text",
+                "$if": "props.count",
+                "props": {
+                  "text": {
+                    "$text": "props.count"
+                  },
+                  "variant": "muted"
+                }
+              }
             ]
           },
-          { "part": "body", "component": "Box", "$if": "props.open", "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.md", "paddingHorizontal": "$spacing.sm" }, "children": ["$children"] }
+          {
+            "part": "body",
+            "component": "Box",
+            "$if": "props.open",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "paddingHorizontal": "$spacing.sm"
+            },
+            "children": [
+              "$children"
+            ]
+          }
         ]
       }
     },
-    "Trace": {"recipeProps": ["size"], "root": {"part": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": {"$map": {"from": "props.size", "cases": {"sm": 6}, "default": 8}}, "minWidth": 0}, "children": ["$children"]}},
-    "TraceItem": {"recipeProps": ["status", "size", "collapsible", "open"], "root": {"part": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "minWidth": 0}, "children": [{"part": "line", "component": "Box", "$if": {"$not": "props.collapsible"}, "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": {"$map": {"from": "props.size", "cases": {"sm": 6}, "default": 8}}, "minHeight": {"$map": {"from": "props.size", "cases": {"sm": 18}, "default": 20}}, "alignSelf": "flex-start", "maxWidth": "100%", "minWidth": 0, "borderRadius": "$radius.md"}, "children": [{"part": "icon", "component": "Icon", "$if": "props.icon", "props": {"name": "{props.icon}", "size": "sm"}, "style": {"width": {"$map": {"from": "props.size", "cases": {"sm": 14}, "default": 16}}, "height": {"$map": {"from": "props.size", "cases": {"sm": 14}, "default": 16}}, "flexShrink": 0}}, {"part": "title", "component": "Text", "props": {"text": "{props.title}", "lines": 1, "shimmer": {"$eq": ["{props.status}", "running"]}}, "style": {"flexShrink": 1, "minWidth": 0, "fontSize": {"$map": {"from": "props.size", "cases": {"sm": 12}, "default": 14}}, "lineHeight": {"$map": {"from": "props.size", "cases": {"sm": 18}, "default": 20}}}}, {"part": "description", "component": "Text", "$if": "props.description", "props": {"text": "{props.description}", "lines": 1}, "style": {"flexShrink": 0, "fontSize": {"$map": {"from": "props.size", "cases": {"sm": 12}, "default": 14}}, "lineHeight": {"$map": {"from": "props.size", "cases": {"sm": 18}, "default": 20}}}}]}, {"part": "line", "component": "Box", "$if": "props.collapsible", "$a11y": {"role": "button", "expanded": "{props.open|false}"}, "props": {"pressable": true}, "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": {"$map": {"from": "props.size", "cases": {"sm": 6}, "default": 8}}, "minHeight": {"$map": {"from": "props.size", "cases": {"sm": 18}, "default": 20}}, "alignSelf": "flex-start", "maxWidth": "100%", "minWidth": 0, "borderRadius": "$radius.md"}, "$on": {"press": "change"}, "$context": {"open": "{!props.open}"}, "$set": {"press": {"prop": "open", "value": "{!props.open}"}}, "children": [{"part": "icon", "component": "Icon", "$if": "props.icon", "props": {"name": "{props.icon}", "size": "sm"}, "style": {"width": {"$map": {"from": "props.size", "cases": {"sm": 14}, "default": 16}}, "height": {"$map": {"from": "props.size", "cases": {"sm": 14}, "default": 16}}, "flexShrink": 0}}, {"part": "title", "component": "Text", "props": {"text": "{props.title}", "lines": 1, "shimmer": {"$eq": ["{props.status}", "running"]}}, "style": {"flexShrink": 1, "minWidth": 0, "fontSize": {"$map": {"from": "props.size", "cases": {"sm": 12}, "default": 14}}, "lineHeight": {"$map": {"from": "props.size", "cases": {"sm": 18}, "default": 20}}}}, {"part": "description", "component": "Text", "$if": "props.description", "props": {"text": "{props.description}", "lines": 1}, "style": {"flexShrink": 0, "fontSize": {"$map": {"from": "props.size", "cases": {"sm": 12}, "default": 14}}, "lineHeight": {"$map": {"from": "props.size", "cases": {"sm": 18}, "default": 20}}}}, {"part": "chevron", "component": "Icon", "props": {"name": "trace-chevron", "size": "sm"}, "$recipe": {"open": "{props.open|false}"}, "style": {"width": {"$map": {"from": "props.size", "cases": {"sm": 14}, "default": 16}}, "height": {"$map": {"from": "props.size", "cases": {"sm": 14}, "default": 16}}, "flexShrink": 0, "marginLeft": {"$map": {"from": "props.size", "cases": {"sm": -2}, "default": -4}}}}]}, {"part": "content", "component": "Box", "$if": ["props.collapsible", "props.open"], "style": {"display": "flex", "flexDirection": "column", "gap": {"$map": {"from": "props.size", "cases": {"sm": 6}, "default": 8}}, "minWidth": 0, "marginTop": {"$map": {"from": "props.size", "cases": {"sm": 6}, "default": 8}}, "marginBottom": {"$map": {"from": "props.size", "cases": {"sm": 4}, "default": 4}}, "marginLeft": {"$map": {"from": "props.size", "cases": {"sm": 6}, "default": 7}}, "borderLeftWidth": 1, "paddingLeft": {"$map": {"from": "props.size", "cases": {"sm": 13}, "default": 16}}, "paddingRight": {"$map": {"from": "props.size", "cases": {"sm": 4}, "default": 4}}}, "children": ["$children"]}]}},
+    "Trace": {
+      "recipeProps": [
+        "size"
+      ],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": {
+            "$map": {
+              "from": "props.size",
+              "cases": {
+                "sm": 6
+              },
+              "default": 8
+            }
+          },
+          "minWidth": 0
+        },
+        "children": [
+          "$children"
+        ]
+      }
+    },
+    "TraceItem": {
+      "recipeProps": [
+        "status",
+        "size",
+        "collapsible",
+        "open"
+      ],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "children": [
+          {
+            "part": "line",
+            "component": "Box",
+            "$if": {
+              "$not": "props.collapsible"
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": {
+                "$map": {
+                  "from": "props.size",
+                  "cases": {
+                    "sm": 6
+                  },
+                  "default": 8
+                }
+              },
+              "minHeight": {
+                "$map": {
+                  "from": "props.size",
+                  "cases": {
+                    "sm": 18
+                  },
+                  "default": 20
+                }
+              },
+              "alignSelf": "flex-start",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "borderRadius": "$radius.md"
+            },
+            "children": [
+              {
+                "part": "icon",
+                "component": "Icon",
+                "$if": "props.icon",
+                "props": {
+                  "name": "{props.icon}",
+                  "size": "sm"
+                },
+                "style": {
+                  "width": {
+                    "$map": {
+                      "from": "props.size",
+                      "cases": {
+                        "sm": 14
+                      },
+                      "default": 16
+                    }
+                  },
+                  "height": {
+                    "$map": {
+                      "from": "props.size",
+                      "cases": {
+                        "sm": 14
+                      },
+                      "default": 16
+                    }
+                  },
+                  "flexShrink": 0
+                }
+              },
+              {
+                "part": "title",
+                "component": "Text",
+                "props": {
+                  "text": "{props.title}",
+                  "lines": 1,
+                  "shimmer": {
+                    "$eq": [
+                      "{props.status}",
+                      "running"
+                    ]
+                  }
+                },
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0,
+                  "fontSize": {
+                    "$map": {
+                      "from": "props.size",
+                      "cases": {
+                        "sm": 12
+                      },
+                      "default": 14
+                    }
+                  },
+                  "lineHeight": {
+                    "$map": {
+                      "from": "props.size",
+                      "cases": {
+                        "sm": 18
+                      },
+                      "default": 20
+                    }
+                  }
+                }
+              },
+              {
+                "part": "description",
+                "component": "Text",
+                "$if": "props.description",
+                "props": {
+                  "text": "{props.description}",
+                  "lines": 1
+                },
+                "style": {
+                  "flexShrink": 0,
+                  "fontSize": {
+                    "$map": {
+                      "from": "props.size",
+                      "cases": {
+                        "sm": 12
+                      },
+                      "default": 14
+                    }
+                  },
+                  "lineHeight": {
+                    "$map": {
+                      "from": "props.size",
+                      "cases": {
+                        "sm": 18
+                      },
+                      "default": 20
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "part": "line",
+            "component": "Box",
+            "$if": "props.collapsible",
+            "$a11y": {
+              "role": "button",
+              "expanded": "{props.open|false}"
+            },
+            "props": {
+              "pressable": true
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": {
+                "$map": {
+                  "from": "props.size",
+                  "cases": {
+                    "sm": 6
+                  },
+                  "default": 8
+                }
+              },
+              "minHeight": {
+                "$map": {
+                  "from": "props.size",
+                  "cases": {
+                    "sm": 18
+                  },
+                  "default": 20
+                }
+              },
+              "alignSelf": "flex-start",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "borderRadius": "$radius.md"
+            },
+            "$on": {
+              "press": "change"
+            },
+            "$context": {
+              "open": "{!props.open}"
+            },
+            "$set": {
+              "press": {
+                "prop": "open",
+                "value": "{!props.open}"
+              }
+            },
+            "children": [
+              {
+                "part": "icon",
+                "component": "Icon",
+                "$if": "props.icon",
+                "props": {
+                  "name": "{props.icon}",
+                  "size": "sm"
+                },
+                "style": {
+                  "width": {
+                    "$map": {
+                      "from": "props.size",
+                      "cases": {
+                        "sm": 14
+                      },
+                      "default": 16
+                    }
+                  },
+                  "height": {
+                    "$map": {
+                      "from": "props.size",
+                      "cases": {
+                        "sm": 14
+                      },
+                      "default": 16
+                    }
+                  },
+                  "flexShrink": 0
+                }
+              },
+              {
+                "part": "title",
+                "component": "Text",
+                "props": {
+                  "text": "{props.title}",
+                  "lines": 1,
+                  "shimmer": {
+                    "$eq": [
+                      "{props.status}",
+                      "running"
+                    ]
+                  }
+                },
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0,
+                  "fontSize": {
+                    "$map": {
+                      "from": "props.size",
+                      "cases": {
+                        "sm": 12
+                      },
+                      "default": 14
+                    }
+                  },
+                  "lineHeight": {
+                    "$map": {
+                      "from": "props.size",
+                      "cases": {
+                        "sm": 18
+                      },
+                      "default": 20
+                    }
+                  }
+                }
+              },
+              {
+                "part": "description",
+                "component": "Text",
+                "$if": "props.description",
+                "props": {
+                  "text": "{props.description}",
+                  "lines": 1
+                },
+                "style": {
+                  "flexShrink": 0,
+                  "fontSize": {
+                    "$map": {
+                      "from": "props.size",
+                      "cases": {
+                        "sm": 12
+                      },
+                      "default": 14
+                    }
+                  },
+                  "lineHeight": {
+                    "$map": {
+                      "from": "props.size",
+                      "cases": {
+                        "sm": 18
+                      },
+                      "default": 20
+                    }
+                  }
+                }
+              },
+              {
+                "part": "chevron",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-chevron",
+                  "size": "sm"
+                },
+                "$recipe": {
+                  "open": "{props.open|false}"
+                },
+                "style": {
+                  "width": {
+                    "$map": {
+                      "from": "props.size",
+                      "cases": {
+                        "sm": 14
+                      },
+                      "default": 16
+                    }
+                  },
+                  "height": {
+                    "$map": {
+                      "from": "props.size",
+                      "cases": {
+                        "sm": 14
+                      },
+                      "default": 16
+                    }
+                  },
+                  "flexShrink": 0,
+                  "marginLeft": {
+                    "$map": {
+                      "from": "props.size",
+                      "cases": {
+                        "sm": -2
+                      },
+                      "default": -4
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "part": "content",
+            "component": "Box",
+            "$if": [
+              "props.collapsible",
+              "props.open"
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": {
+                "$map": {
+                  "from": "props.size",
+                  "cases": {
+                    "sm": 6
+                  },
+                  "default": 8
+                }
+              },
+              "minWidth": 0,
+              "marginTop": {
+                "$map": {
+                  "from": "props.size",
+                  "cases": {
+                    "sm": 6
+                  },
+                  "default": 8
+                }
+              },
+              "marginBottom": {
+                "$map": {
+                  "from": "props.size",
+                  "cases": {
+                    "sm": 4
+                  },
+                  "default": 4
+                }
+              },
+              "marginLeft": {
+                "$map": {
+                  "from": "props.size",
+                  "cases": {
+                    "sm": 6
+                  },
+                  "default": 7
+                }
+              },
+              "borderLeftWidth": 1,
+              "paddingLeft": {
+                "$map": {
+                  "from": "props.size",
+                  "cases": {
+                    "sm": 13
+                  },
+                  "default": 16
+                }
+              },
+              "paddingRight": {
+                "$map": {
+                  "from": "props.size",
+                  "cases": {
+                    "sm": 4
+                  },
+                  "default": 4
+                }
+              }
+            },
+            "children": [
+              "$children"
+            ]
+          }
+        ]
+      }
+    },
     "Pagination": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box", "$a11y": { "role": "navigation", "label": "$string.pagination" },
-        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm" },
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "navigation",
+          "label": "$string.pagination"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.sm"
+        },
         "children": [
-          { "part": "prev", "component": "Button", "props": { "icon": "ui-chevron-left", "variant": "outline", "size": "icon", "label": "$string.previous", "disabled": { "$not": { "$lt": [1, "{props.page|1}"] } } }, "$on": { "press": "change" }, "$context": { "page": { "$clamp": [{ "$add": ["{props.page|1}", -1] }, 1, "{props.totalPages}"] } }, "$set": { "press": { "prop": "page", "value": { "$clamp": [{ "$add": ["{props.page|1}", -1] }, 1, "{props.totalPages}"] } } } },
-          { "part": "label", "component": "Text", "props": { "text": "{props.page|1} / {props.totalPages}", "variant": "muted" }, "$a11y": { "role": "status", "label": { "$fill": ["$string.pageOf", { "page": "{props.page|1}", "total": "{props.totalPages}" }] } } },
-          { "part": "next", "component": "Button", "props": { "icon": "ui-chevron-right", "variant": "outline", "size": "icon", "label": "$string.next", "disabled": { "$not": { "$lt": ["{props.page|1}", "{props.totalPages}"] } } }, "$on": { "press": "change" }, "$context": { "page": { "$clamp": [{ "$add": ["{props.page|1}", 1] }, 1, "{props.totalPages}"] } }, "$set": { "press": { "prop": "page", "value": { "$clamp": [{ "$add": ["{props.page|1}", 1] }, 1, "{props.totalPages}"] } } } }
+          {
+            "part": "prev",
+            "component": "Button",
+            "props": {
+              "icon": "ui-chevron-left",
+              "variant": "outline",
+              "size": "icon",
+              "label": "$string.previous",
+              "disabled": {
+                "$not": {
+                  "$lt": [
+                    1,
+                    "{props.page|1}"
+                  ]
+                }
+              }
+            },
+            "$on": {
+              "press": "change"
+            },
+            "$context": {
+              "page": {
+                "$clamp": [
+                  {
+                    "$add": [
+                      "{props.page|1}",
+                      -1
+                    ]
+                  },
+                  1,
+                  "{props.totalPages}"
+                ]
+              }
+            },
+            "$set": {
+              "press": {
+                "prop": "page",
+                "value": {
+                  "$clamp": [
+                    {
+                      "$add": [
+                        "{props.page|1}",
+                        -1
+                      ]
+                    },
+                    1,
+                    "{props.totalPages}"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "part": "label",
+            "component": "Text",
+            "props": {
+              "text": "{props.page|1} / {props.totalPages}",
+              "variant": "muted"
+            },
+            "$a11y": {
+              "role": "status",
+              "label": {
+                "$fill": [
+                  "$string.pageOf",
+                  {
+                    "page": "{props.page|1}",
+                    "total": "{props.totalPages}"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "part": "next",
+            "component": "Button",
+            "props": {
+              "icon": "ui-chevron-right",
+              "variant": "outline",
+              "size": "icon",
+              "label": "$string.next",
+              "disabled": {
+                "$not": {
+                  "$lt": [
+                    "{props.page|1}",
+                    "{props.totalPages}"
+                  ]
+                }
+              }
+            },
+            "$on": {
+              "press": "change"
+            },
+            "$context": {
+              "page": {
+                "$clamp": [
+                  {
+                    "$add": [
+                      "{props.page|1}",
+                      1
+                    ]
+                  },
+                  1,
+                  "{props.totalPages}"
+                ]
+              }
+            },
+            "$set": {
+              "press": {
+                "prop": "page",
+                "value": {
+                  "$clamp": [
+                    {
+                      "$add": [
+                        "{props.page|1}",
+                        1
+                      ]
+                    },
+                    1,
+                    "{props.totalPages}"
+                  ]
+                }
+              }
+            }
+          }
         ]
       }
     },
     "Badge": {
-      "recipeProps": ["variant"],
+      "recipeProps": [
+        "variant"
+      ],
       "root": {
-        "part": "root", "component": "Box",
-        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xxs", "height": "$control.badge", "paddingHorizontal": "$spacing.sm", "borderRadius": "$radius.full", "alignSelf": "flex-start" },
+        "part": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.xxs",
+          "height": "$control.badge",
+          "paddingHorizontal": "$spacing.sm",
+          "borderRadius": "$radius.full",
+          "alignSelf": "flex-start"
+        },
         "children": [
-          { "part": "icon", "component": "Icon", "$if": "props.icon", "props": { "name": "{props.icon}", "size": "sm" } },
-          { "part": "label", "component": "Text", "props": { "text": "{props.text}", "variant": "caption", "lines": 1 } }
+          {
+            "part": "icon",
+            "component": "Icon",
+            "$if": "props.icon",
+            "props": {
+              "name": "{props.icon}",
+              "size": "sm"
+            }
+          },
+          {
+            "part": "label",
+            "component": "Text",
+            "props": {
+              "text": "{props.text}",
+              "variant": "caption",
+              "lines": 1
+            }
+          }
         ]
       }
     },
     "Alert": {
-      "recipeProps": ["type"],
+      "recipeProps": [
+        "type"
+      ],
       "root": {
-        "part": "root", "component": "Box", "$a11y": { "role": { "$map": { "from": "props.type", "cases": { "warning": "alert", "error": "alert" }, "default": "status" } } },
-        "style": { "display": "flex", "flexDirection": "row", "alignItems": "flex-start", "gap": "$spacing.sm", "padding": "$spacing.md", "borderRadius": "$radius.lg" },
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": {
+            "$map": {
+              "from": "props.type",
+              "cases": {
+                "warning": "alert",
+                "error": "alert"
+              },
+              "default": "status"
+            }
+          }
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "gap": "$spacing.sm",
+          "padding": "$spacing.md",
+          "borderRadius": "$radius.lg"
+        },
         "children": [
-          { "part": "icon", "component": "Icon", "props": { "name": { "$map": { "from": "props.type", "cases": { "success": "ui-success", "warning": "ui-warning", "error": "ui-error" }, "default": "ui-info" } }, "size": "sm", "tone": { "$map": { "from": "props.type", "cases": { "success": "success", "warning": "warning", "error": "danger" }, "default": "info" } } } },
           {
-            "part": "body", "component": "Box", "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xxs", "flexGrow": 1, "minWidth": 0 },
+            "part": "icon",
+            "component": "Icon",
+            "props": {
+              "name": {
+                "$map": {
+                  "from": "props.type",
+                  "cases": {
+                    "success": "ui-success",
+                    "warning": "ui-warning",
+                    "error": "ui-error"
+                  },
+                  "default": "ui-info"
+                }
+              },
+              "size": "sm",
+              "tone": {
+                "$map": {
+                  "from": "props.type",
+                  "cases": {
+                    "success": "success",
+                    "warning": "warning",
+                    "error": "danger"
+                  },
+                  "default": "info"
+                }
+              }
+            }
+          },
+          {
+            "part": "body",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "flexGrow": 1,
+              "minWidth": 0
+            },
             "children": [
-              { "part": "title", "component": "Text", "props": { "text": "{props.title}", "variant": "label" } },
-              { "part": "message", "component": "Text", "$if": "props.message", "props": { "text": "{props.message}", "variant": "muted" } }
+              {
+                "part": "title",
+                "component": "Text",
+                "props": {
+                  "text": "{props.title}",
+                  "variant": "label"
+                }
+              },
+              {
+                "part": "message",
+                "component": "Text",
+                "$if": "props.message",
+                "props": {
+                  "text": "{props.message}",
+                  "variant": "muted"
+                }
+              }
             ]
           }
         ]
       }
     },
     "Chip": {
-      "recipeProps": ["shape", "selected", "tone"],
+      "recipeProps": [
+        "shape",
+        "selected",
+        "tone"
+      ],
       "root": {
-        "part": "root", "component": "Box", "$a11y": { "role": { "$cond": ["props.pressable", "button", "none"] }, "pressed": { "$cond": ["props.pressable", "{props.selected|false}"] } },
-        "props": { "pressable": "{props.pressable|false}" },
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": {
+            "$cond": [
+              "props.pressable",
+              "button",
+              "none"
+            ]
+          },
+          "pressed": {
+            "$cond": [
+              "props.pressable",
+              "{props.selected|false}"
+            ]
+          }
+        },
+        "props": {
+          "pressable": "{props.pressable|false}"
+        },
         "style": {
-          "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xs", "paddingHorizontal": "$spacing.sm", "alignSelf": "flex-start",
-          "height": { "$map": { "from": "props.shape", "cases": { "rect": "$control.chip" }, "default": "$control.pill" } },
-          "borderRadius": { "$map": { "from": "props.shape", "cases": { "rect": "$radius.md" }, "default": "$radius.full" } }
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.xs",
+          "paddingHorizontal": "$spacing.sm",
+          "alignSelf": "flex-start",
+          "height": {
+            "$map": {
+              "from": "props.shape",
+              "cases": {
+                "rect": "$control.chip"
+              },
+              "default": "$control.pill"
+            }
+          },
+          "borderRadius": {
+            "$map": {
+              "from": "props.shape",
+              "cases": {
+                "rect": "$radius.md"
+              },
+              "default": "$radius.full"
+            }
+          }
         },
         "children": [
           "$slot:leading",
-          { "part": "dot", "component": "Box", "$if": "props.dot", "style": { "width": 8, "height": 8, "borderRadius": "$radius.full", "backgroundColor": "{props.dot}", "flexShrink": 0 } },
-          { "part": "image", "component": "Image", "$if": "props.image", "props": { "src": "{props.image}", "alt": "{props.label}", "width": 16, "height": 16, "fit": "cover" }, "style": { "borderRadius": "$radius.full" } },
-          { "part": "icon", "component": "Icon", "$if": ["props.icon", "!props.image"], "props": { "name": "{props.icon}", "size": "sm" } },
-          { "part": "label", "component": "Text", "props": { "text": "{props.label}", "variant": "caption", "lines": 1 } },
-          { "part": "detail", "component": "Text", "$if": "props.detail", "props": { "text": "{props.detail}", "variant": "muted", "lines": 1 } },
-          { "part": "remove", "component": "Button", "$if": "props.removable", "props": { "icon": "ui-close", "variant": "ghost", "size": "icon", "label": "$string.remove" }, "$on": { "press": "remove" } }
+          {
+            "part": "dot",
+            "component": "Box",
+            "$if": "props.dot",
+            "style": {
+              "width": 8,
+              "height": 8,
+              "borderRadius": "$radius.full",
+              "backgroundColor": "{props.dot}",
+              "flexShrink": 0
+            }
+          },
+          {
+            "part": "image",
+            "component": "Image",
+            "$if": "props.image",
+            "props": {
+              "src": "{props.image}",
+              "alt": "{props.label}",
+              "width": 16,
+              "height": 16,
+              "fit": "cover"
+            },
+            "style": {
+              "borderRadius": "$radius.full"
+            }
+          },
+          {
+            "part": "icon",
+            "component": "Icon",
+            "$if": [
+              "props.icon",
+              "!props.image"
+            ],
+            "props": {
+              "name": "{props.icon}",
+              "size": "sm"
+            }
+          },
+          {
+            "part": "label",
+            "component": "Text",
+            "props": {
+              "text": "{props.label}",
+              "variant": "caption",
+              "lines": 1
+            }
+          },
+          {
+            "part": "detail",
+            "component": "Text",
+            "$if": "props.detail",
+            "props": {
+              "text": "{props.detail}",
+              "variant": "muted",
+              "lines": 1
+            }
+          },
+          {
+            "part": "remove",
+            "component": "Button",
+            "$if": "props.removable",
+            "props": {
+              "icon": "ui-close",
+              "variant": "ghost",
+              "size": "icon",
+              "label": "$string.remove"
+            },
+            "$on": {
+              "press": "remove"
+            }
+          }
         ]
       }
     },
     "EmptyState": {
-      "recipeProps": ["size"],
+      "recipeProps": [
+        "size"
+      ],
       "root": {
-        "part": "root", "component": "Box", "$a11y": { "role": "status" },
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "status"
+        },
         "style": {
-          "display": "flex", "flexDirection": "column", "alignItems": "center",
-          "gap": { "$map": { "from": "props.size", "cases": { "list": "$spacing.xs" }, "default": "$spacing.md" } },
-          "paddingVertical": { "$map": { "from": "props.size", "cases": { "list": "$spacing.xl" }, "default": "$spacing.xl3" } },
-          "paddingHorizontal": { "$map": { "from": "props.size", "cases": { "list": "$spacing.md" }, "default": "$spacing.xl" } }
+          "display": "flex",
+          "flexDirection": "column",
+          "alignItems": "center",
+          "gap": {
+            "$map": {
+              "from": "props.size",
+              "cases": {
+                "list": "$spacing.xs"
+              },
+              "default": "$spacing.md"
+            }
+          },
+          "paddingVertical": {
+            "$map": {
+              "from": "props.size",
+              "cases": {
+                "list": "$spacing.xl"
+              },
+              "default": "$spacing.xl3"
+            }
+          },
+          "paddingHorizontal": {
+            "$map": {
+              "from": "props.size",
+              "cases": {
+                "list": "$spacing.md"
+              },
+              "default": "$spacing.xl"
+            }
+          }
         },
         "children": [
           {
-            "part": "disc", "component": "Box", "$if": { "$not": { "$eq": ["{props.size|page}", "list"] } },
-            "style": { "display": "flex", "alignItems": "center", "justifyContent": "center", "width": 48, "height": 48, "borderRadius": "$radius.full", "flexShrink": 0 },
+            "part": "disc",
+            "component": "Box",
+            "$if": {
+              "$not": {
+                "$eq": [
+                  "{props.size|page}",
+                  "list"
+                ]
+              }
+            },
+            "style": {
+              "display": "flex",
+              "alignItems": "center",
+              "justifyContent": "center",
+              "width": 48,
+              "height": 48,
+              "borderRadius": "$radius.full",
+              "flexShrink": 0
+            },
             "children": [
-              { "part": "icon", "component": "Icon", "props": { "name": "{props.icon}", "size": "lg", "tone": "neutral" } }
+              {
+                "part": "icon",
+                "component": "Icon",
+                "props": {
+                  "name": "{props.icon}",
+                  "size": "lg",
+                  "tone": "neutral"
+                }
+              }
             ]
           },
-          { "part": "icon", "component": "Icon", "$if": { "$eq": ["{props.size|page}", "list"] }, "props": { "name": "{props.icon}", "size": "default", "tone": "neutral" } },
-          { "part": "title", "component": "Text", "props": { "text": "{props.title}", "variant": { "$map": { "from": "props.size", "cases": { "list": "muted" }, "default": "title" } }, "align": "center" } },
-          { "part": "description", "component": "Text", "$if": ["props.description", { "$not": { "$eq": ["{props.size|page}", "list"] } }], "props": { "text": "{props.description}", "variant": "muted", "align": "center" } },
-          { "part": "action", "component": "Button", "$if": ["props.actionLabel", { "$not": { "$eq": ["{props.size|page}", "list"] } }], "props": { "label": "{props.actionLabel}", "variant": "outline" }, "$on": { "press": "press" } }
+          {
+            "part": "icon",
+            "component": "Icon",
+            "$if": {
+              "$eq": [
+                "{props.size|page}",
+                "list"
+              ]
+            },
+            "props": {
+              "name": "{props.icon}",
+              "size": "default",
+              "tone": "neutral"
+            }
+          },
+          {
+            "part": "title",
+            "component": "Text",
+            "props": {
+              "text": "{props.title}",
+              "variant": {
+                "$map": {
+                  "from": "props.size",
+                  "cases": {
+                    "list": "muted"
+                  },
+                  "default": "title"
+                }
+              },
+              "align": "center"
+            }
+          },
+          {
+            "part": "description",
+            "component": "Text",
+            "$if": [
+              "props.description",
+              {
+                "$not": {
+                  "$eq": [
+                    "{props.size|page}",
+                    "list"
+                  ]
+                }
+              }
+            ],
+            "props": {
+              "text": "{props.description}",
+              "variant": "muted",
+              "align": "center"
+            }
+          },
+          {
+            "part": "action",
+            "component": "Button",
+            "$if": [
+              "props.actionLabel",
+              {
+                "$not": {
+                  "$eq": [
+                    "{props.size|page}",
+                    "list"
+                  ]
+                }
+              }
+            ],
+            "props": {
+              "label": "{props.actionLabel}",
+              "variant": "outline"
+            },
+            "$on": {
+              "press": "press"
+            }
+          }
         ]
       }
     },
     "Progress": {
-      "recipeProps": ["tone"],
+      "recipeProps": [
+        "tone"
+      ],
       "root": {
-        "part": "root", "component": "Box", "$a11y": { "role": "progressbar", "label": "{props.label}", "valueNow": "{props.value}", "valueMin": 0, "valueMax": "{props.max|100}" },
-        "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "width": "100%" },
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "progressbar",
+          "label": "{props.label}",
+          "valueNow": "{props.value}",
+          "valueMin": 0,
+          "valueMax": "{props.max|100}"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.xs",
+          "width": "100%"
+        },
         "children": [
-          { "part": "label", "component": "Text", "$if": "props.label", "props": { "text": "{props.label}", "variant": "caption" } },
           {
-            "part": "track", "component": "Box",
-            "style": { "height": "$control.progress", "borderRadius": "$radius.full", "overflow": "hidden", "width": "100%" },
+            "part": "label",
+            "component": "Text",
+            "$if": "props.label",
+            "props": {
+              "text": "{props.label}",
+              "variant": "caption"
+            }
+          },
+          {
+            "part": "track",
+            "component": "Box",
+            "style": {
+              "height": "$control.progress",
+              "borderRadius": "$radius.full",
+              "overflow": "hidden",
+              "width": "100%"
+            },
             "children": [
-              { "part": "fill", "component": "Box", "style": { "height": "100%", "width": { "$percent": ["{props.value}", "{props.max|100}"] }, "borderRadius": "$radius.full" } }
+              {
+                "part": "fill",
+                "component": "Box",
+                "style": {
+                  "height": "100%",
+                  "width": {
+                    "$percent": [
+                      "{props.value}",
+                      "{props.max|100}"
+                    ]
+                  },
+                  "borderRadius": "$radius.full"
+                }
+              }
             ]
           }
         ]
@@ -262,105 +1664,477 @@
     "Meter": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box", "$a11y": { "role": "meter", "label": "{props.label}" },
-        "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "width": "100%" },
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "meter",
+          "label": "{props.label}"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.xs",
+          "width": "100%"
+        },
         "children": [
           {
-            "part": "header", "component": "Box", "$any": ["props.label", "props.value"],
-            "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm" },
+            "part": "header",
+            "component": "Box",
+            "$any": [
+              "props.label",
+              "props.value"
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm"
+            },
             "children": [
-              { "part": "label", "component": "Text", "$if": "props.label", "props": { "text": "{props.label}", "variant": "caption" }, "style": { "flexGrow": 1, "minWidth": 0 } },
-              { "part": "value", "component": "Text", "$if": "props.value", "props": { "text": "{props.value}", "variant": "muted" } }
+              {
+                "part": "label",
+                "component": "Text",
+                "$if": "props.label",
+                "props": {
+                  "text": "{props.label}",
+                  "variant": "caption"
+                },
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                }
+              },
+              {
+                "part": "value",
+                "component": "Text",
+                "$if": "props.value",
+                "props": {
+                  "text": "{props.value}",
+                  "variant": "muted"
+                }
+              }
             ]
           },
           {
-            "part": "track", "component": "Box",
-            "style": { "display": "flex", "flexDirection": "row", "height": "$control.meter", "borderRadius": "$radius.full", "overflow": "hidden", "width": "100%" },
+            "part": "track",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "height": "$control.meter",
+              "borderRadius": "$radius.full",
+              "overflow": "hidden",
+              "width": "100%"
+            },
             "children": [
-              { "part": "segment", "component": "Box", "$each": "props.segments", "$as": "item", "style": { "height": "100%", "width": { "$percent": ["{item.value}", "{props.max|100}"] } }, "$recipe": { "tone": "{item.tone|neutral}" } }
+              {
+                "part": "segment",
+                "component": "Box",
+                "$each": "props.segments",
+                "$as": "item",
+                "style": {
+                  "height": "100%",
+                  "width": {
+                    "$percent": [
+                      "{item.value}",
+                      "{props.max|100}"
+                    ]
+                  }
+                },
+                "$recipe": {
+                  "tone": "{item.tone|neutral}"
+                }
+              }
             ]
           }
         ]
       }
     },
     "Row": {
-      "recipeProps": ["selected", "density", "surface", "depth"],
+      "recipeProps": [
+        "selected",
+        "density",
+        "surface",
+        "depth"
+      ],
       "root": {
-        "part": "root", "component": "Box",
-        "$a11y": { "role": { "$cond": ["props.pressable", "button", "none"] }, "selected": { "$cond": ["props.pressable", "{props.selected|false}"] } },
-        "props": { "pressable": "{props.pressable|false}" },
-        "style": {
-          "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm",
-          "minHeight": { "$map": { "from": "props.density", "cases": { "compact": "$control.rowCompact" }, "default": "$control.row" } },
-          "paddingHorizontal": "$spacing.md",
-          "borderRadius": { "$map": { "from": "props.surface", "cases": { "card": "$radius.lg" }, "default": "$radius.md" } }
-        },
-        "children": [
-          { "part": "guides", "component": "TreeGuides", "$if": { "$lt": [0, "{props.depth|0}"] }, "props": { "depth": "{props.depth}" } },
-          "$slot:leading",
-          { "part": "icon", "component": "Icon", "$if": "props.icon", "props": { "name": "{props.icon}", "size": "sm" } },
-          { "part": "identifier", "component": "Text", "$if": "props.identifier", "props": { "text": "{props.identifier}", "variant": "code", "lines": 1 }, "style": { "flexShrink": 0 } },
-          {
-            "part": "body", "component": "Box",
-            "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xxs", "flexGrow": 1, "minWidth": 0, "paddingVertical": { "$map": { "from": "props.surface", "cases": { "card": "$spacing.md" }, "default": "$spacing.xs" } } },
-            "children": [
-              { "part": "title", "component": "Text", "props": { "text": "{props.title}", "variant": "body", "lines": 1 } },
-              { "part": "subtitle", "component": "Text", "$if": "props.subtitle", "props": { "text": "{props.subtitle}", "variant": "muted", "lines": 1 } }
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": {
+            "$cond": [
+              "props.pressable",
+              "button",
+              "none"
             ]
           },
-          { "part": "meta", "component": "Text", "$if": "props.meta", "props": { "text": "{props.meta}", "variant": "muted", "lines": 1 } },
-          { "part": "value", "component": "Text", "$any": ["props.value", "props.placeholder"], "props": { "text": { "$coalesce": ["{props.value}", "{props.placeholder}"] }, "variant": { "$cond": ["props.value", "body", "muted"] }, "lines": 1, "align": "end" } },
+          "selected": {
+            "$cond": [
+              "props.pressable",
+              "{props.selected|false}"
+            ]
+          }
+        },
+        "props": {
+          "pressable": "{props.pressable|false}"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.sm",
+          "minHeight": {
+            "$map": {
+              "from": "props.density",
+              "cases": {
+                "compact": "$control.rowCompact"
+              },
+              "default": "$control.row"
+            }
+          },
+          "paddingHorizontal": "$spacing.md",
+          "borderRadius": {
+            "$map": {
+              "from": "props.surface",
+              "cases": {
+                "card": "$radius.lg"
+              },
+              "default": "$radius.md"
+            }
+          }
+        },
+        "children": [
+          {
+            "part": "guides",
+            "component": "TreeGuides",
+            "$if": {
+              "$lt": [
+                0,
+                "{props.depth|0}"
+              ]
+            },
+            "props": {
+              "depth": "{props.depth}"
+            }
+          },
+          "$slot:leading",
+          {
+            "part": "icon",
+            "component": "Icon",
+            "$if": "props.icon",
+            "props": {
+              "name": "{props.icon}",
+              "size": "sm"
+            }
+          },
+          {
+            "part": "identifier",
+            "component": "Text",
+            "$if": "props.identifier",
+            "props": {
+              "text": "{props.identifier}",
+              "variant": "code",
+              "lines": 1
+            },
+            "style": {
+              "flexShrink": 0
+            }
+          },
+          {
+            "part": "body",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "flexGrow": 1,
+              "minWidth": 0,
+              "paddingVertical": {
+                "$map": {
+                  "from": "props.surface",
+                  "cases": {
+                    "card": "$spacing.md"
+                  },
+                  "default": "$spacing.xs"
+                }
+              }
+            },
+            "children": [
+              {
+                "part": "title",
+                "component": "Text",
+                "props": {
+                  "text": "{props.title}",
+                  "variant": "body",
+                  "lines": 1
+                }
+              },
+              {
+                "part": "subtitle",
+                "component": "Text",
+                "$if": "props.subtitle",
+                "props": {
+                  "text": "{props.subtitle}",
+                  "variant": "muted",
+                  "lines": 1
+                }
+              }
+            ]
+          },
+          {
+            "part": "meta",
+            "component": "Text",
+            "$if": "props.meta",
+            "props": {
+              "text": "{props.meta}",
+              "variant": "muted",
+              "lines": 1
+            }
+          },
+          {
+            "part": "value",
+            "component": "Text",
+            "$any": [
+              "props.value",
+              "props.placeholder"
+            ],
+            "props": {
+              "text": {
+                "$coalesce": [
+                  "{props.value}",
+                  "{props.placeholder}"
+                ]
+              },
+              "variant": {
+                "$cond": [
+                  "props.value",
+                  "body",
+                  "muted"
+                ]
+              },
+              "lines": 1,
+              "align": "end"
+            }
+          },
           "$slot:trailing",
-          { "part": "chevron", "component": "Icon", "$if": { "$not": { "$eq": ["{props.chevron|none}", "none"] } }, "props": { "name": { "$map": { "from": "props.chevron", "cases": { "selector": "ui-selector" }, "default": "ui-chevron-right" } }, "size": "sm", "tone": "neutral" } }
+          {
+            "part": "chevron",
+            "component": "Icon",
+            "$if": {
+              "$not": {
+                "$eq": [
+                  "{props.chevron|none}",
+                  "none"
+                ]
+              }
+            },
+            "props": {
+              "name": {
+                "$map": {
+                  "from": "props.chevron",
+                  "cases": {
+                    "selector": "ui-selector"
+                  },
+                  "default": "ui-chevron-right"
+                }
+              },
+              "size": "sm",
+              "tone": "neutral"
+            }
+          }
         ]
       }
     },
     "ScrollArea": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box", "$a11y": { "role": "region" },
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "region"
+        },
         "style": {
           "display": "flex",
-          "flexDirection": { "$map": { "from": "props.direction", "cases": { "horizontal": "row" }, "default": "column" } },
-          "overflowX": { "$map": { "from": "props.direction", "cases": { "horizontal": "auto", "both": "auto" }, "default": "hidden" } },
-          "overflowY": { "$map": { "from": "props.direction", "cases": { "vertical": "auto", "both": "auto" }, "default": "hidden" } },
-          "minWidth": 0, "minHeight": 0,
+          "flexDirection": {
+            "$map": {
+              "from": "props.direction",
+              "cases": {
+                "horizontal": "row"
+              },
+              "default": "column"
+            }
+          },
+          "overflowX": {
+            "$map": {
+              "from": "props.direction",
+              "cases": {
+                "horizontal": "auto",
+                "both": "auto"
+              },
+              "default": "hidden"
+            }
+          },
+          "overflowY": {
+            "$map": {
+              "from": "props.direction",
+              "cases": {
+                "vertical": "auto",
+                "both": "auto"
+              },
+              "default": "hidden"
+            }
+          },
+          "minWidth": 0,
+          "minHeight": 0,
           "maxHeight": "{props.maxHeight}"
         },
-        "children": ["$children"]
+        "children": [
+          "$children"
+        ]
       }
     },
     "Sidebar": {
-      "recipeProps": ["side"],
+      "recipeProps": [
+        "side"
+      ],
       "root": {
-        "part": "root", "component": "Box",
-        "style": { "display": "flex", "flexDirection": { "$map": { "from": "props.side", "cases": { "right": "row-reverse" }, "default": "row" } }, "alignItems": "stretch", "width": "100%", "minHeight": 0 },
+        "part": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": {
+            "$map": {
+              "from": "props.side",
+              "cases": {
+                "right": "row-reverse"
+              },
+              "default": "row"
+            }
+          },
+          "alignItems": "stretch",
+          "width": "100%",
+          "minHeight": 0
+        },
         "children": [
           {
-            "part": "sidebar", "component": "Box", "$if": "!props.collapsed", "$a11y": { "role": "navigation" },
-            "style": {
-              "display": "flex", "flexDirection": "column", "width": "{props.width|240}", "flexShrink": 0, "minHeight": 0,
-              "@media (max-width: $breakpoint.{props.collapseBelow|md})": { "$cond": [{ "$not": { "$eq": ["{props.collapseBelow|md}", "never"] } }, { "display": "none" }] }
+            "part": "sidebar",
+            "component": "Box",
+            "$if": "!props.collapsed",
+            "$a11y": {
+              "role": "navigation"
             },
-            "children": ["$slot:sidebar"]
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "width": "{props.width|240}",
+              "flexShrink": 0,
+              "minHeight": 0,
+              "@media (max-width: $breakpoint.{props.collapseBelow|md})": {
+                "$cond": [
+                  {
+                    "$not": {
+                      "$eq": [
+                        "{props.collapseBelow|md}",
+                        "never"
+                      ]
+                    }
+                  },
+                  {
+                    "display": "none"
+                  }
+                ]
+              }
+            },
+            "children": [
+              "$slot:sidebar"
+            ]
           },
-          { "part": "main", "component": "Box", "$a11y": { "role": "main" }, "style": { "display": "flex", "flexDirection": "column", "flexGrow": 1, "minWidth": 0, "minHeight": 0 }, "children": ["$children"] }
+          {
+            "part": "main",
+            "component": "Box",
+            "$a11y": {
+              "role": "main"
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "minWidth": 0,
+              "minHeight": 0
+            },
+            "children": [
+              "$children"
+            ]
+          }
         ]
       }
     },
     "AppBar": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box", "$a11y": { "role": "banner" },
-        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "height": "$control.appBar", "paddingHorizontal": "$spacing.md", "width": "100%" },
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "banner"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.sm",
+          "height": "$control.appBar",
+          "paddingHorizontal": "$spacing.md",
+          "width": "100%"
+        },
         "children": [
-          { "part": "back", "component": "Button", "$if": "props.back", "props": { "icon": "ui-back", "variant": "ghost", "size": "icon", "label": "$string.back" }, "$on": { "press": "back" } },
+          {
+            "part": "back",
+            "component": "Button",
+            "$if": "props.back",
+            "props": {
+              "icon": "ui-back",
+              "variant": "ghost",
+              "size": "icon",
+              "label": "$string.back"
+            },
+            "$on": {
+              "press": "back"
+            }
+          },
           "$slot:leading",
           {
-            "part": "body", "component": "Box", "style": { "display": "flex", "flexDirection": "column", "flexGrow": 1, "minWidth": 0 },
+            "part": "body",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "minWidth": 0
+            },
             "children": [
-              { "part": "title", "component": "Text", "props": { "text": "{props.title}", "variant": "title", "lines": 1 }, "$a11y": { "role": "heading", "level": 1 } },
-              { "part": "subtitle", "component": "Text", "$if": "props.subtitle", "props": { "text": "{props.subtitle}", "variant": "muted", "lines": 1 } }
+              {
+                "part": "title",
+                "component": "Text",
+                "props": {
+                  "text": "{props.title}",
+                  "variant": "title",
+                  "lines": 1
+                },
+                "$a11y": {
+                  "role": "heading",
+                  "level": 1
+                }
+              },
+              {
+                "part": "subtitle",
+                "component": "Text",
+                "$if": "props.subtitle",
+                "props": {
+                  "text": "{props.subtitle}",
+                  "variant": "muted",
+                  "lines": 1
+                }
+              }
             ]
           },
           "$slot:trailing"
@@ -370,83 +2144,472 @@
     "Kbd": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box",
-        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "height": "$control.badge", "paddingHorizontal": "$spacing.xs", "borderRadius": "$radius.sm", "alignSelf": "flex-start" },
+        "part": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "height": "$control.badge",
+          "paddingHorizontal": "$spacing.xs",
+          "borderRadius": "$radius.sm",
+          "alignSelf": "flex-start"
+        },
         "children": [
-          { "part": "label", "component": "Text", "props": { "text": "{props.keys}", "variant": "code", "lines": 1 } }
+          {
+            "part": "label",
+            "component": "Text",
+            "props": {
+              "text": "{props.keys}",
+              "variant": "code",
+              "lines": 1
+            }
+          }
         ]
       }
     },
     "Label": {
-      "recipeProps": ["required"],
+      "recipeProps": [
+        "required"
+      ],
       "root": {
-        "part": "root", "component": "Box",
-        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xxs" },
+        "part": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.xxs"
+        },
         "children": [
-          { "part": "text", "component": "Text", "props": { "text": "{props.text}", "variant": "label" } },
-          { "part": "mark", "component": "Text", "$if": "props.required", "props": { "text": "*", "variant": "label", "tone": "danger" } }
+          {
+            "part": "text",
+            "component": "Text",
+            "props": {
+              "text": "{props.text}",
+              "variant": "label"
+            }
+          },
+          {
+            "part": "mark",
+            "component": "Text",
+            "$if": "props.required",
+            "props": {
+              "text": "*",
+              "variant": "label",
+              "tone": "danger"
+            }
+          }
         ]
       }
     },
     "Breadcrumb": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box", "$a11y": { "role": "navigation", "label": "$string.breadcrumb" },
-        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "flexWrap": "wrap", "gap": "$spacing.xs" },
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "navigation",
+          "label": "$string.breadcrumb"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexWrap": "wrap",
+          "gap": "$spacing.xs"
+        },
         "children": [
           {
-            "part": "item", "component": "Box", "$each": "props.items", "$as": "item",
-            "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xs" },
-            "$recipe": { "current": { "$eq": ["{index}", { "$sub": ["{len(props.items)}", 1] }] } },
+            "part": "item",
+            "component": "Box",
+            "$each": "props.items",
+            "$as": "item",
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs"
+            },
+            "$recipe": {
+              "current": {
+                "$eq": [
+                  "{index}",
+                  {
+                    "$sub": [
+                      "{len(props.items)}",
+                      1
+                    ]
+                  }
+                ]
+              }
+            },
             "children": [
-              { "part": "separator", "component": "Icon", "$if": { "$lt": [0, "{index}"] }, "props": { "name": "ui-chevron-right", "size": "sm", "tone": "neutral" }, "$a11y": { "hidden": true } },
-              { "part": "link", "component": "Button", "$if": { "$not": { "$eq": ["{index}", { "$sub": ["{len(props.items)}", 1] }] } }, "props": { "label": "{item.label}", "icon": "{item.icon}", "variant": "link", "size": "sm" }, "$on": { "press": "select" }, "$context": { "value": "{item.value}" } },
-              { "part": "current", "component": "Text", "$if": { "$eq": ["{index}", { "$sub": ["{len(props.items)}", 1] }] }, "props": { "text": "{item.label}", "variant": "label", "lines": 1 }, "$a11y": { "current": "page" } }
+              {
+                "part": "separator",
+                "component": "Icon",
+                "$if": {
+                  "$lt": [
+                    0,
+                    "{index}"
+                  ]
+                },
+                "props": {
+                  "name": "ui-chevron-right",
+                  "size": "sm",
+                  "tone": "neutral"
+                },
+                "$a11y": {
+                  "hidden": true
+                }
+              },
+              {
+                "part": "link",
+                "component": "Button",
+                "$if": {
+                  "$not": {
+                    "$eq": [
+                      "{index}",
+                      {
+                        "$sub": [
+                          "{len(props.items)}",
+                          1
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "props": {
+                  "label": "{item.label}",
+                  "icon": "{item.icon}",
+                  "variant": "link",
+                  "size": "sm"
+                },
+                "$on": {
+                  "press": "select"
+                },
+                "$context": {
+                  "value": "{item.value}"
+                }
+              },
+              {
+                "part": "current",
+                "component": "Text",
+                "$if": {
+                  "$eq": [
+                    "{index}",
+                    {
+                      "$sub": [
+                        "{len(props.items)}",
+                        1
+                      ]
+                    }
+                  ]
+                },
+                "props": {
+                  "text": "{item.label}",
+                  "variant": "label",
+                  "lines": 1
+                },
+                "$a11y": {
+                  "current": "page"
+                }
+              }
             ]
           }
         ]
       }
     },
     "Stepper": {
-      "recipeProps": ["orientation"],
+      "recipeProps": [
+        "orientation"
+      ],
       "root": {
-        "part": "root", "component": "Box", "$a11y": { "role": "list" },
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "list"
+        },
         "style": {
           "display": "flex",
-          "flexDirection": { "$map": { "from": "props.orientation", "cases": { "vertical": "column" }, "default": "row" } },
-          "alignItems": { "$map": { "from": "props.orientation", "cases": { "vertical": "stretch" }, "default": "flex-start" } },
-          "gap": "$spacing.md", "width": "100%"
+          "flexDirection": {
+            "$map": {
+              "from": "props.orientation",
+              "cases": {
+                "vertical": "column"
+              },
+              "default": "row"
+            }
+          },
+          "alignItems": {
+            "$map": {
+              "from": "props.orientation",
+              "cases": {
+                "vertical": "stretch"
+              },
+              "default": "flex-start"
+            }
+          },
+          "gap": "$spacing.md",
+          "width": "100%"
         },
         "children": [
           {
-            "part": "step", "component": "Box", "$each": "props.steps", "$as": "step",
+            "part": "step",
+            "component": "Box",
+            "$each": "props.steps",
+            "$as": "step",
             "style": {
               "display": "flex",
-              "flexDirection": { "$map": { "from": "props.orientation", "cases": { "vertical": "row" }, "default": "column" } },
-              "alignItems": { "$map": { "from": "props.orientation", "cases": { "vertical": "flex-start" }, "default": "center" } },
-              "gap": "$spacing.xs", "flexGrow": 1, "flexBasis": 0, "minWidth": 0
+              "flexDirection": {
+                "$map": {
+                  "from": "props.orientation",
+                  "cases": {
+                    "vertical": "row"
+                  },
+                  "default": "column"
+                }
+              },
+              "alignItems": {
+                "$map": {
+                  "from": "props.orientation",
+                  "cases": {
+                    "vertical": "flex-start"
+                  },
+                  "default": "center"
+                }
+              },
+              "gap": "$spacing.xs",
+              "flexGrow": 1,
+              "flexBasis": 0,
+              "minWidth": 0
             },
-            "$recipe": { "status": { "$cond": [{ "$lt": ["{index}", "{props.current|0}"] }, "done", { "$cond": [{ "$eq": ["{index}", "{props.current|0}"] }, "current", "upcoming"] }] } },
+            "$recipe": {
+              "status": {
+                "$cond": [
+                  {
+                    "$lt": [
+                      "{index}",
+                      "{props.current|0}"
+                    ]
+                  },
+                  "done",
+                  {
+                    "$cond": [
+                      {
+                        "$eq": [
+                          "{index}",
+                          "{props.current|0}"
+                        ]
+                      },
+                      "current",
+                      "upcoming"
+                    ]
+                  }
+                ]
+              }
+            },
             "$a11y": {
               "role": "listitem",
-              "current": { "$cond": [{ "$eq": ["{index}", "{props.current|0}"] }, "step", false] },
-              "label": { "$fill": [{ "$cond": [{ "$lt": ["{index}", "{props.current|0}"] }, "$string.stepDone", { "$cond": [{ "$eq": ["{index}", "{props.current|0}"] }, "$string.stepCurrent", "$string.stepUpcoming"] }] }, { "step": { "$add": ["{index}", 1] }, "total": "{len(props.steps)}", "label": "{step.label}" }] }
+              "current": {
+                "$cond": [
+                  {
+                    "$eq": [
+                      "{index}",
+                      "{props.current|0}"
+                    ]
+                  },
+                  "step",
+                  false
+                ]
+              },
+              "label": {
+                "$fill": [
+                  {
+                    "$cond": [
+                      {
+                        "$lt": [
+                          "{index}",
+                          "{props.current|0}"
+                        ]
+                      },
+                      "$string.stepDone",
+                      {
+                        "$cond": [
+                          {
+                            "$eq": [
+                              "{index}",
+                              "{props.current|0}"
+                            ]
+                          },
+                          "$string.stepCurrent",
+                          "$string.stepUpcoming"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "step": {
+                      "$add": [
+                        "{index}",
+                        1
+                      ]
+                    },
+                    "total": "{len(props.steps)}",
+                    "label": "{step.label}"
+                  }
+                ]
+              }
             },
             "children": [
               {
-                "part": "marker", "component": "Box", "$a11y": { "hidden": true },
-                "style": { "display": "flex", "alignItems": "center", "justifyContent": "center", "width": "$control.iconLg", "height": "$control.iconLg", "borderRadius": "$radius.full", "flexShrink": 0 },
-                "$recipe": { "status": { "$cond": [{ "$lt": ["{index}", "{props.current|0}"] }, "done", { "$cond": [{ "$eq": ["{index}", "{props.current|0}"] }, "current", "upcoming"] }] } },
+                "part": "marker",
+                "component": "Box",
+                "$a11y": {
+                  "hidden": true
+                },
+                "style": {
+                  "display": "flex",
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": "$control.iconLg",
+                  "height": "$control.iconLg",
+                  "borderRadius": "$radius.full",
+                  "flexShrink": 0
+                },
+                "$recipe": {
+                  "status": {
+                    "$cond": [
+                      {
+                        "$lt": [
+                          "{index}",
+                          "{props.current|0}"
+                        ]
+                      },
+                      "done",
+                      {
+                        "$cond": [
+                          {
+                            "$eq": [
+                              "{index}",
+                              "{props.current|0}"
+                            ]
+                          },
+                          "current",
+                          "upcoming"
+                        ]
+                      }
+                    ]
+                  }
+                },
                 "children": [
-                  { "part": "check", "component": "Icon", "$if": { "$lt": ["{index}", "{props.current|0}"] }, "props": { "name": "ui-check", "size": "sm" } },
-                  { "part": "number", "component": "Text", "$if": { "$not": { "$lt": ["{index}", "{props.current|0}"] } }, "props": { "text": { "$text": { "$add": ["{index}", 1] } }, "variant": "caption" }, "$recipe": { "status": { "$cond": [{ "$eq": ["{index}", "{props.current|0}"] }, "current", "upcoming"] } } }
+                  {
+                    "part": "check",
+                    "component": "Icon",
+                    "$if": {
+                      "$lt": [
+                        "{index}",
+                        "{props.current|0}"
+                      ]
+                    },
+                    "props": {
+                      "name": "ui-check",
+                      "size": "sm"
+                    }
+                  },
+                  {
+                    "part": "number",
+                    "component": "Text",
+                    "$if": {
+                      "$not": {
+                        "$lt": [
+                          "{index}",
+                          "{props.current|0}"
+                        ]
+                      }
+                    },
+                    "props": {
+                      "text": {
+                        "$text": {
+                          "$add": [
+                            "{index}",
+                            1
+                          ]
+                        }
+                      },
+                      "variant": "caption"
+                    },
+                    "$recipe": {
+                      "status": {
+                        "$cond": [
+                          {
+                            "$eq": [
+                              "{index}",
+                              "{props.current|0}"
+                            ]
+                          },
+                          "current",
+                          "upcoming"
+                        ]
+                      }
+                    }
+                  }
                 ]
               },
               {
-                "part": "body", "component": "Box", "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xxs", "minWidth": 0 },
+                "part": "body",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "minWidth": 0
+                },
                 "children": [
-                  { "part": "label", "component": "Text", "props": { "text": "{step.label}", "variant": "label", "lines": 1 }, "$recipe": { "status": { "$cond": [{ "$lt": ["{index}", "{props.current|0}"] }, "done", { "$cond": [{ "$eq": ["{index}", "{props.current|0}"] }, "current", "upcoming"] }] } } },
-                  { "part": "description", "component": "Text", "$if": "step.description", "props": { "text": "{step.description}", "variant": "muted", "lines": 2 } }
+                  {
+                    "part": "label",
+                    "component": "Text",
+                    "props": {
+                      "text": "{step.label}",
+                      "variant": "label",
+                      "lines": 1
+                    },
+                    "$recipe": {
+                      "status": {
+                        "$cond": [
+                          {
+                            "$lt": [
+                              "{index}",
+                              "{props.current|0}"
+                            ]
+                          },
+                          "done",
+                          {
+                            "$cond": [
+                              {
+                                "$eq": [
+                                  "{index}",
+                                  "{props.current|0}"
+                                ]
+                              },
+                              "current",
+                              "upcoming"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "part": "description",
+                    "component": "Text",
+                    "$if": "step.description",
+                    "props": {
+                      "text": "{step.description}",
+                      "variant": "muted",
+                      "lines": 2
+                    }
+                  }
                 ]
               }
             ]
@@ -455,50 +2618,429 @@
       }
     },
     "Rating": {
-      "recipeProps": ["size", "readOnly"],
+      "recipeProps": [
+        "size",
+        "readOnly"
+      ],
       "root": {
-        "part": "root", "component": "Box", "$a11y": { "role": { "$cond": ["props.readOnly", "img", "group"] }, "label": { "$cond": ["props.readOnly", { "$fill": ["$string.ratingValue", { "value": "{props.value|0}", "max": "{props.max|5}" }] }] } },
-        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xxs", "alignSelf": "flex-start" },
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": {
+            "$cond": [
+              "props.readOnly",
+              "img",
+              "group"
+            ]
+          },
+          "label": {
+            "$cond": [
+              "props.readOnly",
+              {
+                "$fill": [
+                  "$string.ratingValue",
+                  {
+                    "value": "{props.value|0}",
+                    "max": "{props.max|5}"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.xxs",
+          "alignSelf": "flex-start"
+        },
         "children": [
           {
-            "part": "star", "component": "Box", "$each": "range(props.max|5)", "$as": "star", "props": { "pressable": { "$not": "props.readOnly" } },
-            "style": { "display": "flex", "alignItems": "center", "justifyContent": "center" },
-            "$recipe": { "filled": { "$lt": ["{index}", "{props.value|0}"] } },
-            "$a11y": { "role": { "$cond": ["props.readOnly", "hidden", "button"] }, "label": { "$fill": ["$string.ratingStar", { "value": { "$add": ["{index}", 1] }, "max": "{props.max|5}" }] }, "pressed": { "$eq": [{ "$add": ["{index}", 1] }, "{props.value|0}"] } },
-            "$on": { "press": "change" }, "$context": { "value": { "$add": ["{index}", 1] } }, "$set": { "press": { "prop": "value", "value": { "$add": ["{index}", 1] } } },
+            "part": "star",
+            "component": "Box",
+            "$each": "range(props.max|5)",
+            "$as": "star",
+            "props": {
+              "pressable": {
+                "$not": "props.readOnly"
+              }
+            },
+            "style": {
+              "display": "flex",
+              "alignItems": "center",
+              "justifyContent": "center"
+            },
+            "$recipe": {
+              "filled": {
+                "$lt": [
+                  "{index}",
+                  "{props.value|0}"
+                ]
+              }
+            },
+            "$a11y": {
+              "role": {
+                "$cond": [
+                  "props.readOnly",
+                  "hidden",
+                  "button"
+                ]
+              },
+              "label": {
+                "$fill": [
+                  "$string.ratingStar",
+                  {
+                    "value": {
+                      "$add": [
+                        "{index}",
+                        1
+                      ]
+                    },
+                    "max": "{props.max|5}"
+                  }
+                ]
+              },
+              "pressed": {
+                "$eq": [
+                  {
+                    "$add": [
+                      "{index}",
+                      1
+                    ]
+                  },
+                  "{props.value|0}"
+                ]
+              }
+            },
+            "$on": {
+              "press": "change"
+            },
+            "$context": {
+              "value": {
+                "$add": [
+                  "{index}",
+                  1
+                ]
+              }
+            },
+            "$set": {
+              "press": {
+                "prop": "value",
+                "value": {
+                  "$add": [
+                    "{index}",
+                    1
+                  ]
+                }
+              }
+            },
             "children": [
-              { "part": "icon", "component": "Icon", "props": { "name": "star", "size": "{props.size|default}" }, "$recipe": { "filled": { "$lt": ["{index}", "{props.value|0}"] } } }
+              {
+                "part": "icon",
+                "component": "Icon",
+                "props": {
+                  "name": "star",
+                  "size": "{props.size|default}"
+                },
+                "$recipe": {
+                  "filled": {
+                    "$lt": [
+                      "{index}",
+                      "{props.value|0}"
+                    ]
+                  }
+                }
+              }
             ]
           }
         ]
       }
     },
     "AlertDialog": {
-      "recipeProps": ["destructive"],
+      "recipeProps": [
+        "destructive"
+      ],
       "root": {
-        "part": "root", "component": "Dialog", "$a11y": { "role": "alertdialog" },
-        "props": { "title": "{props.title}", "description": "{props.description}", "open": "{props.open|false}", "dismissible": false },
+        "part": "root",
+        "component": "Dialog",
+        "$a11y": {
+          "role": "alertdialog"
+        },
+        "props": {
+          "title": "{props.title}",
+          "description": "{props.description}",
+          "open": "{props.open|false}",
+          "dismissible": false
+        },
         "slots": {
           "trigger": "$slot:trigger",
           "footer": {
-            "part": "footer", "component": "Box",
-            "style": { "display": "flex", "flexDirection": "row", "justifyContent": "flex-end", "flexWrap": "wrap", "gap": "$spacing.sm" },
+            "part": "footer",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "justifyContent": "flex-end",
+              "flexWrap": "wrap",
+              "gap": "$spacing.sm"
+            },
             "children": [
-              { "part": "cancel", "component": "Button", "props": { "label": "{props.cancelLabel|$string.cancel}", "variant": "outline" }, "$a11y": { "autoFocus": true }, "$on": { "press": "cancel" }, "$set": { "press": { "prop": "open", "value": false } } },
-              { "part": "confirm", "component": "Button", "props": { "label": "{props.confirmLabel|$string.confirm}", "variant": { "$cond": ["props.destructive", "destructive", "default"] } }, "$on": { "press": "confirm" }, "$set": { "press": { "prop": "open", "value": false } } }
+              {
+                "part": "cancel",
+                "component": "Button",
+                "props": {
+                  "label": "{props.cancelLabel|$string.cancel}",
+                  "variant": "outline"
+                },
+                "$a11y": {
+                  "autoFocus": true
+                },
+                "$on": {
+                  "press": "cancel"
+                },
+                "$set": {
+                  "press": {
+                    "prop": "open",
+                    "value": false
+                  }
+                }
+              },
+              {
+                "part": "confirm",
+                "component": "Button",
+                "props": {
+                  "label": "{props.confirmLabel|$string.confirm}",
+                  "variant": {
+                    "$cond": [
+                      "props.destructive",
+                      "destructive",
+                      "default"
+                    ]
+                  }
+                },
+                "$on": {
+                  "press": "confirm"
+                },
+                "$set": {
+                  "press": {
+                    "prop": "open",
+                    "value": false
+                  }
+                }
+              }
             ]
           }
         },
-        "$on": { "change": "change" },
-        "children": ["$children"]
+        "$on": {
+          "change": "change"
+        },
+        "children": [
+          "$children"
+        ]
+      }
+    },
+    "DockCard": {
+      "recipeProps": [
+        "tone"
+      ],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column"
+        },
+        "children": [
+          {
+            "part": "trigger",
+            "component": "Box",
+            "$a11y": {
+              "role": "button",
+              "label": "{props.label}: {props.title}"
+            },
+            "props": {
+              "pressable": true
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.xl"
+            },
+            "$on": {
+              "press": "press"
+            },
+            "$set": {
+              "press": {
+                "prop": "open",
+                "value": true
+              }
+            },
+            "children": [
+              {
+                "part": "icon",
+                "component": "Icon",
+                "$if": "props.icon",
+                "props": {
+                  "name": "{props.icon}",
+                  "size": "sm",
+                  "tone": "{props.tone|neutral}"
+                },
+                "style": {
+                  "flexShrink": 0
+                }
+              },
+              {
+                "part": "body",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "children": [
+                  {
+                    "part": "header",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "children": [
+                      {
+                        "part": "label",
+                        "component": "Text",
+                        "props": {
+                          "text": "{props.label}",
+                          "variant": "caption",
+                          "tone": "{props.tone|neutral}",
+                          "lines": 1
+                        }
+                      },
+                      {
+                        "part": "caption",
+                        "component": "Text",
+                        "$if": "props.caption",
+                        "props": {
+                          "text": "{props.caption}",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "style": {
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        }
+                      },
+                      {
+                        "part": "spacer",
+                        "component": "Box",
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        }
+                      },
+                      {
+                        "part": "meta",
+                        "component": "Text",
+                        "$if": "props.meta",
+                        "props": {
+                          "text": "{props.meta}",
+                          "variant": "muted",
+                          "lines": 1
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "part": "row",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "children": [
+                      {
+                        "part": "title",
+                        "component": "Text",
+                        "props": {
+                          "text": "{props.title}",
+                          "lines": 1
+                        },
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        }
+                      },
+                      {
+                        "part": "chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-chevron-right",
+                          "size": "sm",
+                          "tone": "neutral"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "part": "sheet",
+            "component": "Drawer",
+            "props": {
+              "title": "{props.label}",
+              "description": "{props.caption}",
+              "open": "{props.open|false}",
+              "side": "bottom"
+            },
+            "slots": {
+              "footer": "$slot:footer"
+            },
+            "$on": {
+              "change": "change"
+            },
+            "children": [
+              "$children"
+            ]
+          }
+        ]
       }
     },
     "Sparkline": {
-      "recipeProps": ["tone"],
+      "recipeProps": [
+        "tone"
+      ],
       "root": {
-        "part": "root", "component": "Chart",
-        "props": { "kind": "sparkline", "series": [{ "name": "", "values": "{props.values}", "tone": "{props.tone|primary}" }], "height": "{props.height|24}", "showAxes": false, "showGrid": false, "showLegend": false },
-        "style": { "width": "100%" }
+        "part": "root",
+        "component": "Chart",
+        "props": {
+          "kind": "sparkline",
+          "series": [
+            {
+              "name": "",
+              "values": "{props.values}",
+              "tone": "{props.tone|primary}"
+            }
+          ],
+          "height": "{props.height|24}",
+          "showAxes": false,
+          "showGrid": false,
+          "showLegend": false
+        },
+        "style": {
+          "width": "100%"
+        }
       }
     }
   }

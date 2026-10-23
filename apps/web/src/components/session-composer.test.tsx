@@ -268,11 +268,17 @@ describe(`SessionComposer, the one composer (EXP-1334)`, () => {
     click.mockRestore()
   })
 
-  it(`carries the inline edit tools in the card`, () => {
+  it(`N-12: the "+" is the only tool; the device glyph, the model pin and Plan sit in the card`, () => {
     renderComposer()
     for (const name of [`Add image`, `Attach files`, `Insert issue reference`, `Insert emoji`]) {
-      expect(screen.getByRole(`button`, { name })).toBeTruthy()
+      expect(screen.queryByRole(`button`, { name })).toBeNull()
     }
+    const card = document.querySelector(`[data-slot="composer"]`)!
+    const row = screen.getByTestId(`session-composer-options`)
+    expect(card.contains(row)).toBe(true)
+    expect(row.querySelector(`[data-testid="session-composer-model"]`)).toBeTruthy()
+    expect(row.querySelector(`[data-testid="session-composer-plan"]`)).toBeTruthy()
+    expect(document.querySelector(`[data-slot="composer-options"]`)).toBeNull()
   })
 
   it(`a model pick sends /model and reads as picked at once`, async () => {

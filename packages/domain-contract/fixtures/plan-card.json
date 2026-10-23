@@ -27,7 +27,8 @@
     "stepLabel": "Question {n} of {m}",
     "back": "Back",
     "next": "Next",
-    "decide": "Your decision"
+    "decide": "Your decision",
+    "cancel": "Cancel"
   },
   "testIds": {
     "card": "plan-card",
@@ -873,7 +874,7 @@
     }
   ],
   "stepper": {
-    "$comment": "NEW-6 (N-1): a PENDING card with `minQuestions` or more questions shows ONE question at a time instead of every block stacked: the step line `copy.stepLabel` ({n} = 1-based, {m} = the count; `xs` muted) above the current question block, then `copy.back` / `copy.next` as small secondary buttons (`buttonGap` apart, right-aligned; Back hidden on the first step, Next hidden on the last); the LAST step shows the decision block under its question. A pending card with one question shows it plain (no step line, no buttons). A CLOSED card lists every question closed as before (no stepper). The step is local UI state, never synced. The decision block ×4 = `copy.decide` (`xs` semibold, like a prompt) over THE option rows of ask-dock.json `planOptions` (single pick, trailing check: the SAME rows a question draws, never pills); the feedback field (ask-dock `feedbackPlaceholder`, `fieldMinHeight`) appears ONLY once the reject row (`decision: rejected`) is picked; the approve button (ask-dock's decision label) is the small primary button under it, disabled while a required answer is missing (`copy.answerIssues.missing`). A question card (`question`) keeps its single Answer button and no decision rows.",
+    "$comment": "N-12 (was NEW-6): a PENDING card opens as THE DockCard sheet (dock.json `sheet`): page 0 = the plan (markdown, pictures, surface) and, below `minQuestions` questions, every question under it; with `minQuestions` or more questions, ONE page per question (`copy.stepLabel` ({n} 1-based, {m} the count) as the sheet header's trailing meta, the question block as the body). The sheet's pinned FOOTER: `copy.back` / `copy.next` as small secondary buttons (`buttonGap` apart, right-aligned; Back hidden on the first page, Next on the last); the LAST page (the only one without pages) carries THE DECISION in the footer instead of Next: ask-dock `planOptions` `reject` (\"No, keep planning\") as a small secondary button, then `approve` (\"Yes\") as the small primary button with a trailing ui-chevron-down menu holding `approve-fresh`; the primary is disabled while a required answer is missing (`copy.answerIssues.missing` under the footer); picking the reject button opens the feedback field (ask-dock `feedbackPlaceholder`, `fieldMinHeight`, multi-line) above the footer and the footer reads `copy.cancel` (secondary) + the reject label as the primary; rejecting never needs answers. A question card's footer = `copy.answer` (the small primary button, disabled until an answer). Back in the footer leads the row. The page is local UI state, never synced. A CLOSED card (in the transcript) lists every question closed as before (no pages, no sheet).",
     "minQuestions": 2,
     "buttonGap": 8
   }

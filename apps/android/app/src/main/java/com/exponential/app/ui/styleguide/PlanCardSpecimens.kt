@@ -77,15 +77,6 @@ internal fun PlanCardSpecimens() {
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
         ThreadAskCard(row, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> })
-        val plan = row as? SessionTree.ThreadRow.Plan
-        if (plan != null && PlanCard.stepperApplies(true, plan.decision, plan.questions.size)) {
-            PlanAskCard(
-                plan,
-                onAnswer = { _, _, _ -> },
-                onDecidePlan = { _, _, _ -> },
-                initialStep = plan.questions.size - 1,
-            )
-        }
     }
 }
 

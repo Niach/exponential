@@ -13,6 +13,8 @@ import {
   ThreadSessionTree,
   ThreadTabs,
   ThreadsListItem,
+  ThreadDock,
+  threadDockedIds,
   threadTreeRows,
   type ThreadStripItem,
 } from "./session-thread-view"
@@ -84,11 +86,39 @@ const ROWS: ThreadRow[] = [
   { type: `event`, id: `e1`, event: `issue_linked`, text: `Linked APP-5` },
 ]
 
-/** NEW-6: the plan card's decision rows and its button. */
-const decisionRows = (scope: ParentNode) =>
-  [...scope.querySelectorAll<HTMLButtonElement>(`[data-testid="plan-card-decision"] [data-testid="plan-card-option"]`)]
+/** N-12: the plan sheet's footer: the Yes button (its menu holds the fresh
+ *  context), the reject button, the reject's send. */
 const decideButton = (scope: ParentNode) =>
-  scope.querySelector<HTMLButtonElement>(`[data-slot="plan-card-decide"]`)!
+  scope.querySelector<HTMLButtonElement>(`[data-slot="plan-card-decide"][data-decision="approved"]`)!
+const rejectButton = (scope: ParentNode) => scope.querySelector<HTMLButtonElement>(`[data-slot="plan-card-reject"]`)!
+const rejectSend = (scope: ParentNode) =>
+  scope.querySelector<HTMLButtonElement>(`[data-slot="plan-card-decide"][data-decision="rejected"]`)!
+/** A Radix trigger opens on pointer down (never on click). */
+function pressOpen(trigger: HTMLElement) {
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: `mouse` })
+}
+/** THE Dock with one card's sheet open (the pending plan or question). */
+function renderSheet(rows: ThreadRow[], openId: string, over: Record<string, unknown> = {}) {
+  const onAnswer = vi.fn()
+  const onDecide = vi.fn()
+  const renderText = vi.fn((text: string) => <p>{text}</p>)
+  render(
+    <TooltipProvider>
+      <ThreadDock
+        rows={rows}
+        sessionName={() => null}
+        renderText={renderText}
+        attachmentSrc={(id) => `/files/${id}`}
+        onAnswer={onAnswer}
+        onDecide={onDecide}
+        autoOpen={false}
+        initialOpenId={openId}
+        {...over}
+      />
+    </TooltipProvider>
+  )
+  return { onAnswer, onDecide, renderText, sheet: screen.getByTestId(`dock-sheet`) }
+}
 
 describe(`ThreadConversation`, () => {
   function renderRows(rows: ThreadRow[] = ROWS, over: Record<string, unknown> = {}) {
@@ -126,8 +156,16 @@ describe(`ThreadConversation`, () => {
     fireEvent.click(question.querySelectorAll(`[data-testid="plan-card-option"]`)[1]!)
     fireEvent.click(answer)
     expect(onAnswer).toHaveBeenCalledWith(`q1`, { answer: `B`, answers: [`B`] })
+    // N-12: a pending plan decides in its Dock sheet, never inline.
     const plan = document.querySelector(`[data-slot="thread-plan"]`)!
-    fireEvent.click(decideButton(plan))
+    expect(plan.querySelector(`[data-slot="plan-card-decide"]`)).toBeNull()
+    expect(onDecide).not.toHaveBeenCalled()
+  })
+
+  it(`N-12: the plan's sheet approves from its footer`, () => {
+    const { onDecide, sheet } = renderSheet(ROWS, `p1`)
+    expect(sheet.textContent).toContain(`Step 1`)
+    fireEvent.click(decideButton(sheet))
     expect(onDecide).toHaveBeenCalledWith(`p1`, { decision: `approved` })
   })
 
@@ -150,34 +188,24 @@ describe(`ThreadConversation`, () => {
     expect(onAnswer).toHaveBeenCalledWith(`q1`, { answer: `Neither, use C`, answers: [`Neither, use C`] })
   })
 
-  it(`offers THE plan options as the decision rows and approves into a fresh context`, () => {
-    const { onDecide } = renderRows()
-    const plan = document.querySelector(`[data-slot="thread-plan"]`)!
-    expect(within(plan as HTMLElement).getByTestId(`plan-card-decision`).textContent).toContain(`Your decision`)
-    expect(plan.querySelectorAll(`[data-testid="ask-option"]`)).toHaveLength(0)
-    const rows = decisionRows(plan)
-    expect(rows.map((o) => o.textContent)).toEqual([
-      `Yes`,
-      `Yes, and start with a fresh context`,
-      `No, keep planningYour feedback goes back with it`,
-    ])
-    // Single pick, starting on "Yes"; the button is named after the pick.
-    expect(rows.map((o) => o.getAttribute(`aria-pressed`))).toEqual([`true`, `false`, `false`])
-    fireEvent.click(rows[1]!)
-    expect(decisionRows(plan).map((o) => o.getAttribute(`aria-pressed`))).toEqual([`false`, `true`, `false`])
-    expect(decideButton(plan).textContent).toBe(`Yes, and start with a fresh context`)
-    fireEvent.click(decideButton(plan))
+  it(`offers THE plan options in the sheet's footer: Yes, its menu's fresh context, No, keep planning`, () => {
+    const { onDecide, sheet } = renderSheet(ROWS, `p1`)
+    const footer = within(sheet).getByTestId(`dock-sheet-footer`)
+    expect(footer.querySelectorAll(`[data-testid="plan-card-option"]`)).toHaveLength(0)
+    expect(rejectButton(footer).textContent).toBe(`No, keep planning`)
+    expect(decideButton(footer).textContent).toBe(`Yes`)
+    pressOpen(within(footer).getByRole(`button`, { name: `Yes, and start with a fresh context` }))
+    fireEvent.click(screen.getByRole(`menuitem`, { name: `Yes, and start with a fresh context` }))
     expect(onDecide).toHaveBeenCalledWith(`p1`, { decision: `approved`, fresh: true })
   })
 
-  it(`the feedback field appears only once the reject row is picked`, () => {
-    const { onDecide } = renderRows()
-    const plan = document.querySelector(`[data-slot="thread-plan"]`) as HTMLElement
-    expect(within(plan).queryByTestId(`plan-card-feedback`)).toBeNull()
-    fireEvent.click(decisionRows(plan)[2]!)
-    fireEvent.change(within(plan).getByTestId(`plan-card-feedback`), { target: { value: `Smaller steps` } })
-    expect(decideButton(plan).textContent).toBe(`No, keep planning`)
-    fireEvent.click(decideButton(plan))
+  it(`the feedback field appears only once the reject button is picked`, () => {
+    const { onDecide, sheet } = renderSheet(ROWS, `p1`)
+    expect(within(sheet).queryByTestId(`plan-card-feedback`)).toBeNull()
+    fireEvent.click(rejectButton(sheet))
+    fireEvent.change(within(sheet).getByTestId(`plan-card-feedback`), { target: { value: `Smaller steps` } })
+    expect(rejectSend(sheet).textContent).toBe(`No, keep planning`)
+    fireEvent.click(rejectSend(sheet))
     expect(onDecide).toHaveBeenCalledWith(`p1`, { decision: `rejected`, feedback: `Smaller steps` })
   })
 
@@ -581,6 +609,11 @@ describe(`ThreadsListItem device`, () => {
   })
 })
 
+/** A Radix menu trigger opens on pointer down (never on click). */
+function openMenu(trigger: HTMLElement) {
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: `mouse` })
+}
+
 // EXP-1323: the fixture's dispatcher case (suggestions in every state, a
 // report, a btw aside card with its caption).
 type Input = Parameters<typeof buildSessionThread>[0]
@@ -650,7 +683,7 @@ describe(`ThreadConversation EXP-1323`, () => {
     expect(screen.getByText(`It returns the cart store's items and totals.`)).toBeTruthy()
   })
 
-  it(`Start, Do it here, × and Start all call back with the card and item`, () => {
+  it(`Start, Start all and the ⋯ menu (Do it here, Dismiss) call back with the card and item`, () => {
     const { actions } = renderCase(rowsOf(MORE))
     fireEvent.click(screen.getByTestId(`thread-suggestions-start-all`))
     expect(actions.onStartAll).toHaveBeenCalledWith(`m4`)
@@ -658,9 +691,14 @@ describe(`ThreadConversation EXP-1323`, () => {
     expect(starts).toHaveLength(4)
     fireEvent.click(starts[0]!)
     expect(actions.onStart).toHaveBeenCalledWith(`m2`, `s1`)
-    fireEvent.click(screen.getAllByTestId(`thread-suggestion-here`)[1]!)
+    // N-12: Do it here and Dismiss live in the row's ⋯ menu.
+    expect(screen.queryByTestId(`thread-suggestion-here`)).toBeNull()
+    expect(screen.queryByTestId(`thread-suggestion-dismiss`)).toBeNull()
+    openMenu(screen.getAllByTestId(`thread-suggestion-options`)[1]!)
+    fireEvent.click(screen.getByRole(`menuitem`, { name: `Do it here` }))
     expect(actions.onHere).toHaveBeenCalledWith(`m4`, `s1`)
-    fireEvent.click(screen.getAllByTestId(`thread-suggestion-dismiss`)[3]!)
+    openMenu(screen.getAllByTestId(`thread-suggestion-options`)[3]!)
+    fireEvent.click(screen.getByRole(`menuitem`, { name: `Dismiss` }))
     expect(actions.onDismiss).toHaveBeenCalledWith(`m4`, `s3`)
   })
 
@@ -676,11 +714,37 @@ describe(`ThreadConversation EXP-1323`, () => {
       },
     })
     expect(
-      (screen.getAllByTestId(`thread-suggestion-here`)[0] as HTMLButtonElement).disabled
+      (screen.getAllByTestId(`thread-suggestion-options`)[0] as HTMLButtonElement).disabled
     ).toBe(true)
     expect(
-      (screen.getAllByTestId(`thread-suggestion-here`)[1] as HTMLButtonElement).disabled
+      (screen.getAllByTestId(`thread-suggestion-options`)[1] as HTMLButtonElement).disabled
     ).toBe(false)
+  })
+
+  it(`N-12: open suggestions are a DockCard whose sheet lists them with Start all in the footer`, () => {
+    const actions = { onStart: vi.fn(), onStartAll: vi.fn(), onHere: vi.fn(), onDismiss: vi.fn(), onFile: vi.fn() }
+    const rows = rowsOf(MORE)
+    render(
+      <TooltipProvider>
+        <ThreadDock
+          rows={rows}
+          sessionName={() => null}
+          renderText={(text) => <p>{text}</p>}
+          onAnswer={vi.fn()}
+          onDecide={vi.fn()}
+          suggestions={actions}
+          autoOpen={false}
+          initialOpenId="m4"
+        />
+      </TooltipProvider>
+    )
+    expect(threadDockedIds(rows, () => null).has(`m4`)).toBe(true)
+    const card = screen.getAllByTestId(`dock-card`).find((node) => node.dataset.id === `m4`)!
+    expect(card.dataset.kind).toBe(`suggestions`)
+    const sheet = screen.getByTestId(`dock-sheet`)
+    expect(within(sheet).getByTestId(`thread-suggestions-sheet`)).toBeTruthy()
+    fireEvent.click(within(sheet).getByTestId(`thread-suggestions-start-all`))
+    expect(actions.onStartAll).toHaveBeenCalledWith(`m4`)
   })
 
   it(`read-only: no buttons`, () => {
@@ -728,16 +792,21 @@ describe(`ThreadConversation EXP-1280 rich cards`, () => {
     return { onAnswer, onDecide, renderText }
   }
 
-  it(`paints the markdown without a pending upload, the surface frame, then steps through the questions`, () => {
-    const { renderText } = renderRich([`n1`])
+  it(`paints the markdown without a pending upload, the surface frame, then pages through the questions`, () => {
+    const { renderText } = renderSheet(rows.filter((row) => row.id === `n1`), `n1`)
     expect(renderText.mock.calls[0]![0]).not.toContain(`upload:`)
     expect(renderText.mock.calls[0]![0]).toContain(`/api/attachments/att-1`)
     const surface = screen.getByTestId(`plan-card-surface`)
     expect(surface.textContent).toContain(`Preview`)
     expect(surface.dataset.disabled).toBeUndefined()
-    // NEW-6: two questions = the stepper, one question at a time.
-    expect(screen.getByTestId(`plan-card-step`).textContent).toBe(`Question 1 of 2`)
+    // N-12: page 0 = the plan; two questions = one page each, the step in
+    // the sheet's header, Back/Next in its footer.
+    expect(screen.queryByTestId(`plan-card-step`)).toBeNull()
     expect(screen.queryByTestId(`plan-card-step-back`)).toBeNull()
+    expect(screen.queryByTestId(`plan-card-decision`)).toBeNull()
+    fireEvent.click(screen.getByTestId(`plan-card-step-next`))
+    expect(screen.getByTestId(`plan-card-step`).textContent).toBe(`Question 1 of 2`)
+    expect(screen.getByTestId(`plan-card-step-back`)).toBeTruthy()
     expect(screen.queryByTestId(`plan-card-decision`)).toBeNull()
     let questions = screen.getAllByTestId(`plan-card-question`)
     expect(questions.map((q) => q.dataset.question)).toEqual([`layout`])
@@ -758,29 +827,27 @@ describe(`ThreadConversation EXP-1280 rich cards`, () => {
     // Text only = THE option rows; the default = a free-text row.
     expect(within(questions[0]!).getAllByTestId(`plan-card-option`)).toHaveLength(2)
     expect(within(questions[0]!).getByTestId(`plan-card-custom`)).toBeTruthy()
-    // The LAST step carries the decision block; Back returns.
+    // The LAST page carries the decision in the footer; Back returns.
     expect(screen.getByTestId(`plan-card-decision`)).toBeTruthy()
     fireEvent.click(screen.getByTestId(`plan-card-step-back`))
     expect(screen.getByTestId(`plan-card-step`).textContent).toBe(`Question 1 of 2`)
   })
 
   it(`approving waits on every question, rejecting never does`, () => {
-    const { onDecide } = renderRich([`n1`])
+    const { onDecide, sheet } = renderSheet(rows.filter((row) => row.id === `n1`), `n1`)
     fireEvent.click(screen.getByTestId(`plan-card-step-next`))
-    const card = screen.getByTestId(`plan-card`)
-    expect(decideButton(card).disabled).toBe(true)
+    fireEvent.click(screen.getByTestId(`plan-card-step-next`))
+    expect(decideButton(sheet).disabled).toBe(true)
     expect(screen.getByTestId(`plan-card-issue`).textContent).toBe(`Answer every question to approve`)
-    fireEvent.click(decisionRows(card)[1]!)
-    expect(decideButton(card).disabled).toBe(true)
-    fireEvent.click(decisionRows(card)[2]!)
+    fireEvent.click(rejectButton(sheet))
     expect(screen.queryByTestId(`plan-card-issue`)).toBeNull()
-    expect(decideButton(card).disabled).toBe(false)
-    fireEvent.click(decideButton(card))
+    fireEvent.click(rejectSend(sheet))
     expect(onDecide).toHaveBeenCalledWith(`n1`, { decision: `rejected`, surfaceData: { accent: `blue` } })
   })
 
   it(`multi picks and a tile pick approve with the answers and the surface data`, () => {
-    const { onDecide } = renderRich([`n1`])
+    const { onDecide, sheet } = renderSheet(rows.filter((row) => row.id === `n1`), `n1`)
+    fireEvent.click(screen.getByTestId(`plan-card-step-next`))
     fireEvent.click(screen.getByRole(`radio`, { name: `Two columns` }))
     fireEvent.click(screen.getByTestId(`plan-card-step-next`))
     const question = screen.getByTestId(`plan-card-question`)
@@ -789,9 +856,8 @@ describe(`ThreadConversation EXP-1280 rich cards`, () => {
     fireEvent.click(list[0]!)
     expect(list[0]!.getAttribute(`aria-pressed`)).toBe(`true`)
     expect(screen.queryByTestId(`plan-card-issue`)).toBeNull()
-    const card = screen.getByTestId(`plan-card`)
-    expect(decideButton(card).disabled).toBe(false)
-    fireEvent.click(decideButton(card))
+    expect(decideButton(sheet).disabled).toBe(false)
+    fireEvent.click(decideButton(sheet))
     expect(onDecide).toHaveBeenCalledWith(`n1`, {
       decision: `approved`,
       answers: { layout: [`Two columns`], platforms: [`iOS`, `Android`] },
@@ -852,7 +918,13 @@ describe(`ThreadConversation EXP-1280 rich cards`, () => {
     expect(within(single!).getAllByTestId(`plan-card-question`)).toHaveLength(1)
     expect(within(single!).queryByTestId(`plan-card-step`)).toBeNull()
     expect(within(single!).queryByTestId(`plan-card-step-next`)).toBeNull()
-    expect(within(single!).getByTestId(`plan-card-decision`)).toBeTruthy()
+    // N-12: a single question sits under the plan on the one page; the
+    // sheet's footer is the decision.
+    const { sheet } = renderSheet([{ ...base, id: `d3`, questions: [q(`c`)], decision: null, answers: null }], `d3`)
+    expect(within(sheet).getAllByTestId(`plan-card-question`)).toHaveLength(1)
+    expect(within(sheet).queryByTestId(`plan-card-step`)).toBeNull()
+    expect(within(sheet).queryByTestId(`plan-card-step-next`)).toBeNull()
+    expect(within(sheet).getByTestId(`plan-card-decision`)).toBeTruthy()
   })
 
   it(`a pending question with a surface answers with its data model`, () => {

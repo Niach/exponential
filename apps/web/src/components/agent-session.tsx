@@ -1,4 +1,5 @@
-import { ASK_DOCK_COPY, askDock } from "@exp/domain-contract/ask-dock"
+import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
+import type { DockRow, DockSource } from "@exp/domain-contract/dock"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import type { ReactNode } from "react"
 import {
@@ -31,10 +32,9 @@ import { splitIssueRefs } from "@/lib/issue-refs"
 import { Check, X } from "lucide-react"
 import {
   AskCard,
-  AskDock,
-  AskDockBody,
+  DockSheetBody,
   AskPrompt,
-  ThreadAskDock,
+  ThreadDock,
   ThreadConversation,
   ASK_CARD_COPY,
   conceptIcon,
@@ -43,7 +43,6 @@ import {
   useIsMobile,
   Button,
   Pill,
-  Meter,
   IssueChip as IssueChipView,
   AgentWorkingMark,
   SessionInlineResultTile,
@@ -52,9 +51,7 @@ import {
   type RunStatusRowTone,
   sessionResultPicture,
   WORK_COLUMN_CLASS,
-  WORK_GUTTER_CLASS,
   DETAIL_FADE_BOTTOM_CLASS,
-  MOBILE_WORK_BAR_CLEARANCE,
   ExponentialLogo,
   ImagePreviewDialog,
   AttachmentFileLink,
@@ -136,7 +133,6 @@ import {
   type ExpToolDisplay,
   type ExpToolPreview,
   type RowClass,
-  type SessionRateLimitState,
   type BackgroundTask,
   type TaskListEntry,
   type SubagentSummary,
@@ -175,7 +171,6 @@ import { SessionAccountSwitchButton } from "@/components/session-account-switch"
 import { EntityRefChips } from "@/components/entity-preview/entity-ref-chips"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import {
-  composerYieldsToCard,
   SESSION_CARD_COPY,
   buildSessionThread,
   sessionState,
@@ -189,7 +184,6 @@ import { cn } from "@/lib/utils"
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
 const CodingAssistantIcon = conceptIcon(`coding-assistant`)
-const CodingCompactIcon = conceptIcon(`coding-compact`)
 const CodingCommandIcon = conceptIcon(`coding-command`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
 const EditorImageIcon = conceptIcon(`editor-image`)
@@ -198,7 +192,6 @@ const UiEditIcon = conceptIcon(`ui-edit`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
-const UiUsageIcon = conceptIcon(`ui-usage`)
 const UiWarningIcon = conceptIcon(`ui-warning`)
 const TraceChevronIcon = conceptIcon(`trace-chevron`)
 const TraceToolIcon = conceptIcon(`trace-tool`)
@@ -233,6 +226,12 @@ const TASK_QUEUE_TEST_IDS = taskQueueSpec.testIds
 const TRANSCRIPT_COLUMN = `${WORK_COLUMN_CLASS} px-3 md:px-5`
 /** NEW-6: how long an idle session's connect may show placeholders. */
 const TRANSCRIPT_STALL_MS = 8_000
+/** N-12: the transcript's last row clears THE Dock's band by this much. */
+const DOCK_GAP = 16
+/** N-12: the jump circle sits this far above the band (EXP-1191: 12px). */
+const JUMP_GAP = 12
+/** N-12: the relay's own waiting card is the newest ask in the Dock. */
+const RELAY_ASK_ORDER = Number.MAX_SAFE_INTEGER
 
 /** Prose scale — agent narration and the sender's own bubbles. Markdown
  *  bodies get the same size/leading from the `.agent-feed .tiptap-content`
@@ -327,13 +326,9 @@ export function AgentSessionView({
     feed,
     compacting,
     config,
-    rateLimit,
     turnState,
     turnStartedAt,
     turnTokens,
-    backgroundTasks,
-    taskList,
-    queue,
     workflows,
     runningWorkflow,
     answerStates,
@@ -411,9 +406,60 @@ export function AgentSessionView({
   const toolCards = useMemo(() => toolCardRows(session, sessionMessages), [session, sessionMessages])
   const canAnswerCards = !sessionEnded
   const dockedToolCards = useMemo(
-    () => (canAnswerCards && dockedRow === null ? toolCards.filter(cardWaiting) : []),
-    [toolCards, canAnswerCards, dockedRow]
+    () => (canAnswerCards ? toolCards.filter(cardWaiting) : []),
+    [toolCards, canAnswerCards]
   )
+  /** N-12: the relay's own waiting card (claude's AskUserQuestion or its
+   *  plan) as a Dock source, in front of the tool-posted ones. */
+  const relaySource = useMemo<DockSource | null>(() => {
+    if (dockedRow === null) return null
+    const items = dockedRow.kind === `ask` ? (dockedRow.items as QuestionItem[]) : dockedRow.kind === `single` ? [dockedRow.item as QuestionItem] : []
+    const item = items.find((entry) => questionIds.has(entry.id)) ?? items[0]
+    if (!item) return null
+    const id = `relay:${dockedRow.kind === `single` ? dockedRow.item.id : dockedRow.id}`
+    return item.planMode
+      ? { kind: `plan`, id, text: item.text, sessionName: null, questions: 0, createdAt: RELAY_ASK_ORDER }
+      : { kind: `question`, id, text: item.text, sessionName: null, createdAt: RELAY_ASK_ORDER }
+  }, [dockedRow, questionIds])
+  /** N-12: THE Dock's band height = the transcript's bottom padding. */
+  const [dockHeight, setDockHeight] = useState(0)
+  const sessionDock = useSessionDock(session)
+  const dockSources = useMemo(
+    () => (relaySource ? [relaySource, ...sessionDock.sources] : sessionDock.sources),
+    [relaySource, sessionDock.sources]
+  )
+  const renderDockSheet = (row: DockRow, close: () => void): ReactNode => {
+    if (relaySource && `id` in relaySource && row.id === relaySource.id && dockedRow !== null) {
+      return (
+        <DockSheetBody>
+          {dockedRow.kind === `ask` ? (
+            <AskStepperCard
+              items={dockedRow.items as QuestionItem[]}
+              activeIds={questionIds}
+              canAnswer={canAnswer}
+              answerStates={answerStates}
+              onAnswer={answerQuestion}
+              pendingId={pendingCard?.id ?? null}
+              onSend={sendMessage}
+              chromeless
+            />
+          ) : dockedRow.kind === `single` ? (
+            <QuestionCard
+              item={dockedRow.item as QuestionItem}
+              active={questionIds.has(dockedRow.item.id)}
+              canAnswer={canAnswer}
+              answerState={answerStates[answerKey(dockedRow.item as QuestionItem)]}
+              onAnswer={answerQuestion}
+              hotkeys={pendingCard?.id === dockedRow.item.id}
+              onSend={sendMessage}
+              chromeless
+            />
+          ) : null}
+        </DockSheetBody>
+      )
+    }
+    return sessionDock.renderSheet(row, close)
+  }
   const toolCardAnchors = useMemo(
     () => anchorToolCards(feed, toolCards.map((row) => row.id)),
     [feed, toolCards]
@@ -538,8 +584,6 @@ export function AgentSessionView({
     live && !paused && !awaitingInput && !compactingNow
       ? staleActivityMinutes(usageNow.getTime(), lastActivityAt)
       : null
-  // EXP-804: the usage wall as the ROW records it.
-  const blockedLabel = blockedBadgeLabel(session.blocked, usageNow)
   const deviceName = device.label || `Desktop`
   const pausedTitle = `${device.label ?? `The device`} is offline`
   const pausedBody = `The agent is paused on that machine and continues when it comes back online.`
@@ -566,9 +610,6 @@ export function AgentSessionView({
   /** EXP-850 §3: the subagents that belong to a workflow card. */
   const workflowAgents = useMemo(() => workflowSubagentIds(feed), [feed])
   /** EXP-1321/1324: the Queue's two folds; the reader's toggles stick for
-   *  the session (to do opens by default, completed stays folded). */
-  const [queueTodoOpen, setQueueTodoOpen] = useState(true)
-  const [queueCompletedOpen, setQueueCompletedOpen] = useState(false)
   /** §4: the duplicate warnings a workflow card carries, by workflow id. */
   const workflowDuplicates = useMemo(() => {
     const byWorkflow = new Map<string, string[]>()
@@ -909,12 +950,8 @@ export function AgentSessionView({
             ) : activeAgent !== null ? (
               <div
                 ref={follow.contentRef}
-                className={cn(
-                  `flex min-h-full flex-col justify-end py-2`,
-                  !isMobile && `pb-10`,
-                  composerFloats && MOBILE_WORK_BAR_CLEARANCE,
-                  TRANSCRIPT_COLUMN
-                )}
+                className={cn(`flex min-h-full flex-col justify-end py-2`, TRANSCRIPT_COLUMN)}
+                style={{ paddingBottom: dockHeight + DOCK_GAP }}
               >
                 <AgentConversation
                   summary={agents.find((a) => a.subagentId === activeAgent)}
@@ -925,12 +962,8 @@ export function AgentSessionView({
             ) : (
               <div
                 ref={follow.contentRef}
-                className={cn(
-                  `flex min-h-full flex-col justify-end py-2`,
-                  !isMobile && `pb-10`,
-                  composerFloats && MOBILE_WORK_BAR_CLEARANCE,
-                  TRANSCRIPT_COLUMN
-                )}
+                className={cn(`flex min-h-full flex-col justify-end py-2`, TRANSCRIPT_COLUMN)}
+                style={{ paddingBottom: dockHeight + DOCK_GAP }}
               >
                 {canLoadEarlier ? (
                   <div className="flex justify-center pb-1">
@@ -1001,196 +1034,33 @@ export function AgentSessionView({
           {/* EXP-1191: the arrow-only circle ×4, 12px above the composer. */}
           <JumpToBottomButton
             visible={!atBottom && feed.length > 0}
-            className={cn(
-              `absolute left-1/2 z-10 -translate-x-1/2`,
-              composerFloats ? `bottom-[calc(5.5rem+env(safe-area-inset-bottom))]` : `bottom-3`
-            )}
+            className="absolute left-1/2 z-30 -translate-x-1/2"
+            style={{ bottom: dockHeight + JUMP_GAP }}
             onClick={jumpToBottom}
+          />
+          {/* N-12: THE Dock over the transcript's bottom edge: the waiting
+              cards (the relay's, the tool-posted ones), THE Queue, the
+              queued messages and the status banners, then the composer (a
+              phone's floats in the work bar instead). */}
+          <ThreadDock
+            rows={dockedToolCards}
+            sessionName={noSessionName}
+            renderText={renderThreadText}
+            attachmentSrc={attachmentUrl}
+            pending={cardsPending}
+            onAnswer={(rowId, input) => void answerCard(rowId, input)}
+            onDecide={(rowId, input) => void answerCard(rowId, input)}
+            sources={dockSources}
+            renderSheet={renderDockSheet}
+            renderAction={sessionDock.renderAction}
+            composer={composerFloats ? undefined : composer}
+            onHeight={setDockHeight}
+            phoneClearance={composerFloats}
+            autoOpenReady={live}
           />
         </div>
 
-        {/* Status strips (feed retained above). */}
-        {paused && feed.length > 0 && (
-          <div className="py-2">
-            <div
-              className={cn(
-                TRANSCRIPT_COLUMN,
-                `flex items-center gap-1.5 text-xs text-muted-foreground`
-              )}
-            >
-              <UiDeviceOfflineIcon className="size-3 shrink-0" />
-              <span>{`Paused — ${pausedTitle}. ${pausedBody}`}</span>
-            </div>
-          </div>
-        )}
-        {phase.kind === `closed` && !paused && (
-          <div className="py-2">
-            <div
-              className={cn(
-                TRANSCRIPT_COLUMN,
-                `flex items-center gap-2 text-xs text-muted-foreground`
-              )}
-            >
-              <span className="min-w-0 flex-1">
-                {phase.detail ?? `Connection lost.`}
-              </span>
-              {/* EXP-877: a dropped stream redials from its own strip. */}
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 shrink-0"
-                onClick={() => store.reconnect()}
-              >
-                <UiRefreshIcon />
-                Reconnect
-              </Button>
-            </div>
-          </div>
-        )}
-        {/* EXP-804: the PERSISTED usage wall off the session row. */}
-        {blockedLabel && (
-          <div className="py-1.5" data-testid="session-blocked-strip">
-            <div
-              className={cn(
-                TRANSCRIPT_COLUMN,
-                `flex items-center gap-2 text-[11px] font-medium text-amber-400`
-              )}
-            >
-              <span className="min-w-0 flex-1">{blockedLabel}</span>
-              {/* EXP-849: the way out of a wall is another login. */}
-              {!sessionEnded && (session.blocked?.kind ?? `rate_limit`) === `rate_limit` && (
-                <SessionAccountSwitchButton session={session} />
-              )}
-            </div>
-          </div>
-        )}
-        {/* EXP-724: the compaction strip (indeterminate on purpose). */}
-        {compactingNow && (
-          <div className="py-1">
-            <div className={TRANSCRIPT_COLUMN}>
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground/80">
-                <CodingCompactIcon className="size-3 shrink-0 opacity-75" />
-                <span>{COMPACTING_LABEL}</span>
-                {compacting?.trigger === `manual` && (
-                  <span className="text-muted-foreground/60">requested</span>
-                )}
-                <Meter value={null} className="ml-1 h-0.5 w-[72px] shrink-0" />
-              </div>
-            </div>
-          </div>
-        )}
-        {/* EXP-784: the agent's live rate-limit window. */}
-        {rateLimit && <RateLimitBanner state={rateLimit} />}
-        {phase.kind === `starting` && !paused && feed.length > 0 && (
-          <div className="py-2">
-            <div
-              className={cn(
-                TRANSCRIPT_COLUMN,
-                `flex items-center gap-1.5 text-xs text-muted-foreground`
-              )}
-            >
-              <UiLoadingIcon className="size-3 animate-spin" />
-              The agent is starting. Waiting for the live stream…
-            </div>
-          </div>
-        )}
-        {/* EXP-1321/1324: THE Queue — the agent's tasks, background work and
-            open waits as two Trace folds, right above the queued messages. */}
-        <TaskQueueStrip
-          taskList={taskList}
-          backgroundTasks={backgroundTasks}
-          feed={feed}
-          todoOpen={queueTodoOpen}
-          onTodoOpenChange={setQueueTodoOpen}
-          completedOpen={queueCompletedOpen}
-          onCompletedOpenChange={setQueueCompletedOpen}
-        />
-        {/* EXP-861: the messages the agent has not read yet (an X revokes a
-            held one). */}
-        <QueueStrip
-          messages={queue}
-          onRemove={(entry) => {
-            store.unqueue(entry.id)
-          }}
-        />
-        {/* EXP-1306 (EXP-820 ×4): a card waiting on the viewer takes the
-            composer's place (THE ask dock); the draft comes back with it. */}
-        {dockedRow !== null && (
-          <div className="py-2">
-            <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS)}>
-              <AskDock
-                view={askDock({
-                  pending: [
-                    {
-                      id: dockedRow.kind === `single` ? String(dockedRow.item.id) : String(dockedRow.id),
-                      kind:
-                        dockedRow.kind === `single` &&
-                        (dockedRow.item as QuestionItem).planMode
-                          ? `plan`
-                          : `question`,
-                      text: ``,
-                      sessionName: null,
-                      createdAt: 0,
-                    },
-                  ],
-                  focusedId: null,
-                })}
-                onFocus={noop}
-                onBack={noop}
-                renderCard={() =>
-                  dockedRow.kind === `ask` ? (
-                    <AskStepperCard
-                      items={dockedRow.items as QuestionItem[]}
-                      activeIds={questionIds}
-                      canAnswer={canAnswer}
-                      answerStates={answerStates}
-                      onAnswer={answerQuestion}
-                      pendingId={pendingCard?.id ?? null}
-                      onSend={sendMessage}
-                    />
-                  ) : dockedRow.kind === `single` ? (
-                    <QuestionCard
-                      item={dockedRow.item as QuestionItem}
-                      active={questionIds.has(dockedRow.item.id)}
-                      canAnswer={canAnswer}
-                      answerState={answerStates[answerKey(dockedRow.item as QuestionItem)]}
-                      onAnswer={answerQuestion}
-                      hotkeys={pendingCard?.id === dockedRow.item.id}
-                      onSend={sendMessage}
-                      docked
-                    />
-                  ) : null
-                }
-              />
-            </div>
-          </div>
-        )}
-        {/* EXP-1280: a waiting TOOL-posted card (no relay ask) docks the
-            same way; it answers through `sessions.answer`. */}
-        {dockedToolCards.length > 0 && (
-          <div className="py-2">
-            <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS)}>
-              <ThreadAskDock
-                rows={dockedToolCards}
-                sessionName={noSessionName}
-                renderText={renderThreadText}
-                attachmentSrc={attachmentUrl}
-                pending={cardsPending}
-                onAnswer={(rowId, input) => void answerCard(rowId, input)}
-                onDecide={(rowId, input) => void answerCard(rowId, input)}
-              />
-            </div>
-          </div>
-        )}
-        {composer && composerFloats && dockedRow === null && dockedToolCards.length === 0 && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
-          composer
-        ) : composer && dockedRow === null && dockedToolCards.length === 0 && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
-          <div className="py-2">
-            <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS)}>
-              {composer}
-            </div>
-          </div>
-        ) : null}
+        {composer && composerFloats ? composer : null}
       </div>
     </div>
     </TranscriptStreamingContext.Provider>
@@ -1234,10 +1104,9 @@ function rowItemIds(row: { kind: string; item?: { id: number }; items?: readonly
 }
 
 /** EXP-1323 (#EXP-1333): a THREAD's live tail ×4 — while the root's session
- *  is live the Conversation ends on the raw view's OWN transcript bottom
- *  (THE Queue, `TaskQueueStrip`, EXP-1324: one task UI) and ONE status
- *  line. Same relay store as the raw view (one connection per
- *  session, shared); nothing while there is neither. */
+ *  works the Conversation ends on ONE status line (the "Working…" row).
+ *  N-12: THE Queue left the transcript for the Dock (`useSessionDock`).
+ *  Same relay store as the raw view (one connection per session, shared). */
 export function SessionLiveTail({ session }: { session: SessionRow }) {
   const store = useMemo(() => acquireSteerSession(session.id), [session.id])
   const {
@@ -1247,8 +1116,6 @@ export function SessionLiveTail({ session }: { session: SessionRow }) {
     turnState,
     turnStartedAt,
     turnTokens,
-    taskList,
-    backgroundTasks,
     runningWorkflow,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot)
   useEffect(() => store.connect(), [store])
@@ -1264,24 +1131,9 @@ export function SessionLiveTail({ session }: { session: SessionRow }) {
     blocked: session.blocked != null,
     compacting: compacting !== null,
   })
-  const [todoOpen, setTodoOpen] = useState(true)
-  const [completedOpen, setCompletedOpen] = useState(false)
-  const queue = useMemo(
-    () => sessionTaskQueue({ taskList, backgroundTasks, feed, now: Date.now() }),
-    [taskList, backgroundTasks, feed]
-  )
-  if (queue === null && !working) return null
+  if (!working) return null
   return (
     <div data-testid="thread-live-tail" className="flex flex-col gap-2">
-      <TaskQueueStrip
-        taskList={taskList}
-        backgroundTasks={backgroundTasks}
-        feed={feed}
-        todoOpen={todoOpen}
-        onTodoOpenChange={setTodoOpen}
-        completedOpen={completedOpen}
-        onCompletedOpenChange={setCompletedOpen}
-      />
       {working && (
         <WorkingIndicatorRow
           agent={session.cli}
@@ -1393,6 +1245,7 @@ function TaskQueueStrip({
   onTodoOpenChange,
   completedOpen,
   onCompletedOpenChange,
+  plain = false,
 }: {
   taskList: TaskListEntry[]
   backgroundTasks: BackgroundTask[]
@@ -1401,6 +1254,8 @@ function TaskQueueStrip({
   onTodoOpenChange: (open: boolean) => void
   completedOpen: boolean
   onCompletedOpenChange: (open: boolean) => void
+  /** N-12: inside THE Dock's sheet (no column, no cap of its own). */
+  plain?: boolean
 }) {
   const ticking = backgroundTasks.some((task) => task.kind !== `agent`)
   const now = useNow(ticking ? 1_000 : 60_000)
@@ -1430,10 +1285,10 @@ function TaskQueueStrip({
   ]
   return (
     <div
-      className="max-h-[40vh] overflow-y-auto py-1.5"
+      className={plain ? undefined : `max-h-[40vh] overflow-y-auto py-1.5`}
       data-testid={TASK_QUEUE_TEST_IDS.queue}
     >
-      <div className={TRANSCRIPT_COLUMN}>
+      <div className={plain ? undefined : TRANSCRIPT_COLUMN}>
         <Trace size="sm">
           {sections.map(({ section, open, onOpenChange, testId }) => {
             const Icon = conceptIcon(section.icon as Parameters<typeof conceptIcon>[0])
@@ -1498,19 +1353,22 @@ function TaskQueueStrip({
 function QueueStrip({
   messages,
   onRemove,
+  plain = false,
 }: {
   messages: QueuedMessage[]
   onRemove: (entry: QueuedMessage) => void
+  /** N-12: inside THE Dock's sheet (no column). */
+  plain?: boolean
 }) {
   if (messages.length === 0) return null
   return (
     <div
-      className="py-1.5"
+      className={plain ? undefined : `py-1.5`}
       aria-label={QUEUE_STRIP_TITLE}
       data-testid="session-queue-strip"
     >
       {/* EXP-927: the transcript's reading column, like the strip above. */}
-      <div className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-0.5`)}>
+      <div className={cn(plain ? undefined : TRANSCRIPT_COLUMN, `flex flex-col gap-0.5`)}>
       {messages.map((entry) => (
         <div
           key={entry.id}
@@ -2138,32 +1996,153 @@ function recordedKeys(item: QuestionItem): string[] {
   return item.options.filter((o) => labels.has(o.label)).map((o) => o.key)
 }
 
-/** EXP-784: the agent's rate-limit window, in the status stack beside the
- *  compaction strip — its own message (else a status fallback) and the local
- *  reset time when it named one. Hand-mirrored copy ×4 (`rateLimitBanner`).
- *  EXP-831: ticks so the countdown moves and the banner drops itself once
- *  the reset is behind us, without waiting on a slot update. */
-function RateLimitBanner({ state }: { state: SessionRateLimitState }) {
-  const now = useNow(30_000)
-  const banner = rateLimitBanner(state, now)
-  if (!banner) return null
-  const { text, resets } = banner
-  return (
-    <div className="py-2">
-      <div
-        className={cn(
-          TRANSCRIPT_COLUMN,
-          `flex items-center gap-1.5 text-xs text-amber-400`
-        )}
-      >
-        <UiUsageIcon className="size-3 shrink-0" />
-        <span className="min-w-0 truncate">{text}</span>
-        <span className="shrink-0 text-muted-foreground">
-          {rateLimitDetail(resets)}
-        </span>
-      </div>
-    </div>
+/** N-12: the session's Dock beyond the asks: THE Queue (task-queue.json),
+ *  the queued messages (EXP-861, the X revokes a held one) and the status
+ *  banners (EXP-550 paused on an offline device, EXP-877 a dropped stream
+ *  with its Reconnect, EXP-804 the persisted usage wall with EXP-849's
+ *  account switch, EXP-724 the compaction strip, EXP-784 the rate-limit
+ *  window, the starting line), as `DockSource`s with their sheets and
+ *  actions (dock.json `banner`: the host's words). The session view and
+ *  the thread's Conversation share it (one relay store per session). */
+export function useSessionDock(session: SessionRow): {
+  sources: DockSource[]
+  renderSheet: (row: DockRow, close: () => void) => ReactNode
+  renderAction: (row: DockRow) => ReactNode
+} {
+  const store = useMemo(() => acquireSteerSession(session.id), [session.id])
+  const { phase, feed, compacting, rateLimit, taskList, backgroundTasks, queue } = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot
   )
+  const device = useSessionDevice({ deviceId: session.deviceId, userId: session.userId })
+  const now = useNow(30_000)
+  const sessionEnded = session.status === `ended`
+  const paused =
+    device.online === false &&
+    !sessionEnded &&
+    (phase.kind === `starting` || phase.kind === `connecting` || phase.kind === `idle` || phase.kind === `closed`)
+  const blockedLabel = blockedBadgeLabel(session.blocked, now)
+  const ticking = backgroundTasks.some((task) => task.kind !== `agent`)
+  const tick = useNow(ticking ? 1_000 : 60_000)
+  const queueModel = useMemo(
+    () => sessionTaskQueue({ taskList, backgroundTasks, feed, now: tick.getTime() }),
+    [taskList, backgroundTasks, feed, tick]
+  )
+  const [todoOpen, setTodoOpen] = useState(true)
+  const [completedOpen, setCompletedOpen] = useState(false)
+  const limit = rateLimit ? rateLimitBanner(rateLimit, now) : null
+  const sources = useMemo<DockSource[]>(() => {
+    const out: DockSource[] = [
+      { kind: `queued`, messages: queue.map((entry) => ({ id: entry.id, text: entry.text })) },
+      { kind: `tasks`, queue: queueModel },
+    ]
+    if (paused && feed.length > 0) {
+      out.push({
+        kind: `banner`,
+        id: `paused`,
+        icon: `ui-device-offline`,
+        label: `${device.label ?? `The device`} is offline`,
+        text: `The agent is paused on that machine and continues when it comes back online.`,
+        tone: `muted`,
+        action: null,
+      })
+    }
+    if (phase.kind === `closed` && !paused) {
+      out.push({
+        kind: `banner`,
+        id: `closed`,
+        icon: `ui-refresh`,
+        label: `Connection lost`,
+        text: phase.detail ?? `Connection lost.`,
+        tone: `muted`,
+        action: `Reconnect`,
+      })
+    }
+    if (blockedLabel) {
+      out.push({
+        kind: `banner`,
+        id: `blocked`,
+        icon: `ui-usage`,
+        label: `Usage limit`,
+        text: blockedLabel,
+        tone: `warning`,
+        action: !sessionEnded && (session.blocked?.kind ?? `rate_limit`) === `rate_limit` ? `Switch account` : null,
+      })
+    }
+    if (compacting !== null) {
+      out.push({
+        kind: `banner`,
+        id: `compacting`,
+        icon: `coding-compact`,
+        label: `Compacting`,
+        text: compacting.trigger === `manual` ? `${COMPACTING_LABEL} · requested` : COMPACTING_LABEL,
+        tone: `muted`,
+        action: null,
+      })
+    }
+    if (limit) {
+      out.push({
+        kind: `banner`,
+        id: `rate-limit`,
+        icon: `ui-usage`,
+        label: `Rate limit`,
+        text: `${limit.text} · ${rateLimitDetail(limit.resets)}`,
+        tone: `warning`,
+        action: null,
+      })
+    }
+    if (phase.kind === `starting` && !paused && feed.length > 0) {
+      out.push({
+        kind: `banner`,
+        id: `starting`,
+        icon: `ui-loading`,
+        label: `Starting`,
+        text: `The agent is starting. Waiting for the live stream…`,
+        tone: `muted`,
+        action: null,
+      })
+    }
+    return out
+  }, [queue, queueModel, paused, feed.length, device.label, phase, blockedLabel, sessionEnded, session.blocked, compacting, limit])
+  const renderSheet = (row: DockRow): ReactNode => {
+    if (row.kind === `tasks`) {
+      return (
+        <DockSheetBody>
+          <TaskQueueStrip
+            taskList={taskList}
+            backgroundTasks={backgroundTasks}
+            feed={feed}
+            todoOpen={todoOpen}
+            onTodoOpenChange={setTodoOpen}
+            completedOpen={completedOpen}
+            onCompletedOpenChange={setCompletedOpen}
+            plain
+          />
+        </DockSheetBody>
+      )
+    }
+    if (row.kind === `queued`) {
+      return (
+        <DockSheetBody>
+          <QueueStrip messages={queue} onRemove={(entry) => store.unqueue(entry.id)} plain />
+        </DockSheetBody>
+      )
+    }
+    return null
+  }
+  const renderAction = (row: DockRow): ReactNode => {
+    if (row.id === `banner:closed`) {
+      return (
+        <Button variant="outline" size="sm" className="h-6" onClick={() => store.reconnect()}>
+          <UiRefreshIcon />
+          Reconnect
+        </Button>
+      )
+    }
+    if (row.id === `banner:blocked` && row.action) return <SessionAccountSwitchButton session={session} />
+    return null
+  }
+  return { sources, renderSheet, renderAction }
 }
 
 /** A standalone question (EXP-78): a plan approval, or an AskUserQuestion from
@@ -2181,7 +2160,7 @@ function QuestionCard({
   onAnswer,
   onSend,
   hotkeys,
-  docked = false,
+  chromeless = false,
 }: {
   item: QuestionItem
   active: boolean
@@ -2191,19 +2170,21 @@ function QuestionCard({
   onSend: SendHandler
   /** EXP-788: this is the card the number keys answer. */
   hotkeys: boolean
-  /** In THE ask dock: the body scrolls inside its cap, never folds. */
-  docked?: boolean
+  /** N-12: inside THE Dock's sheet (its header is the card's chrome): the
+   *  body never folds, no AskCard around it. */
+  chromeless?: boolean
 }) {
   const plan = item.planMode
   const clamp = useClampToggle(item.text)
   // The plan is the thing the reader must approve — it is never folded; a
-  // docked body scrolls in the dock's cap instead.
-  const clampable = !plan && !docked && clamp.clampable
+  // sheet's body scrolls instead.
+  const clampable = !plan && !chromeless && clamp.clampable
   const { expanded, setExpanded } = clamp
+  const Shell = chromeless ? BareShell : AskCard
   return (
-    <AskCard plan={plan} label={plan ? ASK_DOCK_COPY.planReady : item.header}>
+    <Shell plan={plan} label={plan ? ASK_DOCK_COPY.planReady : item.header}>
       <>
-        <BodyCap docked={docked}>
+        <>
           {plan ? (
             // The plan is GFM markdown — always rendered as markdown, always
             // in full (EXP-738).
@@ -2225,7 +2206,7 @@ function QuestionCard({
               <FeedText text={item.text} ariaLabel="Question" />
             </div>
           )}
-        </BodyCap>
+        </>
           {clampable && (
             <ShowMoreButton
               expanded={expanded}
@@ -2243,13 +2224,13 @@ function QuestionCard({
             hotkeys={hotkeys}
           />
       </>
-    </AskCard>
+    </Shell>
   )
 }
 
-/** THE ask dock's body cap (scrolls inside), else the body as is. */
-function BodyCap({ docked, children }: { docked: boolean; children: ReactNode }) {
-  return docked ? <AskDockBody>{children}</AskDockBody> : <>{children}</>
+/** N-12: the card's content with no chrome (THE Dock's sheet draws it). */
+function BareShell({ children }: { plan?: boolean; label?: ReactNode; meta?: ReactNode; children: ReactNode }) {
+  return <>{children}</>
 }
 
 /** One multi-question ask (protocol v2 `askId`), claude-style: one question at
@@ -2272,6 +2253,7 @@ function AskStepperCard({
   onAnswer,
   onSend,
   pendingId,
+  chromeless = false,
 }: {
   items: QuestionItem[]
   activeIds: Set<number>
@@ -2281,6 +2263,8 @@ function AskStepperCard({
   onSend: SendHandler
   /** EXP-788: the id of the card the number keys answer, if it is one of ours. */
   pendingId: number | null
+  /** N-12: inside THE Dock's sheet: no AskCard around it. */
+  chromeless?: boolean
 }) {
   const view = askStepperView(items, answerStates)
   const current =
@@ -2301,8 +2285,9 @@ function AskStepperCard({
     if (editingId !== null && editing === null) setEditingId(null)
   }, [editingId, editing])
 
+  const Shell = chromeless ? BareShell : AskCard
   return (
-    <AskCard
+    <Shell
       label={header ?? (submitStep ? `Review answers` : `Question`)}
       meta={
         view.total > 1 ? (
@@ -2400,7 +2385,7 @@ function AskStepperCard({
             )
           )}
       </>
-    </AskCard>
+    </Shell>
   )
 }
 
