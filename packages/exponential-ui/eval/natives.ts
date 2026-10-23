@@ -8,8 +8,9 @@
 // measures render.ts takes on the web (render.ts measureFrames: the gaps
 // between the root's children, the first text's inset, the height, the
 // nodes, a sideways overflow) and compares each with the React render at the
-// corpus width closest to the native's: the gaps and the inset should agree
-// (the same spacing tokens), the height may not (a different width).
+// corpus width closest to the native's: the gaps and the first text's padding
+// inside its box should agree (the same spacing tokens), the height and a
+// centred column's inset may not (a different width).
 //
 //   bun eval/natives.ts
 //
@@ -32,7 +33,7 @@ export interface NativeMeasure extends RendererMeasure {
   width: number
   /** The React render this one is compared with (its corpus width). */
   webWidth: number
-  /** gaps / textInset that differ from that React render (empty = the same spacing). */
+  /** gaps / textPadding / a new sideways overflow vs that React render (empty = the same spacing). */
   differences: string[]
 }
 
@@ -48,14 +49,14 @@ interface FramesFile {
 }
 
 /** The native measure against React's: the spacing must agree, the height may not. */
-export function compareWithWeb(native: Omit<RendererMeasure, `picture`>, web: Omit<RendererMeasure, `picture`>): string[] {
+export function compareWithWeb(native: Omit<RendererMeasure, `picture`>, web: Omit<RendererMeasure, `picture`>, width: number): string[] {
   const out: string[] = []
   const near = (a: number, b: number) => Math.abs(a - b) <= 1
   if (native.gaps.length !== web.gaps.length || native.gaps.some((g, i) => !near(g, web.gaps[i])))
     out.push(`gaps: web ${JSON.stringify(web.gaps)}, native ${JSON.stringify(native.gaps)}`)
-  if ((native.textInset === null) !== (web.textInset === null) || (native.textInset !== null && !near(native.textInset, web.textInset!)))
-    out.push(`textInset: web ${web.textInset}, native ${native.textInset}`)
-  if (native.overflowsX) out.push(`overflowsX`)
+  if ((native.textPadding === null) !== (web.textPadding === null) || (native.textPadding !== null && !near(native.textPadding, web.textPadding!)))
+    out.push(`textPadding: web ${web.textPadding}, native ${native.textPadding}`)
+  if (native.overflowsX && !web.overflowsX) out.push(`overflowsX at ${width}`)
   return out
 }
 
@@ -80,12 +81,12 @@ export function measureNatives(): NativesReport {
         picture: `eval/out/${entry.id}/${platform}.webp`,
         width,
         webWidth: web?.width ?? 0,
-        differences: web ? compareWithWeb(measure, web.react) : [`no web render on record`],
+        differences: web ? compareWithWeb(measure, web.react, width) : [`no web render on record`],
       }
     }
   }
   return {
-    $comment: `What the native renders measured (VAPP-127): the frames the Compose example, the Swift example and the IDE dumped for each eval specimen, measured like render.ts measures the web, and compared with the React render at the closest corpus width (gaps and the first text's inset within 1 px; the height is the width's). The shots pipeline's eval lane writes the frames; natives.ts writes this.`,
+    $comment: `What the native renders measured (VAPP-127): the frames the Compose example, the Swift example and the IDE dumped for each eval specimen, measured like render.ts measures the web, and compared with the React render at the closest corpus width (the gaps and the first text's padding inside its box within 1 px; a sideways overflow the web does not have; the height and a centred column's inset are the width's). The shots pipeline's eval lane writes the frames; natives.ts writes this.`,
     surfaces,
   }
 }
@@ -94,7 +95,7 @@ if (import.meta.main) {
   const natives = measureNatives()
   for (const [id, byPlatform] of Object.entries(natives.surfaces)) {
     for (const [platform, m] of Object.entries(byPlatform)) {
-      console.log(`${id} ${platform} @${m!.width}: ${m!.nodes} nodes, ${m!.height} tall, gaps ${m!.distinctGaps.join(`/`) || `–`}, inset ${m!.textInset ?? `–`}; vs web @${m!.webWidth}: ${m!.differences.length ? m!.differences.join(`; `) : `same spacing`}`)
+      console.log(`${id} ${platform} @${m!.width}: ${m!.nodes} nodes, ${m!.height} tall, gaps ${m!.distinctGaps.join(`/`) || `–`}, padding ${m!.textPadding ?? `–`}; vs web @${m!.webWidth}: ${m!.differences.length ? m!.differences.join(`; `) : `same spacing`}`)
     }
   }
   const report = buildReport({ ...readReport(), natives })

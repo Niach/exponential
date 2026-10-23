@@ -2232,41 +2232,47 @@
       {
         "width": 1280,
         "react": {
-          "height": 508,
-          "nodes": 27,
+          "height": 672,
+          "nodes": 34,
           "gaps": [
+            16,
             16
           ],
           "distinctGaps": [
             16
           ],
-          "textInset": 17,
+          "textInset": 28,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/settings-page/react-1280.png"
         },
         "solid": {
-          "height": 508,
-          "nodes": 27,
+          "height": 672,
+          "nodes": 34,
           "gaps": [
+            16,
             16
           ],
           "distinctGaps": [
             16
           ],
-          "textInset": 17,
+          "textInset": 28,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/settings-page/solid-1280.png"
         },
         "element": {
-          "height": 508,
-          "nodes": 27,
+          "height": 672,
+          "nodes": 34,
           "gaps": [
+            16,
             16
           ],
           "distinctGaps": [
             16
           ],
-          "textInset": 17,
+          "textInset": 28,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/settings-page/element-1280.png"
         },
@@ -2291,63 +2297,69 @@
       {
         "width": 1280,
         "react": {
-          "height": 224,
-          "nodes": 34,
+          "height": 511,
+          "nodes": 71,
           "gaps": [
+            12,
             12
           ],
           "distinctGaps": [
             12
           ],
-          "textInset": null,
+          "textInset": 16,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/issue-list-filters/react-1280.png"
         },
         "solid": {
-          "height": 224,
-          "nodes": 38,
+          "height": 511,
+          "nodes": 73,
           "gaps": [
+            12,
             12
           ],
           "distinctGaps": [
             12
           ],
-          "textInset": null,
+          "textInset": 16,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/issue-list-filters/solid-1280.png"
         },
         "element": {
-          "height": 224,
-          "nodes": 38,
+          "height": 511,
+          "nodes": 73,
           "gaps": [
+            12,
             12
           ],
           "distinctGaps": [
             12
           ],
-          "textInset": null,
+          "textInset": 16,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/issue-list-filters/element-1280.png"
         },
         "equal": false,
         "differences": {
           "solid": [
-            "nodes: react 34, solid 38",
-            "pixels: 7145 differ (0.16 %)"
+            "nodes: react 71, solid 73",
+            "pixels: 57921 differ (1.26 %)"
           ],
           "element": [
-            "nodes: react 34, element 38",
-            "pixels: 7145 differ (0.16 %)"
+            "nodes: react 71, element 73",
+            "pixels: 57921 differ (1.26 %)"
           ]
         },
         "pixelDiff": {
           "solid": {
-            "pixels": 7145,
-            "share": 0.001550564236111111
+            "pixels": 57921,
+            "share": 0.012569661458333334
           },
           "element": {
-            "pixels": 7145,
-            "share": 0.001550564236111111
+            "pixels": 57921,
+            "share": 0.012569661458333334
           }
         }
       }
@@ -2356,41 +2368,47 @@
       {
         "width": 1280,
         "react": {
-          "height": 200,
-          "nodes": 36,
+          "height": 587,
+          "nodes": 94,
           "gaps": [
-            12
+            16,
+            16
           ],
           "distinctGaps": [
-            12
+            16
           ],
-          "textInset": 36,
+          "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/device-dashboard/react-1280.png"
         },
         "solid": {
-          "height": 200,
-          "nodes": 36,
+          "height": 587,
+          "nodes": 94,
           "gaps": [
-            12
+            16,
+            16
           ],
           "distinctGaps": [
-            12
+            16
           ],
-          "textInset": 36,
+          "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/device-dashboard/solid-1280.png"
         },
         "element": {
-          "height": 200,
-          "nodes": 36,
+          "height": 587,
+          "nodes": 94,
           "gaps": [
-            12
+            16,
+            16
           ],
           "distinctGaps": [
-            12
+            16
           ],
-          "textInset": 36,
+          "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/device-dashboard/element-1280.png"
         },
@@ -2415,41 +2433,32 @@
       {
         "width": 1280,
         "react": {
-          "height": 374,
-          "nodes": 18,
-          "gaps": [
-            0
-          ],
-          "distinctGaps": [
-            0
-          ],
-          "textInset": 17,
+          "height": 412,
+          "nodes": 21,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 447,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/form-validation/react-1280.png"
         },
         "solid": {
-          "height": 374,
-          "nodes": 18,
-          "gaps": [
-            0
-          ],
-          "distinctGaps": [
-            0
-          ],
-          "textInset": 17,
+          "height": 412,
+          "nodes": 21,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 447,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/form-validation/solid-1280.png"
         },
         "element": {
-          "height": 374,
-          "nodes": 18,
-          "gaps": [
-            0
-          ],
-          "distinctGaps": [
-            0
-          ],
-          "textInset": 17,
+          "height": 412,
+          "nodes": 21,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 447,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/form-validation/element-1280.png"
         },
@@ -2475,40 +2484,46 @@
         "width": 1280,
         "react": {
           "height": 480,
-          "nodes": 18,
+          "nodes": 52,
           "gaps": [
-            8
+            0,
+            0
           ],
           "distinctGaps": [
-            8
+            0
           ],
-          "textInset": null,
+          "textInset": 44,
+          "textPadding": 44,
           "overflowsX": false,
           "picture": "eval/out/chat/react-1280.png"
         },
         "solid": {
           "height": 480,
-          "nodes": 18,
+          "nodes": 52,
           "gaps": [
-            8
+            0,
+            0
           ],
           "distinctGaps": [
-            8
+            0
           ],
-          "textInset": null,
+          "textInset": 44,
+          "textPadding": 44,
           "overflowsX": false,
           "picture": "eval/out/chat/solid-1280.png"
         },
         "element": {
           "height": 480,
-          "nodes": 18,
+          "nodes": 52,
           "gaps": [
-            8
+            0,
+            0
           ],
           "distinctGaps": [
-            8
+            0
           ],
-          "textInset": null,
+          "textInset": 44,
+          "textPadding": 44,
           "overflowsX": false,
           "picture": "eval/out/chat/element-1280.png"
         },
@@ -2533,44 +2548,44 @@
       {
         "width": 1280,
         "react": {
-          "height": 136,
-          "nodes": 42,
+          "height": 430,
+          "nodes": 90,
           "gaps": [
-            -136,
-            -136
+            16
           ],
           "distinctGaps": [
-            -136
+            16
           ],
           "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/kanban/react-1280.png"
         },
         "solid": {
-          "height": 136,
-          "nodes": 42,
+          "height": 430,
+          "nodes": 90,
           "gaps": [
-            -136,
-            -136
+            16
           ],
           "distinctGaps": [
-            -136
+            16
           ],
           "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/kanban/solid-1280.png"
         },
         "element": {
-          "height": 136,
-          "nodes": 42,
+          "height": 430,
+          "nodes": 90,
           "gaps": [
-            -136,
-            -136
+            16
           ],
           "distinctGaps": [
-            -136
+            16
           ],
           "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/kanban/element-1280.png"
         },
@@ -2595,41 +2610,44 @@
       {
         "width": 1280,
         "react": {
-          "height": 176,
-          "nodes": 33,
+          "height": 433,
+          "nodes": 72,
           "gaps": [
-            12
+            0
           ],
           "distinctGaps": [
-            12
+            0
           ],
-          "textInset": 0,
+          "textInset": 17,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/data-table/react-1280.png"
         },
         "solid": {
-          "height": 176,
-          "nodes": 33,
+          "height": 433,
+          "nodes": 72,
           "gaps": [
-            12
+            0
           ],
           "distinctGaps": [
-            12
+            0
           ],
-          "textInset": 0,
+          "textInset": 17,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/data-table/solid-1280.png"
         },
         "element": {
-          "height": 176,
-          "nodes": 33,
+          "height": 433,
+          "nodes": 72,
           "gaps": [
-            12
+            0
           ],
           "distinctGaps": [
-            12
+            0
           ],
-          "textInset": 0,
+          "textInset": 17,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/data-table/element-1280.png"
         },
@@ -2654,41 +2672,32 @@
       {
         "width": 1280,
         "react": {
-          "height": 286,
-          "nodes": 35,
-          "gaps": [
-            0
-          ],
-          "distinctGaps": [
-            0
-          ],
-          "textInset": 17,
+          "height": 485,
+          "nodes": 50,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 297,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/wizard/react-1280.png"
         },
         "solid": {
-          "height": 286,
-          "nodes": 35,
-          "gaps": [
-            0
-          ],
-          "distinctGaps": [
-            0
-          ],
-          "textInset": 17,
+          "height": 485,
+          "nodes": 50,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 297,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/wizard/solid-1280.png"
         },
         "element": {
-          "height": 286,
-          "nodes": 35,
-          "gaps": [
-            0
-          ],
-          "distinctGaps": [
-            0
-          ],
-          "textInset": 17,
+          "height": 485,
+          "nodes": 50,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 297,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/wizard/element-1280.png"
         },
@@ -2713,47 +2722,44 @@
       {
         "width": 1280,
         "react": {
-          "height": 260,
-          "nodes": 6,
+          "height": 408,
+          "nodes": 12,
           "gaps": [
-            12,
-            12,
-            12
+            0
           ],
           "distinctGaps": [
-            12
+            0
           ],
-          "textInset": 584,
+          "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/empty-state/react-1280.png"
         },
         "solid": {
-          "height": 260,
-          "nodes": 6,
+          "height": 408,
+          "nodes": 12,
           "gaps": [
-            12,
-            12,
-            12
+            0
           ],
           "distinctGaps": [
-            12
+            0
           ],
-          "textInset": 584,
+          "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/empty-state/solid-1280.png"
         },
         "element": {
-          "height": 260,
-          "nodes": 6,
+          "height": 408,
+          "nodes": 12,
           "gaps": [
-            12,
-            12,
-            12
+            0
           ],
           "distinctGaps": [
-            12
+            0
           ],
-          "textInset": 584,
+          "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/empty-state/element-1280.png"
         },
@@ -2778,8 +2784,8 @@
       {
         "width": 320,
         "react": {
-          "height": 338,
-          "nodes": 54,
+          "height": 593,
+          "nodes": 74,
           "gaps": [
             0
           ],
@@ -2787,12 +2793,13 @@
             0
           ],
           "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/mobile-list/react-320.png"
         },
         "solid": {
-          "height": 338,
-          "nodes": 54,
+          "height": 593,
+          "nodes": 74,
           "gaps": [
             0
           ],
@@ -2800,12 +2807,13 @@
             0
           ],
           "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/mobile-list/solid-320.png"
         },
         "element": {
-          "height": 338,
-          "nodes": 54,
+          "height": 593,
+          "nodes": 74,
           "gaps": [
             0
           ],
@@ -2813,6 +2821,7 @@
             0
           ],
           "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/mobile-list/element-320.png"
         },
@@ -2835,8 +2844,8 @@
       {
         "width": 390,
         "react": {
-          "height": 338,
-          "nodes": 54,
+          "height": 593,
+          "nodes": 74,
           "gaps": [
             0
           ],
@@ -2844,12 +2853,13 @@
             0
           ],
           "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/mobile-list/react-390.png"
         },
         "solid": {
-          "height": 338,
-          "nodes": 54,
+          "height": 593,
+          "nodes": 74,
           "gaps": [
             0
           ],
@@ -2857,12 +2867,13 @@
             0
           ],
           "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/mobile-list/solid-390.png"
         },
         "element": {
-          "height": 338,
-          "nodes": 54,
+          "height": 593,
+          "nodes": 74,
           "gaps": [
             0
           ],
@@ -2870,6 +2881,7 @@
             0
           ],
           "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/mobile-list/element-390.png"
         },
@@ -2892,8 +2904,8 @@
       {
         "width": 768,
         "react": {
-          "height": 338,
-          "nodes": 54,
+          "height": 593,
+          "nodes": 74,
           "gaps": [
             0
           ],
@@ -2901,12 +2913,13 @@
             0
           ],
           "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/mobile-list/react-768.png"
         },
         "solid": {
-          "height": 338,
-          "nodes": 54,
+          "height": 593,
+          "nodes": 74,
           "gaps": [
             0
           ],
@@ -2914,12 +2927,13 @@
             0
           ],
           "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/mobile-list/solid-768.png"
         },
         "element": {
-          "height": 338,
-          "nodes": 54,
+          "height": 593,
+          "nodes": 74,
           "gaps": [
             0
           ],
@@ -2927,6 +2941,7 @@
             0
           ],
           "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/mobile-list/element-768.png"
         },
@@ -2949,8 +2964,8 @@
       {
         "width": 1280,
         "react": {
-          "height": 338,
-          "nodes": 54,
+          "height": 593,
+          "nodes": 74,
           "gaps": [
             0
           ],
@@ -2958,12 +2973,13 @@
             0
           ],
           "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/mobile-list/react-1280.png"
         },
         "solid": {
-          "height": 338,
-          "nodes": 54,
+          "height": 593,
+          "nodes": 74,
           "gaps": [
             0
           ],
@@ -2971,12 +2987,13 @@
             0
           ],
           "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/mobile-list/solid-1280.png"
         },
         "element": {
-          "height": 338,
-          "nodes": 54,
+          "height": 593,
+          "nodes": 74,
           "gaps": [
             0
           ],
@@ -2984,6 +3001,7 @@
             0
           ],
           "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/mobile-list/element-1280.png"
         },
@@ -3008,29 +3026,32 @@
       {
         "width": 1280,
         "react": {
-          "height": 208,
-          "nodes": 22,
+          "height": 206,
+          "nodes": 23,
           "gaps": [],
           "distinctGaps": [],
           "textInset": 69,
+          "textPadding": 52,
           "overflowsX": false,
           "picture": "eval/out/profile-card/react-1280.png"
         },
         "solid": {
-          "height": 208,
-          "nodes": 22,
+          "height": 206,
+          "nodes": 23,
           "gaps": [],
           "distinctGaps": [],
           "textInset": 69,
+          "textPadding": 52,
           "overflowsX": false,
           "picture": "eval/out/profile-card/solid-1280.png"
         },
         "element": {
-          "height": 208,
-          "nodes": 22,
+          "height": 206,
+          "nodes": 23,
           "gaps": [],
           "distinctGaps": [],
           "textInset": 69,
+          "textPadding": 52,
           "overflowsX": false,
           "picture": "eval/out/profile-card/element-1280.png"
         },
@@ -3055,41 +3076,32 @@
       {
         "width": 1280,
         "react": {
-          "height": 409,
-          "nodes": 20,
-          "gaps": [
-            0
-          ],
-          "distinctGaps": [
-            0
-          ],
-          "textInset": 17,
+          "height": 397,
+          "nodes": 23,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 457,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/login/react-1280.png"
         },
         "solid": {
-          "height": 409,
-          "nodes": 20,
-          "gaps": [
-            0
-          ],
-          "distinctGaps": [
-            0
-          ],
-          "textInset": 17,
+          "height": 397,
+          "nodes": 23,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 457,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/login/solid-1280.png"
         },
         "element": {
-          "height": 409,
-          "nodes": 20,
-          "gaps": [
-            0
-          ],
-          "distinctGaps": [
-            0
-          ],
-          "textInset": 17,
+          "height": 397,
+          "nodes": 23,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 457,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/login/element-1280.png"
         },
@@ -3114,41 +3126,47 @@
       {
         "width": 390,
         "react": {
-          "height": 880,
-          "nodes": 29,
+          "height": 1321,
+          "nodes": 93,
           "gaps": [
-            16
+            24,
+            24
           ],
           "distinctGaps": [
-            16
+            24
           ],
-          "textInset": 157,
+          "textInset": 24,
+          "textPadding": 24,
           "overflowsX": false,
           "picture": "eval/out/pricing/react-390.png"
         },
         "solid": {
-          "height": 880,
-          "nodes": 29,
+          "height": 1321,
+          "nodes": 93,
           "gaps": [
-            16
+            24,
+            24
           ],
           "distinctGaps": [
-            16
+            24
           ],
-          "textInset": 157,
+          "textInset": 24,
+          "textPadding": 24,
           "overflowsX": false,
           "picture": "eval/out/pricing/solid-390.png"
         },
         "element": {
-          "height": 880,
-          "nodes": 29,
+          "height": 1321,
+          "nodes": 93,
           "gaps": [
-            16
+            24,
+            24
           ],
           "distinctGaps": [
-            16
+            24
           ],
-          "textInset": 157,
+          "textInset": 24,
+          "textPadding": 24,
           "overflowsX": false,
           "picture": "eval/out/pricing/element-390.png"
         },
@@ -3171,41 +3189,47 @@
       {
         "width": 1280,
         "react": {
-          "height": 348,
-          "nodes": 29,
+          "height": 559,
+          "nodes": 93,
           "gaps": [
-            16
+            24,
+            24
           ],
           "distinctGaps": [
-            16
+            24
           ],
-          "textInset": 602,
+          "textInset": 351,
+          "textPadding": 327,
           "overflowsX": false,
           "picture": "eval/out/pricing/react-1280.png"
         },
         "solid": {
-          "height": 348,
-          "nodes": 29,
+          "height": 559,
+          "nodes": 93,
           "gaps": [
-            16
+            24,
+            24
           ],
           "distinctGaps": [
-            16
+            24
           ],
-          "textInset": 602,
+          "textInset": 351,
+          "textPadding": 327,
           "overflowsX": false,
           "picture": "eval/out/pricing/solid-1280.png"
         },
         "element": {
-          "height": 348,
-          "nodes": 29,
+          "height": 559,
+          "nodes": 93,
           "gaps": [
-            16
+            24,
+            24
           ],
           "distinctGaps": [
-            16
+            24
           ],
-          "textInset": 602,
+          "textInset": 351,
+          "textPadding": 327,
           "overflowsX": false,
           "picture": "eval/out/pricing/element-1280.png"
         },
@@ -3230,41 +3254,32 @@
       {
         "width": 1280,
         "react": {
-          "height": 142,
-          "nodes": 28,
-          "gaps": [
-            12
-          ],
-          "distinctGaps": [
-            12
-          ],
-          "textInset": null,
+          "height": 576,
+          "nodes": 104,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 159,
+          "textPadding": 20,
           "overflowsX": false,
           "picture": "eval/out/file-manager/react-1280.png"
         },
         "solid": {
-          "height": 142,
-          "nodes": 28,
-          "gaps": [
-            12
-          ],
-          "distinctGaps": [
-            12
-          ],
-          "textInset": null,
+          "height": 576,
+          "nodes": 104,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 159,
+          "textPadding": 20,
           "overflowsX": false,
           "picture": "eval/out/file-manager/solid-1280.png"
         },
         "element": {
-          "height": 142,
-          "nodes": 28,
-          "gaps": [
-            12
-          ],
-          "distinctGaps": [
-            12
-          ],
-          "textInset": null,
+          "height": 576,
+          "nodes": 104,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 159,
+          "textPadding": 20,
           "overflowsX": false,
           "picture": "eval/out/file-manager/element-1280.png"
         },
@@ -3289,8 +3304,8 @@
       {
         "width": 1280,
         "react": {
-          "height": 590,
-          "nodes": 33,
+          "height": 632,
+          "nodes": 40,
           "gaps": [
             0
           ],
@@ -3298,12 +3313,13 @@
             0
           ],
           "textInset": 17,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/calendar-event/react-1280.png"
         },
         "solid": {
-          "height": 590,
-          "nodes": 33,
+          "height": 632,
+          "nodes": 40,
           "gaps": [
             0
           ],
@@ -3311,12 +3327,13 @@
             0
           ],
           "textInset": 17,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/calendar-event/solid-1280.png"
         },
         "element": {
-          "height": 590,
-          "nodes": 33,
+          "height": 632,
+          "nodes": 40,
           "gaps": [
             0
           ],
@@ -3324,6 +3341,7 @@
             0
           ],
           "textInset": 17,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/calendar-event/element-1280.png"
         },
@@ -3348,44 +3366,50 @@
       {
         "width": 1280,
         "react": {
-          "height": 883,
-          "nodes": 82,
+          "height": 1049,
+          "nodes": 127,
           "gaps": [
+            16,
             16,
             16
           ],
           "distinctGaps": [
             16
           ],
-          "textInset": 17,
+          "textInset": 16,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/analytics-dashboard/react-1280.png"
         },
         "solid": {
-          "height": 883,
-          "nodes": 82,
+          "height": 1049,
+          "nodes": 127,
           "gaps": [
+            16,
             16,
             16
           ],
           "distinctGaps": [
             16
           ],
-          "textInset": 17,
+          "textInset": 16,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/analytics-dashboard/solid-1280.png"
         },
         "element": {
-          "height": 883,
-          "nodes": 82,
+          "height": 1049,
+          "nodes": 127,
           "gaps": [
+            16,
             16,
             16
           ],
           "distinctGaps": [
             16
           ],
-          "textInset": 17,
+          "textInset": 16,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/analytics-dashboard/element-1280.png"
         },
@@ -3410,41 +3434,44 @@
       {
         "width": 1280,
         "react": {
-          "height": 226,
-          "nodes": 55,
+          "height": 347,
+          "nodes": 67,
           "gaps": [
-            16
+            0
           ],
           "distinctGaps": [
-            16
+            0
           ],
-          "textInset": 0,
+          "textInset": 17,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/notification-prefs/react-1280.png"
         },
         "solid": {
-          "height": 226,
-          "nodes": 55,
+          "height": 347,
+          "nodes": 67,
           "gaps": [
-            16
+            0
           ],
           "distinctGaps": [
-            16
+            0
           ],
-          "textInset": 0,
+          "textInset": 17,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/notification-prefs/solid-1280.png"
         },
         "element": {
-          "height": 226,
-          "nodes": 55,
+          "height": 347,
+          "nodes": 67,
           "gaps": [
-            16
+            0
           ],
           "distinctGaps": [
-            16
+            0
           ],
-          "textInset": 0,
+          "textInset": 17,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/notification-prefs/element-1280.png"
         },
@@ -3469,29 +3496,32 @@
       {
         "width": 1280,
         "react": {
-          "height": 0,
-          "nodes": 8,
+          "height": 32,
+          "nodes": 15,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": null,
+          "textInset": 462,
+          "textPadding": 37,
           "overflowsX": false,
           "picture": "eval/out/confirm-delete/react-1280.png"
         },
         "solid": {
-          "height": 0,
-          "nodes": 8,
+          "height": 32,
+          "nodes": 15,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": null,
+          "textInset": 462,
+          "textPadding": 37,
           "overflowsX": false,
           "picture": "eval/out/confirm-delete/solid-1280.png"
         },
         "element": {
-          "height": 0,
-          "nodes": 8,
+          "height": 32,
+          "nodes": 15,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": null,
+          "textInset": 462,
+          "textPadding": 37,
           "overflowsX": false,
           "picture": "eval/out/confirm-delete/element-1280.png"
         },
@@ -3516,44 +3546,32 @@
       {
         "width": 1280,
         "react": {
-          "height": 238,
-          "nodes": 28,
-          "gaps": [
-            12,
-            12
-          ],
-          "distinctGaps": [
-            12
-          ],
-          "textInset": 12,
+          "height": 56,
+          "nodes": 1,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": null,
+          "textPadding": null,
           "overflowsX": false,
           "picture": "eval/out/search-results/react-1280.png"
         },
         "solid": {
-          "height": 238,
-          "nodes": 28,
-          "gaps": [
-            12,
-            12
-          ],
-          "distinctGaps": [
-            12
-          ],
-          "textInset": 12,
+          "height": 56,
+          "nodes": 1,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": null,
+          "textPadding": null,
           "overflowsX": false,
           "picture": "eval/out/search-results/solid-1280.png"
         },
         "element": {
-          "height": 238,
-          "nodes": 28,
-          "gaps": [
-            12,
-            12
-          ],
-          "distinctGaps": [
-            12
-          ],
-          "textInset": 12,
+          "height": 56,
+          "nodes": 1,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": null,
+          "textPadding": null,
           "overflowsX": false,
           "picture": "eval/out/search-results/element-1280.png"
         },
@@ -3578,53 +3596,44 @@
       {
         "width": 1280,
         "react": {
-          "height": 160,
-          "nodes": 28,
+          "height": 260,
+          "nodes": 37,
           "gaps": [
-            8,
-            8,
-            8,
-            8,
-            8
+            0
           ],
           "distinctGaps": [
-            8
+            0
           ],
-          "textInset": 24,
+          "textInset": 17,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/agent-trace/react-1280.png"
         },
         "solid": {
-          "height": 160,
-          "nodes": 28,
+          "height": 260,
+          "nodes": 37,
           "gaps": [
-            8,
-            8,
-            8,
-            8,
-            8
+            0
           ],
           "distinctGaps": [
-            8
+            0
           ],
-          "textInset": 24,
+          "textInset": 17,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/agent-trace/solid-1280.png"
         },
         "element": {
-          "height": 160,
-          "nodes": 28,
+          "height": 260,
+          "nodes": 37,
           "gaps": [
-            8,
-            8,
-            8,
-            8,
-            8
+            0
           ],
           "distinctGaps": [
-            8
+            0
           ],
-          "textInset": 24,
+          "textInset": 17,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/agent-trace/element-1280.png"
         },
@@ -3649,41 +3658,44 @@
       {
         "width": 1280,
         "react": {
-          "height": 520,
-          "nodes": 39,
+          "height": 666,
+          "nodes": 59,
           "gaps": [
             16
           ],
           "distinctGaps": [
             16
           ],
-          "textInset": 17,
+          "textInset": 33,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/invite-members/react-1280.png"
         },
         "solid": {
-          "height": 520,
-          "nodes": 39,
+          "height": 666,
+          "nodes": 59,
           "gaps": [
             16
           ],
           "distinctGaps": [
             16
           ],
-          "textInset": 17,
+          "textInset": 33,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/invite-members/solid-1280.png"
         },
         "element": {
-          "height": 520,
-          "nodes": 39,
+          "height": 666,
+          "nodes": 59,
           "gaps": [
             16
           ],
           "distinctGaps": [
             16
           ],
-          "textInset": 17,
+          "textInset": 33,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/invite-members/element-1280.png"
         },
@@ -3708,29 +3720,44 @@
       {
         "width": 1280,
         "react": {
-          "height": 314,
-          "nodes": 15,
-          "gaps": [],
-          "distinctGaps": [],
-          "textInset": null,
+          "height": 722,
+          "nodes": 22,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 16,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/media-gallery/react-1280.png"
         },
         "solid": {
-          "height": 314,
-          "nodes": 15,
-          "gaps": [],
-          "distinctGaps": [],
-          "textInset": null,
+          "height": 722,
+          "nodes": 22,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 16,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/media-gallery/solid-1280.png"
         },
         "element": {
-          "height": 314,
-          "nodes": 15,
-          "gaps": [],
-          "distinctGaps": [],
-          "textInset": null,
+          "height": 722,
+          "nodes": 22,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 16,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/media-gallery/element-1280.png"
         },
@@ -3755,10 +3782,9 @@
       {
         "width": 1280,
         "react": {
-          "height": 357,
-          "nodes": 48,
+          "height": 619,
+          "nodes": 74,
           "gaps": [
-            16,
             16,
             16,
             16
@@ -3766,15 +3792,15 @@
           "distinctGaps": [
             16
           ],
-          "textInset": 52,
+          "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/order-tracking/react-1280.png"
         },
         "solid": {
-          "height": 357,
-          "nodes": 48,
+          "height": 619,
+          "nodes": 74,
           "gaps": [
-            16,
             16,
             16,
             16
@@ -3782,15 +3808,15 @@
           "distinctGaps": [
             16
           ],
-          "textInset": 52,
+          "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/order-tracking/solid-1280.png"
         },
         "element": {
-          "height": 357,
-          "nodes": 48,
+          "height": 619,
+          "nodes": 74,
           "gaps": [
-            16,
             16,
             16,
             16
@@ -3798,7 +3824,8 @@
           "distinctGaps": [
             16
           ],
-          "textInset": 52,
+          "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/order-tracking/element-1280.png"
         },
@@ -3823,29 +3850,32 @@
       {
         "width": 390,
         "react": {
-          "height": 232,
-          "nodes": 31,
+          "height": 503,
+          "nodes": 64,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": 68,
+          "textInset": 0,
+          "textPadding": null,
           "overflowsX": false,
           "picture": "eval/out/split-view/react-390.png"
         },
         "solid": {
-          "height": 232,
-          "nodes": 31,
+          "height": 503,
+          "nodes": 64,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": 68,
+          "textInset": 0,
+          "textPadding": null,
           "overflowsX": false,
           "picture": "eval/out/split-view/solid-390.png"
         },
         "element": {
-          "height": 232,
-          "nodes": 31,
+          "height": 503,
+          "nodes": 64,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": 68,
+          "textInset": 0,
+          "textPadding": null,
           "overflowsX": false,
           "picture": "eval/out/split-view/element-390.png"
         },
@@ -3868,41 +3898,44 @@
       {
         "width": 1280,
         "react": {
-          "height": 232,
-          "nodes": 31,
+          "height": 411,
+          "nodes": 64,
           "gaps": [
-            -232
+            -411
           ],
           "distinctGaps": [
-            -232
+            -411
           ],
-          "textInset": 388,
+          "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/split-view/react-1280.png"
         },
         "solid": {
-          "height": 232,
-          "nodes": 31,
+          "height": 411,
+          "nodes": 64,
           "gaps": [
-            -232
+            -411
           ],
           "distinctGaps": [
-            -232
+            -411
           ],
-          "textInset": 388,
+          "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/split-view/solid-1280.png"
         },
         "element": {
-          "height": 232,
-          "nodes": 31,
+          "height": 411,
+          "nodes": 64,
           "gaps": [
-            -232
+            -411
           ],
           "distinctGaps": [
-            -232
+            -411
           ],
-          "textInset": 388,
+          "textInset": 12,
+          "textPadding": 12,
           "overflowsX": false,
           "picture": "eval/out/split-view/element-1280.png"
         },
@@ -3927,41 +3960,44 @@
       {
         "width": 1280,
         "react": {
-          "height": 143,
-          "nodes": 28,
+          "height": 170,
+          "nodes": 48,
           "gaps": [
-            12
+            4
           ],
           "distinctGaps": [
-            12
+            4
           ],
-          "textInset": 0,
+          "textInset": 36,
+          "textPadding": 36,
           "overflowsX": false,
           "picture": "eval/out/api-keys/react-1280.png"
         },
         "solid": {
-          "height": 143,
-          "nodes": 28,
+          "height": 170,
+          "nodes": 48,
           "gaps": [
-            12
+            4
           ],
           "distinctGaps": [
-            12
+            4
           ],
-          "textInset": 0,
+          "textInset": 36,
+          "textPadding": 36,
           "overflowsX": false,
           "picture": "eval/out/api-keys/solid-1280.png"
         },
         "element": {
-          "height": 143,
-          "nodes": 28,
+          "height": 170,
+          "nodes": 48,
           "gaps": [
-            12
+            4
           ],
           "distinctGaps": [
-            12
+            4
           ],
-          "textInset": 0,
+          "textInset": 36,
+          "textPadding": 36,
           "overflowsX": false,
           "picture": "eval/out/api-keys/element-1280.png"
         },
@@ -3986,41 +4022,32 @@
       {
         "width": 1280,
         "react": {
-          "height": 317,
-          "nodes": 36,
-          "gaps": [
-            16
-          ],
-          "distinctGaps": [
-            16
-          ],
+          "height": 576,
+          "nodes": 79,
+          "gaps": [],
+          "distinctGaps": [],
           "textInset": null,
+          "textPadding": null,
           "overflowsX": false,
           "picture": "eval/out/loading-page/react-1280.png"
         },
         "solid": {
-          "height": 317,
-          "nodes": 36,
-          "gaps": [
-            16
-          ],
-          "distinctGaps": [
-            16
-          ],
+          "height": 576,
+          "nodes": 79,
+          "gaps": [],
+          "distinctGaps": [],
           "textInset": null,
+          "textPadding": null,
           "overflowsX": false,
           "picture": "eval/out/loading-page/solid-1280.png"
         },
         "element": {
-          "height": 317,
-          "nodes": 36,
-          "gaps": [
-            16
-          ],
-          "distinctGaps": [
-            16
-          ],
+          "height": 576,
+          "nodes": 79,
+          "gaps": [],
+          "distinctGaps": [],
           "textInset": null,
+          "textPadding": null,
           "overflowsX": false,
           "picture": "eval/out/loading-page/element-1280.png"
         },
@@ -4045,29 +4072,32 @@
       {
         "width": 1280,
         "react": {
-          "height": 546,
-          "nodes": 31,
+          "height": 658,
+          "nodes": 47,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": 17,
+          "textInset": 377,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/feedback-form/react-1280.png"
         },
         "solid": {
-          "height": 546,
-          "nodes": 31,
+          "height": 658,
+          "nodes": 47,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": 17,
+          "textInset": 377,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/feedback-form/solid-1280.png"
         },
         "element": {
-          "height": 546,
-          "nodes": 31,
+          "height": 658,
+          "nodes": 47,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": 17,
+          "textInset": 377,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/feedback-form/element-1280.png"
         },
@@ -4092,29 +4122,32 @@
       {
         "width": 1280,
         "react": {
-          "height": 454,
-          "nodes": 43,
+          "height": 872,
+          "nodes": 55,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": 125,
+          "textInset": 17,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/music-player/react-1280.png"
         },
         "solid": {
-          "height": 454,
-          "nodes": 43,
+          "height": 872,
+          "nodes": 55,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": 125,
+          "textInset": 17,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/music-player/solid-1280.png"
         },
         "element": {
-          "height": 454,
-          "nodes": 43,
+          "height": 872,
+          "nodes": 55,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": 125,
+          "textInset": 17,
+          "textPadding": 16,
           "overflowsX": false,
           "picture": "eval/out/music-player/element-1280.png"
         },
@@ -4139,44 +4172,32 @@
       {
         "width": 1280,
         "react": {
-          "height": 294,
-          "nodes": 30,
-          "gaps": [
-            8,
-            8
-          ],
-          "distinctGaps": [
-            8
-          ],
-          "textInset": 9,
+          "height": 641,
+          "nodes": 71,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 45,
+          "textPadding": 28,
           "overflowsX": false,
           "picture": "eval/out/terminal-output/react-1280.png"
         },
         "solid": {
-          "height": 294,
-          "nodes": 30,
-          "gaps": [
-            8,
-            8
-          ],
-          "distinctGaps": [
-            8
-          ],
-          "textInset": 9,
+          "height": 641,
+          "nodes": 71,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 45,
+          "textPadding": 28,
           "overflowsX": false,
           "picture": "eval/out/terminal-output/solid-1280.png"
         },
         "element": {
-          "height": 294,
-          "nodes": 30,
-          "gaps": [
-            8,
-            8
-          ],
-          "distinctGaps": [
-            8
-          ],
-          "textInset": 9,
+          "height": 641,
+          "nodes": 71,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 45,
+          "textPadding": 28,
           "overflowsX": false,
           "picture": "eval/out/terminal-output/element-1280.png"
         },
@@ -4202,40 +4223,31 @@
         "width": 1280,
         "react": {
           "height": 48,
-          "nodes": 5,
-          "gaps": [
-            -22
-          ],
-          "distinctGaps": [
-            -22
-          ],
-          "textInset": 113,
+          "nodes": 7,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 165,
+          "textPadding": 165,
           "overflowsX": false,
           "picture": "eval/out/team-switcher/react-1280.png"
         },
         "solid": {
           "height": 48,
-          "nodes": 5,
-          "gaps": [
-            -22
-          ],
-          "distinctGaps": [
-            -22
-          ],
-          "textInset": 113,
+          "nodes": 7,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 165,
+          "textPadding": 165,
           "overflowsX": false,
           "picture": "eval/out/team-switcher/solid-1280.png"
         },
         "element": {
           "height": 48,
-          "nodes": 5,
-          "gaps": [
-            -22
-          ],
-          "distinctGaps": [
-            -22
-          ],
-          "textInset": 113,
+          "nodes": 7,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 165,
+          "textPadding": 165,
           "overflowsX": false,
           "picture": "eval/out/team-switcher/element-1280.png"
         },
@@ -4257,8 +4269,1494 @@
       }
     ]
   },
+  "natives": {
+    "$comment": "What the native renders measured (VAPP-127): the frames the Compose example, the Swift example and the IDE dumped for each eval specimen, measured like render.ts measures the web, and compared with the React render at the closest corpus width (the gaps and the first text's padding inside its box within 1 px; a sideways overflow the web does not have; the height and a centred column's inset are the width's). The shots pipeline's eval lane writes the frames; natives.ts writes this.",
+    "surfaces": {
+      "settings-page": {
+        "android": {
+          "height": 716,
+          "nodes": 34,
+          "gaps": [
+            16,
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 28,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/settings-page/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 716,
+          "nodes": 34,
+          "gaps": [
+            16,
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 28,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/settings-page/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 672,
+          "nodes": 34,
+          "gaps": [
+            16,
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 28,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/settings-page/desktop.webp",
+          "width": 720,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "issue-list-filters": {
+        "android": {
+          "height": 647,
+          "nodes": 73,
+          "gaps": [
+            12,
+            12
+          ],
+          "distinctGaps": [
+            12
+          ],
+          "textInset": 16,
+          "textPadding": 16,
+          "overflowsX": true,
+          "picture": "eval/out/issue-list-filters/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": [
+            "overflowsX at 411"
+          ]
+        },
+        "ios": {
+          "height": 647,
+          "nodes": 73,
+          "gaps": [
+            12,
+            12
+          ],
+          "distinctGaps": [
+            12
+          ],
+          "textInset": 16,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/issue-list-filters/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 511,
+          "nodes": 73,
+          "gaps": [
+            12,
+            12
+          ],
+          "distinctGaps": [
+            12
+          ],
+          "textInset": 16,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/issue-list-filters/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "device-dashboard": {
+        "android": {
+          "height": 823,
+          "nodes": 93,
+          "gaps": [
+            16,
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/device-dashboard/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 823,
+          "nodes": 93,
+          "gaps": [
+            16,
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/device-dashboard/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 587,
+          "nodes": 93,
+          "gaps": [
+            16,
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/device-dashboard/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "form-validation": {
+        "android": {
+          "height": 412,
+          "nodes": 21,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 33,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/form-validation/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 412,
+          "nodes": 21,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 33,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/form-validation/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 412,
+          "nodes": 21,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 381,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/form-validation/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "chat": {
+        "android": {
+          "height": 866,
+          "nodes": 52,
+          "gaps": [
+            0,
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 44,
+          "textPadding": 44,
+          "overflowsX": false,
+          "picture": "eval/out/chat/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 860,
+          "nodes": 52,
+          "gaps": [
+            0,
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 44,
+          "textPadding": 44,
+          "overflowsX": false,
+          "picture": "eval/out/chat/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 878,
+          "nodes": 52,
+          "gaps": [
+            0,
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 44,
+          "textPadding": 44,
+          "overflowsX": false,
+          "picture": "eval/out/chat/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "kanban": {
+        "android": {
+          "height": 1034,
+          "nodes": 90,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/kanban/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 1034,
+          "nodes": 90,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/kanban/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 430,
+          "nodes": 90,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/kanban/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "data-table": {
+        "android": {
+          "height": 453,
+          "nodes": 72,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/data-table/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 433,
+          "nodes": 72,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/data-table/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 433,
+          "nodes": 72,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/data-table/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "wizard": {
+        "android": {
+          "height": 537,
+          "nodes": 50,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 33,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/wizard/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 521,
+          "nodes": 50,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 33,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/wizard/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 485,
+          "nodes": 50,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 231,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/wizard/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "empty-state": {
+        "android": {
+          "height": 408,
+          "nodes": 12,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/empty-state/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 408,
+          "nodes": 12,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/empty-state/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 408,
+          "nodes": 12,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/empty-state/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "mobile-list": {
+        "android": {
+          "height": 866,
+          "nodes": 79,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/mobile-list/android.webp",
+          "width": 411,
+          "webWidth": 390,
+          "differences": []
+        },
+        "ios": {
+          "height": 860,
+          "nodes": 79,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/mobile-list/ios.webp",
+          "width": 440,
+          "webWidth": 390,
+          "differences": []
+        },
+        "desktop": {
+          "height": 593,
+          "nodes": 79,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/mobile-list/desktop.webp",
+          "width": 640,
+          "webWidth": 768,
+          "differences": []
+        }
+      },
+      "profile-card": {
+        "android": {
+          "height": 206,
+          "nodes": 22,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 69,
+          "textPadding": 52,
+          "overflowsX": false,
+          "picture": "eval/out/profile-card/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 206,
+          "nodes": 23,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 69,
+          "textPadding": 52,
+          "overflowsX": false,
+          "picture": "eval/out/profile-card/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 206,
+          "nodes": 23,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 69,
+          "textPadding": 52,
+          "overflowsX": false,
+          "picture": "eval/out/profile-card/desktop.webp",
+          "width": 420,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "login": {
+        "android": {
+          "height": 866,
+          "nodes": 22,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 33,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/login/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 860,
+          "nodes": 22,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 37,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/login/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 397,
+          "nodes": 22,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 391,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/login/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "pricing": {
+        "android": {
+          "height": 1297,
+          "nodes": 93,
+          "gaps": [
+            24,
+            24
+          ],
+          "distinctGaps": [
+            24
+          ],
+          "textInset": 24,
+          "textPadding": 24,
+          "overflowsX": false,
+          "picture": "eval/out/pricing/android.webp",
+          "width": 411,
+          "webWidth": 390,
+          "differences": []
+        },
+        "ios": {
+          "height": 1285,
+          "nodes": 93,
+          "gaps": [
+            24,
+            24
+          ],
+          "distinctGaps": [
+            24
+          ],
+          "textInset": 32,
+          "textPadding": 8,
+          "overflowsX": false,
+          "picture": "eval/out/pricing/ios.webp",
+          "width": 440,
+          "webWidth": 390,
+          "differences": [
+            "textPadding: web 24, native 8"
+          ]
+        },
+        "desktop": {
+          "height": 559,
+          "nodes": 93,
+          "gaps": [
+            24,
+            24
+          ],
+          "distinctGaps": [
+            24
+          ],
+          "textInset": 351,
+          "textPadding": 327,
+          "overflowsX": false,
+          "picture": "eval/out/pricing/desktop.webp",
+          "width": 1100,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "file-manager": {
+        "android": {
+          "height": 608,
+          "nodes": 104,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 154,
+          "textPadding": 20,
+          "overflowsX": false,
+          "picture": "eval/out/file-manager/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 608,
+          "nodes": 104,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 158,
+          "textPadding": 20,
+          "overflowsX": false,
+          "picture": "eval/out/file-manager/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 576,
+          "nodes": 104,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 159,
+          "textPadding": 20,
+          "overflowsX": false,
+          "picture": "eval/out/file-manager/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "calendar-event": {
+        "android": {
+          "height": 684,
+          "nodes": 40,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/calendar-event/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 684,
+          "nodes": 40,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/calendar-event/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 598,
+          "nodes": 40,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/calendar-event/desktop.webp",
+          "width": 640,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "analytics-dashboard": {
+        "android": {
+          "height": 1503,
+          "nodes": 127,
+          "gaps": [
+            16,
+            16,
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 16,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/analytics-dashboard/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 1503,
+          "nodes": 127,
+          "gaps": [
+            16,
+            16,
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 16,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/analytics-dashboard/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 1049,
+          "nodes": 127,
+          "gaps": [
+            16,
+            16,
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 16,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/analytics-dashboard/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "notification-prefs": {
+        "android": {
+          "height": 347,
+          "nodes": 59,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/notification-prefs/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 347,
+          "nodes": 59,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/notification-prefs/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 347,
+          "nodes": 59,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/notification-prefs/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "confirm-delete": {
+        "android": {
+          "height": 32,
+          "nodes": 20,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 70,
+          "textPadding": 37,
+          "overflowsX": false,
+          "picture": "eval/out/confirm-delete/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 32,
+          "nodes": 20,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 70,
+          "textPadding": 37,
+          "overflowsX": false,
+          "picture": "eval/out/confirm-delete/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 32,
+          "nodes": 20,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 380,
+          "textPadding": 37,
+          "overflowsX": false,
+          "picture": "eval/out/confirm-delete/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "search-results": {
+        "android": {
+          "height": 34,
+          "nodes": 1,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": null,
+          "textPadding": null,
+          "overflowsX": false,
+          "picture": "eval/out/search-results/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 34,
+          "nodes": 1,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": null,
+          "textPadding": null,
+          "overflowsX": false,
+          "picture": "eval/out/search-results/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 34,
+          "nodes": 1,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": null,
+          "textPadding": null,
+          "overflowsX": false,
+          "picture": "eval/out/search-results/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "agent-trace": {
+        "android": {
+          "height": 260,
+          "nodes": 37,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/agent-trace/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 260,
+          "nodes": 37,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/agent-trace/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 260,
+          "nodes": 37,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/agent-trace/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "invite-members": {
+        "android": {
+          "height": 680,
+          "nodes": 59,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 33,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/invite-members/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 680,
+          "nodes": 59,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 33,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/invite-members/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 666,
+          "nodes": 59,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 33,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/invite-members/desktop.webp",
+          "width": 640,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "media-gallery": {
+        "android": {
+          "height": 890,
+          "nodes": 22,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 16,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/media-gallery/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 948,
+          "nodes": 22,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 16,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/media-gallery/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 672,
+          "nodes": 22,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 16,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/media-gallery/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "order-tracking": {
+        "android": {
+          "height": 647,
+          "nodes": 74,
+          "gaps": [
+            16,
+            16,
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/order-tracking/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 655,
+          "nodes": 74,
+          "gaps": [
+            16,
+            16,
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/order-tracking/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 619,
+          "nodes": 74,
+          "gaps": [
+            16,
+            16,
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/order-tracking/desktop.webp",
+          "width": 720,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "split-view": {
+        "android": {
+          "height": 503,
+          "nodes": 64,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 0,
+          "textPadding": null,
+          "overflowsX": false,
+          "picture": "eval/out/split-view/android.webp",
+          "width": 411,
+          "webWidth": 390,
+          "differences": []
+        },
+        "ios": {
+          "height": 451,
+          "nodes": 64,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 0,
+          "textPadding": null,
+          "overflowsX": false,
+          "picture": "eval/out/split-view/ios.webp",
+          "width": 440,
+          "webWidth": 390,
+          "differences": []
+        },
+        "desktop": {
+          "height": 411,
+          "nodes": 64,
+          "gaps": [
+            -411
+          ],
+          "distinctGaps": [
+            -411
+          ],
+          "textInset": 12,
+          "textPadding": 12,
+          "overflowsX": false,
+          "picture": "eval/out/split-view/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "api-keys": {
+        "android": {
+          "height": 170,
+          "nodes": 48,
+          "gaps": [
+            4
+          ],
+          "distinctGaps": [
+            4
+          ],
+          "textInset": 36,
+          "textPadding": 36,
+          "overflowsX": true,
+          "picture": "eval/out/api-keys/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": [
+            "overflowsX at 411"
+          ]
+        },
+        "ios": {
+          "height": 170,
+          "nodes": 48,
+          "gaps": [
+            4
+          ],
+          "distinctGaps": [
+            4
+          ],
+          "textInset": 36,
+          "textPadding": 36,
+          "overflowsX": true,
+          "picture": "eval/out/api-keys/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": [
+            "overflowsX at 440"
+          ]
+        },
+        "desktop": {
+          "height": 170,
+          "nodes": 48,
+          "gaps": [
+            4
+          ],
+          "distinctGaps": [
+            4
+          ],
+          "textInset": 36,
+          "textPadding": 36,
+          "overflowsX": false,
+          "picture": "eval/out/api-keys/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "loading-page": {
+        "android": {
+          "height": 576,
+          "nodes": 79,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": null,
+          "textPadding": null,
+          "overflowsX": false,
+          "picture": "eval/out/loading-page/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 576,
+          "nodes": 79,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": null,
+          "textPadding": null,
+          "overflowsX": false,
+          "picture": "eval/out/loading-page/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 576,
+          "nodes": 79,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": null,
+          "textPadding": null,
+          "overflowsX": false,
+          "picture": "eval/out/loading-page/desktop.webp",
+          "width": 860,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "feedback-form": {
+        "android": {
+          "height": 640,
+          "nodes": 47,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 33,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/feedback-form/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 640,
+          "nodes": 47,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 33,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/feedback-form/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 604,
+          "nodes": 47,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 311,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/feedback-form/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "music-player": {
+        "android": {
+          "height": 847,
+          "nodes": 55,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 17,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/music-player/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "ios": {
+          "height": 872,
+          "nodes": 55,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 17,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/music-player/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": []
+        },
+        "desktop": {
+          "height": 872,
+          "nodes": 55,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 17,
+          "textPadding": 16,
+          "overflowsX": false,
+          "picture": "eval/out/music-player/desktop.webp",
+          "width": 420,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "terminal-output": {
+        "android": {
+          "height": 641,
+          "nodes": 71,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 45,
+          "textPadding": 28,
+          "overflowsX": true,
+          "picture": "eval/out/terminal-output/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": [
+            "overflowsX at 411"
+          ]
+        },
+        "ios": {
+          "height": 641,
+          "nodes": 71,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 45,
+          "textPadding": 28,
+          "overflowsX": true,
+          "picture": "eval/out/terminal-output/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": [
+            "overflowsX at 440"
+          ]
+        },
+        "desktop": {
+          "height": 641,
+          "nodes": 71,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 45,
+          "textPadding": 28,
+          "overflowsX": false,
+          "picture": "eval/out/terminal-output/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      },
+      "team-switcher": {
+        "android": {
+          "height": 48,
+          "nodes": 7,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 159,
+          "textPadding": 159,
+          "overflowsX": false,
+          "picture": "eval/out/team-switcher/android.webp",
+          "width": 411,
+          "webWidth": 1280,
+          "differences": [
+            "textPadding: web 165, native 159"
+          ]
+        },
+        "ios": {
+          "height": 48,
+          "nodes": 7,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 163,
+          "textPadding": 163,
+          "overflowsX": false,
+          "picture": "eval/out/team-switcher/ios.webp",
+          "width": 440,
+          "webWidth": 1280,
+          "differences": [
+            "textPadding: web 165, native 163"
+          ]
+        },
+        "desktop": {
+          "height": 48,
+          "nodes": 7,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 165,
+          "textPadding": 165,
+          "overflowsX": false,
+          "picture": "eval/out/team-switcher/desktop.webp",
+          "width": 1148,
+          "webWidth": 1280,
+          "differences": []
+        }
+      }
+    }
+  },
   "parity": {
-    "$comment": "Devices template (exponential-ui-devices) vs the native Devices page (agents), on the stored shots; store px (1 css px = 1.25 store px).",
+    "$comment": "Devices template (exponential-ui-devices) vs the native Devices page (agents), on the stored shots; store px (1 css px = 1.25 store px). `surfaces` (VAPP-127): every corpus surface naming an appView vs that app screen's stored shot, per platform where the eval has a picture (web: render.ts; android / ios / desktop: the shots pipeline's eval lane), the spacing both draw in css px.",
     "rows": [
       {
         "platform": "web",
@@ -4356,6 +5854,2539 @@
           "pixels": 887,
           "total": 36880,
           "share": 0.0241
+        }
+      }
+    ],
+    "surfaces": [
+      {
+        "surface": "settings-page",
+        "appView": "settings-general",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 308.5,
+          "top": 21.5,
+          "runs": 22,
+          "medianGap": 9.5,
+          "gaps": [
+            2,
+            10,
+            22,
+            8,
+            20,
+            14
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 19.2,
+          "top": 0,
+          "runs": 25,
+          "medianGap": 10.4,
+          "gaps": [
+            4,
+            8,
+            10,
+            20,
+            2,
+            12
+          ]
+        },
+        "delta": {
+          "inset": 289.3,
+          "top": 21.5,
+          "medianGap": -0.9
+        },
+        "sharedGaps": 1,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/settings-page/react-1280.png",
+          "native": "shots/settings-general/web.webp"
+        }
+      },
+      {
+        "surface": "settings-page",
+        "appView": "settings-general",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 259.2,
+          "inset": 0,
+          "top": 0,
+          "runs": 16,
+          "medianGap": 20.8,
+          "gaps": [
+            20,
+            22,
+            6,
+            8,
+            10,
+            14
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 12,
+          "top": 0,
+          "runs": 29,
+          "medianGap": 16,
+          "gaps": [
+            16,
+            18,
+            12,
+            6,
+            20,
+            32
+          ]
+        },
+        "delta": {
+          "inset": -12,
+          "top": 0,
+          "medianGap": 4.8
+        },
+        "sharedGaps": 1,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/settings-page/desktop.webp",
+          "native": "shots/settings-general/desktop.webp"
+        }
+      },
+      {
+        "surface": "issue-list-filters",
+        "appView": "board",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 16,
+          "top": 21,
+          "runs": 14,
+          "medianGap": 19.5,
+          "gaps": [
+            20,
+            8,
+            22,
+            24
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 19.2,
+          "top": 0,
+          "runs": 24,
+          "medianGap": 14.4,
+          "gaps": [
+            4,
+            12,
+            14,
+            20,
+            6,
+            10
+          ]
+        },
+        "delta": {
+          "inset": -3.2,
+          "top": 21,
+          "medianGap": 5.1
+        },
+        "sharedGaps": 0.75,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/issue-list-filters/react-1280.png",
+          "native": "shots/board/web.webp"
+        }
+      },
+      {
+        "surface": "issue-list-filters",
+        "appView": "board",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 258.4,
+          "inset": 0,
+          "top": 0,
+          "runs": 14,
+          "medianGap": 19.2,
+          "gaps": [
+            18,
+            20,
+            6,
+            22,
+            24
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 12,
+          "top": 0,
+          "runs": 26,
+          "medianGap": 9.6,
+          "gaps": [
+            4,
+            8,
+            14,
+            16,
+            6,
+            10
+          ]
+        },
+        "delta": {
+          "inset": -12,
+          "top": 0,
+          "medianGap": 9.6
+        },
+        "sharedGaps": 0.4,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/issue-list-filters/desktop.webp",
+          "native": "shots/board/desktop.webp"
+        }
+      },
+      {
+        "surface": "issue-list-filters",
+        "appView": "board",
+        "platform": "android",
+        "template": {
+          "contentLeft": 0,
+          "inset": 16.3,
+          "top": 0,
+          "runs": 25,
+          "medianGap": 10.7,
+          "gaps": [
+            10,
+            12,
+            4,
+            6,
+            2,
+            8
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 27.5,
+          "top": 25.4,
+          "runs": 19,
+          "medianGap": 29.5,
+          "gaps": [
+            30,
+            24,
+            28,
+            12
+          ]
+        },
+        "delta": {
+          "inset": -11.2,
+          "top": -25.4,
+          "medianGap": -18.8
+        },
+        "sharedGaps": 0.33,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/issue-list-filters/android.webp",
+          "native": "shots/board/android.webp"
+        }
+      },
+      {
+        "surface": "issue-list-filters",
+        "appView": "board",
+        "platform": "ios",
+        "template": {
+          "contentLeft": 0,
+          "inset": 15.9,
+          "top": 26,
+          "runs": 24,
+          "medianGap": 13.8,
+          "gaps": [
+            20,
+            4,
+            6,
+            8,
+            14,
+            2
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 29.8,
+          "top": 4.8,
+          "runs": 22,
+          "medianGap": 28.2,
+          "gaps": [
+            30,
+            28,
+            12,
+            24,
+            26,
+            32
+          ]
+        },
+        "delta": {
+          "inset": -13.9,
+          "top": 21.2,
+          "medianGap": -14.4
+        },
+        "sharedGaps": 0.17,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/issue-list-filters/ios.webp",
+          "native": "shots/board/ios.webp"
+        }
+      },
+      {
+        "surface": "device-dashboard",
+        "appView": "agents",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 12.5,
+          "top": 5.5,
+          "runs": 16,
+          "medianGap": 19.5,
+          "gaps": [
+            20,
+            22,
+            4,
+            12,
+            14,
+            24
+          ]
+        },
+        "native": {
+          "contentLeft": 326.4,
+          "inset": 32.8,
+          "top": 58.4,
+          "runs": 21,
+          "medianGap": 17.6,
+          "gaps": [
+            10,
+            16,
+            18,
+            20,
+            14,
+            22
+          ]
+        },
+        "delta": {
+          "inset": -20.3,
+          "top": -52.9,
+          "medianGap": 1.9
+        },
+        "sharedGaps": 0.83,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/device-dashboard/react-1280.png",
+          "native": "shots/agents/web.webp"
+        }
+      },
+      {
+        "surface": "device-dashboard",
+        "appView": "agents",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 0,
+          "inset": 12,
+          "top": 0,
+          "runs": 25,
+          "medianGap": 18.4,
+          "gaps": [
+            18,
+            20,
+            12,
+            16,
+            4,
+            6
+          ]
+        },
+        "native": {
+          "contentLeft": 260,
+          "inset": 0,
+          "top": 0,
+          "runs": 34,
+          "medianGap": 8.8,
+          "gaps": [
+            6,
+            4,
+            8,
+            16,
+            2,
+            20
+          ]
+        },
+        "delta": {
+          "inset": 12,
+          "top": 0,
+          "medianGap": 9.6
+        },
+        "sharedGaps": 0.83,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/device-dashboard/desktop.webp",
+          "native": "shots/agents/desktop.webp"
+        }
+      },
+      {
+        "surface": "device-dashboard",
+        "appView": "agents",
+        "platform": "android",
+        "template": {
+          "contentLeft": 0,
+          "inset": 0,
+          "top": 1.5,
+          "runs": 21,
+          "medianGap": 20.9,
+          "gaps": [
+            10,
+            20,
+            30,
+            12,
+            14,
+            16
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 17.8,
+          "top": 0,
+          "runs": 16,
+          "medianGap": 15.8,
+          "gaps": [
+            6,
+            16,
+            10,
+            32,
+            12,
+            18
+          ]
+        },
+        "delta": {
+          "inset": -17.8,
+          "top": 1.5,
+          "medianGap": 5.1
+        },
+        "sharedGaps": 1,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/device-dashboard/android.webp",
+          "native": "shots/agents/android.webp"
+        }
+      },
+      {
+        "surface": "device-dashboard",
+        "appView": "agents",
+        "platform": "ios",
+        "template": {
+          "contentLeft": 0,
+          "inset": 12.2,
+          "top": 10.6,
+          "runs": 20,
+          "medianGap": 22.3,
+          "gaps": [
+            20,
+            22,
+            30,
+            14,
+            12,
+            28
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 29.2,
+          "top": 20.2,
+          "runs": 17,
+          "medianGap": 18.1,
+          "gaps": [
+            6,
+            16,
+            20,
+            12,
+            18,
+            26
+          ]
+        },
+        "delta": {
+          "inset": -17,
+          "top": -9.6,
+          "medianGap": 4.2
+        },
+        "sharedGaps": 0.83,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/device-dashboard/ios.webp",
+          "native": "shots/agents/ios.webp"
+        }
+      },
+      {
+        "surface": "chat",
+        "appView": "chat",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 16,
+          "top": 5,
+          "runs": 12,
+          "medianGap": 13,
+          "gaps": [
+            6,
+            10,
+            14,
+            4,
+            16,
+            20
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 19.2,
+          "top": 0,
+          "runs": 22,
+          "medianGap": 20,
+          "gaps": [
+            20,
+            18,
+            22,
+            24,
+            14,
+            26
+          ]
+        },
+        "delta": {
+          "inset": -3.2,
+          "top": 5,
+          "medianGap": -7
+        },
+        "sharedGaps": 0.5,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/chat/react-1280.png",
+          "native": "shots/chat/web.webp"
+        }
+      },
+      {
+        "surface": "chat",
+        "appView": "chat",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 259.2,
+          "inset": 0,
+          "top": 0,
+          "runs": 21,
+          "medianGap": 12.8,
+          "gaps": [
+            6,
+            10,
+            12,
+            16,
+            20,
+            4
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 12,
+          "top": 0,
+          "runs": 24,
+          "medianGap": 19.2,
+          "gaps": [
+            20,
+            18,
+            22,
+            8,
+            16,
+            30
+          ]
+        },
+        "delta": {
+          "inset": -12,
+          "top": 0,
+          "medianGap": -6.4
+        },
+        "sharedGaps": 0.67,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/chat/desktop.webp",
+          "native": "shots/chat/desktop.webp"
+        }
+      },
+      {
+        "surface": "chat",
+        "appView": "chat",
+        "platform": "android",
+        "template": {
+          "contentLeft": 0,
+          "inset": 16.3,
+          "top": 1.5,
+          "runs": 21,
+          "medianGap": 12.7,
+          "gaps": [
+            6,
+            10,
+            12,
+            16,
+            20,
+            28
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 16.3,
+          "top": 0,
+          "runs": 7,
+          "medianGap": 42.2,
+          "gaps": [
+            2,
+            4,
+            30,
+            42,
+            56,
+            568
+          ]
+        },
+        "delta": {
+          "inset": 0,
+          "top": 1.5,
+          "medianGap": -29.5
+        },
+        "sharedGaps": 0.33,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/chat/android.webp",
+          "native": "shots/chat/android.webp"
+        }
+      },
+      {
+        "surface": "chat",
+        "appView": "chat",
+        "platform": "ios",
+        "template": {
+          "contentLeft": 0,
+          "inset": 15.4,
+          "top": 10.6,
+          "runs": 22,
+          "medianGap": 12.8,
+          "gaps": [
+            12,
+            6,
+            14,
+            20,
+            4,
+            28
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 12.2,
+          "top": 20.7,
+          "runs": 5,
+          "medianGap": 61.1,
+          "gaps": [
+            24,
+            34,
+            62,
+            600
+          ]
+        },
+        "delta": {
+          "inset": 3.2,
+          "top": -10.1,
+          "medianGap": -48.3
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/chat/ios.webp",
+          "native": "shots/chat/ios.webp"
+        }
+      },
+      {
+        "surface": "kanban",
+        "appView": "board",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 12.5,
+          "top": 5,
+          "runs": 7,
+          "medianGap": 8.5,
+          "gaps": [
+            8,
+            10,
+            42
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 19.2,
+          "top": 0,
+          "runs": 24,
+          "medianGap": 14.4,
+          "gaps": [
+            4,
+            12,
+            14,
+            20,
+            6,
+            10
+          ]
+        },
+        "delta": {
+          "inset": -6.7,
+          "top": 5,
+          "medianGap": -5.9
+        },
+        "sharedGaps": 0.67,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/kanban/react-1280.png",
+          "native": "shots/board/web.webp"
+        }
+      },
+      {
+        "surface": "kanban",
+        "appView": "board",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 258.4,
+          "inset": 0,
+          "top": 0,
+          "runs": 7,
+          "medianGap": 8,
+          "gaps": [
+            8,
+            10,
+            42
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 12,
+          "top": 0,
+          "runs": 26,
+          "medianGap": 9.6,
+          "gaps": [
+            4,
+            8,
+            14,
+            16,
+            6,
+            10
+          ]
+        },
+        "delta": {
+          "inset": -12,
+          "top": 0,
+          "medianGap": -1.6
+        },
+        "sharedGaps": 0.67,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/kanban/desktop.webp",
+          "native": "shots/board/desktop.webp"
+        }
+      },
+      {
+        "surface": "kanban",
+        "appView": "board",
+        "platform": "android",
+        "template": {
+          "contentLeft": 0,
+          "inset": 12.7,
+          "top": 1.5,
+          "runs": 12,
+          "medianGap": 43.2,
+          "gaps": [
+            44,
+            32,
+            28,
+            40,
+            42,
+            66
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 27.5,
+          "top": 25.4,
+          "runs": 19,
+          "medianGap": 29.5,
+          "gaps": [
+            30,
+            24,
+            28,
+            12
+          ]
+        },
+        "delta": {
+          "inset": -14.8,
+          "top": -23.9,
+          "medianGap": 13.7
+        },
+        "sharedGaps": 0.33,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/kanban/android.webp",
+          "native": "shots/board/android.webp"
+        }
+      },
+      {
+        "surface": "kanban",
+        "appView": "board",
+        "platform": "ios",
+        "template": {
+          "contentLeft": 0,
+          "inset": 12.8,
+          "top": 10.6,
+          "runs": 13,
+          "medianGap": 43,
+          "gaps": [
+            44,
+            32,
+            10,
+            28,
+            40,
+            66
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 29.8,
+          "top": 4.8,
+          "runs": 22,
+          "medianGap": 28.2,
+          "gaps": [
+            30,
+            28,
+            12,
+            24,
+            26,
+            32
+          ]
+        },
+        "delta": {
+          "inset": -17,
+          "top": 5.8,
+          "medianGap": 14.8
+        },
+        "sharedGaps": 0.5,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/kanban/ios.webp",
+          "native": "shots/board/ios.webp"
+        }
+      },
+      {
+        "surface": "empty-state",
+        "appView": "board-empty",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 13,
+          "top": 5,
+          "runs": 6,
+          "medianGap": 24,
+          "gaps": [
+            10,
+            20,
+            24,
+            32,
+            118
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 18.4,
+          "top": 0,
+          "runs": 22,
+          "medianGap": 17.6,
+          "gaps": [
+            20,
+            4,
+            14,
+            10,
+            18,
+            8
+          ]
+        },
+        "delta": {
+          "inset": -5.4,
+          "top": 5,
+          "medianGap": 6.4
+        },
+        "sharedGaps": 0.4,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/empty-state/react-1280.png",
+          "native": "shots/board-empty/web.webp"
+        }
+      },
+      {
+        "surface": "empty-state",
+        "appView": "board-empty",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 258.4,
+          "inset": 0,
+          "top": 0,
+          "runs": 6,
+          "medianGap": 24,
+          "gaps": [
+            8,
+            20,
+            24,
+            34,
+            118
+          ]
+        },
+        "native": {
+          "contentLeft": 283.2,
+          "inset": 303.2,
+          "top": 48,
+          "runs": 17,
+          "medianGap": 30.4,
+          "gaps": [
+            32,
+            30,
+            4,
+            20,
+            10,
+            12
+          ]
+        },
+        "delta": {
+          "inset": -303.2,
+          "top": -48,
+          "medianGap": -6.4
+        },
+        "sharedGaps": 0.6,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/empty-state/desktop.webp",
+          "native": "shots/board-empty/desktop.webp"
+        }
+      },
+      {
+        "surface": "empty-state",
+        "appView": "board-empty",
+        "platform": "android",
+        "template": {
+          "contentLeft": 0,
+          "inset": 13.2,
+          "top": 1,
+          "runs": 8,
+          "medianGap": 26.4,
+          "gaps": [
+            6,
+            20,
+            26,
+            34,
+            98,
+            100
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 32.6,
+          "top": 81.4,
+          "runs": 17,
+          "medianGap": 29.5,
+          "gaps": [
+            36,
+            4,
+            6,
+            12,
+            14,
+            28
+          ]
+        },
+        "delta": {
+          "inset": -19.4,
+          "top": -80.4,
+          "medianGap": -3.1
+        },
+        "sharedGaps": 0.5,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/empty-state/android.webp",
+          "native": "shots/board-empty/android.webp"
+        }
+      },
+      {
+        "surface": "empty-state",
+        "appView": "board-empty",
+        "platform": "ios",
+        "template": {
+          "contentLeft": 0,
+          "inset": 12.8,
+          "top": 10.6,
+          "runs": 7,
+          "medianGap": 24.4,
+          "gaps": [
+            6,
+            10,
+            20,
+            24,
+            34,
+            108
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 32.9,
+          "top": 4.8,
+          "runs": 20,
+          "medianGap": 28.2,
+          "gaps": [
+            4,
+            36,
+            8,
+            16,
+            34,
+            6
+          ]
+        },
+        "delta": {
+          "inset": -20.1,
+          "top": 5.8,
+          "medianGap": -3.8
+        },
+        "sharedGaps": 0.5,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/empty-state/ios.webp",
+          "native": "shots/board-empty/ios.webp"
+        }
+      },
+      {
+        "surface": "mobile-list",
+        "appView": "inbox",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 328.5,
+          "top": 5,
+          "runs": 14,
+          "medianGap": 15.5,
+          "gaps": [
+            16,
+            18,
+            2,
+            14
+          ]
+        },
+        "native": {
+          "contentLeft": 474.4,
+          "inset": 358.4,
+          "top": 444,
+          "runs": 2,
+          "medianGap": 38.4,
+          "gaps": [
+            38
+          ]
+        },
+        "delta": {
+          "inset": -29.9,
+          "top": -439,
+          "medianGap": -22.9
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/mobile-list/react-1280.png",
+          "native": "shots/inbox/web.webp"
+        }
+      },
+      {
+        "surface": "mobile-list",
+        "appView": "inbox",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 259.2,
+          "inset": 0,
+          "top": 0,
+          "runs": 10,
+          "medianGap": 15.2,
+          "gaps": [
+            16,
+            44,
+            14,
+            40
+          ]
+        },
+        "native": {
+          "contentLeft": 259.2,
+          "inset": 0,
+          "top": 0,
+          "runs": 8,
+          "medianGap": 20,
+          "gaps": [
+            18,
+            16,
+            20,
+            22,
+            32,
+            212
+          ]
+        },
+        "delta": {
+          "inset": 0,
+          "top": 0,
+          "medianGap": -4.8
+        },
+        "sharedGaps": 0.5,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/mobile-list/desktop.webp",
+          "native": "shots/inbox/desktop.webp"
+        }
+      },
+      {
+        "surface": "mobile-list",
+        "appView": "inbox",
+        "platform": "android",
+        "template": {
+          "contentLeft": 0,
+          "inset": 12.7,
+          "top": 1,
+          "runs": 10,
+          "medianGap": 15.8,
+          "gaps": [
+            16,
+            44,
+            40
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 18.3,
+          "top": 0,
+          "runs": 8,
+          "medianGap": 31,
+          "gaps": [
+            28,
+            32,
+            34,
+            36,
+            424
+          ]
+        },
+        "delta": {
+          "inset": -5.6,
+          "top": 1,
+          "medianGap": -15.2
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/mobile-list/android.webp",
+          "native": "shots/inbox/android.webp"
+        }
+      },
+      {
+        "surface": "mobile-list",
+        "appView": "inbox",
+        "platform": "ios",
+        "template": {
+          "contentLeft": 0,
+          "inset": 12.2,
+          "top": 10.6,
+          "runs": 11,
+          "medianGap": 15.9,
+          "gaps": [
+            16,
+            44,
+            2,
+            40
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 36.1,
+          "top": 4.8,
+          "runs": 15,
+          "medianGap": 28.2,
+          "gaps": [
+            4,
+            28,
+            30,
+            6,
+            10,
+            48
+          ]
+        },
+        "delta": {
+          "inset": -23.9,
+          "top": 5.8,
+          "medianGap": -12.3
+        },
+        "sharedGaps": 0.25,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/mobile-list/ios.webp",
+          "native": "shots/inbox/ios.webp"
+        }
+      },
+      {
+        "surface": "login",
+        "appView": "sign-in",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 457,
+          "top": 38,
+          "runs": 9,
+          "medianGap": 12,
+          "gaps": [
+            10,
+            12,
+            16,
+            22,
+            26
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 498.4,
+          "top": 269.6,
+          "runs": 10,
+          "medianGap": 24,
+          "gaps": [
+            8,
+            24,
+            10,
+            20,
+            32,
+            34
+          ]
+        },
+        "delta": {
+          "inset": -41.4,
+          "top": -231.6,
+          "medianGap": -12
+        },
+        "sharedGaps": 0.8,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/login/react-1280.png",
+          "native": "shots/sign-in/web.webp"
+        }
+      },
+      {
+        "surface": "login",
+        "appView": "sign-in",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 259.2,
+          "inset": 0,
+          "top": 0,
+          "runs": 13,
+          "medianGap": 11.2,
+          "gaps": [
+            2,
+            8,
+            12,
+            4,
+            10,
+            16
+          ]
+        },
+        "native": {
+          "contentLeft": 1.6,
+          "inset": 580.8,
+          "top": 232.8,
+          "runs": 8,
+          "medianGap": 30.4,
+          "gaps": [
+            28,
+            30,
+            16,
+            32,
+            34
+          ]
+        },
+        "delta": {
+          "inset": -580.8,
+          "top": -232.8,
+          "medianGap": -19.2
+        },
+        "sharedGaps": 0.17,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/login/desktop.webp",
+          "native": "shots/sign-in/desktop.webp"
+        }
+      },
+      {
+        "surface": "login",
+        "appView": "sign-in",
+        "platform": "android",
+        "template": {
+          "contentLeft": 0,
+          "inset": 0,
+          "top": 0,
+          "runs": 1,
+          "medianGap": 0,
+          "gaps": []
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 91,
+          "top": 202.9,
+          "runs": 8,
+          "medianGap": 37.6,
+          "gaps": [
+            40,
+            20,
+            32,
+            36,
+            38
+          ]
+        },
+        "delta": {
+          "inset": -91,
+          "top": -202.9,
+          "medianGap": -37.6
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/login/android.webp",
+          "native": "shots/sign-in/android.webp"
+        }
+      },
+      {
+        "surface": "login",
+        "appView": "sign-in",
+        "platform": "ios",
+        "template": {
+          "contentLeft": 0,
+          "inset": 0,
+          "top": 0,
+          "runs": 1,
+          "medianGap": 0,
+          "gaps": []
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 91.4,
+          "top": 215.2,
+          "runs": 8,
+          "medianGap": 41.4,
+          "gaps": [
+            18,
+            34,
+            36,
+            42,
+            46,
+            48
+          ]
+        },
+        "delta": {
+          "inset": -91.4,
+          "top": -215.2,
+          "medianGap": -41.4
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/login/ios.webp",
+          "native": "shots/sign-in/ios.webp"
+        }
+      },
+      {
+        "surface": "notification-prefs",
+        "appView": "settings-notifications",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 17.5,
+          "top": 22,
+          "runs": 7,
+          "medianGap": 15.5,
+          "gaps": [
+            16,
+            10,
+            20,
+            26
+          ]
+        },
+        "native": {
+          "contentLeft": 816,
+          "inset": 4.8,
+          "top": 188,
+          "runs": 10,
+          "medianGap": 50.4,
+          "gaps": [
+            50,
+            52
+          ]
+        },
+        "delta": {
+          "inset": 12.7,
+          "top": -166,
+          "medianGap": -34.9
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/notification-prefs/react-1280.png",
+          "native": "shots/settings-notifications/web.webp"
+        }
+      },
+      {
+        "surface": "notification-prefs",
+        "appView": "settings-notifications",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 259.2,
+          "inset": 0,
+          "top": 0,
+          "runs": 7,
+          "medianGap": 15.2,
+          "gaps": [
+            14,
+            8,
+            16,
+            18,
+            26
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 12,
+          "top": 0,
+          "runs": 27,
+          "medianGap": 8.8,
+          "gaps": [
+            8,
+            4,
+            14,
+            6,
+            12,
+            16
+          ]
+        },
+        "delta": {
+          "inset": -12,
+          "top": 0,
+          "medianGap": 6.4
+        },
+        "sharedGaps": 0.8,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/notification-prefs/desktop.webp",
+          "native": "shots/settings-notifications/desktop.webp"
+        }
+      },
+      {
+        "surface": "search-results",
+        "appView": "search",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 0,
+          "top": 0,
+          "runs": 1,
+          "medianGap": 0,
+          "gaps": []
+        },
+        "native": {
+          "contentLeft": 281.6,
+          "inset": 0,
+          "top": 0,
+          "runs": 4,
+          "medianGap": 27.2,
+          "gaps": [
+            18,
+            28,
+            108
+          ]
+        },
+        "delta": {
+          "inset": 0,
+          "top": 0,
+          "medianGap": -27.2
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/search-results/react-1280.png",
+          "native": "shots/search/web.webp"
+        }
+      },
+      {
+        "surface": "search-results",
+        "appView": "search",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 259.2,
+          "inset": 0,
+          "top": 0,
+          "runs": 1,
+          "medianGap": 0,
+          "gaps": []
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 12,
+          "top": 0,
+          "runs": 26,
+          "medianGap": 8.8,
+          "gaps": [
+            4,
+            8,
+            12,
+            16,
+            6,
+            14
+          ]
+        },
+        "delta": {
+          "inset": -12,
+          "top": 0,
+          "medianGap": -8.8
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/search-results/desktop.webp",
+          "native": "shots/search/desktop.webp"
+        }
+      },
+      {
+        "surface": "search-results",
+        "appView": "search",
+        "platform": "android",
+        "template": {
+          "contentLeft": 0,
+          "inset": 3.1,
+          "top": 0,
+          "runs": 2,
+          "medianGap": 10.2,
+          "gaps": [
+            10
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 20.9,
+          "top": 0,
+          "runs": 4,
+          "medianGap": 31.5,
+          "gaps": [
+            30,
+            32,
+            36
+          ]
+        },
+        "delta": {
+          "inset": -17.8,
+          "top": 0,
+          "medianGap": -21.3
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/search-results/android.webp",
+          "native": "shots/search/android.webp"
+        }
+      },
+      {
+        "surface": "search-results",
+        "appView": "search",
+        "platform": "ios",
+        "template": {
+          "contentLeft": 0,
+          "inset": 0,
+          "top": 4.8,
+          "runs": 1,
+          "medianGap": 0,
+          "gaps": []
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 6.4,
+          "top": 4.8,
+          "runs": 12,
+          "medianGap": 24.4,
+          "gaps": [
+            6,
+            10,
+            12,
+            24,
+            26,
+            30
+          ]
+        },
+        "delta": {
+          "inset": -6.4,
+          "top": 0,
+          "medianGap": -24.4
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/search-results/ios.webp",
+          "native": "shots/search/ios.webp"
+        }
+      },
+      {
+        "surface": "agent-trace",
+        "appView": "trace",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 17.5,
+          "top": 22,
+          "runs": 8,
+          "medianGap": 13.5,
+          "gaps": [
+            14,
+            10,
+            22
+          ]
+        },
+        "native": {
+          "contentLeft": 326.4,
+          "inset": 27.2,
+          "top": 58.4,
+          "runs": 18,
+          "medianGap": 13.6,
+          "gaps": [
+            12,
+            14,
+            8,
+            36,
+            10,
+            16
+          ]
+        },
+        "delta": {
+          "inset": -9.7,
+          "top": -36.4,
+          "medianGap": -0.1
+        },
+        "sharedGaps": 0.67,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/agent-trace/react-1280.png",
+          "native": "shots/trace/web.webp"
+        }
+      },
+      {
+        "surface": "agent-trace",
+        "appView": "trace",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 259.2,
+          "inset": 0,
+          "top": 0,
+          "runs": 8,
+          "medianGap": 12.8,
+          "gaps": [
+            12,
+            14,
+            10,
+            20
+          ]
+        },
+        "native": {
+          "contentLeft": 217.6,
+          "inset": 0,
+          "top": 0,
+          "runs": 26,
+          "medianGap": 14.4,
+          "gaps": [
+            8,
+            10,
+            12,
+            14,
+            22,
+            24
+          ]
+        },
+        "delta": {
+          "inset": 0,
+          "top": 0,
+          "medianGap": -1.6
+        },
+        "sharedGaps": 1,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/agent-trace/desktop.webp",
+          "native": "shots/trace/desktop.webp"
+        }
+      },
+      {
+        "surface": "agent-trace",
+        "appView": "trace",
+        "platform": "android",
+        "template": {
+          "contentLeft": 0,
+          "inset": 17.3,
+          "top": 0,
+          "runs": 9,
+          "medianGap": 13.7,
+          "gaps": [
+            14,
+            10,
+            20,
+            30
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 16.8,
+          "top": 44.8,
+          "runs": 20,
+          "medianGap": 11.2,
+          "gaps": [
+            12,
+            8,
+            10,
+            16,
+            30,
+            6
+          ]
+        },
+        "delta": {
+          "inset": 0.5,
+          "top": -44.8,
+          "medianGap": 2.5
+        },
+        "sharedGaps": 0.75,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/agent-trace/android.webp",
+          "native": "shots/trace/android.webp"
+        }
+      },
+      {
+        "surface": "agent-trace",
+        "appView": "trace",
+        "platform": "ios",
+        "template": {
+          "contentLeft": 0,
+          "inset": 17,
+          "top": 28.2,
+          "runs": 8,
+          "medianGap": 14.3,
+          "gaps": [
+            14,
+            10,
+            22
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 16.5,
+          "top": 25,
+          "runs": 20,
+          "medianGap": 11.2,
+          "gaps": [
+            12,
+            8,
+            10,
+            30,
+            14,
+            16
+          ]
+        },
+        "delta": {
+          "inset": 0.5,
+          "top": 3.2,
+          "medianGap": 3.1
+        },
+        "sharedGaps": 0.67,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/agent-trace/ios.webp",
+          "native": "shots/trace/ios.webp"
+        }
+      },
+      {
+        "surface": "invite-members",
+        "appView": "settings-members",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 353,
+          "top": 38,
+          "runs": 13,
+          "medianGap": 16,
+          "gaps": [
+            16,
+            10,
+            20,
+            8,
+            14,
+            22
+          ]
+        },
+        "native": {
+          "contentLeft": 380.8,
+          "inset": 35.2,
+          "top": 60.8,
+          "runs": 20,
+          "medianGap": 26.4,
+          "gaps": [
+            4,
+            10,
+            26,
+            28,
+            8,
+            16
+          ]
+        },
+        "delta": {
+          "inset": 317.8,
+          "top": -22.8,
+          "medianGap": -10.4
+        },
+        "sharedGaps": 0.67,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/invite-members/react-1280.png",
+          "native": "shots/settings-members/web.webp"
+        }
+      },
+      {
+        "surface": "invite-members",
+        "appView": "settings-members",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 259.2,
+          "inset": 0,
+          "top": 0,
+          "runs": 18,
+          "medianGap": 15.2,
+          "gaps": [
+            16,
+            4,
+            8,
+            20,
+            6,
+            12
+          ]
+        },
+        "native": {
+          "contentLeft": 139.2,
+          "inset": 41.6,
+          "top": 0,
+          "runs": 19,
+          "medianGap": 24,
+          "gaps": [
+            24,
+            4,
+            30,
+            34,
+            2,
+            6
+          ]
+        },
+        "delta": {
+          "inset": -41.6,
+          "top": 0,
+          "medianGap": -8.8
+        },
+        "sharedGaps": 0.5,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/invite-members/desktop.webp",
+          "native": "shots/settings-members/desktop.webp"
+        }
+      },
+      {
+        "surface": "split-view",
+        "appView": "inbox",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 12,
+          "top": 5.5,
+          "runs": 10,
+          "medianGap": 6.5,
+          "gaps": [
+            6,
+            2,
+            8,
+            12,
+            14,
+            26
+          ]
+        },
+        "native": {
+          "contentLeft": 474.4,
+          "inset": 358.4,
+          "top": 444,
+          "runs": 2,
+          "medianGap": 38.4,
+          "gaps": [
+            38
+          ]
+        },
+        "delta": {
+          "inset": -346.4,
+          "top": -438.5,
+          "medianGap": -31.9
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/split-view/react-1280.png",
+          "native": "shots/inbox/web.webp"
+        }
+      },
+      {
+        "surface": "split-view",
+        "appView": "inbox",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 259.2,
+          "inset": 0,
+          "top": 0,
+          "runs": 9,
+          "medianGap": 8.8,
+          "gaps": [
+            4,
+            6,
+            8,
+            10,
+            14,
+            26
+          ]
+        },
+        "native": {
+          "contentLeft": 259.2,
+          "inset": 0,
+          "top": 0,
+          "runs": 8,
+          "medianGap": 20,
+          "gaps": [
+            18,
+            16,
+            20,
+            22,
+            32,
+            212
+          ]
+        },
+        "delta": {
+          "inset": 0,
+          "top": 0,
+          "medianGap": -11.2
+        },
+        "sharedGaps": 0.17,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/split-view/desktop.webp",
+          "native": "shots/inbox/desktop.webp"
+        }
+      },
+      {
+        "surface": "split-view",
+        "appView": "inbox",
+        "platform": "android",
+        "template": {
+          "contentLeft": 0,
+          "inset": 16.8,
+          "top": 0,
+          "runs": 15,
+          "medianGap": 26.4,
+          "gaps": [
+            6,
+            26,
+            8,
+            28,
+            30,
+            32
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 18.3,
+          "top": 0,
+          "runs": 8,
+          "medianGap": 31,
+          "gaps": [
+            28,
+            32,
+            34,
+            36,
+            424
+          ]
+        },
+        "delta": {
+          "inset": -1.5,
+          "top": 0,
+          "medianGap": -4.6
+        },
+        "sharedGaps": 0.67,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/split-view/android.webp",
+          "native": "shots/inbox/android.webp"
+        }
+      },
+      {
+        "surface": "split-view",
+        "appView": "inbox",
+        "platform": "ios",
+        "template": {
+          "contentLeft": 0,
+          "inset": 16.5,
+          "top": 12.2,
+          "runs": 12,
+          "medianGap": 26.6,
+          "gaps": [
+            6,
+            28,
+            10,
+            26,
+            30,
+            46
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 36.1,
+          "top": 4.8,
+          "runs": 15,
+          "medianGap": 28.2,
+          "gaps": [
+            4,
+            28,
+            30,
+            6,
+            10,
+            48
+          ]
+        },
+        "delta": {
+          "inset": -19.6,
+          "top": 7.4,
+          "medianGap": -1.6
+        },
+        "sharedGaps": 1,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/split-view/ios.webp",
+          "native": "shots/inbox/ios.webp"
+        }
+      },
+      {
+        "surface": "api-keys",
+        "appView": "settings-api-keys",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 9,
+          "top": 0,
+          "runs": 5,
+          "medianGap": 14.5,
+          "gaps": [
+            14,
+            16
+          ]
+        },
+        "native": {
+          "contentLeft": 381.6,
+          "inset": 34.4,
+          "top": 60.8,
+          "runs": 8,
+          "medianGap": 32.8,
+          "gaps": [
+            6,
+            32,
+            8,
+            56,
+            70
+          ]
+        },
+        "delta": {
+          "inset": -25.4,
+          "top": -60.8,
+          "medianGap": -18.3
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/api-keys/react-1280.png",
+          "native": "shots/settings-api-keys/web.webp"
+        }
+      },
+      {
+        "surface": "api-keys",
+        "appView": "settings-api-keys",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 259.2,
+          "inset": 0,
+          "top": 0,
+          "runs": 5,
+          "medianGap": 14.4,
+          "gaps": [
+            14,
+            16
+          ]
+        },
+        "native": {
+          "contentLeft": 137.6,
+          "inset": 43.2,
+          "top": 0,
+          "runs": 9,
+          "medianGap": 31.2,
+          "gaps": [
+            6,
+            32,
+            8,
+            10,
+            44,
+            62
+          ]
+        },
+        "delta": {
+          "inset": -43.2,
+          "top": 0,
+          "medianGap": -16.8
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/api-keys/desktop.webp",
+          "native": "shots/settings-api-keys/desktop.webp"
+        }
+      },
+      {
+        "surface": "loading-page",
+        "appView": "issue-detail",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 0,
+          "top": 0,
+          "runs": 0,
+          "medianGap": 0,
+          "gaps": []
+        },
+        "native": {
+          "contentLeft": 326.4,
+          "inset": 11.2,
+          "top": 0,
+          "runs": 20,
+          "medianGap": 24,
+          "gaps": [
+            20,
+            24,
+            22,
+            32,
+            16,
+            26
+          ]
+        },
+        "delta": {
+          "inset": -11.2,
+          "top": 0,
+          "medianGap": -24
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/loading-page/react-1280.png",
+          "native": "shots/issue-detail/web.webp"
+        }
+      },
+      {
+        "surface": "loading-page",
+        "appView": "issue-detail",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 0,
+          "inset": 12,
+          "top": 0,
+          "runs": 24,
+          "medianGap": 20,
+          "gaps": [
+            20,
+            18,
+            22,
+            32,
+            16,
+            30
+          ]
+        },
+        "native": {
+          "contentLeft": 215.2,
+          "inset": 0,
+          "top": 0,
+          "runs": 28,
+          "medianGap": 12.8,
+          "gaps": [
+            4,
+            8,
+            18,
+            6,
+            12,
+            16
+          ]
+        },
+        "delta": {
+          "inset": 12,
+          "top": 0,
+          "medianGap": 7.2
+        },
+        "sharedGaps": 0.5,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/loading-page/desktop.webp",
+          "native": "shots/issue-detail/desktop.webp"
+        }
+      },
+      {
+        "surface": "loading-page",
+        "appView": "issue-detail",
+        "platform": "android",
+        "template": {
+          "contentLeft": 0,
+          "inset": 17.3,
+          "top": 556.5,
+          "runs": 1,
+          "medianGap": 0,
+          "gaps": []
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 20.3,
+          "top": 0,
+          "runs": 17,
+          "medianGap": 9.2,
+          "gaps": [
+            8,
+            28,
+            4,
+            6,
+            10,
+            12
+          ]
+        },
+        "delta": {
+          "inset": -3,
+          "top": 556.5,
+          "medianGap": -9.2
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/loading-page/android.webp",
+          "native": "shots/issue-detail/android.webp"
+        }
+      },
+      {
+        "surface": "loading-page",
+        "appView": "issue-detail",
+        "platform": "ios",
+        "template": {
+          "contentLeft": 0,
+          "inset": 0,
+          "top": 0,
+          "runs": 0,
+          "medianGap": 0,
+          "gaps": []
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 20.2,
+          "top": 4.8,
+          "runs": 25,
+          "medianGap": 8.5,
+          "gaps": [
+            8,
+            4,
+            6,
+            12,
+            36,
+            40
+          ]
+        },
+        "delta": {
+          "inset": -20.2,
+          "top": -4.8,
+          "medianGap": -8.5
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/loading-page/ios.webp",
+          "native": "shots/issue-detail/ios.webp"
+        }
+      },
+      {
+        "surface": "terminal-output",
+        "appView": "code-block",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 19.5,
+          "top": 17,
+          "runs": 17,
+          "medianGap": 25.5,
+          "gaps": [
+            8,
+            32,
+            10,
+            12,
+            34,
+            16
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 0,
+          "top": 0,
+          "runs": 1,
+          "medianGap": 0,
+          "gaps": []
+        },
+        "delta": {
+          "inset": 19.5,
+          "top": 17,
+          "medianGap": 25.5
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/terminal-output/react-1280.png",
+          "native": "shots/code-block/web.webp"
+        }
+      },
+      {
+        "surface": "terminal-output",
+        "appView": "code-block",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 0,
+          "inset": 11.2,
+          "top": 0,
+          "runs": 15,
+          "medianGap": 17.6,
+          "gaps": [
+            18,
+            6,
+            12,
+            20,
+            8,
+            16
+          ]
+        },
+        "native": {
+          "contentLeft": 216.8,
+          "inset": 0,
+          "top": 0,
+          "runs": 25,
+          "medianGap": 15.2,
+          "gaps": [
+            8,
+            22,
+            4,
+            6,
+            16,
+            2
+          ]
+        },
+        "delta": {
+          "inset": 11.2,
+          "top": 0,
+          "medianGap": 2.4
+        },
+        "sharedGaps": 0.83,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/terminal-output/desktop.webp",
+          "native": "shots/code-block/desktop.webp"
+        }
+      },
+      {
+        "surface": "terminal-output",
+        "appView": "code-block",
+        "platform": "android",
+        "template": {
+          "contentLeft": 0,
+          "inset": 20.3,
+          "top": 0,
+          "runs": 18,
+          "medianGap": 24.9,
+          "gaps": [
+            10,
+            8,
+            12,
+            32,
+            34,
+            16
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 16.3,
+          "top": 41.7,
+          "runs": 23,
+          "medianGap": 7.6,
+          "gaps": [
+            8,
+            12,
+            2,
+            4,
+            10,
+            16
+          ]
+        },
+        "delta": {
+          "inset": 4,
+          "top": -41.7,
+          "medianGap": 17.3
+        },
+        "sharedGaps": 0.67,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/terminal-output/android.webp",
+          "native": "shots/code-block/android.webp"
+        }
+      },
+      {
+        "surface": "terminal-output",
+        "appView": "code-block",
+        "platform": "ios",
+        "template": {
+          "contentLeft": 0,
+          "inset": 17.5,
+          "top": 21.8,
+          "runs": 17,
+          "medianGap": 23.4,
+          "gaps": [
+            10,
+            32,
+            34,
+            8,
+            12,
+            16
+          ]
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 15.9,
+          "top": 20.7,
+          "runs": 19,
+          "medianGap": 7.4,
+          "gaps": [
+            8,
+            12,
+            6,
+            16,
+            4,
+            10
+          ]
+        },
+        "delta": {
+          "inset": 1.6,
+          "top": 1.1,
+          "medianGap": 16
+        },
+        "sharedGaps": 0.67,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/terminal-output/ios.webp",
+          "native": "shots/code-block/ios.webp"
+        }
+      },
+      {
+        "surface": "team-switcher",
+        "appView": "composer-menu",
+        "platform": "web",
+        "template": {
+          "contentLeft": 0,
+          "inset": 32,
+          "top": 9.5,
+          "runs": 1,
+          "medianGap": 0,
+          "gaps": []
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 19.2,
+          "top": 0,
+          "runs": 21,
+          "medianGap": 20,
+          "gaps": [
+            20,
+            18,
+            24,
+            16,
+            22,
+            32
+          ]
+        },
+        "delta": {
+          "inset": 12.8,
+          "top": 9.5,
+          "medianGap": -20
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/team-switcher/react-1280.png",
+          "native": "shots/composer-menu/web.webp"
+        }
+      },
+      {
+        "surface": "team-switcher",
+        "appView": "composer-menu",
+        "platform": "desktop",
+        "template": {
+          "contentLeft": 259.2,
+          "inset": 0,
+          "top": 0,
+          "runs": 1,
+          "medianGap": 0,
+          "gaps": []
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 12,
+          "top": 0,
+          "runs": 26,
+          "medianGap": 17.6,
+          "gaps": [
+            20,
+            18,
+            16,
+            4,
+            8,
+            22
+          ]
+        },
+        "delta": {
+          "inset": -12,
+          "top": 0,
+          "medianGap": -17.6
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/team-switcher/desktop.webp",
+          "native": "shots/composer-menu/desktop.webp"
+        }
+      },
+      {
+        "surface": "team-switcher",
+        "appView": "composer-menu",
+        "platform": "android",
+        "template": {
+          "contentLeft": 0,
+          "inset": 16.8,
+          "top": 28,
+          "runs": 1,
+          "medianGap": 0,
+          "gaps": []
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 20.9,
+          "top": 0,
+          "runs": 8,
+          "medianGap": 36.6,
+          "gaps": [
+            28,
+            30,
+            36,
+            38,
+            42,
+            494
+          ]
+        },
+        "delta": {
+          "inset": -4.1,
+          "top": 28,
+          "medianGap": -36.6
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/team-switcher/android.webp",
+          "native": "shots/composer-menu/android.webp"
+        }
+      },
+      {
+        "surface": "team-switcher",
+        "appView": "composer-menu",
+        "platform": "ios",
+        "template": {
+          "contentLeft": 0,
+          "inset": 30.8,
+          "top": 14.9,
+          "runs": 1,
+          "medianGap": 0,
+          "gaps": []
+        },
+        "native": {
+          "contentLeft": 0,
+          "inset": 41.4,
+          "top": 20.7,
+          "runs": 8,
+          "medianGap": 30.3,
+          "gaps": [
+            30,
+            6,
+            28,
+            34,
+            38,
+            486
+          ]
+        },
+        "delta": {
+          "inset": -10.6,
+          "top": -5.8,
+          "medianGap": -30.3
+        },
+        "sharedGaps": 0,
+        "pictures": {
+          "template": "packages/exponential-ui/eval/out/team-switcher/ios.webp",
+          "native": "shots/composer-menu/ios.webp"
         }
       }
     ]

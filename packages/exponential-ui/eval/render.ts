@@ -81,6 +81,9 @@ export interface RendererMeasure {
   distinctGaps: number[]
   /** Left inset of the first text run from the root's edge (px). */
   textInset: number | null
+  /** VAPP-127: the first text's left inset inside the innermost box that holds it (px): the padding the
+   *  author chose, the same at every width (textInset moves with a centred column). */
+  textPadding: number | null
   /** Any node wider than the viewport. */
   overflowsX: boolean
   picture: string
@@ -118,6 +121,7 @@ export function measureFrames(frames: Frame[], root: UiNode, width: number): Omi
     gaps,
     distinctGaps: [...new Set(gaps)].sort((a, b) => a - b),
     textInset: textFrame && rootFrame ? Math.round(textFrame.x - rootFrame.x) : null,
+    textPadding: textFrame ? textPadding(frames, textFrame) : null,
     overflowsX: frames.some((f) => f.x + f.w > width + 1),
   }
 }
@@ -126,9 +130,17 @@ export function measureFrames(frames: Frame[], root: UiNode, width: number): Omi
 export function compareMeasures(reference: Omit<RendererMeasure, `picture`>, candidate: Omit<RendererMeasure, `picture`>, name: string): string[] {
   const out: string[] = []
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
-  for (const key of [`height`, `nodes`, `gaps`, `textInset`, `overflowsX`] as const)
+  for (const key of [`height`, `nodes`, `gaps`, `textInset`, `textPadding`, `overflowsX`] as const)
     if (!same(reference[key], candidate[key])) out.push(`${key}: ${REFERENCE} ${JSON.stringify(reference[key])}, ${name} ${JSON.stringify(candidate[key])}`)
   return out
+}
+
+/** The text's inset from the innermost frame that contains it and starts left of it. */
+function textPadding(frames: Frame[], text: Frame): number | null {
+  const holders = frames.filter((f) => f !== text && f.x < text.x - 0.5 && f.y <= text.y + 0.5 && f.x + f.w >= text.x + text.w - 0.5 && f.y + f.h >= text.y + text.h - 0.5)
+  if (!holders.length) return null
+  const inner = holders.reduce((a, b) => (b.w * b.h < a.w * a.h ? b : a))
+  return Math.round(text.x - inner.x)
 }
 
 function textNode(node: UiNode): UiNode | undefined {

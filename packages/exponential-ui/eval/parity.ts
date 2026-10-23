@@ -308,7 +308,8 @@ export function spacing(img: Raw, cssPerPx: number, options: { top: number; chro
   const y1 = Math.floor(img.height * 0.95)
   const px = (css: number) => Math.max(1, Math.round(css / cssPerPx))
   // Ink runs, the ones closer than 2 css px merged, the ones thinner than 2 css px dropped.
-  const raw = runs(inkRows(img, left, img.width, y0, y1, bg), y0)
+  // Text-contrast ink only (Δ > 40): a card's fill or a hairline (≈ 5..20 off the page) is not a line.
+  const raw = runs(inkRows(img, left, img.width, y0, y1, bg, 40), y0)
   const merged: [number, number][] = []
   for (const r of raw) {
     const last = merged[merged.length - 1]
@@ -321,7 +322,7 @@ export function spacing(img: Raw, cssPerPx: number, options: { top: number; chro
   const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0
   const counts = new Map<number, number>()
   for (const g of gaps) counts.set(Math.round(g / 2) * 2, (counts.get(Math.round(g / 2) * 2) ?? 0) + 1)
-  const insets = ink.slice(0, 8).map(([a, b]) => firstInkX(img, left, img.width, a, b, bg, 30)).filter((x) => x >= 0)
+  const insets = ink.slice(0, 8).map(([a, b]) => firstInkX(img, left, img.width, a, b, bg, 40)).filter((x) => x >= 0)
   return {
     contentLeft: round(left * cssPerPx),
     inset: insets.length ? round((Math.min(...insets) - left) * cssPerPx) : 0,
