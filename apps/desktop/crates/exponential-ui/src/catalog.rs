@@ -23,9 +23,22 @@ pub const UNKNOWN_COMPONENT: &str = g::UNKNOWN_COMPONENT;
 /// What a client advertises as `supportedCatalogIds`.
 pub const SUPPORTED_CATALOG_IDS: &[&str] = &[CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, A2UI_BASIC_CATALOG_ID];
 
-/// The parsed core catalog, once per process.
+/// The parsed core catalog, once per process. VAPP-106: the RUNTIME catalog,
+/// without the model-facing descriptions and examples (`descriptions()`).
 pub static CORE: LazyLock<CatalogSource> =
     LazyLock::new(|| serde_json::from_str(g::CORE_CATALOG_JSON).expect("core.catalog.json"));
+
+/// VAPP-106: the catalog's model-facing text (`generated/core.descriptions.json`
+/// of the package: per component its description, example and prop
+/// descriptions; per def; per function), keyed like the catalog, for a host
+/// that builds its own prompt. Parsed once; only with the `descriptions`
+/// feature.
+#[cfg(feature = "descriptions")]
+pub fn descriptions() -> &'static Value {
+    static DESCRIPTIONS: LazyLock<Value> =
+        LazyLock::new(|| serde_json::from_str(crate::generated::descriptions::CORE_CATALOG_DESCRIPTIONS_JSON).expect("core.descriptions.json"));
+    &DESCRIPTIONS
+}
 
 #[derive(serde::Deserialize)]
 struct MacrosFile {

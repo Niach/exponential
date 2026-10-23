@@ -25,6 +25,9 @@ import overlays from "@exponential-at/ui/fixtures/overlay-geometry.json" with { 
 import components from "@exponential-at/ui/fixtures/catalog-components.json" with { type: "json" }
 import conditions from "@exponential-at/ui/fixtures/style-conditions.json" with { type: "json" }
 import controlGeometry from "@exponential-at/ui/fixtures/control-geometry.json" with { type: "json" }
+// VAPP-106: the runtime catalog ships without the components' examples; the
+// controls view paints each control from its example, so attach them here.
+import { describeCatalog } from "@exponential-at/ui/prompt"
 import specimens from "@exponential-at/ui/fixtures/specimens.json" with { type: "json" }
 // The kitchen sink's data model is the React package's fixture (one file
 // for both harnesses; a JSON file, not renderer code).
@@ -246,7 +249,7 @@ function Controls(): JSX.Element {
     <div style={{ display: `flex`, "flex-wrap": `wrap`, gap: `16px`, padding: `16px`, "align-items": `flex-start` }}>
       <For each={all}>
         {(c) => {
-          const example = (componentDef(c.component)?.example ?? {}) as Record<string, unknown>
+          const example = (describeCatalog().components[c.component]?.example ?? componentDef(c.component)?.example ?? {}) as Record<string, unknown>
           const { root, templates } = reduceNested({ id: `root`, component: c.component, props: { ...example, ...c.props } }, { catalogId: CORE_CATALOG_ID })
           return (
             <div data-case={c.key} style={{ width: `360px` }}>

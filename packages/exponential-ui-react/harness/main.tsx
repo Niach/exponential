@@ -20,6 +20,9 @@ import { StrictMode, useEffect, useLayoutEffect, useMemo, useRef, useState, type
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 import { CORE_CATALOG_ID, reduceNested, reduceSurface, BUILTIN_THEME_IDS, THEME_SCHEMA_ID, componentDef } from "@exponential-at/ui"
+// VAPP-106: the runtime catalog ships without the components' examples; the
+// controls view paints each control from its example, so attach them here.
+import { describeCatalog } from "@exponential-at/ui/prompt"
 import type { FlatComponent, NestedNode, UiNode } from "@exponential-at/ui"
 import benchFixture from "@exponential-at/ui/fixtures/bench-list.json"
 import kitchenSink from "@exponential-at/ui/fixtures/kitchen-sink.json"
@@ -251,7 +254,7 @@ function Controls() {
   return (
     <div style={{ display: `flex`, flexWrap: `wrap`, gap: 16, padding: 16, alignItems: `flex-start` }}>
       {all.map((c) => {
-        const example = (componentDef(c.component)?.example ?? {}) as Record<string, unknown>
+        const example = (describeCatalog().components[c.component]?.example ?? componentDef(c.component)?.example ?? {}) as Record<string, unknown>
         const { root, templates } = reduceNested({ id: `root`, component: c.component, props: { ...example, ...c.props } }, { catalogId: CORE_CATALOG_ID })
         return (
           <div key={c.key} data-case={c.key} style={{ width: 360 }}>

@@ -7,6 +7,8 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 First release (FEED-130).
 
+- VAPP-106: `.`, `./define` and `dist/standalone.js` are measured by `packages/exponential-ui/release/size.ts` (`release/sizes.json` the record, `release/size-budget.json` the budget CI fails on); `scripts/build-standalone.ts` exports `bundleStandalone(dir, { outDir })` for it, and the bundles carry neither the described catalog nor a fixture.
+
 - `<exponential-surface>`: a custom element that paints a core A2UI surface in any page with no framework, by mounting the Solid renderer (`@exponential-at/ui-solid`) in its light DOM. The same DOM, the same compiled stylesheet and the same runtime themes as the React renderer; the element is `display: contents`, so `.xui-surface` is the box.
 - Attributes `theme`, `mode`, `density`, `contrast`, `locale`, `time-zone`, `direction`, `width`, `height`, `surface-id`, and `src` + `post` + `transport` (JSONL, SSE or WebSocket through the host API). Properties for everything else: `surface`, `root`/`templates`/`data`, `host`, `plugin`, `extensions`, `strings`, `states`, `measure`, `viewportHeight`.
 - `apply()`, `setData()`, `reset()` and the surface handle (`run`, `focus`, `announce`, `scrollIntoView`, `scrollToIndex`).

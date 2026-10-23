@@ -12,17 +12,34 @@ import { readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { gzipSync } from "node:zlib"
 
-/** Builds `<dir>/src/standalone.ts` into `<dir>/dist/standalone.js`; returns
- *  that path. */
+export interface StandaloneBundle {
+  /** The built file (`<outDir>/standalone.js`). */
+  file: string
+  /** Module id → its bytes in the file (the size gate's split check, VAPP-106). */
+  inputs: Record<string, number>
+}
+
+/** Builds `<dir>/src/standalone.ts` into `<dir>/dist/standalone.js` (+ its
+ *  sourcemap); returns that path. */
 export async function buildStandalone(dir: string): Promise<string> {
+  const { file } = await bundleStandalone(dir, { outDir: join(dir, `dist`), sourcemap: true })
+  const bytes = readFileSync(file)
+  console.log(`built ${file}: ${(bytes.length / 1024).toFixed(1)} kB, ${(gzipSync(bytes, { level: 9 }).length / 1024).toFixed(1)} kB gzip`)
+  return file
+}
+
+/** The standalone bundle into `outDir` (VAPP-106: the size gate builds it
+ *  into a temp dir and reads what went in). */
+export async function bundleStandalone(dir: string, options: { outDir: string; sourcemap?: boolean }): Promise<StandaloneBundle> {
   const { build } = await import(`vite`)
   const { default: solid } = await import(`vite-plugin-solid`)
   // Vite's `build()` sets `process.env.NODE_ENV` to "production" when it is
   // unset; a later child `npm install` in the same process would then skip
   // devDependencies: restore it (as build-npm.ts's buildSolid does).
   const nodeEnv = process.env.NODE_ENV
+  let inputs: Record<string, number> = {}
   try {
-    await build({
+    const result = await build({
       configFile: false,
       root: dir,
       logLevel: `warn`,
@@ -30,11 +47,11 @@ export async function buildStandalone(dir: string): Promise<string> {
       resolve: { conditions: [`browser`] },
       define: { "process.env.NODE_ENV": JSON.stringify(`production`) },
       build: {
-        outDir: join(dir, `dist`),
+        outDir: options.outDir,
         emptyOutDir: false,
         minify: true,
         target: `es2022`,
-        sourcemap: true,
+        sourcemap: options.sourcemap ?? false,
         modulePreload: false,
         copyPublicDir: false,
         // One file by design: no chunk-size advice.
@@ -48,14 +65,13 @@ export async function buildStandalone(dir: string): Promise<string> {
         },
       },
     })
+    const chunks = (Array.isArray(result) ? result : [result]).flatMap((r) => (`output` in r ? r.output : [])).filter((o) => o.type === `chunk`)
+    inputs = Object.fromEntries(chunks.flatMap((c) => Object.entries(c.modules).map(([k, v]) => [k, v.renderedLength])))
   } finally {
     if (nodeEnv === undefined) delete process.env.NODE_ENV
     else process.env.NODE_ENV = nodeEnv
   }
-  const out = join(dir, `dist`, `standalone.js`)
-  const bytes = readFileSync(out)
-  console.log(`built ${out}: ${(bytes.length / 1024).toFixed(1)} kB, ${(gzipSync(bytes, { level: 9 }).length / 1024).toFixed(1)} kB gzip`)
-  return out
+  return { file: join(options.outDir, `standalone.js`), inputs }
 }
 
 if (import.meta.main) await buildStandalone(resolve(import.meta.dir, `..`))

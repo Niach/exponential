@@ -1,8 +1,12 @@
 // VAPP-85: the catalog as data. `catalog/core.catalog.json` is the source;
 // this module loads it, names the catalog ids and answers lookups across the
-// core plus any registered extensions.
+// core plus any registered extensions. VAPP-106: what loads here is the
+// RUNTIME catalog `generated/core.runtime.json` (the source minus every
+// description, example and `$comment`), what a renderer needs and nothing a
+// model reads; `src/catalog.described.ts` attaches the text for the prompt,
+// the schema emitter and the docs.
 
-import coreJson from "../catalog/core.catalog.json" with { type: "json" }
+import coreJson from "../generated/core.runtime.json" with { type: "json" }
 import tokensJson from "../catalog/tokens.json" with { type: "json" }
 import basicMapJson from "../catalog/basic-map.json" with { type: "json" }
 import macrosJson from "../catalog/macros.json" with { type: "json" }
@@ -14,6 +18,8 @@ import type {
   MacroDef,
 } from "./types"
 
+/** The runtime catalog: no descriptions or examples until `describeCatalog()`
+ *  (src/catalog.described.ts; the `./prompt` and `./schema` entries) attaches them. */
 export const coreCatalog = coreJson as unknown as CatalogSource
 
 /** `https://ui.exponential.at/catalogs/core/v1` */
