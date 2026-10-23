@@ -164,7 +164,7 @@ export interface Shapes {
 /** Every component's props, by name. */
 export interface ComponentProps {
   Box: { style?: Style; pressable?: boolean }
-  Stack: { direction?: OrientationValue | Responsive<OrientationValue>; gap?: GapValue | Responsive<GapValue>; align?: AlignValue | Responsive<AlignValue>; justify?: JustifyValue | Responsive<JustifyValue>; wrap?: boolean | Responsive<boolean>; style?: Style }
+  Stack: { direction?: OrientationValue | Responsive<OrientationValue> | Dynamic; gap?: GapValue | Responsive<GapValue>; align?: AlignValue | Responsive<AlignValue> | Dynamic; justify?: JustifyValue | Responsive<JustifyValue> | Dynamic; wrap?: boolean | Responsive<boolean>; style?: Style }
   Grid: { columns?: number | Responsive<number>; gap?: GapValue | Responsive<GapValue>; style?: Style }
   Card: { title?: string; description?: string; padded?: boolean; style?: Style }
   Separator: { orientation?: OrientationValue }
@@ -173,16 +173,16 @@ export interface ComponentProps {
   ScrollArea: { direction?: ScrollDirectionValue; maxHeight?: number; style?: Style }
   Sidebar: { side?: "left" | "right"; width?: number; collapseBelow?: CollapseBelowValue; collapsed?: boolean | Dynamic }
   AppBar: { title: string | Dynamic; subtitle?: string | Dynamic; back?: boolean }
-  Section: { title?: string | Dynamic; caption?: string; count?: number; icon?: IconName; collapsible?: boolean; open?: boolean | Dynamic; tint?: ToneValue; tree?: boolean; loading?: boolean; style?: Style }
+  Section: { title?: string | Dynamic; caption?: string | Dynamic; count?: number | Dynamic; icon?: IconName; collapsible?: boolean; open?: boolean | Dynamic; tint?: ToneValue; tree?: boolean; loading?: boolean | Dynamic; style?: Style }
   Group: { title?: string; footer?: string }
   Text: { text: string | Dynamic; variant?: TextVariantValue; align?: "start" | "center" | "end"; lines?: number; tone?: ToneValue; shimmer?: boolean; live?: LiveValue; style?: Style }
   Heading: { text: string | Dynamic; level?: HeadingLevelValue }
   Markdown: { text: string | Dynamic; lines?: number; style?: Style }
-  CodeBlock: { code: string | Dynamic; language?: CodeLanguageValue; title?: string; lineNumbers?: boolean; wrap?: boolean; copyable?: boolean; highlight?: number[]; maxLines?: number; variant?: CodeBlockVariantValue; size?: CodeBlockSizeValue }
+  CodeBlock: { code: string | Dynamic; language?: CodeLanguageValue; title?: string; lineNumbers?: boolean; wrap?: boolean; copyable?: boolean; highlight?: number[]; maxLines?: number; variant?: CodeBlockVariantValue | Dynamic; size?: CodeBlockSizeValue }
   Kbd: { keys: string }
   Label: { text: string | Dynamic; for?: string; required?: boolean }
-  Image: { src?: string | Dynamic; alt: string; fit?: ImageFitValue; width?: number; height?: number; aspectRatio?: number; fallback?: IconName; loading?: ImageLoadingValue; focalX?: number; focalY?: number; style?: Style }
-  Icon: { name: IconName; size?: ControlSizeValue; tone?: ToneValue; label?: string }
+  Image: { src?: string | Dynamic; alt: string | Dynamic; fit?: ImageFitValue; width?: number; height?: number; aspectRatio?: number; fallback?: IconName; loading?: ImageLoadingValue; focalX?: number; focalY?: number; style?: Style }
+  Icon: { name: IconName | Dynamic; size?: ControlSizeValue; tone?: ToneValue | Dynamic; label?: string }
   Video: { src: string | Dynamic; poster?: string; durationMs?: number; autoplay?: boolean; aspectRatio?: number; style?: Style }
   AudioPlayer: { src: string | Dynamic; title?: string; durationMs?: number }
   Avatar: { name: string | Dynamic; src?: string | Dynamic; size?: ControlSizeValue; seed?: string }
@@ -194,7 +194,7 @@ export interface ComponentProps {
   Trace: { size?: TraceSizeValue }
   TraceItem: { title: string | Dynamic; icon?: IconName; description?: string; status?: TraceStatusValue; size?: TraceSizeValue; collapsible?: boolean; open?: boolean | Dynamic }
   Pagination: { totalPages: number; page?: number | Dynamic }
-  Breadcrumb: { items: Shapes["option"][] }
+  Breadcrumb: { items: Shapes["option"][] | Dynamic }
   Stepper: { steps: Shapes["step"][]; current?: number | Dynamic; orientation?: OrientationValue }
   Dialog: { title?: string; description?: string; open?: boolean | Dynamic; dismissible?: boolean }
   Drawer: { title?: string; description?: string; open?: boolean | Dynamic; side?: SideValue | Responsive<SideValue>; dismissible?: boolean; dragToDismiss?: boolean }
@@ -204,9 +204,9 @@ export interface ComponentProps {
   Tooltip: { content: string; side?: SideValue }
   Menu: { label?: string; icon?: IconName; items: Shapes["menuItem"][]; openOn?: MenuOpenOnValue }
   Toast: { title: string | Dynamic; description?: string | Dynamic; type?: AlertTypeValue; open?: boolean | Dynamic; duration?: number; actionLabel?: string; dismissible?: boolean }
-  Badge: { text: string | Dynamic; variant?: VariantValue; icon?: IconName }
+  Badge: { text: string | Dynamic; variant?: VariantValue | Dynamic; icon?: IconName }
   Alert: { title: string; message?: string; type?: AlertTypeValue }
-  Chip: { label: string | Dynamic; shape?: ChipShapeValue; selected?: boolean; tone?: ToneValue; dot?: string; icon?: IconName; image?: string; detail?: string; removable?: boolean; pressable?: boolean }
+  Chip: { label: string | Dynamic; shape?: ChipShapeValue; selected?: boolean; tone?: ToneValue | Dynamic; dot?: string; icon?: IconName; image?: string; detail?: string; removable?: boolean; pressable?: boolean }
   EmptyState: { icon: IconName; title: string; description?: string; actionLabel?: string; size?: "page" | "list" }
   Progress: { value: number | Dynamic; max?: number; label?: string; tone?: ToneValue }
   Meter: { segments: Shapes["segment"][]; max?: number; label?: string; value?: string }
@@ -216,7 +216,7 @@ export interface ComponentProps {
   Table: { columns: Shapes["column"][]; rows: Record<string, unknown>[] | Dynamic; rowKey?: string; sort?: Shapes["sort"] | Dynamic; selectable?: SelectableValue; selected?: string[] | Dynamic; caption?: string; emptyText?: string; striped?: boolean; density?: DensityValue; stickyHeader?: boolean }
   Chart: { kind: ChartKindValue; categories?: string[] | Dynamic; series: Shapes["series"][] | Dynamic; title?: string; height?: number; xLabel?: string; yLabel?: string; min?: number; max?: number; showAxes?: boolean; showGrid?: boolean; showLegend?: boolean; showValues?: boolean }
   Sparkline: { values: number[] | Dynamic; tone?: ToneValue; height?: number }
-  Button: { label?: string | Dynamic; icon?: IconName; variant?: VariantValue; size?: SizeValue; disabled?: boolean | Dynamic; loading?: boolean; pendingLabel?: string; submit?: boolean }
+  Button: { label?: string | Dynamic; icon?: IconName | Dynamic; variant?: VariantValue; size?: SizeValue; disabled?: boolean | Dynamic; loading?: boolean; pendingLabel?: string; submit?: boolean }
   Link: { label: string | Dynamic; href?: string; external?: boolean }
   Toggle: { label: string; icon?: IconName; pressed?: boolean | Dynamic; variant?: "default" | "outline"; size?: ControlSizeValue }
   Form: { name: string; disabled?: boolean | Dynamic; busy?: boolean | Dynamic; summary?: boolean }
@@ -227,7 +227,7 @@ export interface ComponentProps {
   Radio: { label?: string; name: string; options: Shapes["option"][]; value?: string | Dynamic; orientation?: OrientationValue; checks?: Shapes["check"][] }
   ChoiceTiles: { name: string; options: Shapes["option"][]; type?: GroupTypeValue; value?: string | Dynamic; columns?: number; disabled?: boolean; checks?: Shapes["check"][] }
   Switch: { label: string | Dynamic; name: string; checked?: boolean | Dynamic; description?: string; disabled?: boolean }
-  Slider: { label?: string; min?: number; max: number; step?: number; value?: number | Dynamic }
+  Slider: { label?: string; min?: number | Dynamic; max: number | Dynamic; step?: number; value?: number | Dynamic }
   Rating: { value?: number | Dynamic; max?: number; readOnly?: boolean; size?: ControlSizeValue }
   Select: { label?: string; name: string; options?: Shapes["option"][] | Dynamic; source?: string; placeholder?: string; value?: string | Dynamic; multiple?: boolean; searchable?: boolean; emptyText?: string; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
   SearchList: { items: Shapes["searchItem"][] | Dynamic; query?: string | Dynamic; placeholder?: string; value?: string | Dynamic; emptyText?: string; maxRows?: number; showCount?: boolean }
@@ -237,7 +237,7 @@ export interface ComponentProps {
   TimePicker: { label?: string; name: string; value?: string | Dynamic; min?: string; max?: string; step?: number; placeholder?: string; disabled?: boolean }
   FileUpload: { label?: string; name: string; accept?: string; multiple?: boolean; maxSize?: number; files?: Shapes["file"][] | Dynamic; hint?: string; disabled?: boolean }
   Composer: { placeholder?: string; value?: string | Dynamic; submitLabel?: string; attachments?: boolean; busy?: boolean }
-  Row: { title: string | Dynamic; identifier?: string | Dynamic; subtitle?: string | Dynamic; meta?: string | Dynamic; value?: string | Dynamic; placeholder?: string; icon?: IconName; chevron?: RowChevronValue; selected?: boolean; density?: DensityValue; surface?: RowSurfaceValue; pressable?: boolean; depth?: number }
+  Row: { title: string | Dynamic; identifier?: string | Dynamic; subtitle?: string | Dynamic; meta?: string | Dynamic; value?: string | Dynamic; placeholder?: string; icon?: IconName | Dynamic; chevron?: RowChevronValue | Dynamic; selected?: boolean | Dynamic; density?: DensityValue; surface?: RowSurfaceValue; pressable?: boolean; depth?: number }
   TreeGuides: { depth: number; elbowAt?: number; tee?: boolean; passThrough?: number[] }
   Unknown: { component: string; catalogId?: string }
 }

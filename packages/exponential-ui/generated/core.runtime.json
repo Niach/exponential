@@ -890,7 +890,8 @@
           "type": "enum",
           "enum": "orientation",
           "default": "vertical",
-          "responsive": true
+          "responsive": true,
+          "bindable": true
         },
         "gap": {
           "type": "enum",
@@ -902,13 +903,15 @@
           "type": "enum",
           "enum": "align",
           "default": "stretch",
-          "responsive": true
+          "responsive": true,
+          "bindable": true
         },
         "justify": {
           "type": "enum",
           "enum": "justify",
           "default": "start",
-          "responsive": true
+          "responsive": true,
+          "bindable": true
         },
         "wrap": {
           "type": "boolean",
@@ -1145,10 +1148,12 @@
           "bindable": true
         },
         "caption": {
-          "type": "string"
+          "type": "string",
+          "bindable": true
         },
         "count": {
-          "type": "number"
+          "type": "number",
+          "bindable": true
         },
         "icon": {
           "type": "icon"
@@ -1173,7 +1178,8 @@
         },
         "loading": {
           "type": "boolean",
-          "default": false
+          "default": false,
+          "bindable": true
         },
         "style": {
           "type": "style"
@@ -1322,7 +1328,8 @@
         "variant": {
           "type": "enum",
           "enum": "codeBlockVariant",
-          "default": "default"
+          "default": "default",
+          "bindable": true
         },
         "size": {
           "type": "enum",
@@ -1375,7 +1382,8 @@
         },
         "alt": {
           "type": "string",
-          "required": true
+          "required": true,
+          "bindable": true
         },
         "fit": {
           "type": "enum",
@@ -1418,7 +1426,8 @@
       "props": {
         "name": {
           "type": "icon",
-          "required": true
+          "required": true,
+          "bindable": true
         },
         "size": {
           "type": "enum",
@@ -1427,7 +1436,8 @@
         },
         "tone": {
           "type": "enum",
-          "enum": "tone"
+          "enum": "tone",
+          "bindable": true
         },
         "label": {
           "type": "string"
@@ -1748,7 +1758,8 @@
             "type": "object",
             "shape": "option"
           },
-          "required": true
+          "required": true,
+          "bindable": true
         }
       },
       "events": [
@@ -2070,7 +2081,8 @@
         "variant": {
           "type": "enum",
           "enum": "variant",
-          "default": "default"
+          "default": "default",
+          "bindable": true
         },
         "icon": {
           "type": "icon"
@@ -2123,7 +2135,8 @@
         "tone": {
           "type": "enum",
           "enum": "tone",
-          "default": "neutral"
+          "default": "neutral",
+          "bindable": true
         },
         "dot": {
           "type": "color"
@@ -2479,7 +2492,8 @@
           "bindable": true
         },
         "icon": {
-          "type": "icon"
+          "type": "icon",
+          "bindable": true
         },
         "variant": {
           "type": "enum",
@@ -2936,11 +2950,13 @@
         },
         "min": {
           "type": "number",
-          "default": 0
+          "default": 0,
+          "bindable": true
         },
         "max": {
           "type": "number",
-          "required": true
+          "required": true,
+          "bindable": true
         },
         "step": {
           "type": "number",
@@ -3370,16 +3386,19 @@
           "type": "string"
         },
         "icon": {
-          "type": "icon"
+          "type": "icon",
+          "bindable": true
         },
         "chevron": {
           "type": "enum",
           "enum": "rowChevron",
-          "default": "none"
+          "default": "none",
+          "bindable": true
         },
         "selected": {
           "type": "boolean",
-          "default": false
+          "default": false,
+          "bindable": true
         },
         "density": {
           "type": "enum",

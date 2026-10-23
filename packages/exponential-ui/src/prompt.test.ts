@@ -100,7 +100,7 @@ describe(`VAPP-108: sections, the index and components on demand`, () => {
   test(`componentPrompt gives one block with the shapes it reaches; only narrows the components section`, () => {
     const section = componentPrompt(`Section`)
     expect(section.startsWith(`Section: `)).toBe(true)
-    expect(section).toContain(`\n  count: number`)
+    expect(section).toContain(`\n  count~: number`)
     expect(section).not.toContain(`Shapes:`)
     const table = componentPrompt(`Table`)
     expect(table).toContain(`Shapes: column = {`)

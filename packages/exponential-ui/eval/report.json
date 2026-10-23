@@ -5,27 +5,27 @@
     "budgetTokens": 7000,
     "full": {
       "components": 75,
-      "chars": 27996,
-      "tokens": 6999
+      "chars": 27998,
+      "tokens": 7000
     },
     "lite": {
       "components": 53,
-      "chars": 20558,
+      "chars": 20557,
       "tokens": 5140
     },
     "terse": {
       "components": 75,
-      "chars": 20595,
-      "tokens": 5149
+      "chars": 20597,
+      "tokens": 5150
     },
     "index": {
       "components": 75,
-      "chars": 10348,
-      "tokens": 2587
+      "chars": 10331,
+      "tokens": 2583
     },
     "rules": {
-      "chars": 1848,
-      "tokens": 462
+      "chars": 1831,
+      "tokens": 458
     },
     "perComponent": {
       "mean": 325,
@@ -38,58 +38,9 @@
     "recordedBy": {
       "session": 30
     },
-    "validatorClean": 18,
-    "issuesTotal": 27,
-    "issueKinds": [
-      {
-        "message": "props.count: expected a number",
-        "count": 11
-      },
-      {
-        "message": "props.alt: expected a string",
-        "count": 3
-      },
-      {
-        "message": "props.icon: not an icons.json name",
-        "count": 3
-      },
-      {
-        "message": "props.tone: expected one of neutral|primary|success|warning|danger|info",
-        "count": 2
-      },
-      {
-        "message": "props.caption: expected a string",
-        "count": 1
-      },
-      {
-        "message": "props.chevron: expected one of none|right|selector",
-        "count": 1
-      },
-      {
-        "message": "props.items: expected an array",
-        "count": 1
-      },
-      {
-        "message": "props.justify: expected one of start|center|end|between|around|evenly",
-        "count": 1
-      },
-      {
-        "message": "props.loading: expected a boolean",
-        "count": 1
-      },
-      {
-        "message": "props.max: expected a number",
-        "count": 1
-      },
-      {
-        "message": "props.selected: expected a boolean",
-        "count": 1
-      },
-      {
-        "message": "props.variant: expected one of default|destructive",
-        "count": 1
-      }
-    ],
+    "validatorClean": 30,
+    "issuesTotal": 0,
+    "issueKinds": [],
     "components": {
       "total": 304,
       "mean": 10.1,
@@ -539,20 +490,7 @@
       "messages": 3,
       "components": 6,
       "depth": 4,
-      "issues": [
-        {
-          "id": "header",
-          "message": "props.caption: expected a string"
-        },
-        {
-          "id": "header",
-          "message": "props.count: expected a number"
-        },
-        {
-          "id": "status",
-          "message": "props.tone: expected one of neutral|primary|success|warning|danger|info"
-        }
-      ],
+      "issues": [],
       "spacing": {
         "tokenised": 0,
         "raw": 0,
@@ -651,12 +589,7 @@
       "messages": 4,
       "components": 8,
       "depth": 5,
-      "issues": [
-        {
-          "id": "msg",
-          "message": "props.justify: expected one of start|center|end|between|around|evenly"
-        }
-      ],
+      "issues": [],
       "spacing": {
         "tokenised": 3,
         "raw": 0,
@@ -704,20 +637,7 @@
       "messages": 5,
       "components": 9,
       "depth": 5,
-      "issues": [
-        {
-          "id": "todo",
-          "message": "props.count: expected a number"
-        },
-        {
-          "id": "doing",
-          "message": "props.count: expected a number"
-        },
-        {
-          "id": "done",
-          "message": "props.count: expected a number"
-        }
-      ],
+      "issues": [],
       "spacing": {
         "tokenised": 0,
         "raw": 0,
@@ -918,16 +838,7 @@
       "messages": 4,
       "components": 7,
       "depth": 4,
-      "issues": [
-        {
-          "id": "day",
-          "message": "props.count: expected a number"
-        },
-        {
-          "id": "row",
-          "message": "props.icon: not an icons.json name"
-        }
-      ],
+      "issues": [],
       "spacing": {
         "tokenised": 0,
         "raw": 0,
@@ -1132,20 +1043,7 @@
       "messages": 4,
       "components": 8,
       "depth": 4,
-      "issues": [
-        {
-          "id": "crumbs",
-          "message": "props.items: expected an array"
-        },
-        {
-          "id": "row",
-          "message": "props.icon: not an icons.json name"
-        },
-        {
-          "id": "row",
-          "message": "props.chevron: expected one of none|right|selector"
-        }
-      ],
+      "issues": [],
       "spacing": {
         "tokenised": 0,
         "raw": 0,
@@ -1403,20 +1301,7 @@
       "messages": 4,
       "components": 13,
       "depth": 5,
-      "issues": [
-        {
-          "id": "issues",
-          "message": "props.count: expected a number"
-        },
-        {
-          "id": "people",
-          "message": "props.count: expected a number"
-        },
-        {
-          "id": "files",
-          "message": "props.count: expected a number"
-        }
-      ],
+      "issues": [],
       "spacing": {
         "tokenised": 0,
         "raw": 0,
@@ -1513,12 +1398,7 @@
       "messages": 4,
       "components": 13,
       "depth": 5,
-      "issues": [
-        {
-          "id": "pending",
-          "message": "props.count: expected a number"
-        }
-      ],
+      "issues": [],
       "spacing": {
         "tokenised": 0,
         "raw": 0,
@@ -1575,16 +1455,7 @@
       "messages": 4,
       "components": 10,
       "depth": 4,
-      "issues": [
-        {
-          "id": "big",
-          "message": "props.alt: expected a string"
-        },
-        {
-          "id": "thumbImage",
-          "message": "props.alt: expected a string"
-        }
-      ],
+      "issues": [],
       "spacing": {
         "tokenised": 0,
         "raw": 0,
@@ -1688,12 +1559,7 @@
       "messages": 5,
       "components": 9,
       "depth": 4,
-      "issues": [
-        {
-          "id": "row",
-          "message": "props.selected: expected a boolean"
-        }
-      ],
+      "issues": [],
       "spacing": {
         "tokenised": 1,
         "raw": 0,
@@ -1801,16 +1667,7 @@
       "messages": 4,
       "components": 10,
       "depth": 5,
-      "issues": [
-        {
-          "id": "comments",
-          "message": "props.count: expected a number"
-        },
-        {
-          "id": "comments",
-          "message": "props.loading: expected a boolean"
-        }
-      ],
+      "issues": [],
       "spacing": {
         "tokenised": 0,
         "raw": 0,
@@ -1915,24 +1772,7 @@
       "messages": 5,
       "components": 17,
       "depth": 4,
-      "issues": [
-        {
-          "id": "art",
-          "message": "props.alt: expected a string"
-        },
-        {
-          "id": "progress",
-          "message": "props.max: expected a number"
-        },
-        {
-          "id": "play",
-          "message": "props.icon: not an icons.json name"
-        },
-        {
-          "id": "queue",
-          "message": "props.count: expected a number"
-        }
-      ],
+      "issues": [],
       "spacing": {
         "tokenised": 0,
         "raw": 0,
@@ -1986,16 +1826,7 @@
       "messages": 3,
       "components": 8,
       "depth": 4,
-      "issues": [
-        {
-          "id": "out",
-          "message": "props.variant: expected one of default|destructive"
-        },
-        {
-          "id": "exit",
-          "message": "props.tone: expected one of neutral|primary|success|warning|danger|info"
-        }
-      ],
+      "issues": [],
       "spacing": {
         "tokenised": 0,
         "raw": 0,
