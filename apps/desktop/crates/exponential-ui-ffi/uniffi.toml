@@ -1,11 +1,10 @@
 [bindings.swift]
 module_name = "ExponentialUIFFI"
-# VAPP-134: no API checksum calls at load (≈280, like Kotlin's). They guard
-# a binding loaded against a DIFFERENT build of the library; ours never ship
-# apart (binding and library travel in one xcframework, built by
-# build-ios.sh from the same commit), and the contract version check uniffi
-# keeps still refuses an incompatible scaffolding.
-omit_checksums = true
+# VAPP-134 KEEPS the API checksums here: ≈280 direct calls into the
+# statically linked facade (microseconds, once), and they are what refuses a
+# stale xcframework in Binaries/ against a newer committed binding (a changed
+# record or signature keeps its symbol name, so nothing else would notice).
+# Only Kotlin pays for them (JNA, below).
 
 [bindings.kotlin]
 package_name = "at.exponential.ui.ffi"
