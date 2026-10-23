@@ -1052,6 +1052,8 @@ export const messageCardKindValues = [
   `suggestions`,
   `replies`,
   `ask`,
+  // Thread 58cb32df (chats.json): an agent's inline Exponential UI preview.
+  `surface`,
 ] as const
 export type MessageCardKind = (typeof messageCardKindValues)[number]
 

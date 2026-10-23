@@ -12,6 +12,7 @@ import threadFixture from "../fixtures/session-thread.json" with { type: "json" 
 import listFixture from "../fixtures/threads-list.json" with { type: "json" }
 import { sessionTitle, sessionTitles } from "./session-title"
 import { pictureFor, type CardSurface, type PlanCardPicture } from "./plan-card"
+import { commandDivider } from "./chats"
 
 export interface TreeSession {
   id: string
@@ -456,6 +457,10 @@ export type ThreadRow =
       caption: string | null
     }
   | { type: `event`; id: string; event: string; text: string }
+  /** Thread 58cb32df (chats.json): a person's `/new` or `/compact` line. */
+  | { type: `divider`; id: string; kind: `new` | `compact`; at: string }
+  /** Thread 58cb32df (chats.json): an agent's inline Exponential UI preview. */
+  | { type: `surface`; id: string; sessionId: string; title: string | null; surface: CardSurface }
 
 /** EXP-1323: one suggested task: `open` (× · Options · Do it here ·
  *  Start), `started` (the child's card once synced), `here` (sent to the
@@ -802,6 +807,11 @@ export function buildSessionThread(input: {
           ? message.authorKind
           : `system`
       if (!message.body.trim()) continue
+      const divider = author === `user` ? commandDivider(message.body) : null
+      if (divider) {
+        rows.push({ type: `divider`, id: message.id, kind: divider, at: message.createdAt })
+        continue
+      }
       rows.push({
         type: `message`,
         id: message.id,
@@ -856,6 +866,18 @@ export function buildSessionThread(input: {
           surfaceData: dataRecord(card.surfaceData),
         })
         break
+      case `surface`: {
+        const surface = cardSurface(card.surface)
+        if (!surface) break
+        rows.push({
+          type: `surface`,
+          id: message.id,
+          sessionId: message.sessionId,
+          title: typeof card.title === `string` && card.title.trim() ? card.title.trim() : null,
+          surface,
+        })
+        break
+      }
       case `subagent`:
         rows.push({
           type: `subagent`,

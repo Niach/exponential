@@ -27,6 +27,7 @@
     "./guide-viewer": "./src/guide-viewer.ts",
     "./agent-settings": "./src/agent-settings.ts",
     "./schedule-picker": "./src/schedule-picker.ts",
+    "./chats": "./src/chats.ts",
     "./session-brief": "./src/session-brief.ts",
     "./issue-lifecycle": "./src/issue-lifecycle.ts",
     "./trace": "./src/trace.ts",

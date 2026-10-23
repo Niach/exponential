@@ -39,7 +39,9 @@ export interface PlanOption {
 export const PLAN_OPTIONS = fixture.planOptions as readonly PlanOption[]
 
 /** The option a decided plan card names as its answer. */
-export function planDecisionLabel(decision: `approved` | `rejected`, fresh: boolean): string {
+export function planDecisionLabel(decision: `approved` | `rejected` | `superseded`, fresh: boolean): string {
+  // FEED-140: a plan the agent replaced with a newer one.
+  if (decision === `superseded`) return fixture.copy.superseded
   const wantsFresh = decision === `approved` && fresh
   return PLAN_OPTIONS.find((o) => o.decision === decision && o.fresh === wantsFresh)?.label ?? ``
 }
