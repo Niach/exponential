@@ -169,7 +169,12 @@ struct ChartGeometry {
     var span: Double { max(chart.max - chart.min, .ulpOfOne) }
     var n: Int { chart.categoryCount }
     var slot: CGFloat { innerW / CGFloat(n) }
-    func x(_ i: Int) -> CGFloat { left + innerW * (CGFloat(i) + 0.5) / CGFloat(n) }
+    /// VAPP-126: a sparkline runs edge to edge (the web's `i / (n - 1)`); every
+    /// other cartesian kind centres a point in its category band.
+    func x(_ i: Int) -> CGFloat {
+        if chart.kind == "sparkline" { return n <= 1 ? left + innerW / 2 : left + innerW * CGFloat(i) / CGFloat(n - 1) }
+        return left + innerW * (CGFloat(i) + 0.5) / CGFloat(n)
+    }
     func y(_ v: Double) -> CGFloat { top + innerH - innerH * CGFloat((v - chart.min) / span) }
     var barWidth: CGFloat { slot * 0.7 / CGFloat(max(chart.series.count, 1)) }
     func barX(_ si: Int, _ i: Int) -> CGFloat { left + slot * CGFloat(i) + slot * 0.15 + barWidth * CGFloat(si) }

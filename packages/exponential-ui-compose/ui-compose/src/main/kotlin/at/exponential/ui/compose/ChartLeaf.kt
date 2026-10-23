@@ -110,7 +110,9 @@ internal fun ChartLeaf(cx: LeafContext) {
     val span = max(chart.max - chart.min, 1e-9)
     // Every cartesian x goes through `mx` (the web's mirror).
     fun mx(x: Float) = if (rtl) width - x else x
-    fun xOf(i: Int) = mx(pl + innerW * (i + 0.5f) / n)
+    // VAPP-126: a sparkline runs edge to edge (the web's `i / (n - 1)`); every
+    // other cartesian kind centres a point in its category band.
+    fun xOf(i: Int) = mx(if (chart.spark) (if (n <= 1) pl + innerW / 2 else pl + innerW * i / (n - 1)) else pl + innerW * (i + 0.5f) / n)
     fun yOf(v: Double) = (pt + innerH - innerH * (v - chart.min) / span).toFloat()
     var hovered by remember(cx.node.id) { mutableStateOf<Int?>(null) }
     fun hit(p: Offset): Int? = when {
