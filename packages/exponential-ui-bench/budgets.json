@@ -172,7 +172,7 @@
       "react-chromium": {
         "cold-start": {
           "firstPaintMs": 146.7,
-          "nodes": 599,
+          "nodes": 612,
           "coldStartMs": 253.1,
           "memoryMb": 33
         },
