@@ -477,8 +477,8 @@
                       "value": ""
                     },
                     {
-                      "label": "Danny Weber",
-                      "value": "Danny Weber"
+                      "label": "Alex Weber",
+                      "value": "Alex Weber"
                     },
                     {
                       "label": "Lena Fischer",
@@ -615,7 +615,7 @@
             "identifier": "EXP-142",
             "title": "Checkout fails when coupon code has trailing spaces",
             "status": "In Progress",
-            "assignee": "Danny Weber"
+            "assignee": "Alex Weber"
           },
           {
             "id": "exp-141",
@@ -664,7 +664,7 @@
             "identifier": "EXP-128",
             "title": "Export invoices as CSV",
             "status": "In Review",
-            "assignee": "Danny Weber"
+            "assignee": "Alex Weber"
           },
           {
             "id": "exp-126",
@@ -678,7 +678,7 @@
             "identifier": "EXP-122",
             "title": "Fix broken links in the help center",
             "status": "Done",
-            "assignee": "Danny Weber"
+            "assignee": "Alex Weber"
           }
         ]
       }
@@ -1036,7 +1036,7 @@
           {
             "id": "d1",
             "name": "MacBook Pro 16",
-            "owner": "Danny Gruber",
+            "owner": "Alex Gruber",
             "status": "Online",
             "os": "macOS 15.2",
             "appVersion": "4.8.1",
@@ -1117,7 +1117,7 @@
         "detail": {
           "open": false,
           "name": "MacBook Pro 16",
-          "owner": "Danny Gruber",
+          "owner": "Alex Gruber",
           "status": "Online",
           "os": "macOS 15.2",
           "appVersion": "4.8.1",
@@ -1633,7 +1633,7 @@
           },
           {
             "id": "m3",
-            "sender": "Danny",
+            "sender": "Alex",
             "text": "Agreed. I'd split the permissions screen into two steps and move the avatar upload to the end.",
             "time": "09:16",
             "mine": true
@@ -1647,7 +1647,7 @@
           },
           {
             "id": "m5",
-            "sender": "Danny",
+            "sender": "Alex",
             "text": "On it. I'll drop the Figma link here by lunch.",
             "time": "09:18",
             "mine": true
@@ -1668,7 +1668,7 @@
           },
           {
             "id": "m8",
-            "sender": "Danny",
+            "sender": "Alex",
             "text": "Good catch — I'll make skip a proper secondary button instead of a text link.",
             "time": "09:35",
             "mine": true
@@ -2388,42 +2388,42 @@
           }
         ],
         "repoQuery": "",
-        "repo": "yourev/web-app",
+        "repo": "acme/web-app",
         "repos": [
           {
             "label": "web-app",
-            "value": "yourev/web-app",
+            "value": "acme/web-app",
             "icon": "folder-git-2",
-            "identifier": "yourev"
+            "identifier": "acme"
           },
           {
             "label": "api-server",
-            "value": "yourev/api-server",
+            "value": "acme/api-server",
             "icon": "folder-git-2",
-            "identifier": "yourev"
+            "identifier": "acme"
           },
           {
             "label": "mobile",
-            "value": "yourev/mobile",
+            "value": "acme/mobile",
             "icon": "folder-git-2",
-            "identifier": "yourev"
+            "identifier": "acme"
           },
           {
             "label": "design-tokens",
-            "value": "yourev/design-tokens",
+            "value": "acme/design-tokens",
             "icon": "folder-git-2",
-            "identifier": "yourev"
+            "identifier": "acme"
           },
           {
             "label": "infra",
-            "value": "yourev/infra",
+            "value": "acme/infra",
             "icon": "folder-git-2",
-            "identifier": "yourev"
+            "identifier": "acme"
           }
         ],
         "invites": [
-          "lena@yourev.at",
-          "marco@yourev.at"
+          "lena@example.com",
+          "marco@example.com"
         ],
         "role": "member",
         "roles": [
@@ -2440,7 +2440,7 @@
             "value": "viewer"
           }
         ],
-        "me": "danny@yourev.at"
+        "me": "alex@example.com"
       }
     },
     {
@@ -2641,7 +2641,7 @@
             "day": "Yesterday",
             "icon": "at-sign",
             "title": "You were mentioned in #design",
-            "preview": "@danny can you sanity-check the new onboarding copy?",
+            "preview": "@alex can you sanity-check the new onboarding copy?",
             "time": "18:20",
             "unread": true
           },
@@ -4106,9 +4106,9 @@
           "startTime": "09:30",
           "endTime": "16:00",
           "attendees": [
-            "danny@yourev.at",
-            "maria.huber@yourev.at",
-            "jonas.weber@yourev.at"
+            "alex@example.com",
+            "maria.huber@example.com",
+            "jonas.weber@example.com"
           ],
           "description": "Two-day offsite to align on Q4 priorities and roadmap. Bring your team's OKR drafts.",
           "reminder": true
@@ -4116,15 +4116,15 @@
         "suggestions": [
           {
             "label": "Lena Fischer",
-            "value": "lena.fischer@yourev.at"
+            "value": "lena.fischer@example.com"
           },
           {
             "label": "Tobias Gruber",
-            "value": "tobias.gruber@yourev.at"
+            "value": "tobias.gruber@example.com"
           },
           {
             "label": "Sophie Bauer",
-            "value": "sophie.bauer@yourev.at"
+            "value": "sophie.bauer@example.com"
           }
         ]
       }
@@ -4818,7 +4818,7 @@
           "key": "MOB",
           "name": "Mobile App",
           "issueCount": 42,
-          "owner": "danny@yourev.at"
+          "owner": "alex@example.com"
         },
         "confirmText": "",
         "dialogOpen": true
@@ -5306,13 +5306,13 @@
             "id": "p1",
             "name": "Maria Hofer",
             "role": "Billing lead · Payments",
-            "email": "maria@yourev.at"
+            "email": "maria@example.com"
           },
           {
             "id": "p2",
             "name": "Jonas Weber",
             "role": "Backend engineer · Billing",
-            "email": "jonas@yourev.at"
+            "email": "jonas@example.com"
           }
         ],
         "files": [
@@ -5771,8 +5771,8 @@
       "data": {
         "invite": {
           "emails": [
-            "maria.keller@yourev.at",
-            "jonas.weber@yourev.at"
+            "maria.keller@example.com",
+            "jonas.weber@example.com"
           ],
           "role": "member",
           "note": ""
@@ -5780,7 +5780,7 @@
         "pending": [
           {
             "id": "inv_4821",
-            "email": "lena.huber@yourev.at",
+            "email": "lena.huber@example.com",
             "role": "Member",
             "sent": "Sent 2 days ago"
           },
@@ -5792,7 +5792,7 @@
           },
           {
             "id": "inv_4802",
-            "email": "sofia.gruber@yourev.at",
+            "email": "sofia.gruber@example.com",
             "role": "Member",
             "sent": "Sent Oct 12"
           }
@@ -6696,7 +6696,7 @@
             "id": "m3",
             "sender": "GitHub",
             "email": "noreply@github.com",
-            "subject": "[yourev/app] PR #482 merged",
+            "subject": "[acme/app] PR #482 merged",
             "time": "Yesterday",
             "unread": false
           },
@@ -6731,7 +6731,7 @@
           "email": "lena.hofer@northwind.io",
           "subject": "Q4 roadmap review",
           "date": "Fri, Oct 23 · 09:42",
-          "body": "Hi Danny,\n\nThanks for sending over the draft. I went through it with the team this morning and we have a few notes:\n\n1. The billing migration feels tight for November — can we move it to early December?\n2. We'd love to see the mobile offline mode pulled forward.\n3. The analytics dashboard looks great as is.\n\nCould we find 30 minutes on Monday to walk through the changes?\n\nBest,\nLena"
+          "body": "Hi Alex,\n\nThanks for sending over the draft. I went through it with the team this morning and we have a few notes:\n\n1. The billing migration feels tight for November — can we move it to early December?\n2. We'd love to see the mobile offline mode pulled forward.\n3. The analytics dashboard looks great as is.\n\nCould we find 30 minutes on Monday to walk through the changes?\n\nBest,\nLena"
         }
       }
     },
@@ -7423,7 +7423,7 @@
           "title": "Sidebar collapses unexpectedly on window resize",
           "status": "In progress",
           "priority": "High",
-          "assignee": "Danny Lee",
+          "assignee": "Alex Lee",
           "updatedAt": "2026-10-23T08:42:00Z",
           "description": "When resizing the browser window across the `md` breakpoint, the sidebar collapses and **does not restore** its previous state.\n\nSteps to reproduce:\n1. Open any project with the sidebar expanded\n2. Shrink the window below 768 px\n3. Widen it again\n\nExpected: the sidebar returns to its expanded state.",
           "comments": [
@@ -7441,7 +7441,7 @@
             },
             {
               "id": "c3",
-              "author": "Danny Lee",
+              "author": "Alex Lee",
               "createdAt": "2026-10-23T08:42:00Z",
               "body": "Agreed — I'm splitting the state into `userCollapsed` and `autoCollapsed`. PR coming today."
             }
@@ -8268,10 +8268,10 @@
       "data": {
         "run": {
           "command": "npm test -- --run src/billing",
-          "cwd": "~/code/yourevat/web",
+          "cwd": "~/code/acme/web",
           "duration": "4.82 s",
           "exitCode": 1,
-          "output": "\u001b[1m\u001b[46m RUN \u001b[49m\u001b[22m \u001b[36mv2.1.4 \u001b[39m\u001b[90m~/code/yourevat/web\u001b[39m\n\n \u001b[32m✓\u001b[39m src/billing/invoice.test.ts \u001b[2m(12 tests)\u001b[22m \u001b[90m38ms\u001b[39m\n \u001b[32m✓\u001b[39m src/billing/tax.test.ts \u001b[2m(8 tests)\u001b[22m \u001b[90m21ms\u001b[39m\n \u001b[31m❯\u001b[39m src/billing/proration.test.ts \u001b[2m(6 tests | \u001b[31m1 failed\u001b[39m)\u001b[22m \u001b[90m44ms\u001b[39m\n   \u001b[31m×\u001b[39m prorates an upgrade mid-cycle\n\n\u001b[31m⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\u001b[39m\n\n\u001b[41m\u001b[1m FAIL \u001b[22m\u001b[49m src/billing/proration.test.ts > prorates an upgrade mid-cycle\n\u001b[31mAssertionError: expected 1450 to be 1449\u001b[39m\n\n\u001b[32m- Expected\u001b[39m  \u001b[32m1449\u001b[39m\n\u001b[31m+ Received\u001b[39m  \u001b[31m1450\u001b[39m\n\n \u001b[36m❯ src/billing/proration.test.ts:\u001b[2m42:31\u001b[22m\u001b[39m\n\n\u001b[2m Test Files \u001b[22m \u001b[1m\u001b[31m1 failed\u001b[39m\u001b[22m\u001b[2m | \u001b[22m\u001b[1m\u001b[32m2 passed\u001b[39m\u001b[22m\u001b[90m (3)\u001b[39m\n\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[31m1 failed\u001b[39m\u001b[22m\u001b[2m | \u001b[22m\u001b[1m\u001b[32m25 passed\u001b[39m\u001b[22m\u001b[90m (26)\u001b[39m\n\u001b[2m   Duration \u001b[22m 4.82s"
+          "output": "\u001b[1m\u001b[46m RUN \u001b[49m\u001b[22m \u001b[36mv2.1.4 \u001b[39m\u001b[90m~/code/acme/web\u001b[39m\n\n \u001b[32m✓\u001b[39m src/billing/invoice.test.ts \u001b[2m(12 tests)\u001b[22m \u001b[90m38ms\u001b[39m\n \u001b[32m✓\u001b[39m src/billing/tax.test.ts \u001b[2m(8 tests)\u001b[22m \u001b[90m21ms\u001b[39m\n \u001b[31m❯\u001b[39m src/billing/proration.test.ts \u001b[2m(6 tests | \u001b[31m1 failed\u001b[39m)\u001b[22m \u001b[90m44ms\u001b[39m\n   \u001b[31m×\u001b[39m prorates an upgrade mid-cycle\n\n\u001b[31m⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\u001b[39m\n\n\u001b[41m\u001b[1m FAIL \u001b[22m\u001b[49m src/billing/proration.test.ts > prorates an upgrade mid-cycle\n\u001b[31mAssertionError: expected 1450 to be 1449\u001b[39m\n\n\u001b[32m- Expected\u001b[39m  \u001b[32m1449\u001b[39m\n\u001b[31m+ Received\u001b[39m  \u001b[31m1450\u001b[39m\n\n \u001b[36m❯ src/billing/proration.test.ts:\u001b[2m42:31\u001b[22m\u001b[39m\n\n\u001b[2m Test Files \u001b[22m \u001b[1m\u001b[31m1 failed\u001b[39m\u001b[22m\u001b[2m | \u001b[22m\u001b[1m\u001b[32m2 passed\u001b[39m\u001b[22m\u001b[90m (3)\u001b[39m\n\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[31m1 failed\u001b[39m\u001b[22m\u001b[2m | \u001b[22m\u001b[1m\u001b[32m25 passed\u001b[39m\u001b[22m\u001b[90m (26)\u001b[39m\n\u001b[2m   Duration \u001b[22m 4.82s"
         }
       }
     },
@@ -8337,7 +8337,7 @@
                     },
                     {
                       "kind": "label",
-                      "label": "danny@yourev.at"
+                      "label": "alex@example.com"
                     },
                     {
                       "kind": "item",
@@ -8415,8 +8415,8 @@
           ]
         },
         "user": {
-          "name": "Danny",
-          "email": "danny@yourev.at"
+          "name": "Alex",
+          "email": "alex@example.com"
         }
       }
     }
