@@ -36,7 +36,8 @@ docker compose up -d --build                        # later: rebuild/upgrade
 (valid one hour). `RUNNER_CPUS` in a `.env` next to `compose.yaml` caps EACH
 runner (default 6; the Mint: 16 of its 32 cores, so two heavy jobs at once
 still leave the desktop room). The caches (sccache, cargo, rustup, gradle, bun, tool
-cache) are named volumes; `docker compose down -v` drops them and the
+cache) are named volumes (per runner except sccache, the tool cache and the
+read-only Gradle dependency cache); `docker compose down -v` drops them and the
 registration.
 
 ## The MacBook
