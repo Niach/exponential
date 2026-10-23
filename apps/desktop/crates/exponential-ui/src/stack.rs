@@ -56,7 +56,9 @@ fn host_limit() -> Option<usize> {
     })
 }
 
-#[cfg(target_os = "android")]
+/// bionic and glibc share `pthread_getattr_np`: the Linux test run checks
+/// the Android probe.
+#[cfg(any(target_os = "android", all(test, target_os = "linux")))]
 fn probe() -> Option<usize> {
     // SAFETY: an initialised attr filled for the calling thread, destroyed
     // before return; bionic resolves the main thread's stack from
@@ -86,7 +88,7 @@ fn probe() -> Option<usize> {
     }
 }
 
-#[cfg(all(test, not(any(target_os = "android", target_vendor = "apple"))))]
+#[cfg(all(test, not(any(target_os = "android", target_os = "linux", target_vendor = "apple"))))]
 fn probe() -> Option<usize> {
     None
 }
@@ -97,7 +99,8 @@ mod tests {
 
     #[test]
     fn the_host_probe_brackets_the_current_frame() {
-        let limit = host_limit().expect("the host thread's stack limit");
+        // Windows and the BSDs have no probe here (stacker knows them).
+        let Some(limit) = host_limit() else { return };
         let sp = stack_pointer();
         assert!(sp > limit, "the frame lies above the limit");
         if let Some(stacker_says) = stacker::remaining_stack() {
