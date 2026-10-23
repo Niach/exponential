@@ -41,9 +41,7 @@ class SessionTitleTest {
                 SessionTitle.TitleSession(
                     id = session.str("id")!!,
                     rootId = session.str("rootId")!!,
-                    name = session.str("name"),
                     title = session.str("title"),
-                    actionName = session.str("actionName"),
                 ),
                 input.list("links").map {
                     SessionTitle.TitleLink(
@@ -76,7 +74,6 @@ class SessionTitleTest {
         val titles = fixture.getValue("titles").jsonObject
         assertEquals(titles.str("issue"), SessionTitle.TITLE_ISSUE)
         assertEquals(titles.str("issues"), SessionTitle.TITLE_ISSUES)
-        assertEquals(titles.str("action"), SessionTitle.TITLE_ACTION)
         assertEquals(fixture.getValue("titleMax").jsonPrimitive.int, SessionTitle.TITLE_MAX)
         assertEquals(fixture.str("untitled"), SessionTitle.UNTITLED)
     }

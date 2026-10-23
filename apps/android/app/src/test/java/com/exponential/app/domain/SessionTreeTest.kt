@@ -49,7 +49,6 @@ class SessionTreeTest {
         teamId = json.str("teamId")!!,
         parentId = json.str("parentId"),
         rootId = json.str("rootId")!!,
-        kind = json.str("kind") ?: DomainContract.sessionKindThread,
         userId = json.str("userId")!!,
         status = json.str("status")!!,
         busy = json.bool("busy"),
@@ -61,18 +60,11 @@ class SessionTreeTest {
             val obj = entry.jsonObject
             SessionTree.GuideEntry(text = obj.str("text"), label = obj.str("label"))
         },
-        actionName = json.str("actionName"),
-        name = json.str("name"),
-        icon = json.str("icon"),
-        color = json.str("color"),
-        sortOrder = json.getValue("sortOrder").jsonPrimitive.double,
         startedAt = json.str("startedAt"),
         endedAt = json.str("endedAt"),
         createdAt = json.str("createdAt")!!,
         updatedAt = json.str("updatedAt")!!,
         deviceId = json.str("deviceId"),
-        caption = json.str("caption"),
-        aside = (json["aside"] as? JsonPrimitive)?.boolean ?: false,
         agentId = json.str("agentId"),
     )
 
@@ -131,7 +123,6 @@ class SessionTreeTest {
         put("tone", card.tone)
         put("elapsed", nullable(card.elapsed))
         put("running", card.running)
-        put("caption", nullable(card.caption))
         put("testId", card.testId)
     }
 
@@ -352,7 +343,6 @@ class SessionTreeTest {
                         put("parentId", nullable(row.parentId))
                         put("rootId", row.rootId)
                         put("unread", row.unread)
-                        put("caption", nullable(row.caption))
                     }
                 },
             ),
@@ -484,7 +474,6 @@ class SessionTreeTest {
                             parentId = row.str("parentId"),
                             rootId = row.str("rootId")!!,
                             unread = row.bool("unread"),
-                            caption = row.str("caption"),
                         )
                     },
                 )
@@ -728,10 +717,9 @@ class SessionTreeTest {
     // NEW-1 (TS `sessionKindWord`, session-card.json `copy.blockedKinds`): a
     // blocked session's state word names WHY; an unknown kind = "Usage limit".
     private fun blockedSession(kind: String?) = SessionTree.Session(
-        id = "s1", teamId = "t1", parentId = null, rootId = "s1", kind = "thread", userId = "u1",
+        id = "s1", teamId = "t1", parentId = null, rootId = "s1", userId = "u1",
         status = "running", busy = false, needsInput = false, blocked = SessionTree.Blocked(kind = kind),
-        shared = true, title = null, guide = null, actionName = null, name = null, icon = null,
-        color = null, sortOrder = 0.0, startedAt = null, endedAt = null,
+        shared = true, title = null, guide = null, startedAt = null, endedAt = null,
         createdAt = "2026-10-21T10:00:00.000Z", updatedAt = "2026-10-21T10:00:00.000Z",
     )
 

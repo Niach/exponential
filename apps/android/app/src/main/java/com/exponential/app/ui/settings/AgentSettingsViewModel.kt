@@ -96,7 +96,7 @@ class AgentSettingsViewModel @Inject constructor(
                     db.sessionDao().observeAll(),
                     db.userDao().observeAll(),
                 ) { events, sessions, users ->
-                    val titles = sessions.associate { it.id to (it.title ?: it.name) }
+                    val titles = sessions.associate { it.id to it.title }
                     val names = users.associate { it.id to it }
                     events.take(AgentSettings.EVENTS_CAP).map { event ->
                         AgentEventRow(
