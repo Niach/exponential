@@ -48,7 +48,7 @@ desktop `apps/desktop/crates/ui/src/`.
 | 17 | Composer box | `Composer` / `ComposerTool` / `ComposerSubmit` `composer.tsx` | `GlassComposer` `GlassComposer.swift` | `GlassComposer` `components/GlassComposer.kt` | `composer::glass_composer` | `Composer` | `composer` | — |
 | 18 | Results tiles | `SessionResultsView` `session-results-view.tsx` (tile private: `ResultTile`) | GAP-N: `app:Work/SessionResultsFace.swift` (private `SessionResultTile`) | GAP-N: `work/ResultsFace.kt` (private `ResultTile`) | GAP-N: `session_results::tile` (module-private) | `ResultTile` (+ `ResultGroup` per topic) | `session-results` | tile private ×4; iOS/Android face in app layer |
 | 18a | Results thread (status row + results timeline) | `SessionThreadView` `session-thread-view.tsx` (rule `sessionThread` `session-results.ts`) | GAP-N: `app:Session/AgentSessionView.swift` `threadList` | GAP-N: `RunThread` in `session/AgentSessionScreen.kt` | GAP-N: `steer_viewer::render_thread` | `Thread` | `session-thread` | iOS, Android, desktop |
-| 19 | Question / decision card (agent ask, plan) | GAP-N: private `AskCard` / `QuestionCard` `web:components/agent-session.tsx` | GAP-N: private `QuestionCard` `app:Session/AgentSessionView.swift` | GAP-N: private `QuestionCard` / `AnsweredAskCard` `session/AgentSessionScreen.kt` | GAP-N: `steer_viewer.rs` `render_ask` | `DecisionCard` | `markdown` (misfiled) | all four |
+| 19 | Question / decision card (agent ask, plan) + THE Dock card | `AskCard` `ask-card.tsx`, plan/question form `plan-card.tsx`, `DockCard` / `DockPile` / `DockSheet` `dock.tsx` (N-12) | `DockCard` / `DockPile` `Dock.swift`; plan form GAP-N: `app:Thread/PlanCardForm.swift` | `DockCard` / `DockPile` `components/Dock.kt`; plan form GAP-N: `thread/PlanCardView.kt` | `dock::dock_card` `dock.rs`, `plan_card.rs` | `DockCard` (the card + its sheet; no pile) | `ask-dock`, `dock-card`, `plan-card` | iOS/Android plan form in the app layer; catalog has no pile |
 | 20 | Choice dialog (blocked start, stack merge) | GAP-N: `web:components/blocked-start-dialog.tsx`, `stack-merge-choice-dialog.tsx` on `Dialog` | GAP-N: `app:Agent/BlockedStartSheet.swift`, `app:Work/WorkMergePill.swift` | GAP-N: in `agent/AgentScreen.kt`, `work/StackMergeDialog.kt` | GAP-N: `chat_screen.rs`, `pr_merge.rs` on `native_dialog::DialogShell` | `ChoiceDialog` (fixture-driven: `blocked-start.json`, `stack-merge-choice.json`) | `blocked-start-dialog`, `stack-merge-choice-dialog` | all four (shared spec = fixtures only) |
 | 21 | Toast | `Toaster`, `ToastKindIcon` `toast.tsx` | `Toaster` / `ToastCard` / `ToastHost` `Toast.swift` | `Toaster` / `ToastCard` / `ToastHost` `components/Toast.kt` | `toast::Toast` / `toast::show` | bridge `harness.toast` (not a tree node) | `toast` | — |
 | 22 | Picker (core list + trigger) | `Picker`, `PickerList`, `PickerTrigger`, `PickerItemBody` `picker/` | `GlassPicker`, `PickerItem` `Picker/Picker.swift` | `Picker`, `PickerItemBody` `components/picker/Picker.kt` | `picker::Picker`, `picker_item_body` | `Picker` (options inline or bound) | `picker` | — |
@@ -79,8 +79,9 @@ desktop `apps/desktop/crates/ui/src/`.
 
 ## Gap summary
 
-- **No shared primitive anywhere (×4):** issue row, question/decision card,
-  choice dialog body, composer headline.
+- **No shared primitive anywhere (×4):** issue row, choice dialog body,
+  composer headline. (Row 19, the question/decision card, became THE Dock
+  card ×4 in N-12; updated 2026-10-23.)
 - **Web-only shared primitive (EXP-1175):** the running/status row
   (`RunStatusRow`) and the results thread (`SessionThreadView`); iOS, Android
   and desktop draw them in the app layer. These are exactly the surfaces
@@ -91,7 +92,7 @@ desktop `apps/desktop/crates/ui/src/`.
   issue group band, disclosure header on iOS/Android, label chip on
   web/iOS/desktop, drawer rows on iOS/desktop, desktop menu.
 - **Styleguide gaps:** no specimen id for issue row, StatusGlyph, nav row
-  (the running/status row = `run-status-row`, the thread = `session-thread`); the ask/plan card sits under `markdown`.
+  (the running/status row = `run-status-row`, the thread = `session-thread`); the ask/plan card = `ask-dock`, `dock-card`, `plan-card`.
 - **Catalog:** VAPP-5 names none of these yet (GAP-C for every row).
 
 ## Tokens (SLOP-18 step 2)

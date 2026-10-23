@@ -166,7 +166,7 @@ prerenderSite({
     return <Component />
   },
   llms: {
-    summary: `An open-source (Apache-2.0) realtime tracker for issues, user feedback and coding agents. Assign issues to AI agents that run locally in your terminal and open GitHub pull requests (unlimited sessions, flat price). Native apps for web, iOS, Android, macOS, Windows and Linux. Free cloud tier for teams of three, or self-host it for free at any company size.`,
+    summary: `An open-source (Apache-2.0) realtime tracker for issues, user feedback and coding agents. Hand issues to AI coding agents (Claude Code or Codex) that run on your own machine, in the desktop app or the CLI daemon, and open GitHub pull requests (unlimited sessions, flat price). Native apps for web, iOS, Android, macOS, Windows and Linux. Free cloud tier for teams of three, or self-host it for free at any company size.`,
     intro: [
       `The app itself lives at https://app.exponential.at; the source code is at https://github.com/Niach/exponential. The open generative-UI SDK the apps are built on, Exponential UI, has its own site at https://ui.exponential.at.`,
     ],

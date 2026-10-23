@@ -76,8 +76,9 @@ export function DocsPage() {
             <ol>
               <li>
                 <strong>Sign up</strong> at{` `}
-                <a href={LINKS.app.login}>app.exponential.at</a>, then
-                create a team or join one via invite link. Details in{` `}
+                <a href={LINKS.app.login}>app.exponential.at</a>, then{` `}
+                <strong>Create a team</strong> or{` `}
+                <strong>Join a team</strong> with an invite link. Details in{` `}
                 <a href="/docs/getting-started/">Getting started</a>.
               </li>
               <li>
@@ -87,17 +88,19 @@ export function DocsPage() {
                 GitHub repository if you want coding sessions and PRs.
               </li>
               <li>
-                <strong>File your first issue</strong>: title, markdown
-                description, status, priority, labels. See{` `}
+                <strong>File your first issue</strong> with{` `}
+                <strong>New issue</strong>: title, markdown description,
+                status, priority, assignee, labels. See{` `}
                 <a href="/docs/issues/">Issues &amp; boards</a>.
               </li>
               <li>
                 <strong>Start coding</strong>: install the{` `}
-                <a href={LINKS.downloadPage}>desktop app</a>, open the issue,
-                and hit <strong>Start coding</strong>. Your agent runs on
-                your machine, plans first, implements, and opens the PR
-                itself; the session is one you can read and steer from
-                anywhere. See <a href="/docs/coding/">Coding agents</a>.
+                <a href={LINKS.downloadPage}>desktop app</a> (or the{` `}
+                <a href="/docs/cli/">CLI daemon</a>), open the issue, and hit
+                {` `}<strong>Start</strong>. Your agent runs on your machine,
+                implements, and opens the PR itself; the session is one you
+                can read and steer from anywhere. See{` `}
+                <a href="/docs/coding/">Coding agents</a>.
               </li>
               <li>
                 <strong>Merge</strong>: the issue moves to In Review when the

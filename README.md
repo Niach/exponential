@@ -18,15 +18,16 @@
 
 ## What you get
 
-- **Issues** with statuses, priorities, labels, due dates, markdown, @mentions and #issue references, drafts that follow you across devices. Realtime sync on every client via [ElectricSQL](https://electric-sql.com).
-- **Boards backed by a GitHub repo**: one issue, one branch, one PR, tracked on the issue. One combined PR for a batch, or a stack of PRs for issues that block each other, merged from the review queue.
-- **Start coding**: hand an issue to Claude Code or Codex from any client, on any of your machines. It plans, codes in a worktree, and opens the PR.
-- **One Work screen**: the issue, its run and its changes side by side. Watch the transcript, answer the agent's questions, read the diff and the screenshots it publishes, from your phone or the desktop. Runs keep their history on the machine that ran them.
-- **Your machines, your logins**: every desktop and server lists its agent accounts with plan, usage and reset times; switch a run to another account when one hits its limit.
-- **Actions**: reusable team prompts, run on demand, on a schedule or on an issue event, on your own machines.
-- **Headless CLI**: `exponential` turns any Linux or macOS box into an always-on agent machine your team starts runs on.
+- **Issues** with statuses, priorities, labels, estimates, due dates, sub-issues and relations, markdown, @mentions and #issue references, full-text search, drafts that follow you across devices. Realtime sync on every client via [ElectricSQL](https://electric-sql.com). Moving from Linear? Settings → Import brings your issues over.
+- **Boards backed by a GitHub repo**: a session's branch and PR are tracked on every issue it works; several issues started together share one branch and one PR. The PR opening moves the issue to In Review, the merge to Done.
+- **Start**: hand an issue to Claude Code or Codex from any client, on any of your machines. It codes in a worktree and opens the PR.
+- **Threads**: one thread per piece of work, with its conversation, its issues, every session it runs and a Guide to the PR. Watch the transcript, answer the agent's questions and approve its plans, read the diff and the screenshots it publishes, from your phone or the desktop.
+- **Your machines, your logins**: every desktop and server lists its agent accounts with plan, usage and reset times; switch a session to another account when one hits its limit.
+- **Prompts and agents**: saved team prompts run from the composer's `/` menu; team agents wake on a schedule or an issue event and run on your own machines.
+- **Apps**: describe a dashboard or a checklist and an agent session builds it as a team app, with a live preview and versions.
+- **Headless CLI**: `exponential` turns any Linux or macOS box into an always-on agent machine your team starts sessions on.
 - **Feedback widget**: a script tag for your site; reports with annotated screenshots land as issues, and the reporter keeps a conversation with your team through an emailed link.
-- **MCP server** at `/api/mcp` for Claude Code, Codex, Cursor, or any MCP client.
+- **MCP server** at `/api/mcp` (16 tools) for Claude Code, Codex, ChatGPT, Cursor, or any MCP client.
 
 ## Self-host
 
@@ -50,7 +51,7 @@ claude mcp add --transport http exponential https://app.exponential.at/api/mcp
 
 ## Development
 
-Needs [bun](https://bun.sh), Node ≥ 20.19, and Docker Compose.
+Needs [bun](https://bun.sh), Node ≥ 22.12, and Docker Compose.
 
 ```sh
 bun install

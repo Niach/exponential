@@ -4,7 +4,7 @@
 
 import React, { useId } from "react"
 import { AbsoluteFill, interpolate, useVideoConfig } from "remotion"
-import { C, EASE, GLASS, UI_FONT, WIN } from "./theme"
+import { C, EASE, UI_FONT, WIN } from "./theme"
 
 // ── Camera ────────────────────────────────────────────────────────────────────
 // Keyframes reference window-local focus points; the camera keeps focus at the
@@ -108,15 +108,7 @@ export const wallpaperBackground = (dx = 0, dy = 0): string =>
   ).join(", ")
 
 // The desktop window chassis at comp coords — put window-local content inside.
-// EXP-359 glass: an NSVisualEffectView recreation — the wallpaper replica
-// below, then the zinc page gradient painted in TWO region layers at the
-// desktop's alphas (the left column 0.72, content 0.96 — theme lib.rs
-// glass_sidebar_alpha/glass_content_alpha) so the wallpaper genuinely bleeds
-// through, glassier on the left.
-// Stops = theme.ts C.bgTop / C.bgBottom (#0c0c0f / #111114, EXP-723).
-const gradientAt = (alpha: number) =>
-  `linear-gradient(to bottom, rgba(12,12,15,${alpha}), rgba(17,17,20,${alpha}))`
-
+// The ground is opaque (see below); the wallpaper only shows AROUND the window.
 export const WindowChassis: React.FC<{
   children: React.ReactNode
   dim?: number
@@ -143,33 +135,15 @@ export const WindowChassis: React.FC<{
       filter: dim > 0 ? `brightness(${1 - dim})` : undefined,
     }}
   >
-    {/* the wallpaper "showing through" (window-local replica) */}
+    {/* the ONE ground the shell root paints under the whole window — the
+        sidebar paints nothing of its own (EXP-767) and the shots show it
+        opaque: #0d0c0f at the top easing to #131215 at the bottom
+        (shots/{board,issue-detail}/desktop.webp, sampled) */}
     <div
       style={{
         position: "absolute",
         inset: 0,
-        background: wallpaperBackground(-WIN.x, -WIN.y),
-      }}
-    />
-    {/* page gradient — rail column glassier than content */}
-    <div
-      style={{
-        position: "absolute",
-        top: 0,
-        bottom: 0,
-        left: 0,
-        width: WIN.leftColumn,
-        background: gradientAt(GLASS.railAlpha),
-      }}
-    />
-    <div
-      style={{
-        position: "absolute",
-        top: 0,
-        bottom: 0,
-        left: WIN.leftColumn,
-        right: 0,
-        background: gradientAt(GLASS.contentAlpha),
+        background: "linear-gradient(to bottom, #0d0c0f, #0e0e10 30%, #131215)",
       }}
     />
     {children}

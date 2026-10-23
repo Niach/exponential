@@ -1,7 +1,7 @@
-// The ONE shared fixture world every scene draws from (storyboard §2, corrected
-// against the local-only real-app reference screenshots, untracked since EXP-286).
+// The shared fixture TYPES the closedloop film draws its world with (the world
+// itself lives in closedloop/fixtures.ts).
 
-export type IssueStatus = "backlog" | "in_progress" | "done"
+export type IssueStatus = "backlog" | "in_progress" | "in_review" | "done"
 export type Priority = "none" | "urgent" | "high" | "medium" | "low"
 
 export type BoardRow = {
@@ -14,157 +14,8 @@ export type BoardRow = {
   due?: string // "Jul 15"
 }
 
-export const IDENTITY = {
-  board: "Exponential",
-  team: "Acme", // the rail header names the ACTIVE team (EXP-723)
-  boardColor: "#a1a1aa",
-  prefix: "EXP",
-  repo: "niach/exponential",
-  defaultBranch: "main",
-  user: "Alex Carter",
-  initials: "AC",
-  device: "MacBook Pro",
-  host: "Alexs-MacBook-Pro.local", // steer header: "Live · <host>"
-  runConfig: "Dev Server",
-} as const
-
-export const LABELS = {
-  bug: { name: "bug", dot: "#ef4444" },
-  desktop: { name: "desktop", dot: "#3b82f6" },
-  web: { name: "web", dot: "#f97316" },
-  widget: { name: "widget", dot: "#22c55e" },
-} as const
-
-// Board at story start (S3). Status changes over the film are applied by scenes
-// via overrides — this array is the base truth.
-export const BOARD: BoardRow[] = [
-  { id: "EXP-139", title: "Release progress bar drifts when issues are cancelled", status: "in_progress", priority: "medium", label: LABELS.bug, assignee: "AC", due: "Jul 14" },
-  { id: "EXP-142", title: "Live-steer terminal reconnect", status: "backlog", priority: "high", label: LABELS.bug, assignee: "AC", due: "Jul 15" },
-  { id: "EXP-143", title: "Confirm-merge double-fires on slow connections", status: "backlog", priority: "medium", label: LABELS.desktop },
-  { id: "EXP-144", title: "Branch flow graph clips long release names", status: "backlog", priority: "low", label: LABELS.desktop, assignee: "AC" },
-  { id: "EXP-146", title: "Offline board cache for the web app", status: "backlog", priority: "none", label: LABELS.web },
-  { id: "EXP-147", title: "Widget screenshot annotations on Safari", status: "backlog", priority: "none", label: LABELS.widget },
-  { id: "EXP-138", title: "Exit-code badges on orchestrator tabs", status: "done", priority: "medium", assignee: "AC" },
-  { id: "EXP-140", title: "Ship desktop auto-update banner", status: "done", priority: "low", assignee: "AC" },
-]
-
-export const HERO = {
-  id: "EXP-142",
-  title: "Live-steer terminal reconnect",
-  descriptionParas: [
-    "When the steer relay drops a WebSocket mid-session, the activity feed goes stale and never recovers. Reconnect with exponential backoff and resume the event stream from the last acked seq.",
-    "Repro: restart the relay while a session is streaming. The viewer freezes until a full reload.",
-  ],
-  switcher: "3 / 8", // "N / M" pager next to the chevrons
-  activity: [
-    { actor: "Alex Carter", text: "added label bug", time: "3 days ago" },
-    { actor: "Alex Carter", text: "added this to release v0.12", time: "2 days ago" },
-  ],
-  branch: "exp/EXP-142",
-  pr: 214,
-  sessionTab: "Fix live-steer terminal reconnect", // the session's screen title
-} as const
-
-// ── Session events — what a run PUBLISHES over ACP and every client renders
-//    as its transcript (surfaces/session.tsx). EXP-773 deleted the PTY
-//    transport this used to describe in CLI grammar; the rows are the agent's
-//    own narration, its settled tool calls, the working indicator and your
-//    own steer messages.
-export type SessionEvent =
-  | { kind: "tool"; tool: string; args?: string; result?: string; extra?: string[] }
-  | { kind: "prose"; text: string }
-  | { kind: "spinner"; verb: string } // the working row while a turn runs
-  | { kind: "flash"; text: string } // the agent naming what it just landed
-  | { kind: "user"; text: string } // a message you sent into the session
-
-// Hero session (the run's screen, "Fix live-steer terminal reconnect"). S1/S2 flash-forward shows
-// the tail (from index FLASH_FORWARD_FROM); S6 plays it whole.
-export const HERO_SESSION: SessionEvent[] = [
-  { kind: "tool", tool: "Read", args: "apps/web/src/components/agent-session.tsx", result: "Read 212 lines" },
-  { kind: "prose", text: "The steer socket never retries after a relay drop. Adding reconnect with exponential backoff and a resume from the last acked seq:" },
-  { kind: "tool", tool: "Update", args: "apps/web/src/components/agent-session.tsx", result: "Added 29 lines, removed 11 lines" },
-  { kind: "tool", tool: "Write", args: "apps/web/src/lib/steer-backoff.ts", result: "Created file with 46 lines" },
-  { kind: "tool", tool: "Bash", args: "bun run typecheck", result: "0 errors" },
-  { kind: "tool", tool: "Bash", args: "bun test steer-backoff", result: "5 pass · 0 fail" },
-  { kind: "spinner", verb: "Vibing" },
-  { kind: "tool", tool: "Bash", args: "git push -u origin exp/EXP-142", result: "To github.com:niach/exponential.git" },
-  { kind: "tool", tool: "mcp__exponential__exponential_pr_open" },
-  { kind: "flash", text: "Opened PR #214: Live-steer terminal reconnect" },
-]
-export const FLASH_FORWARD_FROM = 2 // S1 crop starts at the Update event
-
-// Phone steer feed (iOS activity view — see the ios-steer-activity reference screenshot, local-only).
-// Tool rows: crossed-tools glyph + bold name + muted mono summary. Narration: sparkle + bubble.
 export type SteerItem =
   | { kind: "tool"; name: string; summary?: string }
   | { kind: "narration"; text: string }
-export const PHONE_FEED: SteerItem[] = [
-  { kind: "tool", name: "Read", summary: "agent-session.tsx" },
-  { kind: "narration", text: "The steer socket never retries after a relay drop. Adding reconnect with exponential backoff and a resume from the last acked seq:" },
-  { kind: "tool", name: "Update", summary: "apps/web/src/components/agent-session…" },
-  { kind: "tool", name: "Write", summary: "apps/web/src/lib/steer-backoff.ts" },
-  { kind: "tool", name: "Bash", summary: "Typecheck the web app" },
-  { kind: "tool", name: "Bash", summary: "Run the backoff unit tests" },
-  { kind: "tool", name: "Bash", summary: "Push the branch" },
-  { kind: "tool", name: "mcp__exponential__exponential_pr_open" },
-  { kind: "narration", text: "Done: reconnect with exponential backoff, stream resume, tests green. Opened PR #214." },
-]
-export const PHONE_DIFFSTAT = { add: 51, del: 16 } // pinned "Latest changes" strip
 
-// ── EXP-142 diff (the PrDiff center screen) ──────────────────────────────────
-export const DIFF_FILES = [
-  { status: "M", path: "apps/web/src/components/agent-session.tsx", selected: true },
-  { status: "M", path: "apps/web/src/lib/steer.ts" },
-  { status: "A", path: "apps/web/src/lib/steer-backoff.ts" },
-  { status: "M", path: "apps/web/src/hooks/use-agent-stream.ts" },
-  { status: "A", path: "apps/web/src/lib/steer-backoff.test.ts" },
-] as const
-
-// Side-by-side hunk. old/new line numbers; type: ctx | del | add.
 export type DiffRow = { t: "ctx" | "del" | "add" | "hunk"; text: string; old?: number; new?: number }
-export const DIFF_ROWS: DiffRow[] = [
-  { t: "hunk", text: "@@ -48,11 +48,29 @@ export function AgentSessionView({ sessionId }: AgentSessionProps)" },
-  { t: "ctx", text: "  const terminal = useTerminal()", old: 48, new: 48 },
-  { t: "ctx", text: "  const relayUrl = useRelayUrl(sessionId)", old: 49, new: 49 },
-  { t: "ctx", text: "", old: 50, new: 50 },
-  { t: "del", text: "  const socket = connect(relayUrl)", old: 51 },
-  { t: "add", text: "  const socket = connectWithBackoff(relayUrl, {", new: 51 },
-  { t: "add", text: "    base: 500,", new: 52 },
-  { t: "add", text: "    factor: 2,", new: 53 },
-  { t: "add", text: "    maxDelay: 15_000,", new: 54 },
-  { t: "add", text: "    onResume: (buffered) => terminal.write(buffered),", new: 55 },
-  { t: "add", text: "  })", new: 56 },
-  { t: "ctx", text: "", old: 52, new: 57 },
-  { t: "ctx", text: "  useEffect(() => {", old: 53, new: 58 },
-  { t: "ctx", text: "    socket.on(`chunk`, (data) => terminal.write(data))", old: 54, new: 59 },
-  { t: "add", text: "    socket.on(`resume`, () => setStale(false))", new: 60 },
-  { t: "add", text: "    socket.on(`drop`, () => setStale(true))", new: 61 },
-  { t: "ctx", text: "    return () => socket.close()", old: 55, new: 62 },
-  { t: "ctx", text: "  }, [socket, terminal])", old: 56, new: 63 },
-  { t: "hunk", text: "@@ -88,9 +95,21 @@ export function AgentSessionView({ sessionId }: AgentSessionProps)" },
-  { t: "ctx", text: "  const composer = useSteerComposer(sessionId)", old: 88, new: 95 },
-  { t: "ctx", text: "", old: 89, new: 96 },
-  { t: "del", text: "  if (!socket.connected) {", old: 90 },
-  { t: "del", text: "    return <SessionStale />", old: 91 },
-  { t: "add", text: "  if (stale) {", new: 97 },
-  { t: "add", text: "    return (", new: 98 },
-  { t: "add", text: "      <SessionStale", new: 99 },
-  { t: "add", text: "        retryIn={socket.nextRetryMs}", new: 100 },
-  { t: "add", text: "        onRetryNow={() => socket.reconnect()}", new: 101 },
-  { t: "add", text: "      />", new: 102 },
-  { t: "add", text: "    )", new: 103 },
-  { t: "ctx", text: "  }", old: 92, new: 104 },
-  { t: "ctx", text: "", old: 93, new: 105 },
-  { t: "ctx", text: "  return (", old: 94, new: 106 },
-  { t: "ctx", text: "    <div className={`flex h-full flex-col`}>", old: 95, new: 107 },
-  { t: "ctx", text: "      <SessionFeed items={feed} presence={presence} />", old: 96, new: 108 },
-  { t: "ctx", text: "      <SteerComposer composer={composer} />", old: 97, new: 109 },
-]
-
-// ── Reviews row (S8) ─────────────────────────────────────────────────────────
-export const REVIEW_ROW = {
-  id: "EXP-142",
-  title: "Live-steer terminal reconnect",
-  sub: "#214 · exp/EXP-142",
-} as const
-

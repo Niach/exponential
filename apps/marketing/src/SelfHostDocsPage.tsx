@@ -117,7 +117,8 @@ export function SelfHostDocsPage() {
             <h3>1. Get the two files</h3>
             <p>
               Prerequisites: Docker Engine with Compose ≥ 2.23.1 (
-              <code>docker compose version</code>), free ports 80/443, and an
+              <code>docker compose version</code>), free ports 80/tcp,
+              443/tcp and 443/udp, and an
               S3 bucket + key (<a href="#storage">next section</a>).
             </p>
             <DocsCode language="shell">{`
@@ -170,8 +171,8 @@ APP_URL=https://issues.example.com
               kind="warn"
               title="Sign-up is off in production by default"
             >
-              The image runs with <code>NODE_ENV=production</code>, which
-              disables password registration unless{` `}
+              The image is a production build, which disables password
+              registration unless{` `}
               <code>AUTH_SIGNUP_ENABLED=true</code> is set. The shipped
               compose defaults it to <code>true</code> so your first account
               works; set it to <code>false</code> in <code>.env</code> once
@@ -182,8 +183,14 @@ APP_URL=https://issues.example.com
             <p>
               All native clients (iOS, Android, macOS, Windows, Linux) work
               with self-hosted instances: on first launch, enter your instance
-              URL instead of <code>app.exponential.at</code> and sign in.
+              URL instead of <code>app.exponential.at</code> and sign in. The
+              headless <code>exponential</code> CLI installs against your
+              instance with the same one-liner, the instance riding{` `}
+              <code>EXP_INSTANCE</code>:
             </p>
+            <DocsCode language="shell">{`
+curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=https://issues.example.com sh
+`}</DocsCode>
 
             <DocsCallout kind="note" title="GitHub App (only for coding)">
               Boards work out of the box. Only coding (backing a board with a
@@ -253,8 +260,9 @@ S3_BUCKET=exponential-attachments
               <strong>prerequisite for coding sessions and PRs</strong>
               {` `}
               (repo-less boards need none). The server uses it to mint
-              short-lived per-repo installation tokens. No personal access
-              tokens, no stored user OAuth tokens.
+              short-lived per-repo installation tokens, and its OAuth client
+              is how each member links their own GitHub account to list the
+              repositories they can push to. No personal access tokens.
             </p>
 
             <h3>1. Create the App</h3>
@@ -265,14 +273,16 @@ S3_BUCKET=exponential-attachments
               </a>
               {` `}
               (or your org&apos;s equivalent). Set the homepage URL to your
-              instance and the <strong>Setup URL</strong> to{` `}
-              <code>{`\${BETTER_AUTH_URL}/api/integrations/github/setup`}</code>
+              instance and the <strong>Callback URL</strong> to{` `}
+              <code>{`\${BETTER_AUTH_URL}/api/auth/callback/github`}</code>
+              . That&apos;s where <strong>Connect GitHub</strong> lands back.
+              Leave <strong>&quot;Request user authorization (OAuth) during
+              installation&quot;</strong> unchecked. Set the{` `}
+              <strong>Setup URL</strong> to{` `}
+              <code>{`\${BETTER_AUTH_URL}/integrations/github`}</code>
               {` `}
-              with <strong>&quot;Redirect on update&quot;</strong> ticked.
-              GitHub redirects there after each install or repo-access change.
-              Set the OAuth <strong>Callback URL</strong> to{` `}
-              <code>{`\${BETTER_AUTH_URL}/api/integrations/github/callback`}</code>
-              . That&apos;s where the lightweight connect flow lands back.
+              with <strong>&quot;Redirect on update&quot;</strong> ticked: a
+              plain redirect back to the guided page after an install.
             </p>
 
             <h3>2. Permissions &amp; events</h3>
@@ -280,7 +290,10 @@ S3_BUCKET=exponential-attachments
               Repository permissions: set <strong>Contents</strong> and{" "}
               <strong>Pull requests</strong> to{` `}
               <strong>Read &amp; write</strong> (Metadata gets Read
-              automatically). Subscribe to the{` `}
+              automatically). Add Account permission{` `}
+              <strong>Email addresses</strong> (Read) only if GitHub should
+              also be a login method (<code>GITHUB_LOGIN_ENABLED</code>).
+              Subscribe to the{` `}
               <strong>Pull request</strong> webhook event. Installation and
               repo-selection events are delivered to GitHub Apps automatically
               once the webhook is active, so they never appear in the subscribe
@@ -297,8 +310,8 @@ S3_BUCKET=exponential-attachments
 
             <h3>3. Wire the env vars</h3>
             <p>
-              Generate a private key on the App page, then base64-encode it into
-              a single line:
+              Generate a private key and a client secret on the App page, then
+              base64-encode the key into a single line:
             </p>
             <DocsCode language="shell">{`
 base64 -w0 your-app.private-key.pem   # macOS: base64 -i your-app.private-key.pem
@@ -308,37 +321,46 @@ GITHUB_APP_ID=123456                  # the App's numeric ID
 GITHUB_APP_SLUG=your-app-slug         # from the App's URL; builds the install link
 GITHUB_APP_PRIVATE_KEY=<base64 PEM>
 GITHUB_WEBHOOK_SECRET=<webhook secret>
-GITHUB_APP_CLIENT_ID=<oauth client id>          # optional; enables the lightweight connect flow
+GITHUB_APP_CLIENT_ID=<oauth client id>          # required to connect GitHub
 GITHUB_APP_CLIENT_SECRET=<oauth client secret>
+# GITHUB_LOGIN_ENABLED=true          # also offer "Continue with GitHub" on the login page
 `}</DocsCode>
             <p>
               <code>GITHUB_APP_CLIENT_ID</code> and{` `}
               <code>GITHUB_APP_CLIENT_SECRET</code> are the App&apos;s own OAuth
               credentials. The client ID is on the App page, and you generate
-              the secret there too. They power the lightweight connect flow: the
-              user token they mint is transient, used once to enumerate
-              installations and then discarded, never stored. Leave them unset
-              and connecting a repository falls back to the install-page
-              round-trip.
+              the secret there too. They configure the login system&apos;s
+              GitHub provider, which <strong>Connect GitHub</strong> links to
+              the member&apos;s account; repository discovery runs on that
+              linked account. Without them the App can still mint tokens for
+              repositories that are already connected, but nobody can connect
+              a new one (the page says &quot;GitHub isn&apos;t configured on
+              this server.&quot;).
             </p>
 
             <h3>4. Connect an account</h3>
             <p>
               Apply the env changes (<code>docker compose up -d</code>), then
-              connect a GitHub account from{` `}
-              <strong>Team settings → Repositories</strong>. With the OAuth
-              credentials above configured, this opens a lightweight GitHub
-              authorization: one consent screen, and if you manage several
-              installations you pick which to connect from an in-app account
-              picker. Without them it falls back to the install-page round-trip,
-              which is also how you install the App on a new account or grant it
-              access to more repositories.
+              every member connects their own GitHub account from{` `}
+              <strong>Settings → Repositories</strong> (or from the{` `}
+              <strong>Ready to code?</strong> checklist behind Start
+              coding). <strong>Connect GitHub</strong> opens one
+              guided page with three steps:{` `}
+              <strong>Connect your GitHub account</strong>,{` `}
+              <strong>Install the Exponential app</strong> (on the account or
+              organization that owns the repositories), and{` `}
+              <strong>Pick a repository</strong>.{` `}
+              <strong>Install on another account</strong> (in the repository
+              picker) adds another organization, and{` `}
+              <strong>Configure</strong> next to each connected GitHub account
+              grants the App more repositories.
             </p>
             <DocsCallout kind="note" title="If the App loses repo access">
               Drop a repo from the installation on GitHub and{` `}
-              <em>Team settings → Repositories</em> flags it with a{` `}
-              <em>&quot;lost access&quot;</em> warning and a re-grant
-              link; coding-session token minting fails with a
+              <em>Settings → Repositories</em> flags it with{` `}
+              <em>&quot;The GitHub App lost access to this repository. Re-grant
+              it on GitHub.&quot;</em> and a <em>Re-grant</em> link;
+              coding-session token minting fails with a
               clear message instead of handing out a broken token.
             </DocsCallout>
           </DocsSection>
@@ -502,11 +524,13 @@ docker run -d \\
             <h2>Email</h2>
             <p>
               One sender handles all outgoing mail: password reset and address
-              verification, invite emails, the notification digest, the
+              verification, the one-time codes behind{` `}
+              <strong>Continue with email</strong>, invite emails, the notification digest, the
               widget reporters&apos; follow-up links, and the contact form. With no
               transport configured every send is a logged no-op: nothing
               throws, the UI hides the affordances that depend on it (
-              &quot;Forgot password?&quot;, the email-notification prefs), and
+              &quot;Forgot password?&quot;, &quot;Continue with email&quot;,
+              the email-notification prefs), and
               in-app notifications keep working.
             </p>
 
@@ -624,11 +648,22 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
                 Enable email/password login (default: <code>true</code>).
               </EnvVar>
               <EnvVar name="AUTH_SIGNUP_ENABLED">
-                Allow public password sign-up. The image runs{` `}
-                <code>NODE_ENV=production</code>, where this defaults{` `}
-                <strong>off</strong>. The shipped compose sets it{` `}
+                Allow public password sign-up. In the published image (a
+                production build) this defaults <strong>off</strong>. The shipped compose sets it{` `}
                 <code>true</code> so the first account works; flip to{` `}
                 <code>false</code> once onboarded.
+              </EnvVar>
+              <EnvVar name="AUTH_EMAIL_OTP_ENABLED">
+                Passwordless <strong>Continue with email</strong> (a mailed
+                6-digit one-time code). On whenever a mail transport is
+                configured (see <a href="#email">Email</a>); set{` `}
+                <code>false</code> to turn it off.
+              </EnvVar>
+              <EnvVar name="AUTH_PASSKEY_ENABLED">
+                <strong>Login with passkey</strong> (WebAuthn). On whenever{` `}
+                <code>APP_URL</code> is <code>https://</code> (or{` `}
+                <code>localhost</code>); the passkey is bound to that
+                hostname. Set <code>false</code> to turn it off.
               </EnvVar>
               <EnvVar name="AUTH_RATE_LIMIT_ENABLED">
                 Better Auth&apos;s limiter on <code>/api/auth/*</code>{` `}
@@ -640,7 +675,8 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
                 Comma-separated emails auto-promoted to instance admin at
                 startup — the only way to reach the admin console (users,
                 teams, and the instance-wide Performance and Email pages).
-                Set it before your first sign-in.
+                Set it before your first sign-in: it matches the address an
+                account registered with.
               </EnvVar>
               <EnvVar name="OIDC_PROVIDERS">
                 JSON array of OIDC provider configs (Authentik, Keycloak,
@@ -690,14 +726,19 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
                 GitHub App webhook secret (PR-merge detection via webhook).
               </EnvVar>
               <EnvVar name="GITHUB_APP_CLIENT_ID">
-                GitHub App OAuth client ID (optional). Enables the lightweight
-                connect flow (a single GitHub consent screen); unset falls back
-                to the install-page round-trip.
+                GitHub App OAuth client ID, required for{` `}
+                <strong>Connect GitHub</strong>. Without it (and the secret)
+                already-connected repositories keep working, but nobody can
+                connect a new one.
               </EnvVar>
               <EnvVar name="GITHUB_APP_CLIENT_SECRET">
                 GitHub App OAuth client secret (generate it on the App page).
-                The user token it mints is transient, used once to enumerate
-                installations, never stored.
+              </EnvVar>
+              <EnvVar name="GITHUB_LOGIN_ENABLED">
+                Also offer <strong>Continue with GitHub</strong> on the login
+                page (default: off). Needs the client credentials above and the
+                App&apos;s Email addresses (Read) permission; connecting GitHub
+                for repositories never needs it.
               </EnvVar>
               <EnvVar name="GITHUB_POLLING">
                 Set to <code>true</code> to poll for PR merges instead, for
@@ -708,6 +749,14 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
                 public-repo reads (PR diffs, the Guide&apos;s Changes rows) on repos the
                 GitHub App is not installed on. It lifts GitHub&apos;s
                 anonymous 60 requests/hour per IP to 5000. No scopes needed.
+              </EnvVar>
+              <EnvVar name="SECURITY_HEADERS_ENABLED">
+                The web image sends CSP, HSTS, <code>nosniff</code>,{` `}
+                <code>X-Frame-Options</code> and{` `}
+                <code>Referrer-Policy</code> on every response (default: on;
+                the bundled Caddy sets none). Set <code>false</code> only when
+                a proxy in front already sets its own CSP/HSTS: two CSPs
+                don&apos;t merge, browsers enforce the intersection.
               </EnvVar>
               <EnvVar name="SMTP_HOST">
                 SMTP server for all outgoing mail (self-host transport). Unset
@@ -793,7 +842,9 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
                 instead of mystery failures. Always the{` `}
                 <strong>marketing version</strong> (never an Android
                 versionCode or an iOS build number). Unset ⇒ the gate is off.
-                Raise them at every upgrade to the versions the release notes
+                The shipped <code>selfhost/.env.example</code> sets all four
+                to the floors the current server needs; never lower them, and
+                raise them at every upgrade to the versions the release notes
                 name.
               </EnvVar>
               <EnvVar name="CLIENT_LATEST_VERSION_ANDROID">
@@ -831,9 +882,10 @@ docker compose pull && docker compose up -d
               By default (<code>IMAGE_TAG</code> unset ⇒ <code>latest</code>)
               this tracks upstream <code>master</code>. To move deliberately
               instead, pin a release in <code>.env</code> (e.g.{` `}
-              <code>IMAGE_TAG=0.18.55</code> from the{` `}
-              <a href={`${LINKS.github.repo}/tags`}>release tags</a>) and bump
-              it when you choose; the same tag applies to the steer relay
+              <code>IMAGE_TAG=0.18.97</code> from the{` `}
+              <a href={`${LINKS.github.repo}/tags`}>release tags</a>, or{` `}
+              <code>IMAGE_TAG=0.18</code> to follow that minor&apos;s latest
+              patch) and bump it when you choose; the same tag applies to the steer relay
               image.
             </p>
             <p>

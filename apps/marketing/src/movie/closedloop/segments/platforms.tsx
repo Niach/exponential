@@ -4,7 +4,8 @@
 // rise onto one shelf — the web app in a browser window, the IDE in a MacBook
 // (a frozen live composition of the post-story board: EXP-151 shipped) and
 // the mobile app in an iPhone — each above its platform icon row (web ·
-// mac/windows/linux · iOS/Android). The content fades to the bare canvas
+// mac/windows/linux · iOS/Android). The MacBook holds the desktop app on the
+// post-story board (the board is the main view; EXP-151 landed in Done). The content fades to the bare canvas
 // before the settle so the END_HOLD tail and the loop wrap stay clean.
 // All beats are LOCAL frames.
 
@@ -12,15 +13,13 @@ import React from "react"
 import { AbsoluteFill, interpolate } from "remotion"
 import { C, EASE, PAGE_FONT, WIN } from "../../ships/theme"
 import { ExpLogo, WindowChassis } from "../../ships/rig"
-import { BoardTool } from "../../ships/surfaces/board"
+import { BoardList } from "../../ships/surfaces/boardlist"
 import {
-  CompactRail,
   CutoutPanel,
-  ListNav,
+  PANEL,
+  Sidebar,
   TitleBar,
-  type ChromeTab,
-} from "../../ships/surfaces/chrome"
-import { IssueDetailPane } from "../../ships/surfaces/detail"
+} from "../../ships/surfaces/shell"
 import {
   AndroidIcon,
   AppleIcon,
@@ -36,8 +35,9 @@ import { BoardScreen } from "../surfaces/mobileui"
 import {
   CL,
   CL_BOARD,
-  CL_ISSUE,
+  CL_BOARDS,
   CL_PHONE_BOARD,
+  CL_THREAD_TITLE,
   LIVE_EDIT_ID,
   NEW_ISSUE_ID,
   PLATFORMS_COPY,
@@ -50,10 +50,7 @@ import {
   WRAP_FADE_TO,
 } from "../timeline"
 import {
-  CENTER_W,
-  CENTER_X,
   CLAMP,
-  CONTENT_TOP,
   SegmentShell,
   type SegmentProps,
 } from "./common"
@@ -90,75 +87,43 @@ const rise = (frame: number, at: number, dur = 10, px = 14) => ({
 // WindowChassis composes at comp coords (WIN.x/WIN.y); the offset wrapper
 // crops the 1920×1080 stage to exactly the 1568×980 window for the bezel.
 const FROZEN = 0
-const TAB_151: ChromeTab = {
-  id: "exp151",
-  identifier: NEW_ISSUE_ID,
-  label: CL_ISSUE.title,
-  status: "done",
-}
 
-const MacScreenFrozen: React.FC = () => {
-  // EXP-769/791: no dock inside the panel — the bottom bar carries terminal
-  // tabs alone, and none is open here, so the panel runs to its own edge.
-  const paneH = WIN.panel.h
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: -WIN.x,
-        top: -WIN.y,
-        width: 1920,
-        height: 1080,
-      }}
-    >
-      <WindowChassis>
-        <TitleBar frame={FROZEN} tabs={[TAB_151]} activeId="exp151" />
-        <CompactRail
+const MacScreenFrozen: React.FC = () => (
+  <div
+    style={{
+      position: "absolute",
+      left: -WIN.x,
+      top: -WIN.y,
+      width: 1920,
+      height: 1080,
+    }}
+  >
+    <WindowChassis>
+      <TitleBar frame={FROZEN} />
+      <Sidebar
+        frame={FROZEN}
+        team={CL.team}
+        user={CL.user.split(" ")[0]}
+        initials={CL.initials}
+        selected={`board:${CL.board}`}
+        boards={[...CL_BOARDS]}
+        active={[{ id: "exp151", title: CL_THREAD_TITLE }]}
+      />
+      <CutoutPanel>
+        <BoardList
           frame={FROZEN}
-          active="board"
-          boardName={CL.project}
-          userName={CL.user}
-          userInitial={CL.initials}
+          rows={CL_BOARD}
+          overrides={{
+            [NEW_ISSUE_ID]: { status: "done" },
+            [REMOTE_DRAG_ID]: { status: "in_progress" },
+            [LIVE_EDIT_ID]: { assignee: "JL" },
+          }}
+          width={PANEL.w - 2}
         />
-        <ListNav title={CL.project}>
-          <BoardTool
-            frame={FROZEN}
-            rows={CL_BOARD}
-            overrides={{
-              [NEW_ISSUE_ID]: { status: "done" },
-              [REMOTE_DRAG_ID]: { status: "in_progress" },
-              [LIVE_EDIT_ID]: { assignee: "JL" },
-            }}
-            selectedId={NEW_ISSUE_ID}
-            prDotId={{ id: NEW_ISSUE_ID, at: 0 }}
-            density="nav"
-          />
-        </ListNav>
-        <CutoutPanel>
-          <div
-            style={{
-              position: "absolute",
-              left: CENTER_X,
-              top: CONTENT_TOP,
-              width: CENTER_W,
-              height: paneH,
-              overflow: "hidden",
-            }}
-          >
-            <IssueDetailPane
-              frame={FROZEN}
-              status="done"
-              priority="none"
-              issue={CL_ISSUE}
-              width={CENTER_W}
-              height={paneH}
-            />
-          </div>
-        </CutoutPanel>
-      </WindowChassis>
-    </div>
-  )
-}
+      </CutoutPanel>
+    </WindowChassis>
+  </div>
+)
 
 // ── The lineup layout (recovered EXP-217 shelf geometry) ─────────────────────
 const PHONE_SCALE = 0.78
@@ -325,7 +290,7 @@ export const PlatformsSegment: React.FC<SegmentProps> = ({
               <PhoneChassis>
                 <BoardScreen
                   frame={FROZEN}
-                  boardName={CL.project}
+                  boardName={CL.board}
                   rows={CL_PHONE_BOARD}
                   overrides={{
                     [NEW_ISSUE_ID]: "done",
@@ -401,7 +366,7 @@ export const PlatformsSegment: React.FC<SegmentProps> = ({
         <PhoneChassis>
           <BoardScreen
             frame={FROZEN}
-            boardName={CL.project}
+            boardName={CL.board}
             rows={CL_PHONE_BOARD}
             overrides={{
               [NEW_ISSUE_ID]: "done",

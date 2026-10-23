@@ -1,284 +1,298 @@
-/* ─── The Run face and the Diff face of a top tab (session_screen.rs +
-   diff_pane.rs, EXP-746/787/870/877). Both sit under the SAME work header as
-   the Issue face — there is no session header, no Back button and no side
-   pane any more.
-
-   Run: the ACP transcript in the work column (narration, tool rows,
-   collapsed tool groups, the question card you answer IN the card), then the
-   one-row steer composer with its inline send and, under it, the footer
-   (attach · model pin · context ring). The composer hides while a question
-   is pending (EXP-820) and once the session has ended.
-
-   Diff: the session's changes as a FULL PAGE (EXP-877), file cards in the same
-   work column; the fixture file expands into the side-by-side hunk. ─── */
+/* ─── THE thread screen (thread_screen.rs, EXP-1294/1316/1334, NEW-6/46,
+   N-12) for a thread with ONE session — the one a Start opens:
+   · the HEADER (44px sides): the derived title "#EXP-8 <title>" (21px
+     semibold) and, while the session is live, the Stop pill; under it THE
+     strip — `+` · Conversation · the linked issue chip · … · Guide pinned
+     right after a divider — then a hairline;
+   · the TRANSCRIPT, the one scroll, in the 896px work column: the agent's
+     prose beside its sparkle mark, THE Trace lines between;
+   · THE Dock floating over its bottom edge: the waiting Question card
+     (dock.json — a tap opens its bottom sheet with the option rows), then
+     THE composer card: the field over ONE row — `+` · the device glyph ·
+     the model pin · Plan … Send. ─── */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react"
-import { CONTEXT_PERCENT, RUN_DEVICE, type FeedRow } from "./data"
-import { useIde, type RunView } from "./state"
-import { WorkHeader } from "./WorkHeader"
-import { DiffView } from "./Diff"
+import { createPortal } from "react-dom"
+import { RUN_MODEL, getIssue, type FeedRow, type TraceIcon } from "./data"
+import { useIde } from "./state"
+import { StatusIcon } from "./bits"
 import {
+  IcAgent,
+  IcAssistant,
   IcChevDown,
   IcChevRight,
-  IcCircleArrowUp,
-  IcCircleQuestion,
+  IcCircleX,
+  IcClaude,
+  IcCode,
+  IcMonitor,
   IcPlus,
-  IcSparkles,
-  IcWrench,
+  IcQuestion,
+  IcSubmit,
+  IcTraceEdit,
+  IcTraceRead,
+  IcTraceReasoning,
+  IcTraceSubagent,
+  IcTraceTerminal,
+  IcX,
+  type IdeIcon,
 } from "./icons"
 
-/* steer::feed rows. Prose takes the body rung (14/22), everything else the
-   tool rung (12/18); the glyph rides the reading column's left edge. */
-function FeedItem({
-  row,
-  partial,
-  onAnswer,
-}: {
-  row: FeedRow
-  partial?: number
-  onAnswer?: (answer: string) => void
-}) {
-  if (row.kind === `narration`) {
-    const text = partial === undefined ? row.text : row.text.slice(0, partial)
-    return (
-      <div className="ide-feed-row is-prose">
-        <IcSparkles size={12} className="ide-feed-glyph" />
-        <div className="ide-feed-text">
-          {text}
-          {partial !== undefined && <span className="ide-caret" />}
-        </div>
-      </div>
-    )
-  }
+const TRACE_GLYPH: Record<TraceIcon, IdeIcon> = {
+  reasoning: IcTraceReasoning,
+  read: IcTraceRead,
+  edit: IcTraceEdit,
+  terminal: IcTraceTerminal,
+  subagent: IcTraceSubagent,
+  failed: IcCircleX,
+}
+
+/* fixtures/trace.json `sm`: 14px icon, 6px gap, 12/18 muted title; a
+   collapsible line trails the chevron 4px after; `error` = destructive. */
+function TraceLine({ row }: { row: Extract<FeedRow, { kind: `trace` }> }) {
+  const Glyph = TRACE_GLYPH[row.icon]
+  return (
+    <div className={`ide-trace${row.error ? ` is-error` : ``}`}>
+      <Glyph size={14} />
+      <span className="ide-trace-title">{row.title}</span>
+      {row.description && <span className="ide-trace-desc">{row.description}</span>}
+      {row.chevron && <IcChevRight size={14} className="ide-trace-chev" />}
+    </div>
+  )
+}
+
+function Row({ row }: { row: FeedRow }) {
+  if (row.kind === `trace`) return <TraceLine row={row} />
   if (row.kind === `user`) {
     return (
-      <div className="ide-feed-row is-user">
-        <div className="ide-feed-user">{row.text}</div>
-      </div>
-    )
-  }
-  if (row.kind === `tool`) {
-    return (
-      <div className="ide-feed-row is-tool">
-        <IcWrench size={11} className="ide-feed-glyph" />
-        <span className="ide-feed-verb">{row.verb}</span>
-        <span className="ide-feed-target">{row.target}</span>
-        {row.detail && (
-          <>
-            <span className="ide-feed-sep">·</span>
-            <span className="ide-feed-detail">{row.detail}</span>
-          </>
-        )}
-      </div>
-    )
-  }
-  if (row.kind === `group`) {
-    /* A collapsed run of tool calls — the chevron opens it. */
-    return (
-      <div className="ide-feed-row is-tool">
-        <IcChevRight size={11} className="ide-feed-chev" />
-        <IcWrench size={11} className="ide-feed-glyph" />
-        <span className="ide-feed-caption">{row.caption}</span>
+      <div className="ide-bubble-wrap">
+        <div className="ide-bubble">{row.text}</div>
+        <div className="ide-bubble-cap">Danny Strähhuber · 16:37</div>
       </div>
     )
   }
   return (
-    <div className={`ide-answercard${onAnswer ? `` : ` is-answered`}`}>
-      <IcCircleQuestion size={12} className="ide-answercard-glyph" />
-      <div className="ide-answercard-text">{row.text}</div>
-      {row.options.map((option, i) => (
-        /* EXP-788/820: numbered option buttons, answered in the card. */
-        <button
-          className={`ide-answeropt${onAnswer ? ` is-click` : ``}`}
-          type="button"
-          key={option.title}
-          disabled={!onAnswer}
-          onClick={onAnswer ? () => onAnswer(option.title) : undefined}
-        >
-          <span className="ide-answeropt-key">{i + 1}</span>
-          <span className="ide-answeropt-body">
-            <span className="ide-answeropt-title">{option.title}</span>
-            <span className="ide-answeropt-sub">{option.sub}</span>
-          </span>
-        </button>
-      ))}
+    <div className="ide-prose">
+      <IcAssistant size={10.5} className="ide-prose-mark" />
+      <p>{row.text}</p>
     </div>
   )
 }
 
-/* usage_sheet::context_ring — the run's context window, a small meter. */
-function ContextRing({ percent }: { percent: number }) {
-  const r = 6
-  const c = 2 * Math.PI * r
+/* dock.rs `dock_card` + the sheet it opens (ask_card's option rows). */
+function QuestionDock() {
+  const { thread, answer, interactive } = useIde()
+  const [open, setOpen] = useState(false)
+  const cardRef = useRef<HTMLButtonElement>(null)
+  const question = thread?.question
+  if (!question || thread?.state !== `needs_you`) return null
+  /* The sheet's scrim covers the WINDOW: it portals to the demo root. */
+  const root = open ? cardRef.current?.closest(`.ide-root`) : null
   return (
-    <span className="ide-ctxring" title={`Context ${percent}% used`}>
-      <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden>
-        <circle cx="8" cy="8" r={r} fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="2" />
-        <circle
-          cx="8"
-          cy="8"
-          r={r}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeDasharray={`${(c * percent) / 100} ${c}`}
-          strokeLinecap="round"
-          transform="rotate(-90 8 8)"
-        />
-      </svg>
-      <span>{`${percent}%`}</span>
-    </span>
+    <>
+      <button
+        ref={cardRef}
+        className={`ide-dockcard${interactive ? ` is-click` : ``}`}
+        type="button"
+        onClick={interactive ? () => setOpen(true) : undefined}
+      >
+        <IcQuestion size={14} className="ide-c-amber ide-dockcard-icon" />
+        <span className="ide-dockcard-main">
+          <span className="ide-dockcard-label ide-c-amber">Question</span>
+          <span className="ide-dockcard-title">
+            <span className="ide-flex1 ide-truncate">{question.text}</span>
+            <IcChevRight size={14} className="ide-c-muted" />
+          </span>
+        </span>
+      </button>
+      {root &&
+        createPortal(
+        <div className="ide-sheet-scrim" onClick={() => setOpen(false)}>
+          <div className="ide-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="ide-sheet-head">
+              <IcQuestion size={14} className="ide-c-amber" />
+              <span className="ide-dockcard-label ide-c-amber">Question</span>
+              <span className="ide-flex1" />
+              <button className="ide-strip-new is-click" type="button" aria-label="Close" onClick={() => setOpen(false)}>
+                <IcX size={10.5} />
+              </button>
+            </div>
+            <div className="ide-sheet-body">
+              <p className="ide-sheet-text">{question.text}</p>
+              <div className="ide-ask-options">
+                {question.options.map((option, i) => (
+                  <button
+                    key={option.label}
+                    className="ide-ask-option is-click"
+                    type="button"
+                    onClick={() => {
+                      setOpen(false)
+                      answer(option.label)
+                    }}
+                  >
+                    <span className="ide-ask-option-text">
+                      <span className="ide-ask-option-label">{option.label}</span>
+                      <span className="ide-ask-option-desc">{option.description}</span>
+                    </span>
+                    <span className="ide-keychip">{i + 1}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>,
+          root,
+        )}
+    </>
   )
 }
 
-function SteerComposer({ run }: { run: RunView }) {
-  const { interactive, steer } = useIde()
+function SessionComposer() {
+  const { thread, steer, interactive } = useIde()
   const [draft, setDraft] = useState(``)
-  const send = () => {
+  /* The demo types only to an idle session (a message sent mid-turn would
+     queue, which the demo does not script). */
+  const live = thread !== null && thread.state !== `ended` && thread.state !== `working`
+  const submit = () => {
     if (!draft.trim()) return
-    steer(run.id, draft)
+    steer(draft)
     setDraft(``)
   }
-  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === `Enter`) send()
+  const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === `Enter` && !e.shiftKey) {
+      e.preventDefault()
+      submit()
+    }
   }
   return (
-    <div className="ide-steerwrap">
-      <div className="ide-workcol">
-        {/* EXP-877: ONE row — the field and the inline round send. */}
-        <div className="ide-steer">
-          <input
-            className="ide-steer-input"
-            placeholder="Message the agent… (/ for commands)"
-            value={draft}
-            readOnly={!interactive}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={interactive ? onKey : undefined}
-          />
-          <button
-            className={`ide-steer-send${interactive ? ` is-click` : ``}`}
-            type="button"
-            title="Send"
-            onClick={interactive ? send : undefined}
-          >
-            <IcCircleArrowUp size={20} />
-          </button>
-        </div>
-        {/* steer_viewer::render_composer_footer — attach · model · ring. */}
-        <div className="ide-steer-footer">
-          <span className="ide-steer-tool" title="Attach image">
-            <IcPlus size={13} />
+    <div className="ide-cmp">
+      <textarea
+        className="ide-cmp-field"
+        rows={2}
+        placeholder="Type / for commands"
+        value={draft}
+        readOnly={!interactive || !live}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={interactive ? onKey : undefined}
+      />
+      <div className="ide-cmp-row">
+        <span className="ide-cmp-tool" aria-label="Add">
+          <IcPlus size={12.25} />
+        </span>
+        {/* N-12: the run's controls after the "+": the Device pin as its
+            glyph alone, the model pin, the Plan switch. */}
+        <span className="ide-cmp-controls">
+          <span className="ide-pin">
+            <IcMonitor size={12} />
+            <IcChevDown size={12} className="ide-pin-chev" />
           </span>
-          <div className="ide-flex1" />
-          <span className="ide-steer-model">
-            {run.model}
-            {run.agent === `claude` && <IcChevDown size={10} />}
+          <span className="ide-pin">
+            {RUN_MODEL}
+            <IcChevDown size={12} className="ide-pin-chev" />
           </span>
-          <ContextRing percent={run.state === `running` ? Math.round(CONTEXT_PERCENT * 0.6) : CONTEXT_PERCENT} />
-        </div>
+          <span className="ide-pin">
+            Plan
+            <span className="ide-switch" />
+          </span>
+        </span>
+        <span className="ide-flex1" />
+        <button
+          className={`ide-send${interactive ? ` is-click` : ``}`}
+          type="button"
+          disabled={!draft.trim()}
+          aria-label="Send"
+          onClick={interactive ? submit : undefined}
+        >
+          <IcSubmit size={16} />
+        </button>
       </div>
     </div>
   )
 }
 
-function useTabRun(tabKey?: string): RunView | null {
-  const { runs, active, runForTab } = useIde()
-  const key = tabKey ?? active
-  return (key ? runForTab(key) : null) ?? runs[0] ?? null
-}
+export function SessionScreen() {
+  const { thread, stopThread, interactive } = useIde()
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const rows = thread?.rows ?? []
+  const typing = thread?.typing ?? null
+  const working = thread?.state === `working`
+  const [secs, setSecs] = useState(0)
 
-export function SessionScreen({ tabKey }: { tabKey?: string } = {}) {
-  const { answerQuestion, interactive } = useIde()
-  const run = useTabRun(tabKey)
-  const feedRef = useRef<HTMLDivElement | null>(null)
-
+  /* The working row's elapsed time ticks in seconds while the turn runs. */
   useEffect(() => {
-    const el = feedRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [run?.pos.done, run?.pos.chars, run?.rows.length, run?.state])
+    if (!working) return undefined
+    setSecs(0)
+    const t = window.setInterval(() => setSecs((n) => n + 1), 1000)
+    return () => window.clearInterval(t)
+  }, [working])
 
-  if (!run) return null
-  const shown = run.rows.slice(0, run.pos.done)
-  const typingRow =
-    run.state === `running` && run.pos.done < run.rows.length && run.pos.chars > 0
-      ? run.rows[run.pos.done]
-      : null
-  const pendingQuestion = run.state === `waiting`
-  const lastQuestion = shown.map((r) => r.kind).lastIndexOf(`question`)
+  /* Follow the bottom while the transcript streams. */
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [rows.length, typing])
+
+  if (!thread) return null
+  const issue = getIssue(thread.issueId)
+  const live = thread.state !== `ended`
 
   return (
-    <div className="ide-session">
-      <WorkHeader tabKey={run.tabKey} />
-      <div className="ide-feed" ref={feedRef}>
-        <div className="ide-workcol ide-feed-col">
-          {shown.map((row, i) => (
-            <FeedItem
-              key={i}
-              row={row}
-              onAnswer={
-                interactive && pendingQuestion && i === lastQuestion ? answerQuestion : undefined
-              }
-            />
+    <div className="ide-thread">
+      <div className="ide-thread-head">
+        <div className="ide-thread-titlerow">
+          <h1 className="ide-thread-title">{`#${issue.id} ${issue.title}`}</h1>
+          {live && (
+            <button
+              className={`ide-pill is-md is-action${interactive ? ` is-click` : ``}`}
+              type="button"
+              title="Stop the agent's current turn"
+              onClick={interactive ? stopThread : undefined}
+            >
+              <IcCircleX size={16} className="ide-c-danger" />
+              Stop
+            </button>
+          )}
+        </div>
+        <div className="ide-strip">
+          <span className="ide-ghost-btn" title="Link an issue">
+            <IcPlus size={14} />
+          </span>
+          <span className="ide-stripchip is-tab is-active">
+            <IcAgent size={10.5} />
+            Conversation
+          </span>
+          <span className="ide-stripchip">
+            <StatusIcon status={issue.status} size={10.5} />
+            <span className="ide-stripchip-id">{issue.id}</span>
+            <span className="ide-stripchip-title">{issue.title}</span>
+          </span>
+          <span className="ide-flex1" />
+          <span className="ide-strip-divider" />
+          <span className="ide-stripchip is-tab">
+            <IcCode size={10.5} />
+            Guide
+          </span>
+        </div>
+        <div className="ide-thread-rule" />
+      </div>
+      <div className="ide-transcript" ref={scrollRef}>
+        <div className="ide-transcript-col">
+          {rows.map((row, i) => (
+            <Row key={i} row={row} />
           ))}
-          {typingRow && <FeedItem row={typingRow} partial={run.pos.chars} />}
-          {run.state === `ended` && (
-            <div className="ide-feed-end">{`Stopped · ${RUN_DEVICE} · just now`}</div>
+          {typing !== null && <Row row={{ kind: `narration`, text: typing }} />}
+          {/* steer_viewer.rs `render_working_row`: the agent's working
+              mark and "<verb>… (<elapsed>)" in the tool type, muted. */}
+          {working && typing === null && (
+            <div className="ide-working">
+              <IcClaude size={12} />
+              <span>{`Thinking… (${secs}s)`}</span>
+            </div>
           )}
         </div>
       </div>
-      {run.state !== `ended` && !pendingQuestion && <SteerComposer run={run} />}
-    </div>
-  )
-}
-
-export function DiffFace({ tabKey }: { tabKey?: string }) {
-  const { interactive } = useIde()
-  const run = useTabRun(tabKey)
-  const [open, setOpen] = useState<Set<string>>(
-    () => new Set(run?.files.filter((f) => f.rows).map((f) => f.path) ?? []),
-  )
-  if (!run) return null
-  return (
-    <div className="ide-session">
-      <WorkHeader tabKey={run.tabKey} />
-      <div className="ide-diffpage">
-        <div className="ide-workcol">
-          {run.files.map((file) => {
-            const expanded = open.has(file.path) && file.rows
-            return (
-              <div key={file.path} className="ide-filecard">
-                <button
-                  className={`ide-filecard-head${interactive && file.rows ? ` is-click` : ``}`}
-                  type="button"
-                  onClick={
-                    interactive && file.rows
-                      ? () =>
-                          setOpen((prev) => {
-                            const next = new Set(prev)
-                            if (next.has(file.path)) next.delete(file.path)
-                            else next.add(file.path)
-                            return next
-                          })
-                      : undefined
-                  }
-                >
-                  <span className="ide-filecard-letter">M</span>
-                  <span className="ide-filecard-path">{file.path}</span>
-                  <span className="ide-c-green">{`+${file.add}`}</span>
-                  <span className="ide-c-red">{`-${file.del}`}</span>
-                  {expanded ? (
-                    <IcChevDown size={11} className="ide-c-muted" />
-                  ) : (
-                    <IcChevRight size={11} className="ide-c-muted" />
-                  )}
-                </button>
-                {expanded && (
-                  <div className="ide-filecard-body">
-                    <DiffView />
-                  </div>
-                )}
-              </div>
-            )
-          })}
+      <div className="ide-dock">
+        <div className="ide-dock-col">
+          <QuestionDock />
+          <SessionComposer />
         </div>
       </div>
     </div>

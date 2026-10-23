@@ -1,146 +1,111 @@
-/* ─── IdeDemo — a usable recreation of the Exponential desktop IDE (0.14.42) ───
-   Shell (shell.rs, EXP-870/877): the left column is the rail, 272px and
-   labelled, or — while a list is folded in beside an open issue — the 48px
-   icon rail plus that ListNav. Right of it: the 44px work-tabs band over the
-   cutout panel. An issue and its session are ONE top tab (Issue | Run | +N −M in
-   the work header); every live session of mine owns a tab, clustered by agent. */
-import { useEffect, useMemo, useRef, useState } from "react"
+/* ─── IdeDemo — a usable recreation of the Exponential desktop IDE ───
+   Shell (shell.rs, EXP-723/1192): the left column — the 34px traffic-light
+   strip, the fixed team header and the rail — full height on the window
+   ground; right of it the 44px work-tabs band over the content CARD (10px
+   margins left/right/bottom, radius 12, the card hairline over the panel
+   wash). The card shows the active tab (an issue or a thread), else the
+   rail destination's screen. Flow (EXP-1294): Start on an issue opens Home
+   with the issue as the subject; the send starts ONE thread, opened as a
+   tab; its turn ends on a question that waits in the Dock. ─── */
+import { useEffect, useMemo, useState } from "react"
 import {
-  BATCH_RUN_TITLE,
   CHANGES,
   COMMITS,
   INBOX_ITEMS,
-  ISSUES,
-  REVIEW_RUN,
-  REVIEW_RUN_FILES,
-  SCRIPTED_RUN_FILES,
-  batchCodingScriptFor,
   codingScriptFor,
   getIssue,
-  reviewRunScript,
-  type Change,
-  type Commit,
+  questionFor,
   type FeedRow,
-  type FilterTab,
 } from "./data"
 import {
   IdeContext,
-  isLive,
   prefersReducedMotion,
   toggledSet,
   useIde,
-  type CodingState,
-  type CodingTarget,
-  type Face,
   type IdeApi,
   type IdeView,
-  type RunId,
-  type RunView,
   type ScriptPos,
   type Tab,
+  type ThreadView,
   type Tool,
 } from "./state"
 import { Topbar } from "./Topbar"
 import { Rail } from "./Rail"
-import { InboxScreen, ListNav, ReviewsScreen } from "./Sidebar"
+import { InboxDetail, InboxScreen, ThreadsScreen } from "./Sidebar"
 import { BoardPanel } from "./Board"
 import { IssueDetail } from "./IssueDetail"
 import { FilesPanel, FileTab } from "./Files"
-import { ScPanel, ScTab } from "./SourceControl"
-import { DiffFace, SessionScreen } from "./Session"
+import { SourceControlScreen } from "./SourceControl"
+import { SessionScreen } from "./Session"
 import { ChatScreen } from "./Chat"
 import { useDemoScale } from "../lib/use-demo-scale"
 
 const BASE_W = 1440
 const IDE_H = 900
 
-const issueTab = (id: string): Tab => ({ key: `issue:${id}`, kind: `issue`, label: id, ref: id })
-const BATCH_TAB: Tab = { key: `run:batch`, kind: `run`, label: BATCH_RUN_TITLE, ref: `batch` }
-const REVIEW_TAB = issueTab(REVIEW_RUN.issueId)
+const THREAD_KEY = `thread:1`
+const issueTab = (id: string, origin?: `inbox`): Tab => ({ key: `issue:${id}`, kind: `issue`, ref: id, origin })
 
-type InitState = {
-  tool: Tool
-  tabs: Tab[]
-  active: string | null
-  selectedFile: string | null
-}
+type InitState = { tool: Tool; tabs: Tab[]; active: string | null }
 
 const initialState = (view: IdeView): InitState => {
   switch (view) {
     case `issue`:
-      return {
-        tool: `issues`,
-        tabs: [REVIEW_TAB, issueTab(`EXP-8`)],
-        active: `issue:EXP-8`,
-        selectedFile: null,
-      }
+      return { tool: `board`, tabs: [issueTab(`EXP-8`)], active: `issue:EXP-8` }
     case `files`:
-      return { tool: `files`, tabs: [REVIEW_TAB], active: null, selectedFile: null }
+      return { tool: `files`, tabs: [], active: null }
     case `source-control`:
-      return { tool: `source-control`, tabs: [REVIEW_TAB], active: null, selectedFile: null }
+      return { tool: `source-control`, tabs: [], active: null }
     default:
-      return { tool: `issues`, tabs: [REVIEW_TAB], active: null, selectedFile: null }
+      return { tool: `board`, tabs: [], active: null }
   }
 }
 
-/* One top tab's content, by its face. */
-function WorkTab({ tab }: { tab: Tab }) {
-  const { faceOf, runForTab } = useIde()
-  const run = runForTab(tab.key)
-  const face = faceOf(tab.key)
-  if (run && face === `diff`) return <DiffFace tabKey={tab.key} />
-  if (run && (face === `run` || tab.kind === `run`)) return <SessionScreen tabKey={tab.key} />
-  return <IssueDetail issueId={tab.ref} />
-}
-
-/* The main view: the active tab, else the rail destination's screen. */
+/* The card's content: the active tab, else the rail destination. */
 function MainView() {
   const { tool, tabs, active } = useIde()
   const tab = tabs.find((t) => t.key === active)
   if (tab) {
+    if (tab.kind === `thread`) {
+      return (
+        <div className="ide-center">
+          <SessionScreen />
+        </div>
+      )
+    }
+    if (tab.origin === `inbox`) return <InboxDetail issueId={tab.ref} />
     return (
       <div className="ide-center">
-        <WorkTab key={tab.key} tab={tab} />
+        <IssueDetail key={tab.ref} issueId={tab.ref} />
       </div>
     )
   }
   switch (tool) {
     case `agent`:
-      return <ChatScreen />
-    case `reviews`:
       return (
         <div className="ide-center">
-          <ReviewsScreen />
+          <ChatScreen />
         </div>
       )
     case `inbox`:
+      return <InboxScreen />
+    case `threads`:
       return (
         <div className="ide-center">
-          <InboxScreen />
+          <ThreadsScreen />
         </div>
       )
     case `files`:
       return (
         <>
-          <div className="ide-sidebar">
-            <FilesPanel />
-          </div>
+          <FilesPanel />
           <div className="ide-center">
             <FileTab />
           </div>
         </>
       )
     case `source-control`:
-      return (
-        <>
-          <div className="ide-sidebar">
-            <ScPanel />
-          </div>
-          <div className="ide-center">
-            <ScTab />
-          </div>
-        </>
-      )
+      return <SourceControlScreen />
     default:
       return (
         <div className="ide-center">
@@ -162,67 +127,53 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
   const [tool, setToolState] = useState<Tool>(init.tool)
   const [tabs, setTabs] = useState<Tab[]>(init.tabs)
   const [active, setActive] = useState<string | null>(init.active)
-  const [faces, setFaces] = useState<Record<string, Face>>({})
-  const [listNav, setListNav] = useState(false)
-  const [filter, setFilter] = useState<FilterTab>(`all`)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set([`apps`]))
-  const [selectedFile, setSelectedFile] = useState<string | null>(init.selectedFile)
-  const [viewedBranch, setViewedBranch] = useState(`master`)
-  const [changes] = useState<Change[]>(CHANGES)
-  const [commits] = useState<Commit[]>(COMMITS)
-  const [coding, setCoding] = useState<CodingState>(`idle`)
-  const [codingTarget, setCodingTarget] = useState<CodingTarget | null>(null)
-  const [chips, setChips] = useState<string[]>([])
-  const [runId, setRunId] = useState(0)
-  const [scriptPos, setScriptPos] = useState<ScriptPos>({ done: 0, chars: 0 })
-  const [extraRows, setExtraRows] = useState<Record<RunId, FeedRow[]>>({
-    scripted: [],
-    review: [],
-  })
-  const [reviewStopped, setReviewStopped] = useState(false)
-  const [foldedAgents, setFoldedAgents] = useState<Set<string>>(new Set())
+  const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [inboxRead, setInboxRead] = useState<Set<string>>(new Set())
-  const [mergedReviews, setMergedReviews] = useState<Set<string>>(new Set())
-  const [goneReviews, setGoneReviews] = useState<Set<string>>(new Set())
-  const mergeTimers = useRef<number[]>([])
+  const [subject, setSubject] = useState<string[]>([])
 
-  /* Clear pending merge animate-out timers on unmount */
-  useEffect(
-    () => () => {
-      mergeTimers.current.forEach((t) => window.clearTimeout(t))
-    },
-    [],
+  /* The one thread a send starts: its script, its position, its state. */
+  const [threadIssue, setThreadIssue] = useState<string | null>(null)
+  const [firstMessage, setFirstMessage] = useState(``)
+  const [threadState, setThreadState] = useState<ThreadView[`state`]>(`working`)
+  const [extraRows, setExtraRows] = useState<FeedRow[]>([])
+  const [scriptPos, setScriptPos] = useState<ScriptPos>({ done: 0, chars: 0 })
+  const [runId, setRunId] = useState(0)
+
+  /* The send's own words (the optional instructions) lead as the person's
+     bubble; then the session's work. */
+  const script = useMemo<FeedRow[]>(
+    () =>
+      threadIssue
+        ? [
+            ...(firstMessage ? [{ kind: `user` as const, text: firstMessage }] : []),
+            ...codingScriptFor(getIssue(threadIssue)),
+          ]
+        : [],
+    [threadIssue, firstMessage],
   )
 
-  /* The scripted run — single-issue or batch, by target kind. */
-  const codingScript = useMemo(() => {
-    if (!codingTarget) return []
-    return codingTarget.kind === `issue`
-      ? codingScriptFor(getIssue(codingTarget.id))
-      : batchCodingScriptFor(codingTarget.issueIds.map(getIssue))
-  }, [codingTarget])
-
-  /* The transcript streams in the way a run's does: prose types out, tool
-     rows land whole. The session does not "finish" — its turn ends on the
-     question card and it holds for an answer (EXP-674). Instant when
-     prefers-reduced-motion. */
+  /* The transcript streams the way a session's does: prose types out, Trace
+     lines land whole. The turn ends on the question (EXP-674), which waits
+     in the Dock. Instant under prefers-reduced-motion. Stop ends the TURN
+     where it is; the session stays (it waits for the next message). */
   useEffect(() => {
-    if (coding !== `running`) return undefined
+    if (!threadIssue || threadState !== `working`) return undefined
     if (prefersReducedMotion()) {
-      setScriptPos({ done: codingScript.length, chars: 0 })
-      const t = window.setTimeout(() => setCoding(`waiting`), 500)
+      setScriptPos({ done: script.length, chars: 0 })
+      const t = window.setTimeout(() => setThreadState(`needs_you`), 400)
       return () => window.clearTimeout(t)
     }
     let done = 0
     let chars = 0
     let t: number
     const tick = () => {
-      if (done >= codingScript.length) {
-        setCoding(`waiting`)
+      if (done >= script.length) {
+        setThreadState(`needs_you`)
         return
       }
-      const row = codingScript[done]
+      const row = script[done]
       if (row.kind === `narration` && chars < row.text.length) {
         chars += Math.max(2, Math.round(row.text.length / 60))
         setScriptPos({ done, chars: Math.min(chars, row.text.length) })
@@ -232,70 +183,43 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
       done += 1
       chars = 0
       setScriptPos({ done, chars: 0 })
-      const next = codingScript[done]
-      const delay = !next ? 700 : next.kind === `narration` ? 520 : 380
-      t = window.setTimeout(tick, delay)
+      const next = script[done]
+      t = window.setTimeout(tick, !next ? 600 : next.kind === `narration` ? 480 : 360)
     }
     setScriptPos({ done: 0, chars: 0 })
     t = window.setTimeout(tick, 450)
     return () => window.clearTimeout(t)
-  }, [coding, runId, codingScript])
+  }, [threadIssue, threadState, script, runId])
 
-  /* The Codex run's PR merging ends it (EXP-498), as does its Stop. */
-  const reviewState: CodingState =
-    reviewStopped || mergedReviews.has(REVIEW_RUN.issueId) ? `ended` : `review`
-
-  const scriptedTabKey = codingTarget
-    ? codingTarget.kind === `issue`
-      ? `issue:${codingTarget.id}`
-      : BATCH_TAB.key
+  const typingRow = threadState === `working` ? script[scriptPos.done] : undefined
+  const thread: ThreadView | null = threadIssue
+    ? {
+        issueId: threadIssue,
+        state: threadState,
+        rows: [...script.slice(0, scriptPos.done), ...extraRows],
+        typing: typingRow?.kind === `narration` && scriptPos.chars > 0 ? typingRow.text.slice(0, scriptPos.chars) : null,
+        question: threadState === `needs_you` ? questionFor() : null,
+      }
     : null
 
-  const runs: RunView[] = []
-  if (codingTarget && coding !== `idle` && scriptedTabKey) {
-    const issue = codingTarget.kind === `issue` ? getIssue(codingTarget.id) : null
-    const rows = [...codingScript, ...extraRows.scripted]
-    runs.push({
-      id: `scripted`,
-      agent: `claude`,
-      state: coding,
-      issueId: issue?.id ?? null,
-      title: issue ? issue.title : BATCH_RUN_TITLE,
-      tabKey: scriptedTabKey,
-      rows,
-      pos:
-        coding === `running`
-          ? scriptPos
-          : { done: rows.length, chars: 0 },
-      files: SCRIPTED_RUN_FILES,
-      model: `Fable`,
-    })
-  }
-  /* A newer scripted run on the same issue takes its tab. */
-  if (scriptedTabKey !== REVIEW_TAB.key) {
-    const issue = getIssue(REVIEW_RUN.issueId)
-    const rows = [...reviewRunScript(issue), ...extraRows.review]
-    runs.push({
-      id: `review`,
-      agent: REVIEW_RUN.agent,
-      state: reviewState,
-      issueId: issue.id,
-      title: issue.title,
-      tabKey: REVIEW_TAB.key,
-      rows,
-      pos: { done: rows.length, chars: 0 },
-      files: REVIEW_RUN_FILES,
-      model: `GPT-5.5`,
-    })
-  }
-
   const ensureTab = (tab: Tab) =>
-    setTabs((prev) => (prev.some((t) => t.key === tab.key) ? prev : [...prev, tab]))
+    setTabs((prev) => {
+      const at = prev.findIndex((t) => t.key === tab.key)
+      if (at < 0) return [...prev, tab]
+      const next = [...prev]
+      next[at] = tab
+      return next
+    })
 
   const setTool = (next: Tool) => {
     setToolState(next)
     setActive(null)
-    setListNav(false)
+  }
+
+  const openThread = () => {
+    if (!threadIssue) return
+    ensureTab({ key: THREAD_KEY, kind: `thread`, ref: THREAD_KEY })
+    setActive(THREAD_KEY)
   }
 
   const api: IdeApi = {
@@ -306,9 +230,6 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     active,
     selectTab: setActive,
     closeTab: (key) => {
-      const run = runs.find((r) => r.tabKey === key)
-      /* A live run's tab cannot be closed. */
-      if (run && isLive(run.state)) return
       const idx = tabs.findIndex((t) => t.key === key)
       const next = tabs.filter((t) => t.key !== key)
       setTabs(next)
@@ -316,36 +237,19 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
         setActive(next.length > 0 ? next[Math.min(idx, next.length - 1)].key : null)
       }
     },
-    faceOf: (key) => faces[key] ?? (key === BATCH_TAB.key ? `run` : `issue`),
-    setFace: (key, face) => setFaces((prev) => ({ ...prev, [key]: face })),
-    openIssue: (id, fromList = false) => {
-      const tab = issueTab(id)
+    openIssue: (id, origin) => {
+      const tab = issueTab(id, origin)
       ensureTab(tab)
       setActive(tab.key)
-      setListNav(fromList && (tool === `issues` || tool === `inbox`))
     },
-    openFile: (path) => {
-      setTool(`files`)
-      setSelectedFile(path)
-    },
-    openSourceControl: () => setTool(`source-control`),
-    listNav,
-    closeListNav: () => {
-      setActive(null)
-      setListNav(false)
-    },
-    filter,
-    setFilter,
     collapsedGroups,
     toggleGroup: (status) => setCollapsedGroups((prev) => toggledSet(prev, status)),
     expandedDirs,
     toggleDir: (path) => setExpandedDirs((prev) => toggledSet(prev, path)),
     selectedFile,
     selectFile: setSelectedFile,
-    viewedBranch,
-    viewBranch: setViewedBranch,
-    changes,
-    commits,
+    changes: CHANGES,
+    commits: COMMITS,
     inboxRead,
     markInboxRead: (id) => setInboxRead((prev) => new Set(prev).add(id)),
     markAllInboxRead: () =>
@@ -354,105 +258,62 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
         INBOX_ITEMS.forEach((n) => next.add(n.id))
         return next
       }),
-    mergedReviews,
-    goneReviews,
-    mergeReview: (issueId) => {
-      setMergedReviews((prev) => new Set(prev).add(issueId))
-      /* A PR merge ends the live run that opened it (EXP-498). */
-      const scripted = runs.find((r) => r.id === `scripted`)
-      if (scripted && isLive(scripted.state) && (scripted.issueId ?? `batch`) === issueId) {
-        setCoding(`ended`)
-      }
-      mergeTimers.current.push(
-        window.setTimeout(() => setGoneReviews((prev) => new Set(prev).add(issueId)), 900),
-      )
-    },
-    coding,
-    codingTarget,
-    codingScript,
-    scriptPos,
-    composerOpen: tool === `agent` && active === null,
-    chips,
-    openComposer: (issueIds) => {
-      setChips(issueIds)
+    subject,
+    start: (issueId) => {
+      setSubject([issueId])
       setTool(`agent`)
     },
-    closeComposer: () => {
-      if (tool === `agent`) setTool(`issues`)
-    },
-    toggleChip: (issueId) =>
-      setChips((prev) =>
-        prev.includes(issueId) ? prev.filter((id) => id !== issueId) : [...prev, issueId],
-      ),
-    submitComposer: () => {
-      /* Stable board order, like the real launcher's prompt sections. */
-      const ids = ISSUES.filter((issue) => chips.includes(issue.id)).map((i) => i.id)
-      if (ids.length === 0) return
-      const target: CodingTarget =
-        ids.length === 1 ? { kind: `issue`, id: ids[0] } : { kind: `batch`, issueIds: ids }
-      const tab = target.kind === `issue` ? issueTab(target.id) : BATCH_TAB
-      setCodingTarget(target)
-      setExtraRows((prev) => ({ ...prev, scripted: [] }))
-      setCoding(`running`)
+    removeSubject: (issueId) => setSubject((prev) => prev.filter((id) => id !== issueId)),
+    send: (text) => {
+      /* The demo scripts ONE kind of thread: an issue's (Home's send stays
+         disabled without an issue subject). */
+      const issueId = subject[0]
+      if (!issueId) return
+      setThreadIssue(issueId)
+      setFirstMessage(text.trim())
+      setThreadState(`working`)
+      setExtraRows([])
       setRunId((n) => n + 1)
-      setChips([])
-      /* A start follows the run in: its tab, on the Run face. */
-      ensureTab(tab)
-      setFaces((prev) => ({ ...prev, [tab.key]: `run` }))
-      setActive(tab.key)
-      setListNav(false)
+      setSubject([])
+      ensureTab({ key: THREAD_KEY, kind: `thread`, ref: THREAD_KEY })
+      setActive(THREAD_KEY)
     },
-    runs,
-    runForTab: (key) => runs.find((r) => r.tabKey === key) ?? null,
-    openRun: (id) => {
-      const run = runs.find((r) => r.id === id)
-      if (!run) return
-      const tab = run.issueId ? issueTab(run.issueId) : BATCH_TAB
-      ensureTab(tab)
-      setFaces((prev) => ({ ...prev, [tab.key]: `run` }))
-      setActive(tab.key)
-      setListNav(false)
+    thread,
+    threadKey: THREAD_KEY,
+    openThread,
+    stopThread: () => {
+      if (threadState === `working`) setThreadState(`waiting`)
     },
-    stopRun: (id) => {
-      if (id === `scripted`) setCoding(`ended`)
-      else setReviewStopped(true)
+    answer: (text) => {
+      if (threadState !== `needs_you`) return
+      setExtraRows([
+        { kind: `user`, text },
+        {
+          kind: `narration`,
+          text: `Done: ${text.charAt(0).toLowerCase()}${text.slice(1)}. Pushed the follow-up and opened the PR; it is ready for review.`,
+        },
+      ])
+      setThreadState(`waiting`)
     },
-    stopCoding: () => setCoding(`ended`),
-    answerQuestion: (answer) => {
-      if (coding !== `waiting`) return
-      const target = codingTarget
-      const pr =
-        target?.kind === `batch`
-          ? `the combined PR`
-          : `the PR`
-      setExtraRows((prev) => ({
-        ...prev,
-        scripted: [
-          { kind: `user`, text: answer },
-          {
-            kind: `narration`,
-            text: `Done: ${answer.charAt(0).toLowerCase()}${answer.slice(1)}. Pushed the follow-up to ${pr}; it is ready for review.`,
-          },
-        ],
-      }))
-      setCoding(`review`)
-    },
-    steer: (id, text) => {
+    steer: (text) => {
       const body = text.trim()
       if (!body) return
-      if (id === `scripted` && coding === `waiting`) {
-        api.answerQuestion(body)
+      if (threadState === `needs_you`) {
+        api.answer(body)
         return
       }
-      setExtraRows((prev) => ({ ...prev, [id]: [...prev[id], { kind: `user`, text: body }] }))
+      /* A message to the idle session: its bubble, then the agent's reply.
+         (While a turn runs the demo's field is read-only.) */
+      if (threadState !== `waiting`) return
+      setExtraRows((prev) => [
+        ...prev,
+        { kind: `user`, text: body },
+        { kind: `narration`, text: `On it: I'll fold that into the same branch and push it to the open PR.` },
+      ])
     },
-    foldedAgents,
-    toggleAgentFold: (agent) => setFoldedAgents((prev) => toggledSet(prev, agent)),
   }
 
   const { ref, scale } = useDemoScale(BASE_W)
-  /* EXP-870: a list beside an open issue folds the rail to its icon column. */
-  const compact = listNav && active !== null
 
   return (
     <div
@@ -465,28 +326,11 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
           className={`ide-root${interactive ? `` : ` is-static`}`}
           style={scale < 1 ? { width: BASE_W, transform: `scale(${scale})` } : undefined}
         >
-          {/* The LEFT COLUMN is full height; the traffic lights float over
-              its strip. The bottom terminal bar takes no height while no
-              terminal is open, so it never draws here. */}
-          <div className={`ide-left${compact ? ` is-compact` : ``}`}>
-            <div className="ide-rail-strip">
-              <span className="ide-lights">
-                <i style={{ background: `#ff5f57` }} />
-                <i style={{ background: `#febc2e` }} />
-                <i style={{ background: `#28c840` }} />
-              </span>
-            </div>
-            <div className="ide-left-body">
-              <Rail compact={compact} />
-              {compact && <ListNav />}
-            </div>
-          </div>
+          <Rail />
           <div className="ide-main">
             <Topbar />
             <div className="ide-panel">
-              <div className="ide-main-top">
-                <MainView />
-              </div>
+              <MainView />
             </div>
           </div>
         </div>

@@ -25,12 +25,14 @@ import {
   IcUser,
 } from "./icons"
 
-/* Builtin status colors — contract issueStatusDefaults. */
+/* Builtin status glyph colours = @exp/ui BUILTIN_STATUS_COLOR_CLASS
+   (status-icons.ts): text-muted-foreground, then the Tailwind v4 yellow-500 /
+   green-500 / blue-500, flattened to hex. */
 export const STATUS_COLOR: Record<IssueStatus, string> = {
-  backlog: `#A1A1AA`,
-  in_progress: `#EAB308`,
-  in_review: `#22C55E`,
-  done: `#3B82F6`,
+  backlog: `#a1a1a1`,
+  in_progress: `#f0b100`,
+  in_review: `#00c950`,
+  done: `#2b7fff`,
 }
 
 /* Tailwind v4 OKLCH palette, flattened. */
@@ -109,8 +111,64 @@ export function PriorityGlyph({
   }
 }
 
-/* shadcn <Avatar> with the initials fallback; unassigned renders the dashed
-   placeholder circle from assignee-dropdown.tsx. */
+/* @exp/ui UserAvatar: the initials fallback in the person's hue
+   (avatar-color.ts: fnv1a32(userId) % 8 over tokens.json `avatar`, the
+   fallback = hue at 20% behind the hue as text). The demo keys the hue off
+   the name. */
+const AVATAR_HUE_COUNT = 8
+const FNV_OFFSET_BASIS = 0x811c9dc5
+const FNV_PRIME = 0x01000193
+const encoder = new TextEncoder()
+
+/* The SDK's contract verbatim (packages/exponential-ui/src/web/primitives/
+   avatar-color.ts, pinned ×4 by avatar-color.test.ts): FNV-1a 32-bit over
+   the UTF-8 bytes, modulo the palette. Copied rather than imported so the
+   mock does not pin the SDK package's npm scope. */
+function avatarHueIndex(key: string): number {
+  let hash = FNV_OFFSET_BASIS
+  for (const byte of encoder.encode(key)) {
+    hash ^= byte
+    hash = Math.imul(hash, FNV_PRIME) >>> 0
+  }
+  return hash % AVATAR_HUE_COUNT
+}
+
+export function avatarHue(key: string): string {
+  return `var(--avatar-${avatarHueIndex(key)})`
+}
+
+export function WebUserAvatar({
+  name,
+  initials,
+  size,
+  fontSize,
+}: {
+  name: string
+  initials: string
+  size: number
+  fontSize: number
+}) {
+  const hue = avatarHue(name)
+  return (
+    <span
+      className="web-avatar"
+      title={name}
+      style={{
+        width: size,
+        height: size,
+        fontSize,
+        backgroundColor: `color-mix(in srgb, ${hue} 20%, transparent)`,
+        color: hue,
+      }}
+    >
+      {initials}
+    </span>
+  )
+}
+
+/* The issue row's assignee cell (issue-list.tsx AssigneeCell): UserAvatar
+   size 20 (size-5, text-[0.5625rem]); unassigned = the dashed size-5 circle
+   with the size-2.5 placeholder glyph at muted/50. */
 export function WebAvatar({
   person,
   size = 23.125,
@@ -121,22 +179,22 @@ export function WebAvatar({
   if (!person) {
     return (
       <span className="web-avatar is-empty" style={{ width: size, height: size }}>
-        <IcUser size={size * 0.5} />
+        <IcUser size={size / 2} />
       </span>
     )
   }
   return (
-    <span
-      className="web-avatar"
-      title={person.name}
-      style={{ width: size, height: size, fontSize: size * 0.5 }}
-    >
-      {person.initials}
-    </span>
+    <WebUserAvatar
+      name={person.name}
+      initials={person.initials}
+      size={size}
+      fontSize={size * 0.45}
+    />
   )
 }
 
-/* Row label pill — outlined capsule with a color dot (issue-list.tsx). */
+/* Row label = the @exp/ui Pill (size sm, readonly) with its dot: h-6, gap-1,
+   px-2, text-xs, font-medium, the glass card fill + stroke, fg/70. */
 export function LabelPill({ label }: { label: Label }) {
   return (
     <span className="web-label">
@@ -158,6 +216,20 @@ export function AgentMark({ agent, size = ICON_35 }: { agent: DemoAgent; size?: 
   ) : (
     <span className="web-agentmark">
       <CodexLogo size={size} />
+    </span>
+  )
+}
+
+/* @exp/ui AgentRunMark (agent-brand-mark.tsx): the agent's brand mark in a
+   size-3.5 box; `working` = Claude's spark spinner (drawn here as its
+   reduced-motion frame, the static mark) or Codex's pulsing mark; `review`
+   = the mark + an emerald-500 size-1.5 badge at the top right, ring-2 in the
+   sidebar colour. */
+export function AgentRunMarkDemo({ agent, state }: { agent: DemoAgent; state: RunState }) {
+  return (
+    <span className="web-runmark">
+      <AgentMark agent={agent} size={ICON_35} />
+      {state === `review` && <span className="web-runmark-badge" />}
     </span>
   )
 }

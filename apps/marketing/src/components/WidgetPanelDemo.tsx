@@ -1,8 +1,9 @@
 /* ─── WidgetPanelDemo — faithful static recreation of the REAL feedback
    widget panel (packages/widget/src/ui/Panel.tsx + widget.css + theme.ts).
    Copy, layout, sizes and colors are transcribed 1:1 from the widget source
-   (380px card panel, 12/16 header, 13.5px inputs, near-white submit,
-   "Powered by Exponential" footer, megaphone FAB). The real widget lives in
+   (380px card panel, 12/16 header, the screenshot box with its overlaid
+   chips, the dashed "Add image" tile, 13.5px inputs, near-white submit,
+   "Powered by Exponential" footer, the theme.ts megaphone FAB). The real widget lives in
    a shadow root under exp-* classes; this recreation uses cw-* (collab.css)
    so the two can never collide. Decorative only — rendered inside an inert,
    aria-hidden stage. Plays the ONE form (EXP-602, SLOP-4): captured
@@ -21,15 +22,16 @@ const svgProps = {
 export function MegaphoneIcon({ size = 16 }: { size?: number }) {
   return (
     <svg {...svgProps} width={size} height={size} strokeWidth={2} aria-hidden>
-      <path d="m3 11 18-5v12L3 14v-3z" />
-      <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+      <path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
+      <path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14" />
+      <path d="M8 6v8" />
     </svg>
   )
 }
 
 function CloseIcon() {
   return (
-    <svg {...svgProps} width={14} height={14} strokeWidth={2} aria-hidden>
+    <svg {...svgProps} width={14} height={14} strokeWidth={2} strokeLinejoin={undefined} aria-hidden>
       <path d="M18 6 6 18M6 6l12 12" />
     </svg>
   )
@@ -85,8 +87,9 @@ export function WidgetPanelDemo({
           </div>
 
         <div className={`cw-body`}>
-            {/* Captured screenshot preview + action chips (the real form's
-                post-capture state; the thumbnail is a page silhouette). */}
+            {/* .exp-shot after "Take screenshot": the captured page inside
+                the bordered box, the Annotate / Retake / Remove chips
+                overlaid at its top-right (the image is a page silhouette). */}
             <div className={`cw-shot`}>
               <div className={`cw-shot-img`}>
                 <span className={`cw-shot-bar is-w60`} />
@@ -98,6 +101,10 @@ export function WidgetPanelDemo({
                 <span className={`cw-chip`}>Retake</span>
                 <span className={`cw-chip`}>Remove</span>
               </div>
+            </div>
+            {/* .exp-images: no pictures attached yet = the dashed tile. */}
+            <div className={`cw-images`}>
+              <span className={`cw-add-image`}>Add image</span>
             </div>
             <div className={`cw-field`}>
               <span className={`cw-label`}>What happened?</span>

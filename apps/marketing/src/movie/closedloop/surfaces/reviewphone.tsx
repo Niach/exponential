@@ -1,39 +1,40 @@
-// closedloop/surfaces/reviewphone.tsx — the mobile Review screen (FEED-20):
-// the REAL iOS ChangesView (shots/review-diff/ios.webp) a Reviews row opens —
-// "Review" nav bar, the glass summary card (branch · Open pill · files +/−),
-// unified-diff file cards, and the floating bottom bar × · Merge · ↗ (EXP-248
-// chrome). The merge runs the way it does on the phone: tap Merge → the
-// "Merge pull request?" alert → Merge → spinner in the capsule → the summary
-// pill flips to Merged and the bar collapses to the GitHub circle, exactly as
-// the real bar does once the PR is no longer open.
+// closedloop/surfaces/reviewphone.tsx — review + merge on the phone, as iOS
+// does it today (shots/review-diff/ios.webp; ThreadScreen.guidePage →
+// GuideFace's section page `GuideSectionDiffView` + WorkMergePill): the
+// thread header (back · the thread's name · `…` once the run is idle), THE
+// strip with the Guide tab shown (its green dot: the Guide holds the PR
+// body), the back row "‹ Guide | Changes … +A −D", the DiffFileCards, and the
+// floating bar cluster — the files circle (folder + count) beside the SOLID
+// WHITE "Merge PR" capsule. Tap → THE app alert (GlassAlert: "Merge PR #n?" ·
+// "It is squash-merged." · Cancel / Merge) → the capsule spins → merged: the
+// host unmounts the capsule (it is mounted only while the PR is open) and the
+// issue tab's glyph lands on Done (a merge moves its issue, issue-lifecycle).
 //
-// Every number is authored in iOS POINTS on the 414pt canvas and scaled ONCE
-// through `pt()` (the startphone.tsx convention). All frame props are
-// COMPOSITION-LOCAL to the segment that renders it.
+// Every number is authored in iOS POINTS (414pt canvas) through `pt()`.
+// All frame props are COMPOSITION-LOCAL to the segment that renders it.
 
 import React from "react"
 import { interpolate, spring } from "remotion"
-import { C, EASE, MONO_FONT, SETTLE, UI_FONT } from "../../ships/theme"
+import { EASE, SETTLE, UI_FONT } from "../../ships/theme"
 import type { DiffRow } from "../../ships/fixtures"
-import { CL, CL_DIFF_FILES, CL_DIFF_ROWS, CL_FILE_STATS, CL_PR_HEAD } from "../fixtures"
-import { PHONE } from "./steerphone"
-import { Glyph } from "./mobileui"
+import { CL, CL_DIFF_FILES, CL_DIFF_ROWS, CL_FILE_STATS, CL_ISSUE } from "../fixtures"
+import { PHONE, ThreadChrome } from "./steerphone"
+import {
+  BarCircle,
+  DIFF_IOS,
+  DiffFileCard,
+  Glyph,
+  HAIRLINE,
+  IOS,
+  pt,
+} from "./mobileui"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 const EASED = { ...CLAMP, easing: EASE } as const
 
-const PT = PHONE.screenW / 414
-const pt = (v: number): number => Math.round(v * PT * 10) / 10
-
-// The floating-bar chrome IssueScreen's bottom bar speaks.
-const BAR_BG = "rgba(23,23,23,0.94)"
-const BAR_SHADOW = "0 10px 30px rgba(0,0,0,0.5)"
-const SECONDARY = "rgba(255,255,255,0.62)"
-
-// The second file is brand new (status A) — a handful of added lines is all
-// that ever reaches the screen under the first card.
+// The second file is brand new (status A).
 const TEST_FILE_ROWS: DiffRow[] = [
-  { t: "hunk", text: "@@ -0,0 +1,12 @@" },
+  { t: "hunk", text: "@@ -0,0 +1,42 @@" },
   { t: "add", text: 'import { fireEvent, render } from "@testing-library/react"', new: 1 },
   { t: "add", text: 'import { PayButton } from "./PayButton"', new: 2 },
   { t: "add", text: "", new: 3 },
@@ -41,13 +42,8 @@ const TEST_FILE_ROWS: DiffRow[] = [
   { t: "add", text: "  const { getByRole } = render(<PayButton cart={cart} />)", new: 5 },
   { t: "add", text: '  fireEvent.click(getByRole("button"))', new: 6 },
 ]
-
-const FILE_STATS = [
-  { add: 12, del: CL_FILE_STATS.del },
-  { add: CL_FILE_STATS.add - 12, del: 0 },
-] as const
-
-const FILE_ROWS: readonly DiffRow[][] = [CL_DIFF_ROWS, TEST_FILE_ROWS]
+const TEST_FILE = CL_DIFF_FILES[1]
+const TOTAL = { add: CL_FILE_STATS.add + TEST_FILE.add, del: CL_FILE_STATS.del }
 
 const pressT = (frame: number, at: number | undefined): number =>
   at === undefined ? 0 : interpolate(frame, [at, at + 3, at + 9], [0, 1, 0], CLAMP)
@@ -68,141 +64,17 @@ const Spinner: React.FC<{ frame: number; size: number }> = ({ frame, size }) => 
   </span>
 )
 
-// Middle-truncate a path the way the summary/file headers do on the phone.
-const middle = (path: string, max: number): string => {
-  if (path.length <= max) return path
-  const keep = Math.floor((max - 1) / 2)
-  return `${path.slice(0, keep)}…${path.slice(path.length - (max - 1 - keep))}`
-}
-
-// ── One file card: header row + the unified diff ─────────────────────────────
-const FileCard: React.FC<{
-  frame: number
-  paintAt: number
-  index: number
-  file: { status: string; path: string }
-  stats: { add: number; del: number }
-  rows: readonly DiffRow[]
-}> = ({ frame, paintAt, index, file, stats, rows }) => {
-  const rise = interpolate(frame, [paintAt + index * 6, paintAt + index * 6 + 10], [0, 1], EASED)
-  return (
-    <div
-      style={{
-        boxSizing: "border-box",
-        borderRadius: pt(16),
-        backgroundColor: C.fillCard,
-        border: `1px solid ${C.strokeRow}`,
-        padding: pt(8),
-        opacity: rise,
-        translate: `0px ${(1 - rise) * pt(10)}px`,
-      }}
-    >
-      {/* header: status letter · path · +/− · chevron */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: pt(8),
-          padding: `${pt(4)}px ${pt(4)}px ${pt(10)}px`,
-          fontFamily: MONO_FONT,
-          fontSize: pt(13),
-          color: C.text,
-        }}
-      >
-        <span style={{ color: SECONDARY, fontWeight: 700 }}>{file.status}</span>
-        <span
-          style={{
-            flex: 1,
-            minWidth: 0,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            fontWeight: 600,
-          }}
-        >
-          {middle(file.path, 30)}
-        </span>
-        <span style={{ color: C.diffAdd }}>{`+${stats.add}`}</span>
-        <span style={{ color: C.diffDel }}>{`−${stats.del}`}</span>
-        <span style={{ color: SECONDARY, display: "flex" }}>
-          <Glyph size={pt(13)} sw={2.2}>
-            <path d="m18 15-6-6-6 6" />
-          </Glyph>
-        </span>
-      </div>
-      {/* the patch */}
-      <div
-        style={{
-          borderRadius: pt(8),
-          backgroundColor: "rgba(0,0,0,0.22)",
-          padding: `${pt(6)}px 0`,
-          overflow: "hidden",
-        }}
-      >
-        {rows.map((row, i) => {
-          const o = interpolate(
-            frame,
-            [paintAt + index * 6 + 4 + i * 1.1, paintAt + index * 6 + 10 + i * 1.1],
-            [0, 1],
-            CLAMP
-          )
-          const fg =
-            row.t === "hunk"
-              ? SECONDARY
-              : row.t === "add"
-                ? C.diffAdd
-                : row.t === "del"
-                  ? C.diffDel
-                  : "#d4d4d4"
-          const bg =
-            row.t === "add" ? C.diffAddBgHot : row.t === "del" ? C.diffDelBgHot : undefined
-          return (
-            <div
-              key={`${row.t}-${i}`}
-              style={{
-                display: "flex",
-                height: pt(12.5),
-                alignItems: "center",
-                backgroundColor: bg,
-                opacity: o,
-                fontFamily: MONO_FONT,
-                fontSize: pt(11.5),
-                color: fg,
-                whiteSpace: "pre",
-                overflow: "hidden",
-              }}
-            >
-              <span
-                style={{
-                  width: pt(18),
-                  flexShrink: 0,
-                  textAlign: "center",
-                  color: row.t === "add" ? C.diffAdd : row.t === "del" ? C.diffDel : "transparent",
-                }}
-              >
-                {row.t === "add" ? "+" : row.t === "del" ? "−" : " "}
-              </span>
-              <span>{row.text}</span>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-// ── The screen ───────────────────────────────────────────────────────────────
 export type ReviewPhoneScreenProps = {
   frame: number
-  /** The summary + file cards paint in from here. */
+  /** The file cards paint in from here. */
   paintAt: number
-  /** Press flash on the Merge capsule (opens the confirm alert). */
+  /** Press flash on the Merge PR capsule (opens the confirm alert). */
   mergeTapAt: number
-  /** The "Merge pull request?" alert is up from here … */
+  /** The alert is up from here … */
   confirmAt: number
-  /** … until its Merge button is tapped here (capsule shows the spinner). */
+  /** … until its Merge button is tapped here (the capsule spins). */
   mergingAt: number
-  /** The PR lands: pill → Merged, bar collapses to the GitHub circle. */
+  /** The PR lands: the capsule unmounts, the issue tab lands on Done. */
   mergedAt: number
 }
 
@@ -219,340 +91,218 @@ export const ReviewPhoneScreen: React.FC<ReviewPhoneScreenProps> = ({
   const capsulePress = pressT(frame, mergeTapAt)
   const alertPress = pressT(frame, mergingAt)
 
-  // The alert: springs up at confirmAt, drops out right after the Merge tap.
   const alertIn =
     frame < confirmAt ? 0 : spring({ frame: frame - confirmAt, fps: 30, config: SETTLE })
   const alertOut = interpolate(frame, [mergingAt + 3, mergingAt + 8], [1, 0], EASED)
   const alertO = alertIn * alertOut
+  const capsuleOut = interpolate(frame, [mergedAt, mergedAt + 8], [1, 0], EASED)
 
-  // The bar after the merge: × and Merge collapse away, ↗ slides to center.
-  const collapse = interpolate(frame, [mergedAt + 4, mergedAt + 14], [0, 1], EASED)
-  // The leaving items are gone before their wrappers get narrow enough to
-  // show a sliver of glyph.
-  const leaveO = interpolate(collapse, [0, 0.4], [1, 0], CLAMP)
-  const circle = pt(48)
-  const capsuleW = pt(118)
-  const gap = pt(12) * (1 - collapse)
-
-  const summaryRise = interpolate(frame, [paintAt - 6, paintAt + 4], [0, 1], EASED)
-
-  const barCircle = (children: React.ReactNode, style?: React.CSSProperties) => (
-    <span
-      style={{
-        width: circle,
-        height: circle,
-        flexShrink: 0,
-        borderRadius: 999,
-        backgroundColor: BAR_BG,
-        border: `1px solid ${C.strokeCard}`,
-        boxShadow: BAR_SHADOW,
-        color: SECONDARY,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        ...style,
-      }}
-    >
-      {children}
-    </span>
-  )
+  const rise = (i: number) =>
+    interpolate(frame, [paintAt + i * 6, paintAt + i * 6 + 10], [0, 1], EASED)
 
   return (
     <div style={{ position: "absolute", inset: 0, fontFamily: UI_FONT }}>
-      {/* nav bar: circular glass back button · "Review" */}
+      <ThreadChrome
+        title={`#${CL_ISSUE.id} ${CL_ISSUE.title}`}
+        running={false}
+        issue={{ id: CL_ISSUE.id, title: CL_ISSUE.title, status: "in_review" }}
+        issueStatusOverride={merged ? "done" : undefined}
+        shown="guide"
+        guideDot
+      />
+
+      {/* the section page's back row: ‹ Guide | Changes … +A −D */}
       <div
         style={{
           position: "absolute",
-          top: pt(58),
-          left: pt(18),
-          right: pt(18),
-          height: pt(42),
+          top: pt(154),
+          left: pt(16),
+          right: pt(16),
+          height: pt(36),
           display: "flex",
           alignItems: "center",
-          color: C.muted,
-          zIndex: 3,
+          gap: pt(8),
         }}
       >
-        <span
-          style={{
-            width: pt(42),
-            height: pt(42),
-            borderRadius: 999,
-            backgroundColor: C.fillCard,
-            border: `1px solid ${C.strokeRow}`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: C.text,
-          }}
-        >
-          <Glyph size={pt(18)} sw={2.4}>
+        <span style={{ display: "flex", alignItems: "center", gap: pt(4), color: "#ffffff" }}>
+          <Glyph size={pt(14)} sw={2.2}>
             <path d="m15 18-6-6 6-6" />
           </Glyph>
+          <span style={{ fontSize: pt(15), fontWeight: 500 }}>Guide</span>
         </span>
-        <span
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            textAlign: "center",
-            fontSize: pt(17),
-            fontWeight: 600,
-            color: C.text,
-          }}
-        >
-          Review
-        </span>
+        <span style={{ width: HAIRLINE, height: pt(14), backgroundColor: IOS.strokeCard }} />
+        <span style={{ fontSize: pt(15), color: IOS.secondary }}>Changes</span>
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: pt(15), color: DIFF_IOS.addFg }}>{`+${TOTAL.add}`}</span>
+        <span style={{ fontSize: pt(15), color: DIFF_IOS.delFg }}>{`−${TOTAL.del}`}</span>
       </div>
 
-      {/* the scrolling review column */}
+      {/* the diff cards (DiffFileList: one glass card per file, 12pt apart) */}
       <div
         style={{
           position: "absolute",
-          top: pt(112),
-          left: 0,
-          right: 0,
+          top: pt(196),
+          left: pt(16),
+          right: pt(16),
           bottom: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: pt(12),
           overflow: "hidden",
         }}
       >
-        <div
-          style={{
-            position: "absolute",
-            left: pt(16),
-            right: pt(16),
-            top: 0,
-            display: "flex",
-            flexDirection: "column",
-            gap: pt(10),
-          }}
-        >
-          {/* summary card: branch · state pill · files +/− */}
-          <div
-            style={{
-              boxSizing: "border-box",
-              borderRadius: pt(16),
-              backgroundColor: C.fillCard,
-              border: `1px solid ${C.strokeRow}`,
-              padding: pt(12),
-              display: "flex",
-              flexDirection: "column",
-              gap: pt(8),
-              opacity: summaryRise,
-              translate: `0px ${(1 - summaryRise) * pt(8)}px`,
-            }}
-          >
-            <span
-              style={{
-                fontFamily: MONO_FONT,
-                fontSize: pt(13),
-                color: SECONDARY,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {CL_PR_HEAD.branch}
-            </span>
-            <span style={{ display: "flex", alignItems: "center", gap: pt(8) }}>
-              <span
-                style={{
-                  height: pt(22),
-                  boxSizing: "border-box",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  padding: `0 ${pt(8)}px`,
-                  borderRadius: 999,
-                  backgroundColor: merged ? C.tintDone : "rgba(255,255,255,0.10)",
-                  border: `1px solid ${merged ? "rgba(59,130,246,0.35)" : C.strokeCard}`,
-                  fontSize: pt(12),
-                  fontWeight: 500,
-                  color: C.text,
-                }}
-              >
-                {merged ? "Merged" : "Open"}
-              </span>
-              <span style={{ fontSize: pt(13), color: SECONDARY }}>
-                {`${CL_DIFF_FILES.length} files`}
-              </span>
-              <span style={{ fontFamily: MONO_FONT, fontSize: pt(13), color: C.diffAdd }}>
-                {`+${CL_FILE_STATS.add}`}
-              </span>
-              <span style={{ fontFamily: MONO_FONT, fontSize: pt(13), color: C.diffDel }}>
-                {`−${CL_FILE_STATS.del}`}
-              </span>
-            </span>
-          </div>
-
-          {CL_DIFF_FILES.map((file, i) => (
-            <FileCard
-              key={file.path}
-              frame={frame}
-              paintAt={paintAt}
-              index={i}
-              file={file}
-              stats={FILE_STATS[i] ?? FILE_STATS[1]}
-              rows={FILE_ROWS[i] ?? []}
-            />
-          ))}
+        <div style={{ opacity: rise(0), translate: `0px ${(1 - rise(0)) * pt(10)}px` }}>
+          <DiffFileCard
+            status={CL_DIFF_FILES[0].status}
+            path={CL_DIFF_FILES[0].path}
+            add={CL_FILE_STATS.add}
+            del={CL_FILE_STATS.del}
+            rows={CL_DIFF_ROWS}
+            unchanged={20}
+            maxPathChars={32}
+            rowOpacity={(i) =>
+              interpolate(frame, [paintAt + 4 + i * 1.1, paintAt + 10 + i * 1.1], [0, 1], CLAMP)
+            }
+          />
+        </div>
+        <div style={{ opacity: rise(1), translate: `0px ${(1 - rise(1)) * pt(10)}px` }}>
+          <DiffFileCard
+            status={TEST_FILE.status}
+            path={TEST_FILE.path}
+            add={TEST_FILE.add}
+            del={TEST_FILE.del}
+            rows={TEST_FILE_ROWS}
+            maxPathChars={32}
+          />
         </div>
       </div>
 
-      {/* floating bottom bar: × · Merge · ↗ (the merge buttons) */}
+      {/* the floating bar cluster: files circle · the Merge PR capsule */}
       <div
         style={{
           position: "absolute",
           left: 0,
           right: 0,
-          bottom: pt(34),
+          bottom: pt(4) + pt(34),
           display: "flex",
-          justifyContent: "center",
           alignItems: "center",
-          zIndex: 4,
+          justifyContent: "center",
+          gap: pt(12),
+          zIndex: 3,
         }}
       >
-        <span
-          style={{
-            width: circle * (1 - collapse),
-            marginRight: gap,
-            opacity: leaveO,
-            overflow: "hidden",
-            display: "flex",
-            justifyContent: "center",
-          }}
-        >
-          {barCircle(
-            <Glyph size={pt(18)} sw={2.2}>
-              <path d="M18 6 6 18" />
-              <path d="m6 6 12 12" />
-            </Glyph>
-          )}
-        </span>
-        <span
-          style={{
-            width: capsuleW * (1 - collapse),
-            marginRight: gap,
-            opacity: leaveO,
-            overflow: "hidden",
-            display: "flex",
-            justifyContent: "center",
-          }}
-        >
+        <BarCircle style={{ flexDirection: "column", gap: pt(2) }}>
+          <Glyph size={pt(18)} sw={2}>
+            <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+          </Glyph>
+          <span style={{ fontSize: pt(11), color: IOS.secondary, lineHeight: 1 }}>
+            {CL_DIFF_FILES.length}
+          </span>
+        </BarCircle>
+        {capsuleOut > 0.01 ? (
           <span
             style={{
-              width: capsuleW,
               height: pt(52),
-              flexShrink: 0,
               boxSizing: "border-box",
+              padding: `0 ${pt(24)}px`,
               borderRadius: 999,
-              backgroundColor: BAR_BG,
-              border: `1px solid ${C.strokeStrong}`,
-              boxShadow: BAR_SHADOW,
-              color: C.text,
+              backgroundColor: "#ffffff",
+              color: "rgba(0,0,0,0.9)",
               display: "flex",
               alignItems: "center",
-              justifyContent: "center",
               gap: pt(8),
               fontSize: pt(15),
               fontWeight: 500,
-              scale: String(1 - 0.06 * capsulePress),
-              filter: capsulePress > 0 ? `brightness(${1 + 0.25 * capsulePress})` : undefined,
+              opacity: capsuleOut,
+              scale: String((1 - 0.04 * capsulePress) * (0.9 + 0.1 * capsuleOut)),
             }}
           >
             {merging ? (
-              <Spinner frame={frame} size={pt(17)} />
+              <span style={{ color: "rgba(0,0,0,0.6)", display: "flex" }}>
+                <Spinner frame={frame} size={pt(16)} />
+              </span>
             ) : (
-              <Glyph size={pt(17)} sw={2.2}>
+              <Glyph size={pt(20)} sw={2}>
                 <circle cx="18" cy="18" r="3" />
                 <circle cx="6" cy="6" r="3" />
                 <path d="M6 21V9a9 9 0 0 0 9 9" />
               </Glyph>
             )}
-            Merge
+            Merge PR
           </span>
-        </span>
-        {barCircle(
-          <Glyph size={pt(17)} sw={2.2}>
-            <path d="M15 3h6v6" />
-            <path d="M10 14 21 3" />
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-          </Glyph>
-        )}
+        ) : null}
       </div>
 
-      {/* the "Merge pull request?" alert (the real iOS .alert) */}
+      {/* THE app alert (GlassAlert, Prompts.MergeIssuePr) */}
       {alertO > 0.005 ? (
         <>
           <div
             style={{
               position: "absolute",
               inset: 0,
-              backgroundColor: `rgba(0,0,0,${0.4 * alertO})`,
+              backgroundColor: `rgba(0,0,0,${0.6 * alertO})`,
               zIndex: 8,
             }}
           />
           <div
             style={{
               position: "absolute",
-              left: (PHONE.screenW - pt(270)) / 2,
-              top: (PHONE.screenH - pt(150)) / 2,
-              width: pt(270),
+              left: pt(24),
+              right: pt(24),
+              top: PHONE.screenH / 2 - pt(75),
               boxSizing: "border-box",
-              borderRadius: pt(14),
-              backgroundColor: "rgba(36,36,38,0.98)",
-              border: `1px solid rgba(255,255,255,0.10)`,
-              boxShadow: "0 24px 60px rgba(0,0,0,0.6)",
-              overflow: "hidden",
+              padding: pt(20),
+              borderRadius: pt(16),
+              backgroundColor: IOS.backgroundBottom,
+              boxShadow: `inset 0 0 0 ${HAIRLINE}px ${IOS.strokeCard}, 0 24px 60px rgba(0,0,0,0.6)`,
               opacity: alertO,
-              scale: String(1.08 - 0.08 * alertIn),
+              scale: String(1.06 - 0.06 * alertIn),
               zIndex: 9,
-              textAlign: "center",
             }}
           >
-            <div style={{ padding: `${pt(18)}px ${pt(16)}px ${pt(16)}px` }}>
-              <div style={{ fontSize: pt(17), fontWeight: 600, color: C.text }}>
-                Merge pull request?
-              </div>
-              <div
-                style={{
-                  marginTop: pt(4),
-                  fontSize: pt(13),
-                  lineHeight: 1.35,
-                  color: C.text,
-                }}
-              >
-                {`Squash-merges PR #${CL.pr} via the GitHub App. Any live coding session for it closes.`}
-              </div>
+            <div style={{ fontSize: pt(18), fontWeight: 600, color: "#fafafa" }}>
+              {`Merge PR #${CL.pr}?`}
+            </div>
+            <div style={{ marginTop: pt(8), fontSize: pt(15), color: IOS.muted }}>
+              It is squash-merged.
             </div>
             <div
               style={{
+                marginTop: pt(16),
                 display: "flex",
-                borderTop: `1px solid rgba(255,255,255,0.12)`,
-                height: pt(44),
-                fontSize: pt(17),
+                justifyContent: "flex-end",
+                gap: pt(8),
               }}
             >
               <span
                 style={{
-                  flex: 1,
+                  height: pt(32),
+                  boxSizing: "border-box",
+                  padding: `0 ${pt(12)}px`,
+                  borderRadius: 999,
+                  boxShadow: `inset 0 0 0 ${HAIRLINE}px ${IOS.strokeStrong}`,
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "center",
-                  color: "#5fa8ff",
-                  borderRight: `1px solid rgba(255,255,255,0.12)`,
+                  fontSize: pt(15),
+                  fontWeight: 500,
+                  color: "#ffffff",
                 }}
               >
                 Cancel
               </span>
               <span
                 style={{
-                  flex: 1,
+                  height: pt(32),
+                  boxSizing: "border-box",
+                  padding: `0 ${pt(12)}px`,
+                  borderRadius: 999,
+                  backgroundColor: IOS.primary,
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "center",
-                  color: "#5fa8ff",
-                  fontWeight: 600,
-                  backgroundColor: `rgba(255,255,255,${0.12 * alertPress})`,
+                  fontSize: pt(15),
+                  fontWeight: 500,
+                  color: IOS.primaryFg,
+                  filter: alertPress > 0 ? `brightness(${1 - 0.15 * alertPress})` : undefined,
                 }}
               >
                 Merge

@@ -1,7 +1,7 @@
 /* ─── UiDemo — a real @exp/ui component inside a docs page (EXP-887) ───
 
    The docs show product SCREENSHOTS (DocShot) and hand-built recreations
-   (src/ide, src/webui, src/mobile). This is the third kind: the actual
+   (src/ide, src/webui). This is the third kind: the actual
    component, shipped as static markup in a declarative shadow root by
    scripts/ui-demos.tsx, so a chip in the docs cannot drift from the chip in
    the app.

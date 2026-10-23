@@ -1,8 +1,9 @@
 // closedloop/segments/boardlive.tsx — clip 1 (245f, the OPENER since
 // EXP-385): multiplayer vibecoding. Opens FULLY COMPOSED — local frame 0 is
-// the checked-in poster frame (bun run movie:poster): the whole IDE with
-// EXP-151 open in Backlog and the phone beside it showing the SAME board in
-// the real mobile app. EXP-149 moves Backlog → In Progress UNDER the local
+// the checked-in poster frame (bun run movie:poster): the desktop app on the
+// Acme Shop board (the board is the main view; the sidebar lists the team's
+// nav, agents, apps and boards — never a board's issues) and the phone beside
+// it showing the SAME board in the real mobile app. EXP-149 moves Backlog → In Progress UNDER the local
 // user — the way a teammate's change actually arrives: no presence facepile
 // and no remote cursor (the product ships neither; there is no presence shape),
 // just the row regrouping live AND the push banner dropping with the real
@@ -12,7 +13,7 @@
 
 import React from "react"
 import { AbsoluteFill, interpolate } from "remotion"
-import { PAGE_FONT, WIN } from "../../ships/theme"
+import { PAGE_FONT } from "../../ships/theme"
 import {
   Camera,
   Caption,
@@ -22,35 +23,29 @@ import {
   type CamKey,
   type CursorKey,
 } from "../../ships/rig"
-import { BoardTool, listNavRowCenter } from "../../ships/surfaces/board"
+import { BoardList, boardRowCenter } from "../../ships/surfaces/boardlist"
 import {
-  CompactRail,
   CutoutPanel,
-  LIST_NAV_BODY_TOP,
-  ListNav,
+  PANEL,
+  Sidebar,
   TitleBar,
-  type ChromeTab,
-} from "../../ships/surfaces/chrome"
-import { IssueDetailPane } from "../../ships/surfaces/detail"
+  panelPt,
+} from "../../ships/surfaces/shell"
 import { PhoneChassis } from "../surfaces/steerphone"
 import { BoardScreen } from "../surfaces/mobileui"
 import {
   CL,
   CL_BOARD,
-  CL_ISSUE,
+  CL_BOARDS,
   CL_PHONE_BOARD,
   COPY,
   LIVE_EDIT_ID,
-  NEW_ISSUE_ID,
   PUSH_NOTIFICATION,
   REMOTE_DRAG_ID,
 } from "../fixtures"
 import { OVERLAP, SEGMENT_DURATIONS } from "../timeline"
 import {
-  CENTER_W,
-  CENTER_X,
   CLAMP_EASE,
-  CONTENT_TOP,
   SegmentShell,
   captionSize,
   type SegmentProps,
@@ -84,16 +79,16 @@ const CAMERA_KEYS: CamKey[] = [
   { f: DUR, s: 1.15, x: 850, y: 470, ease: "linear" },
 ]
 
-// Portrait (EXP-482, 1080×1350) can't hold both subjects either — the issue
-// list ends at local x 684 and the phone starts at 1314 — so it stays two
-// shots, but each subject now fits WHOLE: the full-height issue list column,
-// then the entire phone. The cut sits in the caption gap (bl1 is gone by
-// 110, bl2 arrives at 118) and 12f after the push lands, so the banner has
-// fully sprung by the time we arrive.
+// Portrait (EXP-482, 1080×1350) can't hold both subjects — the board sits in
+// the window and the phone overhangs its right edge — so it stays two shots:
+// shot A = the sidebar + the board's leading columns (identifier · status ·
+// title) at full window height, then the entire phone. The cut sits in the
+// caption gap (bl1 is gone by 110, bl2 arrives at 118) and 12f after the
+// push lands, so the banner has fully sprung by the time we arrive.
 // Shot A doubles as the PORTRAIT POSTER frame (movie:poster:portrait) —
 // re-run that script if these numbers move.
 const CAMERA_KEYS_PT: CamKey[] = shotKeys([
-  { at: 0, s: 2.0, x: 424, y: 340 }, // the issue list column + facepile
+  { at: 0, s: 1.6, x: 338, y: 440 }, // the sidebar + the board list
   // x is biased left of the phone's own center so the visible band stays on
   // the set — the phone overhangs the window's right edge (1568), and past
   // comp 1920 there is nothing at all.
@@ -101,14 +96,15 @@ const CAMERA_KEYS_PT: CamKey[] = shotKeys([
 ])
 
 // ── Cursors (window-local coords) ───────────────────────────────────────────
-// EXP-870: the board list is the left column's ListNav beside the open
-// detail (window x 48–320), its rows under the back row. The hover lands on
-// EXP-150 where Mara's regroup leaves it — derived from the ListNav layout
-// of the post-drag board, so the pointer follows the row metrics.
+// The hover lands on EXP-150 in the board list where Mara's regroup leaves
+// it — derived from the BoardList layout of the post-drag board.
 const AFTER_DRAG = CL_BOARD.map((row) =>
   row.id === REMOTE_DRAG_ID ? { ...row, status: "in_progress" as const } : row
 )
-const LIVE_EDIT_ROW = listNavRowCenter(AFTER_DRAG, LIVE_EDIT_ID, LIST_NAV_BODY_TOP)
+const LIVE_EDIT_ROW = (() => {
+  const c = boardRowCenter(AFTER_DRAG, LIVE_EDIT_ID)
+  return panelPt(c.x, c.y)
+})()
 const LOCAL_KEYS: CursorKey[] = [
   { f: 0, x: 900, y: 420 },
   { f: 52, x: 900, y: 420 },
@@ -117,13 +113,6 @@ const LOCAL_KEYS: CursorKey[] = [
   { f: 168, x: LIVE_EDIT_ROW.x, y: LIVE_EDIT_ROW.y },
   { f: 190, x: 900, y: 500 },
 ]
-
-const TAB_151: ChromeTab = {
-  id: "exp151",
-  identifier: NEW_ISSUE_ID,
-  label: CL_ISSUE.title,
-  status: "backlog",
-}
 
 // Phone placement in COMP coordinates inside the camera layer (floats over
 // the window's right edge; unscaled so the whole device fits the framing).
@@ -134,9 +123,6 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
   frame,
   portrait,
 }) => {
-  // EXP-769/791: no dock inside the panel — the bottom bar carries terminal
-  // tabs alone, and none is open here, so the panel runs to its own edge.
-  const paneH = WIN.panel.h
   const capSize = captionSize(portrait)
 
   const dragging = frame >= B.dragFrom
@@ -170,52 +156,27 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
       <AbsoluteFill>
         <Camera keys={portrait ? CAMERA_KEYS_PT : CAMERA_KEYS} frame={frame}>
           <WindowChassis>
-            <TitleBar frame={frame} tabs={[TAB_151]} activeId="exp151" />
-            <CompactRail
+            <TitleBar frame={frame} />
+            <Sidebar
               frame={frame}
-              active="board"
-              dots={frame >= B.pushAt + 2 ? ["inbox"] : []}
-              boardName={CL.project}
-              userName={CL.user}
-              userInitial={CL.initials}
+              team={CL.team}
+              user={CL.user.split(" ")[0]}
+              initials={CL.initials}
+              selected={`board:${CL.board}`}
+              inboxDotAt={B.pushAt + 2}
+              boards={[...CL_BOARDS]}
             />
-            {/* EXP-870: the list EXP-151 was opened from, beside the rail */}
-            <ListNav title={CL.project}>
-              <BoardTool
+            {/* the board is the main view of the cutout panel */}
+            <CutoutPanel>
+              <BoardList
                 frame={frame}
                 rows={CL_BOARD}
                 overrides={overrides}
-                hover={{ id: LIVE_EDIT_ID, from: 84, to: 150 }}
-                selectedId={NEW_ISSUE_ID}
                 regroup={regroup}
+                hover={{ id: LIVE_EDIT_ID, from: 84, to: 150 }}
                 flashAt={{ id: LIVE_EDIT_ID, at: B.liveEdit }}
-                density="nav"
+                width={PANEL.w - 2}
               />
-            </ListNav>
-
-            {/* EXP-723: the main view lives in the cutout panel */}
-            <CutoutPanel>
-              {/* center: EXP-151 open in Backlog — the state feedback wraps into */}
-              <div
-                style={{
-                  position: "absolute",
-                  left: CENTER_X,
-                  top: CONTENT_TOP,
-                  width: CENTER_W,
-                  height: paneH,
-                  overflow: "hidden",
-                }}
-              >
-                <IssueDetailPane
-                  frame={frame}
-                  status="backlog"
-                  priority="none"
-                  issue={CL_ISSUE}
-                  width={CENTER_W}
-                  height={paneH}
-                />
-              </div>
-
             </CutoutPanel>
 
             {/* to reaches into the cross-fade overrun (EXP-482) so the
@@ -247,7 +208,7 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
               <PhoneChassis glass={{ x: PHONE_POS.x, y: PHONE_POS.y }}>
                 <BoardScreen
                   frame={frame}
-                  boardName={CL.project}
+                  boardName={CL.board}
                   rows={CL_PHONE_BOARD}
                   overrides={{ [REMOTE_DRAG_ID]: "in_progress" }}
                   moveT={phoneMoveT}

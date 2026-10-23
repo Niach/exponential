@@ -1,14 +1,15 @@
-/* ─── The board list SCREEN (full width beside the labelled rail): a grouped
-   28px-row list with nothing above it (EXP-862). A row opens its
-   issue beside the list, which folds into the ListNav (EXP-870). Grid = 24px priority · 72px identifier ·
-   24px status · 1fr title · labels · assignee · due (issue_list.rs). ─── */
-import { GROUP_ORDER, ISSUES, type IssueStatus, type Issue } from "./data"
+/* ─── The board list SCREEN (issue_list.rs, EXP-862/1192): the grouped list
+   with nothing above it. A group band (`issue_group_band`, 28px, the status
+   hue at 7%) folds its rows; a row is the web grid at compact density —
+   the hover checkbox cell · 24px priority · 72px mono identifier · 24px
+   status · the title · label pills · the assignee · the due date. A row
+   opens its issue as a top tab, ALONE in the card beside the full rail. ─── */
+import { GROUP_ORDER, ISSUES, type Issue, type IssueStatus } from "./data"
 import { useIde } from "./state"
-import { Avatar, LabelChip, PriorityIcon, StatusIcon } from "./bits"
+import { Avatar, LabelChip, PriorityIcon, STATUS_BAND, StatusIcon } from "./bits"
 import { IcCalDays, IcChevDown, IcChevRight } from "./icons"
 
-/* Contract display order (backlog · started · completed), the
-   order the real list groups in — `GROUP_ORDER` keeps the web fixture's. */
+/* Contract display order: backlog · started · completed. */
 const DESKTOP_ORDER: IssueStatus[] = [`backlog`, `in_progress`, `in_review`, `done`]
 
 export const GROUPS = DESKTOP_ORDER.map(
@@ -16,34 +17,37 @@ export const GROUPS = DESKTOP_ORDER.map(
 )
 
 export function IssueRow({ issue }: { issue: Issue }) {
-  const { openIssue, interactive, active } = useIde()
-  const isOpen = active === `issue:${issue.id}`
+  const { openIssue, interactive } = useIde()
   return (
     <div
-      className={`ide-row${interactive ? ` is-click` : ``}${isOpen ? ` is-open` : ``}`}
-      onClick={interactive ? () => openIssue(issue.id, true) : undefined}
+      className={`ide-row${interactive ? ` is-click` : ``}`}
+      onClick={interactive ? () => openIssue(issue.id) : undefined}
     >
       <span className="ide-row-sel" />
       <span className="ide-row-cell">
-        <PriorityIcon priority={issue.priority} size={10} />
+        <PriorityIcon priority={issue.priority} size={12} />
       </span>
       <span className="ide-row-id">{issue.id}</span>
       <span className="ide-row-cell">
-        <StatusIcon status={issue.status} size={10} />
+        <StatusIcon status={issue.status} size={12} />
       </span>
       <span className="ide-row-title">{issue.title}</span>
-      <span className="ide-row-labels">
-        {issue.labels?.map((l) => <LabelChip key={l.name} label={l} />)}
-      </span>
+      {issue.labels && issue.labels.length > 0 && (
+        <span className="ide-row-labels">
+          {issue.labels.map((l) => (
+            <LabelChip key={l.name} label={l} />
+          ))}
+        </span>
+      )}
       <span className="ide-row-assignee">
         <Avatar person={issue.assignee} />
       </span>
-      {issue.due ? (
+      {issue.due && (
         <span className="ide-due">
-          <IcCalDays size={10} />
+          <IcCalDays size={10.5} />
           {issue.due}
         </span>
-      ) : null}
+      )}
     </div>
   )
 }
@@ -52,35 +56,32 @@ export function BoardPanel() {
   const { collapsedGroups, toggleGroup, interactive } = useIde()
   return (
     <div className="ide-board">
-      {/* board.rs: EXP-862 removed issue filtering, so the board is the list
-          and nothing above it; the list starts at the top of its panel. */}
-      <div className="ide-board-list">
-        {GROUPS.map((g) => {
-          const issues = ISSUES.filter((i) => i.status === g.status)
-          if (issues.length === 0) return null
-          const isCollapsed = collapsedGroups.has(g.status)
-          return (
-            <div key={g.status}>
-              <div
-                className={`ide-group ide-group-${g.status}${interactive ? ` is-click` : ``}`}
-                onClick={interactive ? () => toggleGroup(g.status) : undefined}
-              >
-                <span className="ide-group-chev">
-                  {isCollapsed ? (
-                    <IcChevRight size={10} className="ide-c-muted" />
-                  ) : (
-                    <IcChevDown size={10} className="ide-c-muted" />
-                  )}
-                </span>
-                <StatusIcon status={g.status} size={10} />
-                <span className="ide-group-label">{g.label}</span>
-                <span className="ide-group-count">{issues.length}</span>
-              </div>
-              {!isCollapsed && issues.map((i) => <IssueRow key={i.id} issue={i} />)}
+      {GROUPS.map((g) => {
+        const issues = ISSUES.filter((i) => i.status === g.status)
+        if (issues.length === 0) return null
+        const isCollapsed = collapsedGroups.has(g.status)
+        return (
+          <div key={g.status}>
+            <div
+              className={`ide-group${interactive ? ` is-click` : ``}`}
+              style={{ background: STATUS_BAND[g.status] }}
+              onClick={interactive ? () => toggleGroup(g.status) : undefined}
+            >
+              <span className="ide-group-chev">
+                {isCollapsed ? (
+                  <IcChevRight size={10.5} className="ide-c-muted" />
+                ) : (
+                  <IcChevDown size={10.5} className="ide-c-muted" />
+                )}
+              </span>
+              <StatusIcon status={g.status} size={10.5} />
+              <span className="ide-group-label">{g.label}</span>
+              <span className="ide-group-count">{issues.length}</span>
             </div>
-          )
-        })}
-      </div>
+            {!isCollapsed && issues.map((i) => <IssueRow key={i.id} issue={i} />)}
+          </div>
+        )
+      })}
     </div>
   )
 }

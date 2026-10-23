@@ -14,7 +14,7 @@ import {
 import { LINKS } from "../lib/links"
 import type { Platform } from "@exp/view-catalog"
 import { shotSrc } from "./DocShot"
-import { IcArrow, IcBot, IcInbox, IcMonitor, IcUserPlus } from "./icons"
+import { IcArrow, IcBot, IcGrid, IcMonitor, IcUserPlus } from "./icons"
 
 const NOUNS = [
   {
@@ -28,9 +28,9 @@ const NOUNS = [
     text: `Your desktop or a headless server runs Claude Code or Codex on your own subscription, and you steer every session from any of your devices.`,
   },
   {
-    icon: IcInbox,
+    icon: IcGrid,
     title: `Apps`,
-    text: `Boards, issues, reviews and your inbox: start a session on an issue, then review and merge the pull request it opens.`,
+    text: `Describe an app to an agent and watch it build it in a live preview. Every app your team makes opens on web, desktop, iOS and Android, starting with the built-in Devices app.`,
   },
   {
     icon: IcBot,
