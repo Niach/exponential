@@ -113,7 +113,7 @@ export const ROUTES: readonly Route[] = [
     `/guides/`,
     () => import("../pages/Guides"),
     `Guides · ${SITE_NAME}`,
-    `Render A2UI in React, Solid, a web component, SwiftUI, Compose and gpui; write a theme, an extension or a host plugin; build a app; connect an agent. Every example compiles in CI.`,
+    `Render A2UI in React, Solid, a web component, SwiftUI, Compose and gpui; write a theme, an extension or a host plugin; build an app; connect an agent. Every example compiles in CI.`,
     [`src/pages/Guides.tsx`, `src/lib/guides.ts`],
     crumbs({ name: `Guides`, path: `/guides/` })
   ),

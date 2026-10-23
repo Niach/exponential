@@ -242,7 +242,7 @@ bun run --filter @exponential_app/ui eval:parity   # the Devices template vs the
             rows={Object.entries(gaps.candidates).map(([k, v]) => [<code key={k}>{k}</code>, v, (gaps.renderers.solid.candidates as string[]).includes(k) ? `a Solid painter too` : `reducer only`])}
           />
           <p>
-            Landed (VAPP-126): {Object.keys(gaps.landed).map((c, i) => (
+            Already in the catalog: {Object.keys(gaps.landed).map((c, i) => (
               <span key={c}>
                 {i ? `, ` : ``}
                 <a href={componentHref(c)}>{c}</a>

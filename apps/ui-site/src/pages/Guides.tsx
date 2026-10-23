@@ -11,7 +11,7 @@ const GROUPS: { id: string; label: string; title: string; slugs: string[] }[] = 
     id: `render`,
     label: `Render`,
     title: `Render A2UI on your platform`,
-    slugs: [`react`, `swiftui`, `compose`, `gpui`],
+    slugs: [`react`, `solid`, `element`, `swiftui`, `compose`, `gpui`],
   },
   {
     id: `customise`,
@@ -61,7 +61,7 @@ export default function GuidesPage({ path }: PageProps) {
           <p>
             The pages show the files in <a href={LINKS.source(`apps/ui-site/guides`)}>apps/ui-site/guides</a> as they are. <code>guides/check.ts</code> builds each in an empty temp directory from the packed npm packages, the Swift package, local Maven artifacts and path crates:
           </p>
-          <DocsCode>{`bun apps/ui-site/guides/check.ts react   # or agent, define, theme, swift, compose, gpui, all`}</DocsCode>
+          <DocsCode>{`bun apps/ui-site/guides/check.ts react   # or solid, element, agent, define, theme, swift, compose, gpui, all`}</DocsCode>
           <p>
             Complete apps: the <a href={LINKS.source(`samples/exponential-ui`)}>samples</a> run web, iOS, Android and gpui hosts against one local A2UI server, with a third-party theme and an extension component.
           </p>

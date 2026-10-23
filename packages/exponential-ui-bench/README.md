@@ -14,7 +14,7 @@ and the Numbers page on ui.exponential.at rendered from the results.
 | `src/results.ts` | the result format: a runner writes one FRAGMENT `{renderer, platform, device?, date, scenarios: {<id>: {<metric>: n}}}` to `$EXPONENTIAL_UI_BENCH_OUT` (default `.bench/<renderer>.json` at the repo root) |
 | `results/<machine>.json` | the committed record of one machine (every renderer that ran there), written by `bun run bench`; `results/index.ts` lists them for the site (generated) |
 | `budgets.json` + `src/ratchet.ts` | the CI ratchet per machine × renderer × scenario × metric |
-| `findings.json` | the weak points the numbers exposed, each with its follow-up issue (the Numbers page lists them) |
+| `findings.json` | the weak points the numbers exposed, each with its suspected cause (the Numbers page lists them) |
 
 ## Scenarios
 

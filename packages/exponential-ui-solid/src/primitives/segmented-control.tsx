@@ -7,9 +7,8 @@ import { cn } from "./cn"
 import { Tabs, TabsList, TabsTrigger } from "./tabs"
 
 // The segmented capsule from an option array (React's segmented-control.tsx).
-// React's `embedded` arm (the strip as a glass group's first row) paints the
-// app's `GlassTabsRow`, which this package does not carry: the Solid twin
-// draws the floating capsule only.
+// The glass-group row (`embedded`) is the Exponential app's own arm, in
+// @exp/ui; both SDK twins draw the floating capsule only.
 
 interface SegmentedOption<TValue extends string> {
   value: TValue

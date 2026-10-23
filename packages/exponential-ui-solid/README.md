@@ -96,8 +96,8 @@ import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger } from "@expo
   `globalsCss(theme)` writes the theme as shadcn variables (`:root` + `.dark`).
 - The names follow Solid: `class` for `className`, `as` for `asChild` (the
   element or component the part paints as), `create*` for the `use*` hooks.
-- Six React modules are the Exponential app's own and stay React-only:
-  `glass-rows`, `typeahead`, `composer`, `trace`, `pill`, `segmented-bar`.
+- React's `SegmentedControl` has no `embedded` arm either: the glass-group row
+  is the Exponential app's (`@exp/ui`), like its other own components.
 - The web-parity gate compares every specimen of
   `@exponential_app/ui/fixtures/primitive-specimens.json` with React's over the
   whole page body: `bun run --filter @exponential_app/ui-solid test:parity:primitives`.
