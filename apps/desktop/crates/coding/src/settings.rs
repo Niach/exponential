@@ -988,6 +988,7 @@ mod tests {
             computer_use_model: "sonnet".to_string(),
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
             changelog_seen_id: Some("2026-09-relations-and-design-refresh".to_string()),
+            app_editor_layout: Some("docked".to_string()),
             tools_setup_seen: true,
             emoji_recents: vec!["🎉".to_string()],
             os_notifications: true,

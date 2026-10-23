@@ -93,6 +93,7 @@ class AppsTest {
             "editor" to Apps.TestIds.EDITOR, "chat" to Apps.TestIds.CHAT, "preview" to Apps.TestIds.PREVIEW,
             "versions" to Apps.TestIds.VERSIONS, "versionRow" to Apps.TestIds.VERSION_ROW, "tabs" to Apps.TestIds.TABS,
             "composer" to Apps.TestIds.COMPOSER, "viewing" to Apps.TestIds.VIEWING,
+            "chatCard" to Apps.TestIds.CHAT_CARD, "dockToSide" to Apps.TestIds.DOCK_TO_SIDE, "float" to Apps.TestIds.FLOAT,
         )
         assertEquals(ids.keys, expectedIds.keys)
         for ((key, value) in expectedIds) assertEquals(ids[key]!!.jsonPrimitive.content, value)

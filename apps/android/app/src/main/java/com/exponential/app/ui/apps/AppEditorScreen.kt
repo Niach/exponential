@@ -80,7 +80,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.thread.ThreadAgent
 import com.exponential.app.ui.thread.ThreadAnswer
-import com.exponential.app.ui.thread.ThreadAskDock
+import com.exponential.app.ui.thread.ThreadDock
 import com.exponential.app.ui.thread.ThreadConversation
 import com.exponential.app.ui.thread.ThreadPlanDecision
 import com.exponential.app.ui.thread.ThreadRowMeta
@@ -573,13 +573,18 @@ private fun AppEditorConversation(
                     capsuleTestTag = "app-composer-capsule",
                     showQueue = false,
                     modifier = Modifier.testTag(Apps.TestIds.COMPOSER),
-                    askPending = askPending.isNotEmpty(),
-                    dock = {
-                        ThreadAskDock(
+                    // N-12: THE Dock: the tree's waiting cards, then the
+                    // root's Queue and banners, over the composer.
+                    dock = { sessionDock ->
+                        ThreadDock(
                             rows = v.rows,
+                            autoOpenReady = v.rows.isNotEmpty(),
                             sessionName = sessionName,
                             onAnswer = onAnswer,
                             onDecidePlan = onDecidePlan,
+                            sources = sessionDock.sources,
+                            sessionSheet = sessionDock.sheet,
+                            action = sessionDock.action,
                         )
                     },
                 )

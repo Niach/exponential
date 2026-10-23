@@ -67,6 +67,7 @@ final class AppsTests: XCTestCase {
         XCTAssertEqual(fixture["panes"] as? [String: Double], [
             "chat": Apps.Panes.chat, "preview": Apps.Panes.preview,
             "chatMinWidth": Apps.Panes.chatMinWidth, "breakpoint": Apps.Panes.breakpoint,
+            "headerHeight": Apps.Panes.headerHeight,
         ])
         let preview = try XCTUnwrap(fixture["preview"] as? [String: Any])
         XCTAssertEqual(preview["radius"] as? Double, Apps.Preview.radius)
@@ -78,6 +79,7 @@ final class AppsTests: XCTestCase {
             "editor": Apps.TestIds.editor, "chat": Apps.TestIds.chat, "preview": Apps.TestIds.preview,
             "versions": Apps.TestIds.versions, "versionRow": Apps.TestIds.versionRow, "tabs": Apps.TestIds.tabs,
             "composer": Apps.TestIds.composer, "viewing": Apps.TestIds.viewing,
+            "chatCard": Apps.TestIds.chatCard, "dockToSide": Apps.TestIds.dockToSide, "float": Apps.TestIds.float,
         ])
     }
 

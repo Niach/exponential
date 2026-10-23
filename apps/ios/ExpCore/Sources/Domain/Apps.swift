@@ -81,6 +81,8 @@ public enum Apps {
         public static let preview: Double = 7
         public static let chatMinWidth: Double = 360
         public static let breakpoint: Double = 768
+        /// VAPP-129: the docked chat pane's header strip (web and the IDE).
+        public static let headerHeight: Double = 40
     }
 
     public enum Preview {
@@ -101,6 +103,10 @@ public enum Apps {
         public static let tabs = "app-editor-tabs"
         public static let composer = "app-editor-composer"
         public static let viewing = "app-editor-viewing"
+        // VAPP-129: the floating layout (web and the IDE).
+        public static let chatCard = "app-editor-chat-card"
+        public static let dockToSide = "app-editor-dock-side"
+        public static let float = "app-editor-float"
     }
 
     // MARK: - Contract caps (`contract.json` `apps`)

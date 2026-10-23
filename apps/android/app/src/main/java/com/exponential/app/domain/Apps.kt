@@ -68,6 +68,10 @@ object Apps {
         const val TABS = "app-editor-tabs"
         const val COMPOSER = "app-editor-composer"
         const val VIEWING = "app-editor-viewing"
+        // VAPP-129: the floating layout (web and the IDE).
+        const val CHAT_CARD = "app-editor-chat-card"
+        const val DOCK_TO_SIDE = "app-editor-dock-side"
+        const val FLOAT = "app-editor-float"
     }
 
     // Contract `apps` (packages/domain-contract/contract.json), locked by AppsTest.
