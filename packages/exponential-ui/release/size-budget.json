@@ -87,5 +87,19 @@
   },
   "crate/darwin/exponential-ui-ffi": {
     "bytes": 6562816
+  },
+  "$machines": {
+    "$comment": "EXP-1371: per build machine overrides (EXPONENTIAL_UI_SIZE_MACHINE). github-macos-26 = GitHub's macos-26 image (the exponential-ui.yml fallback and release-ui.yml), measured on PR #1155 run 39900265032 (+2.5 % like the base budgets).",
+    "github-macos-26": {
+      "xcframework/ios-arm64": {
+        "bytes": 8103936
+      },
+      "xcframework/ios-arm64_x86_64-simulator": {
+        "bytes": 16539648
+      },
+      "xcframework/macos-arm64_x86_64": {
+        "bytes": 16776192
+      }
+    }
   }
 }
