@@ -1,0 +1,16 @@
+{
+  "$comment": "VAPP-108 eval fixture: the reply to corpus prompt `pricing` given catalogPrompt() as the system prompt. Recorded by the session's own model from the same prompt (no API key in the recording environment); `bun eval/record.ts --force --only pricing` replaces it with an API recording (recordedBy: api).",
+  "id": "pricing",
+  "prompt": "A pricing page with three plans side by side (Free, Team, Business); the Team plan is recommended. Each plan lists its features and has a Choose button. Stack the plans on phones.",
+  "model": "claude-fable-5-1",
+  "promptVariant": "full",
+  "recordedAt": "2026-10-22T10:00:00.000Z",
+  "recordedBy": "session",
+  "usage": {
+    "inputTokens": 7044,
+    "outputTokens": 513,
+    "cacheReadInputTokens": 0,
+    "estimated": true
+  },
+  "text": "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"pricing\",\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\":\"v0.9\",\"updateComponents\":{\"surfaceId\":\"pricing\",\"components\":[{\"id\":\"root\",\"component\":\"Stack\",\"gap\":\"lg\",\"align\":\"center\",\"children\":[\"title\",\"plans\"]},{\"id\":\"title\",\"component\":\"Heading\",\"text\":\"Plans\",\"level\":\"h1\"},{\"id\":\"plans\",\"component\":\"Grid\",\"columns\":{\"base\":1,\"md\":3},\"gap\":\"md\",\"children\":[\"free\",\"team\",\"business\"]},{\"id\":\"free\",\"component\":\"Card\",\"title\":\"Free\",\"description\":\"For trying it out.\",\"children\":[\"freePrice\",\"freeFeatures\",\"freeChoose\"]},{\"id\":\"freePrice\",\"component\":\"Text\",\"text\":\"€0 / month\",\"variant\":\"title\"},{\"id\":\"freeFeatures\",\"component\":\"Markdown\",\"text\":\"- 3 members\\n- 1 board\\n- Community support\"},{\"id\":\"freeChoose\",\"component\":\"Button\",\"label\":\"Choose Free\",\"variant\":\"outline\",\"on\":{\"press\":{\"event\":{\"name\":\"choose\",\"context\":{\"plan\":\"free\"}}}}},{\"id\":\"team\",\"component\":\"Card\",\"title\":\"Team\",\"description\":\"Recommended for most teams.\",\"style\":{\"borderColor\":\"$color.primary\"},\"children\":[\"teamBadge\",\"teamPrice\",\"teamFeatures\",\"teamChoose\"]},{\"id\":\"teamBadge\",\"component\":\"Badge\",\"text\":\"Recommended\"},{\"id\":\"teamPrice\",\"component\":\"Text\",\"text\":\"€12 / member / month\",\"variant\":\"title\"},{\"id\":\"teamFeatures\",\"component\":\"Markdown\",\"text\":\"- Unlimited members\\n- Unlimited boards\\n- 10 devices\\n- Email support\"},{\"id\":\"teamChoose\",\"component\":\"Button\",\"label\":\"Choose Team\",\"on\":{\"press\":{\"event\":{\"name\":\"choose\",\"context\":{\"plan\":\"team\"}}}}},{\"id\":\"business\",\"component\":\"Card\",\"title\":\"Business\",\"description\":\"For larger organisations.\",\"children\":[\"bizPrice\",\"bizFeatures\",\"bizChoose\"]},{\"id\":\"bizPrice\",\"component\":\"Text\",\"text\":\"€29 / member / month\",\"variant\":\"title\"},{\"id\":\"bizFeatures\",\"component\":\"Markdown\",\"text\":\"- Everything in Team\\n- SSO and audit log\\n- Unlimited devices\\n- Priority support\"},{\"id\":\"bizChoose\",\"component\":\"Button\",\"label\":\"Choose Business\",\"variant\":\"outline\",\"on\":{\"press\":{\"event\":{\"name\":\"choose\",\"context\":{\"plan\":\"business\"}}}}}]}}"
+}

@@ -7,10 +7,16 @@
 //            of the tarballs, `tsc --noEmit`, `vite build`, then the extension
 //            (defineExtension + its macro reduced) and the vapp (validatePackage)
 //            checked at runtime against the packed package
-//   solid    the same as react with `@exponential-at/ui-solid` (Vite + vite-plugin-solid)
-//   element  the same as react with @exponential-at/ui-element (plain Vite, no framework)
+//   solid    the same as react with `@exponential-at/ui-solid` (Vite + vite-plugin-solid),
+//            plus the typed DSL from the Solid project (VAPP-108: src/defined.ts run by
+//            node must print a valid surface; src/Defined.tsx feeds it to the renderer)
+//   element  the same as react with @exponential-at/ui-element (plain Vite, no framework),
+//            plus the typed DSL from the plain project (src/defined.ts; src/mount-defined.ts
+//            feeds it to <exponential-surface>)
 //   agent    the same tarballs, `tsc --noEmit`, then the server started and asked
 //            for a valid and an invalid surface over MCP
+//   define   the same tarballs, `tsc --noEmit`, then `node surface.ts` must print
+//            a valid surface (VAPP-108: the typed authoring DSL)
 //   theme    validateTheme + loadTheme over the built-ins: no issues
 //   swift    `swift build` against the Swift package by path (macOS; needs
 //            packages/exponential-ui-swift/Binaries/ExponentialUIFFI.xcframework)
@@ -18,7 +24,7 @@
 //            `:app:compileDebugKotlin` (needs an Android SDK: ANDROID_HOME)
 //   gpui     `cargo check` with the path dependencies made absolute
 //
-//   bun apps/ui-site/guides/check.ts [react|solid|element|agent|theme|swift|compose|gpui|all] [--keep]
+//   bun apps/ui-site/guides/check.ts [react|solid|element|agent|define|theme|swift|compose|gpui|all] [--keep]
 
 import { execFileSync, execSync, spawn } from "node:child_process"
 import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
@@ -28,7 +34,7 @@ import { join, resolve } from "node:path"
 const GUIDES = import.meta.dir
 const REPO = resolve(GUIDES, `..`, `..`, `..`)
 const VERSION = `0.1.0`
-const CHECKS = [`react`, `solid`, `element`, `agent`, `theme`, `gpui`, `swift`, `compose`] as const
+const CHECKS = [`react`, `solid`, `element`, `agent`, `define`, `theme`, `gpui`, `swift`, `compose`] as const
 type Check = (typeof CHECKS)[number]
 
 const args = process.argv.slice(2)
@@ -152,6 +158,24 @@ console.log("extension + vapp: no issues")
 `
   )
   run(`node runtime-check.mjs`, dir)
+  // VAPP-108: the typed DSL from this project, unchanged (tsc covered
+  // src/defined.ts + src/Defined.tsx above; node runs the DSL half).
+  if (existsSync(join(dir, `src`, `defined.ts`))) {
+    const out = execFileSync(`node`, [`src/defined.ts`], { cwd: dir, encoding: `utf8` })
+    await checkDefinedOutput(out, `${guide}: src/defined.ts`)
+  }
+}
+
+/** The JSONL a defineSurface script printed: createSurface + updateComponents
+ *  (+ updateDataModel), the components valid under the reducer. */
+async function checkDefinedOutput(out: string, what: string): Promise<number> {
+  const { reduceSurface } = await import(`../../../packages/exponential-ui/src/index.ts`)
+  const lines = out.trim().split(`\n`).map((l) => JSON.parse(l) as { createSurface?: unknown; updateComponents?: { catalogId?: string; components: never[] } })
+  if (lines.length !== 3 || !lines[0].createSurface || !lines[1].updateComponents) throw new Error(`${what} did not print createSurface + updateComponents + updateDataModel:\n${out}`)
+  const { issues } = reduceSurface(lines[1].updateComponents.components, { catalogId: (lines[0].createSurface as { catalogId: string }).catalogId })
+  if (issues.length) throw new Error(`${what}: the defined surface has issues: ${issues.map((i) => `${i.id}: ${i.message}`).join(`; `)}`)
+  console.log(`${what}: node printed a valid surface (${lines[1].updateComponents.components.length} components)`)
+  return lines[1].updateComponents.components.length
 }
 
 const react = () => webGuide(`react`)
@@ -200,6 +224,16 @@ async function agent(): Promise<void> {
   }
 }
 
+async function define(): Promise<void> {
+  const dir = fresh(`define`)
+  useTarballs(dir, await tarballs())
+  npmInstall(dir)
+  run(`npx tsc --noEmit`, dir)
+  // The surface it prints must be the valid JSONL a host consumes.
+  const out = execFileSync(`node`, [`surface.ts`], { cwd: dir, encoding: `utf8` })
+  await checkDefinedOutput(out, `define: surface.ts`)
+}
+
 async function theme(): Promise<void> {
   const { BUILTIN_THEMES, loadTheme, validateTheme } = await import(`../../../packages/exponential-ui/src/index.ts`)
   console.log(`\n── theme`)
@@ -246,7 +280,7 @@ async function gpui(): Promise<void> {
   run(`cargo check --quiet`, dir)
 }
 
-const RUNNERS: Record<Check, () => Promise<void>> = { react, solid, element, agent, theme, gpui, swift, compose }
+const RUNNERS: Record<Check, () => Promise<void>> = { react, solid, element, agent, define, theme, gpui, swift, compose }
 const failed: string[] = []
 for (const name of which === `all` ? CHECKS : [which as Check]) {
   try {

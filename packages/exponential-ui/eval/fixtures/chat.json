@@ -1,0 +1,16 @@
+{
+  "$comment": "VAPP-108 eval fixture: the reply to corpus prompt `chat` given catalogPrompt() as the system prompt. Recorded by the session's own model from the same prompt (no API key in the recording environment); `bun eval/record.ts --force --only chat` replaces it with an API recording (recordedBy: api).",
+  "id": "chat",
+  "prompt": "A chat screen: a scrolling list of messages (sender, text, time; mine on the right) and a composer with attachments at the bottom.",
+  "model": "claude-fable-5-1",
+  "promptVariant": "full",
+  "recordedAt": "2026-10-22T10:00:00.000Z",
+  "recordedBy": "session",
+  "usage": {
+    "inputTokens": 7032,
+    "outputTokens": 441,
+    "cacheReadInputTokens": 0,
+    "estimated": true
+  },
+  "text": "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"chat\",\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\":\"v0.9\",\"updateComponents\":{\"surfaceId\":\"chat\",\"components\":[{\"id\":\"root\",\"component\":\"Stack\",\"gap\":\"sm\",\"style\":{\"height\":\"100%\",\"minHeight\":480},\"children\":[\"messages\",\"composer\"]},{\"id\":\"messages\",\"component\":\"List\",\"gap\":\"sm\",\"style\":{\"flexGrow\":1,\"minHeight\":0},\"children\":{\"componentId\":\"msg\",\"path\":\"/messages\",\"key\":\"id\"}},{\"id\":\"msg\",\"component\":\"Stack\",\"direction\":\"horizontal\",\"justify\":{\"call\":\"cond\",\"args\":{\"if\":{\"path\":\"mine\"},\"then\":\"end\",\"else\":\"start\"}},\"children\":[\"bubble\"]},{\"id\":\"bubble\",\"component\":\"Box\",\"style\":{\"display\":\"flex\",\"flexDirection\":\"column\",\"gap\":\"$spacing.xxs\",\"padding\":\"$spacing.sm\",\"paddingHorizontal\":\"$spacing.md\",\"borderRadius\":\"$radius.lg\",\"backgroundColor\":\"$color.muted\",\"maxWidth\":\"75%\"},\"children\":[\"sender\",\"text\",\"time\"]},{\"id\":\"sender\",\"component\":\"Text\",\"text\":{\"path\":\"sender\"},\"variant\":\"label\"},{\"id\":\"text\",\"component\":\"Text\",\"text\":{\"path\":\"text\"}},{\"id\":\"time\",\"component\":\"Text\",\"text\":{\"path\":\"time\"},\"variant\":\"caption\",\"align\":\"end\"},{\"id\":\"composer\",\"component\":\"Composer\",\"placeholder\":\"Message\",\"value\":{\"path\":\"/draft\"},\"attachments\":true,\"on\":{\"submit\":{\"event\":{\"name\":\"send\",\"context\":{\"text\":{\"path\":\"/draft\"}}}}}}]}}\n{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"chat\",\"path\":\"/draft\",\"value\":\"\"}}\n{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"chat\",\"path\":\"/messages\",\"value\":[{\"id\":\"1\",\"sender\":\"Sam\",\"text\":\"Did the release go out?\",\"time\":\"09:12\",\"mine\":false},{\"id\":\"2\",\"sender\":\"Me\",\"text\":\"Yes, 0.18.84 shipped an hour ago.\",\"time\":\"09:14\",\"mine\":true},{\"id\":\"3\",\"sender\":\"Sam\",\"text\":\"Great, I'll update the changelog.\",\"time\":\"09:15\",\"mine\":false}]}}"
+}

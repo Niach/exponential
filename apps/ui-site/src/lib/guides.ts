@@ -18,7 +18,8 @@ export const GUIDES: readonly GuideEntry[] = [
   { slug: `extensions`, title: `Write an extension`, blurb: `Custom components: a catalog schema plus a painter per platform, or a macro only.` },
   { slug: `host-plugins`, title: `Write a host plugin`, blurb: `Functions behind a policy gate, data bindings by source URI, the URL and media policy.` },
   { slug: `vapps`, title: `Build and embed a vapp`, blurb: `A declarative package of templates, functions and a theme, run in any host.` },
-  { slug: `agents`, title: `Connect an agent`, blurb: `The catalog prompt, A2UI over MCP, and validating what the model sends.` },
+  { slug: `agents`, title: `Connect an agent`, blurb: `The catalog prompt and its sections, A2UI over MCP, and validating what the model sends.` },
+  { slug: `define`, title: `Write a surface in TypeScript`, blurb: `defineSurface: typed component factories, bindings and actions, validated into the same A2UI an agent sends.` },
   { slug: `security`, title: `Security and the threat model`, blurb: `What a surface can and cannot do, what the host decides, the limits every core enforces, and how to report.` },
 ]
 

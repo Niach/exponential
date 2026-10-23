@@ -13,6 +13,7 @@ export const LEARN_NAV: DocsNavEntry[] = [
   { path: `/guides/`, label: `Guides` },
   { path: `/playground/`, label: `Playground` },
   { path: `/conformance/`, label: `Conformance` },
+  { path: `/eval/`, label: `Ergonomics eval` },
 ]
 
 /** The guides sidebar: the index, then every guide in nav order. */
@@ -153,6 +154,7 @@ export const GUIDE_CHECK: Record<string, string> = {
   "host-plugins": `react`,
   vapps: `react`,
   agents: `agent`,
+  define: `define`,
   security: `react`,
 }
 
@@ -166,4 +168,5 @@ export const CHECK_DIR: Record<string, string> = {
   gpui: `gpui`,
   theme: `theme`,
   agent: `agent`,
+  define: `define`,
 }

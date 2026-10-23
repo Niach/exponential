@@ -38,7 +38,7 @@ prerenderSite({
       `The SDK lives in the Exponential monorepo (https://github.com/Niach/exponential): packages/exponential-ui (catalog, themes, host API, conformance), packages/exponential-ui-react, packages/exponential-ui-swift, packages/exponential-ui-compose and apps/desktop/crates/exponential-ui{,-ffi,-gpui}. Exponential itself (https://exponential.at) is built on it.`,
     ],
     sections: [
-      { heading: `Start here`, paths: [`/`, `/concepts/`, `/playground/`, `/conformance/`] },
+      { heading: `Start here`, paths: [`/`, `/concepts/`, `/playground/`, `/conformance/`, `/eval/`] },
       { heading: `Guides`, paths: [`/guides/`, ...GUIDES.map((g) => guidePath(g.slug))] },
       { heading: `Themes`, paths: [`/themes/`, `/themes/builder/`] },
       { heading: `Components`, paths: [`/components/`, ...COMPONENT_DOCS.map(componentPath)] },

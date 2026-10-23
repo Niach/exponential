@@ -1,0 +1,16 @@
+{
+  "$comment": "VAPP-108 eval fixture: the reply to corpus prompt `agent-trace` given catalogPrompt() as the system prompt. Recorded by the session's own model from the same prompt (no API key in the recording environment); `bun eval/record.ts --force --only agent-trace` replaces it with an API recording (recordedBy: api).",
+  "id": "agent-trace",
+  "prompt": "A coding agent's progress: the steps it took (read three files, ran the tests), the current step still running, and a failed step that expands to show its output.",
+  "model": "claude-fable-5-1",
+  "promptVariant": "full",
+  "recordedAt": "2026-10-22T10:00:00.000Z",
+  "recordedBy": "session",
+  "usage": {
+    "inputTokens": 7040,
+    "outputTokens": 387,
+    "cacheReadInputTokens": 0,
+    "estimated": true
+  },
+  "text": "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"trace\",\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\":\"v0.9\",\"updateComponents\":{\"surfaceId\":\"trace\",\"components\":[{\"id\":\"root\",\"component\":\"Trace\",\"children\":[\"read1\",\"read2\",\"read3\",\"tests\",\"fix\",\"current\"]},{\"id\":\"read1\",\"component\":\"TraceItem\",\"title\":\"Read src/launch.ts\",\"icon\":\"trace-read\"},{\"id\":\"read2\",\"component\":\"TraceItem\",\"title\":\"Read src/cache.ts\",\"icon\":\"trace-read\"},{\"id\":\"read3\",\"component\":\"TraceItem\",\"title\":\"Read src/launch.test.ts\",\"icon\":\"trace-read\"},{\"id\":\"tests\",\"component\":\"TraceItem\",\"title\":\"Ran bun test\",\"description\":\"2 failed, 41 passed\",\"icon\":\"trace-terminal\",\"status\":\"error\",\"collapsible\":true,\"open\":{\"path\":\"/open/tests\"},\"children\":[\"testsOut\"]},{\"id\":\"testsOut\",\"component\":\"CodeBlock\",\"code\":{\"path\":\"/output/tests\"},\"language\":\"ansi\",\"variant\":\"destructive\",\"size\":\"sm\",\"maxLines\":12},{\"id\":\"fix\",\"component\":\"TraceItem\",\"title\":\"Edited src/launch.ts\",\"description\":\"+12 −4\",\"icon\":\"trace-edit\"},{\"id\":\"current\",\"component\":\"TraceItem\",\"title\":\"Running bun test again\",\"icon\":\"trace-terminal\",\"status\":\"running\"}]}}\n{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"trace\",\"path\":\"/open\",\"value\":{\"tests\":false}}}\n{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"trace\",\"path\":\"/output/tests\",\"value\":\"\\u001b[31m✗\\u001b[0m launch > warms the cache before first paint\\n  expected 380 to be below 400\\n\\u001b[31m✗\\u001b[0m launch > skips the warm-up when offline\\n  TypeError: cache.prime is not a function\\n\\n 41 pass\\n 2 fail\"}}"
+}

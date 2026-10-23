@@ -1,0 +1,16 @@
+{
+  "$comment": "VAPP-108 eval fixture: the reply to corpus prompt `feedback-form` given catalogPrompt() as the system prompt. Recorded by the session's own model from the same prompt (no API key in the recording environment); `bun eval/record.ts --force --only feedback-form` replaces it with an API recording (recordedBy: api).",
+  "id": "feedback-form",
+  "prompt": "A feedback form: a rating out of five stars, a category (Bug, Idea, Praise), a message, an optional screenshot upload, and a thank-you toast after sending.",
+  "model": "claude-fable-5-1",
+  "promptVariant": "full",
+  "recordedAt": "2026-10-22T10:00:00.000Z",
+  "recordedBy": "session",
+  "usage": {
+    "inputTokens": 7038,
+    "outputTokens": 464,
+    "cacheReadInputTokens": 0,
+    "estimated": true
+  },
+  "text": "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"feedback\",\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\":\"v0.9\",\"updateComponents\":{\"surfaceId\":\"feedback\",\"components\":[{\"id\":\"root\",\"component\":\"Stack\",\"gap\":\"md\",\"children\":[\"card\",\"thanks\"]},{\"id\":\"card\",\"component\":\"Card\",\"title\":\"Send feedback\",\"children\":[\"form\"]},{\"id\":\"form\",\"component\":\"Form\",\"name\":\"feedback\",\"children\":[\"ratingLabel\",\"rating\",\"category\",\"message\",\"shot\",\"send\"],\"on\":{\"submit\":{\"event\":{\"name\":\"sendFeedback\"}}}},{\"id\":\"ratingLabel\",\"component\":\"Label\",\"text\":\"How was it?\",\"for\":\"rating\"},{\"id\":\"rating\",\"component\":\"Rating\",\"value\":{\"path\":\"/feedback/rating\"},\"max\":5,\"size\":\"lg\"},{\"id\":\"category\",\"component\":\"Segmented\",\"items\":[{\"label\":\"Bug\",\"value\":\"bug\",\"icon\":\"bug\"},{\"label\":\"Idea\",\"value\":\"idea\",\"icon\":\"lightbulb\"},{\"label\":\"Praise\",\"value\":\"praise\",\"icon\":\"heart\"}],\"value\":{\"path\":\"/feedback/category\"},\"fill\":true},{\"id\":\"message\",\"component\":\"Textarea\",\"label\":\"Message\",\"name\":\"message\",\"value\":{\"path\":\"/feedback/message\"},\"autosize\":true,\"checks\":[{\"condition\":{\"call\":\"length\",\"args\":{\"value\":{\"path\":\"/feedback/message\"},\"min\":10,\"max\":2000}},\"message\":\"Tell us a little more (10 characters or more)\"}]},{\"id\":\"shot\",\"component\":\"FileUpload\",\"label\":\"Screenshot\",\"name\":\"screenshot\",\"accept\":\"image/*\",\"files\":{\"path\":\"/feedback/files\"},\"hint\":\"Optional, PNG or JPEG\"},{\"id\":\"send\",\"component\":\"Button\",\"label\":\"Send\",\"submit\":true},{\"id\":\"thanks\",\"component\":\"Toast\",\"title\":\"Thanks for the feedback\",\"description\":\"We read every message.\",\"type\":\"success\",\"open\":{\"path\":\"/ui/sent\"}}]}}\n{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"feedback\",\"path\":\"/feedback\",\"value\":{\"rating\":0,\"category\":\"idea\",\"message\":\"\",\"files\":[]}}}\n{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"feedback\",\"path\":\"/ui\",\"value\":{\"sent\":false}}}"
+}

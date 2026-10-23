@@ -1,0 +1,16 @@
+{
+  "$comment": "VAPP-108 eval fixture: the reply to corpus prompt `device-dashboard` given catalogPrompt() as the system prompt. Recorded by the session's own model from the same prompt (no API key in the recording environment); `bun eval/record.ts --force --only device-dashboard` replaces it with an API recording (recordedBy: api).",
+  "id": "device-dashboard",
+  "prompt": "A dashboard of the team's devices: each device with its online status, operating system and app version; a row opens the device. Show how many are online.",
+  "model": "claude-fable-5-1",
+  "promptVariant": "full",
+  "recordedAt": "2026-10-22T10:00:00.000Z",
+  "recordedBy": "session",
+  "usage": {
+    "inputTokens": 7038,
+    "outputTokens": 476,
+    "cacheReadInputTokens": 0,
+    "estimated": true
+  },
+  "text": "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"devices\",\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\":\"v0.9\",\"updateComponents\":{\"surfaceId\":\"devices\",\"components\":[{\"id\":\"root\",\"component\":\"Stack\",\"gap\":\"md\",\"children\":[\"header\",\"list\",\"empty\"]},{\"id\":\"header\",\"component\":\"Section\",\"title\":\"Devices\",\"icon\":\"nav-devices\",\"caption\":{\"call\":\"fill\",\"args\":{\"template\":\"{online} of {count} online\",\"params\":{\"online\":{\"path\":\"/devices/online\"},\"count\":{\"path\":\"/devices/count\"}}}},\"count\":{\"path\":\"/devices/count\"}},{\"id\":\"list\",\"component\":\"List\",\"divided\":true,\"children\":{\"componentId\":\"row\",\"path\":\"/devices/rows\",\"key\":\"id\"}},{\"id\":\"row\",\"component\":\"Row\",\"title\":{\"path\":\"name\"},\"subtitle\":{\"call\":\"concat\",\"args\":{\"values\":[{\"path\":\"kind\"},\" · \",{\"path\":\"os\"},\" · v\",{\"path\":\"version\"}]}},\"icon\":\"ui-device\",\"chevron\":\"right\",\"pressable\":true,\"slots\":{\"trailing\":\"status\"},\"on\":{\"press\":{\"event\":{\"name\":\"openDevice\",\"context\":{\"id\":{\"path\":\"id\"}}}}}},{\"id\":\"status\",\"component\":\"Chip\",\"label\":{\"path\":\"status\"},\"tone\":{\"call\":\"map\",\"args\":{\"value\":{\"path\":\"status\"},\"cases\":{\"Online\":\"success\"},\"default\":\"neutral\"}}},{\"id\":\"empty\",\"component\":\"EmptyState\",\"icon\":\"nav-devices\",\"title\":\"No devices yet\",\"description\":\"Install the desktop app or the CLI on a machine and it appears here.\",\"actionLabel\":\"Add device\",\"visible\":{\"call\":\"eq\",\"args\":{\"a\":0,\"b\":{\"path\":\"/devices/count\"}}},\"on\":{\"press\":{\"event\":{\"name\":\"addDevice\"}}}}]}}\n{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"devices\",\"path\":\"/devices\",\"value\":{\"count\":3,\"online\":2,\"rows\":[{\"id\":\"d1\",\"name\":\"Alex's Mac mini\",\"kind\":\"Desktop\",\"os\":\"macos\",\"version\":\"0.14.71\",\"status\":\"Online\"},{\"id\":\"d2\",\"name\":\"Alex's MacBook Pro\",\"kind\":\"Desktop\",\"os\":\"macos\",\"version\":\"0.14.22\",\"status\":\"Online\"},{\"id\":\"d3\",\"name\":\"Acme build server\",\"kind\":\"Server\",\"os\":\"linux\",\"version\":\"0.13.11\",\"status\":\"Offline\"}]}}}"
+}

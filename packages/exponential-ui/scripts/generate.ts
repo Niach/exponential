@@ -37,7 +37,7 @@ import { fileURLToPath } from "node:url"
 import { A2UI_BASIC_CATALOG_ID, A2UI_VERSION, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, TOKEN_GROUPS, coreCatalog } from "../src/catalog"
 import { splitDescriptions } from "../src/catalog.described"
 import { basicMap } from "../src/basic-map"
-import { catalogPrompt, estimateTokens } from "../src/prompt"
+import { catalogPrompt, componentPrompt, estimateTokens } from "../src/prompt"
 import { reduceNested, reduceSurface } from "../src/reducer"
 import { coreSchema } from "../src/schema"
 import { STYLE_KEYS, STYLE_STATES, resolveConditions, type ConditionContext } from "../src/style"
@@ -140,7 +140,46 @@ const basicIcons = Object.entries(basicMap.icons).map(([basic, target]) => [basi
 // TypeScript
 // ---------------------------------------------------------------------------
 
+/** VAPP-108: a prop schema → the TypeScript type `defineSurface` offers. */
+function tsPropType(schema: PropSchema): string {
+  let base: string
+  switch (schema.type) {
+    case `enum`:
+      base = schema.values ? schema.values.map((v) => JSON.stringify(v)).join(` | `) : `${capFirst(schema.enum ?? ``)}Value`
+      break
+    case `number`:
+      base = `number`
+      break
+    case `boolean`:
+      base = `boolean`
+      break
+    case `icon`:
+      base = `IconName`
+      break
+    case `style`:
+      base = `Style`
+      break
+    case `array`:
+      base = schema.items ? `${schema.items.type === `object` ? (schema.items.shape ? `Shapes[${JSON.stringify(schema.items.shape)}]` : `Record<string, unknown>`) : tsPropType(schema.items)}[]` : `unknown[]`
+      break
+    case `object`:
+      base = schema.shape ? `Shapes[${JSON.stringify(schema.shape)}]` : `Record<string, unknown>`
+      break
+    default:
+      base = `string`
+  }
+  if (schema.responsive) base = `${base} | Responsive<${base}>`
+  if (schema.bindable) base = `${base} | Dynamic`
+  return base
+}
+
 function renderTs(icons: string[]): string {
+  const shapeTypes = Object.entries(coreCatalog.defs)
+    .map(([name, def]) => `  ${name}: { ${Object.entries(def.properties).map(([p, s]) => `${p}${s.required ? `` : `?`}: ${tsPropType(s)}`).join(`; `)} }`)
+    .join(`\n`)
+  const propTypes = components
+    .map(([name, def]) => `  ${name}: { ${Object.entries(def.props).map(([p, s]) => `${p}${s.required ? `` : `?`}: ${tsPropType(s)}`).join(`; `)} }`)
+    .join(`\n`)
   const enumConsts = Object.entries(coreCatalog.enums)
     .map(([name, values]) => `  ${name}: ${JSON.stringify(values)},`)
     .join(`\n`)
@@ -151,6 +190,9 @@ function renderTs(icons: string[]): string {
     .map(([group, values]) => `  ${JSON.stringify(group)}: ${JSON.stringify(values)},`)
     .join(`\n`)
   return `// ${HEADER.split(`\n`).join(`\n// `)}
+
+import type { Style } from "./style"
+import type { DataBinding, FunctionCall } from "./types"
 
 export const CATALOG_ID = ${JSON.stringify(CORE_CATALOG_ID)}
 export const LITE_CATALOG_ID = ${JSON.stringify(CORE_LITE_CATALOG_ID)}
@@ -188,6 +230,20 @@ export const STYLE_STATE_NAMES = ${JSON.stringify(STYLE_STATES)} as const
 export const ICON_NAMES = ${JSON.stringify(icons)} as const
 
 export const FUNCTION_NAMES = ${JSON.stringify(coreCatalog.functions.names)} as const
+
+/** VAPP-108: the typed authoring surface (src/define.ts). A ~ prop also
+ *  takes a binding or a call, a ^ prop a per-breakpoint object. */
+export type Dynamic = DataBinding | FunctionCall
+export type Responsive<T> = { base: T; sm?: T; md?: T; lg?: T; xl?: T }
+export type IconName = (typeof ICON_NAMES)[number]
+/** The shared shapes (catalog \`defs\`). */
+export interface Shapes {
+${shapeTypes}
+}
+/** Every component's props, by name. */
+export interface ComponentProps {
+${propTypes}
+}
 
 /** A2UI basic component → core component. */
 export const BASIC_COMPONENT_MAP: Record<string, string> = ${JSON.stringify(Object.fromEntries(basicTargets))}
@@ -944,14 +1000,24 @@ function promptBudget() {
   const full = catalogPrompt()
   const liteText = catalogPrompt({ lite: true })
   const terse = catalogPrompt({ terse: true })
+  // VAPP-108: the sectioned prompt. `index` = rules + the one-line index +
+  // functions + style (what a host serves first; components come on demand
+  // through componentPrompt); `rules` alone; the per-component blocks.
+  const index = catalogPrompt({ sections: [`rules`, `index`, `functions`, `style`] })
+  const rules = catalogPrompt({ sections: [`rules`] })
+  const blocks = visible.map(([name]) => componentPrompt(name).length)
+  const size = (text: string) => ({ chars: text.length, tokens: estimateTokens(text) })
   return {
-    $comment: `${HEADER} The size of catalogPrompt() on record: prompt.test.ts fails when the full prompt passes budgetTokens (cut descriptions before components) or when these numbers drift from the catalog without being regenerated. tokens = chars / ${4}, an estimate.`,
+    $comment: `${HEADER} The size of catalogPrompt() on record: prompt.test.ts fails when the full prompt passes budgetTokens (cut descriptions before components) or when these numbers drift from the catalog without being regenerated. tokens = chars / ${4}, an estimate. VAPP-108: \`index\` = sections rules + index + functions + style (the components then come one at a time through componentPrompt, \`perComponent\`), \`rules\` = the rules alone.`,
     // EXP-1259: SearchList joined the catalog (descriptions trimmed first).
     // EXP-1324: Trace + TraceItem (descriptions trimmed first).
     budgetTokens: 7000,
-    full: { components: visible.length, chars: full.length, tokens: estimateTokens(full) },
-    lite: { components: lite.length, chars: liteText.length, tokens: estimateTokens(liteText) },
-    terse: { components: visible.length, chars: terse.length, tokens: estimateTokens(terse) },
+    full: { components: visible.length, ...size(full) },
+    lite: { components: lite.length, ...size(liteText) },
+    terse: { components: visible.length, ...size(terse) },
+    index: { components: visible.length, ...size(index) },
+    rules: size(rules),
+    perComponent: { mean: Math.round(blocks.reduce((a, b) => a + b, 0) / blocks.length), max: Math.max(...blocks), meanTokens: estimateTokens(String(``).padEnd(Math.round(blocks.reduce((a, b) => a + b, 0) / blocks.length))) },
   }
 }
 
