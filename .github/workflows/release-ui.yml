@@ -132,7 +132,11 @@ jobs:
         id: zip
         run: |
           bash packages/exponential-ui-swift/release/zip-xcframework.sh dist-swift | tee zip.log
-          echo "checksum=$(tail -1 zip.log)" >> "$GITHUB_OUTPUT"
+          # The script's last line is "checksum <64 hex>": keep the hex only
+          # (dry run #2 passed the whole line and the package script refused it).
+          sum="$(tail -1 zip.log | awk '{print $NF}')"
+          [[ "$sum" =~ ^[0-9a-f]{64}$ ]] || { echo "no checksum in zip.log: $(tail -1 zip.log)"; exit 1; }
+          echo "checksum=$sum" >> "$GITHUB_OUTPUT"
       - name: The distribution package
         env:
           URL: https://github.com/${{ github.repository }}/releases/download/ui-v${{ needs.version.outputs.version }}/ExponentialUIFFI.xcframework.zip
