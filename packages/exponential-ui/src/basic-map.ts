@@ -43,7 +43,7 @@ export interface MappedComponent {
 
 export function mapBasicIcon(name: unknown): string {
   if (typeof name !== `string`) return basicMap.placeholderIcon
-  return basicMap.icons[name] ?? basicMap.placeholderIcon
+  return (own(basicMap.icons, name) ? basicMap.icons[name] : undefined) ?? basicMap.placeholderIcon
 }
 
 function isBinding(value: unknown): value is { path: string } {
@@ -144,12 +144,18 @@ const transforms: Record<string, Transform> = {
   },
 }
 
+/** An OWN key of a table: an agent-chosen name (`valueOf`, `constructor`,
+ *  `__proto__`) never finds `Object.prototype`'s members (VAPP-107). */
+function own(table: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(table, key)
+}
+
 /** Map one basic component; `null` when the table has no row (→ Unknown). */
 export function mapBasicComponent(
   flat: FlatComponent,
   lookup: (id: string) => FlatComponent | undefined
 ): MappedComponent | null {
-  const rule = basicMap.components[flat.component]
+  const rule = own(basicMap.components, flat.component) ? basicMap.components[flat.component] : undefined
   if (!rule) return null
   const props: Record<string, unknown> = {}
   for (const [coreProp, spec] of Object.entries(rule.props)) {
@@ -162,7 +168,7 @@ export function mapBasicComponent(
       continue
     }
     let value = spec.from !== undefined ? flat[spec.from] : undefined
-    if (spec.map && typeof value === `string` && value in spec.map) value = spec.map[value]
+    if (spec.map && typeof value === `string` && own(spec.map, value)) value = spec.map[value]
     if (value === undefined && spec.default !== undefined) value = spec.default
     if (value !== undefined) props[coreProp] = value
   }

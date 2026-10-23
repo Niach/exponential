@@ -16,6 +16,7 @@ import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, on
 import { displayString, tableRowKeys, WINDOW_THRESHOLD, type UiNode } from "@exponential-at/ui"
 import { boundPath, getPointer, LITERAL_ROWS_ROOT, partClass, setPointer, sortRows, type TableColumn, type TableSort as Sort } from "@exponential-at/ui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, useInstance, useSurfaceContext } from "../context"
+import { bindAttrs } from "../bind-attrs"
 import { WindowedList, type WindowedListHandle } from "../list"
 import { NodeView, type NativeProps } from "../node-view"
 import { css } from "../style"
@@ -253,6 +254,7 @@ export function TableNative(props: NativeProps): JSX.Element {
           if (interactive() && e.target === e.currentTarget && key !== focusKey()) setFocusKey(key)
         }}
         ref={(el: HTMLDivElement) => {
+          bindAttrs(el, () => part.atWith(`row`, key, { striped: striped() && odd() }, isSel() && `selected`))
           // A row the keyboard moved to before it was mounted (a windowed
           // body): focus it the moment it mounts.
           if (untrack(interactive) && pendingFocus === key) {
@@ -260,7 +262,6 @@ export function TableNative(props: NativeProps): JSX.Element {
             queueMicrotask(() => el.focus())
           }
         }}
-        {...part.atWith(`row`, key, { striped: striped() && odd() }, isSel() && `selected`)}
         style={css({ gridTemplateColumns: template() })}
         onClick={() => {
           if ((interactive() && selectable() !== `multiple`) || props.node.on?.rowPress) press()
@@ -302,7 +303,7 @@ export function TableNative(props: NativeProps): JSX.Element {
           {(c, ci) => {
             const kind = createMemo(() => c().type)
             return (
-              <div role={interactive() ? `gridcell` : `cell`} {...part.atWith(`cell`, `${key}.${ci}`, { align: c().align ?? `start` })} data-type={c().type ?? `text`}>
+              <div ref={(el) => bindAttrs(el, () => part.atWith(`cell`, `${key}.${ci}`, { align: c().align ?? `start` }))} role={interactive() ? `gridcell` : `cell`} data-type={c().type ?? `text`}>
                 {(() => {
                   if (kind() !== `slot`) return formatted(c(), row())
                   return untrack(() => {

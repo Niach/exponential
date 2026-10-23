@@ -32,6 +32,13 @@ once both have matching crates.io releases).
 3. `git tag ui-v0.2.0 && git push origin ui-v0.2.0` (one tag per push, see the
    repo's release notes on tag pushes).
 
+Dry run first: Actions → release-ui → Run workflow with the version and
+`dry_run` ticked (the default; `gh workflow run release-ui.yml -f version=0.1.0 -f dry_run=true`).
+Every job builds, verifies and uploads its artifact (`npm`, `swift`, `maven`,
+`release-files`), the Maven bundle is signed when `SIGNING_KEY` is set,
+and nothing is published, no release or tag is created, whatever secrets
+exist. Only a tag push (or a dispatch with `dry_run` off) publishes.
+
 ## What the jobs do
 
 - **npm**: `bun packages/exponential-ui/release/prepare-npm.ts <version> dist-npm`

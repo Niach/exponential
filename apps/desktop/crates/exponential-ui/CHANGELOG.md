@@ -11,3 +11,5 @@ First release.
 - The taffy layout engine: batched text measurement, overlay layers, windowed lists, scroll containers, sticky nodes and breakpoints.
 - The embedded catalog, macro table and built-in themes. It replays the shared fixtures byte for byte.
 - VAPP-106: the embedded catalog is the runtime one (no descriptions or examples); the `descriptions` feature (off) adds `catalog::descriptions()`; the default-on `builtin-themes` feature holds the non-default resolved themes, so `--no-default-features` embeds only `exponential`.
+- VAPP-124: on Android and iOS the stack-growth check reads the thread's stack limit from pthread (`stack.rs`), so passes run on the host's own stack and only switch to a heap segment when it runs low (ART refused JNA upcalls from the segment with StackOverflowError).
+- VAPP-132: a restyle pass memoises the node-independent style work (template items share it), `get_pointer` reads without allocating, template keys skip the duplicate walk when they are distinct, list heights hash with FxHash and the measure memo is keyed per slot (forgetting a leaf no longer scans every leaf).
