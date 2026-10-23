@@ -30,13 +30,12 @@ import {
 } from "@exponential-at/ui"
 import type { Formatter, ModeName, ResolvedTheme, ScrollAlign, TemplateBudget, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
 import { BASE_CSS } from "@exponential-at/ui/web"
-import { compileNodeSheet, queryToken, surfaceClass } from "@exponential-at/ui/web"
+import { compileNodeSheet, nodeSheetBatches, queryToken, share, surfaceClass, type NodeSheetBatch } from "@exponential-at/ui/web"
 import { SurfaceContext, type SurfaceContextValue } from "./context"
 import { CLIENT_FUNCTIONS, memoFormatter, setPointer, type DataModel } from "@exponential-at/ui/web"
 import { extensionCatalogs, extensionMacroNames, registeredExtensions, subscribeExtensions, type ReactExtension } from "./extensions"
 import type { HostPlugin } from "./host"
 import { NodeView } from "./node-view"
-import { share } from "./live"
 import { useMediaQuery } from "./platform"
 import { openAllowed } from "@exponential-at/ui/web"
 import { compiledTheme } from "@exponential-at/ui/web"
@@ -203,6 +202,10 @@ export function surfaceLayout(box: SurfaceBox, inputs: LayoutInputs): { breakpoi
     .join(` `)
   return { breakpoint, xq }
 }
+
+const NO_CHUNKS: ReadonlyMap<string, string> = new Map()
+/** One `dangerouslySetInnerHTML` object per batch (a new object rewrites the element). */
+const batchHtml = new WeakMap<NodeSheetBatch, { __html: string }>()
 
 const FOCUSABLE = `input:not([disabled]),textarea:not([disabled]),select:not([disabled]),button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"]),[contenteditable="true"]`
 
@@ -420,7 +423,12 @@ export function ExponentialSurface({
   useEffect(() => {
     if (IS_DEV && root) warnMissingTemplates(surfaceId, root, templates)
   }, [surfaceId, root, templates])
-  const sheet = useMemo(() => (root ? compileNodeSheet([root, ...templateRoots], surfaceId, theme) : { css: ``, queries: [] }), [root, templateRoots, surfaceId, theme])
+  const sheet = useMemo(() => (root ? compileNodeSheet([root, ...templateRoots], surfaceId, theme) : { css: ``, queries: [], chunks: NO_CHUNKS }), [root, templateRoots, surfaceId, theme])
+  // VAPP-152: the node sheet in `<style>` batches; a streamed node adds
+  // one, the unchanged ones keep their element and text (no surface-wide
+  // restyle).
+  const lastBatches = useRef<NodeSheetBatch[]>([])
+  const batches = useMemo(() => (lastBatches.current = nodeSheetBatches(lastBatches.current, sheet.chunks)), [sheet.chunks])
 
   const [rootEl, setRootEl] = useState<HTMLElement | null>(null)
   const [portal, setPortal] = useState<HTMLElement | null>(null)
@@ -587,7 +595,17 @@ export function ExponentialSurface({
   // OBJECT is new, and a rewritten sheet restyles the whole surface: one
   // object per sheet text.
   const themeHtml = useMemo(() => ({ __html: `${BASE_CSS}\n${compiled.css}` }), [compiled.css])
-  const nodesHtml = useMemo(() => ({ __html: `${sheet.css}${layerCss}` }), [sheet.css, layerCss])
+  const nodesHtml = useMemo(() => {
+    const list: readonly NodeSheetBatch[] = batches.length ? batches : [{ chunks: NO_CHUNKS, css: sheet.css }]
+    return list.map((batch, i) => {
+      const css = i === 0 ? `${batch.css}${layerCss}` : batch.css
+      const hit = batchHtml.get(batch)
+      if (hit && hit.__html === css) return hit
+      const html = { __html: css }
+      batchHtml.set(batch, html)
+      return html
+    })
+  }, [batches, sheet.css, layerCss])
 
   return (
     <div
@@ -603,7 +621,9 @@ export function ExponentialSurface({
       style={width === undefined ? style : { width, ...style }}
     >
       <style data-xui-style="theme" dangerouslySetInnerHTML={themeHtml} />
-      <style data-xui-style="nodes" dangerouslySetInnerHTML={nodesHtml} />
+      {nodesHtml.map((html, i) => (
+        <style key={i} data-xui-style="nodes" dangerouslySetInnerHTML={html} />
+      ))}
       <SurfaceContext.Provider value={ctx}>
         <div className="xui-container">
           {root ? <NodeView node={root} /> : null}

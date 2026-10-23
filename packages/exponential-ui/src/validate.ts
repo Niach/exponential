@@ -4,7 +4,7 @@
 // rules for external consumers.
 
 import { FUNCTION_NAMES, ICON_NAMES } from "./catalog.generated"
-import { catalogView, isKnownToken, parseTokenRef } from "./catalog"
+import { isKnownToken, parseTokenRef, sharedCatalogView } from "./catalog"
 import { isCall, isDynamic } from "./expr"
 import { isDataSchema } from "./dynamic"
 import { BREAKPOINTS, isResponsiveValue } from "./macros"
@@ -14,14 +14,7 @@ import type { CatalogView } from "./catalog"
 import type { ComponentDef, ExtensionDef, PropSchema } from "./types"
 
 const ICONS: ReadonlySet<string> = new Set(ICON_NAMES)
-const CORE_VIEW = catalogView()
-const VIEWS = new WeakMap<readonly ExtensionDef[], CatalogView>()
-function viewOf(extensions: readonly ExtensionDef[] | undefined): CatalogView {
-  if (!extensions || extensions.length === 0) return CORE_VIEW
-  let view = VIEWS.get(extensions)
-  if (!view) VIEWS.set(extensions, (view = catalogView(extensions)))
-  return view
-}
+const viewOf = (extensions?: readonly ExtensionDef[]): CatalogView => sharedCatalogView(extensions)
 const FUNCTIONS: ReadonlySet<string> = new Set(FUNCTION_NAMES)
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 

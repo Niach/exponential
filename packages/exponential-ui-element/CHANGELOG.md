@@ -7,6 +7,8 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 First release (FEED-130).
 
+- VAPP-152 + VAPP-148: the Solid painter's streaming and `scrollToIndex` improvements apply unchanged behind the element.
+
 - VAPP-107: `src` and `post` pass the page's URL policy (`plugin.urls`) before a transport is built (`decideTransport`): private, loopback and link-local hosts are denied unless `allowPrivate` opts them in (the page's own private origin is), `hosts` holds, `schemes: ["https"]` means https + wss only, `javascript:`/`file:`/`data:` never connect. A denied one builds no host and fetches nothing: `status` is `closed`, the new `statusDetail` says why. The standalone bundle carries the filter.
 - VAPP-106: `.`, `./define` and `dist/standalone.js` are measured by `packages/exponential-ui/release/size.ts` (`release/sizes.json` the record, `release/size-budget.json` the budget CI fails on); `scripts/build-standalone.ts` exports `bundleStandalone(dir, { outDir })` for it, and the bundles carry neither the described catalog nor a fixture.
 

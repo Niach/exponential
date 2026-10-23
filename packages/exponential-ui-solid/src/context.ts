@@ -25,6 +25,9 @@ export interface SurfaceContextValue {
   readonly setData: (pointer: string, value: unknown) => void
   /** A template component id → its node (the reducer's LIFTED `templates`). */
   readonly templateNode: (componentId: string) => UiNode | undefined
+  /** VAPP-152: node `id`'s current node, a signal of its own (undefined =
+   *  not in the surface's tree). */
+  readonly nodeCell?: (id: string) => (() => UiNode | undefined) | undefined
   /** VAPP-103: the template items counted against `maxTemplateItems`. */
   readonly templateBudget?: TemplateBudget
   /** Interaction states forced on every node (the recipe sheet). */
@@ -87,8 +90,33 @@ export const InstanceContext = createContext<Accessor<string>>(() => ``)
 export const useScope = (): Accessor<string> => useContext(ScopeContext)
 export const useInstance = (): Accessor<string> => useContext(InstanceContext)
 
-/** The resolve context of one evaluation (bindings + calls + `$string`).
- *  Reads the surface's getters: call it inside a memo to track them. */
+/** The resolve context of one evaluation (bindings + calls + `$string`):
+ *  getters over the surface's, read (and tracked) where they are used. */
 export function resolveContextOf(ctx: SurfaceContextValue, scope: string): ResolveContext {
-  return { data: ctx.data, scope, functions: ctx.functions, openUrl: ctx.openUrl, locale: ctx.locale, strings: ctx.strings, formatter: ctx.formatter, now: ctx.now }
+  // Getters (VAPP-152): a memo follows what its evaluation READS, so a
+  // node without a binding never re-binds on a data write.
+  return {
+    get data() {
+      return ctx.data
+    },
+    scope,
+    get functions() {
+      return ctx.functions
+    },
+    get openUrl() {
+      return ctx.openUrl
+    },
+    get locale() {
+      return ctx.locale
+    },
+    get strings() {
+      return ctx.strings
+    },
+    get formatter() {
+      return ctx.formatter
+    },
+    get now() {
+      return ctx.now
+    },
+  }
 }

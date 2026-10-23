@@ -66,7 +66,7 @@ export function ListNative(props: NativeProps): JSX.Element {
     for (let i = 0; i < cc; i++) out.push({ item: i })
     const s = sections()
     if (s) for (const r of sectionRows(s)) out.push(`header` in r ? r : { item: cc + r.item })
-    else for (let i = cc; i < itemCount(); i++) out.push({ item: i })
+    else for (let i = cc, n = itemCount(); i < n; i++) out.push({ item: i })
     return out
   })
   const sticky = () => bool(props.props.stickyHeaders) && sections() !== null
@@ -77,11 +77,16 @@ export function ListNative(props: NativeProps): JSX.Element {
   const flatGap = () => (gap() === `none` ? (divided() ? `${hairline()}px` : undefined) : divided() ? `calc(var(--xui-spacing-${gap()}) + ${hairline()}px)` : `var(--xui-spacing-${gap()})`)
   const style = () => mergeStyle(props.rootProps, { gap: windowed() ? undefined : flatGap() })
   const rtl = () => horizontal() && ctx.direction === `rtl`
-  const keyOf = (r: number) => {
-    const row = rows()[r]
-    if (`header` in row) return `s:${row.header}`
-    return row.item < childCount() ? props.node.children[row.item].id : `t:${tpl()!.items[row.item - childCount()].key}`
-  }
+  // Every row's key in one pass per rows change (VAPP-148): the windowed
+  // list asks for all 100,000 on each measurement, and a lookup through the
+  // node's props per row was most of a jump.
+  const rowKeys = createMemo(() => {
+    const cc = childCount()
+    const children = props.node.children
+    const items = tpl()?.items
+    return rows().map((row) => (`header` in row ? `s:${row.header}` : row.item < cc ? children[row.item].id : `t:${items![row.item - cc].key}`))
+  })
+  const keyOf = (r: number) => rowKeys()[r]
   const dividerBefore = (r: number): number | null => {
     if (!divided() || r === 0) return null
     const row = rows()[r]
@@ -90,7 +95,10 @@ export function ListNative(props: NativeProps): JSX.Element {
   }
   let windowHandle: WindowedListHandle | undefined
   let rootEl: HTMLDivElement | undefined
-  const rowOfIndex = (index: number) => rows().findIndex((r) => `item` in r && r.item === (tpl() ? childCount() + index : index))
+  const rowOfIndex = (index: number) => {
+    const item = tpl() ? childCount() + index : index
+    return rows().findIndex((r) => `item` in r && r.item === item)
+  }
   createEffect(() => {
     const id = props.domId
     onCleanup(
@@ -121,7 +129,7 @@ export function ListNative(props: NativeProps): JSX.Element {
   }
   const axis = () => (horizontal() ? `horizontal` : `vertical`)
   // Flat rows, keyed like React's (`keyOf`).
-  const flatKeys = createMemo(() => rows().map((_, r) => keyOf(r)), undefined, { equals: (a, b) => a.length === b.length && a.every((k, i) => k === b[i]) })
+  const flatKeys = createMemo(() => rowKeys(), undefined, { equals: (a, b) => a.length === b.length && a.every((k, i) => k === b[i]) })
   const flatIndex = createMemo(() => new Map(flatKeys().map((k, r) => [k, r])))
   return (
     <Show

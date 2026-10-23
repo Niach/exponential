@@ -110,6 +110,20 @@ export function catalogView(extensions: readonly ExtensionDef[] = []): CatalogVi
   return view
 }
 
+let coreView: CatalogView | undefined
+const views = new WeakMap<readonly ExtensionDef[], CatalogView>()
+
+/** `catalogView`, built once per extension list and SHARED (VAPP-152: the
+ *  reducer and the macro expander asked for a fresh copy of every table on
+ *  each streamed `updateComponents`). Read-only; an empty list is the
+ *  core's. */
+export function sharedCatalogView(extensions: readonly ExtensionDef[] = []): CatalogView {
+  if (extensions.length === 0) return (coreView ??= catalogView())
+  let view = views.get(extensions)
+  if (!view) views.set(extensions, (view = catalogView(extensions)))
+  return view
+}
+
 export function componentDef(
   name: string,
   extensions: readonly ExtensionDef[] = []
