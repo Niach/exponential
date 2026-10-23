@@ -49,9 +49,6 @@ pub mod context_layout;
 pub mod exp_tool_refs;
 pub mod host;
 pub mod lifecycle;
-// EXP-1331: the synced live caption — the tool-edge builder and its
-// throttled `sessions.report{caption}` forwarder. Pure; the ticker drives it.
-pub mod live_caption;
 pub mod local;
 pub mod mapper;
 pub mod outbox;

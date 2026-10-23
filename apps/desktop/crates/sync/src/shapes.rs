@@ -1,4 +1,4 @@
-//! The 32 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 31 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 32 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 31 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 32] = [
+pub const SHAPES: [ShapeSpec; 31] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -389,15 +389,18 @@ pub const SHAPES: [ShapeSpec; 32] = [
         // children under a root). Byte-matches the proxy's allowlist; the
         // server-only `host_user_id`, `mcp_server_ids` and `instructions`
         // never sync (NEW-2: agent instructions come from `agents.get`).
+        // NEW-8: the legacy columns (`kind`, `dispatch`, `caption`, `aside`,
+        // `move_to_device_id`, `action_*`, the agent mirrors, …) are never
+        // read: a pre-NEW-8 local table keeps them as orphaned TEXT columns
+        // (heal_missing_columns is additive-only), nothing hydrates them.
         columns: &[
             "id",
             "team_id",
             "parent_id",
             "root_id",
             "depth",
-            "kind",
             // NEW-2: the agent definition a conversation session runs (the
-            // kind derives from it; `kind` stays a legacy read shim).
+            // kind derives from it).
             "agent_id",
             // VAPP-110: the app whose editor session this root is.
             "app_id",
@@ -410,15 +413,8 @@ pub const SHAPES: [ShapeSpec; 32] = [
             "plan_mode",
             "computer_use",
             "ultracode",
-            "dispatch",
             "repository_id",
             "branch",
-            // EXP-1252: a pending move's target device (the `handoff` jsonb
-            // stays server-only).
-            "move_to_device_id",
-            // EXP-1349: the target restored the move (the source's
-            // worktree cleanup gate).
-            "handoff_restored_at",
             "status",
             "busy",
             "needs_input",
@@ -428,19 +424,7 @@ pub const SHAPES: [ShapeSpec; 32] = [
             "ended_at",
             "shared",
             "title",
-            // EXP-1323: the live status line + a `/btw` aside child.
-            "caption",
-            "aside",
             "guide",
-            "action_id",
-            "action_name",
-            "action_inputs",
-            "spawned_by_session_id",
-            "name",
-            "icon",
-            "color",
-            "triggers",
-            "sort_order",
             "created_at",
             "updated_at",
         ],
@@ -460,8 +444,6 @@ pub const SHAPES: [ShapeSpec; 32] = [
             "source",
             "added_by",
             "added_by_session_id",
-            // EXP-1341: the tree session working on it (null = the root's).
-            "assigned_session_id",
             "sort_order",
             "created_at",
             "updated_at",
@@ -538,29 +520,6 @@ pub const SHAPES: [ShapeSpec; 32] = [
             "pull_request_id",
             "issue_id",
             "team_id",
-            "created_at",
-            "updated_at",
-        ],
-        pk: PkKind::Id,
-    },
-    ShapeSpec {
-        name: "actions",
-        path: "/api/shapes/actions",
-        // NEW-2: an EMPTY read shim (prompts replaced actions; NEW-8 drops
-        // it). MUST NOT declare a `body` column (EXP-268). Byte-matches the
-        // proxy's allowlist.
-        columns: &[
-            "id",
-            "team_id",
-            "name",
-            // EXP-273: the action's curated registry glyph (same set as
-            // boards.icon). `heal_missing_columns` ALTERs it onto an existing
-            // local table, so no hand-written migration.
-            "icon",
-            "inputs",
-            // EXP-825: the composer hint while the action is picked.
-            "prompt_placeholder",
-            "sort_order",
             "created_at",
             "updated_at",
         ],
@@ -691,7 +650,8 @@ pub const SHAPES: [ShapeSpec; 32] = [
     ShapeSpec {
         name: "pins",
         path: "/api/shapes/pins",
-        // EXP-778: personal pins (issue | session | action), a static
+        // EXP-778: personal pins (issue | session; NEW-8: `action_id` and
+        // the legacy `action` kind are never read), a static
         // per-user shape (`user_id = me`) that is NOT team/trash scoped —
         // the rail filters to the active team and hides any row whose
         // target no longer resolves in the other collections. Byte-matches
@@ -703,7 +663,6 @@ pub const SHAPES: [ShapeSpec; 32] = [
             "kind",
             "issue_id",
             "session_id",
-            "action_id",
             "sort_order",
             "created_at",
             "updated_at",
@@ -840,8 +799,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_32_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 32);
+    fn registry_has_31_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 31);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -897,14 +856,6 @@ mod tests {
     fn issue_subscribers_never_models_email() {
         let spec = shape_by_name("issue_subscribers").unwrap();
         assert!(!spec.columns.contains(&"email"));
-    }
-
-    #[test]
-    fn actions_never_models_body() {
-        // EXP-268: the ≤64KB prompt is excluded from sync server-side; no
-        // local column may exist to hold a stale copy — runs fetch fresh.
-        let spec = shape_by_name("actions").unwrap();
-        assert!(!spec.columns.contains(&"body"));
     }
 
     #[test]
@@ -982,20 +933,10 @@ mod tests {
     }
 
     #[test]
-    fn actions_match_the_proxy_allowlist() {
-        // EXP-1294: actions = saved prompts. The composer hint syncs, the
-        // retired repository/description columns do not.
-        let actions = shape_by_name("actions").unwrap();
-        assert!(actions.columns.contains(&"prompt_placeholder"));
-        for gone in ["repository_id", "description"] {
-            assert!(!actions.columns.contains(&gone), "{gone} left the actions shape");
-        }
-        assert!(!actions.columns.contains(&"body"), "the prompt never syncs");
-        // NEW-2: the read shim byte-matches the proxy (no `triggers`).
-        assert_eq!(
-            actions.columns,
-            &["id", "team_id", "name", "icon", "inputs", "prompt_placeholder", "sort_order", "created_at", "updated_at"]
-        );
+    fn actions_left_the_registry() {
+        // NEW-8: prompts replaced actions; the shape is never subscribed
+        // (a 404 after the server drop would retry forever).
+        assert!(shape_by_name("actions").is_none());
         assert!(shape_by_name("automations").is_none());
     }
 
@@ -1016,8 +957,8 @@ mod tests {
             &["id", "team_id", "name", "icon", "sort_order", "created_at", "updated_at"]
         );
         let sessions = shape_by_name("sessions").unwrap();
-        let kind = sessions.columns.iter().position(|c| *c == "kind").unwrap();
-        assert_eq!(sessions.columns[kind + 1], "agent_id");
+        assert!(sessions.columns.contains(&"agent_id"));
+        assert!(!sessions.columns.contains(&"kind"), "NEW-8: the kind derives from agent_id");
     }
 
     /// VAPP-110: apps and app_versions byte-match the proxies; an old
@@ -1167,13 +1108,14 @@ mod tests {
 
     #[test]
     fn pins_model_every_target_column() {
-        // EXP-778: exactly one of the three target ids is set per row; the
-        // rail resolves whichever one `kind` names. Dropping one silently
-        // hides that pin kind.
+        // EXP-778: the target id `kind` names is set per row; the rail
+        // resolves it. Dropping one silently hides that pin kind. NEW-8: the
+        // legacy `action_id` is never read.
         let spec = shape_by_name("pins").unwrap();
-        for column in ["user_id", "team_id", "kind", "issue_id", "session_id", "action_id", "sort_order"] {
+        for column in ["user_id", "team_id", "kind", "issue_id", "session_id", "sort_order"] {
             assert!(spec.columns.contains(&column), "pins needs {column}");
         }
+        assert!(!spec.columns.contains(&"action_id"));
     }
 
     #[test]
@@ -1207,22 +1149,24 @@ mod tests {
     fn the_session_tree_shapes_match_the_proxies() {
         let sessions = shape_by_name("sessions").unwrap();
         assert_eq!(sessions.path, "/api/shapes/sessions");
-        assert_eq!(sessions.columns.len(), 45);
-        for column in [
-            "parent_id", "root_id", "kind", "status", "busy", "needs_input", "shared", "guide", "triggers",
-            // EXP-1323: the live status line + a `/btw` aside child.
-            "caption", "aside",
-            // EXP-1252: a pending move's target; EXP-1349: its restore.
-            "move_to_device_id", "handoff_restored_at",
-        ] {
+        assert_eq!(sessions.columns.len(), 30);
+        for column in ["parent_id", "root_id", "agent_id", "status", "busy", "needs_input", "shared", "guide"] {
             assert!(sessions.columns.contains(&column), "sessions needs {column}");
+        }
+        // NEW-8: the legacy columns are never read (the server drops them).
+        for legacy in [
+            "kind", "dispatch", "move_to_device_id", "handoff_restored_at", "caption", "aside", "action_id",
+            "action_name", "action_inputs", "spawned_by_session_id", "name", "icon", "color", "triggers",
+            "sort_order",
+        ] {
+            assert!(!sessions.columns.contains(&legacy), "{legacy} is never read");
         }
         for server_only in ["host_user_id", "mcp_server_ids", "instructions", "handoff"] {
             assert!(!sessions.columns.contains(&server_only), "{server_only} is server-only");
         }
         assert_eq!(
             shape_by_name("session_issues").unwrap().columns,
-            &["id", "session_id", "issue_id", "team_id", "source", "added_by", "added_by_session_id", "assigned_session_id", "sort_order", "created_at", "updated_at"]
+            &["id", "session_id", "issue_id", "team_id", "source", "added_by", "added_by_session_id", "sort_order", "created_at", "updated_at"]
         );
         let messages = shape_by_name("messages").unwrap();
         assert_eq!(messages.path, "/api/shapes/messages");

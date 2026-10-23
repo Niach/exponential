@@ -294,27 +294,15 @@ fn spawn_probe(
         batch.runs.len(),
         batch.agent.id()
     );
-    // EXP-1281: the walled sessions say the rotation is looking.
-    let trpc = crate::queries::trpc_client(cx).map(Arc::new);
     cx.spawn(async move |cx| {
         // Releases the agent however this task ends (a dropped task, a
         // panicking probe), not only on the normal path below.
         let _claim = claim;
         let agent = batch.agent;
         let probe_dir = data_dir.clone();
-        let (probe_trpc, probe_runs) = (trpc.clone(), batch.runs.clone());
         let profiles = cx
             .background_executor()
             .spawn(async move {
-                if let Some(trpc) = &probe_trpc {
-                    for run in &probe_runs {
-                        coding::pickup::report_caption_via(
-                            trpc,
-                            &run.session_id,
-                            Some(coding::pickup::ROTATION_PROBE_CAPTION),
-                        );
-                    }
-                }
                 let now_secs = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|elapsed| elapsed.as_secs())
@@ -336,23 +324,6 @@ fn spawn_probe(
             .spawn(async move { chains.save(&save_dir, now_ms) })
             .await;
         let mut undone = false;
-        // A run with nowhere to go drops the probe's caption (the wall stays).
-        let waiting: Vec<String> = batch
-            .runs
-            .iter()
-            .zip(&decisions)
-            .filter(|(_, decision)| !matches!(decision, Decision::Switch { .. }))
-            .map(|(run, _)| run.session_id.clone())
-            .collect();
-        if let Some(trpc) = trpc.filter(|_| !waiting.is_empty()) {
-            cx.background_executor()
-                .spawn(async move {
-                    for session_id in &waiting {
-                        coding::pickup::report_caption_via(&trpc, session_id, None);
-                    }
-                })
-                .detach();
-        }
         for (run, decision) in batch.runs.iter().zip(decisions) {
             let switched = cx.update(|cx| act(run, decision, cx));
             if !switched {

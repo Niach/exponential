@@ -51,8 +51,6 @@ pub(super) enum Phase {
 pub(super) const SAMPLE_DEVICE: &str = "mint · This device";
 pub(super) const SAMPLE_ACCOUNT: &str = "danny@example.dev";
 pub(super) const SAMPLE_REPOSITORY: &str = "Niach/exponential";
-/// EXP-1252: the device a moving session is headed to.
-pub(super) const SAMPLE_MOVE_TARGET: &str = "Studio";
 
 /// NEW-3: the agent a message goes to (the agent case's chip).
 fn sample_agent() -> domain::session_tree::AgentRow {
@@ -120,20 +118,17 @@ fn start_pins(prefix: &str, cx: &App) -> Vec<AnyElement> {
 }
 
 /// EXP-1252 — a session's Device pin (before the model): the launch line's
-/// pin trigger with the session's device, or `Moving to <device>…` while a
-/// move is pending ([`crate::device_move::pin_label`]).
-/// N-12: the session's Device pin as its glyph alone; the name (or the
-/// pending move) is the tooltip.
-pub(super) fn session_device_pin(prefix: &str, moving: bool, cx: &App) -> AnyElement {
-    let label = crate::device_move::pin_label(SAMPLE_DEVICE, moving.then_some(SAMPLE_MOVE_TARGET));
+/// pin trigger with the session's device. N-12: its glyph alone; the name is
+/// the tooltip.
+pub(super) fn session_device_pin(prefix: &str, cx: &App) -> AnyElement {
     crate::launch_options::inline_pin_glyph_trigger(SharedString::from(format!("{prefix}-device")), registry::NAV_COMPUTER, cx)
-        .tooltip(label)
+        .tooltip(SAMPLE_DEVICE)
         .into_any_element()
 }
 
 /// N-12 (web `ComposerSessionRowSpecimen`): a session composer's in-card
 /// row: the Device glyph · the model pin · the Plan switch.
-pub(super) fn session_row(prefix: &str, phase: Phase, moving: bool, cx: &App) -> Div {
+pub(super) fn session_row(prefix: &str, phase: Phase, cx: &App) -> Div {
     h_flex()
         .min_w_0()
         .pl_1()
@@ -141,7 +136,7 @@ pub(super) fn session_row(prefix: &str, phase: Phase, moving: bool, cx: &App) ->
         .items_center()
         .text_xs()
         .text_color(cx.theme().muted_foreground)
-        .child(session_device_pin(prefix, moving, cx))
+        .child(session_device_pin(prefix, cx))
         .child(inline_pin_trigger(
             SharedString::from(format!("{prefix}-model")),
             crate::steer_viewer::model_label(sample_model(phase)),
@@ -260,7 +255,7 @@ impl Render for ComposerSpecimen {
             cx,
         );
         let plan = plan_switch(format!("{prefix}-plan"), phase, cx);
-        let device_pin = (phase != Phase::Start).then(|| session_device_pin(prefix, false, cx));
+        let device_pin = (phase != Phase::Start).then(|| session_device_pin(prefix, cx));
         let (model_pin, plan, context_ring) = match phase {
             // Before a start: device · account · model · Plan · repository.
             Phase::Start => (

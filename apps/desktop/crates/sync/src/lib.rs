@@ -11,7 +11,7 @@
 //! view tree).
 //!
 //! Phase-2 state: `protocol.rs` (wire protocol, fixture-locked against
-//! `packages/electric-protocol`), `shapes.rs` (the 32 `ShapeSpec` entries),
+//! `packages/electric-protocol`), `shapes.rs` (the 31 `ShapeSpec` entries),
 //! `store.rs` (rusqlite/WAL generic upsert + the §5.6c atomic-refetch dance),
 //! `client.rs` (the blocking reqwest long-poll engine, one thread per shape) and
 //! `manager.rs` (per-account pipeline reconcile) are in — all gpui-free and

@@ -623,10 +623,10 @@ fn names_conversation(data_dir: &Path, prepared: &coding::PreparedLaunch) -> boo
 /// EXP-1341: every session whose stored title is blank asks its agent CLI
 /// to name the conversation (children, issue and action threads included);
 /// the CLI's title is reported through `sessions.report`, which fills only a
-/// blank title. A persistent kind with a name never asks: its record's
-/// title IS that name (`launcher`: the stored title, else the agent's name).
+/// blank title. NEW-8: a persistent kind (an agent's conversation) never
+/// asks: its name is the agent DEFINITION's (`agents`), never a title.
 fn record_wants_name(record: &coding::run_registry::RunRecord) -> bool {
-    record.title.as_deref().is_none_or(|title| title.trim().is_empty())
+    !record.kind.is_persistent() && record.title.as_deref().is_none_or(|title| title.trim().is_empty())
 }
 
 // EXP-1334/EXP-1280: the ACP mode ids both adapters advertise
@@ -842,8 +842,6 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         local_sink: spec.local_sink,
         turn_signal: Arc::new(steer::TurnSignal::new()),
         caption_signal: Arc::new(steer::CaptionSignal::new()),
-        tool_caption: steer::CaptionSignal::new(),
-        caption_forwarder: Mutex::new(crate::live_caption::CaptionForwarder::new()),
         aside: spec.aside.then(crate::aside::AsideState::default),
         agent_title: Arc::new(steer::AgentTitleSignal::new()),
         workflows: Mutex::new(Vec::new()),
@@ -1147,7 +1145,8 @@ mod tests {
     }
 
     /// EXP-1134/1292/1341: any session with a blank stored title asks its
-    /// agent for a name (issues and kind aside); a named one never does.
+    /// agent for a name (issues aside); a named one never does, nor (NEW-8)
+    /// an agent's conversation.
     #[test]
     fn every_untitled_session_is_named_by_its_agent() {
         let record = |kind: &str, issues: serde_json::Value, title: serde_json::Value| {
@@ -1170,7 +1169,7 @@ mod tests {
         assert!(record_wants_name(&record("thread", serde_json::json!(["EXP-1"]), none.clone())));
         assert!(!record_wants_name(&record("thread", serde_json::json!([]), serde_json::json!("Named"))));
         assert!(!record_wants_name(&record("agent", serde_json::json!([]), serde_json::json!("Triage"))));
-        assert!(record_wants_name(&record("agent", serde_json::json!([]), none)));
+        assert!(!record_wants_name(&record("agent", serde_json::json!([]), none)));
     }
 
     #[test]

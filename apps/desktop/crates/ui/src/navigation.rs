@@ -446,16 +446,13 @@ fn agent_tab_title(agent_id: &str, cx: &App) -> gpui::SharedString {
 }
 
 /// EXP-825: what a play button hands Home's composer — the desktop twin of
-/// the web `/t/$teamSlug/agent` search params (`issues`, `action`, `device`,
-/// `text`) and the mobile `AgentComposerSeed`. Consumed ONCE by
-/// `ChatScreenView` ([`take_pending_chat_seed`]); every field is optional,
-/// an action wins over issues when both arrive.
+/// the web `/t/$teamSlug/agent` search params (`issues`, `device`, `text`)
+/// and the mobile `AgentComposerSeed`. Consumed ONCE by `ChatScreenView`
+/// ([`take_pending_chat_seed`]); every field is optional.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ChatSeed {
     /// Issues to link to the new thread.
     pub(crate) issue_ids: Vec<String>,
-    /// The saved action (prompt) to pre-pick.
-    pub(crate) action_id: Option<String>,
     /// The machine to preselect in the Device pick (the `?device=` deep
     /// link — EXP-909 retired the machines row's ▶).
     pub(crate) device_id: Option<String>,
@@ -472,21 +469,13 @@ impl ChatSeed {
         }
     }
 
-    /// A seed naming only an action.
-    pub(crate) fn action(action_id: impl Into<String>) -> Self {
-        Self {
-            action_id: Some(action_id.into()),
-            ..Default::default()
-        }
-    }
-
     /// EXP-1037 — the ONE rule that decides where this seed opens (×4): a
-    /// seed carrying a SUBJECT (issues or an action) opens the composer
+    /// seed carrying a SUBJECT (issues) opens the composer
     /// PREFILLED in a dialog, so the thing you pressed ▶ on is visibly one
     /// confirm away; a subject-less seed (the rail's Home entry) opens the
     /// Home SCREEN, where the composer is the page.
     pub(crate) fn has_subject(&self) -> bool {
-        !self.issue_ids.is_empty() || self.action_id.is_some()
+        !self.issue_ids.is_empty()
     }
 }
 
@@ -2128,7 +2117,6 @@ mod tests {
         assert!(ChatSeed::issues(vec!["issue-1".into(), "issue-2".into()]).has_subject());
         // An EMPTY issue list is no subject at all.
         assert!(!ChatSeed::issues(Vec::new()).has_subject());
-        assert!(ChatSeed::action("act-1").has_subject());
     }
 
     /// EXP-686: the three full-page rail screens each have their own
@@ -2906,8 +2894,5 @@ mod tests {
     #[test]
     fn chat_seed_constructors() {
         assert_eq!(ChatSeed::issues(vec!["i".into()]).issue_ids, vec!["i".to_string()]);
-        let action = ChatSeed::action("act");
-        assert_eq!(action.action_id.as_deref(), Some("act"));
-        assert!(action.issue_ids.is_empty());
     }
 }

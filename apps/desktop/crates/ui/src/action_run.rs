@@ -1,10 +1,8 @@
-//! The team's connected repositories as the composer and the action inputs
-//! read them (`repositories.list`).
+//! The team's connected repositories as the composer reads them
+//! (`repositories.list`).
 //!
-//! EXP-1294: this used to be the shared ACTION runner (local launches, relay
-//! starts, resumes). An action run is now ONE `sessions.send({actionId,
-//! inputs})` from the composer, picked up by the hosting device
-//! ([`crate::session_pickup`]); only the repository list it shared stays.
+//! EXP-1294: this used to be the shared ACTION runner; NEW-8: actions are
+//! gone (prompts replaced them), only the repository list it shared stays.
 
 use serde::Deserialize;
 

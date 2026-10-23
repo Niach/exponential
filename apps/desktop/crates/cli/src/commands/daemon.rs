@@ -1583,14 +1583,6 @@ impl RotationHost {
                 batch.runs.len(),
                 batch.agent.id()
             );
-            // EXP-1281: the walled sessions say the rotation is looking.
-            for run in &batch.runs {
-                coding::pickup::report_caption_via(
-                    &ctx.trpc,
-                    &run.session_id,
-                    Some(coding::pickup::ROTATION_PROBE_CAPTION),
-                );
-            }
             let now_secs = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|elapsed| elapsed.as_secs())
@@ -1607,9 +1599,6 @@ impl RotationHost {
                 decisions
             };
             for (run, decision) in batch.runs.iter().zip(decisions) {
-                if !matches!(decision, coding::account_rotation::Decision::Switch { .. }) {
-                    coding::pickup::report_caption_via(&ctx.trpc, &run.session_id, None);
-                }
                 let switched = act_on_rotation(&pickup, run, decision);
                 if !switched {
                     // EXP-1107: a switch refused before it began spends

@@ -412,8 +412,10 @@ pub const PENDING_CONSUMES_KEY: &str = "pendingConsumes";
 /// which keeps a thread resumable.
 pub const UNREPORTED_END_KEY: &str = "unreportedEnd";
 
-/// EXP-1330: on a `/btw` aside's record, the PARENT session it forked
-/// ([`crate::aside`]): its cwd is the parent's, never its own to purge.
+/// EXP-1330: on a `/btw` aside's record, the PARENT session it forked: its
+/// cwd is the parent's, never its own to purge. NEW-8: nothing launches an
+/// aside any more; a record left from an older build still reads here so
+/// its end never purges the parent's dir.
 pub const ASIDE_OF_KEY: &str = "asideOf";
 
 impl RunRecord {

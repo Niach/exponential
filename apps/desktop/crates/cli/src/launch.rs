@@ -524,8 +524,8 @@ fn wait_for_foreground_gate(data_dir: &std::path::Path) -> anyhow::Result<ClaimL
 }
 
 /// The just-queued row as the pickup reads it. The MCP projection carries
-/// the server-resolved columns (team, repository, branch, kind, the agent
-/// CLI); the pickers it does not project come from what this start sent.
+/// the server-resolved columns (team, repository, branch, the agent
+/// definition, the agent CLI); the pickers it does not project come from what this start sent.
 pub fn session_row_from_remote(remote: &RemoteSession, input: &SessionsSendInput) -> SessionRow {
     SessionRow {
         id: remote.id.clone(),
@@ -533,7 +533,7 @@ pub fn session_row_from_remote(remote: &RemoteSession, input: &SessionsSendInput
         parent_id: remote.parent_id.clone(),
         root_id: remote.root_id.clone(),
         depth: Some(i64::from(remote.depth)),
-        kind: remote.kind.clone(),
+        agent_id: remote.agent_id.clone(),
         user_id: remote.user_id.clone(),
         // Just sent naming this device: a projection that leaves it out
         // (or the status) still reads as the row this start queued.
@@ -545,8 +545,6 @@ pub fn session_row_from_remote(remote: &RemoteSession, input: &SessionsSendInput
         plan_mode: input.plan_mode.unwrap_or(false),
         computer_use: input.computer_use.unwrap_or(false),
         ultracode: input.ultracode.unwrap_or(false),
-        // The projection's own flag.
-        dispatch: remote.dispatch,
         repository_id: remote.repository_id.clone(),
         branch: remote.branch.clone(),
         status: Some(if remote.status.is_empty() {
@@ -556,7 +554,6 @@ pub fn session_row_from_remote(remote: &RemoteSession, input: &SessionsSendInput
         }),
         busy: remote.busy,
         title: remote.title.clone(),
-        name: remote.name.clone(),
         ..SessionRow::default()
     }
 }
@@ -707,7 +704,6 @@ mod tests {
         let remote = RemoteSession {
             id: "s1".into(),
             team_id: Some("t1".into()),
-            kind: Some("thread".into()),
             device_id: Some("cli-dev".into()),
             cli: Some("claude".into()),
             repository_id: Some("r1".into()),
