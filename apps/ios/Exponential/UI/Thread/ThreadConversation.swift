@@ -476,6 +476,10 @@ struct ThreadSuggestionItems: View {
     @State private var menuItem: SuggestionRow?
     @State private var devices: [SuggestionOptionsSheet.Device]?
     @State private var picked: (itemId: String, action: SuggestionOptionsSheet.Action)?
+    /// N-6 + N-14: inside a sheet host (THE Dock sheet) the ⋯ discloses
+    /// THE Menu's rows INLINE under its item row — one item's at a time.
+    @Environment(\.pickerPresentation) private var hostPresentation
+    @State private var inlineItemId: String?
 
     private typealias Copy = SessionTree.SuggestionsCopy
     private var muted: Color { .white.opacity(TextOpacity.tertiary) }
@@ -552,6 +556,26 @@ struct ThreadSuggestionItems: View {
     /// One row on every width (web `flex items-start gap-3`): the words,
     /// then the ⋯ (ghost) and Start (primary).
     private func openRow(_ item: SuggestionRow) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            openRowLine(item)
+            if hostPresentation == .inline, inlineItemId == item.id {
+                SuggestionOptionsRows(devices: devices) { action in
+                    inlineItemId = nil
+                    actions?.onMenu(rowId, item.id, action)
+                }
+                .frame(maxHeight: GlassPickerTokens.inlineMaxHeight)
+                .padding(.bottom, 6)
+                .task {
+                    guard let actions else { return }
+                    devices = await actions.devices()
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("thread-suggestion-options-inline")
+            }
+        }
+    }
+
+    private func openRowLine(_ item: SuggestionRow) -> some View {
         let busy = actions?.pending.contains(ThreadSuggestionActions.key(rowId, item.id)) ?? false
         return HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -576,7 +600,11 @@ struct ThreadSuggestionItems: View {
                         enabled: !busy
                     ) {
                         UIApplication.endEditing()
-                        menuItem = item
+                        if hostPresentation == .inline {
+                            inlineItemId = inlineItemId == item.id ? nil : item.id
+                        } else {
+                            menuItem = item
+                        }
                     }
                     .accessibilityIdentifier("thread-suggestion-options")
                     GlassPill(

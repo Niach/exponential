@@ -26,7 +26,7 @@ import XCTest
 ///   sg_onboarding-devices · sg_agent-home · sg_search-list ·
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
 ///   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
-///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_plan-card
+///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
@@ -911,6 +911,10 @@ final class StyleguideScreenshots: XCTestCase {
         // plan card, the pile, the pile fanned, the plan's sheet.
         openThreadCards(app, "ask-dock")
         snapshot("sg_ask-dock", settle: 2)
+        // ── sg_dock-card: THE DockCard primitive (fixtures/dock.json): one
+        // card, a banner with its action, the pile, the fan, the sheet frame.
+        openThreadCards(app, "dock-card")
+        snapshot("sg_dock-card", settle: 2)
         // ── sg_plan-card: THE rich plan / question card (EXP-1280,
         // fixtures/plan-card.json): a pending plan with a picture-tile
         // question, a multiple one and the inline surface; an answered

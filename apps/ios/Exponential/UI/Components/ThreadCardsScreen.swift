@@ -8,11 +8,11 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock|plan-card>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "plan-card"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card"]
 
     var body: some View {
         ZStack {
@@ -26,6 +26,7 @@ struct ThreadCardsScreen: View {
                     case "code-block": codeBlockSpecimens
                     case "thread-strip": ThreadStripSpecimens()
                     case "ask-dock": AskDockSpecimens()
+                    case "dock-card": DockCardSpecimens()
                     case "plan-card": PlanCardSpecimens()
                     default: workCards
                     }
@@ -407,12 +408,13 @@ private struct ThreadStripSpecimens: View {
 }
 
 /// N-12: THE Dock specimen (`sg_ask-dock`, web `AskDockSpecimen`, the IDE's
-/// `styleguide:ask-dock`), line for line: one waiting plan (a single
-/// DockCard), the pile (a plan, a question, THE Queue, the queued messages:
-/// the front card whole, the others peeking out above it), the pile fanned,
-/// and the plan's sheet (the real `ThreadPlanSheet` body + footer in the
-/// sheet's static frame, "Question 1 of 2" in the header). Real `DockCard`
-/// / `DockPile` / `DockSheetSpecimenFrame`.
+/// `styleguide:ask-dock`; web `packages/ui/src/ask-dock-specimen.tsx` is THE
+/// canonical one), line for line: one waiting plan (a single DockCard), the
+/// pile (the queued messages, THE Queue, the suggested tasks, a plan, a
+/// question: the front card whole, the others peeking out above it), the
+/// pile fanned, and the plan's sheet (page 0 of the stepped plan: the plan,
+/// Next in the footer, in the sheet's static frame). Real `DockCard` /
+/// `DockPile` / `DockSheetSpecimenFrame`.
 private struct AskDockSpecimens: View {
     private static let longPlan = [
         "## Plan: one Dock ×4",
@@ -452,6 +454,10 @@ private struct AskDockSpecimens: View {
             ],
             completedTitle: "2 completed"
         )),
+        .suggestions(
+            id: "m4", label: "3 suggested tasks", caption: "1 started",
+            title: "Lazy-load the markdown editor", open: 2
+        ),
     ]
 
     var body: some View {
@@ -461,10 +467,10 @@ private struct AskDockSpecimens: View {
             section("One waiting plan") {
                 DockCard(row: single[0], onOpen: {})
             }
-            section("A plan, a question, the Queue and the queued messages, piled") {
+            section("A plan, a question, the suggested tasks, the Queue and the queued messages, piled") {
                 DockPile(rows: rows, expanded: .constant(false), onOpen: { _ in })
             }
-            section("The pile fanned (a tap)") {
+            section("The pile fanned (hover or a tap)") {
                 DockPile(rows: rows, expanded: .constant(true), onOpen: { _ in })
             }
             section("The plan's sheet") {
@@ -486,33 +492,96 @@ private struct AskDockSpecimens: View {
     }
 }
 
-/// The plan sheet at rest: page 1 of the stepped plan (its first question,
-/// "Question 1 of 2", Back / Next), the sheet's face without presenting.
+/// N-12: THE DockCard (`sg_dock-card`, web styleguide `dock-card`, the IDE's
+/// `dock_card.rs`), line for line: one card (a question), a banner with its
+/// action, five cards piled, fanned, and the sheet's static frame (the
+/// pinned header, the scrolling body, the pinned footer). The ask-dock
+/// specimen shows the plan and question cards on it; this one is the
+/// primitive. Real `DockCard` / `DockPile` / `DockSheetSpecimenFrame`.
+private struct DockCardSpecimens: View {
+    private static let sources: [Dock.Source] = [
+        .queued(["also check the watchdog once the root is idle", "then open the PR"]),
+        .tasks(Dock.QueueSummary(
+            todoTitle: "3 to do",
+            items: [
+                .init(label: "Measuring on the Galaxy A54", description: "2m 35s"),
+                .init(label: "Rerun the web captures", description: nil),
+                .init(label: "Open the PR with the numbers", description: nil),
+            ],
+            completedTitle: "2 completed"
+        )),
+        .suggestions(
+            id: "m4", label: "3 suggested tasks", caption: "1 started",
+            title: "Lazy-load the markdown editor", open: 2
+        ),
+        .banner(
+            id: "wall", icon: "ui-usage", label: "Usage limit",
+            text: "Claude's 5-hour window is used up until 14:00", tone: .warning, action: "Switch account"
+        ),
+        .question(id: "q1", text: "Ship both fixes in one PR, or split them?", sessionName: "Dock polish", createdAt: 30),
+    ]
+
+    private static func action(_ row: Dock.Row) -> AnyView? {
+        guard row.kind == .banner else { return nil }
+        return AnyView(GlassPill("Switch account", mode: .action {}))
+    }
+
+    var body: some View {
+        let rows = Dock.rows(Self.sources)
+        let question = rows.first { $0.kind == .question }!
+        let banner = rows.first { $0.kind == .banner }!
+        VStack(alignment: .leading, spacing: 12) {
+            caption("One card: the label, the caption, the meta, the title, the chevron")
+            DockCard(row: question, onOpen: {})
+            caption("A banner: never opens; its action word trails")
+            DockCard(row: banner, action: Self.action(banner))
+            caption("Five cards piled: the front one whole, the rest peeking out above it")
+            DockPile(rows: rows, expanded: .constant(false), onOpen: { _ in }, renderAction: Self.action)
+            caption("The pile fanned (hover or a tap): every card, 6px apart")
+            DockPile(rows: rows, expanded: .constant(true), onOpen: { _ in }, renderAction: Self.action)
+            caption("The sheet: the pinned header, the scrolling body, the pinned footer")
+            DockSheetSpecimenFrame(row: question, height: 300) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Ship both fixes in one PR, or split them?")
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                    Text(PlanCard.Copy.chooseOne)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+            } footer: {
+                GlassPill(PlanCard.Copy.answer, mode: .action {}, primary: true)
+            }
+        }
+        .accessibilityIdentifier("dock-card-specimen")
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+    }
+}
+
+/// The plan sheet at rest: page 0 of the stepped plan (the plan, no meta,
+/// Next in the footer; web `ThreadPlanSheet` at its first page), the
+/// sheet's face without presenting.
 private struct PlanSheetSpecimen: View {
     let row: Dock.Row
     let card: ThreadPlanRow
-    @State private var draft = PlanCardDraft()
 
     var body: some View {
-        let question = card.questions[0]
-        DockSheetSpecimenFrame(
-            row: row, meta: PlanCard.Copy.stepLabel(step: 1, count: card.questions.count), height: 420
-        ) {
-            PlanCardQuestionBlock(
-                questionId: question.id,
-                prompt: question.prompt,
-                caption: PlanCard.Copy.chooseOne,
-                multi: question.multi,
-                custom: question.custom,
-                options: question.options,
-                picked: ["Everything"],
-                editable: true,
-                customText: Binding(get: { draft.custom[question.id] ?? "" }, set: { draft.custom[question.id] = $0 }),
-                onToggle: { _ in },
-                onType: { _ in }
+        DockSheetSpecimenFrame(row: row, height: 420) {
+            AgentMarkdownText(
+                text: PlanCard.renderableMarkdown(card.plan),
+                context: nil,
+                options: [.autolinkBareURLs],
+                imageMaxHeight: nil,
+                imageCornerRadius: PlanCard.Card.pictureRadius,
+                imageStroke: PlanCard.Card.pictureStroke
             )
         } footer: {
-            PlanCardFooter(onBack: {}, onNext: {})
+            PlanCardFooter(onNext: {})
         }
     }
 }
