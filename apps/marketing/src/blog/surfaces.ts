@@ -66,14 +66,14 @@ export const STACK_SURFACE: Nested = {
       `l2`,
       `2 · It shapes its environment`,
       `Panel, launcher, settings and files as templates on disk, painted by the same renderer. The assistant edits the JSON, the desktop changes live. Existing apps keep running beside it.`,
-      [{ label: `planned`, tone: `neutral`, detail: `first on Mint, a Nix-based OS as the north star` }],
+      [{ label: `planned`, tone: `neutral`, detail: `first on Mint, later a Nix-based OS` }],
       `NEW-10 · VAPP-64`
     ),
     between(`b2`, `the agent needs hands`),
     layer(
       `l3`,
       `3 · It has hands you can watch`,
-      `Today: foreground, your input held, Esc takes it back. Next: work on another monitor, every run a flow you watch live or replay as A2UI, not video.`,
+      `Today: foreground, your input held, Esc takes it back. Next: work on another monitor, every run watched live or replayed as A2UI, not video.`,
       [
         { label: `shipped`, tone: `success`, detail: `foreground on Linux, macOS, Windows` },
         { label: `planned`, tone: `neutral`, detail: `the watch view, A2UI replay` },

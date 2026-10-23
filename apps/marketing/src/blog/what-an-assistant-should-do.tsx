@@ -1,9 +1,8 @@
 /* Article 2 (EXP-1368): what a personal assistant should be able to do, in
-   four abilities, and how much of each exists today. An outlook written as
-   learning material; the three drafts are A2UI surfaces (surfaces.ts)
-   painted live by the Exponential UI React renderer, their stills captured
-   from that render. */
-import { Callout, IssueLink, LiveSurface, Shot, ShotRow, StatusChip } from "../components/blog"
+   four abilities, and how much of each exists. Written like a Guide; the
+   three drafts are A2UI surfaces (surfaces.ts) painted live by the
+   Exponential UI React renderer, their stills captured from that render. */
+import { Callout, IssueLink, LiveSurface, Section, Shot, ShotRow, StatusChip } from "../components/blog"
 import { STACK_SURFACE, VOICE_SURFACE, WATCH_SURFACE } from "./surfaces"
 import type { PostMeta } from "./types"
 
@@ -17,11 +16,11 @@ export const STILLS = {
 export const meta: PostMeta = {
   slug: `what-an-assistant-should-do`,
   title: `What a personal assistant should be able to do`,
-  description: `Show you things instead of describing them. Shape the computer it runs on. Work with its hands while you watch. Listen and talk back. Four abilities, what each one needs, and how much of it exists today.`,
+  description: `Four abilities a personal assistant needs from its software: a screen it can draw, a desktop it can edit, screen control the person can watch, and voice. What exists of each today and what is a draft.`,
   date: `2026-10-23`,
   author: { name: `Danny`, url: `https://github.com/Niach` },
-  cover: STILLS.stack,
-  readingMinutes: 6,
+  cover: STILLS.watch,
+  readingMinutes: 3,
   ogImage: `/og/og-blog-what-an-assistant-should-do.png`,
   sources: [`src/blog/what-an-assistant-should-do.tsx`, `src/blog/surfaces.ts`, `src/components/blog`, `public/blog`, `../../shots/exponential-ui-demo`],
 }
@@ -29,150 +28,92 @@ export const meta: PostMeta = {
 export function Post() {
   return (
     <>
-      <section id="four-abilities">
-        <h2>Four abilities</h2>
+      <Section id="four-abilities" num="01" label="Four abilities">
+        <h2>The four abilities</h2>
         <p>
-          Most assistants today are a text box. You type, they answer in prose, and when the task touches the real
-          world they hand you a list of steps. The gap between that and an assistant you would hand things to is not
-          intelligence. It is four abilities the surrounding software has to provide: a way to show rather than tell,
-          a say over the environment it runs in, hands you can watch, and a voice. This post goes through them in
-          order. For each one: what it needs, what exists today, and what is still a draft. The drafts in this post
-          are marked as such; they are drawn with the renderer from the first section, which is part of the point.
+          A personal assistant needs four abilities from the software around it: a way to draw a screen instead of
+          describing it, a desktop it can edit, screen control the person can watch, and voice. Each section states
+          what exists and what is a draft. The drafts are marked and are themselves painted by the renderer from the
+          first section.
         </p>
         <LiveSurface id="assistant-stack" tree={STACK_SURFACE} still={STILLS.stack} caption="The four abilities, each with its state and the issues behind it." />
-      </section>
+      </Section>
 
-      <section id="show">
+      <Section id="show" num="02" label="Showing">
         <h2>It shows, instead of telling <StatusChip status="shipped" /></h2>
         <p>
-          Ask an assistant how last night's release went and the right answer is a card: a status, two numbers, a
-          chart, two buttons. Text can carry that, but a screen carries it better, and an assistant that can only
-          write paragraphs will describe a table instead of drawing one.
+          Asked how a release went, the assistant answers with a card: a status, two numbers, a chart and two buttons.
+          A2UI lets a model describe that screen as JSON from a fixed catalog, and a renderer paints it natively in
+          the host's theme. Exponential UI (<IssueLink id="VAPP-84" />) does this for React, Solid, a web component,
+          SwiftUI, Compose and gpui from one Rust core, each painter passing the same conformance suite; apps without
+          code are in progress (<IssueLink id="VAPP-110" /> <StatusChip status="in-progress" />).
         </p>
-        <p>
-          What this needs is a way for a model to describe a screen that a client can paint natively. A2UI is one
-          such protocol: the agent streams a surface as components with props and a small data model, and a renderer
-          paints it. The pieces to get right are a fixed catalog (so the model cannot invent widgets), themes (so the
-          surface wears the host's look), and native painters (so a phone gets a phone screen, not a web view). The
-          catalog matters more than it sounds: with about seventy components that cover rows, cards, tables, charts,
-          forms, traces and overlays, a model can draw almost any product screen and nothing outside the design
-          system.
-        </p>
-        <p>
-          This exists. Exponential UI (<IssueLink id="VAPP-84" />) is an open renderer set for A2UI with one Rust
-          core for layout and painters for React, Solid, a web component, SwiftUI, Compose and gpui, each passing the
-          same conformance suite. First paint of a 100,000-row list is 70 ms in the core and under 170 ms in every
-          painter; a benchmark suite with real-device numbers is in progress (<IssueLink id="VAPP-105" />). The step
-          after rendering is apps without code: a package of templates and bindings onto live data that any client
-          renders (<IssueLink id="VAPP-110" /> <StatusChip status="in-progress" />).
-        </p>
-        <Shot view="exponential-ui-demo" platform="web" caption="One surface, the answer to a release question, painted on the web." />
+        <Shot view="exponential-ui-demo" platform="web" caption="One surface, the answer to a release question, on the web." />
         <ShotRow>
           <Shot view="exponential-ui-demo" platform="ios" caption="The same surface in SwiftUI" />
           <Shot view="exponential-ui-demo" platform="android" caption="Compose" />
         </ShotRow>
-      </section>
+      </Section>
 
-      <section id="environment">
+      <Section id="environment" num="03" label="Environment">
         <h2>It shapes its environment <StatusChip status="planned" /></h2>
         <p>
-          If a renderer can paint any screen from a description, the screens around the assistant can be
-          descriptions too. A desktop environment is a panel, a launcher, a settings screen and a file view; written as
-          templates in files, they are something the assistant can read and rewrite. "Put the clock on the left and
-          hide the launcher while I present" becomes an edit to a document, applied live, and reverted the same way.
+          If a screen can be painted from a description, the panel, launcher, settings and file view can be
+          descriptions on disk too, and the assistant edits them while they are shown. The plan is a desktop
+          environment painted by the same renderer, first on Linux Mint, later on a Nix-based system where the
+          assistant installs software by writing configuration (<IssueLink id="NEW-10" />, <IssueLink id="VAPP-64" />).
+          None of it exists yet beyond the renderer.
         </p>
-        <p>
-          The feasible path is a desktop environment painted by the same renderer, with the templates on disk and
-          existing applications running beside it unchanged. The plan starts on Linux Mint, where the computer use
-          below already works, with a Nix-based system as the long-term goal: there the assistant installs software
-          and changes the system by writing configuration (<IssueLink id="NEW-10" />, the shell architecture in{` `}
-          <IssueLink id="VAPP-64" />). None of this exists yet beyond the renderer it would be made of.
-        </p>
-      </section>
+      </Section>
 
-      <section id="hands">
+      <Section id="hands" num="04" label="Hands">
         <h2>It has hands you can watch <StatusChip status="in-progress" /></h2>
         <p>
-          Some tasks have no API. Exporting last month's payouts from a dashboard, filling a form in a desktop app,
-          clicking through an installer. An assistant needs to drive the screen for those, and the person needs to
-          see what it does, because a wrong click costs money.
+          Some tasks have no API, so the assistant drives the screen, and the person needs to see what it does. Today
+          a session sees and drives the screen on Linux, macOS and Windows in the foreground, with your input held
+          and Esc to take it back (<IssueLink id="EXP-1196" />, <IssueLink id="EXP-1273" />). The draft below adds
+          work on a second monitor, accessibility actions before pixel clicks, and every run recorded as an A2UI
+          replay that can be scrubbed, not a video (<IssueLink id="EXP-1369" />, <IssueLink id="VAPP-81" />).
         </p>
-        <p>
-          The first half exists. A session can see the screen and drive it on Linux, macOS and Windows
-          (<IssueLink id="EXP-1196" />), in the foreground, with the person's keyboard and mouse held while it works
-          and Esc to take them back at once (<IssueLink id="EXP-1273" />). A background mode on a third-party driver,
-          with a second pointer, was tried and removed: too many platform-specific holes for what it gave.
-        </p>
-        <p>
-          The second half is a draft. The order of operations is the same on every platform: the accessibility tree
-          first (set a value, press a button, no pixels), window-routed input next, the real pointer only on request.
-          Every run is recorded as a flow and the flow is an A2UI replay (<IssueLink id="VAPP-81" />): a timestamped
-          list of surface updates, a few kilobytes, drawn in the viewer's theme, scrubbable, never a video. The view
-          for it (<IssueLink id="EXP-1369" />) puts the flow on the left with how each step was done, the live window
-          on the right, a step graph and the replay below, and a spoken caption for when you are not looking.
-        </p>
-        <LiveSurface id="assistant-watch" tree={WATCH_SURFACE} still={STILLS.watch} caption="Draft of the watch view. The agent works on a second monitor; the person sees the flow, the window and the replay." />
-      </section>
+        <LiveSurface id="assistant-watch" tree={WATCH_SURFACE} still={STILLS.watch} caption="Draft of the watch view: the flow, the live window, the step graph, the replay." />
+      </Section>
 
-      <section id="voice">
+      <Section id="voice" num="05" label="Voice">
         <h2>You can talk to it <StatusChip status="planned" /></h2>
         <p>
-          Talking is the cheapest way to hand something over, and the one that works while your hands are busy. It
-          only works if the first steps are local and fast: no round trip to decide whether "pause" was a command.
+          Voice is usable only if the first stages run locally and fast. Two small models make that feasible on a
+          CPU: a 16.9 MB speech-to-text model with word timestamps, and an 8 to 29 MB router that returns tool calls
+          with a confidence, asks when unsure and returns nothing for off-topic speech (<IssueLink id="NEW-9" />).
+          Push to talk or a wake word opens the mic, desktop audio is captured per app, the router acts, confirms or
+          hands the text to the assistant in about 50 ms, and the reply is spoken back.
         </p>
-        <p>
-          Two small models make this feasible on a CPU today, measured on October 10 (<IssueLink id="NEW-9" />).
-          Whistle is speech-to-text in 16.9 MB: 16 kHz mono, one pass of up to thirty seconds, word timestamps, seven
-          languages. Needle 3 is a text model of 8 to 29 MB that calls tools with a confidence head: it answers a
-          request with the tool calls to make, asks when unsure, and returns an empty list for something off-topic
-          instead of guessing. The pipeline: a push-to-talk key or wake word opens the mic, desktop audio is captured
-          per application so a call is its own channel, transcripts merge by timestamp, and the router decides in
-          about 50 milliseconds whether to act, confirm, or hand the text to the full assistant as a message. The
-          reply is spoken and shown as a caption. Call mode keeps the mic open while the assistant works elsewhere;
-          game-safe mode watches and never sends input into a game; keybinds and microphones belong to a machine.
-        </p>
-        <LiveSurface id="assistant-voice" tree={VOICE_SURFACE} still={STILLS.voice} caption="Draft of the voice pipeline. The first three stages run on the device; the assistant runs wherever it runs." />
-      </section>
+        <LiveSurface id="assistant-voice" tree={VOICE_SURFACE} still={STILLS.voice} caption="Draft of the voice pipeline. The first three stages run on the device." />
+      </Section>
 
-      <section id="while-you-sleep">
+      <Section id="away" num="06" label="Away">
         <h2>It works while you are away <StatusChip status="planned" /></h2>
         <p>
-          With the four abilities in place the last step is time. An assistant that can show, act and ask can also
-          run a loop on its own: take the open work, build it in threads, release, test the result on real devices
-          with the hands above, and file what it finds as the next round, with drafts attached. The first slice of
-          that is a caretaker: one cheap session per device that triages and proposes, and asks before it builds
-          (<IssueLink id="NEW-11" />).
+          With the four abilities in place, the assistant can run a loop: take the open work, build it, release, test
+          it by driving real devices, and file what it finds as the next round. The first slice is a caretaker that
+          triages and proposes, and asks before it builds (<IssueLink id="NEW-11" />).
         </p>
-      </section>
+      </Section>
 
-      <section id="how-feasible">
-        <h2>How feasible, today</h2>
+      <Section id="feasible" num="07" label="Today">
+        <h2>Status</h2>
         <ul>
-          <li>
-            <strong>Showing:</strong> exists. Open renderers for A2UI on six platforms, one conformance suite, numbers
-            on the way.
-          </li>
-          <li>
-            <strong>Shaping the environment:</strong> feasible with the same renderer; not started.
-          </li>
-          <li>
-            <strong>Hands:</strong> foreground computer use exists on three operating systems; background work and
-            the watch view are drafts.
-          </li>
-          <li>
-            <strong>Voice:</strong> the models exist and run on a CPU; the pipeline is a plan.
-          </li>
-          <li>
-            <strong>The loop:</strong> a plan, with the caretaker as its first slice.
-          </li>
+          <li><strong>Showing:</strong> shipped. Open renderers on six platforms, one conformance suite.</li>
+          <li><strong>Environment:</strong> not started; it uses the same renderer.</li>
+          <li><strong>Hands:</strong> foreground shipped on three operating systems; background and the watch view are drafts.</li>
+          <li><strong>Voice:</strong> the models run on a CPU; the pipeline is a plan.</li>
+          <li><strong>The loop:</strong> a plan; the caretaker comes first.</li>
         </ul>
         <Callout kind="note" title="Follow along">
-          Every item here is an issue on a public board, and the renderer is on npm, crates.io and the package
-          registries under <code>exponential-at</code>. The guides at{` `}
-          <a href="https://ui.exponential.at/">ui.exponential.at</a> show how to paint a surface in React, Solid,
-          SwiftUI, Compose and gpui.
+          Every item is an issue on a public board. The renderer is on npm and crates.io under{` `}
+          <code>exponential-at</code>; <a href="https://ui.exponential.at/">ui.exponential.at</a> shows how to paint
+          a surface on each platform.
         </Callout>
-      </section>
+      </Section>
     </>
   )
 }
