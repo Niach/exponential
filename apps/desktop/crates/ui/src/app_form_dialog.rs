@@ -235,7 +235,11 @@ impl Render for AppFormView {
         v_flex()
             .size_full()
             .gap_4()
-            .child(crate::surface::glass_group_rows(vec![self.identity_row(window, cx)]))
+            // N-14: THE row host: an open icon grid draws under the whole
+            // identity row, so no sibling moves (picker-presentation.json).
+            .child(crate::surface::glass_group_rows(vec![div().w_full().child(
+                crate::picker::InlinePickerRow::new("app-form-identity", self.identity_row(window, cx)),
+            )]))
             .child(
                 crate::surface::glass_group().child(
                     Textarea::new(&self.description)

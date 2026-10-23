@@ -50,6 +50,7 @@ import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.IconPicker
+import com.exponential.app.ui.components.picker.InlinePickerRow
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
@@ -295,10 +296,13 @@ fun AppFormSheet(
         ),
     ) {
         OptionGroup {
-            Row(
+            // N-14: THE row host: an open icon grid drops under the whole
+            // identity row, so no sibling moves (picker-presentation.json).
+            InlinePickerRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 6.dp, bottom = 6.dp),
+                rowModifier = Modifier.padding(start = 12.dp, top = 6.dp, bottom = 6.dp),
+                scrollable = false,
             ) {
                 IconPicker(selected = icon, onSelect = { icon = it }, accentColor = parseColor(color))
                 ColorPicker(selected = color, onSelect = { color = it })

@@ -56,6 +56,7 @@ import com.exponential.app.domain.AppHostValues
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.Prompts
 import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.CodeBlock
 import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
@@ -149,17 +150,57 @@ class AppConsentGate {
     }
 }
 
-/** The consent card: what a surface wants to run, Deny (focused) / Allow,
- *  worded by the contract's `exponential-ui-consent` prompt. */
+/** VAPP-107 (the consent prompt's `slot`): what the card shows of a call:
+ *  the tool it names, its arguments as compact JSON (a `harness.mcp` call's
+ *  MCP `arguments`, else the function's own args; an empty object = none)
+ *  and whether it sounds destructive. The web `consentWords` and desktop
+ *  `consent_words` derive the same three. */
+data class AppConsentWords(val tool: String, val args: String?, val destructive: Boolean) {
+    /** Past [PREVIEW_CHARS] characters the arguments show as a preview
+     *  (desktop's rule; the web adds a Show all disclosure). */
+    val argsPreview: String?
+        get() = args?.let { if (it.length > PREVIEW_CHARS) it.take(PREVIEW_CHARS) + "…" else it }
+
+    companion object {
+        const val PREVIEW_CHARS = 160
+
+        fun of(call: FunctionCallInfo): AppConsentWords {
+            val mcp = call.name == "harness.mcp"
+            val tool = if (mcp) call.args["tool"]?.string.orEmpty() else call.name
+            val raw: JsonValue? = if (mcp) call.args["arguments"] else JsonValue.Obj(call.args)
+            val json = (raw as? JsonValue.Obj)?.orderedJson
+            val op = raw?.get("op")?.string
+            return AppConsentWords(
+                tool = tool,
+                args = json?.takeIf { it != "{}" },
+                destructive = Prompts.destructiveTool(tool, op),
+            )
+        }
+    }
+}
+
+/** The consent card: what a surface wants to run (the tool AND its
+ *  arguments in the CodeBlock), Deny (focused) / Allow, worded by the
+ *  contract's `exponential-ui-consent` prompt (its destructive entry when
+ *  the call sounds destructive). */
 @Composable
 fun AppConsentCard(gate: AppConsentGate) {
     val call = gate.current ?: return
-    val tool = if (call.name == "harness.mcp") call.args["tool"]?.string.orEmpty() else call.name
+    val words = AppConsentWords.of(call)
     PromptAlert(
-        prompt = Prompts.ExponentialUiConsent.prompt(tool),
+        prompt = Prompts.exponentialUiConsent(words.tool, words.destructive),
         onDismiss = { gate.answer(false) },
         handlers = mapOf("deny" to { gate.answer(false) }, "allow" to { gate.answer(true) }),
         testTags = mapOf("deny" to "exponential-ui-consent-deny", "allow" to "exponential-ui-consent-allow"),
+        content = words.argsPreview?.let { args ->
+            {
+                CodeBlock(
+                    code = args,
+                    title = null,
+                    modifier = Modifier.testTag("exponential-ui-consent-arguments"),
+                )
+            }
+        },
     )
 }
 
@@ -268,6 +309,7 @@ fun rememberAppHost(
         val devices: Flow<List<DeviceEntity>> = db.scopedQuery(emptyList()) { it.deviceDao().observeAll() }
         val issues: Flow<List<IssueEntity>> = db.scopedQuery(emptyList()) { it.issueDao().observeAll() }
         val origin = auth.instanceUrl.value?.trimEnd('/')
+        val ownHost = origin?.let { runCatching { java.net.URI(it).host }.getOrNull() }?.let { listOf(it) }
         val token = origin?.let { resolveAccountForUrl(auth.accounts.value, auth.activeAccountId.value, it)?.token }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -317,9 +359,13 @@ fun rememberAppHost(
                 policy = HostPolicy(
                     functions = FunctionPolicy(ask = listOf("harness.mcp")),
                     onFunctionCall = { call -> consent.ask(call) },
-                    urls = UrlPolicy(baseUrl = origin),
+                    // VAPP-107: private hosts are denied unless opted in; the
+                    // app's OWN instance is (the localhost dev setup), nothing
+                    // else. A public origin listed here changes nothing.
+                    urls = UrlPolicy(baseUrl = origin, allowPrivate = ownHost),
                     media = MediaOptions(
                         baseUrl = origin,
+                        allowPrivate = ownHost,
                         rules = if (origin != null && token != null) {
                             listOf(MediaRule("$origin/api/attachments/", mapOf("Authorization" to "Bearer $token")))
                         } else {

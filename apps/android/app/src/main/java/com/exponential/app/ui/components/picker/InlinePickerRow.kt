@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 
 /**
@@ -66,6 +67,10 @@ fun InlinePickerRow(
     modifier: Modifier = Modifier,
     rowModifier: Modifier = Modifier,
     horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
+    verticalAlignment: Alignment.Vertical = Alignment.Top,
+    /** VAPP-110: false = the row fits its width instead of scrolling (a form
+     *  row whose field takes the rest with `weight`, like the identity row). */
+    scrollable: Boolean = true,
     content: @Composable RowScope.() -> Unit,
 ) {
     val slot = remember { InlinePickerSlot() }
@@ -74,9 +79,10 @@ fun InlinePickerRow(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
+                    .then(if (scrollable) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
                     .then(rowModifier),
                 horizontalArrangement = horizontalArrangement,
+                verticalAlignment = verticalAlignment,
                 content = content,
             )
         }

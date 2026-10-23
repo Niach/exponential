@@ -45,6 +45,16 @@ export function validateAppPackage(pkg: unknown): AppPackage {
     throw bad(`package is invalid: ${listed.join(`; `)}${more}`)
   }
   const valid = pkg as AppPackage
+  // VAPP-107: an app's bindings follow only what it declares, and only the
+  // sources every client's app host resolves (the SDK treats a missing list
+  // as "anything"; a stored app may not).
+  if (!Array.isArray(valid.sources)) {
+    throw bad(`package must declare sources: the exp: sources its bindings follow, e.g. ["exp:issues"] (or [] for none)`)
+  }
+  const unknown = valid.sources.filter((source) => !APP_SOURCE_NAMES.some((name) => source === name || source.startsWith(`${name}?`)))
+  if (unknown.length > 0) {
+    throw bad(`sources ${unknown.join(`, `)} are not resolved by Exponential's app hosts; use ${APP_SOURCE_NAMES.join(`, `)}`)
+  }
   for (const [id, template] of Object.entries(valid.templates)) {
     if (template.components.length > APP_TEMPLATE_MAX_COMPONENTS) {
       throw bad(`template ${id} has ${template.components.length} components; the cap is ${APP_TEMPLATE_MAX_COMPONENTS}`)
@@ -60,6 +70,9 @@ export const APP_HOST_SOURCES: readonly { source: string; value: string }[] = [
   { source: `exp:devices`, value: `{rows: [{id, label, detail, icon, discTone, tone, status}], count, online}: the team's devices, live` },
   { source: `exp:issues?board=<boardId>&limit=<n>`, value: `{rows: [{id, identifier, title, status}], count}: a board's issues in list order, live` },
 ]
+/** The source names (`scheme:name`) the app hosts resolve ×4. */
+export const APP_SOURCE_NAMES: readonly string[] = APP_HOST_SOURCES.map((s) => s.source.split(`?`)[0]!)
+
 export const APP_HOST_FUNCTIONS: readonly { name: string; args: string; effect: string }[] = [
   { name: `harness.toast`, args: `{message, tone?: "error"}`, effect: `shows a toast` },
   { name: `harness.openIssue`, args: `{identifier}`, effect: `opens the issue` },
@@ -73,7 +86,7 @@ export function appCatalogText(): string {
   const functions = APP_HOST_FUNCTIONS.map((f) => `- ${f.name}(${f.args}): ${f.effect}`).join(`\n`)
   return [
     `# App package`,
-    `A package = {id, name, version, catalogId: "${appExtension.id}" (the Exponential app extension over the core catalog; "${APP_CATALOG_IDS[0]}" = the core alone), templates: {<templateId>: {components: [flat components, one with id "root"], data?: the initial data model, bindings?: [{path: "/json/pointer", source: "exp:…"}]}}, functions?: [the host functions its surfaces may call: a name or "harness.*"], theme?: a built-in theme id, icon?: {glyph, color}, description?}. The editor renders the FIRST template. Components are FLAT: every child is an id, children: [ids] or {componentId, path, key?} for a bound list.`,
+    `A package = {id, name, version, catalogId: "${appExtension.id}" (the Exponential app extension over the core catalog; "${APP_CATALOG_IDS[0]}" = the core alone), templates: {<templateId>: {components: [flat components, one with id "root"], data?: the initial data model, bindings?: [{path: "/json/pointer", source: "exp:…"}]}}, functions?: [the host functions its surfaces may call: a name or "harness.*"], sources: [the exp: sources its bindings follow, REQUIRED, [] for none: a binding to an undeclared source never resolves], theme?: a built-in theme id, icon?: {glyph, color}, description?}. The editor renders the FIRST template. Components are FLAT: every child is an id, children: [ids] or {componentId, path, key?} for a bound list.`,
     `Cap: ${APP_PACKAGE_MAX_BYTES} bytes per package, ${APP_TEMPLATE_MAX_COMPONENTS} components per template.`,
     ``,
     `# Bindings (sources the clients resolve, written into the data model at path)`,

@@ -255,6 +255,9 @@ struct AppFormSheet: View {
                         ), verticalPadding: 9, accessibilityIdentifier: "app-form-name")
                         .font(.subheadline)
                     }
+                    // N-14: THE row host: an open icon grid drops under the
+                    // whole identity row, so no sibling moves.
+                    .inlinePickerRow()
                     if let errorText {
                         Text(errorText)
                             .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))

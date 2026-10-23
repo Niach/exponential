@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
   GlassGroup,
+  InlinePickerRow,
   Textarea,
 } from "@exp/ui"
 import { BoardIdentityRow } from "@/components/board-form-fields"
@@ -98,17 +99,21 @@ export function AppFormDialog({
         </DialogHeader>
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-4">
           <DialogBody className="space-y-4">
+            {/* N-14: THE row host: the icon grid opens under the whole
+                identity row, so no sibling moves (picker-presentation.json). */}
             <GlassGroup>
-              <BoardIdentityRow
-                name={name}
-                onNameChange={setName}
-                autoFocus
-                icon={icon}
-                onIconChange={setIcon}
-                color={color}
-                onColorChange={setColor}
-                placeholder={APPS_COPY.namePlaceholder}
-              />
+              <InlinePickerRow>
+                <BoardIdentityRow
+                  name={name}
+                  onNameChange={setName}
+                  autoFocus
+                  icon={icon}
+                  onIconChange={setIcon}
+                  color={color}
+                  onColorChange={setColor}
+                  placeholder={APPS_COPY.namePlaceholder}
+                />
+              </InlinePickerRow>
             </GlassGroup>
             <Textarea
               value={description}

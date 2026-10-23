@@ -24,54 +24,83 @@ import ExponentialUI
 //     instance link opens in-app like a markdown link, anything else in the
 //     Safari sheet).
 
+/// VAPP-107 (the consent prompt's `slot`): what the card shows of a call:
+/// the tool it names, its arguments as compact JSON (a `harness.mcp` call's
+/// MCP `arguments`, else the function's own args; an empty object = none)
+/// and whether it sounds destructive. The web `consentWords` and desktop
+/// `consent_words` derive the same three.
+struct AppConsentWords: Equatable {
+    let tool: String
+    let args: String?
+    let destructive: Bool
+
+    /// Past this many characters the arguments show as a preview (desktop's
+    /// rule; the web adds a Show all disclosure).
+    static let previewChars = 160
+
+    var argsPreview: String? {
+        guard let args else { return nil }
+        return args.count > Self.previewChars ? String(args.prefix(Self.previewChars)) + "…" : args
+    }
+}
+
 /// The consent card's store: one pending `ask` call at a time, answered by
 /// the person (Allow / Deny). A second ask denies the first.
 @MainActor
 @Observable
 final class AppConsentGate {
-    /// The tool the pending call runs (`harness.mcp`'s tool, else the
-    /// function's own name); nil = nothing pending.
-    private(set) var pendingTool: String?
+    /// The pending call's words; nil = nothing pending.
+    private(set) var pending: AppConsentWords?
     @ObservationIgnored private var resolve: ((Bool) -> Void)?
 
     nonisolated init() {}
 
-    func ask(tool: String) async -> Bool {
+    func ask(_ words: AppConsentWords) async -> Bool {
         resolve?(false)
         return await withCheckedContinuation { continuation in
-            pendingTool = tool
+            pending = words
             resolve = { continuation.resume(returning: $0) }
         }
     }
 
     func answer(_ ok: Bool) {
-        let pending = resolve
+        let done = resolve
         resolve = nil
-        pendingTool = nil
-        pending?(ok)
+        pending = nil
+        done?(ok)
     }
 }
 
 /// THE consent card over the host's surface (the app's own `GlassAlert`,
-/// never a system dialog): Deny focused, Allow the explicit default.
+/// never a system dialog): Deny focused, Allow the explicit default (the
+/// destructive entry when the call sounds destructive), the call's
+/// arguments in the CodeBlock under the body.
 struct AppConsentCard: ViewModifier {
     let gate: AppConsentGate
 
     func body(content: Content) -> some View {
         content.glassAlert(
             isPresented: Binding(
-                get: { gate.pendingTool != nil },
+                get: { gate.pending != nil },
                 set: { if !$0 { gate.answer(false) } }
             ),
             onDismiss: { gate.answer(false) }
         ) {
             GlassAlert(
-                prompt: Prompts.ExponentialUiConsent.copy(tool: gate.pendingTool ?? ""),
+                prompt: Prompts.exponentialUiConsent(
+                    tool: gate.pending?.tool ?? "",
+                    destructive: gate.pending?.destructive ?? false
+                ),
                 handlers: [
                     "deny": { gate.answer(false) },
                     "allow": { gate.answer(true) },
                 ]
-            )
+            ) {
+                if let args = gate.pending?.argsPreview {
+                    CodeBlockView(args, title: nil, scrollToEnd: false)
+                        .accessibilityIdentifier("exponential-ui-consent-arguments")
+                }
+            }
         }
     }
 }
@@ -103,6 +132,20 @@ private let livenessTick: Duration = .seconds(30)
 @MainActor
 final class ExpAppHost {
     let host: ExponentialHost
+
+    /// The consent card's words for a host call (see [AppConsentWords]).
+    nonisolated static func consentWords(name: String, args: [String: JSONValue]) -> AppConsentWords {
+        let mcp = name == "harness.mcp"
+        let tool = mcp ? (args["tool"]?.displayText ?? "") : name
+        let raw: [String: JSONValue]? = mcp ? args["arguments"]?.object : args
+        let json = raw.map { JSONValue.object($0).json }
+        let op = raw?["op"]?.displayText
+        return AppConsentWords(
+            tool: tool,
+            args: (json == nil || json == "{}") ? nil : json,
+            destructive: Prompts.destructiveTool(tool, op: op)
+        )
+    }
     let consent: AppConsentGate
 
     init(
@@ -115,6 +158,7 @@ final class ExpAppHost {
         self.consent = consent
         let base = deps.auth.instanceBaseURL(forAccountId: accountId)
         let origin = base.map { $0.absoluteString.hasSuffix("/") ? String($0.absoluteString.dropLast()) : $0.absoluteString }
+        let ownHost = base?.host.map { [$0] }
         let pool = try? deps.db.pool(forAccountId: accountId)
 
         var extensions: [HostExtension] = []
@@ -185,10 +229,12 @@ final class ExpAppHost {
             policy: HostPolicy(
                 functions: FunctionPolicy(ask: ["harness.mcp"]),
                 onFunctionCall: { [consent] call in
-                    let tool = call.name == "harness.mcp" ? (call.args["tool"]?.displayText ?? "") : call.name
-                    return await consent.ask(tool: tool)
+                    await consent.ask(ExpAppHost.consentWords(name: call.name, args: call.args))
                 },
-                urls: UrlPolicy(baseUrl: origin),
+                // VAPP-107: private hosts are denied unless opted in; the
+                // app's OWN instance is (the localhost dev setup), nothing
+                // else. A public origin listed here changes nothing.
+                urls: UrlPolicy(allowPrivate: ownHost, baseUrl: origin),
                 openUrl: { url in
                     // An instance link opens in-app (the markdown links' rule),
                     // anything else in the Safari sheet: never UIApplication.open.
@@ -198,7 +244,7 @@ final class ExpAppHost {
                         action()
                     }
                 },
-                media: MediaOptions(baseUrl: origin, schemes: schemes)
+                media: MediaOptions(baseUrl: origin, schemes: schemes, allowPrivate: ownHost)
             ),
             theme: ThemeHandle.builtin(appHostThemeId),
             mode: .dark,

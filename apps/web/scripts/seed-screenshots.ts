@@ -739,6 +739,7 @@ async function seedSessionTree(ctx: {
       catalogId: `https://ui.exponential.at/catalogs/exponential-app/v1`,
       icon: { glyph: `chart-line` },
       functions: [`harness.openIssue`, `harness.toast`],
+      sources: [`exp:issues`],
       templates: {
         dashboard: {
           data: { issues: { rows: [], count: 0 } },
