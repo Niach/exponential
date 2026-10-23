@@ -1,5 +1,6 @@
 package com.exponential.app.ui.issue
 
+import com.exponential.app.data.db.keyedMessages
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
@@ -20,7 +21,6 @@ import com.exponential.app.data.api.UpdateIssueInput
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.AttachmentEntity
-import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.data.db.SessionEntity
@@ -598,9 +598,9 @@ class IssueDetailViewModel @AssistedInject constructor(
                 db.sessionDao().observeAll(),
                 db.sessionIssueDao().observeAll(),
                 db.issueDao().observeAll(),
-                db.messageDao().observeAll(),
+                db.keyedMessages(db.messageDao().observeAll()),
             ) { roots: List<SessionEntity>, all: List<SessionEntity>, links: List<SessionIssueEntity>,
-                issues: List<IssueEntity>, messages: List<MessageEntity> ->
+                issues: List<IssueEntity>, messages: List<SessionTree.Message> ->
                 val treeIssues = issues.map(SessionTree::issue)
                 val treeLinks = links.map(SessionTree::sessionIssue)
                 // Release train 2026-10-23 (VAPP-110): an app editor's session is the
@@ -614,7 +614,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                             treeRoot,
                             treeLinks.filter { it.sessionId == root.id },
                             treeIssues,
-                            messages.filter { it.sessionId == root.id }.map(SessionTree::message),
+                            messages.filter { it.sessionId == root.id },
                         ),
                         live = tree.any { !it.isEnded },
                         busy = tree.any { !it.isEnded && it.busy },

@@ -342,6 +342,33 @@ val MIGRATION_93_94: Migration = object : Migration(93, 94) {
     }
 }
 
+/**
+ * v95 (NEW-8): a message is keyed through its conversation, never a legacy
+ * `session_id` (the server drops it). `messages` is rebuilt without
+ * `session_id`, `conversation_id` NOT NULL and indexed, created EMPTY; the
+ * messages shape refetches. DDL verbatim from the generated
+ * ExponentialDatabase_Impl.
+ */
+val MIGRATION_94_95: Migration = object : Migration(94, 95) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS `messages`")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `messages` (`id` TEXT NOT NULL, `conversation_id` TEXT NOT NULL, " +
+                "`root_id` TEXT NOT NULL, `team_id` TEXT NOT NULL, `author_kind` TEXT NOT NULL, " +
+                "`author_id` TEXT, `author_session_id` TEXT, `body` TEXT NOT NULL, `card` TEXT, " +
+                "`answered_at` TEXT, `consumed_at` TEXT, `created_at` TEXT NOT NULL, " +
+                "`updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_messages_conversation_id` ON `messages` (`conversation_id`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_messages_root_id` ON `messages` (`root_id`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_messages_team_id` ON `messages` (`team_id`)")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'messages'",
+        )
+    }
+}
+
 private val NEW_TABLES_V92 = listOf(
     "CREATE TABLE IF NOT EXISTS `agents` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
         "`name` TEXT NOT NULL, `icon` TEXT, `color` TEXT, `triggers` TEXT, `device_id` TEXT NOT NULL, " +

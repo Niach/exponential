@@ -1,5 +1,6 @@
 package com.exponential.app.ui.thread
 
+import com.exponential.app.data.db.keyedMessages
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -159,7 +160,7 @@ class ThreadViewModel @Inject constructor(
      *  agent channel's `thread_started`) resolves its shared title too;
      *  [SessionTree.buildSessionThread] scopes both to this tree itself. */
     private val linksFlow = dbFlow.scopedQuery(emptyList()) { it.sessionIssueDao().observeAll() }
-    private val titleMessages = dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeAll() }
+    private val titleMessages = dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { it.keyedMessages(it.messageDao().observeAll()) }
 
     /** Every synced session: the tree, plus the roots an agent channel's
      *  `thread_started` cards point at (another tree each). */
@@ -201,7 +202,7 @@ class ThreadViewModel @Inject constructor(
             sessions = treeRows.map(SessionTree::session),
             sessionIssues = links.map(SessionTree::sessionIssue),
             issues = issueRows,
-            messages = messageRows.map(SessionTree::message),
+            messages = messageRows,
             pullRequests = prs.mapNotNull(SessionTree::pullRequest),
             now = SessionTree.nowIso(now),
         )

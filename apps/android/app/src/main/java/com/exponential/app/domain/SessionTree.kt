@@ -1,6 +1,7 @@
 package com.exponential.app.domain
 
 import com.exponential.app.data.db.AgentDefinitionEntity
+import com.exponential.app.data.db.ConversationEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.data.db.MessageEntity
@@ -1562,9 +1563,22 @@ object SessionTree {
         return parents
     }
 
-    fun message(row: MessageEntity): Message = Message(
+    /** NEW-8: a `conversations` row as the keying input of [messages]. */
+    fun conversation(row: ConversationEntity): MessageConversation.Conversation =
+        MessageConversation.Conversation(id = row.id, sessionId = row.sessionId)
+
+    /** NEW-8: the rows keyed through their conversation
+     *  ([MessageConversation.keyMessagesBySession]): dm/channel and
+     *  not-yet-synced conversations are left out, input order kept. */
+    fun messages(rows: List<MessageEntity>, conversations: List<ConversationEntity>): List<Message> =
+        MessageConversation.keyMessagesBySession(rows, conversations.map(::conversation)) { it.conversationId }
+            .map { (row, sessionId) -> message(row, sessionId) }
+
+    /** [sessionId] = the session the row's conversation belongs to (resolved
+     *  by [messages] or by a DAO query scoped to that session's conversation). */
+    fun message(row: MessageEntity, sessionId: String): Message = Message(
         id = row.id,
-        sessionId = row.sessionId,
+        sessionId = sessionId,
         authorKind = row.authorKind,
         authorId = row.authorId,
         body = row.body,

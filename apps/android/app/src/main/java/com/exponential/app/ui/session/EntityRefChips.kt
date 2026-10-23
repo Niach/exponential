@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.data.db.keyedMessages
 import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -394,7 +395,7 @@ private fun SessionCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
     // the name = THE shared session title (the tree's links + messages).
     val rootId = row.rootId.ifEmpty { row.id }
     val links by observeScoped(rootId, emptyList()) { it.sessionIssueDao().observeByRoot(rootId) }
-    val messages by observeScoped(rootId, emptyList()) { it.messageDao().observeByRoot(rootId) }
+    val messages by observeScoped(rootId, emptyList()) { it.keyedMessages(it.messageDao().observeByRoot(rootId)) }
     val issues by observeScoped(Unit, emptyList()) { it.issueDao().observeAll() }
     val title = remember(row, links, messages, issues) {
         val ids = links.map { it.issueId }.toSet()
@@ -402,7 +403,7 @@ private fun SessionCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
             SessionTree.session(row),
             links.map(SessionTree::sessionIssue),
             issues.filter { it.id in ids }.map { SessionTree.issue(it) },
-            messages.map(SessionTree::message),
+            messages,
         )
     }
     val nowMs = System.currentTimeMillis()
