@@ -221,34 +221,38 @@ struct PlanCardFooter: View {
                     identifier: PlanCard.TestIds.feedback
                 )
             }
-            HStack(spacing: PlanCard.Stepper.buttonGap) {
-                if let onBack {
-                    GlassPill(PlanCard.Copy.back, mode: .action(onBack))
-                        .accessibilityIdentifier(PlanCard.TestIds.stepBack)
-                }
-                Spacer(minLength: 0)
-                if let onNext {
-                    GlassPill(PlanCard.Copy.next, mode: .action(onNext))
-                        .accessibilityIdentifier(PlanCard.TestIds.stepNext)
-                } else if let decision, let reject = Self.option("reject"), let approve = Self.option("approve") {
-                    if decision.rejecting {
-                        GlassPill(PlanCard.Copy.cancel, mode: .action { decision.rejecting = false })
-                        GlassPill(
-                            reject.label, mode: .action { decision.onDecide(reject) }, primary: true,
-                            enabled: !decision.busy
-                        )
-                        .accessibilityIdentifier("plan-card-decide")
-                    } else {
-                        GlassPill(
-                            reject.label, mode: .action { decision.rejecting = true }, enabled: !decision.busy
-                        )
-                        .accessibilityIdentifier("plan-card-reject")
-                        PlanCardApproveButton(
-                            approve: approve,
-                            fresh: Self.option("approve-fresh"),
-                            enabled: decision.approveIssue == nil && !decision.busy,
-                            onDecide: decision.onDecide
-                        )
+            // N-14: a row host — inside the Dock sheet the Yes menu's row
+            // discloses under the whole button row.
+            InlinePickerRow {
+                HStack(spacing: PlanCard.Stepper.buttonGap) {
+                    if let onBack {
+                        GlassPill(PlanCard.Copy.back, mode: .action(onBack))
+                            .accessibilityIdentifier(PlanCard.TestIds.stepBack)
+                    }
+                    Spacer(minLength: 0)
+                    if let onNext {
+                        GlassPill(PlanCard.Copy.next, mode: .action(onNext))
+                            .accessibilityIdentifier(PlanCard.TestIds.stepNext)
+                    } else if let decision, let reject = Self.option("reject"), let approve = Self.option("approve") {
+                        if decision.rejecting {
+                            GlassPill(PlanCard.Copy.cancel, mode: .action { decision.rejecting = false })
+                            GlassPill(
+                                reject.label, mode: .action { decision.onDecide(reject) }, primary: true,
+                                enabled: !decision.busy
+                            )
+                            .accessibilityIdentifier("plan-card-decide")
+                        } else {
+                            GlassPill(
+                                reject.label, mode: .action { decision.rejecting = true }, enabled: !decision.busy
+                            )
+                            .accessibilityIdentifier("plan-card-reject")
+                            PlanCardApproveButton(
+                                approve: approve,
+                                fresh: Self.option("approve-fresh"),
+                                enabled: decision.approveIssue == nil && !decision.busy,
+                                onDecide: decision.onDecide
+                            )
+                        }
                     }
                 }
             }
@@ -272,24 +276,45 @@ private struct PlanCardApproveButton: View {
     let enabled: Bool
     let onDecide: (AskDock.PlanOption) -> Void
 
+    /// N-6 + N-14: inside a sheet (THE Dock sheet) the menu's row discloses
+    /// INLINE, under the footer row (`PlanCardFooter`'s `InlinePickerRow`).
+    @Environment(\.pickerPresentation) private var hostPresentation
+
     var body: some View {
         HStack(spacing: 1) {
             GlassPill(approve.label, mode: .action { onDecide(approve) }, primary: true, enabled: enabled)
                 .accessibilityIdentifier(PlanCard.TestIds.decision)
-            if let fresh {
+            if let fresh, hostPresentation == .inline {
+                GlassPicker(
+                    items: [PickerItem(value: fresh.key, label: fresh.label)],
+                    mode: .single,
+                    value: [],
+                    onChange: { _ in onDecide(fresh) },
+                    disabled: !enabled
+                ) {
+                    // The pill's own tap is off; the trigger takes it.
+                    ZStack { chevron }.contentShape(Rectangle())
+                }
+                .accessibilityLabel(fresh.label)
+                .accessibilityIdentifier("plan-card-decide-fresh")
+            } else if let fresh {
                 GlassMenu {
                     GlassMenuItem(fresh.label) { onDecide(fresh) }
                 } label: {
-                    GlassPill("", primary: true, enabled: enabled) {
-                        AppIcon(AppIcons.uiChevronDown, size: 12)
-                    }
-                    .allowsHitTesting(false)
+                    chevron
                 }
                 .disabled(!enabled)
                 .accessibilityLabel(fresh.label)
                 .accessibilityIdentifier("plan-card-decide-fresh")
             }
         }
+    }
+
+    private var chevron: some View {
+        GlassPill("", primary: true, enabled: enabled) {
+            AppIcon(AppIcons.uiChevronDown, size: 12)
+        }
+        .allowsHitTesting(false)
     }
 }
 
@@ -595,13 +620,25 @@ private final class PlanCardSurfaceHost: HostPlugin {
         baseURL.map { $0.absoluteString.hasSuffix("/") ? String($0.absoluteString.dropLast()) : $0.absoluteString }
     }
 
+    /// VAPP-107: private, loopback and link-local hosts are denied by
+    /// default; a self-hosted LAN instance opts EXACTLY its own API host back
+    /// in (never the whole LAN; web `ownPrivateHosts`). A public host listed
+    /// here changes nothing.
+    var ownPrivateHosts: [String]? {
+        baseURL?.host().map { [$0] }
+    }
+
     var mediaOptions: MediaOptions? {
         // https everywhere; the instance's own scheme (a LAN self-host may be
         // plain http) only for its attachments.
-        MediaOptions(baseUrl: base, schemes: ["https"] + (baseURL?.scheme == "http" ? ["http"] : []))
+        MediaOptions(
+            baseUrl: base,
+            schemes: ["https"] + (baseURL?.scheme == "http" ? ["http"] : []),
+            allowPrivate: ownPrivateHosts
+        )
     }
 
-    var urlPolicy: UrlPolicy? { UrlPolicy(schemes: ["https"], baseUrl: base) }
+    var urlPolicy: UrlPolicy? { UrlPolicy(schemes: ["https"], allowPrivate: ownPrivateHosts, baseUrl: base) }
 
     func mediaRequest(_ src: String) -> URLRequest? {
         guard let base else { return nil }

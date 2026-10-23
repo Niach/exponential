@@ -21,6 +21,20 @@ final class MediaHardeningTests: XCTestCase {
         return URLSession(configuration: config)
     }
 
+    /// VAPP-107 × N-12: a self-hosted LAN instance's card host (the iOS
+    /// plan card's `PlanCardSurfaceHost`) opts EXACTLY its own API host in:
+    /// its pictures load, its LAN neighbours and loopback stay denied.
+    func testOwnPrivateHostOptInIsExactlyThatHost() {
+        let own = MediaOptions(baseUrl: "http://192.168.1.20:3000", schemes: ["https", "http"], allowPrivate: ["192.168.1.20"])
+        XCTAssertNotNil(policyMediaRequest("/api/attachments/a1", options: own))
+        XCTAssertNotNil(policyMediaRequest("http://192.168.1.20:3000/api/attachments/a1", options: own))
+        XCTAssertNil(policyMediaRequest("http://192.168.1.21/a.png", options: own))
+        XCTAssertNil(policyMediaRequest("http://127.0.0.1/a.png", options: own))
+        XCTAssertNil(policyMediaRequest("http://169.254.1.1/a.png", options: own))
+        let closed = MediaOptions(baseUrl: "http://192.168.1.20:3000", schemes: ["https", "http"])
+        XCTAssertNil(policyMediaRequest("/api/attachments/a1", options: closed), "denied by default")
+    }
+
     override func setUp() async throws {
         Stub.seen = []
         Stub.redirects = [:]
