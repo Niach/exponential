@@ -59,8 +59,13 @@ export function extensionCatalogs(extensions: readonly SolidExtension[]): Extens
 }
 
 /** The macro names extensions add (their parts live in the `xui-part` layer). */
+const macroNamesCache = new WeakMap<readonly SolidExtension[], Set<string>>()
+
 export function extensionMacroNames(extensions: readonly SolidExtension[]): Set<string> {
+  const hit = macroNamesCache.get(extensions)
+  if (hit) return hit
   const out = new Set<string>()
+  macroNamesCache.set(extensions, out)
   for (const ext of extensions) {
     for (const [name, def] of Object.entries(ext.catalog?.components ?? {})) if (def.kind === `macro`) out.add(name)
   }

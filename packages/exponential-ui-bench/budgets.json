@@ -120,53 +120,53 @@
       },
       "element-chromium": {
         "cold-start": {
-          "firstPaintMs": 197.2,
-          "nodes": 599,
-          "coldStartMs": 243,
+          "firstPaintMs": 182.2,
+          "nodes": 612,
+          "coldStartMs": 226.4,
           "memoryMb": 37.3
         },
         "card-grid": {
           "warmPassMs": 0.7
         },
         "list-100k": {
-          "firstPaintMs": 249.9,
-          "scrollToIndexMs": 107.1,
-          "scrollStepMs": 7.6,
+          "firstPaintMs": 233.3,
+          "scrollToIndexMs": 83.9,
+          "scrollStepMs": 5.5,
           "renderedItems": 30,
-          "memoryMb": 162.2
+          "memoryMb": 154.1
         },
         "streaming": {
           "nodes": 607,
-          "applyMs": 16.3,
-          "p95ApplyMs": 34,
-          "totalMs": 3246.5
+          "applyMs": 9.7,
+          "p95ApplyMs": 23.3,
+          "totalMs": 1927.1
         },
         "theme-switch": {
-          "themeSwitchMs": 44.8,
-          "modeSwitchMs": 10.1
+          "themeSwitchMs": 34.5,
+          "modeSwitchMs": 9.4
         },
         "resize": {
           "resizeMs": 1.8
         },
         "deep-nesting": {
-          "firstPaintMs": 46.2,
+          "firstPaintMs": 41.9,
           "warmPassMs": 0.5,
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 715.7,
+          "firstPaintMs": 487.1,
           "nodes": 10001,
-          "rebindMs": 822.8
+          "rebindMs": 528.6
         },
         "overlay": {
-          "openMs": 1.7,
-          "closeMs": 1.4
+          "openMs": 1.3,
+          "closeMs": 0.9
         },
         "table-1k": {
-          "firstPaintMs": 50.1,
-          "scrollStepMs": 3.7,
+          "firstPaintMs": 47.1,
+          "scrollStepMs": 2.5,
           "renderedRows": 36,
-          "sortMs": 11.2
+          "sortMs": 7.5
         }
       },
       "react-chromium": {
@@ -222,53 +222,53 @@
       },
       "solid-chromium": {
         "cold-start": {
-          "firstPaintMs": 213.3,
-          "nodes": 599,
-          "coldStartMs": 266.9,
+          "firstPaintMs": 182.3,
+          "nodes": 612,
+          "coldStartMs": 229.7,
           "memoryMb": 38.3
         },
         "card-grid": {
           "warmPassMs": 0.7
         },
         "list-100k": {
-          "firstPaintMs": 237.8,
-          "scrollToIndexMs": 90.5,
-          "scrollStepMs": 7.3,
+          "firstPaintMs": 232.7,
+          "scrollToIndexMs": 87.8,
+          "scrollStepMs": 5.4,
           "renderedItems": 30,
-          "memoryMb": 150.3
+          "memoryMb": 145.3
         },
         "streaming": {
           "nodes": 607,
-          "applyMs": 15.8,
-          "p95ApplyMs": 33.5,
-          "totalMs": 3153.3
+          "applyMs": 8.6,
+          "p95ApplyMs": 20.8,
+          "totalMs": 1711.8
         },
         "theme-switch": {
-          "themeSwitchMs": 44.1,
-          "modeSwitchMs": 9.8
+          "themeSwitchMs": 34,
+          "modeSwitchMs": 9.5
         },
         "resize": {
-          "resizeMs": 1.8
+          "resizeMs": 1.7
         },
         "deep-nesting": {
-          "firstPaintMs": 45.3,
+          "firstPaintMs": 39.6,
           "warmPassMs": 0.5,
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 692.5,
+          "firstPaintMs": 462.2,
           "nodes": 10001,
-          "rebindMs": 810.6
+          "rebindMs": 506.4
         },
         "overlay": {
-          "openMs": 1.7,
-          "closeMs": 1.5
+          "openMs": 1.3,
+          "closeMs": 1.1
         },
         "table-1k": {
-          "firstPaintMs": 49.2,
-          "scrollStepMs": 3.6,
+          "firstPaintMs": 46.7,
+          "scrollStepMs": 2.5,
           "renderedRows": 36,
-          "sortMs": 10.8
+          "sortMs": 7.2
         }
       },
       "swift-ios-simulator": {

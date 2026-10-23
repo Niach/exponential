@@ -14,6 +14,7 @@
 import { For, createEffect, createMemo, createSignal, on, onCleanup, untrack, type Accessor, type JSX } from "solid-js"
 import { itemExtents, itemOffsets, scrollOffsetForIndex, stickyHeader, virtualWindow, WINDOW_OVERSCAN, type ScrollAlign } from "@exponential-at/ui"
 import { listViewport as viewportOf, scrollParent, type ListAxis } from "@exponential-at/ui/web"
+import { bindAttrs } from "./bind-attrs"
 import { css } from "./style"
 
 export type { ListAxis }
@@ -138,7 +139,9 @@ export function WindowedList(props: WindowedListProps): JSX.Element {
     return extents()
   })
   const off = createMemo(() => itemOffsets(ext(), gap()))
-  const total = () => off()[props.count] ?? 0
+  // A memo: the scroller is re-found when the TOTAL changes (React's deps),
+  // not on every new offsets array (a sort, a re-keyed window).
+  const total = createMemo(() => off()[props.count] ?? 0)
   createEffect(() => {
     props.count
     total()
@@ -233,6 +236,7 @@ export function WindowedList(props: WindowedListProps): JSX.Element {
           const at = () => (isPinned() ? pinned()!.offset : off()[index()])
           const line = createMemo(() => (index() > 0 && props.divider ? props.divider(index()) : null))
           const measure = (node: HTMLDivElement) => {
+            if (props.itemProps) bindAttrs(node, () => props.itemProps?.(index()))
             observed.set(key, node)
             keyOfEl.set(node, key)
             observer?.observe(node)
@@ -247,7 +251,6 @@ export function WindowedList(props: WindowedListProps): JSX.Element {
               class="xui-list-item"
               data-index={index()}
               data-pinned={isPinned() && pinned()!.offset !== off()[index()] ? `` : undefined}
-              {...(props.itemProps?.(index()) ?? {})}
               style={css({ ...place(at()), ...(isPinned() ? { zIndex: 1 } : {}) })}
             >
               {line() ? (
