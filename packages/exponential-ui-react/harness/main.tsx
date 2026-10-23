@@ -513,17 +513,19 @@ function benchData(scenario: BenchScenario): Record<string, unknown> {
 function BenchSuite() {
   const id = params.get(`scenario`) ?? ``
   const scenario = BENCH_SCENARIOS[id]
+  // VAPP-149: the generated rows are built BEFORE the surface's first
+  // render starts the clock (firstPaintMs times the renderer, not benchItems).
+  const initialData = useMemo(() => (scenario ? benchData(scenario) : {}), [scenario])
   if (!scenario) return <div>unknown scenario {id} (one of {benchManifest.scenarios.map((s) => s.id).join(`, `)})</div>
-  return <BenchSuiteSurface scenario={scenario} />
+  return <BenchSuiteSurface scenario={scenario} initialData={initialData} />
 }
-function BenchSuiteSurface({ scenario }: { scenario: BenchScenario }) {
+function BenchSuiteSurface({ scenario, initialData }: { scenario: BenchScenario; initialData: Record<string, unknown> }) {
   const t0 = useRef(performance.now())
   const handle = useRef<SurfaceHandle>(null)
   const rootEl = useRef<HTMLDivElement>(null)
   const [theme, setTheme] = useState(scenario.theme)
   const [modeState, setMode] = useState<`light` | `dark`>(scenario.mode)
   const [surfaceWidth, setWidth] = useState(scenario.viewport.width)
-  const initialData = useMemo(() => benchData(scenario), [scenario])
   const surface = useSurface({ surfaceId: `bench`, catalogId: scenario.catalogId, initial: `nested` in scenario.surface ? scenario.surface.nested : undefined, data: initialData })
   // A flat surface (list-100k, streaming, template-10k, table-1k) arrives as
   // the updateComponents it would be streamed in; the layout effect's

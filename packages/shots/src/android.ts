@@ -129,6 +129,10 @@ export function specimenState(
   if (logcat.includes(`specimen ${viewId}: not in specimens.json`)) {
     return { ready: false, error: `the example app has no specimen \`${viewId}\` (fixtures/specimens.json)` }
   }
+  // VAPP-127: an eval specimen is looked up in eval/eval-specimens.json.
+  if (logcat.includes(`specimen ${viewId}: not in eval-specimens.json`)) {
+    return { ready: false, error: `the example app has no eval specimen \`${viewId}\` (eval/eval-specimens.json: rerun \`bun run --filter @exponential-at/ui eval\` and rebuild)` }
+  }
   return { ready: /exponential-ui: surface=\S* phase=cold\b/.test(logcat) }
 }
 

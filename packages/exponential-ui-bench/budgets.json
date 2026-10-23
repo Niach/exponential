@@ -76,7 +76,7 @@
           "measureCallsPerPass": 29
         },
         "list-100k": {
-          "firstPaintMs": 168.4,
+          "firstPaintMs": 128.1,
           "scrollStepMs": 5.6,
           "scrollToIndexMs": 6.1,
           "renderedItems": 30,
@@ -107,7 +107,7 @@
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 532.9,
+          "firstPaintMs": 494,
           "rebindMs": 513.8,
           "nodes": 10001
         },
@@ -239,7 +239,7 @@
           "warmPassMs": 11.9
         },
         "list-100k": {
-          "firstPaintMs": 203.9,
+          "firstPaintMs": 108,
           "scrollToIndexMs": 61.8,
           "scrollStepMs": 4.9,
           "renderedItems": 30,
@@ -273,7 +273,7 @@
           "closeMs": 5.1
         },
         "table-1k": {
-          "firstPaintMs": 60.5,
+          "firstPaintMs": 56.7,
           "scrollStepMs": 2.6,
           "renderedRows": 36,
           "sortMs": 6.5

@@ -12,6 +12,9 @@ struct LaunchOptions {
     var a11yDump: String? = nil
     /// `-dump <path>`: write the whole surface (every pixel, not the viewport) as a PNG.
     var dump: String? = nil
+    /// `-frames <path>` (VAPP-127): two seconds after the first layout, every visible node's frame
+    /// (points, surface coordinates) as JSON `{surface, width, frames: [{id, x, y, w, h}]}`.
+    var frames: String? = nil
 
     static func parse(_ args: [String] = CommandLine.arguments) -> LaunchOptions {
         var o = LaunchOptions()
@@ -26,6 +29,7 @@ struct LaunchOptions {
             case "-shot": o.shot = value(); i += 1
             case "-a11yDump": o.a11yDump = value(); i += 1
             case "-dump": o.dump = value(); i += 1
+            case "-frames": o.frames = value(); i += 1
             default: break
             }
             i += 1
@@ -58,11 +62,15 @@ final class SinkState: ObservableObject {
     let options: LaunchOptions
     /// The specimen's nested node when `-shot` names one.
     let specimenJSON: String?
+    /// An eval specimen's data model (VAPP-127).
+    let specimenData: JSONValue?
     var isSpecimen: Bool { specimenJSON != nil }
 
     init(options: LaunchOptions) {
         self.options = options
-        specimenJSON = SinkState.specimen(options.shot)
+        let specimen = SinkState.specimen(options.shot)
+        specimenJSON = specimen?.node
+        specimenData = specimen?.data
         let mode = Mode(rawValue: options.mode) ?? .dark
         themeId = options.theme
         self.mode = mode
@@ -93,21 +101,49 @@ final class SinkState: ObservableObject {
         }
         try! model.setNested(json: json)
         model.setData(path: "/draft", value: .object(["title": .string("")]))
+        if case let .object(data)? = specimenData {
+            for (key, value) in data { model.setData(path: "/\(key)", value: value) }
+        }
     }
 
     /// `-shot <id>` naming a `fixtures/specimens.json` entry (the
-    /// ui.exponential.at component pages): that entry's nested `node`.
+    /// ui.exponential.at component pages): that entry's nested `node`; an
+    /// `exponential-ui-eval-<corpus id>` names a recorded eval surface of
+    /// `eval/eval-specimens.json` (VAPP-127), its data model included.
     /// Anything else (incl. `exponential-ui-kitchen-sink`) = nil.
-    static func specimen(_ id: String?) -> String? {
-        guard let id,
-              let url = Bundle.main.url(forResource: "specimens", withExtension: "json"),
+    static func specimen(_ id: String?) -> (node: String, data: JSONValue?)? {
+        guard let id else { return nil }
+        let file = id.hasPrefix("exponential-ui-eval-") ? "eval-specimens" : "specimens"
+        guard let url = Bundle.main.url(forResource: file, withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let specimens = root["specimens"] as? [[String: Any]],
-              let node = specimens.first(where: { $0["id"] as? String == id })?["node"],
-              let out = try? JSONSerialization.data(withJSONObject: node)
-        else { return nil }
-        return String(data: out, encoding: .utf8)
+              let entry = specimens.first(where: { $0["id"] as? String == id }),
+              let node = entry["node"],
+              let out = try? JSONSerialization.data(withJSONObject: node),
+              let json = String(data: out, encoding: .utf8)
+        else {
+            print("[exponential-ui] specimen \(id): not in \(file).json")
+            return nil
+        }
+        return (json, entry["data"].map { JSONValue(any: $0) })
+    }
+
+    /// `-frames` (VAPP-127): every visible node's frame, points in surface coordinates.
+    func writeFrames(to path: String) {
+        let frames: [[String: Any]] = model.nodes.indices.compactMap { i in
+            guard i < model.frames.count, !model.nodes[i].hidden else { return nil }
+            let f = model.frames[i]
+            return ["id": model.nodes[i].id, "x": Double(f.minX), "y": Double(f.minY), "w": Double(f.width), "h": Double(f.height)]
+        }
+        let doc: [String: Any] = ["surface": options.shot ?? "kitchen-sink", "width": Double(model.width), "frames": frames]
+        guard let data = try? JSONSerialization.data(withJSONObject: doc, options: [.sortedKeys]) else { return }
+        do {
+            try data.write(to: URL(fileURLWithPath: path))
+            print("[exponential-ui] frames \(frames.count) → \(path)")
+        } catch {
+            print("[exponential-ui] frames \(path): \(error)")
+        }
     }
 
 
@@ -184,6 +220,10 @@ struct ContentView: View {
             if let path = options.dump {
                 try? await Task.sleep(for: .seconds(2))
                 await FullSurfaceDump.write(model: state.model, to: path)
+            }
+            if let path = options.frames {
+                try? await Task.sleep(for: .seconds(2))
+                state.writeFrames(to: path)
             }
         }
     }
