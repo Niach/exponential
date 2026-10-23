@@ -2306,7 +2306,7 @@ mod tests {
                 let members: Vec<User> = vec![serde_json::from_value(serde_json::json!({
                     "id": "user-1",
                     "name": "Ada Lovelace",
-                    "email": "adaexample.com",
+                    "email": "ada@example.com",
                 }))
                 .expect("user row")];
                 let statuses = default_resolved_statuses();
@@ -2321,7 +2321,7 @@ mod tests {
                 let accounts = vec![coding::AccountOption {
                     id: "4e5f6a7b".to_string(),
                     agent: coding::CodingAgent::Claude,
-                    email: "adaexample.com".to_string(),
+                    email: "ada@example.com".to_string(),
                     is_last_used: true,
                     health: coding::Health::Ok,
                     limits: None,
