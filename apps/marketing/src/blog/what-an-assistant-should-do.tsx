@@ -8,7 +8,7 @@ import type { PostMeta } from "./types"
 
 /* public/blog/<id>.webp, photographed by scripts/blog-stills.ts at 2x. */
 export const STILLS = {
-  stack: { src: `/blog/assistant-stack.webp`, alt: `The four abilities as cards: it shows, it shapes its environment, it has hands you can watch, you can talk to it`, width: 1392, height: 1796 },
+  stack: { src: `/blog/assistant-stack.webp`, alt: `The four abilities as cards: it shows, it shapes its environment, it has hands you can watch, you can talk to it`, width: 1392, height: 1852 },
   watch: { src: `/blog/assistant-watch.webp`, alt: `Draft of a watch view: the flow as trace lines, the live window with a payouts table, the step graph and the replay`, width: 1392, height: 1582 },
   voice: { src: `/blog/assistant-voice.webp`, alt: `Draft of a voice pipeline: mic and desktop audio, local speech-to-text, a small router model, the assistant, the spoken reply`, width: 1392, height: 1118 },
 }
@@ -42,11 +42,16 @@ export function Post() {
       <Section id="show" num="02" label="Showing">
         <h2>It shows, instead of telling <StatusChip status="shipped" /></h2>
         <p>
-          Asked how a release went, the assistant answers with a card: a status, two numbers, a chart and two buttons.
+          Asked how a release went, the assistant answers with a card: a status, two numbers, a chart, two buttons.
           A2UI lets a model describe that screen as JSON from a fixed catalog, and a renderer paints it natively in
           the host's theme. Exponential UI (<IssueLink id="VAPP-84" />) does this for React, Solid, a web component,
-          SwiftUI, Compose and gpui from one Rust core, each painter passing the same conformance suite; apps without
-          code are in progress (<IssueLink id="VAPP-110" /> <StatusChip status="in-progress" />).
+          SwiftUI, Compose and gpui from one Rust core; every painter passes the same conformance suite, and a
+          benchmark suite with ten scenarios, results per machine and a CI ratchet merged on October 23
+          (<IssueLink id="VAPP-105" />). First paint of a 100,000-row list on an M4 Pro: 62 ms in the core, 112 ms in
+          Compose, 120 ms in React, 160 ms in Solid, 341 ms in SwiftUI, which is a listed finding with its own issue.
+          A URL policy denies private hosts by default and a consent card shows a host call's arguments before it runs
+          (<IssueLink id="VAPP-107" />). Apps without code, an editor with a chat beside a live preview, are in
+          progress (<IssueLink id="VAPP-110" /> <StatusChip status="in-progress" />).
         </p>
         <Shot view="exponential-ui-demo" platform="web" caption="One surface, the answer to a release question, on the web." />
         <ShotRow>
@@ -102,7 +107,7 @@ export function Post() {
       <Section id="feasible" num="07" label="Today">
         <h2>Status</h2>
         <ul>
-          <li><strong>Showing:</strong> shipped. Open renderers on six platforms, one conformance suite.</li>
+          <li><strong>Showing:</strong> shipped. Open renderers on six platforms, one conformance suite, a benchmark suite with a ratchet.</li>
           <li><strong>Environment:</strong> not started; it uses the same renderer.</li>
           <li><strong>Hands:</strong> foreground shipped on three operating systems; background and the watch view are drafts.</li>
           <li><strong>Voice:</strong> the models run on a CPU; the pipeline is a plan.</li>

@@ -40,7 +40,7 @@ export function Post() {
           code-mode script as one card with its calls grouped by tool (<IssueLink id="EXP-1279" />). The engine tags
           every call with a kind before it reaches a client, so all four platforms draw the same card.
         </p>
-        <Shot view="trace" platform="web" caption="Trace lines: a command with its output, a sub-agent, a failed test run, the queue." />
+        <Shot view="trace" platform="web" caption="Trace lines: a command with its output, a sub-agent, a failed test run, the task list." />
       </Section>
 
       <Section id="chips" num="03" label="Chips">
@@ -90,14 +90,14 @@ export function Post() {
       </Section>
 
       <Section id="notifications" num="07" label="Notifications">
-        <h2>A question takes the composer's place</h2>
+        <h2>A question waits at the composer</h2>
         <p>
-          When the agent asks, the question is a card in the composer's place, with its options and a text field;
-          several questions stack and open one at a time. The thread moves under Needs you, the inbox gets an entry,
-          the phones get a push, and an email mention notifies a person. The agent can also offer quick replies, which
-          send on one tap.
+          When the agent asks, the question does not scroll away in the transcript: it waits as a card at the
+          composer, with its options and a text field, and several wait together. The thread moves under Needs you,
+          the inbox gets the entry, the phones get the push, and an email mention notifies a person. The agent can
+          also offer quick replies, which send on one tap.
         </p>
-        <Shot view="ask-dock" platform="web" caption="The ask dock: one plan as the big card, then two plans and a question stacked." />
+        <Shot view="ask-dock" platform="web" caption="Waiting plans and a question at the composer." />
         <Shot view="thread-replies" platform="web" caption="Quick replies above the composer." />
       </Section>
 

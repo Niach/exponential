@@ -56,10 +56,10 @@ export const STACK_SURFACE: Nested = {
       `1 · It shows, instead of telling`,
       `The assistant describes a screen as JSON and a renderer paints it natively: React, Solid, SwiftUI, Compose and gpui from one core. Themes are JSON, extensions add components.`,
       [
-        { label: `shipped`, tone: `success`, detail: `renderers ×6, conformance gate` },
-        { label: `in progress`, tone: `warning`, detail: `benchmarks, Apps slice 1 ×4` },
+        { label: `shipped`, tone: `success`, detail: `renderers ×6, conformance, benchmarks + ratchet` },
+        { label: `in progress`, tone: `warning`, detail: `Apps slice 1 ×4, the 0.1.0 release` },
       ],
-      `VAPP-84 · VAPP-105 · VAPP-110`
+      `VAPP-84 · VAPP-105 · VAPP-109 · VAPP-110`
     ),
     between(`b1`, `the same JSON on disk`),
     layer(
