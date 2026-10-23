@@ -122,12 +122,17 @@ describe(`desktop attribution`, () => {
     // chips, so matching only the exact stem would leave the chipped one
     // stale. EXP-1259: the Agent home is that same page (`agent-home` shares
     // `chat`'s drive), and so is its open "+" menu (`composer-menu`).
-    // EXP-1293 retired the action-chip and Create action views.
+    // EXP-1293 retired the action-chip and Create action views. Thread
+    // 58cb32df: the `chat-*` styleguide views share the stem, a harmless
+    // over-capture.
     const result = scope(`apps/desktop/crates/ui/src/chat_screen.rs`)
     expect(views(result, `desktop`).sort()).toEqual([
       `agent-home`,
       `chat`,
       `chat-issues`,
+      `chat-list`,
+      `chat-menus`,
+      `chat-transcript`,
       `composer-menu`,
     ])
   })

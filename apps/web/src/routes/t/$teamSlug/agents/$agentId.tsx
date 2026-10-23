@@ -13,6 +13,7 @@ import { SessionComposer } from "@/components/session-composer"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AgentChannel, AgentComposer } from "@/components/thread/agent-channel"
 import { AgentHeaderMenu } from "@/components/thread/chat-menu"
+import { AgentHeaderTitle } from "@/components/thread/chat-header"
 import { HEADER_BUTTON_CLASS } from "@/components/team/mobile-detail-header"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
@@ -135,12 +136,8 @@ function AgentChannelPage() {
     <div className="flex h-full min-h-0 flex-col max-md:h-dvh" data-testid="agent-channel-page">
       {isMobile ? (
         <MobileDetailHeader
-          title={
-            <span className="flex min-w-0 items-center gap-2">
-              <BoardGlyph board={{ icon: agent.icon, color: agent.color }} className="size-4" />
-              <span className="truncate">{name}</span>
-            </span>
-          }
+          // Chats (the draft, iOS/Android): the agent's disc, the name over `Agent`.
+          title={<AgentHeaderTitle name={name} icon={agent.icon} color={agent.color} />}
           onBack={() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } })}
           menu={headerMenu(HEADER_BUTTON_CLASS)}
         />

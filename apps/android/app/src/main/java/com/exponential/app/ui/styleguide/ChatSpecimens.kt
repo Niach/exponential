@@ -72,15 +72,17 @@ private fun chatRow(
     needsYou: Boolean = false,
     busy: Boolean = false,
     word: SessionTree.ThreadRowWord? = null,
+    activityAt: String = "",
+    deviceId: String? = null,
 ) = Chats.ChatRow(
     sessionId = id,
     teamId = "t1",
     title = title,
-    deviceId = null,
+    deviceId = deviceId,
     group = group,
     lead = lead,
     preview = Chats.ChatPreview(previewKind, preview),
-    activityAt = "",
+    activityAt = activityAt,
     time = time,
     unreadCount = unread,
     needsYou = needsYou,
@@ -88,43 +90,50 @@ private fun chatRow(
     word = word,
 )
 
-/** The draft's list (chats.png): needs you, working, an open stacked PR,
- *  working with news, merged. */
-private val ROWS = listOf(
-    chatRow(
-        "a", "#APP-5 Reduce cold start below 800 ms", SessionTree.ThreadsGroupKey.NeedsYou, Chats.ChatLead.NeedsYou,
-        "question", "Question: lazy-load the editor or ship a snapshot?", "21:40", unread = 1, needsYou = true, busy = true,
-    ),
-    chatRow(
-        "b", "Spike: offline queue", SessionTree.ThreadsGroupKey.Running, Chats.ChatLead.Working,
-        "working", Chats.Copy.PREVIEW_WORKING, "21:38", busy = true,
-    ),
-    chatRow(
-        "c", "#APP-14 Group board issues by assignee", SessionTree.ThreadsGroupKey.Recent, Chats.ChatLead.Open,
-        "agent", "Opened PR #212, waiting for review", "20:32", unread = 3, word = SessionTree.ThreadRowWord.Stack,
-    ),
-    chatRow(
-        "d", "Sort today's widget reports", SessionTree.ThreadsGroupKey.Running, Chats.ChatLead.Working,
-        "working", Chats.Copy.PREVIEW_WORKING, "20:10", unread = 2, busy = true,
-    ),
-    chatRow(
-        "e", "#APP-16 Fix flaky scroll restore", SessionTree.ThreadsGroupKey.Recent, Chats.ChatLead.Merged,
-        "agent", "Merged. Restores the offset on back.", Chats.Copy.TIME_YESTERDAY,
-    ),
-)
+/**
+ * The canonical specimen data = THE FIXTURE (chats.json): `listCases[0]
+ * .expected` (four rows, counts 1/1/1) and `bubbleCases[0].expected` (Triage
+ * amber, Designer white, Release none) — what the web entry and the desktop
+ * twin render. The app has no fixture at runtime, so the rows are spelled
+ * here and `ChatSpecimenFixtureTest` proves them equal to the fixture's.
+ */
+object ChatListSpecimen {
+    val LIST: Chats.ChatList = Chats.ChatList(
+        rows = listOf(
+            chatRow(
+                "b", "Running one", SessionTree.ThreadsGroupKey.Running, Chats.ChatLead.Working,
+                "working", Chats.Copy.PREVIEW_WORKING, "09:25", busy = true,
+                activityAt = "2026-10-23T09:25:00.000Z",
+            ),
+            chatRow(
+                "a", "Needs you one", SessionTree.ThreadsGroupKey.NeedsYou, Chats.ChatLead.NeedsYou,
+                "question", "Question: Snapshot?", "09:10", needsYou = true, busy = true,
+                activityAt = "2026-10-23T09:10:00.000Z", deviceId = "dev-mac",
+            ),
+            chatRow(
+                "c", "Open PR", SessionTree.ThreadsGroupKey.Recent, Chats.ChatLead.Open,
+                "agent", "Waiting for review", "08:30", unread = 1, word = SessionTree.ThreadRowWord.ReadyToMerge,
+                activityAt = "2026-10-23T08:30:00.000Z",
+            ),
+            chatRow(
+                "d", "Merged", SessionTree.ThreadsGroupKey.Recent, Chats.ChatLead.Merged,
+                "you", "You: ship it", Chats.Copy.TIME_YESTERDAY,
+                activityAt = "2026-10-22T10:00:00.000Z",
+            ),
+        ),
+        counts = Chats.ChatCounts(needsYou = 1, running = 1, unread = 1),
+    )
 
-private val LIST = Chats.ChatList(ROWS, Chats.ChatCounts(needsYou = 1, running = 2, unread = 3))
+    val BUBBLES: List<Chats.AgentBubble> = listOf(
+        Chats.AgentBubble(SessionTree.AgentRow("ag1", "t1", "Triage", "bug", "#a855f7", busy = false, needsYou = true), Chats.AgentRing.NeedsYou),
+        Chats.AgentBubble(SessionTree.AgentRow("ag2", "t1", "Designer", "bot", "#6366f1", busy = false, needsYou = false), Chats.AgentRing.Unread),
+        Chats.AgentBubble(SessionTree.AgentRow("ag3", "t1", "Release", "package", "#22c55e", busy = false, needsYou = false), null),
+    )
+}
 
-private fun agent(id: String, name: String, icon: String, color: String, needsYou: Boolean = false) =
-    SessionTree.AgentRow(id, "t1", name, icon, color, busy = false, needsYou = needsYou)
-
-/** `bubbleCases[0]` plus one more: amber = needs you, white = unread, a hairline = read. */
-private val BUBBLES = listOf(
-    Chats.AgentBubble(agent("ag1", "Triage", "bug", "#a855f7", needsYou = true), Chats.AgentRing.NeedsYou),
-    Chats.AgentBubble(agent("ag2", "Designer", "bot", "#ec4899"), Chats.AgentRing.Unread),
-    Chats.AgentBubble(agent("ag3", "Release", "package", "#22c55e"), null),
-    Chats.AgentBubble(agent("ag4", "Support", "target", "#0ea5e9"), Chats.AgentRing.Unread),
-)
+private val ROWS get() = ChatListSpecimen.LIST.rows
+private val LIST get() = ChatListSpecimen.LIST
+private val BUBBLES get() = ChatListSpecimen.BUBBLES
 
 /** THE phone Chats screen over the bottom bar (shot `sg_chat-list`). */
 @Composable

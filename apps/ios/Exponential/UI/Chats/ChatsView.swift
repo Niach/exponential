@@ -53,13 +53,13 @@ struct ChatsView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 10) {
                     NavigationLink(value: AppRoute.search) {
-                        headerCircle(AppIcons.navSearch, dot: false)
+                        Self.headerCircle(AppIcons.navSearch, dot: false)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Search")
                     .accessibilityIdentifier("chats-search")
                     NavigationLink(value: AppRoute.myWork) {
-                        headerCircle(AppIcons.navInbox, dot: inboxUnread)
+                        Self.headerCircle(AppIcons.navInbox, dot: inboxUnread)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Chats.Copy.inbox)
@@ -96,7 +96,7 @@ struct ChatsView: View {
     }
 
     /// The header's two trailing circles (search, the inbox with its dot).
-    private func headerCircle(_ icon: String, dot: Bool) -> some View {
+    static func headerCircle(_ icon: String, dot: Bool) -> some View {
         AppIcon(icon, size: AppIcon.Size.large)
             .foregroundStyle(.white)
             .frame(width: 40, height: 40)

@@ -5,8 +5,9 @@
 //! hairline, fully round) with Board · Devices · Chats · Team in order, each
 //! an icon over its label, the selected one on the glass-active pill; the
 //! Team tab = the active team's avatar + name; a dot on Chats. Beside it the
-//! two-armed new chat / new issue capsule at the same 52px height. Two
-//! states: Chats selected with its amber dot, Team selected.
+//! two-armed new chat (`action-chat`) / new issue (`nav-create-issue`)
+//! capsule at the same 52px height. Three states (the natives'): Chats,
+//! Team and Board selected, the amber dot on Chats in each.
 
 use gpui::{div, px, AnyElement, App, Div, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
@@ -111,20 +112,30 @@ fn bar(selected: Tab, cx: &App) -> AnyElement {
     };
     let fab = capsule()
         .px_1()
-        .child(arm(registry::NAV_THREADS))
+        // The web mobile tab bar's FAB: new chat (action-chat) · new issue
+        // (nav-create-issue).
+        .child(arm(registry::ACTION_CHAT))
         .child(div().w(px(1.)).h(px(22.)).bg(theme::tokens::glass::STROKE_CARD.to_hsla()))
-        .child(arm(registry::UI_ADD));
+        .child(arm(registry::NAV_CREATE_ISSUE));
     h_flex().gap_2().items_center().child(tabs).child(fab).into_any_element()
 }
 
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
+    let muted = cx.theme().muted_foreground;
+    let state = |caption: &'static str, selected: Tab, cx: &App| {
+        v_flex()
+            .gap_3()
+            .child(div().text_sm().text_color(muted).child(caption))
+            .child(bar(selected, cx))
+    };
     v_flex()
-        .gap_6()
+        .gap_8()
         .p_4()
         .rounded_xl()
         .bg(cx.theme().background)
-        .child(bar(Tab::Chats, cx))
-        .child(bar(Tab::Team, cx))
+        .child(state("Chats selected", Tab::Chats, cx))
+        .child(state("Team selected", Tab::Team, cx))
+        .child(state("Board selected", Tab::Board, cx))
 }
 
 #[cfg(test)]

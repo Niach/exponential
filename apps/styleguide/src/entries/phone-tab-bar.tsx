@@ -1,5 +1,5 @@
 import chats from "@exp/domain-contract/fixtures/chats.json"
-import { PhoneTab, PhoneTabBar, TeamAvatar, conceptIcon } from "@exp/ui"
+import { FAB_CHROME_CLASS, PhoneTab, PhoneTabBar, TeamAvatar, conceptIcon } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
@@ -8,17 +8,35 @@ import type { StyleguideEntry } from "./types.ts"
 // mounts (components/team/mobile-tab-bar.tsx): Board · Devices · Chats ·
 // Team, each an icon over its label, the selected one on the glass-active
 // pill; the Team tab = the active team's avatar + name; the Chats dot =
-// unread / live. Two states: Chats selected with its amber dot, Team
-// selected.
+// unread / live, beside the unchanged new chat / new issue capsule. Three
+// states ×4: Chats, Team and Board selected, the amber dot on Chats.
 
 const BoardIcon = conceptIcon(`nav-issues`)
 const DevicesIcon = conceptIcon(`nav-devices`)
 const ChatsIcon = conceptIcon(`nav-threads`)
+const ActionChatIcon = conceptIcon(`action-chat`)
+const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 
-function Bar({ selected }: { selected: `chats` | `team` }) {
+// The two-armed capsule as mobile-tab-bar.tsx paints it (static here).
+function Capsule() {
   return (
+    <div className={`flex h-[52px] shrink-0 items-stretch overflow-hidden rounded-full text-foreground ${FAB_CHROME_CLASS}`}>
+      <span className="flex w-[52px] items-center justify-center">
+        <ActionChatIcon className="size-5" />
+      </span>
+      <span aria-hidden className="my-3 w-px shrink-0 bg-glass-stroke-card" />
+      <span className="flex w-[52px] items-center justify-center">
+        <NavCreateIssueIcon className="size-5" />
+      </span>
+    </div>
+  )
+}
+
+function Bar({ selected }: { selected: `chats` | `team` | `board` }) {
+  return (
+    <div className="flex items-center gap-2">
     <PhoneTabBar>
-      <PhoneTab label={chats.copy.tabs.board} icon={<BoardIcon className="size-5" />} />
+      <PhoneTab label={chats.copy.tabs.board} icon={<BoardIcon className="size-5" />} selected={selected === `board`} />
       <PhoneTab label={chats.copy.tabs.devices} icon={<DevicesIcon className="size-5" />} />
       <PhoneTab
         label={chats.copy.tabs.chats}
@@ -28,6 +46,8 @@ function Bar({ selected }: { selected: `chats` | `team` }) {
       />
       <PhoneTab label="Acme" icon={<TeamAvatar name="Acme" size={20} />} selected={selected === `team`} />
     </PhoneTabBar>
+    <Capsule />
+    </div>
   )
 }
 
@@ -45,8 +65,10 @@ export const entry: StyleguideEntry = {
       note: `mounted by apps/web components/team/mobile-tab-bar.tsx (md:hidden)`,
     },
     desktop: {
-      state: `n/a`,
-      note: `the IDE has no phone shell (styleguide twin phone_tab_bar.rs)`,
+      state: `ok`,
+      symbol: `phone_tab_bar`,
+      file: `apps/desktop/crates/ui/src/styleguide/entries/phone_tab_bar.rs`,
+      note: `the IDE has no phone shell; the styleguide twin paints the same bar`,
     },
     ios: {
       state: `ok`,
@@ -63,6 +85,7 @@ export const entry: StyleguideEntry = {
     <div className="flex flex-col items-start gap-4 rounded-xl bg-background p-4">
       <Bar selected="chats" />
       <Bar selected="team" />
+      <Bar selected="board" />
     </div>
   ),
 }

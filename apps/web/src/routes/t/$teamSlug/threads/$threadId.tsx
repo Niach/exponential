@@ -1,4 +1,5 @@
-import { threadSessionNames } from "@exp/domain-contract/ask-dock"
+import { threadPendingAsks, threadSessionNames } from "@exp/domain-contract/ask-dock"
+import type { ChatLead } from "@exp/domain-contract/chats"
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { createFileRoute, Navigate, redirect, useNavigate } from "@tanstack/react-router"
@@ -14,6 +15,7 @@ import {
   sessionTabRunMark,
   SkeletonRows,
   StatusGlyph,
+  threadLeadPrState,
   ThreadChipSubtree,
   ThreadDock,
   threadDockedIds,
@@ -53,6 +55,8 @@ import { useAnswerMessage, useUnqueueMessage } from "@/components/thread/agent-c
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { ThreadHeaderMenu, useThreadMenu } from "@/components/thread/thread-menu"
 import { useChatActions } from "@/components/thread/chat-menu"
+import { ChatHeaderTitle } from "@/components/thread/chat-header"
+import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import { InPlaceSession, SessionStopPill } from "@/components/thread/session-body"
 import { useMeasuredSize } from "@/hooks/use-detail-chrome"
 import { primeTabEnter, TAB_BODY_TOUCH_CLASS, useFaceSwipe } from "@/hooks/use-face-swipe"
@@ -76,6 +80,7 @@ import {
   sessionTabMarkState,
   THREAD_COPY,
   THREADS_LIST_COPY,
+  THREAD_ROW_WORDS,
   toTreeSession,
   treeOrder,
   type MessageRow,
@@ -263,6 +268,7 @@ function ThreadScreen({
   const navigate = useNavigate()
   const search = Route.useSearch()
   const isMobile = useIsMobile()
+  const deviceGlyph = useDeviceGlyphs()
   const permissions = useTeamPermissions(team)
   const { users } = useTeamUsers(team.id)
   const boards = useTeamBoards(team.id)
@@ -699,6 +705,15 @@ function ThreadScreen({
 
   if (isMobile) {
     const trailing = headerMenu(HEADER_BUTTON_CLASS)
+    const headerNeedsYou =
+      rows.some((row) => row.needsInput && row.status !== `ended`) ||
+      threadPendingAsks(view.rows, () => null).length > 0
+    const headerBusy = rows.some((row) => row.busy)
+    const headerLead: ChatLead = headerNeedsYou
+      ? `needs_you`
+      : headerBusy
+        ? `working`
+        : (threadLeadPrState(pullRequests) ?? `waiting`)
     return (
       <IssueRefOutlet issueIds={issueIds} onOpen={pickIssue}>
       <MenuGestureHost menus={issueMenus}>
@@ -719,16 +734,26 @@ function ThreadScreen({
             overlay
             ref={headerRef}
             title={
-              <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate">{view.title}</span>
-                {view.private && (
-                  <PrivateIcon
-                    aria-label="Private"
-                    data-testid="thread-private"
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                  />
-                )}
-              </span>
+              // Chats (the draft, iOS/Android): the lead disc, the title over
+              // the state word · the device.
+              <ChatHeaderTitle
+                lead={headerLead}
+                agent={root.cli ?? null}
+                title={view.title}
+                trailing={
+                  view.private ? (
+                    <PrivateIcon
+                      aria-label="Private"
+                      data-testid="thread-private"
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                    />
+                  ) : undefined
+                }
+                device={deviceGlyph(root.deviceId)?.name ?? null}
+                needsYou={headerNeedsYou}
+                busy={headerBusy}
+                needsYouWord={THREAD_ROW_WORDS.needsInput ?? ``}
+              />
             }
             onBack={() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } })}
             menu={
@@ -837,6 +862,14 @@ function ConversationBody({
       .catch((error) => failedAction(`send`, `the message`, error))
   }
   const [dockHeight, setDockHeight] = useState(0)
+  // FEED-140: the dock's band grows the transcript's bottom padding AFTER
+  // the first pin to the newest row; a pinned reader stays pinned, so the
+  // last card's actions (an inline plan's decision) never sit under it.
+  const { atBottom, jumpToBottom } = follow
+  useEffect(() => {
+    if (atBottom) jumpToBottom()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dockHeight])
   const composer = canReply ? (
     <SessionComposer
       teamId={teamId}
