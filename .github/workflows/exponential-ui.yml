@@ -293,6 +293,10 @@ jobs:
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
       - uses: oven-sh/setup-bun@v2
       - name: Size gate (xcframework slices, VAPP-106)
+        # EXP-1371: the MacBook and GitHub's macos-26 link different sizes;
+        # each has its own budgets (size-budget.json $machines).
+        env:
+          EXPONENTIAL_UI_SIZE_MACHINE: ${{ runner.environment == 'github-hosted' && 'github-macos-26' || '' }}
         run: bun packages/exponential-ui/release/size.ts xcframework --check
       - name: Hand the xcframework to the simulator job
         uses: actions/upload-artifact@v4
