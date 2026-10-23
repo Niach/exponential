@@ -21,7 +21,7 @@ data class DraftStart(
     /**
      * What a draft start is "the same" by: every field of
      * `starting.fingerprint.fields` (recheck R2). Lists compare as SETS
-     * (order-free), an absent list or map equals an empty one, text compares
+     * (order-free), an absent list equals an empty one, text compares
      * verbatim. The attachments are stable per-pick ids, never the uploaded
      * ones, which a send stamps. The launch options are the WIRE form the
      * start sends, so a pick that never reaches the device never mints a new
@@ -31,8 +31,6 @@ data class DraftStart(
         val deviceId: String,
         val text: String,
         val issueIds: Set<String> = emptySet(),
-        val actionId: String? = null,
-        val actionInputs: Map<String, String> = emptyMap(),
         /** The chat's repository (the hidden Chat builtin's `repo` input). */
         val repositoryId: String? = null,
         val attachments: Set<String> = emptySet(),

@@ -61,7 +61,7 @@ class DraftStartTest {
         listOf(
             draft.copy(text = "fix it"),
             draft.copy(issueIds = setOf("i1", "i2")),
-            draft.copy(issueIds = emptySet(), actionId = "act"),
+            draft.copy(issueIds = emptySet()),
             draft.copy(attachments = emptySet()),
             draft.copy(model = "sonnet"),
             draft.copy(account = "profile-2"),
@@ -96,9 +96,6 @@ class DraftStartTest {
             deviceId = string("deviceId")!!,
             text = string("text")!!,
             issueIds = set("issueIds"),
-            actionId = string("actionId"),
-            actionInputs = raw["actionInputs"]?.takeIf { it !is JsonNull }?.jsonObject
-                ?.mapValues { it.value.jsonPrimitive.content }.orEmpty(),
             repositoryId = string("repositoryId"),
             attachments = set("attachments"),
             agent = string("agent"),

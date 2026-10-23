@@ -21,7 +21,6 @@ import androidx.room.TypeConverters
         NotificationEntity::class,
         IssueSubscriberEntity::class,
         IssueEventEntity::class,
-        ActionEntity::class,
         DeviceEntity::class,
         DeviceWorktreeEntity::class,
         PinEntity::class,
@@ -445,8 +444,14 @@ import androidx.room.TypeConverters
     //      `messages.session_id` dropped, `conversation_id` NOT NULL + indexed.
     //      Explicit [MIGRATION_94_95] rebuilds the table empty and refetches
     //      only the messages shape.
+    // v96 (NEW-8): actions are gone (the `actions` table + shape offset drop,
+    //      `pins.action_id` + action pins go) and the session tree sheds its
+    //      legacy columns (`sessions.kind/dispatch/caption/aside/
+    //      move_to_device_id/action_*/spawned_by_session_id/name/icon/color/
+    //      triggers/sort_order`, `session_issues.assigned_session_id`).
+    //      Explicit [MIGRATION_95_96] rebuilds the kept tables in place.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 95,
+    version = 96,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -466,7 +471,6 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun notificationDao(): NotificationDao
     abstract fun issueSubscriberDao(): IssueSubscriberDao
     abstract fun issueEventDao(): IssueEventDao
-    abstract fun actionDao(): ActionDao
     abstract fun deviceDao(): DeviceDao
     abstract fun deviceWorktreeDao(): DeviceWorktreeDao
     abstract fun pinDao(): PinDao

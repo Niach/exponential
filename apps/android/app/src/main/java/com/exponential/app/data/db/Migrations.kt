@@ -369,6 +369,91 @@ val MIGRATION_94_95: Migration = object : Migration(94, 95) {
     }
 }
 
+/**
+ * v96 (NEW-8): actions are gone and the session tree sheds its legacy
+ * columns, in place (every row and every kept shape's offset survives):
+ *  - the `actions` table drops, with its Electric offset and any shape-repair
+ *    marker naming it, so nothing ever resumes that shape;
+ *  - `pins` loses `action_id` and every legacy `action` pin;
+ *  - `sessions` loses `kind`, `dispatch`, `caption`, `aside`,
+ *    `move_to_device_id`, `action_id`, `action_name`, `action_inputs`,
+ *    `spawned_by_session_id`, `name`, `icon`, `color`, `triggers` and
+ *    `sort_order`; `session_issues` loses `assigned_session_id`.
+ * Each kept table is REBUILT (Room validates it against its entity after an
+ * explicit migration) with the DDL verbatim from the generated
+ * ExponentialDatabase_Impl.
+ */
+val MIGRATION_95_96: Migration = object : Migration(95, 96) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS `actions`")
+        db.execSQL(
+            "DELETE FROM `electric_offsets` WHERE `shape` = 'actions' OR " +
+                "(substr(`shape`, 1, 8) = '_repair:' AND substr(`shape`, -8) = ':actions')",
+        )
+        db.execSQL("DELETE FROM `pins` WHERE `kind` = 'action'")
+        rebuild(db, "pins", PINS_V96, PIN_COLUMNS_V96, PIN_INDICES_V96)
+        rebuild(db, "sessions", SESSIONS_V96, SESSION_COLUMNS_V96, SESSION_INDICES_V96)
+        rebuild(db, "session_issues", SESSION_ISSUES_V96, SESSION_ISSUE_COLUMNS_V96, SESSION_ISSUE_INDICES_V96)
+    }
+}
+
+private const val PINS_V96 =
+    "CREATE TABLE IF NOT EXISTS `pins` (`id` TEXT NOT NULL, `user_id` TEXT NOT NULL, " +
+        "`team_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `issue_id` TEXT, `session_id` TEXT, " +
+        "`sort_order` REAL NOT NULL, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, " +
+        "PRIMARY KEY(`id`))"
+
+private val PIN_COLUMNS_V96 = listOf(
+    "id", "user_id", "team_id", "kind", "issue_id", "session_id", "sort_order", "created_at", "updated_at",
+)
+
+private val PIN_INDICES_V96 = listOf(
+    "CREATE INDEX IF NOT EXISTS `index_pins_team_id` ON `pins` (`team_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_pins_issue_id` ON `pins` (`issue_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_pins_session_id` ON `pins` (`session_id`)",
+)
+
+private const val SESSIONS_V96 =
+    "CREATE TABLE IF NOT EXISTS `sessions` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+        "`parent_id` TEXT, `root_id` TEXT NOT NULL, `depth` INTEGER, `user_id` TEXT NOT NULL, " +
+        "`device_id` TEXT NOT NULL, `cli` TEXT, `account` TEXT, `model` TEXT, `effort` TEXT, " +
+        "`plan_mode` INTEGER NOT NULL, `computer_use` INTEGER NOT NULL, `ultracode` INTEGER NOT NULL, " +
+        "`repository_id` TEXT, `branch` TEXT, `status` TEXT NOT NULL, `busy` INTEGER NOT NULL, " +
+        "`needs_input` INTEGER NOT NULL, `blocked` TEXT, `started_at` TEXT, `last_turn_at` TEXT, " +
+        "`ended_at` TEXT, `shared` INTEGER NOT NULL, `title` TEXT, `guide` TEXT, " +
+        "`created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, `agent_id` TEXT, `app_id` TEXT, " +
+        "PRIMARY KEY(`id`))"
+
+private val SESSION_COLUMNS_V96 = listOf(
+    "id", "team_id", "parent_id", "root_id", "depth", "user_id", "device_id", "cli", "account",
+    "model", "effort", "plan_mode", "computer_use", "ultracode", "repository_id", "branch", "status",
+    "busy", "needs_input", "blocked", "started_at", "last_turn_at", "ended_at", "shared", "title",
+    "guide", "created_at", "updated_at", "agent_id", "app_id",
+)
+
+private val SESSION_INDICES_V96 = listOf(
+    "CREATE INDEX IF NOT EXISTS `index_sessions_team_id` ON `sessions` (`team_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_sessions_root_id` ON `sessions` (`root_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_sessions_parent_id` ON `sessions` (`parent_id`)",
+)
+
+private const val SESSION_ISSUES_V96 =
+    "CREATE TABLE IF NOT EXISTS `session_issues` (`id` TEXT NOT NULL, `session_id` TEXT NOT NULL, " +
+        "`issue_id` TEXT NOT NULL, `team_id` TEXT NOT NULL, `source` TEXT NOT NULL, `added_by` TEXT, " +
+        "`added_by_session_id` TEXT, `sort_order` REAL NOT NULL, `created_at` TEXT NOT NULL, " +
+        "`updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))"
+
+private val SESSION_ISSUE_COLUMNS_V96 = listOf(
+    "id", "session_id", "issue_id", "team_id", "source", "added_by", "added_by_session_id",
+    "sort_order", "created_at", "updated_at",
+)
+
+private val SESSION_ISSUE_INDICES_V96 = listOf(
+    "CREATE INDEX IF NOT EXISTS `index_session_issues_session_id` ON `session_issues` (`session_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_session_issues_issue_id` ON `session_issues` (`issue_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_session_issues_team_id` ON `session_issues` (`team_id`)",
+)
+
 private val NEW_TABLES_V92 = listOf(
     "CREATE TABLE IF NOT EXISTS `agents` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
         "`name` TEXT NOT NULL, `icon` TEXT, `color` TEXT, `triggers` TEXT, `device_id` TEXT NOT NULL, " +

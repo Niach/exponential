@@ -182,16 +182,14 @@ fun ThreadScreen(
     }
     val rootRow = root
     // NEW-2: the agent's DEFINITION row names the header (its coloured icon +
-    // name); the session's legacy facets only stand in until it syncs.
+    // name); NEW-8: the only source (the session's legacy facets are gone).
     val agentDefinition by viewModel.agentDefinition.collectAsStateWithLifecycle()
     val agent = if (isAgent && rootRow != null) {
         val def = agentDefinition
         ThreadAgent(
-            name = def?.name?.takeIf { it.isNotBlank() }
-                ?: rootRow.name?.takeIf { it.isNotBlank() }
-                ?: SessionTree.ListCopy.AGENTS,
-            icon = def?.icon ?: rootRow.icon,
-            color = def?.color ?: rootRow.color,
+            name = def?.name?.takeIf { it.isNotBlank() } ?: SessionTree.ListCopy.AGENTS,
+            icon = def?.icon,
+            color = def?.color,
         )
     } else {
         null

@@ -104,27 +104,20 @@ fun sessionModel(config: SessionConfigState?): String? {
 
 /**
  * The composer's model pin ×4 (web `session-composer.tsx` `fallbackModel`):
- * the live relay model, else the session row's own pick, else — a dispatcher —
- * the device's thread model for the row's agent (contract thread default
- * absent), else the device's work model (contract default absent).
+ * the live relay model, else the session row's own pick, else the device's
+ * work model for the row's agent (contract default absent). NEW-8: no
+ * dispatcher reader (the server never sets `sessions.dispatch`).
  */
 fun composerModel(
     config: SessionConfigState?,
     rowModel: String?,
     cli: String?,
-    dispatch: Boolean,
     launchDefaults: com.exponential.app.data.api.DeviceLaunchDefaults?,
 ): String {
     sessionModel(config)?.let { return it }
     if (!rowModel.isNullOrEmpty()) return rowModel
     val agent = cli?.takeIf { it.isNotEmpty() } ?: "claude"
-    val defaults = launchDefaults?.agents?.get(agent)
     val codex = agent == "codex"
-    return if (dispatch) {
-        defaults?.threadModel?.takeIf { it.isNotEmpty() }
-            ?: if (codex) DomainContract.deviceAgentDefaultsCodexThreadModel else DomainContract.deviceAgentDefaultsThreadModel
-    } else {
-        defaults?.model?.takeIf { it.isNotEmpty() }
-            ?: if (codex) DomainContract.deviceAgentDefaultsCodexModel else DomainContract.deviceAgentDefaultsModel
-    }
+    return launchDefaults?.agents?.get(agent)?.model?.takeIf { it.isNotEmpty() }
+        ?: if (codex) DomainContract.deviceAgentDefaultsCodexModel else DomainContract.deviceAgentDefaultsModel
 }

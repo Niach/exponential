@@ -34,8 +34,6 @@ class SessionDeviceMoveTest {
     @Test
     fun copyIsByteLocked() {
         assertEquals("Move to device", SessionDeviceMove.PICKER_TITLE)
-        assertEquals("Moving to {device}…", SessionDeviceMove.MOVING_LABEL)
-        assertEquals("Moving to Studio…", SessionDeviceMove.movingLabel("Studio"))
         assertEquals("Couldn't move the session", SessionDeviceMove.MOVE_FAILED_TOAST)
         assertEquals("This device is offline.", SessionDeviceMove.REASON_OFFLINE)
         assertEquals("Agents move from Settings → Agents.", SessionDeviceMove.REASON_AGENT)
@@ -43,10 +41,10 @@ class SessionDeviceMoveTest {
     }
 
     @Test
-    fun pinHiddenForAgentsAndAsides() {
-        assertEquals(SessionDeviceMove.REASON_AGENT, SessionDeviceMove.hiddenReason(DomainContract.sessionKindAgent, false))
-        assertEquals(SessionDeviceMove.REASON_ASIDE, SessionDeviceMove.hiddenReason(DomainContract.sessionKindThread, true))
-        assertTrue(SessionDeviceMove.visible(DomainContract.sessionKindThread, false))
+    fun pinHiddenForAgents() {
+        assertEquals(SessionDeviceMove.REASON_AGENT, SessionDeviceMove.hiddenReason(DomainContract.sessionKindAgent))
+        assertNull(SessionDeviceMove.hiddenReason(DomainContract.sessionKindThread))
+        assertTrue(SessionDeviceMove.visible(DomainContract.sessionKindThread))
     }
 
     @Test
@@ -103,11 +101,10 @@ class SessionDeviceMoveTest {
     }
 
     @Test
-    fun rowsMarkCurrentAndTarget() {
+    fun rowsMarkCurrent() {
         val rows = SessionDeviceMove.rows(
             listOf(device("a"), device("b"), device("c", online = false)),
             deviceId = "a",
-            moveToDeviceId = "b",
             teamId = team,
             shared = false,
             cli = "claude",
@@ -115,15 +112,15 @@ class SessionDeviceMoveTest {
         assertEquals(listOf("a", "b", "c"), rows.map { it.id })
         assertTrue(rows[0].current)
         assertNull(rows[0].reason)
-        assertTrue(rows[1].target)
+        assertFalse(rows[1].current)
+        assertNull(rows[1].reason)
         assertEquals(SessionDeviceMove.REASON_OFFLINE, rows[2].reason)
-        assertEquals("Moving to B…", SessionDeviceMove.pinLabel(rows, "a", "b"))
-        assertEquals("A", SessionDeviceMove.pinLabel(rows, "a", null))
+        assertEquals("A", SessionDeviceMove.pinLabel(rows, "a"))
     }
 
     @Test
     fun currentDeviceAlwaysListed() {
-        val rows = SessionDeviceMove.rows(listOf(device("b")), "gone", null, team, false, "claude")
+        val rows = SessionDeviceMove.rows(listOf(device("b")), "gone", team, false, "claude")
         assertEquals(listOf("gone", "b"), rows.map { it.id })
         assertTrue(rows.first().current)
     }
@@ -135,12 +132,9 @@ class SessionDeviceMoveTest {
     }
 
     @Test
-    fun picksMoveCancelOrNothing() {
-        assertEquals(DeviceMovePick.Move, SessionDeviceMove.pick("b", "a", null))
-        assertNull(SessionDeviceMove.pick("a", "a", null))
-        assertEquals(DeviceMovePick.Cancel, SessionDeviceMove.pick("a", "a", "b"))
-        assertNull(SessionDeviceMove.pick("b", "a", "b"))
-        assertEquals(DeviceMovePick.Move, SessionDeviceMove.pick("c", "a", "b"))
+    fun picksMoveOrNothing() {
+        assertEquals(DeviceMovePick.Move, SessionDeviceMove.pick("b", "a"))
+        assertNull(SessionDeviceMove.pick("a", "a"))
     }
 
     @Test
