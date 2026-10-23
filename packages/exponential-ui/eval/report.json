@@ -5732,7 +5732,7 @@
     }
   },
   "parity": {
-    "$comment": "Devices template (exponential-ui-devices) vs the native Devices page (agents), on the stored shots; store px (1 css px = 1.25 store px). `surfaces` (VAPP-127): every corpus surface naming an appView vs that app screen's stored shot, per platform where the eval has a picture (web: render.ts; android / ios / desktop: the shots pipeline's eval lane), the spacing both draw in css px.",
+    "$comment": "Devices template (exponential-ui-devices) vs the native Devices page (agents), on the stored shots; store px (1 css px = 1.25 store px). `surfaces` (VAPP-127): every corpus surface naming an appView vs that app screen's stored shot, per platform where the eval has a picture (web: render.ts; android / ios / desktop: the shots pipeline's eval lane), the spacing both draw in css px. VAPP-128: `section` = the Section macro's band and the gap under it on its specimen shot (exponential-ui-section).",
     "rows": [
       {
         "platform": "web",
@@ -8364,6 +8364,26 @@
           "template": "packages/exponential-ui/eval/out/team-switcher/ios.webp",
           "native": "shots/composer-menu/ios.webp"
         }
+      }
+    ],
+    "section": [
+      {
+        "platform": "web",
+        "band": {
+          "top": 54,
+          "height": 41,
+          "titleX": 14
+        },
+        "gapBelowBand": 23
+      },
+      {
+        "platform": "desktop",
+        "band": {
+          "top": 110,
+          "height": 39,
+          "titleX": 15
+        },
+        "gapBelowBand": 24
       }
     ]
   }
