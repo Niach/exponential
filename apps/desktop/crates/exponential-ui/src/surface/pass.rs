@@ -138,7 +138,7 @@ impl Surface {
     fn apply_heights(&mut self, requests: &[HeightRequest], heights: &[f32]) {
         for (k, r) in requests.iter().enumerate() {
             if let Some(h) = heights.get(k) {
-                self.memo.heights.insert((r.index, MeasureMemo::width_key(r.width)), crate::measure::finite_or_zero(*h));
+                self.memo.insert_height(r.index, MeasureMemo::width_key(r.width), crate::measure::finite_or_zero(*h));
                 self.engine.mark_dirty(r.index);
             }
         }

@@ -8,6 +8,71 @@
     "os": "darwin 27.0.0"
   },
   "runs": {
+    "compose-android": {
+      "platform": "android",
+      "device": "Google sdk_gphone64_arm64 (API 36) emulator",
+      "date": "2026-10-23T08:03:37.140407Z",
+      "scenarios": {
+        "cold-start": {
+          "coldStartMs": 6819.25,
+          "firstPaintMs": 105.803,
+          "nodes": 604,
+          "memoryMb": 32.544
+        },
+        "card-grid": {
+          "warmPassMs": 0.316,
+          "upcallsPerPass": 1,
+          "measureCallsPerPass": 29
+        },
+        "list-100k": {
+          "firstPaintMs": 1395.631,
+          "scrollStepMs": 11.971,
+          "scrollToIndexMs": 11.564,
+          "renderedItems": 30,
+          "measureCallsPerStep": 78.04,
+          "ffiCallsPerStep": 143.02,
+          "ffiBytesPerStep": 49993.64,
+          "memoryMb": 112.832
+        },
+        "streaming": {
+          "applyMs": 8.567,
+          "p95ApplyMs": 23.575,
+          "totalMs": 1713.345,
+          "nodes": 607,
+          "ffiBytesTotal": 5212191
+        },
+        "theme-switch": {
+          "themeSwitchMs": 59.523,
+          "modeSwitchMs": 23.524,
+          "restyled": 609
+        },
+        "resize": {
+          "resizeMs": 10.506,
+          "upcallsPerResize": 1
+        },
+        "deep-nesting": {
+          "firstPaintMs": 12.422,
+          "warmPassMs": 0.225,
+          "depth": 48
+        },
+        "template-10k": {
+          "firstPaintMs": 1540.884,
+          "rebindMs": 1594.115,
+          "nodes": 10001
+        },
+        "overlay": {
+          "openMs": 0.977,
+          "closeMs": 0.497
+        },
+        "table-1k": {
+          "firstPaintMs": 72.24,
+          "scrollStepMs": 23.693,
+          "sortMs": 33.143,
+          "renderedRows": 30
+        }
+      },
+      "commit": "02024b0361d"
+    },
     "compose-jvm": {
       "platform": "macos",
       "device": "Robolectric API 34, aarch64, 14 cpus",
@@ -75,63 +140,63 @@
     },
     "core": {
       "platform": "macos",
-      "date": "2026-10-22T13:54:15Z",
+      "date": "2026-10-23T06:54:33Z",
       "scenarios": {
         "cold-start": {
-          "allocations": 198331,
-          "coldStartMs": 19.611,
-          "firstPaintMs": 11.557,
-          "memoryMb": 21.344,
-          "nodes": 596
+          "allocations": 198610,
+          "coldStartMs": 11.942,
+          "firstPaintMs": 7.857,
+          "memoryMb": 27.391,
+          "nodes": 609
         },
         "card-grid": {
           "upcallsPerPass": 1,
-          "warmPassMs": 0.111
+          "warmPassMs": 0.123
         },
         "list-100k": {
-          "firstPaintMs": 61.701,
-          "memoryMb": 89.547,
+          "firstPaintMs": 53.241,
+          "memoryMb": 95.219,
           "renderedItems": 30,
-          "scrollStepMs": 2.306,
-          "scrollToIndexMs": 2.195
+          "scrollStepMs": 1.476,
+          "scrollToIndexMs": 1.309
         },
         "streaming": {
-          "applyMs": 0.776,
+          "applyMs": 0.854,
           "nodes": 607,
-          "p95ApplyMs": 1.966,
-          "totalMs": 155.251
+          "p95ApplyMs": 2.184,
+          "totalMs": 170.75
         },
         "theme-switch": {
-          "modeSwitchMs": 2.117,
-          "restyled": 596,
-          "themeSwitchMs": 4.931
+          "modeSwitchMs": 1.896,
+          "restyled": 609,
+          "themeSwitchMs": 5.229
         },
         "resize": {
-          "resizeMs": 1.971,
+          "resizeMs": 2.098,
           "upcallsPerResize": 1
         },
         "deep-nesting": {
           "depth": 48,
-          "firstPaintMs": 0.824,
-          "warmPassMs": 0.074
+          "firstPaintMs": 0.554,
+          "warmPassMs": 0.068
         },
         "template-10k": {
-          "firstPaintMs": 75.408,
+          "firstPaintMs": 39.265,
           "nodes": 10001,
-          "rebindMs": 87.131
+          "rebindMs": 48.183
         },
         "overlay": {
-          "closeMs": 0.017,
-          "openMs": 0.09
+          "closeMs": 0.015,
+          "openMs": 0.087
         },
         "table-1k": {
-          "firstPaintMs": 2.828,
+          "firstPaintMs": 2.139,
           "renderedRows": 30,
-          "scrollStepMs": 2.358,
-          "sortMs": 2.631
+          "scrollStepMs": 1.818,
+          "sortMs": 1.863
         }
       },
-      "commit": "e66a7cbd608"
+      "commit": "72edf865a10"
     },
     "element-chromium": {
       "platform": "web",
