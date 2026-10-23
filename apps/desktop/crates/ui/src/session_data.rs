@@ -1144,7 +1144,6 @@ mod tests {
                     busy: false,
                     needs_you: false,
                     unread: false,
-                    caption: None,
                     activity_at: String::new(),
                 })
                 .collect(),
@@ -1183,7 +1182,6 @@ mod tests {
                 busy: false,
                 needs_you: false,
                 unread: false,
-                caption: None,
                 activity_at: String::new(),
             }],
         };

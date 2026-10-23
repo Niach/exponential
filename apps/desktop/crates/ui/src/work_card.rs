@@ -435,8 +435,7 @@ pub(crate) fn session_tone_color(tone: &str, cx: &App) -> gpui::Hsla {
 /// EXP-1294 — THE session card (`fixtures/session-card.json`): the Work
 /// card's header row in the glass card frame — the state glyph (tinted by
 /// its tone), the name, the muted state word, trailing the spinner while
-/// working, the elapsed time and a chevron; EXP-1323: the live caption as
-/// the muted second line. The WHOLE card opens the session
+/// working, the elapsed time and a chevron. The WHOLE card opens the session
 /// (`on_click`); its element id is the fixture's test id plus the session id.
 pub(crate) fn session_card(
     card: &domain::session_tree::SessionCard,
@@ -499,31 +498,5 @@ fn session_card_framed(
         .cursor_pointer()
         .on_click(move |_: &ClickEvent, window, cx| on_click(window, cx))
         .child(header)
-        .children(session_card_caption(card, cx))
         .into_any_element()
-}
-
-/// The name's x inside the card: the header's 12px pad + the 12px state
-/// glyph + its 8px gap.
-const CAPTION_INSET: f32 = 32.;
-
-/// EXP-1323: the card's muted second line — the session's live caption
-/// (what it does right now; an aside keeps its answer's first line),
-/// aligned under the name. `None` without one.
-pub(crate) fn session_card_caption(card: &domain::session_tree::SessionCard, cx: &App) -> Option<AnyElement> {
-    let caption = card.caption.clone()?;
-    Some(
-        tool_text(div())
-            .id(ElementId::from(SharedString::from(format!("session-card-caption-{}", card.session_id))))
-            .w_full()
-            .min_w_0()
-            .mt(px(-6.))
-            .pb_2()
-            .pl(px(CAPTION_INSET))
-            .pr_3()
-            .truncate()
-            .text_color(cx.theme().muted_foreground)
-            .child(caption)
-            .into_any_element(),
-    )
 }

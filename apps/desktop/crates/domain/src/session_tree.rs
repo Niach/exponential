@@ -430,9 +430,6 @@ pub struct SessionCard {
     pub tone: String,
     pub elapsed: Option<String>,
     pub running: bool,
-    /// EXP-1323: the live status line under the name; an ended session's
-    /// is dropped unless it is an aside (its answer's first line stays).
-    pub caption: Option<String>,
     pub test_id: String,
 }
 
@@ -493,12 +490,6 @@ pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCa
         _ => None,
     };
     let name = title.to_string();
-    let caption = session
-        .caption
-        .as_deref()
-        .map(str::trim)
-        .filter(|caption| !caption.is_empty() && (state != SessionState::Ended || session.aside))
-        .map(str::to_string);
     SessionCard {
         session_id: session.id.clone(),
         icon: state.icon().to_string(),
@@ -508,7 +499,6 @@ pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCa
         tone: state.tone().to_string(),
         elapsed,
         running: state == SessionState::Working,
-        caption,
         test_id: SESSION_CARD.test_ids.card.clone(),
     }
 }
@@ -1699,9 +1689,6 @@ pub struct ThreadsListRow {
     /// newer than the viewer's read of the root; a child: its own).
     #[serde(default)]
     pub unread: bool,
-    /// EXP-1323: the live caption (the session card rule).
-    #[serde(default)]
-    pub caption: Option<String>,
     /// The tree's newest `updated_at` (the sort key), verbatim; a child's
     /// own `updated_at`.
     pub activity_at: String,
@@ -1874,7 +1861,6 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
         } else {
             ThreadsListKey::Recent
         };
-        let caption = session_card(root, &title, 0).caption;
         let row = ThreadsListRow {
             session_id: root.id.clone(),
             team_id: root.team_id.clone().unwrap_or_default(),
@@ -1886,11 +1872,10 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
             busy: live.iter().any(|session| session.busy),
             needs_you,
             unread: unread_at(newest_agent_in_tree.get(root.id.as_str()), &root.id),
-            caption,
             activity_at: activity,
         };
-        // A live tree nests its children (depth-first, creation order;
-        // asides stay in the Conversation); Recent collapses to the root.
+        // A live tree nests its children (depth-first, creation order);
+        // Recent collapses to the root.
         let mut children = Vec::new();
         if key != ThreadsListKey::Recent {
             let ordered = tree_order(tree);
@@ -1901,7 +1886,7 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
                 visit: &mut dyn FnMut(&'s SessionRow, &str, usize),
             ) {
                 for child in ordered.iter().copied() {
-                    if child.parent_id.as_deref() != Some(parent_id) || child.aside {
+                    if child.parent_id.as_deref() != Some(parent_id) {
                         continue;
                     }
                     visit(child, parent_id, depth);
@@ -1925,7 +1910,6 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
                     busy: !child.is_ended() && child.busy,
                     needs_you: !child.is_ended() && child.needs_input,
                     unread: unread_at(newest_agent.get(child.id.as_str()), &child.id),
-                    caption: card.caption,
                     activity_at: child.updated_at.clone().unwrap_or_default(),
                 });
             });
