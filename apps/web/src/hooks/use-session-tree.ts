@@ -1,6 +1,7 @@
 import { useMemo } from "react"
 import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
+  conversationCollection,
   issueCollection,
   issueRelationCollection,
   messageCollection,
@@ -16,10 +17,13 @@ import { useNow } from "@/hooks/use-now"
 import { teamScopeIds } from "@/lib/team-scope"
 import {
   buildSessionThread,
+  conversationSessions,
+  keyMessageRows,
   listAgents,
   type AgentLike,
   partitionThreads,
   sessionCard,
+  sessionConversationIds,
   toTreeIssue,
   toTreeMessage,
   toTreePullRequest,
@@ -33,6 +37,7 @@ import {
   type SessionIssueRow,
   type SessionRow,
   type SessionThreadView,
+  type SyncedMessageRow,
   type ThreadsListGroup,
   type TreeIssue,
   type TreeSession,
@@ -79,6 +84,30 @@ export function titleShapesReady(input: {
   return (
     input.linksReady && (input.issueCount === 0 || input.issuesReady) && input.messagesReady
   )
+}
+
+/** NEW-8: conversation id → session id over the synced `conversations`
+ *  (`conversationSessions`): every message is keyed through it
+ *  (`keyMessageRows`), never through its own legacy `sessionId`. Anything
+ *  waiting on the messages waits on `isReady` too. */
+export function useConversationSessions(): {
+  conversations: Map<string, string>
+  isReady: boolean
+} {
+  const { data, isReady } = useLiveQuery(
+    (query) =>
+      query.from({ conversations: conversationCollection }).select(({ conversations }) => ({
+        id: conversations.id,
+        sessionId: conversations.sessionId,
+      })),
+    []
+  )
+  const conversations = useMemo(
+    () =>
+      conversationSessions((data ?? []) as { id: string; sessionId: string | null }[]),
+    [data]
+  )
+  return { conversations, isReady }
 }
 
 /** EXP-1316 / EXP-1341: the sessions whose title (`sessionTitle`) could
@@ -156,7 +185,7 @@ function useTitleContext(teamIds: readonly string[]) {
         : undefined,
     [issueKey]
   )
-  const { data: messages, isReady: messagesReady } = useLiveQuery(
+  const { data: messageRows, isReady: messageRowsReady } = useLiveQuery(
     (query) =>
       teamIds.length > 0
         ? query
@@ -164,6 +193,13 @@ function useTitleContext(teamIds: readonly string[]) {
             .where(({ messages }) => inArray(messages.teamId, [...teamIds]))
         : undefined,
     [key]
+  )
+  // NEW-8: the messages are keyed through their conversations: both shapes.
+  const { conversations, isReady: conversationsReady } = useConversationSessions()
+  const messagesReady = messageRowsReady && conversationsReady
+  const messages = useMemo(
+    () => keyMessageRows((messageRows ?? []) as SyncedMessageRow[], conversations),
+    [messageRows, conversations]
   )
   const scopedLinksReady = teamIds.length > 0 && linksReady
   const ready = titleShapesReady({
@@ -176,7 +212,7 @@ function useTitleContext(teamIds: readonly string[]) {
     () => ({
       sessionIssues: ((links ?? []) as SessionIssueRow[]).map(toTreeSessionIssue),
       issues: ((issues ?? []) as TreeIssue[]).map(toTreeIssue),
-      messages: ((messages ?? []) as MessageRow[]).map(toTreeMessage),
+      messages: messages.map(toTreeMessage),
       ready,
       linksReady: scopedLinksReady,
       issuesReady,
@@ -453,7 +489,7 @@ export function useSessionThread(
   // EXP-1334: the WHOLE tree's messages (`root_id`): the root's own rows
   // plus its children's question / plan cards, which surface in the
   // Conversation (`buildSessionThread` picks them).
-  const { data: messages, isReady: messagesReady } = useLiveQuery(
+  const { data: messageRows, isReady: messageRowsReady } = useLiveQuery(
     (query) =>
       rootId
         ? query
@@ -461,6 +497,13 @@ export function useSessionThread(
             .where(({ messages }) => eq(messages.rootId, rootId))
         : undefined,
     [rootId]
+  )
+  // NEW-8: keyed through their conversations; the title waits on both.
+  const { conversations, isReady: conversationsReady } = useConversationSessions()
+  const messagesReady = messageRowsReady && conversationsReady
+  const messages = useMemo(
+    () => keyMessageRows((messageRows ?? []) as SyncedMessageRow[], conversations),
+    [messageRows, conversations]
   )
   // EXP-1334: the issue tree (`issue_relations` kind parent): a linked
   // sub-issue folds under its nearest LINKED ancestor. The walk passes
@@ -495,7 +538,7 @@ export function useSessionThread(
         tree,
         ((links ?? []) as SessionIssueRow[]).map(toTreeSessionIssue),
         foldedIssues,
-        ((messages ?? []) as MessageRow[]).map(toTreeMessage)
+        messages.map(toTreeMessage)
       ),
     [tree, links, foldedIssues, messages]
   )
@@ -507,7 +550,7 @@ export function useSessionThread(
       sessions: tree,
       sessionIssues: ((links ?? []) as SessionIssueRow[]).map(toTreeSessionIssue),
       issues: foldedIssues,
-      messages: ((messages ?? []) as MessageRow[]).map(toTreeMessage),
+      messages: messages.map(toTreeMessage),
       pullRequests: pullRequests.map(toTreePullRequest),
       now: now.toISOString(),
     }, { focus })
@@ -534,30 +577,30 @@ function useFoldedIssues(
   return useMemo(() => folded, [key])
 }
 
-/** The messages of ONE session (an agent's channel, an opened child). */
+/** The messages of ONE session (an agent's channel, an opened child): its
+ *  own conversation's (NEW-8, keyed through `conversations`), oldest first. */
 export function useSessionMessages(sessionId: string | null | undefined): MessageRow[] {
+  const { conversations } = useConversationSessions()
+  const conversationIds = sessionId ? sessionConversationIds(conversations, [sessionId]) : []
+  const conversationKey = conversationIds.join(`,`)
   const { data } = useLiveQuery(
     (query) =>
-      sessionId
+      conversationIds.length > 0
         ? query
             .from({ messages: messageCollection })
-            .where(({ messages }) => eq(messages.sessionId, sessionId))
+            .where(({ messages }) => inArray(messages.conversationId, conversationIds))
         : undefined,
-    [sessionId]
+    [conversationKey]
   )
   return useMemo(
-    () =>
-      ((data ?? []) as MessageRow[]).sort(
-        (a, b) =>
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() ||
-          (a.id < b.id ? -1 : 1)
-      ),
-    [data]
+    () => keyMessageRows((data ?? []) as SyncedMessageRow[], conversations),
+    [data, conversations]
   )
 }
 
 /** Every message of ONE tree (`root_id`): an agent's conversation shows
- *  its children's question / plan cards like a thread does. */
+ *  its children's question / plan cards like a thread does. NEW-8: keyed
+ *  through `conversations`, oldest first. */
 export function useTreeMessages(rootId: string | null | undefined): MessageRow[] {
   const { data } = useLiveQuery(
     (query) =>
@@ -568,14 +611,10 @@ export function useTreeMessages(rootId: string | null | undefined): MessageRow[]
         : undefined,
     [rootId]
   )
+  const { conversations } = useConversationSessions()
   return useMemo(
-    () =>
-      ((data ?? []) as MessageRow[]).sort(
-        (a, b) =>
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() ||
-          (a.id < b.id ? -1 : 1)
-      ),
-    [data]
+    () => keyMessageRows((data ?? []) as SyncedMessageRow[], conversations),
+    [data, conversations]
   )
 }
 
@@ -619,14 +658,23 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
         : undefined,
     [issueKey]
   )
-  const { data: messages, isReady: messagesReady } = useLiveQuery(
+  // NEW-8: the rows' own conversations' messages, keyed through them.
+  const { conversations, isReady: conversationsReady } = useConversationSessions()
+  const conversationIds = sessionConversationIds(conversations, ids)
+  const conversationKey = conversationIds.join(`,`)
+  const { data: messageRows, isReady: messageRowsReady } = useLiveQuery(
     (query) =>
-      ids.length > 0
+      conversationIds.length > 0
         ? query
             .from({ messages: messageCollection })
-            .where(({ messages }) => inArray(messages.sessionId, ids))
+            .where(({ messages }) => inArray(messages.conversationId, conversationIds))
         : undefined,
-    [key]
+    [conversationKey]
+  )
+  const messagesReady = conversationsReady && messageRowsReady
+  const messages = useMemo(
+    () => keyMessageRows((messageRows ?? []) as SyncedMessageRow[], conversations),
+    [messageRows, conversations]
   )
   return useMemo(() => {
     const sessions = rows.map(toTreeSession)
@@ -642,7 +690,7 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
       sessions.filter((session) => !held.has(session.id)),
       sessionIssues,
       ((issues ?? []) as TreeIssue[]).map(toTreeIssue),
-      ((messages ?? []) as MessageRow[]).map(toTreeMessage)
+      messages.map(toTreeMessage)
     )
     return { titles, held, ready: held.size === 0 }
     // eslint-disable-next-line react-hooks/exhaustive-deps
