@@ -273,37 +273,37 @@
       },
       "swift-ios-simulator": {
         "card-grid": {
-          "measureCallsPerPass": 29,
+          "measureCallsPerPass": 1,
           "upcallsPerPass": 1,
           "warmPassMs": 0.5
         },
         "cold-start": {
           "coldStartMs": 113.1,
-          "firstPaintMs": 65.2,
-          "memoryMb": 45.6,
-          "nodes": 591
+          "firstPaintMs": 50.2,
+          "memoryMb": 45.5,
+          "nodes": 604
         },
         "deep-nesting": {
           "depth": 48,
-          "firstPaintMs": 30.4,
-          "warmPassMs": 0.9
+          "firstPaintMs": 5.9,
+          "warmPassMs": 0.3
         },
         "list-100k": {
-          "ffiBytesPerStep": 33633,
-          "ffiCallsPerStep": 275,
-          "firstPaintMs": 568.5,
-          "measureCallsPerStep": 78,
+          "ffiBytesPerStep": 24411,
+          "ffiCallsPerStep": 179,
+          "firstPaintMs": 165.6,
+          "measureCallsPerStep": 40,
           "memoryMb": 126,
           "renderedItems": 30,
-          "scrollStepMs": 11.4,
-          "scrollToIndexMs": 16.1
+          "scrollStepMs": 7.4,
+          "scrollToIndexMs": 10.7
         },
         "overlay": {
-          "closeMs": 1,
-          "openMs": 2.2
+          "closeMs": 0.3,
+          "openMs": 0.9
         },
         "resize": {
-          "resizeMs": 17,
+          "resizeMs": 6.6,
           "upcallsPerResize": 1
         },
         "streaming": {
@@ -311,23 +311,23 @@
           "ffiBytesTotal": 8942883,
           "nodes": 607,
           "p95ApplyMs": 13.4,
-          "totalMs": 1369.3
+          "totalMs": 1367.5
         },
         "table-1k": {
-          "firstPaintMs": 94,
+          "firstPaintMs": 19.4,
           "renderedRows": 30,
-          "scrollStepMs": 36.5,
-          "sortMs": 73.1
+          "scrollStepMs": 9,
+          "sortMs": 16.8
         },
         "template-10k": {
-          "firstPaintMs": 3414.4,
+          "firstPaintMs": 585.9,
           "nodes": 10001,
-          "rebindMs": 3885.1
+          "rebindMs": 806.4
         },
         "theme-switch": {
-          "modeSwitchMs": 36.9,
-          "restyled": 596,
-          "themeSwitchMs": 135.1
+          "modeSwitchMs": 13.5,
+          "restyled": 609,
+          "themeSwitchMs": 39
         }
       },
       "swift-macos": {
