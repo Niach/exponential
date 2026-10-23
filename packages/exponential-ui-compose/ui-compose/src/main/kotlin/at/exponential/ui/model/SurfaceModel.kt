@@ -18,6 +18,7 @@ import at.exponential.ui.format.IcuFormatter
 import at.exponential.ui.ffi.FfiApplyOutcome
 import at.exponential.ui.ffi.FfiDelta
 import at.exponential.ui.ffi.FfiLayout
+import at.exponential.ui.ffi.FfiPaint
 import at.exponential.ui.ffi.FfiSettings
 import at.exponential.ui.ffi.HostFormatter
 import at.exponential.ui.ffi.Surface
@@ -818,6 +819,7 @@ class SurfaceModel(
         for (n in full) check(n.signature == nodes[n.index].signature) { "delta drift at ${n.index}: ${nodes[n.index].signature} != ${n.signature}" }
         val raw = surface.visuals()
         for ((i, v) in raw.withIndex()) if (i < styles.size) check(PaintStyle(v) == styles[i]) { "visual drift at $i (${nodes.getOrNull(i)})" }
+        // Per-slot `textStyle(i)` on purpose: an oracle independent of the `paintAt` read it checks.
         for (n in full) {
             val want = if (!n.isLeaf || n.removed) null else surface.textStyle(n.index.toUInt())?.let { ResolvedTextStyle(it) }
             check(want == textStyles[n.index]) { "text style drift at ${n.index} ($n): ${textStyles[n.index]} != $want" }
@@ -940,23 +942,25 @@ class SurfaceModel(
     /**
      * The visuals and text styles of every slot (`touched` null) or of the
      * touched slots and the leaves under them (a text style inherits down
-     * the tree); then the inherited text colours.
+     * the tree); then the inherited text colours. One batched `paintAt` per
+     * step (a slot's visual plus, for a leaf, its text style), never a
+     * `visual(i)` / `textStyle(i)` crossing per slot.
      */
     private fun readPaint(touched: Set<Int>?) {
         val count = nodes.size
         val st: ArrayList<PaintStyle>
         val ts: HashMap<Int, ResolvedTextStyle>
         if (touched == null) {
-            val raw = surface.visuals()
-            benchCounters?.received(raw.size * 96)
-            st = ArrayList(kotlin.math.max(raw.size, count))
-            for (v in raw) st.add(PaintStyle(v))
-            while (st.size < count) st.add(PaintStyle.EMPTY)
+            val paints = surface.paintAt(List(count) { it.toUInt() })
+            benchCounters?.received(paintBytes(paints))
+            st = ArrayList(count)
+            repeat(count) { st.add(PaintStyle.EMPTY) }
             ts = HashMap()
-            for (n in nodes) {
-                if (!n.isLeaf || n.removed) continue
-                benchCounters?.received(48)
-                surface.textStyle(n.index.toUInt())?.let { ts[n.index] = ResolvedTextStyle(it) }
+            for (p in paints) {
+                val i = p.index.toInt()
+                st[i] = PaintStyle(p.visual)
+                val n = nodes[i]
+                if (n.isLeaf && !n.removed) p.textStyle?.let { ts[i] = ResolvedTextStyle(it) }
             }
         } else {
             // The touched slots and every node under them (pre-order walk).
@@ -977,26 +981,18 @@ class SurfaceModel(
             st = ArrayList(styles)
             while (st.size < count) st.add(PaintStyle.EMPTY)
             ts = HashMap(textStyles)
-            // One `visuals()` beats many `visual(i)` calls past a quarter of the slots.
-            if (touched.size * 4 > count) {
-                val raw = surface.visuals()
-                benchCounters?.received(raw.size * 96)
-                for (i in touched) if (i < count) st[i] = raw.getOrNull(i)?.let(::PaintStyle) ?: PaintStyle.EMPTY
-            } else {
-                for (i in touched) {
-                    if (i >= count) continue
-                    benchCounters?.received(96)
-                    st[i] = surface.visual(i.toUInt())?.let(::PaintStyle) ?: PaintStyle.EMPTY
-                }
-            }
+            // The touched slots (their visuals) and the live leaves under them (their text styles).
+            val ask = ArrayList<UInt>(order.size)
+            for (i in order) if (i in touched || (nodes[i].isLeaf && !nodes[i].removed)) ask.add(i.toUInt())
+            val paints = surface.paintAt(ask)
+            benchCounters?.received(paintBytes(paints))
+            val byIndex = arrayOfNulls<FfiPaint>(count)
+            for (p in paints) byIndex[p.index.toInt()] = p
+            // The visual of a touched slot only; the walk below it is for the text styles.
+            for (i in touched) if (i < count) st[i] = byIndex[i]?.visual?.let(::PaintStyle) ?: PaintStyle.EMPTY
             for (i in order) {
                 val n = nodes[i]
-                if (!n.isLeaf || n.removed) {
-                    ts.remove(i)
-                    continue
-                }
-                benchCounters?.received(48)
-                val t = surface.textStyle(i.toUInt())
+                val t = if (!n.isLeaf || n.removed) null else byIndex[i]?.textStyle
                 if (t != null) ts[i] = ResolvedTextStyle(t) else ts.remove(i)
             }
         }
@@ -1005,6 +1001,9 @@ class SurfaceModel(
         pinnedDirty = true
         computeInks()
     }
+
+    /** [BenchCounters] bytes of one `paintAt` answer: index + visual, + a leaf's text style. */
+    private fun paintBytes(paints: List<FfiPaint>): Int = paints.sumOf { 100 + (if (it.textStyle != null) 48 else 0) }
 
     /** Text colour inheritance in TREE order (a reused slot may sit before its parent). */
     private fun computeInks() {
