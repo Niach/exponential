@@ -459,11 +459,6 @@ public final class SyncManager: @unchecked Sendable {
             type: IssueSubscriberEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
         ))
-        tasks.append(makeShapeTask(
-            name: "actions", path: "/api/shapes/actions", table: "actions",
-            type: ActionEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
-            session: session
-        ))
         // EXP-314: custom issue statuses — team-scoped like labels.
         tasks.append(makeShapeTask(
             name: "issue-statuses", path: "/api/shapes/issue-statuses", table: "issue_statuses",
@@ -544,8 +539,8 @@ public final class SyncManager: @unchecked Sendable {
 
         // NEW-2: agent DEFINITIONS (a member's conversation with one is a
         // `sessions` row with `agent_id`), the team's events, and the saved
-        // prompts that replace actions (the `actions` shape above stays, served
-        // empty, until NEW-8). All team-scoped; `instructions`,
+        // prompts that replace actions (NEW-8: the legacy `actions` shape is
+        // no longer subscribed). All team-scoped; `instructions`,
         // `trigger_state` and prompt `body` stay server-only.
         tasks.append(makeShapeTask(
             name: "agents", path: "/api/shapes/agents", table: "agents",

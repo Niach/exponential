@@ -26,8 +26,6 @@ final class SessionDeviceMoveTests: XCTestCase {
 
     func testCopyIsTheContract() {
         XCTAssertEqual(SessionDeviceMove.pickerTitle, "Move to device")
-        XCTAssertEqual(SessionDeviceMove.movingLabelTemplate, "Moving to {device}\u{2026}")
-        XCTAssertEqual(SessionDeviceMove.movingLabel("Studio"), "Moving to Studio…")
         XCTAssertEqual(
             SessionDeviceMove.note,
             "The session ends here and continues on that device on the same branch; its conversation goes with it, logins stay on each device."
@@ -35,7 +33,6 @@ final class SessionDeviceMoveTests: XCTestCase {
         XCTAssertEqual(SessionDeviceMove.reasonSteer, "Only people who can steer this session can move it.")
         XCTAssertEqual(SessionDeviceMove.reasonEnded, "This session has ended.")
         XCTAssertEqual(SessionDeviceMove.reasonAgent, "Agents move from Settings → Agents.")
-        XCTAssertEqual(SessionDeviceMove.reasonAside, "An aside stays on its parent's device.")
         XCTAssertEqual(SessionDeviceMove.reasonOffline, "This device is offline.")
         XCTAssertEqual(
             SessionDeviceMove.reasonVisibility,
@@ -46,10 +43,9 @@ final class SessionDeviceMoveTests: XCTestCase {
         XCTAssertEqual(SessionDeviceMove.failureToast, "Couldn't move the session")
     }
 
-    func testPinHiddenForAgentsAndAsides() {
-        XCTAssertTrue(SessionDeviceMove.pinVisible(kind: "thread", aside: false))
-        XCTAssertFalse(SessionDeviceMove.pinVisible(kind: "agent", aside: false))
-        XCTAssertFalse(SessionDeviceMove.pinVisible(kind: "thread", aside: true))
+    func testPinHiddenForAgents() {
+        XCTAssertTrue(SessionDeviceMove.pinVisible(kind: "thread"))
+        XCTAssertFalse(SessionDeviceMove.pinVisible(kind: "agent"))
     }
 
     func testPinBlockedSteerBeforeEnded() {
@@ -151,41 +147,19 @@ final class SessionDeviceMoveTests: XCTestCase {
         XCTAssertEqual(none.map(\.current), [false])
     }
 
-    func testPinLabel() {
-        let devices = [device("a", label: "Laptop"), device("b", label: "Studio")]
-        XCTAssertEqual(
-            SessionDeviceMove.pinLabel(currentDeviceName: "Laptop", moveToDeviceId: nil, devices: devices),
-            "Laptop"
-        )
-        XCTAssertEqual(
-            SessionDeviceMove.pinLabel(currentDeviceName: "Laptop", moveToDeviceId: "b", devices: devices),
-            "Moving to Studio…"
-        )
-        XCTAssertEqual(
-            SessionDeviceMove.pinLabel(currentDeviceName: "Laptop", moveToDeviceId: "zz", devices: devices),
-            "Moving to zz…"
-        )
-    }
-
-    func testPickMovesCancelsOrDoesNothing() {
-        XCTAssertEqual(SessionDeviceMove.pick(deviceId: "b", currentDeviceId: "a", moveToDeviceId: nil), .move("b"))
-        XCTAssertEqual(SessionDeviceMove.pick(deviceId: "a", currentDeviceId: "a", moveToDeviceId: nil), .none)
-        XCTAssertEqual(SessionDeviceMove.pick(deviceId: "a", currentDeviceId: "a", moveToDeviceId: "b"), .cancel)
-        XCTAssertEqual(SessionDeviceMove.pick(deviceId: "b", currentDeviceId: "a", moveToDeviceId: "b"), .none)
-        XCTAssertEqual(SessionDeviceMove.pick(deviceId: "c", currentDeviceId: "a", moveToDeviceId: "b"), .move("c"))
+    /// NEW-8: nothing is pending on the row: another device moves, the
+    /// current one does nothing.
+    func testPickMovesOrDoesNothing() {
+        XCTAssertEqual(SessionDeviceMove.pick(deviceId: "b", currentDeviceId: "a"), .move("b"))
+        XCTAssertEqual(SessionDeviceMove.pick(deviceId: "a", currentDeviceId: "a"), .none)
     }
 
     func testSendInputIsSessionIdPlusDeviceId() throws {
         XCTAssertEqual(
-            SessionDeviceMove.sendInput(sessionId: "s-1", pick: .move("b"), currentDeviceId: "a"),
+            SessionDeviceMove.sendInput(sessionId: "s-1", pick: .move("b")),
             .moveDevice(sessionId: "s-1", deviceId: "b")
         )
-        // A cancel names the CURRENT device.
-        XCTAssertEqual(
-            SessionDeviceMove.sendInput(sessionId: "s-1", pick: .cancel, currentDeviceId: "a"),
-            .moveDevice(sessionId: "s-1", deviceId: "a")
-        )
-        XCTAssertNil(SessionDeviceMove.sendInput(sessionId: "s-1", pick: .none, currentDeviceId: "a"))
+        XCTAssertNil(SessionDeviceMove.sendInput(sessionId: "s-1", pick: .none))
 
         let data = try JSONEncoder().encode(SessionsSendInput.moveDevice(sessionId: "s-1", deviceId: "b"))
         let wire = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -194,18 +168,14 @@ final class SessionDeviceMoveTests: XCTestCase {
         XCTAssertEqual(wire["deviceId"] as? String, "b")
     }
 
-    func testSessionRowDecodesMoveToDeviceId() throws {
+    /// NEW-8: the legacy `move_to_device_id` is ignored, present or not.
+    func testSessionRowToleratesMoveToDeviceId() throws {
         let json = """
             {"id":"s1","team_id":"t1","user_id":"u1","device_id":"a",
              "created_at":"2026-10-17T00:00:00Z","updated_at":"2026-10-17T00:00:00Z",
              "move_to_device_id":"b"}
             """
         let row = try JSONDecoder().decode(SessionEntity.self, from: Data(json.utf8))
-        XCTAssertEqual(row.moveToDeviceId, "b")
-        let cleared = try JSONDecoder().decode(
-            SessionEntity.self,
-            from: Data(json.replacingOccurrences(of: "\"b\"}", with: "null}").utf8)
-        )
-        XCTAssertNil(cleared.moveToDeviceId)
+        XCTAssertEqual(row.deviceId, "a")
     }
 }

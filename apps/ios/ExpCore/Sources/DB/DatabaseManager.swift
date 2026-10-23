@@ -2696,8 +2696,53 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v78 (NEW-8): actions and the legacy session columns leave the
+        // client. The `actions` table drops with its cursor (the shape is no
+        // longer subscribed); `pins` loses `action_id` and its `action` rows
+        // (an action pin is ignored); `sessions` drops the columns the server
+        // drops in NEW-8 step 4 (kind, dispatch, the move/handoff, caption and
+        // aside, the action, the agent mirrors), and `session_issues` drops
+        // `assigned_session_id`. Indexes covering a dropped column go first;
+        // guarded so fresh installs and re-runs converge. Surviving rows keep
+        // their cursors: the decoders ignore the keys while they still ride
+        // the wire.
+        migrator.registerMigration("v78_drop_actions_and_legacy_session_columns") { db in
+            try db.execute(sql: "DROP TABLE IF EXISTS \"actions\"")
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: "DELETE FROM \"electric_offsets\" WHERE \"shape\" = 'actions'")
+            }
+            if try db.tableExists("pins") {
+                try db.execute(sql: "DELETE FROM \"pins\" WHERE \"kind\" = 'action'")
+            }
+            for (table, columns) in DatabaseManager.newEightDeadColumns {
+                guard try db.tableExists(table) else { continue }
+                let existing = Set(try db.columns(in: table).map(\.name))
+                let dead = columns.filter { existing.contains($0) }
+                guard !dead.isEmpty else { continue }
+                for index in try db.indexes(on: table) where index.columns.contains(where: dead.contains) {
+                    try db.execute(sql: "DROP INDEX IF EXISTS \"\(index.name)\"")
+                }
+                try db.alter(table: table) { t in
+                    for column in dead {
+                        t.drop(column: column)
+                    }
+                }
+            }
+        }
+
         return migrator
     }
+
+    /// NEW-8: the local columns v78 drops (the server drops them in step 4).
+    static let newEightDeadColumns: [(table: String, columns: [String])] = [
+        ("sessions", [
+            "kind", "dispatch", "move_to_device_id", "handoff_restored_at", "caption", "aside",
+            "action_id", "action_name", "action_inputs", "spawned_by_session_id",
+            "name", "icon", "color", "triggers", "sort_order",
+        ]),
+        ("session_issues", ["assigned_session_id"]),
+        ("pins", ["action_id"]),
+    ]
 
     /// VAPP-110: the `apps` / `app_versions` tables, mirroring the shape
     /// allowlists (`/api/shapes/{apps,app-versions}`). The head `package`
@@ -2912,7 +2957,7 @@ public final class DatabaseManager: @unchecked Sendable {
         guard let pool = lock.withLock({ pools[accountId] }) else { return }
         try pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offsets")
-            // EXP-778: pins point at issues/sessions/actions — first.
+            // EXP-778: pins point at issues/sessions — first.
             try db.execute(sql: "DELETE FROM pins")
             // EXP-878: drafts resolve a board — wiped with the rest.
             try db.execute(sql: "DELETE FROM issue_drafts")
@@ -2932,7 +2977,6 @@ public final class DatabaseManager: @unchecked Sendable {
             // EXP-481: child before parent, like the issue tables below.
             try db.execute(sql: "DELETE FROM device_worktrees")
             try db.execute(sql: "DELETE FROM devices")
-            try db.execute(sql: "DELETE FROM actions")
             // NEW-2: agent definitions, events and prompts.
             try db.execute(sql: "DELETE FROM agents")
             try db.execute(sql: "DELETE FROM events")

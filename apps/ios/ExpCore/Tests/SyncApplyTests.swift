@@ -255,10 +255,11 @@ final class SyncApplyTests: XCTestCase {
     }
 
     // EXP-1291: a sessions row off the Electric wire — bools as Postgres
-    // "t"/"f", depth/sort_order as text, jsonb (guide, triggers,
-    // action_inputs, blocked) as native JSON stored as TEXT, and a
-    // server-only column leaking onto the wire ignored. It round-trips, a
-    // partial flips the turn state (bool coercion) and an unknown column
+    // "t"/"f", depth as text, jsonb (guide, blocked) as native JSON stored as
+    // TEXT, and a server-only column leaking onto the wire ignored. NEW-8:
+    // the legacy columns (kind, dispatch, the action, the agent mirrors)
+    // still ride today's wire and are ignored too. It round-trips, a partial
+    // flips the turn state (bool coercion) and an unknown or legacy column
     // drops, and a value-less delete removes the row by its key.
     func testSessionInsertPartialAndDeleteApply() async throws {
         let json = """
@@ -280,11 +281,8 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertFalse(session.isAgent)
         XCTAssertTrue(session.isLive)
         XCTAssertTrue(session.planMode)
-        XCTAssertTrue(session.dispatch)
         XCTAssertTrue(session.busy)
         XCTAssertTrue(session.shared)
-        XCTAssertEqual(session.actionInputs, #"{"repo":"r-1"}"#)
-        XCTAssertEqual(session.triggers, "[]")
         XCTAssertTrue(session.guide?.contains("\"attachmentId\":\"a1\"") ?? false)
 
         let key = #""public"."sessions"/"s1""#
@@ -296,13 +294,13 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(stored?.deviceId, "dev-1")
         XCTAssertEqual(stored?.repositoryId, "r-1")
         XCTAssertEqual(stored?.busy, true)
-        XCTAssertEqual(stored?.dispatch, true)
 
         let partial = ShapeMessage<SessionEntity>.partialUpdate(
             key: key,
             columns: columns([
                 "id": "s1", "status": "idle", "busy": "f", "needs_input": "t",
                 "title": "Onboarding polish", "host_user_id": "u2",
+                "caption": "Reading files", "move_to_device_id": "dev-2",
             ])
         )
         try await applyBatch(messages: [partial], name: "sessions", table: "sessions", pool: pool)
@@ -340,9 +338,6 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertTrue(agent.isRoot)
         XCTAssertEqual(agent.rootId, "ag1")
         XCTAssertEqual(agent.depth, 0)
-        XCTAssertEqual(agent.name, "Caretaker")
-        XCTAssertEqual(agent.color, "#4f46e5")
-        XCTAssertEqual(agent.sortOrder, 2)
         XCTAssertFalse(agent.busy)
         XCTAssertFalse(agent.shared)
 
@@ -515,7 +510,6 @@ final class SyncApplyTests: XCTestCase {
         let link = try JSONDecoder().decode(SessionIssueEntity.self, from: Data(linkJson.utf8))
         XCTAssertEqual(link.source, DomainContract.sessionIssueSourceUser)
         XCTAssertEqual(link.sortOrder, 1)
-        XCTAssertEqual(link.assignedSessionId, "s2")
         try await applyBatch(
             messages: [ShapeMessage<SessionIssueEntity>.insert(
                 key: #""public"."session_issues"/"si1""#, value: link
@@ -913,19 +907,17 @@ final class SyncApplyTests: XCTestCase {
                 createdAt: at, updatedAt: "2026-10-13T12:00:00Z"
             ).save(db)
             try SessionEntity(
-                id: "ag-b", teamId: "ws1", kind: DomainContract.sessionKindAgent, userId: "u1",
-                deviceId: "dev-1", status: DomainContract.sessionStatusIdle, name: "Beta",
-                sortOrder: 1, createdAt: at, updatedAt: at, agentId: "def-b"
+                id: "ag-b", teamId: "ws1", userId: "u1", deviceId: "dev-1",
+                status: DomainContract.sessionStatusIdle, createdAt: at, updatedAt: at, agentId: "def-b"
             ).save(db)
             try SessionEntity(
-                id: "ag-a", teamId: "ws1", kind: DomainContract.sessionKindAgent, userId: "u1",
-                deviceId: "dev-1", status: DomainContract.sessionStatusIdle, name: "Alpha",
-                sortOrder: 1, createdAt: at, updatedAt: at, agentId: "def-a"
+                id: "ag-a", teamId: "ws1", userId: "u1", deviceId: "dev-1",
+                status: DomainContract.sessionStatusIdle, createdAt: at, updatedAt: at, agentId: "def-a"
             ).save(db)
-            // NEW-2: a legacy `kind = agent` row without `agent_id` is a
-            // thread; the kind derives from `agent_id` alone.
+            // NEW-2: a row without `agent_id` is a thread; the kind derives
+            // from `agent_id` alone.
             try SessionEntity(
-                id: "t-legacy-kind", teamId: "ws3", kind: DomainContract.sessionKindAgent, userId: "u1",
+                id: "t-legacy-kind", teamId: "ws3", userId: "u1",
                 deviceId: "dev-1", createdAt: at, updatedAt: "2026-10-13T08:00:00Z"
             ).save(db)
             try AgentDefinitionEntity(

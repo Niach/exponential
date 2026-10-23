@@ -10,24 +10,40 @@ public enum SessionQueries {
 
     /// A team's roots of one kind (`DomainContract.sessionKindThread` |
     /// `sessionKindAgent`); nil team = every team (phones list ALL teams).
-    /// NEW-2: the kind derives from `agent_id` (`sessionKindOf`), never from
-    /// the legacy `kind` shim: agent = an agent's conversation session.
-    /// Threads: most recent activity first. Conversations: their agent's
-    /// order mirror (`sort_order`, then name), like boards.
+    /// NEW-2: the kind derives from `agent_id` (`sessionKindOf`): agent = an
+    /// agent's conversation session. Threads: most recent activity first.
+    /// Conversations: their agent DEFINITION's order (`agents.sort_order`,
+    /// then its name), like boards (NEW-8: never the session's own mirror).
     public static func roots(db: Database, teamId: String?, kind: String) throws -> [SessionEntity] {
-        let agent = kind == DomainContract.sessionKindAgent
+        if kind == DomainContract.sessionKindAgent {
+            var sql = """
+                SELECT "sessions".* FROM "sessions"
+                LEFT JOIN "agents" ON "agents"."id" = "sessions"."agent_id"
+                WHERE "sessions"."parent_id" IS NULL
+                  AND "sessions"."agent_id" IS NOT NULL
+                  AND "sessions"."app_id" IS NULL
+                """
+            var arguments: StatementArguments = []
+            if let teamId {
+                sql += "\n  AND \"sessions\".\"team_id\" = ?"
+                arguments += [teamId]
+            }
+            sql += """
+
+                ORDER BY COALESCE("agents"."sort_order", 0) ASC, COALESCE("agents"."name", '') ASC,
+                    "sessions"."id" ASC
+                """
+            return try SessionEntity.fetchAll(db, sql: sql, arguments: arguments)
+        }
         var request = SessionEntity
             .filter(Column("parent_id") == nil)
-            .filter(agent ? Column("agent_id") != nil : Column("agent_id") == nil)
+            .filter(Column("agent_id") == nil)
             // VAPP-110: an app's editor session is neither a thread nor an agent.
             .filter(Column("app_id") == nil)
         if let teamId {
             request = request.filter(Column("team_id") == teamId)
         }
-        request = agent
-            ? request.order(Column("sort_order").asc, Column("name").asc, Column("id").asc)
-            : request.order(Column("updated_at").desc, Column("id").asc)
-        return try request.fetchAll(db)
+        return try request.order(Column("updated_at").desc, Column("id").asc).fetchAll(db)
     }
 
     /// NEW-2: a team's agent DEFINITIONS (nil team = every team), in their
