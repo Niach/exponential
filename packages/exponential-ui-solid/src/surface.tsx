@@ -8,7 +8,7 @@
 // the theme, the sheets, the layout facts; the context is an object of
 // getters over them, so a node re-binds only on what it reads.
 
-import { Show, createEffect, createMemo, createSignal, createUniqueId, mergeProps, on, onCleanup, onMount, untrack, type JSX } from "solid-js"
+import { For, Show, createComputed, createEffect, createMemo, createSignal, createUniqueId, mergeProps, on, onCleanup, onMount, untrack, type JSX } from "solid-js"
 import {
   activeBreakpoint,
   applyContrast,
@@ -27,7 +27,7 @@ import {
   DEFAULT_THEME_ID,
 } from "@exponential-at/ui"
 import type { ModeName, ResolvedTheme, ScrollAlign, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
-import { BASE_CSS, CLIENT_FUNCTIONS, compileNodeSheet, compiledTheme, memoFormatter, openAllowed, queryToken, setPointer, surfaceClass, type DataModel } from "@exponential-at/ui/web"
+import { BASE_CSS, CLIENT_FUNCTIONS, compileNodeSheet, compiledTheme, memoFormatter, nodeSheetBatches, openAllowed, queryToken, setPointer, share, surfaceClass, walkNodes, type DataModel, type NodeSheetBatch } from "@exponential-at/ui/web"
 import { SurfaceContext, type SurfaceContextValue } from "./context"
 import { extensionCatalogs, extensionMacroNames, registeredExtensions, type SolidExtension } from "./extensions"
 import type { HostPlugin } from "./host"
@@ -299,11 +299,42 @@ export function ExponentialSurface(input: ExponentialSurfaceProps): JSX.Element 
     else setLocalData((cur) => setPointer(cur, pointer, value))
   }
 
-  const root = createMemo(() => (props.surface ? props.surface.root : (props.root ?? null)))
+  // VAPP-152: a new tree shares every unchanged node with the last one
+  // (`share`), so a streamed `updateComponents` re-binds only the nodes it
+  // changed.
+  const root = createMemo<UiNode | null>((prev) => share(prev, props.surface ? props.surface.root : (props.root ?? null)))
   const latestRoot = latest(root)
-  const templates = createMemo(() => (props.surface ? props.surface.templates : props.templates) ?? NO_TEMPLATES)
+  const templates = createMemo<Readonly<Record<string, UiNode>>>((prev) => share(prev, (props.surface ? props.surface.templates : props.templates) ?? NO_TEMPLATES))
   const templateNode = (componentId: string) => templates()[componentId]
   const templateRoots = createMemo(() => Object.values(templates()))
+  // VAPP-152: one signal per node id, written only when that id's node
+  // OBJECT changed (the shared tree keeps the others). A listed child reads
+  // its own cell, not its parent's node, so a streamed card notifies the
+  // nodes it changed instead of marking the whole tree.
+  let byId = new Map<string, UiNode>()
+  const cells = new Map<string, { get: () => UiNode | undefined; set: (n: UiNode | undefined) => void }>()
+  createComputed(() => {
+    const next = new Map<string, UiNode>()
+    const r = root()
+    for (const top of r ? [r, ...templateRoots()] : templateRoots()) for (const n of walkNodes(top)) if (!next.has(n.id)) next.set(n.id, n)
+    byId = next
+    for (const [id, cell] of cells) {
+      const n = next.get(id)
+      if (n === undefined) cells.delete(id)
+      else cell.set(n)
+    }
+  })
+  const nodeCell = (id: string): (() => UiNode | undefined) | undefined => {
+    let cell = cells.get(id)
+    if (!cell) {
+      const n = byId.get(id)
+      if (n === undefined) return undefined
+      const [get, set] = createSignal<UiNode | undefined>(n)
+      cell = { get, set: (v) => set(() => v) }
+      cells.set(id, cell)
+    }
+    return cell.get
+  }
   // VAPP-103: past `maxTemplateItems` items or `maxComponents` nodes.
   const budget = createMemo(() => {
     const r = root()
@@ -323,8 +354,12 @@ export function ExponentialSurface(input: ExponentialSurfaceProps): JSX.Element 
   })
   const sheet = createMemo(() => {
     const r = root()
-    return r ? compileNodeSheet([r, ...templateRoots()], surfaceId(), theme()) : { css: ``, queries: [] as string[] }
+    return r ? compileNodeSheet([r, ...templateRoots()], surfaceId(), theme()) : { css: ``, queries: [] as string[], chunks: new Map<string, string>() }
   })
+  // VAPP-152: the node sheet in `<style>` batches; a streamed node adds
+  // one, the unchanged ones keep their element (no surface-wide restyle).
+  const batches = createMemo<NodeSheetBatch[]>((prev) => nodeSheetBatches(prev ?? [], sheet().chunks))
+  const styleBatches = createMemo((): readonly NodeSheetBatch[] => (batches().length ? batches() : [{ chunks: new Map(), css: sheet().css }]))
 
   const [portal, setPortal] = createSignal<HTMLElement | null>(null)
   const [toastLayer, setToastLayer] = createSignal<HTMLElement | null>(null)
@@ -424,6 +459,7 @@ export function ExponentialSurface(input: ExponentialSurfaceProps): JSX.Element 
     },
     setData,
     templateNode,
+    nodeCell,
     get templateBudget() {
       return budget()
     },
@@ -531,7 +567,7 @@ export function ExponentialSurface(input: ExponentialSurfaceProps): JSX.Element 
       style={rootStyle()}
     >
       <style data-xui-style="theme" textContent={`${BASE_CSS}\n${compiled().css}`} />
-      <style data-xui-style="nodes" textContent={`${sheet().css}${layerCss()}`} />
+      <For each={styleBatches()}>{(batch, i) => <style data-xui-style="nodes" textContent={i() === 0 ? `${batch.css}${layerCss()}` : batch.css} />}</For>
       <SurfaceContext.Provider value={ctx}>
         <div class="xui-container">
           <Show when={root()}>

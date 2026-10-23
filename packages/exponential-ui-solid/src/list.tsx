@@ -67,10 +67,12 @@ export function WindowedList(props: WindowedListProps): JSX.Element {
   const extents = (): number[] => {
     const est = estimated()
     const count = props.count
+    // Read once (VAPP-148): a props read per row was most of the pass.
+    const key = props.itemKey
     // §5: a fixed estimate gives way to the mean of the measured rows.
-    if (typeof est === `number`) return itemExtents(Array.from({ length: count }, (_, i) => extentsByKey.get(props.itemKey(i))), est)
+    if (typeof est === `number`) return itemExtents(Array.from({ length: count }, (_, i) => extentsByKey.get(key(i))), est)
     const out = new Array<number>(count)
-    for (let i = 0; i < count; i++) out[i] = extentsByKey.get(props.itemKey(i)) ?? est(i)
+    for (let i = 0; i < count; i++) out[i] = extentsByKey.get(key(i)) ?? est(i)
     return out
   }
 
@@ -162,7 +164,9 @@ export function WindowedList(props: WindowedListProps): JSX.Element {
   let pending: { index: number; align: ScrollAlign; tries: number } | null = null
   const jump = (index: number, align: ScrollAlign): boolean => {
     if (!el || index < 0 || index >= props.count) return false
-    const e = extents()
+    // The memo: one pass over the rows per measurement (VAPP-148, React's
+    // VAPP-139); a jump and every re-aim reuse it.
+    const e = ext()
     const v = viewportOf(el, axis(), rtl())
     let header = -1
     for (const r of headers()) if (r <= index) header = r

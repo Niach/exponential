@@ -11,6 +11,7 @@ export {
   coreCatalog,
   coreMacros,
   catalogView,
+  sharedCatalogView,
   componentDef,
   componentNames,
   coreLite,

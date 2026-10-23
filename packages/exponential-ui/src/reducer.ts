@@ -8,7 +8,7 @@ import {
   CORE_CATALOG_ID,
   CORE_LITE_CATALOG_ID,
   UNKNOWN_COMPONENT,
-  catalogView,
+  sharedCatalogView,
 } from "./catalog"
 import { mapBasicComponent } from "./basic-map"
 import { isDynamic } from "./expr"
@@ -289,7 +289,7 @@ export function childTemplate(value: WireChildTemplate): ChildTemplate {
  *  `maxComponents` nodes the rest is dropped (catalog/limits.json). */
 export function reduceSurface(components: readonly FlatComponent[], options: ReduceOptions): ReduceResult {
   const extensions = options.extensions ?? []
-  const view = catalogView(extensions)
+  const view = sharedCatalogView(extensions)
   const issues: ReduceIssue[] = []
   const byId = new Map<string, FlatComponent>()
   components.forEach((flat, i) => {
@@ -430,7 +430,7 @@ export function slotAllowed(slots: readonly string[] | undefined, name: string):
  *  expansion as reduceSurface). */
 export function reduceNested(tree: NestedNode, options: Omit<ReduceOptions, `rootId`>): ReduceResult {
   const extensions = options.extensions ?? []
-  const view = catalogView(extensions)
+  const view = sharedCatalogView(extensions)
   const issues: ReduceIssue[] = []
   const budget = { left: MAX_COMPONENTS, reported: false }
   const walk = (n: NestedNode, depth: number): UiNode | undefined => {

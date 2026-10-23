@@ -11,7 +11,7 @@
 // `set`, then the event), and the per-ROW binding of row-scoped slot cells
 // (Table). Pure.
 
-import { catalogView } from "./catalog"
+import { sharedCatalogView, type CatalogView } from "./catalog"
 import { CORE_FUNCTIONS, isBinding, isCall, isDynamic, truthy } from "./expr"
 import { ENGLISH_FORMAT_FUNCTIONS, FORMAT_FUNCTION_NAMES, englishFormatter, formatFunctions, type Formatter } from "./format"
 import { resolveString } from "./strings"
@@ -421,14 +421,7 @@ export function bindSectionHeader(slot: UiNode, section: { value: string; count:
  *  evaluate at press time, `runAction`); a `template` and the slots of a
  *  ROW-SCOPED component (Table cells) stay UNBOUND — the painter binds them
  *  per item / per row (`bindRowSlot`). fixtures/bind-time.json locks it. Pure. */
-const CORE_VIEW = catalogView()
-const VIEWS = new WeakMap<readonly ExtensionDef[], ReturnType<typeof catalogView>>()
-function viewFor(extensions: readonly ExtensionDef[] | undefined) {
-  if (!extensions || extensions.length === 0) return CORE_VIEW
-  let view = VIEWS.get(extensions)
-  if (!view) VIEWS.set(extensions, (view = catalogView(extensions)))
-  return view
-}
+const viewFor = (extensions?: readonly ExtensionDef[]): CatalogView => sharedCatalogView(extensions)
 
 export function bindTree(node: UiNode, data: unknown, options: ResolveOptions = {}): UiNode | null {
   const view = viewFor(options.extensions)
