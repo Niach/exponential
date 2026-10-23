@@ -80,9 +80,12 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          # Always pack (the tarballs go on the GitHub release: on the
+          # 0.1.0 publish nothing was packed, so the release had none and
+          # its SHA256SUMS missed them), then publish on a real run.
           for p in ui ui-react ui-solid ui-element; do
-            if [ -n "$NODE_AUTH_TOKEN" ] && [ "$DRY_RUN" != "true" ]; then (cd dist-npm/$p && npm publish --access public --provenance); \
-            else (cd dist-npm/$p && npm pack --pack-destination ../); fi
+            (cd dist-npm/$p && npm pack --pack-destination ../)
+            if [ -n "$NODE_AUTH_TOKEN" ] && [ "$DRY_RUN" != "true" ]; then (cd dist-npm/$p && npm publish --access public --provenance); fi
           done
           [ "$DRY_RUN" != "true" ] || echo "::notice::dry run: packed, not published"
           [ -n "$NODE_AUTH_TOKEN" ] || echo "::warning::NPM_TOKEN is not set (the @exponential-at org must exist first): packed, not published"
