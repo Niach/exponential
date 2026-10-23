@@ -253,7 +253,7 @@ painters through the facade); `catalog/host.json` is the contract and
 The Exponential app is a host like any other: web `apps/web/src/lib/exponential-ui-host.tsx`
 (`harness.*` functions, `exp:` over the Electric collections, the consent
 card, the app extension's painters from `@exp/ui`, the Devices package
-`packages/ui/exponential-ui/templates/devices.json` on `/exponential-ui-devices`).
+`packages/ui/exponential-ui/templates/devices.json`, the built-in app of the Apps page).
 Samples outside the workspace: `samples/exponential-ui/` (a local A2UI
 server, a third-party theme, one extension component, four hosts).
 

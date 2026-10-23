@@ -1953,8 +1953,13 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "apps"
+        }
+      },
       "notes": {
-        "desktop": "VAPP-114: the IDE's Settings → Apps lands with Screen::Apps.",
         "ios": "Phones have no settings mirror in slice 1 (the Apps list is the management surface).",
         "android": "Phones have no settings mirror in slice 1 (the Apps list is the management surface)."
       }
@@ -1974,9 +1979,15 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "app:team-dashboard"
+        }
+      },
       "notes": {
         "web": "`$appId` resolves to DEMO_APP_ID (apps/web/scripts/screenshot-demo.ts), the Team dashboard app.",
-        "desktop": "VAPP-114: the IDE's Settings → App lands with Screen::Apps.",
+        "desktop": "`app:<slug>` resolves the app in the active team: the seeded Team dashboard.",
         "ios": "Phones have no settings mirror in slice 1.",
         "android": "Phones have no settings mirror in slice 1."
       }
@@ -2138,7 +2149,7 @@
       "notes": {
         "ios": "VAPP-112: the LIVE walk: the Threads tab's Apps button (phones have no sixth tab), gated on the seeded Team dashboard row and the built-in Devices row.",
         "android": "VAPP-116: the LIVE walk (signed in, the seeded demo apps): Threads → the header's Apps entry. The phone reaches Apps from the Threads tab (no sidebar).",
-        "desktop": "VAPP-114: the IDE's Apps screen lands with Screen::Apps."
+        "desktop": "The IDE has no Apps page: the rail lists the apps as a group (like Agents), and Settings → Apps (`settings-apps`) draws this list band."
       },
       "android": {
         "shot": "sg_apps",
@@ -2167,6 +2178,13 @@
         },
         "settleMs": 1500
       },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "app:team-dashboard"
+        },
+        "anchorDelayMs": 1500
+      },
       "ios": {
         "shot": "sg_app",
         "lane": "styleguide"
@@ -2175,7 +2193,7 @@
         "web": "`$appSlug` resolves to DEMO_APP_SLUG (apps/web/scripts/screenshot-demo.ts), the seeded Team dashboard app with three versions and the demo user's editor session.",
         "ios": "VAPP-112: the LIVE walk: the Apps list's Team dashboard row, the Chat tab gated on the seeded editor chat.",
         "android": "VAPP-116: Apps → Team dashboard (DEMO_APP_SLUG) on its Chat tab (the web-mobile `app` shot's tab), the head package rendering on Preview through the Compose app host.",
-        "desktop": "VAPP-114: the IDE's editor lands with Screen::Apps."
+        "desktop": "`app:<slug>` opens the editor by slug in the active team: the seeded Team dashboard app (DEMO_APP_SLUG) with its versions and the demo user's editor session."
       },
       "android": {
         "shot": "sg_app",
