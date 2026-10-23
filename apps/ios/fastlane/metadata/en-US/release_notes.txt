@@ -1,4 +1,7 @@
-- The new session system: a thread is one session that works itself and is woken by messages, with a plan card that asks one question at a time
-- Agents are definitions with their own conversation per member, server-fired triggers and an Events stream; message an agent from the composer
-- Prompts replace actions: find them in the / menu and under Settings → Prompts
-- Sessions, needs-you and running views follow the new system on every screen
+- Apps: build small apps with the editor session, previewed live and kept in versions; the Apps list sits behind the Threads header button
+- The Dock: the transcript is one scroll, what waits on you floats above the composer as cards, and a plan opens as a bottom sheet with Yes and No, keep planning
+- One gray: every card, the composer and the sheets wear the same opaque tone
+- Pickers inside a sheet open inline under their row
+- Single-session threads show their Conversation tab again, and a thread row leads with its open pull request
+- Markdown tables no longer stretch rows past their content
+- A message to an ended thread resumes the same session instead of starting a copy

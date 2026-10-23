@@ -947,15 +947,14 @@ impl Surface {
     /// of this surface (`{id: "ffi.<method>", message: "panicked: …"}`, once
     /// each), and the call answers [`UiError::Panic`].
     fn guarded<T>(&self, what: &str, f: impl FnOnce() -> Result<T, UiError>) -> Result<T, UiError> {
-        let mut out = Err(UiError::Invalid { reason: String::new() });
-        self.shield(what, || (), || out = f());
-        match out {
-            Err(UiError::Invalid { reason }) if reason.is_empty() => {
-                let reason = self.panics.lock().unwrap_or_else(|e| e.into_inner()).iter().rev().find(|i| i.id == format!("ffi.{what}")).map(|i| i.message.trim_start_matches("panicked: ").to_string()).unwrap_or_else(|| "unknown panic".into());
-                Err(UiError::Panic { reason })
-            }
-            other => other,
-        }
+        // Release train 2026-10-23: `None` = `f` never returned (it panicked),
+        // so a real `Invalid { reason: "" }` from `f` passes through as is.
+        let mut out = None;
+        self.shield(what, || (), || out = Some(f()));
+        out.unwrap_or_else(|| {
+            let reason = self.panics.lock().unwrap_or_else(|e| e.into_inner()).iter().rev().find(|i| i.id == format!("ffi.{what}")).map(|i| i.message.trim_start_matches("panicked: ").to_string()).unwrap_or_else(|| "unknown panic".into());
+            Err(UiError::Panic { reason })
+        })
     }
 
     /// The last completed layout, marked `reentrant` (nothing new to paint):

@@ -2015,14 +2015,17 @@ export const apps = pgTable(
     // The HEAD version's package; NULL = no version yet.
     package: jsonb().$type<AppPackageJson>(),
     headVersion: integer(`head_version`).notNull().default(0),
-    createdBy: text(`created_by`)
-      .notNull()
-      .references(() => users.id, { onDelete: `cascade` }),
+    // Release train 2026-10-23: apps are shared team content, so a deleted
+    // account leaves its apps behind (NULL creator = owner-only to manage).
+    createdBy: text(`created_by`).references(() => users.id, { onDelete: `set null` }),
     deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
     ...timestamps,
   },
   (table) => [
-    unique().on(table.teamId, table.slug),
+    // Release train 2026-10-23: a trashed app frees its slug.
+    uniqueIndex(`uniq_apps_team_slug`)
+      .on(table.teamId, table.slug)
+      .where(sql`deleted_at IS NULL`),
     index(`idx_apps_team`).on(table.teamId),
   ]
 )

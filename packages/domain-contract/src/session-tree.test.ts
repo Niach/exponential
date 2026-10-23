@@ -16,6 +16,7 @@ import {
   railThreads,
   sessionCard,
   threadInStack,
+  threadRowLeadPr,
   threadRowMarkState,
   threadRowWord,
   threadsUnread,
@@ -100,6 +101,11 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   for (const entry of list.markCases) {
     test(`row mark: ${entry.name}`, () => {
       expect(threadRowMarkState(entry.input)).toBe(entry.expected as never)
+    })
+  }
+  for (const entry of list.leadCases) {
+    test(`row lead PR: ${entry.name}`, () => {
+      expect(threadRowLeadPr(entry.prStates)).toBe(entry.expected as never)
     })
   }
   for (const entry of list.wordCases) {

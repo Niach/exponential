@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-23-release-train",
+    date: "2026-10-23",
+    title: "Release 2026-10-23: the Dock, Apps and the inline pickers on every platform, with the train's fixes",
+    summary: "This release ships the Dock, the Apps editor, the inline pickers and the Exponential UI layout components to web, the IDE, Android and TestFlight, plus the fixes the release review found: a refused launch ends its thread, a closed Dock sheet stays closed, editor sessions stay out of issue threads, and the app host's private-range filter covers CGNAT and the IPv6 forms that embed an IPv4.",
+    body: r#"- **Threads**: a thread whose launch was refused ends instead of waiting idle and nudging its device every minute; a message to an ended thread still resumes the same session.
+- **The Dock**: a sheet you closed stays closed when its card comes back later (the Tasks sheet no longer reopens on the next run's first todo); on phones the transcript keeps its room above the composer. Android's Connection lost banner has its Reconnect button.
+- **Apps**: an app survives its creator leaving the team (ownership passes to the owners), a trashed app's slug can be reused, and a version written from the editor session names its author. An app editor session no longer shows up as an issue thread or in the IDE's Running list.
+- **App host**: the private-range URL filter also denies carrier-grade NAT (100.64/10) and the IPv4-compatible, NAT64 and 6to4 IPv6 forms, and the web renderers re-check a redirect's target before reading it.
+- **Store builds**: Android 0.14.68 and the IDE 0.14.76 are live; iOS 0.14.66 is in TestFlight."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_71: ChangelogEntry = ChangelogEntry {
     id: "2026-10-23-exponential-ui-ergonomics",
     date: "2026-10-23",
     title: "Apps: live counts and icons, six layout components, and better defaults",

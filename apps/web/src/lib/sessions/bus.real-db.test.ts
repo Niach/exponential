@@ -113,7 +113,7 @@ describe.skipIf(!ready.ok)(`the bus: a child's transitions reach its parent`, ()
     const w = await world()
     const rootId = await w.root()
     const childId = await w.child(rootId)
-    await w.host.claim({ sessionId: childId })
+    await w.host.claim({ sessionId: childId, deviceId: w.deviceId })
     const reply = await w.host.reply({ sessionId: childId, body: `  Found the bug.  ` })
     // The child keeps its own row (no author_session_id: never input to it).
     const [own] = await db.select().from(messages).where(eq(messages.id, reply.messageId))
@@ -127,7 +127,7 @@ describe.skipIf(!ready.ok)(`the bus: a child's transitions reach its parent`, ()
     expect((await db.select().from(messages).where(eq(messages.id, relayed[0]!.id)))[0]!.consumedAt).not.toBeNull()
 
     // A root's reply with nobody listening stays on the root only.
-    await w.host.claim({ sessionId: rootId })
+    await w.host.claim({ sessionId: rootId, deviceId: w.deviceId })
     await w.host.reply({ sessionId: rootId, body: `Root speaking.` })
     expect(await db.select().from(messages).where(eq(messages.authorSessionId, rootId))).toEqual([])
   })
@@ -136,7 +136,7 @@ describe.skipIf(!ready.ok)(`the bus: a child's transitions reach its parent`, ()
     const w = await world()
     const rootId = await w.root()
     const childId = await w.child(rootId)
-    await w.host.claim({ sessionId: childId })
+    await w.host.claim({ sessionId: childId, deviceId: w.deviceId })
     const asked = await w.host.reply({
       sessionId: childId,
       body: ``,
@@ -173,7 +173,7 @@ describe.skipIf(!ready.ok)(`the bus: a child's transitions reach its parent`, ()
     const w = await world()
     const rootId = await w.root()
     const childId = await w.child(rootId)
-    await w.host.claim({ sessionId: childId })
+    await w.host.claim({ sessionId: childId, deviceId: w.deviceId })
     const wall = {
       kind: `rate_limit`,
       agent: `claude`,
@@ -278,16 +278,19 @@ describe.skipIf(!ready.ok)(`the bus: a child's transitions reach its parent`, ()
     // ends that one row (endDeadSessionInTx), and its own live child
     // reports later into an ended reader.
     const live = await w.child(rootId, `still working`)
-    await w.host.claim({ sessionId: rootId })
+    await w.host.claim({ sessionId: rootId, deviceId: w.deviceId })
+    // Release train 2026-10-23: only a root that finished a turn survives;
+    // one that never did (a refused launch) ends.
+    await w.host.report({ sessionId: rootId, status: `idle` })
     await w.host.report({ sessionId: rootId, status: `ended` })
     expect(await row(rootId)).toMatchObject({ status: `idle`, busy: false })
     const mid = await w.child(rootId, `a worker`)
     const grand = await w.child(mid, `its helper`)
-    await w.host.claim({ sessionId: mid })
+    await w.host.claim({ sessionId: mid, deviceId: w.deviceId })
     await w.host.report({ sessionId: mid, status: `ended` })
     expect(await row(mid)).toMatchObject({ status: `ended` })
     expect(await row(grand)).toMatchObject({ status: `queued` })
-    await w.host.claim({ sessionId: grand })
+    await w.host.claim({ sessionId: grand, deviceId: w.deviceId })
     await w.host.report({ sessionId: grand, status: `ended` })
     const [orphan] = (await fromChild(mid, grand)).filter((m) => cardKind(m) === `report`)
     expect(orphan!.consumedAt).not.toBeNull()
@@ -301,9 +304,9 @@ describe.skipIf(!ready.ok)(`the bus: a child's transitions reach its parent`, ()
     const w = await world()
     const rootId = await w.root()
     const childId = await w.child(rootId)
-    await w.host.claim({ sessionId: childId })
+    await w.host.claim({ sessionId: childId, deviceId: w.deviceId })
     // Idempotent: a second claim says nothing.
-    await w.host.claim({ sessionId: childId })
+    await w.host.claim({ sessionId: childId, deviceId: w.deviceId })
     expect(await fromChild(rootId, childId)).toMatchObject([
       {
         authorKind: `system`,
@@ -314,7 +317,7 @@ describe.skipIf(!ready.ok)(`the bus: a child's transitions reach its parent`, ()
     expect((await fromChild(rootId, childId))[0]!.consumedAt).not.toBeNull()
 
     // A root nobody watches: its claim needs no line at all…
-    await w.host.claim({ sessionId: rootId })
+    await w.host.claim({ sessionId: rootId, deviceId: w.deviceId })
     const ownLines = async (event: string) =>
       (await db.select().from(messages).where(eq(messages.sessionId, rootId))).filter(
         (m) => (m.card as { event?: string } | null)?.event === event && m.authorSessionId !== childId
@@ -371,7 +374,7 @@ describe.skipIf(!ready.ok)(`the bus: watchers (wakeOn) and answers`, () => {
     expect((await row(watcher)).wakeOn).toEqual([other])
 
     // The watched root's turn wakes the watcher (it has no parent).
-    await w.host.claim({ sessionId: other })
+    await w.host.claim({ sessionId: other, deviceId: w.deviceId })
     await w.host.reply({ sessionId: other, body: `Halfway there.` })
     const relayed = (await fromChild(watcher, other)).filter((m) => m.card === null)
     expect(relayed).toMatchObject([{ authorKind: `agent`, body: `Halfway there.`, consumedAt: null }])
@@ -411,7 +414,7 @@ describe.skipIf(!ready.ok)(`the bus: watchers (wakeOn) and answers`, () => {
     const w = await world()
     const rootId = await w.root()
     const childId = await w.child(rootId)
-    await w.host.claim({ sessionId: childId })
+    await w.host.claim({ sessionId: childId, deviceId: w.deviceId })
     // Nothing open yet.
     await expect(
       sendSession({ userId: w.owner, callerSessionId: rootId, viaMcp: true, input: { sessionId: childId, answer: { answer: `x` } } })

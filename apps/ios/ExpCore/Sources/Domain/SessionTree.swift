@@ -1312,6 +1312,19 @@ public enum SessionTree {
         return .waiting
     }
 
+    /// NEW-41 ×4: the PR glyph a thread row leads with once
+    /// `threadRowMarkState` is `.waiting`, off the ROOT's PR states (never the
+    /// word, so a stacked open PR still leads emerald): any open → `.open`,
+    /// else any merged → `.merged`, else none (`threads-list.json`
+    /// `leadCases`).
+    public enum ThreadRowLeadPr: String { case open, merged }
+
+    public static func threadRowLeadPr(prStates: [String]) -> ThreadRowLeadPr? {
+        if prStates.contains(DomainContract.prStateOpen) { return .open }
+        if prStates.contains(DomainContract.prStateMerged) { return .merged }
+        return nil
+    }
+
     /// EXP-1316: a session chip's lead: that session's row mark, `.ended`
     /// once it ended.
     public static func sessionTabMarkState(_ session: TreeSession) -> SessionState {

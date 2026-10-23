@@ -113,6 +113,13 @@ public struct DockView<Composer: View>: View {
         .animation(motion.standard, value: rows.map(\.id))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Dock.TestIds.dock)
+        // Release train 2026-10-23 (N-12 F2): the open card vanished (the
+        // run ended, the ask was answered): forget its id, or a later row
+        // with the same fixed id (`tasks`, `queued`, `banner:*`) reopens the
+        // sheet unasked.
+        .onChange(of: view.openId) { _, id in
+            if id == nil, openId != nil { openId = nil }
+        }
         .sheet(isPresented: Binding(
             get: { view.openId != nil },
             set: { if !$0 { openId = nil } }
@@ -478,8 +485,8 @@ public struct DockAutoOpen: ViewModifier {
     let ready: Bool
     let open: (String) -> Void
 
-    /// dock.json `autoOpenGraceMs`.
-    private static let grace: TimeInterval = 1.5
+    /// dock.json `autoOpenGraceMs` (`Dock.autoOpenGraceMs`).
+    private static let grace: TimeInterval = TimeInterval(Dock.autoOpenGraceMs) / 1000
 
     @State private var seen: Set<String> = []
     @State private var readyAt: Date? = nil

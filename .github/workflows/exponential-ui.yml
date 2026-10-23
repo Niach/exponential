@@ -239,6 +239,14 @@ jobs:
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui.json
         run: cargo test --locked -p exponential-ui -p exponential-ui-ffi
+      - name: Committed bindings match the generator (Kotlin ships them with omit_checksums)
+        # Release train 2026-10-23: uniffi.toml omits the Kotlin checksums and
+        # build-android.yml compiles the COMMITTED binding (SKIP_BINDINGS), so a
+        # lib.rs edit without regeneration would ship a silent byte-protocol
+        # mismatch. The generator runs without ktlint/swiftformat, like locally.
+        run: |
+          bash apps/desktop/crates/exponential-ui-ffi/generate-bindings.sh
+          git diff --exit-code -- apps/desktop/crates/exponential-ui-ffi/bindings packages/exponential-ui-swift/Sources/ExponentialUICore
       - name: "The crate's feature gates (VAPP-106, without the non-default themes; with the descriptions)"
         working-directory: apps/desktop
         run: |

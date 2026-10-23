@@ -1,6 +1,8 @@
 package com.exponential.app.domain
 
 import com.exponential.app.data.db.PullRequestEntity
+import com.exponential.app.ui.threads.ThreadRowPrLead
+import com.exponential.app.ui.threads.threadRowPrLead
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -15,7 +17,7 @@ import org.junit.Test
 
 /**
  * EXP-1309/1318: ONE quiet word per Threads row + the rail's Active band —
- * replays `threads-list.json` `wordCases`, `stackCases` and `railCases`
+ * replays `threads-list.json` `wordCases`, `leadCases`, `stackCases` and `railCases`
  * (TS `session-tree.test.ts`).
  */
 class ThreadRowWordTest {
@@ -47,6 +49,22 @@ class ThreadRowWordTest {
                 inStack = input.bool("inStack"),
             )
             assertEquals(case.str("name"), case.str("expected"), actual?.wire)
+        }
+    }
+
+    /** Release train 2026-10-23 (NEW-41): `leadCases`, the row lead's PR glyph. */
+    @Test
+    fun `every lead case matches the fixture`() {
+        val cases = cases("leadCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val states = case.getValue("prStates").jsonArray.map { it.jsonPrimitive.content }
+            val actual = when (threadRowPrLead(states)) {
+                ThreadRowPrLead.Open -> "open"
+                ThreadRowPrLead.Merged -> "merged"
+                null -> null
+            }
+            assertEquals(case.str("name"), case.str("expected"), actual)
         }
     }
 

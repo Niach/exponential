@@ -157,6 +157,9 @@ public enum Dock {
     public static let sheetRadius: Double = 24
     /// `order`: queued, tasks, suggestions, banners, then the asks.
     public static let order: [String] = ["queued", "tasks", "suggestions", "banner", "ask"]
+    /// `autoOpenGraceMs`: how long after a host's data loads its cards
+    /// still count as already waiting (auto-open seeds over it).
+    public static let autoOpenGraceMs: Int = 1500
 
     // MARK: - Model
 

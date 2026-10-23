@@ -2332,6 +2332,9 @@ internal fun rememberWorkingMarkPulse(): Float {
 /** EXP-850 (S5): the working caption's clock tick, and the brand mark's
  *  pulse (1.4s each way, ease-in-out — the ×4 number). */
 private const val WORKING_CLOCK_TICK_MS = 1_000L
+
+/** The closed stream banner's one button (iOS `SessionDock.reconnect`). */
+private const val RECONNECT_LABEL = "Reconnect"
 private const val WORKING_PULSE_MS = 1_400
 
 /**
@@ -2438,7 +2441,9 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
                 Dock.Source.Banner(
                     "closed", "ui-refresh", "Connection lost",
                     p.detail ?: if (p.reconnecting) "Connection lost. Reconnecting…" else "Disconnected",
-                    Dock.Tint.Muted, null,
+                    // Release train 2026-10-23 (N-12 F3): the banner's one
+                    // button, as on web, iOS and desktop.
+                    Dock.Tint.Muted, RECONNECT_LABEL,
                 ),
             )
         }
@@ -2501,6 +2506,16 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
             }
         },
         action = { row ->
+            if (row.id == "banner:closed" && row.action != null) {
+                GlassPill(
+                    row.action,
+                    onClick = viewModel::reconnect,
+                    size = PillSize.Sm,
+                    mode = PillMode.Action,
+                    icon = ExpIcons.uiRefresh,
+                    modifier = Modifier.testTag("session-reconnect"),
+                )
+            }
             if (row.id == "banner:blocked" && row.action != null && onOpenUsage != null) {
                 GlassPill(
                     row.action,

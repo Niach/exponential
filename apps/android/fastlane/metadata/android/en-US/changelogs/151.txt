@@ -1,0 +1,5 @@
+Apps: build small apps in the editor with a live preview and versions; the Apps list sits behind the Threads header button.
+The Dock: the transcript is one scroll, what waits on you floats above the composer as cards, and a plan opens as a bottom sheet.
+Every card, the composer and the sheets share one opaque tone.
+Pickers in a sheet open inline under their row; single-session threads show their Conversation tab again.
+A message to an ended thread resumes the same session instead of starting a copy.

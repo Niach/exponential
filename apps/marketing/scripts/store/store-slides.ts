@@ -179,12 +179,15 @@ export const SLIDES: Slide[] = [
     forms: PHONES,
   },
   {
-    id: `actions`,
+    // Release train 2026-10-23: actions are retired (prompts replaced them,
+    // NEW-7 dropped the 06_actions capture), so the sixth slide is the inbox
+    // the lanes already photograph (07_inbox) and store-crops.ts already frames.
+    id: `inbox`,
     index: 6,
-    shot: `actions`,
-    eyebrow: `Actions`,
-    headline: [`AI actions.`, `Automate anything.`],
-    sub: `Saved agent playbooks your team can run`,
+    shot: `inbox`,
+    eyebrow: `Inbox`,
+    headline: [`What needs you,`, `in one list`],
+    sub: `Mentions, questions and approvals, on every device`,
     forms: PHONES,
   },
   {

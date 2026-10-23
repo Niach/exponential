@@ -9,6 +9,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.HiltViewModelFactory
 import androidx.lifecycle.DEFAULT_ARGS_KEY
 import androidx.lifecycle.HasDefaultViewModelProviderFactory
+import androidx.lifecycle.VIEW_MODEL_STORE_OWNER_KEY
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
@@ -41,7 +42,14 @@ fun SessionArgsStore(sessionId: String, content: @Composable () -> Unit) {
             args.putString("sessionId", sessionId)
             set(DEFAULT_ARGS_KEY, args)
         }
-        ArgsOwner(factory, extras)
+        ArgsOwner(factory, extras).also { owner ->
+            // Release train 2026-10-23 (VAPP-110): `createSavedStateHandle`
+            // caches each view model's handle in the VIEW_MODEL_STORE_OWNER's
+            // store under the view model's key; left on the editor screen's
+            // entry, a new [sessionId] would get the old handle (old
+            // sessionId). Keyed to this owner, the handle dies with it.
+            extras[VIEW_MODEL_STORE_OWNER_KEY] = owner
+        }
     }
     DisposableEffect(owner) {
         onDispose { owner.viewModelStore.clear() }

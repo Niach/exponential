@@ -466,7 +466,7 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
       db,
       request: new Request(`http://x.test`),
     } as never)
-    await host.claim({ sessionId: root.sessionId, branch: `exp/kept` })
+    await host.claim({ sessionId: root.sessionId, deviceId: w.deviceId, branch: `exp/kept` })
     await host.report({ sessionId: root.sessionId, status: `idle`, needsInput: true })
 
     const ended = await endSession({ userId: w.owner, sessionId: root.sessionId, summary: `Done.` })
@@ -503,10 +503,41 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     await host.report({ sessionId: root.sessionId, status: `ended` })
     expect(await row(root.sessionId)).toMatchObject({ status: `idle`, busy: false, endedAt: null })
     const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c` } })
-    await host.claim({ sessionId: child.sessionId })
+    await host.claim({ sessionId: child.sessionId, deviceId: w.deviceId })
     await host.report({ sessionId: child.sessionId, status: `ended` })
     expect(await row(child.sessionId)).toMatchObject({ status: `ended` })
     expect(await row(root.sessionId)).toMatchObject({ status: `idle` })
+  })
+
+  it(`a root's \`ended\` report before its first turn ends it; after a turn it reads idle (FEED-134)`, async () => {
+    // Release train 2026-10-23: a refused launch reports `ended` for a root
+    // that never ran a turn; it must end, or the watchdog nudges it forever.
+    const w = await world()
+    const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
+    const host = sessionsRouter.createCaller({
+      session: { user: { id: w.owner } },
+      db,
+      request: new Request(`http://x.test`),
+    } as never)
+    const refused = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `refused` },
+    })
+    await host.claim({ sessionId: refused.sessionId, deviceId: w.deviceId })
+    expect(await row(refused.sessionId)).toMatchObject({ lastTurnAt: null })
+    await host.report({ sessionId: refused.sessionId, status: `ended` })
+    expect(await row(refused.sessionId)).toMatchObject({ status: `ended` })
+
+    const ran = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `ran` },
+    })
+    await host.claim({ sessionId: ran.sessionId, deviceId: w.deviceId })
+    await host.report({ sessionId: ran.sessionId, status: `running`, busy: true })
+    await host.report({ sessionId: ran.sessionId, busy: false })
+    expect((await row(ran.sessionId)).lastTurnAt).not.toBeNull()
+    await host.report({ sessionId: ran.sessionId, status: `ended` })
+    expect(await row(ran.sessionId)).toMatchObject({ status: `idle`, busy: false, endedAt: null })
   })
 
   it(`an account on a message switches the live session's login; alone it posts no message`, async () => {
@@ -797,11 +828,11 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
       input: { teamId: w.teamId, deviceId: w.deviceId, text: `start` },
     })
     // The starter is not the device: only the host runs the device procedures.
-    await expect(caller(w.mate).claim({ sessionId: sent.sessionId })).rejects.toMatchObject({
+    await expect(caller(w.mate).claim({ sessionId: sent.sessionId, deviceId: w.deviceId })).rejects.toMatchObject({
       code: `FORBIDDEN`,
     })
     const host = caller(w.owner)
-    await host.claim({ sessionId: sent.sessionId, branch: `exp/x` })
+    await host.claim({ sessionId: sent.sessionId, deviceId: w.deviceId, branch: `exp/x` })
     expect(await row(sent.sessionId)).toMatchObject({ status: `running`, branch: `exp/x` })
     await host.consume({ sessionId: sent.sessionId, messageIds: [sent.messageId!] })
     const [first] = await db.select().from(messages).where(eq(messages.id, sent.messageId!))
@@ -1141,7 +1172,7 @@ describe.skipIf(!ready.ok)(`EXP-1323: reports, reads and suggestions`, async () 
     const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
     const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c` } })
     const host = caller(w.owner)
-    await host.claim({ sessionId: child.sessionId })
+    await host.claim({ sessionId: child.sessionId, deviceId: w.deviceId })
     await host.reply({ sessionId: child.sessionId, body: `All done.` })
     await host.report({ sessionId: child.sessionId, status: `ended` })
     expect(await row(child.sessionId)).toMatchObject({ status: `ended`, busy: false })
@@ -1157,7 +1188,7 @@ describe.skipIf(!ready.ok)(`EXP-1323: reports, reads and suggestions`, async () 
     // With neither a summary nor a reply: the fallback.
     const { REPORT_FALLBACK } = await import(`@/lib/sessions/bus`)
     const quiet = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `q` } })
-    await host.claim({ sessionId: quiet.sessionId })
+    await host.claim({ sessionId: quiet.sessionId, deviceId: w.deviceId })
     await host.report({ sessionId: quiet.sessionId, status: `ended` })
     const fallback = (await sessionMessages(root.sessionId)).find(
       (m) => (m.card as { sessionId?: string; kind?: string } | null)?.kind === `report` &&
@@ -1484,7 +1515,7 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
       },
     } as never)
     // A 0.14.72 daemon sends no `deviceId`: the snapshot's device stands in.
-    await expect(raced.claim({ sessionId: fresh.sessionId })).rejects.toMatchObject({ code: `CONFLICT` })
+    await expect(raced.claim({ sessionId: fresh.sessionId, deviceId: w.deviceId })).rejects.toMatchObject({ code: `CONFLICT` })
     expect(await row(fresh.sessionId)).toMatchObject({ deviceId: w.target, status: `queued`, startedAt: null })
     // B's claim takes it.
     await caller(w.owner).claim({ sessionId: fresh.sessionId, deviceId: w.target })
@@ -1500,7 +1531,7 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
       userId: w.owner,
       input: { parentId: c1.sessionId, text: `c2`, name: `Deep work`, issueIds: [issueId] },
     })
-    await caller(w.owner).claim({ sessionId: c2.sessionId, branch: `exp/deep` })
+    await caller(w.owner).claim({ sessionId: c2.sessionId, deviceId: w.deviceId, branch: `exp/deep` })
     await endSession({ userId: w.owner, sessionId: c2.sessionId })
     const cont = await sendSession({ userId: w.owner, input: { sessionId: c2.sessionId, text: `more` } })
     expect(await row(cont.sessionId)).toMatchObject({
@@ -1597,7 +1628,7 @@ describe.skipIf(!ready.ok)(`plan mode: the plan card`, async () => {
     })
     await db.update(sessions).set({ planMode: true }).where(eq(sessions.id, sent.sessionId))
     const host = caller(w.owner)
-    await host.claim({ sessionId: sent.sessionId })
+    await host.claim({ sessionId: sent.sessionId, deviceId: w.deviceId })
 
     // The brief carries the Plan section for a planning worker.
     const { brief } = await host.brief({ sessionId: sent.sessionId })

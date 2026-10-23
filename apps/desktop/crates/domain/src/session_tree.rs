@@ -2585,6 +2585,19 @@ mod tests {
             let expected: Vec<String> = serde_json::from_value(case["expected"].clone()).unwrap();
             assert_eq!(ids, expected, "{}", case["name"]);
         }
+        // Release train 2026-10-23 (NEW-41): `leadCases`, the row lead's PR
+        // glyph. The IDE leads with the root's Guide PR
+        // (`ui::threads_view::thread_row_lead`): merged → violet, else open
+        // emerald, none → no glyph.
+        let lead_cases = fixture["leadCases"].as_array().unwrap();
+        assert!(!lead_cases.is_empty());
+        for case in lead_cases {
+            let states = case["prStates"].as_array().unwrap();
+            let pulls: Vec<PullRequestRow> =
+                rows(&Value::Array(states.iter().map(|state| json!({ "state": state })).collect()));
+            let lead = guide_pull_request(&pulls).map(|pull| if pull.is_merged() { "merged" } else { "open" });
+            assert_eq!(lead, case["expected"].as_str(), "{}", case["name"]);
+        }
     }
 
     /// EXP-1307: `session-thread.json` `guideMenuCases`.

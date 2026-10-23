@@ -411,7 +411,7 @@ export const sessionsRouter = router({
         sessionId: uuid,
         // EXP-1252: the claiming device; another device's claim is refused
         // (the row moved away from it).
-        deviceId: z.string().min(1).max(128).optional(),
+        deviceId: z.string().min(1).max(128),
         branch: z.string().max(255).optional(),
       })
     )
@@ -420,7 +420,7 @@ export const sessionsRouter = router({
       await assertDeviceHost(ctx.session.user.id, session)
       // CONFLICT (not FORBIDDEN): the daemon's `claim_lost` treats 404/409
       // as "moved away", anything else as a start failure it posts about.
-      if (input.deviceId !== undefined && input.deviceId !== session.deviceId) {
+      if (input.deviceId !== session.deviceId) {
         throw new TRPCError({
           code: `CONFLICT`,
           message: `This session runs on another device`,
@@ -435,9 +435,8 @@ export const sessionsRouter = router({
         // Guarded on the device the row was read on: a direct re-target
         // (`sessions.send({deviceId})` on a queued row) committing between
         // the read and this write would otherwise flip a row now queued on
-        // ANOTHER device to running here — two engines on one session. A
-        // 0.14.72 daemon sends no `deviceId`: the snapshot's device stands
-        // in, which the same guard still holds to. CONFLICT = `claim_lost`.
+        // ANOTHER device to running here — two engines on one session.
+        // CONFLICT = `claim_lost`.
         // NEW-1: the watchdog's `unclaimed` flag clears with the claim.
         const unclaimed = session.blocked?.kind === `unclaimed`
         const claimed = await tx
@@ -452,7 +451,7 @@ export const sessionsRouter = router({
           .where(
             and(
               eq(sessions.id, session.id),
-              eq(sessions.deviceId, input.deviceId ?? session.deviceId),
+              eq(sessions.deviceId, input.deviceId),
               ne(sessions.status, `ended`)
             )
           )
@@ -542,8 +541,14 @@ export const sessionsRouter = router({
       // idle; only a person's End or the agent's own `sessions end` ends
       // it). A child's process going away still ends it: a worker, whose
       // report reaches its parent.
+      // Release train 2026-10-23 (FEED-134 review): a root that never
+      // finished a turn (`lastTurnAt` is written only below, when a turn
+      // ends) is a REFUSED or failed launch: it ends, or the watchdog
+      // nudges its unconsumed first message forever and the device
+      // refuses again on every nudge.
       const status =
-        input.status === `ended` && (isPersistent(session) || session.parentId === null)
+        input.status === `ended` &&
+        (isPersistent(session) || (session.parentId === null && session.lastTurnAt !== null))
           ? `idle`
           : input.status
       const ending = status === `ended`
