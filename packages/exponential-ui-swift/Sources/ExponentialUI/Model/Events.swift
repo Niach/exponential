@@ -442,6 +442,9 @@ extension SurfaceModel {
             if let p = set.firstIndex(of: value) { set.remove(at: p) } else { set.append(value) }
             next = .array(set)
         } else {
+            // VAPP-146: "" is an ordinary value; the option that holds the
+            // current one ("" when unseeded) fires nothing.
+            if (current.isNull ? "" : current.displayText) == value.displayText { return }
             next = value
         }
         fire(fieldIndex, "change", payload: .object(["value": next]))

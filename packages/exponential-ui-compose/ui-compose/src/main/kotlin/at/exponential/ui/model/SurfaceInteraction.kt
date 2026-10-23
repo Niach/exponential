@@ -502,6 +502,10 @@ fun SurfaceModel.selectPick(fieldIndex: Int, value: JsonValue) {
         if (p >= 0) set.removeAt(p) else set.add(value)
         JsonValue.Arr(set)
     } else {
+        // VAPP-146: "" is an ordinary value; the option that holds the
+        // current one ("" when unseeded) fires nothing.
+        val cur = mirrored(o.id, external)
+        if ((if (cur.isNull) "" else cur.displayText) == value.displayText) return
         value
     }
     setMirror(o.id, external, next)

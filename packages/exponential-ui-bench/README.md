@@ -81,6 +81,9 @@ in the style of the Compose conformance budgets:
 
 Record budgets after a green run from the `bench-results` artifact (or a
 local `.bench/`): `ratchet .bench/*.json --write` puts timings at measured ×
-`headroom` and counts exact. The CI machines are `github-ubuntu-latest`
-(React, Solid, the web component, the core, gpui, Compose JVM and the emulator) and `github-macos-26`
-(SwiftUI on macOS and the iPhone Simulator).
+`headroom` and counts exact. The CI machines are named by the runner that
+actually ran the job, one id per runner class: `github-ubuntu-latest` (React,
+Solid, the web component, Compose JVM and the emulator always; the core and
+gpui when `pick` falls back to GitHub), `mint` (the core and gpui on the
+self-hosted Linux runners), `github-macos-26` and `macbook` (SwiftUI on macOS
+and the iPhone Simulator, hosted or on the self-hosted Mac).

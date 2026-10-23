@@ -7,6 +7,8 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 First release (FEED-128).
 
+- VAPP-146: picking the Select option that holds the current value fires nothing when that value is `""` (it fired a change); `fixtures/interactions-round1.json` `select` replays against React.
+- VAPP-147: the natives read the shared cached `nativeRecipeProps` (the package's own copy is gone).
 - VAPP-106: the package's entries and its stylesheet are measured by `packages/exponential-ui/release/size.ts` (`release/sizes.json` is the record, `release/size-budget.json` the budget CI fails on); its bundles carry neither the described catalog nor a fixture.
 
 - `@exponential-at/ui-solid/primitives` (FEED-131): the React primitive set on Solid with the same DOM and classes, every module but the six app-specific ones (glass-rows, typeahead, composer, trace, pill, segmented-bar). It includes `table`, `command`, `toast` and the calendar (react-day-picker v9's DOM). Gated against React by the web-parity check.

@@ -7,6 +7,7 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 First release.
 
+- VAPP-146: a Select trigger shows the option holding `""` (an unseeded value reads as `""`), and pressing the option that holds the current value only closes the list; `tests/interactions_fixture.rs` replays `select`.
 - The reducer (core and basic catalogs, macros, extensions, validation) and the bind pass (bindings, functions, `$string`).
 - The taffy layout engine: batched text measurement, overlay layers, windowed lists, scroll containers, sticky nodes and breakpoints.
 - The embedded catalog, macro table and built-in themes. It replays the shared fixtures byte for byte.

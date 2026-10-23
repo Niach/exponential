@@ -7,6 +7,8 @@ import at.exponential.ui.host.NoHost
 import at.exponential.ui.host.SurfaceInputEvent
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.SurfaceModel
+import at.exponential.ui.model.SurfaceOptions
+import at.exponential.ui.model.OverlayPresentation
 import at.exponential.ui.model.checked
 import at.exponential.ui.model.escape
 import at.exponential.ui.model.fieldEdited
@@ -23,6 +25,7 @@ import at.exponential.ui.model.sliderDrag
 import at.exponential.ui.model.sliderRelease
 import at.exponential.ui.model.sliderValue
 import at.exponential.ui.model.segmentedSelect
+import at.exponential.ui.model.selectPick
 import at.exponential.ui.model.segmentedValues
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -307,5 +310,46 @@ class InteractionTest {
         val rowInWindow = "r${after.start + 1}"
         assertNotNull("the new window's rows are laid out", m.indexOf(rowInWindow))
         assertTrue(m.frame(m.idx(rowInWindow)).top > firstBefore.top)
+    }
+
+    /**
+     * fixtures/interactions-round1.json `select` (VAPP-146): "" is an
+     * ordinary option value (the trigger shows the option holding it;
+     * picking the option that holds the value fires nothing), through the
+     * core's popup (painted overlays) and through the native menu's
+     * [selectPick].
+     */
+    @Test
+    fun selectCasesTakeAnEmptyOptionValue() {
+        val cases = Fixtures.json("interactions-round1.json")["select"]?.array.orEmpty()
+        assertTrue(cases.isNotEmpty())
+        val values = listOf("", "open", "done")
+        for (native in listOf(false, true)) for (c in cases) {
+            val name = (c["name"]?.string ?: "?") + if (native) " (selectPick)" else ""
+            val host = RecordingHost()
+            // Painted overlays: the core's popup; native ones: the M3 menu picks through selectPick.
+            val overlays = if (native) OverlayPresentation.Native else OverlayPresentation.Painted
+            val m = SurfaceModel("select", SurfaceOptions(overlays = overlays), host, CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested(
+                """{"id":"root","component":"Box","children":[{"id":"s","component":"Select","props":{"label":"Status","name":"s","options":[{"label":"Any","value":""},{"label":"Open","value":"open"},{"label":"Done","value":"done"}],"value":{"path":"/v"}},"on":{"change":{"event":{"name":"change"}}}}]}""",
+            )
+            m.setViewport(390f, 800f)
+            c["value"]?.takeUnless { it.isNull }?.let { m.setData("/v", it) }
+            for (i in c["presses"]?.array.orEmpty().map { it.number!!.toInt() }) {
+                if (native) {
+                    m.selectPick(m.idx("s.trigger"), JsonValue.Str(values[i]))
+                } else {
+                    m.press("s.trigger")
+                    m.press(m.idx("s.item.$i"))
+                }
+            }
+            val expect = c["expect"]!!
+            // The open/close `change {open}` is not a pick.
+            val changes = host.actions.filter { it.name == "change" }.mapNotNull { (it.payload?.get("value") ?: it.context["value"])?.string }
+            assertEquals(name, expect["changes"]?.array.orEmpty().map { it.string }, changes)
+            assertEquals(name, expect["value"] ?: JsonValue.Null, m.data["v"] ?: JsonValue.Null)
+            assertEquals(name, expect["shows"]?.string, m.node(m.idx("s.trigger"))?.props?.get("text")?.displayText)
+        }
     }
 }

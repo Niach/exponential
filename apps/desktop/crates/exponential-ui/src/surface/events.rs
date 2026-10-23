@@ -809,6 +809,11 @@ impl Surface {
             }
             set.join(",")
         } else {
+            // VAPP-146: picking the option that holds the current value ("" for
+            // an unseeded one) only closes: nothing is written or fired.
+            if self.current_prop(owner_id, "value").filter(|v| !v.is_null()).map(|v| js(&v)).unwrap_or_default() == v {
+                return self.set_open(owner_id, false);
+            }
             v
         };
         self.local.errors.remove(owner_id);

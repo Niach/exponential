@@ -258,11 +258,13 @@ jobs:
         run: bun apps/ui-site/guides/check.ts gpui
       - name: Bench (the Rust core, release)
         env:
-          EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
+          # One label per runner class: budgets never compare the Mint with GitHub's runner.
+          EXPONENTIAL_UI_BENCH_MACHINE: ${{ runner.environment == 'github-hosted' && 'github-ubuntu-latest' || 'mint' }}
         run: bun run packages/exponential-ui-bench/runners/core.ts
       - name: Bench (gpui, headless, release)
         env:
-          EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
+          # One label per runner class: budgets never compare the Mint with GitHub's runner.
+          EXPONENTIAL_UI_BENCH_MACHINE: ${{ runner.environment == 'github-hosted' && 'github-ubuntu-latest' || 'mint' }}
         run: bun run packages/exponential-ui-bench/runners/gpui.ts
       - uses: actions/upload-artifact@v4
         with:
@@ -316,7 +318,7 @@ jobs:
         run: bun apps/ui-site/guides/check.ts swift
       - name: Bench (SwiftUI, macOS, release)
         env:
-          EXPONENTIAL_UI_BENCH_MACHINE: github-macos-26
+          EXPONENTIAL_UI_BENCH_MACHINE: ${{ runner.environment == 'github-hosted' && 'github-macos-26' || 'macbook' }}
         run: bun run packages/exponential-ui-bench/runners/swift.ts
       - uses: actions/upload-artifact@v4
         with:
@@ -382,7 +384,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: Bench (SwiftUI, iPhone Simulator, release)
         env:
-          EXPONENTIAL_UI_BENCH_MACHINE: github-macos-26
+          EXPONENTIAL_UI_BENCH_MACHINE: ${{ runner.environment == 'github-hosted' && 'github-macos-26' || 'macbook' }}
         run: bun run packages/exponential-ui-bench/runners/swift-ios.ts --simulator "${{ steps.sim.outputs.id }}"
       - uses: actions/upload-artifact@v4
         with:

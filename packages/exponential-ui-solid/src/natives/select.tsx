@@ -232,7 +232,8 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
   const close = () => s.setOpen(false)
   const pick = (o: SelectOption) => {
     if (bool(o.disabled)) return
-    if (o.value !== props.current()) s.commit(o.value)
+    // VAPP-146: "" is an ordinary value: compare with the value itself, not `current()` (undefined for "").
+    if (o.value !== (s.value() as string)) s.commit(o.value)
     close()
   }
   const enabledNodes = () => items.filter((el, i) => el && !bool(s.options()[i]?.disabled))

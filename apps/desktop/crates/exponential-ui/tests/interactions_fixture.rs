@@ -1,7 +1,8 @@
 //! `fixtures/interactions-round1.json` (hand-authored, round 1 review): the
 //! interaction semantics the reference renderer has and the core must match
 //! — NumberField stepping, rounding and text; Form check semantics; the
-//! unbound Table sort. The React half is
+//! unbound Table sort; ChoiceTiles picks; Select with an empty option
+//! value (VAPP-146). The React half is
 //! `packages/exponential-ui-react/src/interactions-fixture.test.tsx`.
 
 use std::collections::HashMap;
@@ -179,5 +180,42 @@ fn choice_tiles_cases_pick_and_toggle_like_the_reference() {
         s.layout(&mut m);
         let picked: Vec<String> = s.nodes().into_iter().filter(|n| n.part.as_deref() == Some("tile") && n.props.get("selected") == Some(&json!(true))).map(|n| n.props["value"].as_str().unwrap().to_string()).collect();
         assert_eq!(picked.join(","), c["expect"]["value"].as_str().unwrap(), "{name}: selected tiles");
+    }
+}
+
+#[test]
+fn select_cases_take_an_empty_option_value_like_the_reference() {
+    let f = fixture();
+    for c in f["select"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let options = json!([{"label": "Any", "value": ""}, {"label": "Open", "value": "open"}, {"label": "Done", "value": "done"}]);
+        let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "s", "component": "Select", "props": {"label": "Status", "name": "s", "options": options, "value": {"path": "/v"}}, "on": {"change": {"event": {"name": "change"}}}}]}));
+        if !c["value"].is_null() {
+            s.set_data("/v", Some(c["value"].clone())).unwrap();
+        }
+        let mut m = fixed();
+        let mut changes = vec![];
+        for i in c["presses"].as_array().unwrap() {
+            s.layout(&mut m);
+            let trigger = s.index_of("s.trigger").unwrap_or_else(|| panic!("{name}: no trigger"));
+            s.event(trigger, "press", None);
+            s.layout(&mut m);
+            let item = s.index_of(&format!("s.item.{i}")).unwrap_or_else(|| panic!("{name}: no option {i}"));
+            for e in s.event(item, "press", None) {
+                // The open/close `change {open}` is not a pick.
+                if let OutEvent::Action { name, context, .. } = e {
+                    if name == "change" && context.get("value").is_some() {
+                        changes.push(context["value"].clone());
+                    }
+                }
+            }
+        }
+        assert_eq!(json!(changes), c["expect"]["changes"], "{name}: changes");
+        assert_eq!(s.get_data("/v").cloned().unwrap_or(Value::Null), c["expect"]["value"], "{name}: /v");
+        s.layout(&mut m);
+        let trigger = s.nodes().into_iter().find(|n| n.id == "s.trigger").unwrap_or_else(|| panic!("{name}: no trigger"));
+        assert_eq!(trigger.props["text"], c["expect"]["shows"], "{name}: the trigger shows");
+        assert_eq!(trigger.props["placeholder"], json!(false), "{name}: never the placeholder");
+        assert!(s.index_of("s.item.0").is_none(), "{name}: the list closed");
     }
 }
