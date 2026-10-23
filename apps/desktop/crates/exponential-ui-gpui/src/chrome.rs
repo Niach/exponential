@@ -69,6 +69,10 @@ pub struct Chrome {
     pub fill_row: Hsla,
     /// A card, a pill, a glass icon button (`glass.fillCard`).
     pub fill_card: Hsla,
+    /// N-12: ONE gray ×4 — THE card fill: `glass.fillCard` composited over
+    /// the popover surface (web `bg-glass-card-opaque`), so every card
+    /// reads the same tone wherever it sits.
+    pub fill_card_opaque: Hsla,
     /// The cutout panel wash (`glass.fillPanel`).
     pub fill_panel: Hsla,
     /// Hover / selected (`glass.fillActive`).
@@ -129,6 +133,7 @@ impl Default for Chrome {
             fill_section: srgb8(255, 255, 255, 10),
             fill_row: srgb8(255, 255, 255, 15),
             fill_card: srgb8(255, 255, 255, 15),
+            fill_card_opaque: composite(srgb8(23, 23, 23, 255), srgb8(255, 255, 255, 15)),
             fill_panel: srgb8(255, 255, 255, 10),
             fill_active: srgb8(255, 255, 255, 28),
             stroke_row: srgb8(255, 255, 255, 15),
@@ -193,6 +198,10 @@ impl Chrome {
             chrome.stroke_strong = at(STROKE_ALPHAS[3]);
             chrome.stroke_active = at(STROKE_ALPHAS[4]);
         }
+        let popover = theme.modes.get(mode).color.get("popover").and_then(|hex| parse_hex(hex));
+        if let Some(popover) = popover {
+            chrome.fill_card_opaque = composite(popover, chrome.fill_card);
+        }
         let radius = |name: &str, fallback: f32| {
             theme
                 .tokens
@@ -214,6 +223,18 @@ impl Chrome {
 /// Makes `chrome` the one [`Chrome::global`] answers on this app.
 pub fn install(cx: &mut App, chrome: Chrome) {
     cx.set_global(chrome);
+}
+
+/// `top` composited over `bottom` (source-over, alphas included): an
+/// opaque `bottom` gives an opaque result.
+pub fn composite(bottom: Hsla, top: Hsla) -> Hsla {
+    let alpha = top.a + bottom.a * (1. - top.a);
+    if alpha <= 0. {
+        return top;
+    }
+    let (below, above) = (Rgba::from(bottom), Rgba::from(top));
+    let mix = |b: f32, t: f32| (t * top.a + b * bottom.a * (1. - top.a)) / alpha;
+    Hsla::from(Rgba { r: mix(below.r, above.r), g: mix(below.g, above.g), b: mix(below.b, above.b), a: alpha })
 }
 
 /// `#rgb`, `#rrggbb` or `#rrggbbaa` → `Hsla` (the theme file's colour forms).

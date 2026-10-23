@@ -35,6 +35,8 @@ public enum PlanCard {
         public static let next = "Next"
         /// `copy.decide`: THE decision block's heading (`xs` semibold).
         public static let decide = "Your decision"
+        /// N-12 `copy.cancel`: takes the reject's feedback field back.
+        public static let cancel = "Cancel"
 
         public static func stepLabel(step: Int, count: Int) -> String {
             stepLabel

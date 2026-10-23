@@ -4277,6 +4277,224 @@
       }
     },
     {
+      "name": "DockCard/example",
+      "node": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "primary"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DockCard/tone=neutral",
+      "node": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "neutral"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DockCard/tone=primary",
+      "node": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "primary"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DockCard/tone=success",
+      "node": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "success"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DockCard/tone=warning",
+      "node": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "warning"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DockCard/tone=danger",
+      "node": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "danger"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DockCard/tone=info",
+      "node": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "info"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DockCard/open=true",
+      "node": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "primary",
+          "open": true
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DockCard/open=false",
+      "node": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "primary",
+          "open": false
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "AlertDialog/example",
       "node": {
         "id": "alert-dialog",

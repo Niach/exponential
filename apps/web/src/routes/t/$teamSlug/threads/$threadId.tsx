@@ -1,4 +1,4 @@
-import { threadPendingAsks, threadSessionNames } from "@exp/domain-contract/ask-dock"
+import { threadSessionNames } from "@exp/domain-contract/ask-dock"
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { createFileRoute, Navigate, redirect, useNavigate } from "@tanstack/react-router"
@@ -6,7 +6,6 @@ import {
   AgentRunMark,
   conceptIcon,
   EmptyState,
-  FLOATING_COMPOSER_CLEARANCE,
   FloatingComposer,
   JumpToBottomButton,
   Menu,
@@ -16,7 +15,8 @@ import {
   SkeletonRows,
   StatusGlyph,
   ThreadChipSubtree,
-  ThreadAskDock,
+  ThreadDock,
+  threadDockedIds,
   ThreadConversation,
   ThreadIssueTab,
   ThreadIssueTree,
@@ -31,7 +31,7 @@ import {
   type ThreadTreeRow,
 } from "@exp/ui"
 import type { Issue, User } from "@/db/schema"
-import { SessionLiveTail } from "@/components/agent-session"
+import { SessionLiveTail, useSessionDock } from "@/components/agent-session"
 import { IssueChip as IssueRefChip } from "@/components/issue-chip"
 import { IssueRefOutlet, useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueDetailView } from "@/components/issue-detail-view"
@@ -816,26 +816,16 @@ function ConversationBody({
   // composer's slot, exactly like a session's card; read-only viewers keep
   // them inline.
   const dockedIds = useMemo(
-    () =>
-      canReply
-        ? new Set(threadPendingAsks(view.rows, () => null).map((pending) => pending.id))
-        : new Set<string>(),
+    () => (canReply ? threadDockedIds(view.rows, () => null) : new Set<string>()),
     [canReply, view.rows]
   )
   const sessionName = useMemo(() => threadSessionNames(view.tabs), [view.tabs])
-  const dock =
-    dockedIds.size > 0 ? (
-      <ThreadAskDock
-        rows={view.rows}
-        sessionName={sessionName}
-        renderText={renderThreadText}
-        pending={pending}
-        onAnswer={(id, input) => void answer(id, input)}
-        onDecide={(id, input) => void answer(id, input)}
-        className="mx-auto max-w-4xl"
-      />
-    ) : null
-  const composer = canReply && dock === null ? (
+  // N-12: THE Dock over the Conversation's bottom edge: the tree's waiting
+  // cards, the root's Queue, queued messages and banners, then the composer
+  // (a phone's floats in the work bar); the scroller pads by its height.
+  const sessionDock = useSessionDock(root)
+  const [dockHeight, setDockHeight] = useState(0)
+  const composer = canReply ? (
     <SessionComposer
       teamId={teamId}
       sessionId={view.composer.sessionId}
@@ -846,7 +836,6 @@ function ConversationBody({
       opaque={isMobile}
       hideReplies={isMobile}
       testId="thread-composer"
-      className="mx-auto max-w-4xl"
     />
   ) : null
 
@@ -862,10 +851,8 @@ function ConversationBody({
       >
         <div
           ref={follow.contentRef}
-          className={cn(
-            `mx-auto w-full max-w-4xl px-4 pt-8 pb-8 md:px-6`,
-            isMobile && composer && FLOATING_COMPOSER_CLEARANCE
-          )}
+          className="mx-auto w-full max-w-4xl px-3 pt-8 md:px-5"
+          style={{ paddingBottom: dockHeight + 16 }}
         >
           <ThreadConversation
             rows={view.rows}
@@ -898,31 +885,42 @@ function ConversationBody({
       </div>
       <JumpToBottomButton
         visible={!follow.atBottom && view.rows.length > 0}
-        className={cn(
-          `absolute left-1/2 z-10 -translate-x-1/2`,
-          isMobile && composer ? `bottom-[calc(5.5rem+env(safe-area-inset-bottom))]` : `bottom-3`
-        )}
+        className="absolute left-1/2 z-30 -translate-x-1/2"
+        style={{ bottom: dockHeight + 12 }}
         onClick={follow.jumpToBottom}
       />
-      </div>
-      {/* EXP-1316: phones reply through THE floating composer capsule;
-          md+ keeps the in-flow Composer box. */}
-      {dock && (
-        <div className="shrink-0 px-4 pt-2 pb-[calc(1rem+env(safe-area-inset-bottom))] md:px-6 md:pb-4">
-          {dock}
-        </div>
+      {canReply && (
+        <ThreadDock
+          rows={view.rows}
+          sessionName={sessionName}
+          renderText={renderThreadText}
+          pending={pending}
+          onAnswer={(id, input) => void answer(id, input)}
+          onDecide={(id, input) => void answer(id, input)}
+          sources={sessionDock.sources}
+          renderSheet={sessionDock.renderSheet}
+          renderAction={sessionDock.renderAction}
+          suggestions={suggestions}
+          onOpenSession={onOpenSession}
+          renderIssueRef={(_issueId, identifier) =>
+            identifier ? <FiledIssueRef identifier={identifier} /> : null
+          }
+          composer={isMobile ? undefined : composer}
+          onHeight={setDockHeight}
+          phoneClearance={isMobile}
+          autoOpenReady={view.rows.length > 0}
+        />
       )}
-      {composer &&
-        (isMobile ? (
-          <FloatingComposer
-            placeholder={view.composer.placeholder}
-            above={<SessionComposerReplies sessionId={view.composer.sessionId} />}
-          >
-            {composer}
-          </FloatingComposer>
-        ) : (
-          <div className="shrink-0 px-4 pt-2 pb-4 md:px-6">{composer}</div>
-        ))}
+      </div>
+      {/* EXP-1316: phones reply through THE floating composer capsule. */}
+      {composer && isMobile && (
+        <FloatingComposer
+          placeholder={view.composer.placeholder}
+          above={<SessionComposerReplies sessionId={view.composer.sessionId} />}
+        >
+          {composer}
+        </FloatingComposer>
+      )}
     </div>
   )
 }

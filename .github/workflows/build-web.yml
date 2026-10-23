@@ -33,19 +33,10 @@ env:
   IMAGE: ghcr.io/niach/exponential-web
 
 jobs:
-  # Gate: the production image must never ship on a red typecheck/test run.
-  # EXP-1364: it runs NEXT TO the builds instead of before them (the digests
-  # push untagged; only `merge` tags them, and it needs the gate), and as the
-  # sharded suite web-tests.yml, so a master push is ~7 minutes, not ~21.
-  pick:
-    uses: ./.github/workflows/pick-runner.yml
-    secrets: inherit
-
-  test:
-    uses: ./.github/workflows/web-tests.yml
-
+  # EXP-1364: no test gate here any more. Every change reaches master through
+  # a pull request whose `test / gate` check is REQUIRED (branch protection),
+  # so this run only builds: ~6 minutes instead of a second full test pass.
   build:
-    needs: pick
     strategy:
       fail-fast: false
       matrix:
@@ -54,9 +45,9 @@ jobs:
             runner: ubuntu-latest
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
-    # amd64 builds on the Mint when it is up (pick-runner.yml); arm64 keeps
-    # GitHub's native arm runner.
-    runs-on: ${{ matrix.platform == 'linux/amd64' && fromJSON(needs.pick.outputs.linux) || matrix.runner }}
+    # GitHub-hosted, both: pushing the image from the Mint went through a home
+    # upload link (9 minutes vs 6).
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Checkout
@@ -110,7 +101,7 @@ jobs:
           retention-days: 1
 
   merge:
-    needs: [test, build]
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Download digests

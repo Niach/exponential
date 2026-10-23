@@ -100,19 +100,37 @@ export interface ToastStackItem {
   visible: boolean
 }
 
-/** The stack geometry of fixtures/toast-stack.json: `heights` oldest first
- *  (the newest is in front). Collapsed, the toast of rank r (0 = front)
- *  sits r × `peek` from the anchoring edge, shrunk by `scaleStep` per rank
- *  (clamped at the last visible rank), `visible` of them drawn; expanded,
- *  every toast at full size, `gap` apart. */
-export function toastStackGeometry(heights: readonly number[], expanded: boolean, anchoredBottom: boolean): { height: number; items: ToastStackItem[] } {
-  const { gap, peek, scaleStep, visible } = TOAST_CONSTANTS
+/** The numbers a stack is drawn from (the toast's, the Dock pile's). */
+export interface StackConstants {
+  /** How far an older item peeks out behind the one in front of it. */
+  peek: number
+  /** How much smaller each rank behind the front draws. */
+  scaleStep: number
+  /** How many items draw at all while collapsed. */
+  visible: number
+  /** The space between items while expanded. */
+  gap: number
+}
+
+/** THE stack geometry ×4 (fixtures/toast-stack.json `geometry`; N-12: the
+ *  Dock pile draws it too): `heights` oldest first (the newest is in front).
+ *  Collapsed, the item of rank r (0 = front) sits r × `peek` from the
+ *  anchoring edge, shrunk by `scaleStep` per rank (clamped at the last
+ *  visible rank), `visible` of them drawn; expanded, every item at full
+ *  size, `gap` apart. */
+export function stackGeometry(
+  heights: readonly number[],
+  expanded: boolean,
+  anchoredBottom: boolean,
+  constants: StackConstants
+): { height: number; items: ToastStackItem[] } {
+  const { gap, peek, scaleStep, visible } = constants
   const n = heights.length
   if (n === 0) return { height: 0, items: [] }
   const rank = (i: number) => n - 1 - i
   if (expanded) {
     const height = heights.reduce((sum, h) => sum + h, 0) + (n - 1) * gap
-    // The distance of each toast from the anchoring edge: the newer ones first.
+    // The distance of each item from the anchoring edge: the newer ones first.
     const fromEdge: number[] = new Array(n)
     let at = 0
     for (let i = n - 1; i >= 0; i--) {
@@ -128,6 +146,11 @@ export function toastStackGeometry(heights: readonly number[], expanded: boolean
     return { offset: anchoredBottom ? height - r * peek - h : r * peek, scale, visible: r < visible }
   })
   return { height, items }
+}
+
+/** The toast's stack (`stackGeometry` with the toast's numbers). */
+export function toastStackGeometry(heights: readonly number[], expanded: boolean, anchoredBottom: boolean): { height: number; items: ToastStackItem[] } {
+  return stackGeometry(heights, expanded, anchoredBottom, TOAST_CONSTANTS)
 }
 
 export interface ToastAction {

@@ -1,4 +1,4 @@
-# EXP-1364: two exp-linux runners on the Mint (.github/runners/README.md).
+# EXP-1364: four exp-linux runners on the Mint (.github/runners/README.md).
 # `docker compose up -d --build` from this directory; RUNNER_TOKEN only on the
 # first start (the registration lives on in the runner-config volumes).
 x-runner: &runner
@@ -11,16 +11,18 @@ x-runner: &runner
     RUNNER_SCOPE: repo
     RUNNER_TOKEN: ${RUNNER_TOKEN:-}
     LABELS: exp-linux
-    # The entrypoint matches the docker group to the socket's gid and chowns
-    # the config + work dirs (see the Dockerfile for why not root).
+    # The entrypoint chowns the config + work dirs (see the Dockerfile for
+    # why not root).
     RUN_AS_ROOT: "false"
     DISABLE_AUTO_UPDATE: "false"
     DISABLE_AUTOMATIC_DEREGISTRATION: "true"
     CONFIGURED_ACTIONS_RUNNER_FILES_DIR: /runner/config
     AGENT_TOOLSDIRECTORY: /opt/hostedtoolcache
-  # Per service below (compose cannot merge lists): the host docker for
-  # build-web's buildx (only this repo's own branches ever run here, see
-  # pick-runner.yml), sccache, the toolchains and the tool cache.
+  # Per service below (compose cannot merge lists). EXP-1370: bun, cargo and
+  # rustup are PER RUNNER: setup-bun / rustup overwrite binaries the other
+  # runner may be executing (ETXTBSY). sccache, gradle and the tool cache are
+  # safe to share. No host docker socket: no job routed here builds images
+  # (build-web pushes from GitHub-hosted runners).
 services:
   runner-1:
     <<: *runner
@@ -29,12 +31,11 @@ services:
       RUNNER_NAME: mint-1
       RUNNER_WORKDIR: /tmp/runner-1/work
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - sccache:/home/runner/.cache/sccache
-      - cargo:/home/runner/.cargo
-      - rustup:/home/runner/.rustup
+      - cargo-1:/home/runner/.cargo
+      - rustup-1:/home/runner/.rustup
       - gradle:/home/runner/.gradle
-      - bun:/home/runner/.bun
+      - bun-1:/home/runner/.bun
       - toolcache:/opt/hostedtoolcache
       - config-1:/runner/config
   runner-2:
@@ -44,21 +45,61 @@ services:
       RUNNER_NAME: mint-2
       RUNNER_WORKDIR: /tmp/runner-2/work
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - sccache:/home/runner/.cache/sccache
-      - cargo:/home/runner/.cargo
-      - rustup:/home/runner/.rustup
+      - cargo-2:/home/runner/.cargo
+      - rustup-2:/home/runner/.rustup
       - gradle:/home/runner/.gradle
-      - bun:/home/runner/.bun
+      - bun-2:/home/runner/.bun
       - toolcache:/opt/hostedtoolcache
       - config-2:/runner/config
 
+  runner-3:
+    <<: *runner
+    environment:
+      <<: *env
+      RUNNER_NAME: mint-3
+      RUNNER_WORKDIR: /tmp/runner-3/work
+    volumes:
+      - sccache:/home/runner/.cache/sccache
+      - cargo-3:/home/runner/.cargo
+      - rustup-3:/home/runner/.rustup
+      - gradle:/home/runner/.gradle
+      - bun-3:/home/runner/.bun
+      - toolcache:/opt/hostedtoolcache
+      - config-3:/runner/config
+
+  runner-4:
+    <<: *runner
+    environment:
+      <<: *env
+      RUNNER_NAME: mint-4
+      RUNNER_WORKDIR: /tmp/runner-4/work
+    volumes:
+      - sccache:/home/runner/.cache/sccache
+      - cargo-4:/home/runner/.cargo
+      - rustup-4:/home/runner/.rustup
+      - gradle:/home/runner/.gradle
+      - bun-4:/home/runner/.bun
+      - toolcache:/opt/hostedtoolcache
+      - config-4:/runner/config
+
 volumes:
   sccache:
-  cargo:
-  rustup:
+  cargo-1:
+  cargo-2:
+  cargo-3:
+  cargo-4:
+  rustup-1:
+  rustup-2:
+  rustup-3:
+  rustup-4:
   gradle:
-  bun:
+  bun-1:
+  bun-2:
+  bun-3:
+  bun-4:
   toolcache:
   config-1:
   config-2:
+  config-3:
+  config-4:

@@ -3,6 +3,9 @@ package com.exponential.app.ui.components
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -14,6 +17,11 @@ import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.MenuItemColors
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -21,6 +29,11 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
+import kotlinx.coroutines.flow.first
+import com.exponential.app.ui.components.picker.LocalInlinePickerSlot
+import com.exponential.app.ui.components.picker.LocalPickerPresentation
+import com.exponential.app.ui.components.picker.PickerDefaults
+import com.exponential.app.ui.components.picker.PickerPresentation
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -143,6 +156,49 @@ fun GlassDropdownMenu(
         border = GlassMenuDefaults.Border,
         content = content,
     )
+}
+
+/**
+ * N-6 + N-14 — a menu where THE HOST DECIDES (`picker-presentation.json`):
+ * on a page it is [GlassDropdownMenu]; inside a sheet (the Dock sheet, any
+ * [GlassSheet]) its rows open INLINE, no surface: into the row host's slot
+ * ([LocalInlinePickerSlot], under the whole row, as wide as it) or, outside
+ * one, right here in the host's flow. A pick folds it; the trigger is the
+ * caller's and never changes.
+ */
+@Composable
+fun GlassHostMenu(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val inline = LocalPickerPresentation.current == PickerPresentation.Inline
+    if (!inline) {
+        GlassDropdownMenu(expanded = expanded, onDismissRequest = onDismissRequest, modifier = modifier, content = content)
+        return
+    }
+    if (!expanded) return
+    val rows: @Composable () -> Unit = {
+        Column(modifier = modifier.fillMaxWidth().heightIn(max = PickerDefaults.InlineMaxHeight), content = content)
+    }
+    val slot = LocalInlinePickerSlot.current
+    if (slot == null) {
+        rows()
+        return
+    }
+    val key = remember { Any() }
+    val latestRows = rememberUpdatedState(rows)
+    val latestDismiss = rememberUpdatedState(onDismissRequest)
+    DisposableEffect(slot, key) {
+        slot.claim(key) { latestRows.value() }
+        onDispose { slot.release(key) }
+    }
+    // Another picker took the slot: this menu folds.
+    LaunchedEffect(slot, key) {
+        snapshotFlow { slot.isShowing(key) }.first { !it }
+        latestDismiss.value()
+    }
 }
 
 /**

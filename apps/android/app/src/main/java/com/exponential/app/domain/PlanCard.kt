@@ -42,6 +42,7 @@ object PlanCard {
         const val BACK = "Back"
         const val NEXT = "Next"
         const val DECIDE = "Your decision"
+        const val CANCEL = "Cancel"
 
         /** The answered card's ONE feedback line. */
         fun feedbackLine(text: String): String = FEEDBACK_LINE.replace("{feedback}", text)
