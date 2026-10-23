@@ -445,6 +445,91 @@ pub(crate) fn pile(
         .into_any_element()
 }
 
+thread_local! {
+    /// How many Dock sheets are building their content right now (see
+    /// [`sheet_host`]).
+    static SHEET_HOST: Cell<usize> = const { Cell::new(0) };
+}
+
+/// N-6 + N-14 (`picker-presentation.json`): the Dock sheet is a SHEET host.
+/// Build a sheet's content inside this scope and every picker in it takes
+/// the INLINE presentation (the picker reads [`in_sheet_host`] like a
+/// dialog window), its rows in the sheet's flow. Menus stay IN-WINDOW
+/// popovers: the sheet is a layer of the window, not a dialog window, so
+/// they never route through the menu window and paint over the sheet.
+pub(crate) fn sheet_host<R>(build: impl FnOnce() -> R) -> R {
+    SHEET_HOST.with(|depth| depth.set(depth.get() + 1));
+    let out = build();
+    SHEET_HOST.with(|depth| depth.set(depth.get() - 1));
+    out
+}
+
+/// Whether a Dock sheet's content is being built ([`sheet_host`]).
+pub(crate) fn in_sheet_host() -> bool {
+    SHEET_HOST.with(|depth| depth.get() > 0)
+}
+
+/// [`sheet_host`] held over a subtree's LAYOUT too: a picker mounted from a
+/// window-less helper ([`crate::picker::deferred`]) builds while its parent
+/// lays out, after the content's own build scope has closed.
+struct SheetHostScope(AnyElement);
+
+impl IntoElement for SheetHostScope {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl gpui::Element for SheetHostScope {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (gpui::LayoutId, ()) {
+        (sheet_host(|| self.0.request_layout(window, cx)), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        sheet_host(|| self.0.prepaint(window, cx));
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.0.paint(window, cx);
+    }
+}
+
 /// A sheet's content: the header's trailing meta (the plan's "Question 2
 /// of 3"), the ONE scrolling body, the pinned footer.
 pub(crate) struct SheetContent {
@@ -560,7 +645,8 @@ fn sheet_surface() -> Div {
 /// The styleguide's sheet at rest (no overlay): the same chrome in a box
 /// wearing the sheet's face, `height` tall.
 pub(crate) fn sheet_frame(row: &DockRow, content: SheetContent, height: f32, cx: &App) -> AnyElement {
-    sheet_surface().w_full().h(px(height)).children(sheet_chrome(row, content, None, cx)).into_any_element()
+    SheetHostScope(sheet_surface().w_full().h(px(height)).children(sheet_chrome(row, content, None, cx)).into_any_element())
+        .into_any_element()
 }
 
 /// THE sheet a DockCard opens into, as a layer over the window: the scrim,
@@ -639,7 +725,7 @@ pub(crate) fn sheet(state: &Entity<DockState>, row: &DockRow, content: SheetCont
                         .bg(gpui::black().opacity(0.6 * progress))
                         .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| scrim_close(window, cx)),
                 )
-                .child(
+                .child(SheetHostScope(
                     sheet_surface()
                         .id(SharedString::from(format!("{}-{}", DOCK.test_ids.sheet, row.id)))
                         .track_focus(&focus)
@@ -656,8 +742,9 @@ pub(crate) fn sheet(state: &Entity<DockState>, row: &DockRow, content: SheetCont
                         .bottom(-drop)
                         .max_h(viewport.height * DOCK.sheet.max_height_fraction)
                         .children(sheet_chrome(row, content, Some(close), cx))
-                        .child(probe),
-                ),
+                        .child(probe)
+                        .into_any_element(),
+                )),
         ),
     )
     .into_any_element()

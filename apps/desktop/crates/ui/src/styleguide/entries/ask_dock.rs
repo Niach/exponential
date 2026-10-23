@@ -2,8 +2,8 @@
 //! (`fixtures/ask-dock.json` + `dock.json` ×4), the IDE half of the web
 //! entry (`AskDockSpecimen`, packages/ui/src/ask-dock-specimen.tsx): the
 //! REAL DockCard rows of a waiting plan and question in four states: one
-//! waiting plan (a single card); a plan, a question, THE Queue and the
-//! queued messages piled; the pile fanned; the plan's sheet (the REAL
+//! waiting plan (a single card); a plan, a question, the suggested tasks,
+//! THE Queue and the queued messages piled; the pile fanned; the plan's sheet (the REAL
 //! [`crate::plan_card::plan_sheet`] in the sheet's static frame: "Question
 //! 1 of 2" in the header, the question, Back / Next in the footer).
 
@@ -85,20 +85,22 @@ fn case(label: &'static str, body: impl gpui::IntoElement, cx: &App) -> Div {
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let images = window.use_keyed_state("sg-ask-dock-images", cx, |_, _| ImageCache::new(None)).clone();
     let single = dock_rows(&asks()[..1]);
-    let mut all: Vec<DockSource> = super::dock_card::sources().into_iter().take(2).collect();
+    let mut all: Vec<DockSource> = super::dock_card::sources().into_iter().take(3).collect();
     all.extend(asks());
     let rows = dock_rows(&all);
     // The sheet opens on its first question page (web: "Question 1 of 2").
     let plan_row = rich_plan("sg-ask-dock-sheet-plan");
     crate::plan_card::preset_step("sg-ask-dock-sheet-plan", 1, cx);
-    let sheet = crate::thread_screen::ask_row_sheet(&plan_row, &crate::thread_screen::ThreadText::default(), &images, window, cx)
-        .map(|content| crate::dock::sheet_frame(&single[0], content, 420., cx));
+    let sheet = crate::dock::sheet_host(|| {
+        crate::thread_screen::ask_row_sheet(&plan_row, &crate::thread_screen::ThreadText::default(), &images, window, cx)
+    })
+    .map(|content| crate::dock::sheet_frame(&single[0], content, 420., cx));
     v_flex()
         .w(px(672.))
         .gap_6()
         .child(case("One waiting plan", crate::dock::dock_card(&single[0], 0., None, cx), cx))
         .child(case(
-            "A plan, a question, the Queue and the queued messages, piled",
+            "A plan, a question, the suggested tasks, the Queue and the queued messages, piled",
             super::dock_card::pile_specimen("sg-ask-dock-pile", &rows, false, window, cx),
             cx,
         ))
@@ -110,13 +112,14 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
 mod tests {
     use super::*;
 
-    /// The pile's rows are the web specimen's, in the Dock's order.
+    /// The pile's rows are the web specimen's (`[...STATE, ...ASKS]`), in
+    /// the Dock's order.
     #[test]
-    fn the_pile_is_queued_tasks_then_the_asks() {
-        let mut all: Vec<DockSource> = super::super::dock_card::sources().into_iter().take(2).collect();
+    fn the_pile_is_the_state_then_the_asks() {
+        let mut all: Vec<DockSource> = super::super::dock_card::sources().into_iter().take(3).collect();
         all.extend(asks());
         let ids: Vec<String> = dock_rows(&all).into_iter().map(|row| row.id).collect();
-        assert_eq!(ids, ["queued", "tasks", "p1", "q1"]);
+        assert_eq!(ids, ["queued", "tasks", "m4", "p1", "q1"]);
         assert_eq!(dock_rows(&asks()[..1])[0].meta.as_deref(), Some("2 questions"));
     }
 }

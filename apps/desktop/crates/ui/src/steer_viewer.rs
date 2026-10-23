@@ -7308,26 +7308,29 @@ impl SteerSessionView {
             self.dock.update(cx, |state, _| state.close());
             return None;
         };
-        let content = if open.starts_with(RELAY_PREFIX) {
-            let spec = self.docked.clone()?;
-            let resolved = spec.resolve(self.feed.items());
-            let active = self.active.clone();
-            let card = match &resolved {
-                FeedRow::Single(item) => self.render_question(item, &active, true, window, cx),
-                FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, &active, true, window, cx),
-                _ => return None,
-            };
-            crate::dock::SheetContent {
-                meta: None,
-                body: crate::dock::sheet_body("steer-dock-sheet-relay", card),
-                footer: None,
-            }
-        } else if let Some(tool) = self.tool_cards.iter().find(|tool| tool.id() == open).cloned() {
-            let images = self.images.clone();
-            crate::thread_screen::ask_row_sheet(&tool, &crate::thread_screen::ThreadText::default(), &images, window, cx)?
-        } else {
-            self.render_session_dock_sheet(&row, window, cx)?
-        };
+        // THE sheet is a sheet host: its pickers open inline.
+        let content = crate::dock::sheet_host(|| -> Option<crate::dock::SheetContent> {
+            Some(if open.starts_with(RELAY_PREFIX) {
+                let spec = self.docked.clone()?;
+                let resolved = spec.resolve(self.feed.items());
+                let active = self.active.clone();
+                let card = match &resolved {
+                    FeedRow::Single(item) => self.render_question(item, &active, true, window, cx),
+                    FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, &active, true, window, cx),
+                    _ => return None,
+                };
+                crate::dock::SheetContent {
+                    meta: None,
+                    body: crate::dock::sheet_body("steer-dock-sheet-relay", card),
+                    footer: None,
+                }
+            } else if let Some(tool) = self.tool_cards.iter().find(|tool| tool.id() == open).cloned() {
+                let images = self.images.clone();
+                crate::thread_screen::ask_row_sheet(&tool, &crate::thread_screen::ThreadText::default(), &images, window, cx)?
+            } else {
+                self.render_session_dock_sheet(&row, window, cx)?
+            })
+        })?;
         Some(crate::dock::sheet(&self.dock.clone(), &row, content, window, cx))
     }
 
