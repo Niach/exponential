@@ -1,0 +1,54 @@
+Exponential
+Copyright 2026 Dennis Strähhuber
+
+This product includes software developed as part of the Exponential project,
+licensed under the Apache License, Version 2.0 (see LICENSE at the repo root).
+
+Third-party code vendored into this repository keeps its own NOTICE, next to
+the vendored source:
+
+  apps/desktop/crates/ui/NOTICE
+  apps/desktop/crates/gpui-markdown-editor/NOTICE
+
+This file records the attributions that travel with a distributed artifact.
+It is not the per-client dependency inventory; that is generated separately.
+
+
+================================================================================
+Feedback widget
+================================================================================
+
+The feedback widget (packages/widget, emitted to
+apps/web/public/widget/v1/loader.js and widget.js) is served cross-origin to
+third-party websites, so its bundle redistributes the software below. Both
+emitted files carry a short banner naming these packages and pointing here.
+
+  preact
+  Copyright (c) 2015-present Jason Miller
+  https://github.com/preactjs/preact
+  MIT License
+
+  @zumer/snapdom
+  Copyright (c) 2025 ZumerLab
+  https://github.com/zumerlab/snapdom
+  MIT License
+
+Both are made available under the following terms:
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
