@@ -101,7 +101,7 @@ export function HomePage() {
                (EXP-176, SLOP-4) ── */}
         <CollabSection />
 
-        {/* ── From the blog: the newest post (EXP-1366) ── */}
+        {/* ── Don’t Panic: the newest post (EXP-1366) ── */}
         <BlogStrip />
 
         {/* ── Pricing ──────────────────────────── */}
