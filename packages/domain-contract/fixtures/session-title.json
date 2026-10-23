@@ -1,22 +1,19 @@
 {
-  "$comment": "EXP-1341/NEW-1: THE display title of ANY session (root, child or agent; never `Session N`), ONE reference ×4 (TS packages/domain-contract/src/session-title.ts, desktop `domain::session_title`, iOS ExpCore `SessionTitle.swift`, Android `domain/SessionTitle.kt`; the server's `deriveSessionTitle` and `listSessions` call the TS one). sessionTitle(session, links, issues, messages) = the FIRST rung that yields text, every value trimmed: (1) the explicit name: `name` (an agent's facet) else `title` (a name passed to `sessions_send`, else the agent CLI's own auto-title, written once by `sessions.report` into a blank title; both live in `title`, so an explicit name always wins); (2) the session's OWN issues: every `session_issues` row with `sessionId == id` (NEW-1: a row sits on the session that holds the issue, root or child alike; a root's thread strip shows the union over its tree, its title only its own rows), ordered by `sortOrder` then `issueId`, resolved through `issues` (unknown ids skipped): one = `titles.issue`, several = `titles.issues` with {more} = n-1; when the label is longer than `titleMax` characters the {title} part alone is cut to fit and ends in `…`; (3) `titles.action` with the trimmed `actionName`; (4) the first prompt: that session's messages with `card == null` that are a person's (`authorKind == user`) or another session's input (`authorSessionId` set and != the session's id), oldest first (`createdAt`, then `id`), the first whose body has a usable line: the first line that is non-blank after trimming and does not start with `![` (an image embed); longer than `titleMax` characters = cut to titleMax-1, trailing whitespace trimmed, `…` appended; (5) `untitled`. A legacy `assignedSessionId` on a link is ignored.",
+  "$comment": "EXP-1341/NEW-1: THE display title of ANY session (root, child or agent; never `Session N`), ONE reference ×4 (TS packages/domain-contract/src/session-title.ts, desktop `domain::session_title`, iOS ExpCore `SessionTitle.swift`, Android `domain/SessionTitle.kt`; the server's `deriveSessionTitle` and `listSessions` call the TS one). sessionTitle(session, links, issues, messages) = the FIRST rung that yields text, every value trimmed: (1) the explicit name: `title` (a name passed to `sessions_send`, else the agent CLI's own auto-title, written once by `sessions.report` into a blank title; both live in `title`, so an explicit name always wins); (2) the session's OWN issues: every `session_issues` row with `sessionId == id` (NEW-1: a row sits on the session that holds the issue, root or child alike; a root's thread strip shows the union over its tree, its title only its own rows), ordered by `sortOrder` then `issueId`, resolved through `issues` (unknown ids skipped): one = `titles.issue`, several = `titles.issues` with {more} = n-1; when the label is longer than `titleMax` characters the {title} part alone is cut to fit and ends in `…`; (3) the first prompt: that session's messages with `card == null` that are a person's (`authorKind == user`) or another session's input (`authorSessionId` set and != the session's id), oldest first (`createdAt`, then `id`), the first whose body has a usable line: the first line that is non-blank after trimming and does not start with `![` (an image embed); longer than `titleMax` characters = cut to titleMax-1, trailing whitespace trimmed, `…` appended; (4) `untitled`.",
   "titles": {
     "issue": "#{identifier} {title}",
-    "issues": "#{identifier} {title} + {more}",
-    "action": "Run {action}"
+    "issues": "#{identifier} {title} + {more}"
   },
   "titleMax": 80,
   "untitled": "Untitled",
   "cases": [
     {
-      "name": "an agent's name wins over everything",
+      "name": "an explicit title wins over everything",
       "input": {
         "session": {
           "id": "a1",
           "rootId": "a1",
-          "name": "Triage bot",
-          "title": "Some auto title",
-          "actionName": "Tidy"
+          "title": "Some auto title"
         },
         "links": [
           {
@@ -34,7 +31,7 @@
         ],
         "messages": []
       },
-      "expected": "Triage bot"
+      "expected": "Some auto title"
     },
     {
       "name": "an explicit name or the agent's own title beats the linked issue",
@@ -42,9 +39,7 @@
         "session": {
           "id": "s1",
           "rootId": "s1",
-          "name": null,
-          "title": "  Speed up cold start  ",
-          "actionName": null
+          "title": "  Speed up cold start  "
         },
         "links": [
           {
@@ -70,9 +65,7 @@
         "session": {
           "id": "s1",
           "rootId": "s1",
-          "name": "  ",
-          "title": "   ",
-          "actionName": null
+          "title": "   "
         },
         "links": [
           {
@@ -98,9 +91,7 @@
         "session": {
           "id": "s1",
           "rootId": "s1",
-          "name": null,
-          "title": null,
-          "actionName": "Tidy"
+          "title": null
         },
         "links": [
           {
@@ -156,9 +147,7 @@
         "session": {
           "id": "c1",
           "rootId": "s1",
-          "name": null,
-          "title": null,
-          "actionName": null
+          "title": null
         },
         "links": [
           {
@@ -224,9 +213,7 @@
         "session": {
           "id": "c1",
           "rootId": "s1",
-          "name": null,
-          "title": null,
-          "actionName": null
+          "title": null
         },
         "links": [
           {
@@ -271,9 +258,7 @@
         "session": {
           "id": "c1",
           "rootId": "s1",
-          "name": null,
-          "title": null,
-          "actionName": "Release notes"
+          "title": null
         },
         "links": [
           {
@@ -285,7 +270,7 @@
         "issues": [],
         "messages": []
       },
-      "expected": "Run Release notes"
+      "expected": "Untitled"
     },
     {
       "name": "a long issue title is cut so the count survives",
@@ -293,9 +278,7 @@
         "session": {
           "id": "s1",
           "rootId": "s1",
-          "name": null,
-          "title": null,
-          "actionName": null
+          "title": null
         },
         "links": [
           {
@@ -331,9 +314,7 @@
         "session": {
           "id": "s1",
           "rootId": "s1",
-          "name": null,
-          "title": null,
-          "actionName": null
+          "title": null
         },
         "links": [],
         "issues": [],
@@ -386,9 +367,7 @@
         "session": {
           "id": "s1",
           "rootId": "s1",
-          "name": null,
-          "title": null,
-          "actionName": null
+          "title": null
         },
         "links": [],
         "issues": [],
@@ -412,9 +391,7 @@
         "session": {
           "id": "s1",
           "rootId": "s1",
-          "name": null,
-          "title": null,
-          "actionName": "  "
+          "title": null
         },
         "links": [],
         "issues": [],
@@ -438,9 +415,7 @@
         "session": {
           "id": "s1",
           "rootId": "s1",
-          "name": null,
-          "title": null,
-          "actionName": null
+          "title": null
         },
         "links": [
           {

@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1291 Threads v2: THE session card ×4 — a session inside a thread (the root's own session first, every child where its `session` card message sits, an agent channel's `thread_started` cards) is ONE card = the Work card's HEADER row (work-card.json geometry.header px, radius lg, card hairline, no shadow): the state `icon` (concept), the `name` (medium, truncates), the muted `kindWord`, trailing the muted `elapsed` (tabular figures) with a 12px spinner in front while `running`. No device, account, branch or other caption. Tapping it opens that session's raw view (today's session view). Model = pure `sessionCard(session, title, now)` (TS reference packages/domain-contract/src/session-tree.ts; mirrors desktop domain::session_tree, iOS ExpCore SessionTree.swift, Android domain/SessionTree.kt), every mirror replays `cases` and compares the WHOLE expected object. state = `ended` when status ended, else `needs_you` when needsInput, else `blocked` when blocked is set, else `queued` when status queued, else `working` when busy, else `waiting`. name = `title`, the session's display title (EXP-1341 session-title.json `sessionTitle`; never `Session N`). elapsed = startedAt → now (ended: → endedAt, else updatedAt), the work card's ladder ('37s', '2m 04s', '1h 03m'); null while queued or without a parsable startedAt. running = state working. tone = `tones[state]`. EXP-1323: `caption` = the session's trimmed live status line (synced `sessions.caption`, device-written on tool edges, throttled, <=80 chars, cleared at turn end) as the card's muted second line; blank/absent = null; an ended session's caption drops unless `aside` (a /btw answer keeps its first line). NEW-1: `blocked.kind` names why (contract codingSessionBlocked.kinds); `copy.blockedKinds[kind]` is the state word for it (an unknown kind reads `copy.states.blocked`); the server holds needsInput while blocked, so the card reads Needs you first.",
+  "$comment": "EXP-1291 Threads v2: THE session card ×4 — a session inside a thread (the root's own session first, every child where its `session` card message sits, an agent channel's `thread_started` cards) is ONE card = the Work card's HEADER row (work-card.json geometry.header px, radius lg, card hairline, no shadow): the state `icon` (concept), the `name` (medium, truncates), the muted `kindWord`, trailing the muted `elapsed` (tabular figures) with a 12px spinner in front while `running`. No device, account, branch or other caption. Tapping it opens that session's raw view (today's session view). Model = pure `sessionCard(session, title, now)` (TS reference packages/domain-contract/src/session-tree.ts; mirrors desktop domain::session_tree, iOS ExpCore SessionTree.swift, Android domain/SessionTree.kt), every mirror replays `cases` and compares the WHOLE expected object. state = `ended` when status ended, else `needs_you` when needsInput, else `blocked` when blocked is set, else `queued` when status queued, else `working` when busy, else `waiting`. name = `title`, the session's display title (EXP-1341 session-title.json `sessionTitle`; never `Session N`). elapsed = startedAt → now (ended: → endedAt, else updatedAt), the work card's ladder ('37s', '2m 04s', '1h 03m'); null while queued or without a parsable startedAt. running = state working. tone = `tones[state]`. NEW-1: `blocked.kind` names why (contract codingSessionBlocked.kinds); `copy.blockedKinds[kind]` is the state word for it (an unknown kind reads `copy.states.blocked`); the server holds needsInput while blocked, so the card reads Needs you first.",
   "copy": {
     "states": {
       "queued": "Queued",
@@ -42,7 +42,6 @@
         "session": {
           "teamId": "t-team-1",
           "parentId": null,
-          "kind": "thread",
           "userId": "u-dana",
           "status": "running",
           "busy": true,
@@ -51,11 +50,6 @@
           "shared": true,
           "title": null,
           "guide": null,
-          "actionName": null,
-          "name": null,
-          "icon": null,
-          "color": null,
-          "sortOrder": 0,
           "startedAt": "2026-10-13T10:00:00.000Z",
           "endedAt": null,
           "createdAt": "2026-10-13T10:00:00.000Z",
@@ -75,7 +69,6 @@
         "tone": "foreground",
         "elapsed": "12m 34s",
         "running": true,
-        "caption": null,
         "testId": "session-card"
       }
     },
@@ -85,7 +78,6 @@
         "session": {
           "teamId": "t-team-1",
           "parentId": null,
-          "kind": "thread",
           "userId": "u-dana",
           "status": "idle",
           "busy": false,
@@ -94,11 +86,6 @@
           "shared": true,
           "title": "Fix the login race",
           "guide": null,
-          "actionName": null,
-          "name": null,
-          "icon": null,
-          "color": null,
-          "sortOrder": 0,
           "startedAt": "2026-10-13T10:00:00.000Z",
           "endedAt": null,
           "createdAt": "2026-10-13T10:00:00.000Z",
@@ -118,7 +105,6 @@
         "tone": "muted",
         "elapsed": "12m 34s",
         "running": false,
-        "caption": null,
         "testId": "session-card"
       }
     },
@@ -128,7 +114,6 @@
         "session": {
           "teamId": "t-team-1",
           "parentId": "s1",
-          "kind": "thread",
           "userId": "u-dana",
           "status": "queued",
           "busy": false,
@@ -137,11 +122,6 @@
           "shared": true,
           "title": null,
           "guide": null,
-          "actionName": null,
-          "name": null,
-          "icon": null,
-          "color": null,
-          "sortOrder": 0,
           "startedAt": null,
           "endedAt": null,
           "createdAt": "2026-10-13T10:00:00.000Z",
@@ -161,7 +141,6 @@
         "tone": "muted",
         "elapsed": null,
         "running": false,
-        "caption": null,
         "testId": "session-card"
       }
     },
@@ -171,7 +150,6 @@
         "session": {
           "teamId": "t-team-1",
           "parentId": null,
-          "kind": "thread",
           "userId": "u-dana",
           "status": "running",
           "busy": true,
@@ -182,11 +160,6 @@
           "shared": true,
           "title": null,
           "guide": null,
-          "actionName": null,
-          "name": null,
-          "icon": null,
-          "color": null,
-          "sortOrder": 0,
           "startedAt": "2026-10-13T10:00:00.000Z",
           "endedAt": null,
           "createdAt": "2026-10-13T10:00:00.000Z",
@@ -206,7 +179,6 @@
         "tone": "amber",
         "elapsed": "12m 34s",
         "running": false,
-        "caption": null,
         "testId": "session-card"
       }
     },
@@ -216,7 +188,6 @@
         "session": {
           "teamId": "t-team-1",
           "parentId": null,
-          "kind": "thread",
           "userId": "u-dana",
           "status": "running",
           "busy": false,
@@ -228,11 +199,6 @@
           "shared": true,
           "title": null,
           "guide": null,
-          "actionName": null,
-          "name": null,
-          "icon": null,
-          "color": null,
-          "sortOrder": 0,
           "startedAt": "2026-10-13T10:00:00.000Z",
           "endedAt": null,
           "createdAt": "2026-10-13T10:00:00.000Z",
@@ -252,7 +218,6 @@
         "tone": "rose",
         "elapsed": "12m 34s",
         "running": false,
-        "caption": null,
         "testId": "session-card"
       }
     },
@@ -262,7 +227,6 @@
         "session": {
           "teamId": "t-team-1",
           "parentId": null,
-          "kind": "thread",
           "userId": "u-dana",
           "status": "ended",
           "busy": false,
@@ -271,11 +235,6 @@
           "shared": true,
           "title": null,
           "guide": null,
-          "actionName": null,
-          "name": null,
-          "icon": null,
-          "color": null,
-          "sortOrder": 0,
           "startedAt": "2026-10-13T10:00:00.000Z",
           "endedAt": "2026-10-13T11:03:00.000Z",
           "createdAt": "2026-10-13T10:00:00.000Z",
@@ -295,7 +254,6 @@
         "tone": "muted",
         "elapsed": "1h 03m",
         "running": false,
-        "caption": null,
         "testId": "session-card"
       }
     },
@@ -305,7 +263,6 @@
         "session": {
           "teamId": "t-team-1",
           "parentId": null,
-          "kind": "thread",
           "userId": "u-dana",
           "status": "ended",
           "busy": false,
@@ -314,11 +271,6 @@
           "shared": true,
           "title": null,
           "guide": null,
-          "actionName": null,
-          "name": null,
-          "icon": null,
-          "color": null,
-          "sortOrder": 0,
           "startedAt": "2026-10-13T10:00:00.000Z",
           "endedAt": null,
           "createdAt": "2026-10-13T10:00:00.000Z",
@@ -338,7 +290,6 @@
         "tone": "muted",
         "elapsed": "37s",
         "running": false,
-        "caption": null,
         "testId": "session-card"
       }
     },
@@ -348,7 +299,6 @@
         "session": {
           "teamId": "t-team-1",
           "parentId": null,
-          "kind": "thread",
           "userId": "u-dana",
           "status": "running",
           "busy": true,
@@ -357,11 +307,6 @@
           "shared": true,
           "title": "   ",
           "guide": null,
-          "actionName": null,
-          "name": null,
-          "icon": null,
-          "color": null,
-          "sortOrder": 0,
           "startedAt": "2026-10-13T10:10:30.000Z",
           "endedAt": null,
           "createdAt": "2026-10-13T10:00:00.000Z",
@@ -381,7 +326,6 @@
         "tone": "foreground",
         "elapsed": "2m 04s",
         "running": true,
-        "caption": null,
         "testId": "session-card"
       }
     },
@@ -391,7 +335,6 @@
         "session": {
           "teamId": "t-team-1",
           "parentId": null,
-          "kind": "thread",
           "userId": "u-dana",
           "status": "running",
           "busy": false,
@@ -400,11 +343,6 @@
           "shared": true,
           "title": null,
           "guide": null,
-          "actionName": null,
-          "name": null,
-          "icon": null,
-          "color": null,
-          "sortOrder": 0,
           "startedAt": "soon",
           "endedAt": null,
           "createdAt": "2026-10-13T10:00:00.000Z",
@@ -424,191 +362,6 @@
         "tone": "muted",
         "elapsed": null,
         "running": false,
-        "caption": null,
-        "testId": "session-card"
-      }
-    },
-    {
-      "name": "EXP-1323: a live caption rides the second line, trimmed",
-      "input": {
-        "session": {
-          "teamId": "t-team-1",
-          "parentId": null,
-          "kind": "thread",
-          "userId": "u-dana",
-          "deviceId": "dev-mac",
-          "status": "running",
-          "busy": true,
-          "needsInput": false,
-          "blocked": null,
-          "shared": true,
-          "title": "Fix the cart",
-          "guide": null,
-          "actionName": null,
-          "name": null,
-          "icon": null,
-          "color": null,
-          "sortOrder": 0,
-          "startedAt": "2026-10-15T10:00:00.000Z",
-          "endedAt": null,
-          "createdAt": "2026-10-15T10:00:00.000Z",
-          "updatedAt": "2026-10-15T10:00:00.000Z",
-          "caption": "  Reading CartLineItem.tsx ",
-          "aside": false,
-          "rootId": "r",
-          "id": "r"
-        },
-        "title": "Fix the cart",
-        "now": "2026-10-15T10:00:18.000Z"
-      },
-      "expected": {
-        "sessionId": "r",
-        "icon": "coding-running",
-        "name": "Fix the cart",
-        "kindWord": "Working",
-        "state": "working",
-        "tone": "foreground",
-        "elapsed": "18s",
-        "running": true,
-        "caption": "Reading CartLineItem.tsx",
-        "testId": "session-card"
-      }
-    },
-    {
-      "name": "EXP-1323: a blank caption reads null",
-      "input": {
-        "session": {
-          "teamId": "t-team-1",
-          "parentId": null,
-          "kind": "thread",
-          "userId": "u-dana",
-          "deviceId": "dev-mac",
-          "status": "running",
-          "busy": false,
-          "needsInput": false,
-          "blocked": null,
-          "shared": true,
-          "title": null,
-          "guide": null,
-          "actionName": null,
-          "name": null,
-          "icon": null,
-          "color": null,
-          "sortOrder": 0,
-          "startedAt": "2026-10-15T10:00:00.000Z",
-          "endedAt": null,
-          "createdAt": "2026-10-15T10:00:00.000Z",
-          "updatedAt": "2026-10-15T10:00:00.000Z",
-          "caption": "   ",
-          "aside": false,
-          "rootId": "r",
-          "id": "r"
-        },
-        "title": "Review the cart PR",
-        "now": "2026-10-15T10:00:05.000Z"
-      },
-      "expected": {
-        "sessionId": "r",
-        "icon": "coding-assistant",
-        "name": "Review the cart PR",
-        "kindWord": "Waiting",
-        "state": "waiting",
-        "tone": "muted",
-        "elapsed": "5s",
-        "running": false,
-        "caption": null,
-        "testId": "session-card"
-      }
-    },
-    {
-      "name": "EXP-1323: an ended session drops a stale caption",
-      "input": {
-        "session": {
-          "teamId": "t-team-1",
-          "parentId": null,
-          "kind": "thread",
-          "userId": "u-dana",
-          "deviceId": "dev-mac",
-          "status": "ended",
-          "busy": false,
-          "needsInput": false,
-          "blocked": null,
-          "shared": true,
-          "title": null,
-          "guide": null,
-          "actionName": null,
-          "name": null,
-          "icon": null,
-          "color": null,
-          "sortOrder": 0,
-          "startedAt": "2026-10-15T10:00:00.000Z",
-          "endedAt": "2026-10-15T10:02:00.000Z",
-          "createdAt": "2026-10-15T10:00:00.000Z",
-          "updatedAt": "2026-10-15T10:00:00.000Z",
-          "caption": "Editing ProductCard.tsx",
-          "aside": false,
-          "rootId": "r",
-          "id": "r"
-        },
-        "title": "#APP-5 Reduce cold start",
-        "now": "2026-10-15T11:00:00.000Z"
-      },
-      "expected": {
-        "sessionId": "r",
-        "icon": "coding-ended",
-        "name": "#APP-5 Reduce cold start",
-        "kindWord": "Ended",
-        "state": "ended",
-        "tone": "muted",
-        "elapsed": "2m 00s",
-        "running": false,
-        "caption": null,
-        "testId": "session-card"
-      }
-    },
-    {
-      "name": "EXP-1323: an ended aside keeps its answer's first line",
-      "input": {
-        "session": {
-          "teamId": "t-team-1",
-          "parentId": null,
-          "kind": "thread",
-          "userId": "u-dana",
-          "deviceId": "dev-mac",
-          "status": "ended",
-          "busy": false,
-          "needsInput": false,
-          "blocked": null,
-          "shared": true,
-          "title": "what does useCart do?",
-          "guide": null,
-          "actionName": null,
-          "name": null,
-          "icon": null,
-          "color": null,
-          "sortOrder": 0,
-          "startedAt": "2026-10-15T10:00:00.000Z",
-          "endedAt": "2026-10-15T10:00:09.000Z",
-          "createdAt": "2026-10-15T10:00:00.000Z",
-          "updatedAt": "2026-10-15T10:00:00.000Z",
-          "caption": "It returns the cart store's items and totals.",
-          "aside": true,
-          "rootId": "r",
-          "id": "r"
-        },
-        "title": "what does useCart do?",
-        "now": "2026-10-15T11:00:00.000Z"
-      },
-      "expected": {
-        "sessionId": "r",
-        "icon": "coding-ended",
-        "name": "what does useCart do?",
-        "kindWord": "Ended",
-        "state": "ended",
-        "tone": "muted",
-        "elapsed": "9s",
-        "running": false,
-        "caption": "It returns the cart store's items and totals.",
         "testId": "session-card"
       }
     }

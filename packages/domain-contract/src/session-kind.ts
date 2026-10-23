@@ -2,7 +2,7 @@
 // run the same way; a conversation session (a root with `agentId`) is just
 // `persistent` (never ends, revived on its device's return). Branch on these
 // traits, never on the kind string: `sessionKindOf` derives the kind from
-// `agentId`; the row's `kind` column is a legacy read shim (NEW-8 drops it).
+// `agentId`.
 // fixtures/session-kind.json; mirrors: desktop `domain::session_kind`, iOS
 // `SessionKind.swift`, Android `domain/SessionKind.kt`.
 
@@ -15,7 +15,7 @@ export interface SessionTraits {
   triggers: boolean
 }
 
-/** The kinds the contract knows (the DB enum's values). */
+/** The kinds the contract knows. */
 export type SessionKindName = keyof typeof fixture.kinds
 
 const KINDS = fixture.kinds as Record<SessionKindName, SessionTraits>
