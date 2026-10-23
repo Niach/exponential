@@ -23,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (dry run: nothing is published without the secrets)"
+        description: "Version to build (semver, must match the core crate)"
         required: true
       dry_run:
         description: "Dry run: build, verify and upload the artifacts, publish nothing, create no release (VAPP-109)"
