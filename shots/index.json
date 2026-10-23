@@ -140,8 +140,8 @@
         "file": "shots/ask-dock/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 55606,
-        "sha256": "b5b1fdc68845a2b2ee9010453a81b12c9aa80086e78c686acfa7f107686ad795"
+        "bytes": 60596,
+        "sha256": "819cd797c87f6196dfb4bc852319c578743bf17c13f292e67b501bfc2814b413"
       },
       "ios": {
         "file": "shots/ask-dock/ios.webp",
