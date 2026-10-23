@@ -1,0 +1,888 @@
+{
+  "$comment": "N-12: THE Dock ×4 (web packages/ui dock.tsx + agent-session.tsx + the thread route, desktop crates/ui dock.rs + steer_viewer.rs + thread_screen.rs, iOS ExpUI Dock.swift + AgentSessionView.swift + ThreadScreen.swift, Android ui/components/Dock.kt + AgentSessionScreen.kt + ThreadScreen.kt; models desktop domain::dock, iOS ExpCore Dock.swift, Android domain/Dock.kt). The transcript is the ONE scroll region of a session and a thread, header to bottom edge; the Dock is the floating band painted OVER its bottom in the composer column: the DockCards, `stack.gap` apart when fanned, then THE composer (always; it never yields its slot, N-12 retires `composerYieldsToCard`). The band's measured height is the transcript's bottom padding and the jump-to-bottom offset; an edge fade sits behind it. A DockCard = the AskCard chrome (`icons`/tint per `kind`, the tinted `label`, the muted `caption`, the trailing muted `meta`) over ONE `title` line and the `open` chevron (`expandable`) or the banner's `action` word; one height per row. SEVERAL cards pile like the toasts (toast-stack.json, `stackLayout` of src/stack.ts with THIS file's `stack`, anchored at the bottom): the front card is the LAST row, the older ones peek out ABOVE it by `stack.peek` and shrink by `stack.scaleStep` per rank, `stack.visible` of them at most (`hidden` = the rest); a pointer hovering the pile or a tap on it FANS it (every card at full size `stack.gap` apart, mode `fanned`); leaving or tapping the pile again re-piles. A tap (pointer: a click) on a card OPENS it: THE bottom sheet (`sheet`): a scrim, the sheet in the composer column on wide screens (`sheet.radius` on its top corners) and edge to edge on phones (the grabber, drag to dismiss), fitting its content up to `sheet.maxHeightFraction` of the viewport; a pinned HEADER (the card's icon, label, caption, the host's meta, trailing `copy.close` as a ghost icon-xs button), ONE scrolling body, a pinned FOOTER for the primary actions; Escape, the scrim, the close glyph or a drag closes it; it slides up with motion `sheet` (slow decelerate in, standard accelerate out; reduce motion = a fade), the pile moves over `motion.pile` with the standard easing, a card enters with `motion.enter` (decelerate) and leaves over `motion.exit` (accelerate). Rows = `dockRows(sources)`, ordered `order` first (queued, tasks, suggestions, banner, then the asks oldest first by createdAt, ties by id) so the card needing the viewer is in front: `plan` (label ask-dock `planReady`, caption = the asking session's name, meta = `copy.questions` when it has any, title = the plan's first plain line, ask-dock `askDockTitle`), `question` (label ask-dock `question`), `tasks` (THE Queue of task-queue.json: label = the todo title, caption = the completed title, title = the first todo item, meta = its description; opens the full Trace), `queued` (label `copy.queued`, title = the oldest queued message; opens the list with its remove glyphs), `suggestions` (EXP-1323's suggested-tasks card while ANY item is open: label = the header's count (`3 suggested tasks`), caption = its `started` part or null, title = the first open item's title; opens the list: an open item = its title and text, the Start button and the ⋯ menu (Do it here · Start on… · Start with… · File as issue · Dismiss), a started item = the child's session card, here/filed = their one line; the footer = Start all while more than one item is open; a row with no open item stays in the Conversation), `banner` (a status strip of the session view: paused, connection lost, the usage wall, compacting, the rate-limit window, starting; the host's `icon`, `label`, `text` and tone `muted`|`warning`; `action` = its one button word; never expandable). ONE GRAY ×4 (owner 2026-10-22): every card on the band and in the transcript, the composer and the sheet wear the same opaque card fill (the design tokens' `card` composite, web `bg-glass-card-opaque`) under the card hairline; nothing translucent, no second tone. `dock({rows, expanded, openId})` = the view: `mode` none|single|pile|fanned, `rows` top to bottom, `frontId`, `openId` (null unless that row exists and is expandable), `hidden`. AUTO-OPEN: `dockAutoOpen({previous, rows})` = the id of the front-most plan or question NOT in `previous` (the ids seen so far), else null; a host opens that sheet when the view is IN FRONT (visible, the session or thread open) and leaves a card that arrived while away collapsed. The host SEEDS `previous` with every card it shows until its data has loaded (the session view: the relay is live, its history replayed; the thread: its rows arrived) and for `autoOpenGraceMs` after that, so what already waited when the view opened never opens itself; only a card arriving after that does. The relay's own asks (claude's AskUserQuestion) are `question` sources too. Answered cards stay in the transcript, closed. Model = pure `dockRows`, `dock`, `dockAutoOpen` (src/dock.ts); mirrors compare the WHOLE expected object.",
+  "copy": {
+    "queued": {
+      "one": "1 queued",
+      "many": "{count} queued"
+    },
+    "questions": {
+      "one": "1 question",
+      "many": "{count} questions"
+    },
+    "close": "Close",
+    "showAll": "Show all"
+  },
+  "icons": {
+    "plan": "coding-plan",
+    "question": "ui-help",
+    "tasks": "trace-todo",
+    "queued": "ui-queued",
+    "open": "ui-chevron-right",
+    "close": "ui-close",
+    "suggestions": "ui-checklist"
+  },
+  "testIds": {
+    "dock": "dock",
+    "pile": "dock-pile",
+    "card": "dock-card",
+    "sheet": "dock-sheet",
+    "sheetBody": "dock-sheet-body",
+    "sheetFooter": "dock-sheet-footer",
+    "close": "dock-sheet-close"
+  },
+  "stack": {
+    "peek": 14,
+    "scaleStep": 0.05,
+    "visible": 3,
+    "gap": 6
+  },
+  "sheet": {
+    "maxHeightFraction": 0.85,
+    "radius": 24
+  },
+  "motion": {
+    "pile": "slow",
+    "enter": "standard",
+    "exit": "fast",
+    "sheet": "slow"
+  },
+  "order": [
+    "queued",
+    "tasks",
+    "suggestions",
+    "banner",
+    "ask"
+  ],
+  "rowCases": [
+    {
+      "name": "every kind, in order: queued, tasks, suggestions, banner, then the asks oldest first",
+      "sources": [
+        {
+          "kind": "plan",
+          "id": "p2",
+          "text": "# Fold the composer\n\n1. One",
+          "sessionName": "Ask dock",
+          "questions": 3,
+          "createdAt": 20
+        },
+        {
+          "kind": "banner",
+          "id": "wall",
+          "icon": "ui-usage",
+          "label": "Usage limit",
+          "text": "Claude's 5-hour window is used up",
+          "tone": "warning",
+          "action": "Switch account"
+        },
+        {
+          "kind": "question",
+          "id": "q1",
+          "text": "Ship **both** fixes in one PR?",
+          "sessionName": null,
+          "createdAt": 10
+        },
+        {
+          "kind": "tasks",
+          "queue": {
+            "todo": {
+              "title": "3 to do",
+              "items": [
+                {
+                  "label": "Measuring on the Galaxy A54",
+                  "description": "2m 35s",
+                  "state": "running"
+                },
+                {
+                  "label": "Open the PR",
+                  "description": null,
+                  "state": "pending"
+                }
+              ]
+            },
+            "completed": {
+              "title": "2 completed"
+            }
+          }
+        },
+        {
+          "kind": "queued",
+          "messages": [
+            {
+              "id": "m1",
+              "text": "also check the watchdog"
+            },
+            {
+              "id": "m2",
+              "text": "then open the PR"
+            }
+          ]
+        },
+        {
+          "kind": "suggestions",
+          "id": "m4",
+          "label": "3 suggested tasks",
+          "caption": "1 started",
+          "title": "Lazy-load the markdown editor",
+          "open": 2
+        }
+      ],
+      "expected": [
+        {
+          "id": "queued",
+          "kind": "queued",
+          "tint": "muted",
+          "icon": "ui-queued",
+          "label": "2 queued",
+          "caption": null,
+          "meta": null,
+          "title": "also check the watchdog",
+          "expandable": true,
+          "action": null
+        },
+        {
+          "id": "tasks",
+          "kind": "tasks",
+          "tint": "muted",
+          "icon": "trace-todo",
+          "label": "3 to do",
+          "caption": "2 completed",
+          "meta": "2m 35s",
+          "title": "Measuring on the Galaxy A54",
+          "expandable": true,
+          "action": null
+        },
+        {
+          "id": "m4",
+          "kind": "suggestions",
+          "tint": "muted",
+          "icon": "ui-checklist",
+          "label": "3 suggested tasks",
+          "caption": "1 started",
+          "meta": null,
+          "title": "Lazy-load the markdown editor",
+          "expandable": true,
+          "action": null
+        },
+        {
+          "id": "banner:wall",
+          "kind": "banner",
+          "tint": "warning",
+          "icon": "ui-usage",
+          "label": "Usage limit",
+          "caption": null,
+          "meta": null,
+          "title": "Claude's 5-hour window is used up",
+          "expandable": false,
+          "action": "Switch account"
+        },
+        {
+          "id": "q1",
+          "kind": "question",
+          "tint": "question",
+          "icon": "ui-help",
+          "label": "Question",
+          "caption": null,
+          "meta": null,
+          "title": "Ship both fixes in one PR?",
+          "expandable": true,
+          "action": null
+        },
+        {
+          "id": "p2",
+          "kind": "plan",
+          "tint": "plan",
+          "icon": "coding-plan",
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer",
+          "expandable": true,
+          "action": null
+        }
+      ]
+    },
+    {
+      "name": "an empty plan falls back to its label; one question; no completed; one queued; a muted banner without an action",
+      "sources": [
+        {
+          "kind": "plan",
+          "id": "p1",
+          "text": "```\ncode only\n```",
+          "sessionName": null,
+          "questions": 1,
+          "createdAt": 5
+        },
+        {
+          "kind": "tasks",
+          "queue": {
+            "todo": {
+              "title": "1 to do",
+              "items": [
+                {
+                  "label": "Open the PR",
+                  "description": null,
+                  "state": "pending"
+                }
+              ]
+            },
+            "completed": null
+          }
+        },
+        {
+          "kind": "queued",
+          "messages": [
+            {
+              "id": "m1",
+              "text": "one more"
+            }
+          ]
+        },
+        {
+          "kind": "banner",
+          "id": "compacting",
+          "icon": "coding-compact",
+          "label": "Compacting",
+          "text": "Compacting the context…",
+          "tone": "muted",
+          "action": null
+        }
+      ],
+      "expected": [
+        {
+          "id": "queued",
+          "kind": "queued",
+          "tint": "muted",
+          "icon": "ui-queued",
+          "label": "1 queued",
+          "caption": null,
+          "meta": null,
+          "title": "one more",
+          "expandable": true,
+          "action": null
+        },
+        {
+          "id": "tasks",
+          "kind": "tasks",
+          "tint": "muted",
+          "icon": "trace-todo",
+          "label": "1 to do",
+          "caption": null,
+          "meta": null,
+          "title": "Open the PR",
+          "expandable": true,
+          "action": null
+        },
+        {
+          "id": "banner:compacting",
+          "kind": "banner",
+          "tint": "muted",
+          "icon": "coding-compact",
+          "label": "Compacting",
+          "caption": null,
+          "meta": null,
+          "title": "Compacting the context…",
+          "expandable": false,
+          "action": null
+        },
+        {
+          "id": "p1",
+          "kind": "plan",
+          "tint": "plan",
+          "icon": "coding-plan",
+          "label": "Plan ready",
+          "caption": null,
+          "meta": "1 question",
+          "title": "Plan ready",
+          "expandable": true,
+          "action": null
+        }
+      ]
+    },
+    {
+      "name": "no queued messages and no queue draw nothing; ties by id",
+      "sources": [
+        {
+          "kind": "queued",
+          "messages": []
+        },
+        {
+          "kind": "plan",
+          "id": "b",
+          "text": "B",
+          "sessionName": "Two",
+          "questions": 0,
+          "createdAt": 1
+        },
+        {
+          "kind": "plan",
+          "id": "a",
+          "text": "A",
+          "sessionName": "One",
+          "questions": 0,
+          "createdAt": 1
+        }
+      ],
+      "expected": [
+        {
+          "id": "a",
+          "kind": "plan",
+          "tint": "plan",
+          "icon": "coding-plan",
+          "label": "Plan ready",
+          "caption": "One",
+          "meta": null,
+          "title": "A",
+          "expandable": true,
+          "action": null
+        },
+        {
+          "id": "b",
+          "kind": "plan",
+          "tint": "plan",
+          "icon": "coding-plan",
+          "label": "Plan ready",
+          "caption": "Two",
+          "meta": null,
+          "title": "B",
+          "expandable": true,
+          "action": null
+        }
+      ]
+    },
+    {
+      "name": "a Queue of only CLI background watchers still makes the tasks card",
+      "sources": [
+        {
+          "kind": "tasks",
+          "queue": {
+            "todo": {
+              "title": "2 to do",
+              "items": [
+                {
+                  "label": "sleep 600",
+                  "description": "4m 10s",
+                  "state": "running"
+                },
+                {
+                  "label": "gh run watch 18420",
+                  "description": "3m 10s",
+                  "state": "running"
+                }
+              ]
+            },
+            "completed": null
+          }
+        }
+      ],
+      "expected": [
+        {
+          "id": "tasks",
+          "kind": "tasks",
+          "tint": "muted",
+          "icon": "trace-todo",
+          "label": "2 to do",
+          "caption": null,
+          "meta": "4m 10s",
+          "title": "sleep 600",
+          "expandable": true,
+          "action": null
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "name": "nothing: no band",
+      "input": {
+        "rows": [],
+        "expanded": false,
+        "openId": null
+      },
+      "expected": {
+        "mode": "none",
+        "frontId": null,
+        "openId": null,
+        "hidden": 0,
+        "rows": []
+      }
+    },
+    {
+      "name": "one card is just that card",
+      "input": {
+        "rows": [
+          {
+            "id": "p1",
+            "kind": "plan",
+            "tint": "plan",
+            "icon": "coding-plan",
+            "label": "Plan ready",
+            "caption": null,
+            "meta": null,
+            "title": "A",
+            "expandable": true,
+            "action": null
+          }
+        ],
+        "expanded": true,
+        "openId": null
+      },
+      "expected": {
+        "mode": "single",
+        "frontId": "p1",
+        "openId": null,
+        "hidden": 0,
+        "rows": [
+          {
+            "id": "p1",
+            "kind": "plan",
+            "tint": "plan",
+            "icon": "coding-plan",
+            "label": "Plan ready",
+            "caption": null,
+            "meta": null,
+            "title": "A",
+            "expandable": true,
+            "action": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "five cards pile: three visible, two hidden, the last in front",
+      "input": {
+        "rows": [
+          {
+            "id": "queued",
+            "kind": "queued",
+            "tint": "muted",
+            "icon": "ui-queued",
+            "label": "2 queued",
+            "caption": null,
+            "meta": null,
+            "title": "also check",
+            "expandable": true,
+            "action": null
+          },
+          {
+            "id": "tasks",
+            "kind": "tasks",
+            "tint": "muted",
+            "icon": "trace-todo",
+            "label": "3 to do",
+            "caption": null,
+            "meta": null,
+            "title": "Measuring",
+            "expandable": true,
+            "action": null
+          },
+          {
+            "id": "banner:wall",
+            "kind": "banner",
+            "tint": "warning",
+            "icon": "ui-usage",
+            "label": "Usage limit",
+            "caption": null,
+            "meta": null,
+            "title": "Used up",
+            "expandable": false,
+            "action": "Switch account"
+          },
+          {
+            "id": "q1",
+            "kind": "question",
+            "tint": "question",
+            "icon": "ui-help",
+            "label": "Question",
+            "caption": null,
+            "meta": null,
+            "title": "Which?",
+            "expandable": true,
+            "action": null
+          },
+          {
+            "id": "p2",
+            "kind": "plan",
+            "tint": "plan",
+            "icon": "coding-plan",
+            "label": "Plan ready",
+            "caption": null,
+            "meta": null,
+            "title": "Fold",
+            "expandable": true,
+            "action": null
+          }
+        ],
+        "expanded": false,
+        "openId": null
+      },
+      "expected": {
+        "mode": "pile",
+        "frontId": "p2",
+        "openId": null,
+        "hidden": 2,
+        "rows": [
+          {
+            "id": "queued",
+            "kind": "queued",
+            "tint": "muted",
+            "icon": "ui-queued",
+            "label": "2 queued",
+            "caption": null,
+            "meta": null,
+            "title": "also check",
+            "expandable": true,
+            "action": null
+          },
+          {
+            "id": "tasks",
+            "kind": "tasks",
+            "tint": "muted",
+            "icon": "trace-todo",
+            "label": "3 to do",
+            "caption": null,
+            "meta": null,
+            "title": "Measuring",
+            "expandable": true,
+            "action": null
+          },
+          {
+            "id": "banner:wall",
+            "kind": "banner",
+            "tint": "warning",
+            "icon": "ui-usage",
+            "label": "Usage limit",
+            "caption": null,
+            "meta": null,
+            "title": "Used up",
+            "expandable": false,
+            "action": "Switch account"
+          },
+          {
+            "id": "q1",
+            "kind": "question",
+            "tint": "question",
+            "icon": "ui-help",
+            "label": "Question",
+            "caption": null,
+            "meta": null,
+            "title": "Which?",
+            "expandable": true,
+            "action": null
+          },
+          {
+            "id": "p2",
+            "kind": "plan",
+            "tint": "plan",
+            "icon": "coding-plan",
+            "label": "Plan ready",
+            "caption": null,
+            "meta": null,
+            "title": "Fold",
+            "expandable": true,
+            "action": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "fanned: every card shows; an open expandable card keeps its sheet",
+      "input": {
+        "rows": [
+          {
+            "id": "tasks",
+            "kind": "tasks",
+            "tint": "muted",
+            "icon": "trace-todo",
+            "label": "3 to do",
+            "caption": null,
+            "meta": null,
+            "title": "Measuring",
+            "expandable": true,
+            "action": null
+          },
+          {
+            "id": "q1",
+            "kind": "question",
+            "tint": "question",
+            "icon": "ui-help",
+            "label": "Question",
+            "caption": null,
+            "meta": null,
+            "title": "Which?",
+            "expandable": true,
+            "action": null
+          }
+        ],
+        "expanded": true,
+        "openId": "tasks"
+      },
+      "expected": {
+        "mode": "fanned",
+        "frontId": "q1",
+        "openId": "tasks",
+        "hidden": 0,
+        "rows": [
+          {
+            "id": "tasks",
+            "kind": "tasks",
+            "tint": "muted",
+            "icon": "trace-todo",
+            "label": "3 to do",
+            "caption": null,
+            "meta": null,
+            "title": "Measuring",
+            "expandable": true,
+            "action": null
+          },
+          {
+            "id": "q1",
+            "kind": "question",
+            "tint": "question",
+            "icon": "ui-help",
+            "label": "Question",
+            "caption": null,
+            "meta": null,
+            "title": "Which?",
+            "expandable": true,
+            "action": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "a banner or a gone card never opens",
+      "input": {
+        "rows": [
+          {
+            "id": "banner:wall",
+            "kind": "banner",
+            "tint": "warning",
+            "icon": "ui-usage",
+            "label": "Usage limit",
+            "caption": null,
+            "meta": null,
+            "title": "Used up",
+            "expandable": false,
+            "action": "Switch account"
+          },
+          {
+            "id": "p1",
+            "kind": "plan",
+            "tint": "plan",
+            "icon": "coding-plan",
+            "label": "Plan ready",
+            "caption": null,
+            "meta": null,
+            "title": "A",
+            "expandable": true,
+            "action": null
+          }
+        ],
+        "expanded": false,
+        "openId": "banner:wall"
+      },
+      "expected": {
+        "mode": "pile",
+        "frontId": "p1",
+        "openId": null,
+        "hidden": 0,
+        "rows": [
+          {
+            "id": "banner:wall",
+            "kind": "banner",
+            "tint": "warning",
+            "icon": "ui-usage",
+            "label": "Usage limit",
+            "caption": null,
+            "meta": null,
+            "title": "Used up",
+            "expandable": false,
+            "action": "Switch account"
+          },
+          {
+            "id": "p1",
+            "kind": "plan",
+            "tint": "plan",
+            "icon": "coding-plan",
+            "label": "Plan ready",
+            "caption": null,
+            "meta": null,
+            "title": "A",
+            "expandable": true,
+            "action": null
+          }
+        ]
+      }
+    }
+  ],
+  "autoOpenCases": [
+    {
+      "name": "the first plan opens",
+      "previous": [],
+      "rowIds": [
+        [
+          "p1",
+          "plan"
+        ]
+      ],
+      "expected": "p1"
+    },
+    {
+      "name": "a new question in front of a seen plan opens",
+      "previous": [
+        "p1"
+      ],
+      "rowIds": [
+        [
+          "p1",
+          "plan"
+        ],
+        [
+          "q2",
+          "question"
+        ]
+      ],
+      "expected": "q2"
+    },
+    {
+      "name": "two new asks: the front one opens",
+      "previous": [],
+      "rowIds": [
+        [
+          "q1",
+          "question"
+        ],
+        [
+          "p2",
+          "plan"
+        ]
+      ],
+      "expected": "p2"
+    },
+    {
+      "name": "tasks, queued and banners never open themselves",
+      "previous": [],
+      "rowIds": [
+        [
+          "queued",
+          "queued"
+        ],
+        [
+          "tasks",
+          "tasks"
+        ],
+        [
+          "banner:wall",
+          "banner"
+        ]
+      ],
+      "expected": null
+    },
+    {
+      "name": "nothing new",
+      "previous": [
+        "p1",
+        "q2"
+      ],
+      "rowIds": [
+        [
+          "p1",
+          "plan"
+        ],
+        [
+          "q2",
+          "question"
+        ]
+      ],
+      "expected": null
+    }
+  ],
+  "autoOpenGraceMs": 1500,
+  "suggestionCases": [
+    {
+      "name": "open items make the row; the header splits into the label and the started caption",
+      "rows": [
+        {
+          "type": "suggestions",
+          "id": "m4",
+          "header": "3 suggested tasks · 1 started",
+          "items": [
+            {
+              "state": "started",
+              "title": "Measure on the Galaxy A54"
+            },
+            {
+              "state": "open",
+              "title": "Lazy-load the markdown editor"
+            },
+            {
+              "state": "open",
+              "title": "Cache the board icons"
+            }
+          ]
+        },
+        {
+          "type": "message",
+          "id": "m5"
+        }
+      ],
+      "expected": [
+        {
+          "kind": "suggestions",
+          "id": "m4",
+          "label": "3 suggested tasks",
+          "caption": "1 started",
+          "title": "Lazy-load the markdown editor",
+          "open": 2
+        }
+      ]
+    },
+    {
+      "name": "no open item: no card (the row stays in the Conversation)",
+      "rows": [
+        {
+          "type": "suggestions",
+          "id": "m6",
+          "header": "2 suggested tasks · 2 started",
+          "items": [
+            {
+              "state": "started",
+              "title": "A"
+            },
+            {
+              "state": "filed",
+              "title": "B"
+            }
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "name": "nothing started: no caption",
+      "rows": [
+        {
+          "type": "suggestions",
+          "id": "m7",
+          "header": "1 suggested task",
+          "items": [
+            {
+              "state": "open",
+              "title": "Only one"
+            }
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "kind": "suggestions",
+          "id": "m7",
+          "label": "1 suggested task",
+          "caption": null,
+          "title": "Only one",
+          "open": 1
+        }
+      ]
+    }
+  ]
+}

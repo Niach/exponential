@@ -21,11 +21,15 @@ export function ComposerInlineTools({
   fieldRef,
   onFiles,
   disabled,
+  hidden = false,
 }: {
   ref?: Ref<ComposerInlineToolsHandle>
   fieldRef: RefObject<MentionTextareaHandle | null>
   onFiles: (files: File[]) => void
   disabled?: boolean
+  /** N-12: the file inputs alone (the session composer's "+" is its one
+   *  tool ×4; the inputs still answer its Add file row). */
+  hidden?: boolean
 }) {
   const imageInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -56,7 +60,7 @@ export function ComposerInlineTools({
         data-testid="composer-file-input"
         onChange={(event) => picked(event.target)}
       />
-      <ComposerEditTools
+      {!hidden && <ComposerEditTools
         disabled={disabled}
         onAddImage={() => open(imageInputRef.current)}
         onAttachFiles={() => open(fileInputRef.current)}
@@ -73,7 +77,7 @@ export function ComposerInlineTools({
             {trigger}
           </EmojiPickerPopover>
         )}
-      />
+      />}
     </>
   )
 }

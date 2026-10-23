@@ -3972,6 +3972,95 @@
       }
     },
     {
+      "id": "exponential-ui-dock-card",
+      "component": "DockCard",
+      "title": "DockCard",
+      "node": {
+        "id": "specimen-dock-card",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-dock-card-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-dock-card-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "open",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-dock-card",
+                "component": "DockCard",
+                "props": {
+                  "label": "Plan ready",
+                  "caption": "Ask dock",
+                  "meta": "3 questions",
+                  "title": "Fold the composer into the Dock",
+                  "icon": "coding-plan",
+                  "tone": "primary",
+                  "open": true
+                },
+                "children": [
+                  {
+                    "id": "c0-p",
+                    "component": "Text",
+                    "props": {
+                      "text": "Move the waiting cards above the composer and open each one as a bottom sheet.",
+                      "variant": "body"
+                    }
+                  }
+                ],
+                "slots": {
+                  "footer": {
+                    "id": "c0-footer",
+                    "component": "Stack",
+                    "props": {
+                      "direction": "horizontal",
+                      "gap": "sm",
+                      "justify": "end"
+                    },
+                    "children": [
+                      {
+                        "id": "c0-no",
+                        "component": "Button",
+                        "props": {
+                          "label": "No, keep planning",
+                          "variant": "secondary"
+                        }
+                      },
+                      {
+                        "id": "c0-yes",
+                        "component": "Button",
+                        "props": {
+                          "label": "Yes",
+                          "variant": "default"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-alert-dialog",
       "component": "AlertDialog",
       "title": "AlertDialog",

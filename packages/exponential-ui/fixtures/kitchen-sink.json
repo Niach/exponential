@@ -1886,6 +1886,58 @@
           }
         },
         {
+          "id": "dock-card",
+          "component": "DockCard",
+          "props": {
+            "label": "Plan ready",
+            "caption": "Ask dock",
+            "meta": "3 questions",
+            "title": "Fold the composer into the Dock",
+            "icon": "coding-plan",
+            "tone": "primary",
+            "open": {
+              "path": "/ui/dockOpen"
+            }
+          },
+          "children": [
+            {
+              "id": "dock-card-body",
+              "component": "Text",
+              "props": {
+                "text": "Move the waiting cards above the composer and open each one as a bottom sheet."
+              }
+            }
+          ],
+          "slots": {
+            "footer": {
+              "id": "dock-card-footer",
+              "component": "Stack",
+              "props": {
+                "direction": "horizontal",
+                "gap": "sm",
+                "justify": "end"
+              },
+              "children": [
+                {
+                  "id": "dock-card-no",
+                  "component": "Button",
+                  "props": {
+                    "label": "No, keep planning",
+                    "variant": "secondary"
+                  }
+                },
+                {
+                  "id": "dock-card-yes",
+                  "component": "Button",
+                  "props": {
+                    "label": "Yes"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
           "id": "hover-card",
           "component": "Popover",
           "props": {

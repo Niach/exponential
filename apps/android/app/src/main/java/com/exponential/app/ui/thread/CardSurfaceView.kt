@@ -48,7 +48,8 @@ import kotlinx.serialization.json.JsonObject
  * the UniFFI core). The card host: NO transport (actions and input edits go
  * nowhere), `set` the only function (the core's built-in; host functions
  * are never registered), media = `/api/attachments/…` against the app's
- * instance WITH the account's bearer + https. When the person answers, the
+ * instance WITH the account's bearer + https (its own host opted in past
+ * VAPP-107's private-host rule, [cardAllowPrivate]). When the person answers, the
  * card reads [CardSurfaceHandle.snapshot]: the surface's data model, the
  * answer's `surfaceData`.
  */
@@ -67,9 +68,23 @@ interface CardSurfaceEntryPoint {
     fun authRepository(): AuthRepository
 }
 
+/**
+ * VAPP-107: private, loopback and link-local hosts are denied by default; a
+ * self-hosted LAN instance (or the localhost dev stack) opts EXACTLY its own
+ * API host back in, never the whole LAN (no `*`, no suffix). A public origin
+ * needs nothing, and listing it changes nothing. Null = no origin.
+ */
+internal fun cardAllowPrivate(origin: String?): List<String>? = origin
+    ?.let { runCatching { java.net.URI(it.trim()).host }.getOrNull() }
+    ?.removePrefix("[")?.removeSuffix("]")
+    ?.takeIf { it.isNotEmpty() }
+    ?.let { listOf(it.lowercase()) }
+
 /** The card host plugin (see [CardSurfaceHandle]). */
 private class CardSurfaceHost(base: String?, token: String?) : HostPlugin {
     private val origin = base?.trimEnd('/')
+
+    private val ownHost: List<String>? = cardAllowPrivate(origin)
 
     override val mediaOptions: MediaOptions = MediaOptions(
         baseUrl = origin,
@@ -80,9 +95,10 @@ private class CardSurfaceHost(base: String?, token: String?) : HostPlugin {
         },
         // https, plus the instance's own scheme (a local http dev stack).
         schemes = listOfNotNull("https", origin?.substringBefore("://")?.takeIf { it == "http" }),
+        allowPrivate = ownHost,
     )
 
-    override val urlPolicy: UrlPolicy = UrlPolicy(schemes = listOf("https"), baseUrl = origin)
+    override val urlPolicy: UrlPolicy = UrlPolicy(schemes = listOf("https"), baseUrl = origin, allowPrivate = ownHost)
 
     /** Never opened from a card: links stay inert (no transport). */
     override fun openUrl(url: String) {}

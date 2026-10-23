@@ -634,53 +634,22 @@ pub(crate) fn render_layer(window: &mut Window, cx: &mut App) -> AnyElement {
         .into_any_element()
 }
 
-/// One item of a laid-out stack: its top inside the stack box, its width
-/// factor, whether it draws.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct StackItem {
-    pub offset: f32,
-    pub scale: f32,
-    pub visible: bool,
-}
+pub(crate) use domain::stack::StackItem;
 
 /// The contract's stack geometry (`toast-stack.json` `geometry`, locked by
-/// the tests): `heights` oldest first, returns the stack box height and one
-/// item per toast in the same order. Rank 0 = the newest (front). Collapsed:
-/// every older toast's edge moves `PEEK` per rank away from the anchor and
-/// its width shrinks `SCALE_STEP` per rank (capped at the last visible
-/// rank); only `VISIBLE` draw. Expanded: full size, `GAP` apart, all drawn.
-pub(crate) fn stack_layout(
-    heights: &[f32],
-    expanded: bool,
-    anchored_bottom: bool,
-) -> (f32, Vec<StackItem>) {
-    use constants::{GAP, PEEK, SCALE_STEP, VISIBLE};
-    let n = heights.len();
-    let rank = |i: usize| n - 1 - i;
-    // Distance of each item's anchor-side edge from the box's anchor edge.
-    let lead: Vec<f32> = if expanded {
-        (0..n)
-            .map(|i| heights[i + 1..].iter().map(|h| h + GAP).sum::<f32>())
-            .collect()
-    } else {
-        (0..n).map(|i| PEEK * rank(i) as f32).collect()
-    };
-    let height = (0..n).map(|i| lead[i] + heights[i]).fold(0f32, f32::max);
-    let items = (0..n)
-        .map(|i| {
-            let r = rank(i);
-            let offset =
-                if anchored_bottom { height - lead[i] - heights[i] } else { lead[i] };
-            let (scale, visible) = if expanded {
-                (1.0, true)
-            } else {
-                (1.0 - SCALE_STEP * r.min(VISIBLE - 1) as f32, r < VISIBLE)
-            };
-            StackItem { offset, scale, visible }
-        })
-        .collect();
-    (height, items)
+/// the tests) over the toast's constants: [`domain::stack::stack_layout`],
+/// shared with THE Dock's pile.
+pub(crate) fn stack_layout(heights: &[f32], expanded: bool, anchored_bottom: bool) -> (f32, Vec<StackItem>) {
+    domain::stack::stack_layout(heights, expanded, anchored_bottom, TOAST_STACK)
 }
+
+/// The toast's numbers as THE stack's constants.
+pub(crate) const TOAST_STACK: domain::stack::StackConstants = domain::stack::StackConstants {
+    peek: constants::PEEK,
+    scale_step: constants::SCALE_STEP,
+    visible: constants::VISIBLE,
+    gap: constants::GAP,
+};
 
 #[cfg(test)]
 mod tests {

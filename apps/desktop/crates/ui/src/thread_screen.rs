@@ -25,7 +25,7 @@
 //!   session), question and plan cards = THE session view's card
 //!   (`crate::steer_viewer::ask_card` + its option rows, the free-text row
 //!   and the plan's note; `sessions.answer`), events as muted lines, pictures as tiles; under it
-//!   THE session composer box ([`crate::composer::session_composer_box`])
+//!   THE session composer box ([`crate::composer::session_composer_card`])
 //!   sending `sessions.send({sessionId: root})`.
 //! * NEW-6 (N-1) / NEW-46: a thread with ONE session (`view.main_session_id`,
 //!   no child yet): its Conversation tab = that session's raw work in place
@@ -55,6 +55,7 @@ use sync::Store;
 
 use domain::rows::{Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionRow};
 use domain::session_results::SessionResultEntry;
+use domain::dock::DockSource;
 use domain::session_tree::{SessionThreadRow, SessionThreadView, ThreadTab, THREAD, THREADS_LIST};
 
 use crate::controls::PointerContextMenuExt as _;
@@ -878,90 +879,59 @@ pub(crate) fn card_answering(cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// How a card sits: inline in the Conversation (`Default`), or THE ask
-/// dock's big card (`docked`: the body inline, never scrolling, `back` = the
-/// focused card's arrow leading its header; `fixtures/ask-dock.json`).
-#[derive(Default)]
-pub(crate) struct CardChrome {
-    pub docked: bool,
-    pub back: Option<AnyElement>,
-}
-
-/// A card's column: the markdown body and the rich content (surface,
-/// questions; EXP-1280), inline in THE ask dock (NEW-6: no scroll), then
-/// the controls (decision row, Answer, the closed lines) below.
-fn card_column(id: &str, body: MarkdownView, content: Vec<AnyElement>, controls: AnyElement, chrome: &CardChrome, window: &Window, cx: &App) -> gpui::Div {
-    let body = v_flex()
+/// A card's column in the Conversation: the markdown body and the rich
+/// content (surface, questions; EXP-1280), then the closed lines.
+fn card_column(body: MarkdownView, content: Vec<AnyElement>, controls: AnyElement, cx: &App) -> gpui::Div {
+    v_flex()
         .w_full()
         .min_w_0()
         .child(crate::steer_viewer::ask_body_text(cx).child(body))
-        .children(content);
-    let body = if chrome.docked {
-        crate::ask_dock::dock_body(SharedString::from(format!("thread-dock-body-{id}")), body, window).into_any_element()
-    } else {
-        body.into_any_element()
-    };
-    v_flex().w_full().min_w_0().child(body).child(controls)
+        .children(content)
+        .child(controls)
 }
 
-/// EXP-1316 → EXP-1280 — a question card = THE card ×4: the question, the
-/// inline surface, its options (THE option rows, or picture tiles; several
-/// picks when `multi`), the free-text row (`custom`), the Answer button;
-/// once answered, CLOSED (the picks highlighted, the answer line).
+/// EXP-1316 → EXP-1280 — a question card IN THE CONVERSATION = THE card ×4:
+/// the question, the inline surface, its options; once answered, CLOSED
+/// (the picks highlighted, the answer line). N-12: a pending card the
+/// viewer may answer lives in THE Dock ([`ask_row_sheet`]).
 pub(crate) fn question_card(
     question: MarkdownView,
     facts: crate::plan_card::QuestionFacts,
     images: &Entity<ImageCache>,
-    chrome: CardChrome,
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
     let (content, controls) = crate::plan_card::question_parts(&facts, images, window, cx);
-    let column = card_column(facts.message_id, question, content, controls, &chrome, window, cx);
-    crate::steer_viewer::ask_card_chrome(false, None, None, chrome.back, column, cx)
+    let column = card_column(question, content, controls, cx);
+    crate::steer_viewer::ask_card_chrome(false, None, None, None, column, cx)
         .id(SharedString::from(format!("{}-{}", domain::plan_card::test_ids().card, facts.message_id)))
         .into_any_element()
 }
 
-/// EXP-1316 → EXP-1280 — a plan card = THE plan card ×4: `Plan ready`, the
-/// plan (pictures inline; a pending `upload:` embed renders nothing), the
-/// inline surface, one block per question, THE options
-/// (`fixtures/ask-dock.json` `planOptions`; approving waits on every
-/// question) + the feedback field; once decided, CLOSED (the picks,
-/// `planDecisionLabel`, the feedback).
+/// EXP-1316 → EXP-1280 — a plan card IN THE CONVERSATION = THE plan card
+/// ×4: `Plan ready`, the plan (pictures inline; a pending `upload:` embed
+/// renders nothing), the inline surface, one block per question; once
+/// decided, CLOSED (the picks, `planDecisionLabel`, the feedback). N-12: a
+/// pending card the viewer may decide lives in THE Dock ([`ask_row_sheet`]).
 pub(crate) fn plan_card(
     plan: MarkdownView,
     facts: crate::plan_card::PlanFacts,
     images: &Entity<ImageCache>,
-    chrome: CardChrome,
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
     let (content, controls) = crate::plan_card::plan_parts(&facts, images, window, cx);
-    let column = card_column(facts.message_id, plan, content, controls, &chrome, window, cx);
-    crate::steer_viewer::ask_card_chrome(true, Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone())), None, chrome.back, column, cx)
+    let column = card_column(plan, content, controls, cx);
+    crate::steer_viewer::ask_card_chrome(true, Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone())), None, None, column, cx)
         .id(SharedString::from(format!("{}-{}", domain::plan_card::test_ids().card, facts.message_id)))
         .into_any_element()
 }
 
-/// A `question` / `plan` row as its card (the Conversation's, THE dock's,
-/// the session view's tool-posted one); any other row = `None`.
-pub(crate) fn ask_row_card(
-    row: &SessionThreadRow,
-    text: &ThreadText,
-    images: &Entity<ImageCache>,
-    chrome: CardChrome,
-    window: &Window,
-    cx: &mut App,
-) -> Option<AnyElement> {
-    Some(match row {
-        SessionThreadRow::Plan { id, plan, questions, surface, decision, fresh, answers, feedback, surface_data, .. } => plan_card(
-            message_markdown(
-                SharedString::from(format!("thread-plan-{id}")),
-                &crate::plan_card::strip_pending_uploads(plan),
-                text,
-                images,
-            ),
+fn plan_facts<'a>(row: &'a SessionThreadRow) -> Option<(&'a str, &'a str, crate::plan_card::PlanFacts<'a>)> {
+    match row {
+        SessionThreadRow::Plan { id, plan, questions, surface, decision, fresh, answers, feedback, surface_data, .. } => Some((
+            id,
+            plan,
             crate::plan_card::PlanFacts {
                 message_id: id,
                 questions,
@@ -972,13 +942,16 @@ pub(crate) fn ask_row_card(
                 feedback: feedback.as_deref(),
                 surface_data: surface_data.as_ref(),
             },
-            images,
-            chrome,
-            window,
-            cx,
-        ),
-        SessionThreadRow::Question { id, question, options, custom, multi, surface, answer, answers, surface_data, answered, .. } => question_card(
-            message_markdown(SharedString::from(format!("thread-question-{id}")), question, text, images),
+        )),
+        _ => None,
+    }
+}
+
+fn question_facts<'a>(row: &'a SessionThreadRow) -> Option<(&'a str, &'a str, crate::plan_card::QuestionFacts<'a>)> {
+    match row {
+        SessionThreadRow::Question { id, question, options, custom, multi, surface, answer, answers, surface_data, answered, .. } => Some((
+            id,
+            question,
             crate::plan_card::QuestionFacts {
                 message_id: id,
                 options,
@@ -990,93 +963,212 @@ pub(crate) fn ask_row_card(
                 surface_data: surface_data.as_ref(),
                 answered: *answered,
             },
-            images,
-            chrome,
-            window,
-            cx,
-        ),
-        _ => return None,
-    })
-}
-
-/// THE ask dock in a root's Conversation (a thread, an agent channel;
-/// `fixtures/ask-dock.json`): the tree's waiting cards
-/// (`thread_pending_asks`, captioned by `session_name`) in the composer's
-/// slot: one = the big card, several = the stack, a click focuses one and
-/// the back arrow returns. Returns the dock and the docked row ids (they
-/// leave the Conversation); `None` = nothing waits (the composer shows).
-#[allow(clippy::too_many_arguments)] // the host's facts
-pub(crate) fn conversation_dock(
-    prefix: &str,
-    rows: &[SessionThreadRow],
-    session_name: impl Fn(&str) -> Option<String>,
-    state: &Entity<crate::ask_dock::AskDockState>,
-    text: &ThreadText,
-    images: &Entity<ImageCache>,
-    window: &Window,
-    cx: &mut App,
-) -> Option<(AnyElement, HashSet<String>)> {
-    let pending = domain::ask_dock::thread_pending_asks(rows, session_name);
-    conversation_dock_for(prefix, rows, &pending, state, text, images, window, cx)
-}
-
-/// [`conversation_dock`] over an already-scanned `pending` (EXP-1346: the
-/// thread scans once per model change, not per frame).
-#[allow(clippy::too_many_arguments)] // the host's facts
-pub(crate) fn conversation_dock_for(
-    prefix: &str,
-    rows: &[SessionThreadRow],
-    pending: &[domain::ask_dock::AskDockPending],
-    state: &Entity<crate::ask_dock::AskDockState>,
-    text: &ThreadText,
-    images: &Entity<ImageCache>,
-    window: &Window,
-    cx: &mut App,
-) -> Option<(AnyElement, HashSet<String>)> {
-    if pending.is_empty() {
-        return None;
+        )),
+        _ => None,
     }
-    let docked: HashSet<String> = pending.iter().map(|pending| pending.id.clone()).collect();
-    let focused = state.read(cx).focused().map(str::to_string);
-    let view = domain::ask_dock::ask_dock(pending, focused.as_deref());
-    let content = match view.card_id.as_deref() {
-        Some(card_id) => {
-            let row = rows.iter().find(|row| row.id() == card_id)?;
-            let back = view.back.then(|| {
-                let state = state.clone();
-                crate::ask_dock::back_button(SharedString::from(format!("{prefix}-ask-dock-back")), move |_, _, cx| {
-                    state.update(cx, |state, _| state.back());
-                    cx.refresh_windows();
-                })
-            });
-            docked_card(row, text, images, CardChrome { docked: true, back }, window, cx)?
-        }
-        None => {
-            let state = state.clone();
-            crate::ask_dock::stack(
-                &view.rows,
-                std::rc::Rc::new(move |id: &str, _: &mut Window, cx: &mut App| {
-                    state.update(cx, |state, _| state.focus(id));
-                    cx.refresh_windows();
-                }),
-                cx,
-            )
-        }
-    };
-    let element = state.update(cx, |state, _| crate::ask_dock::dock(state, &view, content, window));
-    Some((element, docked))
 }
 
-/// A waiting row as the dock's big card.
-fn docked_card(
+/// A `question` / `plan` row as its Conversation card (the thread's, the
+/// agent channel's, the session view's tool-posted one); any other row =
+/// `None`.
+pub(crate) fn ask_row_card(
     row: &SessionThreadRow,
     text: &ThreadText,
     images: &Entity<ImageCache>,
-    chrome: CardChrome,
     window: &Window,
     cx: &mut App,
 ) -> Option<AnyElement> {
-    ask_row_card(row, text, images, chrome, window, cx)
+    if let Some((id, plan, facts)) = plan_facts(row) {
+        let markdown = message_markdown(
+            SharedString::from(format!("thread-plan-{id}")),
+            &crate::plan_card::strip_pending_uploads(plan),
+            text,
+            images,
+        );
+        return Some(plan_card(markdown, facts, images, window, cx));
+    }
+    let (id, question, facts) = question_facts(row)?;
+    let markdown = message_markdown(SharedString::from(format!("thread-question-{id}")), question, text, images);
+    Some(question_card(markdown, facts, images, window, cx))
+}
+
+/// N-12: a waiting `question` / `plan` row's sheet (plan-card.json
+/// `stepper`): the plan's pages and the footer decision, or the question
+/// and its Answer.
+pub(crate) fn ask_row_sheet(
+    row: &SessionThreadRow,
+    text: &ThreadText,
+    images: &Entity<ImageCache>,
+    window: &Window,
+    cx: &mut App,
+) -> Option<crate::dock::SheetContent> {
+    if let Some((id, plan, facts)) = plan_facts(row) {
+        let markdown = message_markdown(
+            SharedString::from(format!("thread-plan-sheet-{id}")),
+            &crate::plan_card::strip_pending_uploads(plan),
+            text,
+            images,
+        );
+        let body = crate::steer_viewer::ask_body_text(cx).child(markdown).into_any_element();
+        return Some(crate::plan_card::plan_sheet(&facts, body, images, window, cx));
+    }
+    let (id, question, facts) = question_facts(row)?;
+    let markdown = message_markdown(SharedString::from(format!("thread-question-sheet-{id}")), question, text, images);
+    let body = crate::steer_viewer::ask_body_text(cx).child(markdown).into_any_element();
+    Some(crate::plan_card::question_sheet(&facts, body, images, window, cx))
+}
+
+/// N-12: a waiting `question` / `plan` row as a Dock source (`created_at` =
+/// its order, oldest first).
+pub(crate) fn ask_source(row: &SessionThreadRow, session_name: Option<String>, created_at: i64) -> Option<DockSource> {
+    match row {
+        SessionThreadRow::Plan { id, plan, questions, .. } => Some(DockSource::Plan {
+            id: id.clone(),
+            text: plan.clone(),
+            session_name,
+            questions: questions.len(),
+            created_at,
+        }),
+        SessionThreadRow::Question { id, question, .. } => Some(DockSource::Question {
+            id: id.clone(),
+            text: question.clone(),
+            session_name,
+            created_at,
+        }),
+        _ => None,
+    }
+}
+
+/// A thread's waiting cards (`thread_pending_asks`) as Dock sources.
+pub(crate) fn pending_sources(pending: &[domain::ask_dock::AskDockPending]) -> Vec<DockSource> {
+    pending
+        .iter()
+        .map(|ask| match ask.kind {
+            domain::ask_dock::AskDockKind::Plan => DockSource::Plan {
+                id: ask.id.clone(),
+                text: ask.text.clone(),
+                session_name: ask.session_name.clone(),
+                questions: ask.questions.unwrap_or(0),
+                created_at: ask.created_at,
+            },
+            domain::ask_dock::AskDockKind::Question => DockSource::Question {
+                id: ask.id.clone(),
+                text: ask.text.clone(),
+                session_name: ask.session_name.clone(),
+                created_at: ask.created_at,
+            },
+        })
+        .collect()
+}
+
+/// N-12: the suggestions rows with an OPEN item as Dock sources
+/// (`suggestionSources` ×4): the row leaves the Conversation and opens as
+/// [`suggestions_sheet`].
+pub(crate) fn suggestion_sources(rows: &[SessionThreadRow]) -> Vec<DockSource> {
+    use domain::session_tree::SuggestionState;
+    let rows: Vec<domain::dock::DockSuggestionsRow> = rows
+        .iter()
+        .filter_map(|row| match row {
+            SessionThreadRow::Suggestions { id, header, items, .. } => Some(domain::dock::DockSuggestionsRow {
+                id: id.clone(),
+                header: header.clone(),
+                items: items
+                    .iter()
+                    .map(|item| domain::dock::DockSuggestionItem {
+                        state: match item.state {
+                            SuggestionState::Open => "open",
+                            SuggestionState::Started => "started",
+                            SuggestionState::Here => "here",
+                            SuggestionState::Filed => "filed",
+                        }
+                        .into(),
+                        title: item.title.clone(),
+                    })
+                    .collect(),
+            }),
+            _ => None,
+        })
+        .collect();
+    domain::dock::suggestion_sources(&rows)
+}
+
+/// N-12: the Conversation rows THE Dock holds (web `threadDockedIds`): the
+/// waiting asks and, with `suggestions`, the suggestions rows with an open
+/// item.
+pub(crate) fn docked_ids(
+    rows: &[SessionThreadRow],
+    pending: &[domain::ask_dock::AskDockPending],
+    suggestions: bool,
+) -> HashSet<String> {
+    let mut ids: HashSet<String> = pending.iter().map(|ask| ask.id.clone()).collect();
+    if suggestions {
+        ids.extend(suggestion_sources(rows).into_iter().filter_map(|source| match source {
+            DockSource::Suggestions { id, .. } => Some(id),
+            _ => None,
+        }));
+    }
+    ids
+}
+
+/// N-12: THE Dock of a root's Conversation (a thread, an agent channel;
+/// `fixtures/dock.json`): the tree's waiting cards (`pending`, captioned by
+/// their session) plus the root's own cards (THE Queue, the queued
+/// messages, the banners, off the hosted composer view) above THE
+/// composer; returns the band and the open card's sheet. `suggestions` =
+/// the root's id when its suggested-tasks cards dock too (the thread).
+/// Auto-open runs here (the screen is in front while it renders).
+#[allow(clippy::too_many_arguments)] // the host's facts
+pub(crate) fn root_dock(
+    prefix: &str,
+    rows: &[SessionThreadRow],
+    pending: &[domain::ask_dock::AskDockPending],
+    suggestions: Option<&str>,
+    state: &Entity<crate::dock::DockState>,
+    composer: &Entity<crate::steer_viewer::SteerSessionView>,
+    text: &ThreadText,
+    images: &Entity<ImageCache>,
+    window: &mut Window,
+    cx: &mut App,
+) -> (Option<AnyElement>, Option<AnyElement>) {
+    let mut sources = pending_sources(pending);
+    if suggestions.is_some() {
+        sources.extend(suggestion_sources(rows));
+    }
+    sources.extend(composer.read(cx).session_dock_sources(cx));
+    let dock_rows = domain::dock::dock_rows(&sources);
+    // Loaded = the Conversation's rows arrived (web `autoOpenReady`, iOS and
+    // Android the same): what already waited when they land stays collapsed.
+    state.update(cx, |state, _| state.auto_open(&dock_rows, true, !rows.is_empty()));
+    let sheet = match state.read(cx).sheet_id().map(str::to_string) {
+        Some(open) => match dock_rows.iter().find(|row| row.id == open).cloned() {
+            Some(dock_row) => {
+                // THE sheet is a sheet host: its pickers open inline.
+                let content = crate::dock::sheet_host(|| match rows.iter().find(|row| row.id() == open) {
+                    Some(SessionThreadRow::Suggestions { id, start_all, items, .. }) => {
+                        Some(suggestions_sheet(id, *start_all, items, suggestions.unwrap_or_default(), text.team_id(), cx))
+                    }
+                    Some(row) => ask_row_sheet(row, text, images, window, cx),
+                    None => composer.update(cx, |composer, cx| composer.render_session_dock_sheet(&dock_row, window, cx)),
+                });
+                content.map(|content| crate::dock::sheet(state, &dock_row, content, window, cx))
+            }
+            None => {
+                state.update(cx, |state, _| state.close());
+                None
+            }
+        },
+        None => None,
+    };
+    let (actions, card) = composer.update(cx, |composer, cx| {
+        (composer.session_dock_actions(cx), composer.render_session_composer(window, cx))
+    });
+    let band = crate::dock::band(
+        state,
+        crate::dock::Band { id: SharedString::from(prefix.to_string()), rows: dock_rows, actions, composer: card },
+        window,
+        cx,
+    );
+    (band, sheet)
 }
 
 /// A picture card as the Guide's tile (a click opens the lightbox).
@@ -1133,7 +1225,7 @@ pub(crate) fn card_row(
             )
         }
         SessionThreadRow::Question { .. } | SessionThreadRow::Plan { .. } => {
-            return ask_row_card(row, text, images, CardChrome::default(), window, cx);
+            return ask_row_card(row, text, images, window, cx);
         }
         SessionThreadRow::Subagent { title, status, .. } => muted_line(
             registry::CODING_SUBAGENT,
@@ -1279,9 +1371,12 @@ fn file_suggestion(message_id: String, item_id: String, cx: &mut App) {
 
 /// THE suggested tasks card ×4 = the Work card's shell: a header
 /// (`3 suggested tasks`, `· 2 started`, Start all while more than one is
-/// open), then hairline-divided items — open = title, text, × · Options ·
-/// Do it here · Start; started = the child's session card (its caption
-/// under the name) opening it; here = `Sent here`; filed = `Filed EXP-9`.
+/// open), then hairline-divided items. N-12: while any item is open the
+/// row is a DockCard and this list is its sheet ([`suggestions_sheet`]);
+/// the card stays in the Conversation for the rows with none. Open =
+/// title, text, the ⋯ menu ([`suggestion_menu`]) and Start; started = the
+/// child's session card (its caption under the name) opening it; here =
+/// `Sent here`; filed = `Filed EXP-9`.
 pub(crate) fn suggestions_card(
     message_id: &str,
     header: &str,
@@ -1338,7 +1433,7 @@ pub(crate) fn suggestions_card(
         .rounded(px(theme::tokens::radius::LG))
         .border_1()
         .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+        .bg(crate::dock::card_fill())
         .text_xs()
         .child(head)
         .children(rows.map(|row| {
@@ -1425,14 +1520,12 @@ fn suggestion_item_row(
             let key = suggestion_key(message_id, Some(&item.id));
             let busy = suggestion_pending(&key, cx);
             let id = |part: &str| SharedString::from(format!("thread-suggestion-{part}-{message_id}-{}", item.id));
-            let (dismiss_message, dismiss_item) = (message_id.to_string(), item.id.clone());
-            let (here_message, here_item) = (message_id.to_string(), item.id.clone());
             let (start_message, start_item) = (message_id.to_string(), item.id.clone());
             let options = Button::new(id("options"))
-                .outline()
-                .web_xs()
-                .label(copy.options.clone())
-                .dropdown_caret(true)
+                .ghost()
+                .web_icon_xs()
+                .icon(Icon::new(registry::UI_MORE))
+                .tooltip(copy.options.clone())
                 .disabled(busy);
             let menu_message = message_id.to_string();
             let menu_item = item.id.clone();
@@ -1446,60 +1539,33 @@ fn suggestion_item_row(
                 .gap_3()
                 .items_start()
                 .child(
-                    h_flex()
+                    v_flex()
                         .flex_1()
                         .min_w_0()
-                        .gap_2()
-                        .items_start()
                         .child(
-                            v_flex()
-                                .flex_1()
+                            div()
                                 .min_w_0()
-                                .child(
-                                    div()
-                                        .min_w_0()
-                                        .truncate()
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(cx.theme().foreground)
-                                        .child(SharedString::from(item.title.clone())),
-                                )
-                                .when(!text.is_empty(), |this| {
-                                    this.child(
-                                        div().mt_0p5().text_color(muted).child(SharedString::from(text.to_string())),
-                                    )
-                                }),
+                                .truncate()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(cx.theme().foreground)
+                                .child(SharedString::from(item.title.clone())),
                         )
-                        .child(
-                            Button::new(id("dismiss"))
-                                .ghost()
-                                .web_icon_xs()
-                                .icon(Icon::new(registry::UI_CLOSE))
-                                .tooltip(copy.dismiss.clone())
-                                .disabled(busy)
-                                .on_click(move |_, _, cx| {
-                                    cx.stop_propagation();
-                                    dismiss_suggestion(dismiss_message.clone(), dismiss_item.clone(), cx);
-                                }),
-                        ),
+                        .when(!text.is_empty(), |this| {
+                            this.child(div().mt_0p5().text_color(muted).child(SharedString::from(text.to_string())))
+                        }),
                 )
                 .child(
                     h_flex()
                         .flex_shrink_0()
                         .gap_1p5()
                         .items_center()
-                        .child(crate::controls::PointerMenu::for_button(options, move |menu, window, cx| {
-                            suggestion_menu(menu, &menu_message, &menu_item, menu_team.as_deref(), window, cx)
-                        }))
+                        // THE IDE menu, in-window (inside the Dock sheet
+                        // too: a layer of the window), hung off its right edge.
                         .child(
-                            Button::new(id("here"))
-                                .outline()
-                                .web_xs()
-                                .label(copy.here.clone())
-                                .disabled(busy)
-                                .on_click(move |_, _, cx| {
-                                    cx.stop_propagation();
-                                    start_suggestion(&here_message, &here_item, true, None, None, cx);
-                                }),
+                            crate::controls::PointerMenu::for_button(options, move |menu, window, cx| {
+                                suggestion_menu(menu, &menu_message, &menu_item, menu_team.as_deref(), window, cx)
+                            })
+                            .anchor(gpui::Anchor::TopRight),
                         )
                         .child(
                             Button::new(id("start"))
@@ -1518,10 +1584,67 @@ fn suggestion_item_row(
     }
 }
 
-/// An open item's Options = THE Menu (web `session-thread-view`): Start on…
-/// (the team's devices that can start NOW — online with a runnable agent;
-/// disabled when there is none) · Start with… (the contract models, never a
-/// default row) · File as issue · Dismiss (plain rows, no glyphs).
+/// N-12: THE suggestions sheet (the DockCard opened, web
+/// `ThreadSuggestionsSheet`): the items exactly as [`suggestions_card`]
+/// lists them, hairline-divided; the footer = Start all while more than
+/// one item is open.
+pub(crate) fn suggestions_sheet(
+    message_id: &str,
+    start_all: bool,
+    items: &[domain::session_tree::SuggestionRow],
+    root_id: &str,
+    team_id: Option<&str>,
+    cx: &App,
+) -> crate::dock::SheetContent {
+    use gpui_component::button::Button;
+    let rows = items.iter().enumerate().map(|(index, item)| {
+        div()
+            .w_full()
+            .min_w_0()
+            .when(index > 0, |row| row.border_t_1().border_color(theme::tokens::glass::STROKE_ROW.to_hsla()))
+            .child(suggestion_item_row(message_id, item, root_id, team_id, cx))
+    });
+    let body = div()
+        .id(SharedString::from(format!("{}-{message_id}", domain::dock::DOCK.test_ids.sheet_body)))
+        .flex_shrink(1.)
+        .min_h_0()
+        .overflow_y_scroll()
+        .px_1()
+        .pb_3()
+        .child(
+            v_flex()
+                .id("thread-suggestions-sheet")
+                .w_full()
+                .min_w_0()
+                .text_xs()
+                .children(rows),
+        )
+        .into_any_element();
+    let footer = start_all.then(|| {
+        let message_id = message_id.to_string();
+        let all_key = suggestion_key(&message_id, None);
+        crate::dock::sheet_footer(
+            h_flex().w_full().justify_end().child(
+                Button::new("thread-suggestions-start-all")
+                    .primary()
+                    .web_sm()
+                    .label(THREAD.copy.suggestions.start_all.clone())
+                    .loading(suggestion_pending(&all_key, cx))
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        start_all_suggestions(message_id.clone(), cx);
+                    }),
+            ),
+        )
+    });
+    crate::dock::SheetContent { meta: None, body, footer }
+}
+
+/// An open item's ⋯ = THE Menu (web `session-thread-view`): Do it here ·
+/// Start on… (the team's devices that can start NOW — online with a
+/// runnable agent; disabled when there is none) · Start with… (the
+/// contract models, never a default row) · File as issue · Dismiss (plain
+/// rows, no glyphs).
 fn suggestion_menu(
     menu: gpui_component::menu::PopupMenu,
     message_id: &str,
@@ -1538,11 +1661,17 @@ fn suggestion_menu(
         .into_iter()
         .filter(|device| device.can_start_now())
         .collect();
+    let (here_message, here_item) = (message_id.to_string(), item_id.to_string());
     let (device_message, device_item) = (message_id.to_string(), item_id.to_string());
     let (model_message, model_item) = (message_id.to_string(), item_id.to_string());
     let (file_message, file_item) = (message_id.to_string(), item_id.to_string());
     let (dismiss_message, dismiss_item) = (message_id.to_string(), item_id.to_string());
-    let menu = menu.min_w(px(224.));
+    let menu = menu.min_w(px(224.)).item(pointer_menu_item(
+        None,
+        copy.here.clone(),
+        |_| None,
+        move |_, cx| start_suggestion(&here_message, &here_item, true, None, None, cx),
+    ));
     let menu = if devices.is_empty() {
         // No target: the entry stays, disabled (web's disabled submenu).
         menu.item(pointer_label_item(copy.start_on.clone(), true))
@@ -2560,8 +2689,8 @@ pub(crate) struct ThreadScreenView {
     /// root's live source (`session_screen::root_composer_view`), whose
     /// composer stack this screen paints under the conversation.
     composer: Entity<crate::steer_viewer::SteerSessionView>,
-    /// THE ask dock's state (the focused card, the swap animation).
-    ask_dock: Entity<crate::ask_dock::AskDockState>,
+    /// N-12: THE Dock's state (the fan, the open sheet, the band height).
+    dock: Entity<crate::dock::DockState>,
     /// When each issue link was FIRST rendered, and whether it was new then
     /// (linked inside [`NEW_CHILD_WINDOW`]) — the fade-in ring.
     first_seen: HashMap<String, (Instant, bool)>,
@@ -2574,7 +2703,7 @@ pub(crate) struct ThreadScreenView {
     /// The projection the list indexes into: indices into the model's rows
     /// (the docked asks left out), then the live tail row while it shows.
     conv: ConversationRows,
-    /// The ask dock's waiting cards, scanned once per model change.
+    /// THE Dock's waiting cards, scanned once per model change.
     pending_asks: Vec<domain::ask_dock::AskDockPending>,
     /// The chip memo behind [`Self::text`] (cleared when the issues or
     /// statuses notify) and this frame's resolver over it.
@@ -2659,7 +2788,7 @@ impl ThreadScreenView {
             guide: GuideState::default(),
             images,
             composer,
-            ask_dock: cx.new(|_| crate::ask_dock::AskDockState::default()),
+            dock: cx.new(|_| crate::dock::DockState::default()),
             first_seen: HashMap::new(),
             opened_at: Instant::now(),
             list: {
@@ -3091,8 +3220,8 @@ impl ThreadScreenView {
             return;
         }
         self.conv.synced = Some(inputs);
-        let docked: HashSet<&str> = if may_message {
-            self.pending_asks.iter().map(|pending| pending.id.as_str()).collect()
+        let docked = if may_message {
+            docked_ids(&model.view.rows, &self.pending_asks, true)
         } else {
             HashSet::new()
         };
@@ -3169,7 +3298,7 @@ impl ThreadScreenView {
     /// ([`crate::controls::jump_to_bottom_button`]) while the reader is off
     /// the tail; a click re-arms the follow. gpui re-arms the follow in
     /// LAYOUT, so a paint-time probe repaints once when it flipped.
-    fn render_jump_to_bottom(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_jump_to_bottom(&self, band: f32, cx: &mut gpui::Context<Self>) -> AnyElement {
         let following = self.list.is_following_tail();
         let shown = !self.conv.keys.is_empty() && !following;
         let probe_list = self.list.clone();
@@ -3190,7 +3319,7 @@ impl ThreadScreenView {
                 .absolute()
                 .left_0()
                 .right_0()
-                .bottom(px(crate::controls::JUMP_TO_BOTTOM_GAP))
+                .bottom(px(band + crate::controls::JUMP_TO_BOTTOM_GAP))
                 .justify_center()
                 .child(crate::controls::jump_to_bottom_button(
                     "thread-conversation-scroll-jump-to-bottom",
@@ -3212,32 +3341,36 @@ impl ThreadScreenView {
             .into_any_element()
     }
 
-    fn render_conversation(&mut self, model: &ThreadModel, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        // THE ask dock (ask-dock.json ×4): the tree's waiting cards take the
-        // composer's slot, exactly like a session's card; a reader who may
-        // not reply keeps them inline.
+    fn render_conversation(&mut self, model: &ThreadModel, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        // N-12: THE Dock (dock.json ×4) floats over the Conversation's
+        // bottom edge: the tree's waiting cards, the root's Queue, queued
+        // messages and banners, then THE composer; a reader who may not
+        // reply keeps the cards inline and gets no band.
         let may_message = self.composer.read(cx).may_message();
-        let dock = may_message
-            .then(|| {
-                conversation_dock_for(
-                    "thread",
-                    &model.view.rows,
-                    &self.pending_asks,
-                    &self.ask_dock,
-                    &self.text,
-                    &self.images,
-                    window,
-                    cx,
-                )
-            })
-            .flatten();
+        let (band, sheet) = if may_message {
+            root_dock(
+                "thread",
+                &model.view.rows,
+                &self.pending_asks,
+                Some(&self.root_id),
+                &self.dock,
+                &self.composer,
+                &self.text,
+                &self.images,
+                window,
+                cx,
+            )
+        } else {
+            (None, None)
+        };
         self.sync_list(model, may_message);
+        let band_height = if may_message { self.dock.read(cx).band_height() } else { 0. };
         let list = gpui::list(
             self.list.clone(),
             cx.processor(|this, ix: usize, window, cx| this.render_list_row(ix, window, cx)),
         )
         .pt_8()
-        .pb_8();
+        .pb(px(band_height.max(16.) + crate::dock::DOCK_GAP));
         let scroller = div()
             .id(SharedString::from(THREAD.test_ids.conversation.clone()))
             .relative()
@@ -3247,30 +3380,10 @@ impl ThreadScreenView {
             .flex()
             .flex_col()
             .child(crate::scroll_pane::v_list_pane(list, &self.list))
-            .child(self.render_jump_to_bottom(cx));
-        // THE session composer of the session view, targeting the root; it
-        // yields its slot to the dock.
-        let composer = match dock {
-            Some((dock, _)) => Some(
-                div()
-                    .w_full()
-                    .max_w(px(CONVERSATION_W))
-                    .mx_auto()
-                    .px(px(crate::work_header::WORK_GUTTER))
-                    .child(dock)
-                    .into_any_element(),
-            ),
-            None => self
-                .composer
-                .update(cx, |composer, cx| composer.render_session_composer(window, cx)),
-        };
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .w_full()
-            .child(scroller)
-            .children(composer.map(|composer| div().w_full().pb_2().child(composer)))
-            .into_any_element()
+            .children(band)
+            .child(self.render_jump_to_bottom(band_height, cx))
+            .children(sheet);
+        v_flex().flex_1().min_h_0().w_full().child(scroller).into_any_element()
     }
 
     fn render_issue_child(&mut self) -> AnyElement {

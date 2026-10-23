@@ -59,9 +59,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use exponential_ui_gpui::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
 use gpui::{
-    bounce, div, ease_in_out, list, prelude::FluentBuilder as _, px, relative,
+    div, list, prelude::FluentBuilder as _, px,
     AnyElement, App, AppContext as _, ClickEvent, ElementId, Entity, FocusHandle,
     Focusable, FollowMode, InteractiveElement as _, IntoElement, ListAlignment, ListState,
     ParentElement as _, Pixels, Render, ScrollHandle, SharedString,
@@ -406,9 +405,6 @@ pub(crate) struct SteerSessionView {
     /// follows the run's team ([`Self::mention_team`]); a team-less run keeps
     /// the widget and gets plain-input behaviour.
     mention: Entity<crate::mention_input::MentionInput>,
-    /// EXP-1334: the composer's emoji tool (a pick inserts at the cursor).
-    emoji: Entity<crate::emoji_picker::EmojiPicker>,
-    emoji_open: bool,
     /// EXP-1334: the "+" menu's MCP servers row — the team's servers and
     /// this session's server-only pick (`sessions.mcpPicks`), loaded once
     /// (a failed load re-arms after [`MCP_RETRY_AFTER`], up to
@@ -569,16 +565,17 @@ pub(crate) struct SteerSessionView {
     orphan_workflows: Vec<String>,
     row_keys: Vec<RowKey>,
     active: HashSet<FeedItemId>,
-    /// THE ask dock's row (ask-dock.json ×4): the main-transcript row of the
-    /// ONE answerable card, lifted out of `rows` into the composer's slot
+    /// THE Dock's relay card (dock.json ×4): the main-transcript row of the
+    /// ONE answerable card, lifted out of `rows` into a DockCard
     /// ([`Self::dock_row_spec`], refreshed by [`Self::sync_list`]).
     docked: Option<FeedRowSpec>,
-    /// EXP-1280: this session's waiting TOOL-posted card
-    /// (`exponential_plan_propose` / `exponential_sessions_ask`): no engine
-    /// ask behind it, so it docks from its `messages` row and answers only
-    /// through `sessions.answer`.
-    tool_card: Option<domain::session_tree::SessionThreadRow>,
-    ask_dock: crate::ask_dock::AskDockState,
+    /// EXP-1280: this session's waiting TOOL-posted cards
+    /// (`exponential_plan_propose` / `exponential_sessions_ask`), oldest
+    /// first: no engine ask behind them, so they dock from their `messages`
+    /// rows and answer only through `sessions.answer`.
+    tool_cards: Vec<domain::session_tree::SessionThreadRow>,
+    /// N-12: THE Dock's state (the fan, the open sheet, the band height).
+    dock: Entity<crate::dock::DockState>,
     /// EXP-1211: this session's open quick replies (its newest synced
     /// `replies` card), drawn above THE composer box.
     replies: Option<domain::session_tree::ComposerReplies>,
@@ -701,22 +698,6 @@ impl SteerSessionView {
 
         let transport = crate::queries::attachment_transport(cx);
         let image_cache = cx.new(|_| crate::markdown::ImageCache::new(transport));
-        let emoji_view = cx.entity().downgrade();
-        let emoji = cx.new(|cx| {
-            crate::emoji_picker::EmojiPicker::new(
-                std::rc::Rc::new(move |unicode: &str, window: &mut Window, cx: &mut App| {
-                    let unicode = unicode.to_string();
-                    let _ = emoji_view.update(cx, |this, cx| {
-                        this.emoji_open = false;
-                        this.mention
-                            .update(cx, |mention, cx| mention.insert_text(&unicode, window, cx));
-                        cx.notify();
-                    });
-                }),
-                window,
-                cx,
-            )
-        });
         let mut this = Self {
             session_id: session_id.clone(),
             row: None,
@@ -737,8 +718,6 @@ impl SteerSessionView {
             last_activity: std::time::Instant::now(),
             input,
             mention,
-            emoji,
-            emoji_open: false,
             mcp: None,
             mcp_requested: false,
             mcp_attempts: 0,
@@ -802,8 +781,8 @@ impl SteerSessionView {
             row_keys: Vec::new(),
             active: HashSet::new(),
             docked: None,
-            tool_card: None,
-            ask_dock: crate::ask_dock::AskDockState::default(),
+            tool_cards: Vec::new(),
+            dock: cx.new(|_| crate::dock::DockState::default()),
             replies: None,
             working: false,
             dev_scrolled_to: None,
@@ -2199,7 +2178,7 @@ impl SteerSessionView {
     /// ([`keyboard_drives_card`]).
     fn keyboard_answers(&self, cx: &App) -> bool {
         keyboard_drives_card(
-            self.pending_card_id().is_some(),
+            self.pending_card_id().is_some() && self.relay_sheet_open(cx),
             self.inline.is_some(),
             self.composer_visible(),
             self.input.read(cx).value().trim().is_empty(),
@@ -2547,58 +2526,45 @@ impl SteerSessionView {
         self.may_message
     }
 
+    /// N-12: THE composer never yields its slot (dock.json): it shows
+    /// whenever the reader may message the session.
     fn composer_visible(&self) -> bool {
-        if !self.may_message {
-            return false;
-        }
-        // A root's host (thread, agent channel) docks the TREE's cards
-        // itself and hides this composer then (`conversation_dock`).
-        if self.tree_scope {
-            return true;
-        }
-        // EXP-820 → THE ask dock (ask-dock.json ×4): the waiting card takes
-        // the composer's place — free text is typed in the card, and a
-        // message would only race the answer.
-        !self.dock_view().composer_hidden
+        self.may_message
     }
 
-    /// EXP-1280: the newest unanswered TOOL-posted card of this session
-    /// (never on a root's host: its thread docks the tree's cards).
+    /// EXP-1280: the unanswered TOOL-posted cards of this session, oldest
+    /// first (never on a root's host: its thread docks the tree's cards).
     fn refresh_tool_card(&mut self, cx: &App) {
-        self.tool_card = (!self.tree_scope && self.may_message)
-            .then(|| {
-                crate::session_data::messages_of_session(&self.session_id, cx)
-                    .iter()
-                    .rev()
-                    .find(|message| message.answered_at.is_none() && domain::session_tree::is_tool_card(message))
-                    .and_then(domain::session_tree::ask_card_row)
-            })
-            .flatten();
+        self.tool_cards = if !self.tree_scope && self.may_message {
+            crate::session_data::messages_of_session(&self.session_id, cx)
+                .iter()
+                .filter(|message| message.answered_at.is_none() && domain::session_tree::is_tool_card(message))
+                .filter_map(domain::session_tree::ask_card_row)
+                .collect()
+        } else {
+            Vec::new()
+        };
     }
 
-    /// THE ask dock over this session's waiting cards: the engine's
-    /// ([`Self::dock_card_id`]) and a tool-posted one ([`Self::tool_card`]),
-    /// stacked as the contract stacks a thread's (ask-dock.json ×4) when
-    /// both wait — the tool card first (it waited before the engine asked);
-    /// captions none. A compact card grows on a click, the back arrow
-    /// returns to the stack ([`Self::ask_dock`]).
-    fn dock_view(&self) -> domain::ask_dock::AskDockView {
-        let mut pending: Vec<domain::ask_dock::AskDockPending> = Vec::new();
-        if let Some(tool) = self.tool_card.as_ref().and_then(|row| tool_card_pending(row, 0)) {
-            pending.push(tool);
-        }
-        let engine = self.dock_card_id().and_then(|id| self.feed.items().iter().find(|item| item.id == id)).and_then(|item| {
-            let card = item.question()?;
-            Some(domain::ask_dock::AskDockPending {
-                id: item.id.to_string(),
-                kind: if card.plan_mode { domain::ask_dock::AskDockKind::Plan } else { domain::ask_dock::AskDockKind::Question },
-                text: card.text.clone(),
-                session_name: None,
-                created_at: 1,
-            })
-        });
-        pending.extend(engine);
-        domain::ask_dock::ask_dock(&pending, self.ask_dock.focused())
+    /// N-12: the relay's own waiting card (claude's AskUserQuestion or its
+    /// plan) as THE Dock's front-most source (`relay:<row id>`).
+    fn relay_source(&self) -> Option<domain::dock::DockSource> {
+        let spec = self.docked.as_ref()?;
+        let id = self.dock_card_id()?;
+        let item = self.feed.items().iter().find(|item| item.id == id)?;
+        let card = item.question()?;
+        let id = format!("{RELAY_PREFIX}{}", spec.id());
+        Some(if card.plan_mode {
+            domain::dock::DockSource::Plan { id, text: card.text.clone(), session_name: None, questions: 0, created_at: i64::MAX }
+        } else {
+            domain::dock::DockSource::Question { id, text: card.text.clone(), session_name: None, created_at: i64::MAX }
+        })
+    }
+
+    /// Whether the relay card's sheet is open (the card keyboard drives it
+    /// only then).
+    fn relay_sheet_open(&self, cx: &App) -> bool {
+        self.dock.read(cx).open_id().is_some_and(|id| id.starts_with(RELAY_PREFIX))
     }
 
     /// The card THE ask dock holds: the newest unresolved card on a live,
@@ -3394,56 +3360,7 @@ impl SteerSessionView {
     fn pick_files(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         composer_images::pick_attachment_files(window, cx, |this, read, window, cx| this.stage_images(read, window, cx));
     }
-
-    /// EXP-1334 — Add image: the same native prompt kept to the accepted
-    /// image types (web's image input `accept`s them; gpui's prompt has no
-    /// type filter, so the filter is ours, by extension, before any read).
-    /// A pick with nothing but other files says so instead of vanishing; an
-    /// unreadable or oversized image rides to the stage as a bare entry and
-    /// comes back as its rejection notice (EXP-1249).
-    fn pick_images(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        use crate::markdown::image_paste;
-        let receiver = crate::file_picker::prompt_for_paths(cx, gpui::PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: true,
-            prompt: Some("Add".into()),
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(paths))) = receiver.await else {
-                return;
-            };
-            let files: Vec<std::path::PathBuf> = paths.into_iter().filter(|path| path.is_file()).collect();
-            let images: Vec<composer_images::StagedFile> = files
-                .iter()
-                .filter(|path| image_paste::is_inline_image_path(path))
-                .map(|path| {
-                    image_paste::read_any_file(path).unwrap_or_else(|_| {
-                        let filename = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-                        (filename, image_paste::content_type_for_path(path).to_string(), Vec::new())
-                    })
-                })
-                .collect();
-            let others = files.len() - images.len();
-            if images.is_empty() && others == 0 {
-                return;
-            }
-            let _ = this.update_in(cx, |this, window, cx| {
-                if !images.is_empty() {
-                    this.stage_images(images, window, cx);
-                }
-                if others > 0 && this.notice.is_none() {
-                    this.notice = Some(SharedString::from(IMAGE_ONLY_NOTICE));
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
-    }
 }
-
-/// EXP-1334: the Add image tool's notice when a pick held no image.
-pub(crate) const IMAGE_ONLY_NOTICE: &str = "Add image takes PNG, JPEG, WebP, GIF or AVIF files";
 
 /// A Past row opened off its recorded transcript.
 pub(crate) const REPLAY_BANNER: &str = "Replaying transcript…";
@@ -3903,14 +3820,6 @@ fn restore_unread_to_draft(draft: &str, held: &str) -> String {
     }
 }
 
-/// EXP-861 — whether the queue strip renders: something is held AND the run
-/// is still open. Deliberately NOT a function of the composer's visibility
-/// (a pending card hides the composer, never the strip) — Android
-/// `AgentSessionScreen` and iOS `AgentSessionView` apply the same rule.
-pub(crate) fn queue_strip_visible(run_open: bool, queued: usize) -> bool {
-    run_open && queued > 0
-}
-
 /// EXP-820 — whether a multi-question ask is OVER, so its stepper stops
 /// waiting for a next step and its answered rows stop being editable. Web,
 /// iOS and Android apply the same rule: the submit step (an `ask_id` card with
@@ -3931,18 +3840,6 @@ pub(crate) fn ask_complete(items: &[&FeedItem]) -> bool {
         .and_then(|card| card.total)
         .unwrap_or(numbered.len() as u32);
     total <= 1 && !numbered.is_empty() && numbered.iter().all(|card| card.resolved)
-}
-
-/// EXP-1280: a tool-posted card row as THE ask dock's pending entry
-/// (`created_at` = its stack position: the dock sorts by it).
-fn tool_card_pending(row: &domain::session_tree::SessionThreadRow, created_at: i64) -> Option<domain::ask_dock::AskDockPending> {
-    use domain::session_tree::SessionThreadRow;
-    let (kind, text) = match row {
-        SessionThreadRow::Plan { plan, .. } => (domain::ask_dock::AskDockKind::Plan, plan.clone()),
-        SessionThreadRow::Question { question, .. } => (domain::ask_dock::AskDockKind::Question, question.clone()),
-        _ => return None,
-    };
-    Some(domain::ask_dock::AskDockPending { id: row.id().to_string(), kind, text, session_name: None, created_at })
 }
 
 /// EXP-1294 — the unanswered `question` / `plan` row whose `questionId` is
@@ -4059,6 +3956,9 @@ const CONFIG_MODEL_ID: &str = "model";
 /// What a message that could not leave says. One string, so the composer's
 /// send and the footer's model pick report the same failure.
 const NOT_CONNECTED: &str = "The session is no longer connected";
+
+/// N-12: the relay's own waiting card's DockCard id prefix.
+const RELAY_PREFIX: &str = "relay:";
 
 /// EXP-877 — a model VALUE as the footer prints it: the picker's own label
 /// for an alias this build knows (`opus` → `Opus`, byte-identical with
@@ -4583,9 +4483,8 @@ impl SteerSessionView {
             cx.processor(|this, ix: usize, window, cx| this.render_list_row(ix, window, cx)),
         )
         .pt_2()
-        // EXP-1191: at the tail the last line rests just clear of the
-        // composer fade rather than under it.
-        .pb(px(crate::surface::COMPOSER_EDGE_FADE_H - 8.));
+        // N-12: the last row clears THE Dock's band (its measured height).
+        .pb(px(self.dock.read(cx).band_height() + crate::dock::DOCK_GAP));
         crate::scroll_pane::v_list_pane(list, &self.list).into_any_element()
     }
 
@@ -5586,7 +5485,7 @@ impl SteerSessionView {
                 .rounded(px(theme::tokens::radius::LG))
                 .border_1()
                 .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+                .bg(crate::dock::card_fill())
                 .child(header)
                 .child(card)
                 .into_any_element(),
@@ -6085,8 +5984,8 @@ impl SteerSessionView {
     /// and "n completed" (folded, its lines dimmed). It replaced the
     /// background-task + "Waiting on" lines and the Work card's `tasks`
     /// variant. A background item's elapsed time ticks once a second.
-    fn render_task_queue(&self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        use steer::task_queue::{test_ids, TaskQueueItemState, TaskQueueSection};
+    /// EXP-1321: THE Queue's model over this view's relay state.
+    fn task_queue_model(&self) -> Option<steer::task_queue::TaskQueue> {
         let input = crate::session_rows::task_queue_input(
             self.feed.task_list(),
             self.feed.background_tasks(),
@@ -6094,7 +5993,13 @@ impl SteerSessionView {
             &self.background_seen,
             now_epoch_ms(),
         );
-        let queue = steer::task_queue::task_queue(&input)?;
+        steer::task_queue::task_queue(&input)
+    }
+
+    /// N-12: THE Queue's Trace, the `tasks` DockCard's sheet body.
+    fn render_task_queue(&self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        use steer::task_queue::{test_ids, TaskQueueItemState, TaskQueueSection};
+        let queue = self.task_queue_model()?;
         let lines = |section: &TaskQueueSection, cx: &App| {
             trace_stack(
                 section
@@ -6171,52 +6076,24 @@ impl SteerSessionView {
             .gap(px(TraceSize::Sm.geometry().line_gap))
             .child(todo)
             .children(completed);
-        Some(strip_block(block.into_any_element()).into_any_element())
+        Some(block.into_any_element())
     }
 
     /// EXP-1323 — a thread's LIVE TAIL (`session-thread.json`
-    /// `liveSessionId`): the end of the Conversation, above the thread
-    /// composer, read off THIS view's relay state — THE Queue
-    /// ([`Self::render_task_queue`]) and ONE status line: the agent's mark,
-    /// the state word in its tone and the session's live caption. `None` once the session is over.
-    pub(crate) fn live_tail(&self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        if self.session_over() {
+    /// `liveSessionId`): the end of the Conversation, read off THIS view's
+    /// relay state: the Working row while the agent works.
+    pub(crate) fn live_tail(&self, _window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        // N-12: THE Queue left the Conversation for the Dock; the tail keeps
+        // only the Working row (web `SessionLiveTail`).
+        if self.session_over() || !self.working_now() {
             return None;
         }
-        let row = self.row.as_ref()?;
-        let state = self.view_state()?;
-        // EXP-1324: THE Queue, the same block as the transcript bottom.
-        let tasks = self.render_task_queue(window, cx);
-        let muted = cx.theme().muted_foreground;
-        let caption = row
-            .caption
-            .as_deref()
-            .map(str::trim)
-            .filter(|caption| !caption.is_empty() && state != domain::session_tree::SessionState::Ended)
-            .map(|caption| SharedString::from(caption.to_string()));
-        let status = h_flex()
-            .id("thread-live-status")
-            .w_full()
-            .min_w_0()
-            .gap_2()
-            .items_center()
-            .text_xs()
-            .child(crate::run_rows::run_mark(crate::run_rows::run_agent(row.cli.as_deref()), state, cx))
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_color(crate::work_card::session_tone_color(state.tone(), cx))
-                    .child(SharedString::from(domain::session_tree::session_kind_word(row, state))),
-            )
-            .children(caption.map(|caption| div().min_w_0().truncate().text_color(muted).child(caption)));
         Some(
             v_flex()
                 .id(SharedString::from(domain::session_tree::THREAD.test_ids.live_tail.clone()))
                 .w_full()
                 .min_w_0()
-                .gap_2()
-                .children(tasks)
-                .child(status)
+                .child(self.render_working_row(cx))
                 .into_any_element(),
         )
     }
@@ -6278,7 +6155,7 @@ impl SteerSessionView {
             }
             column = column.child(row);
         }
-        Some(strip_block(column.into_any_element()).into_any_element())
+        Some(column.into_any_element())
     }
 
     /// EXP-861: the × on a queued line. Local run → the engine drops it;
@@ -6438,6 +6315,10 @@ impl SteerSessionView {
             }
             None => {}
         }
+        // N-12: inside THE Dock's sheet: no AskCard around it.
+        if docked {
+            return card.into_any_element();
+        }
         ask_card(false, Some(SharedString::from(header)), counter, card, cx)
     }
 
@@ -6584,9 +6465,9 @@ impl SteerSessionView {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
+        let _ = window;
         if docked {
-            let body = ask_body_text(cx).child(self.render_body_folding(id, text, false, cx));
-            return crate::ask_dock::dock_body(("steer-dock-body", id as usize), body, window).into_any_element();
+            return ask_body_text(cx).child(self.render_body_folding(id, text, false, cx)).into_any_element();
         }
         ask_body_text(cx).child(self.render_body_folding(id, text, !plan, cx)).into_any_element()
     }
@@ -6617,6 +6498,10 @@ impl SteerSessionView {
             .min_w_0()
             .child(self.render_card_body(item.id, &card.text, card.plan_mode, docked, window, cx))
             .child(self.render_prompt(item, active, false, false, window, cx));
+        // N-12: inside THE Dock's sheet (its header is the card's chrome).
+        if docked {
+            return body.into_any_element();
+        }
         ask_card(card.plan_mode, heading, None, body, cx)
     }
 
@@ -7002,72 +6887,6 @@ impl SteerSessionView {
         })
     }
 
-    /// EXP-784: the agent's rate-limit report as a banner in the status
-    /// stack — its message (or a generic one) plus the local reset time when
-    /// it named one. `None` once the slot cleared, and (EXP-831) once the
-    /// reset it named is behind us: the engine lifts the slot on the run's
-    /// next activity, but a banner must not outlive its own reset over a
-    /// run that is visibly working.
-    fn render_rate_limit_banner(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let limit = self.feed.rate_limit()?;
-        let now_ms = chrono::Utc::now().timestamp_millis();
-        if !rate_limit_is_wall(&limit.status, limit.message.as_deref())
-            || steer::rate_limit_expired(limit.resets_at, now_ms)
-        {
-            return None;
-        }
-        let amber = theme::tokens::YELLOW.to_hsla();
-        let (message, countdown) = rate_limit_caption(
-            limit.message.as_deref(),
-            limit
-                .resets_at
-                .map(|at| crate::usage_bar::countdown_from_secs((at - now_ms) / 1000)),
-        );
-        Some(
-            banner_block(
-                // The web banner, exactly: usage glyph · amber message ·
-                // muted countdown · the Switch account pill on the right.
-                h_flex()
-                .w_full()
-                .min_w_0()
-                .gap_1p5()
-                .items_center()
-                .text_xs()
-                .child(
-                    Icon::new(registry::UI_USAGE)
-                        .xsmall()
-                        .flex_shrink_0()
-                        .text_color(amber),
-                )
-                // The message shrinks (and truncates) before the countdown
-                // does; the countdown sits right behind it like web's span,
-                // never pushed to the pill.
-                .child(
-                    div()
-                        .min_w_0()
-                        .flex_shrink(1.)
-                        .truncate()
-                        .text_color(amber)
-                        .child(SharedString::from(message)),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .whitespace_nowrap()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(SharedString::from(rate_limit_detail(countdown))),
-                )
-                // EXP-849: the wall's PRIMARY action. Waiting out a reset is
-                // the fallback, not the plan — if another account can take the
-                // work, offer it right here, and the switch clears this notice
-                // by ending the walled run (its successor has no wall).
-                .children(self.switch_account_control(cx))
-                .into_any_element(),
-            )
-            .into_any_element(),
-        )
-    }
-
     /// EXP-849 — "Switch account" over the rate-limit wall: the same account
     /// rows the session's usage readout shows, in a popover off a primary
     /// button. `None` when nothing could take the run (not claude, one login,
@@ -7126,66 +6945,89 @@ impl SteerSessionView {
         )
     }
 
-    fn render_banners(&self, cx: &mut gpui::Context<Self>) -> Vec<AnyElement> {
-        let muted = cx.theme().muted_foreground;
-        let mut banners = Vec::new();
-        let paused = self.paused(cx);
-        let banner = |text: String| -> AnyElement {
-            banner_block(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(text))
-                    .into_any_element(),
-            )
-            .into_any_element()
+    /// N-12: the session view's status strips as THE Dock's banner cards
+    /// (dock.json `banner`: the host's words and tone; web
+    /// `useSessionDock`): a replay, a failed end, an unavailable relay, a
+    /// dropped stream (Reconnect), the agent starting, paused on an offline
+    /// device, the rate-limit wall (Switch account), compacting, a notice.
+    fn dock_banners(&self, cx: &App) -> Vec<domain::dock::DockSource> {
+        use domain::dock::{DockSource, DockTint};
+        let banner = |id: &str, icon: &str, label: &str, text: String, tone: DockTint, action: Option<&str>| DockSource::Banner {
+            id: id.to_string(),
+            icon: icon.to_string(),
+            label: label.to_string(),
+            text,
+            tone,
+            action: action.map(str::to_string),
         };
-        // EXP-746: a replay says what it is BEFORE anything else — its feed
-        // is history, and every other banner would read as live state. A run
-        // that ended with NOTHING to show says why: its transcript is not on
-        // this machine (it ran elsewhere, or its journal is gone), and an
-        // ended session's relay room is gone.
-        // Once the replay has ended, the ended banner below says it all.
+        let mut out = Vec::new();
+        let paused = self.paused(cx);
         if self.source.read_only() && !matches!(self.phase, ViewerPhase::Ended { .. }) {
-            banners.push(banner(REPLAY_BANNER.to_string()));
+            out.push(banner("replay", "ui-info", "Replay", REPLAY_BANNER.to_string(), DockTint::Muted, None));
         } else if self.feed.is_empty() && !self.is_local() && self.session_over() {
-            banners.push(banner(REPLAY_EMPTY_BANNER.to_string()));
+            out.push(banner("replay", "ui-info", "Replay", REPLAY_EMPTY_BANNER.to_string(), DockTint::Muted, None));
         }
         match &self.phase {
-            // EXP-877: an ordinary end is NOT a banner. "The session has
-            // ended." said nothing the header's status did not already say,
-            // and it sat over every transcript anybody ever reopened. A real
-            // FAILURE still gets its line, because that one carries why.
-            ViewerPhase::Ended { outcome } => banners.extend(ended_banner(outcome.as_deref()).map(banner)),
-            ViewerPhase::Unauthorized { detail } => {
-                banners.push(banner(detail.clone().unwrap_or_else(|| STEER_UNAVAILABLE_DETAIL.to_string())))
+            ViewerPhase::Ended { outcome } => {
+                if let Some(text) = ended_banner(outcome.as_deref()) {
+                    out.push(banner("ended", "ui-error", "Failed", text, DockTint::Warning, None));
+                }
             }
-            ViewerPhase::Reconnecting => banners.push(banner("Connection lost.".to_string())),
-            ViewerPhase::Starting if !self.feed.is_empty() => {
-                banners.push(banner("The agent is starting. Waiting for the live stream…".to_string()))
-            }
+            ViewerPhase::Unauthorized { detail } => out.push(banner(
+                "unavailable",
+                "ui-info",
+                "Unavailable",
+                detail.clone().unwrap_or_else(|| STEER_UNAVAILABLE_DETAIL.to_string()),
+                DockTint::Muted,
+                None,
+            )),
+            ViewerPhase::Reconnecting if !paused => out.push(banner(
+                "closed",
+                "ui-refresh",
+                "Connection lost",
+                "Connection lost.".to_string(),
+                DockTint::Muted,
+                Some("Reconnect"),
+            )),
+            ViewerPhase::Starting if !paused && !self.feed.is_empty() => out.push(banner(
+                "starting",
+                "ui-loading",
+                "Starting",
+                "The agent is starting. Waiting for the live stream…".to_string(),
+                DockTint::Muted,
+                None,
+            )),
             _ => {}
         }
         if paused && !self.feed.is_empty() {
             let device = self.device(cx);
-            banners.push(banner(format!(
-                "Paused — {}. {PAUSED_BODY}",
-                paused_title(device.label.as_deref())
-            )));
+            out.push(banner("paused", "ui-device-offline", &paused_title(device.label.as_deref()), PAUSED_BODY.to_string(), DockTint::Muted, None));
+        }
+        if self.run_open() {
+            if let Some(compacting) = self.feed.compacting() {
+                let _ = compacting;
+                out.push(banner("compacting", "coding-compact", "Compacting", COMPACTING_LABEL.to_string(), DockTint::Muted, None));
+            }
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            if let Some(limit) = self.feed.rate_limit().filter(|_| self.rate_limit_wall_showing(now_ms)) {
+                let (message, countdown) = rate_limit_caption(
+                    limit.message.as_deref(),
+                    limit.resets_at.map(|at| crate::usage_bar::countdown_from_secs((at - now_ms) / 1000)),
+                );
+                out.push(banner(
+                    "rate-limit",
+                    "ui-usage",
+                    "Rate limit",
+                    format!("{message} · {}", rate_limit_detail(countdown)),
+                    DockTint::Warning,
+                    Some(crate::account_switch::WALL_SWITCH_LABEL),
+                ));
+            }
         }
         if let Some(notice) = self.notice.clone() {
-            banners.push(
-                banner_block(
-                    div()
-                        .text_xs()
-                        .text_color(theme::tokens::YELLOW.to_hsla())
-                        .child(notice)
-                        .into_any_element(),
-                )
-                .into_any_element(),
-            );
+            out.push(banner("notice", "ui-warning", "Notice", notice.to_string(), DockTint::Warning, None));
         }
-        banners
+        out
     }
 
     /// EXP-1191 — the transcript's jump-to-bottom button
@@ -7221,12 +7063,11 @@ impl SteerSessionView {
         )
         .absolute()
         .size_0();
+        let band = self.dock.read(cx).band_height();
         let button = shown.then(|| {
-            let gap = if composer_visible {
-                crate::controls::JUMP_TO_BOTTOM_GAP - 8.
-            } else {
-                crate::controls::JUMP_TO_BOTTOM_GAP
-            };
+            // N-12: over THE Dock's band (its measured height).
+            let _ = composer_visible;
+            let gap = band + crate::controls::JUMP_TO_BOTTOM_GAP;
             h_flex()
                 .absolute()
                 .left_0()
@@ -7324,10 +7165,9 @@ impl SteerSessionView {
             .replies
             .as_ref()
             .map(|replies| crate::composer::composer_replies_row(replies, true, cx));
-        crate::composer::session_composer_box(
+        crate::composer::session_composer_card(
             crate::composer::SessionComposerBox::new(self.mention.clone(), submit)
-                // EXP-1211: the quick replies sit DIRECTLY above the box, so
-                // they go with it whenever the ask dock takes its slot.
+                // EXP-1211: the quick replies sit DIRECTLY above the box.
                 .replies(replies)
                 .above_field(slash)
                 .field_hook(move |field| {
@@ -7340,163 +7180,180 @@ impl SteerSessionView {
                         .capture_action(tab)
                 })
                 .strip((!self.pending_images.is_empty()).then(|| self.render_pending_strip(cx)))
-                // EXP-1334: the inline tools — the "+" options menu
-                // (composer-menu.json rows a running session can change),
-                // then web's `ComposerEditTools` ×2: Add image, Attach files
-                // (EXP-698: always offered), Insert issue reference, Insert
-                // emoji.
+                // N-12: the "+" options menu is the only tool (no inline
+                // image / file / # / emoji tools).
                 .tool(self.render_plus_menu(cx))
-                .tool(
-                    crate::composer::composer_tool(
-                        SharedString::from(format!("{}-image", self.composer_ids.attach)),
-                        registry::EDITOR_IMAGE,
-                        cx,
-                    )
-                    .tooltip("Add image")
-                    .disabled(self.sending)
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        this.pick_images(window, cx);
-                    })),
-                )
-                .tool(
-                    crate::composer::composer_tool(self.composer_ids.attach.clone(), registry::UI_ATTACH, cx)
-                        .tooltip("Attach files")
-                        .disabled(self.sending)
-                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                            this.pick_files(window, cx);
-                        })),
-                )
-                .tool(
-                    crate::composer::composer_tool(
-                        SharedString::from(format!("{}-issue", self.composer_ids.attach)),
-                        registry::EDITOR_ISSUE_REF,
-                        cx,
-                    )
-                    .tooltip("Insert issue reference")
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        this.mention.update(cx, |mention, cx| mention.insert_text("#", window, cx));
-                        let field = this.input.read(cx).focus_handle(cx);
-                        window.focus(&field, cx);
-                    })),
-                )
-                .tool(self.render_emoji_tool(cx))
                 .card_hook(move |card| card.capture_action(paste))
                 .controls(self.render_composer_controls(cx)),
             cx,
         )
     }
 
-    /// THE ask dock (ask-dock.json ×4) in the composer's slot: the ONE
-    /// waiting card as the big card — the engine's row ([`Self::docked`])
-    /// or the tool-posted card ([`Self::render_tool_card`]) — or, when both
-    /// wait, the stack of compact cards (a click grows one; its back arrow
-    /// returns to the stack).
-    fn render_dock(&mut self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let view = self.dock_view();
-        if !crate::ask_dock::shows(&view) {
-            return None;
-        }
-        let this = cx.entity().downgrade();
-        let content = match view.card_id.as_deref() {
-            Some(card_id) => {
-                let back = view.back.then(|| {
-                    let this = this.clone();
-                    crate::ask_dock::back_button("steer-ask-dock-back", move |_, _, cx| {
-                        let _ = this.update(cx, |this, cx| {
-                            this.ask_dock.back();
-                            cx.notify();
-                        });
-                    })
-                });
-                if self.tool_card.as_ref().is_some_and(|row| row.id() == card_id) {
-                    self.render_tool_card(back, window, cx)?
-                } else {
-                    let spec = self.docked.clone()?;
-                    let row = spec.resolve(self.feed.items());
-                    let active = self.active.clone();
-                    let card = match &row {
-                        FeedRow::Single(item) => self.render_question(item, &active, true, window, cx),
-                        FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, &active, true, window, cx),
-                        _ => return None,
-                    };
-                    match back {
-                        Some(back) => v_flex().w_full().min_w_0().gap_1().child(back).child(card).into_any_element(),
-                        None => card,
-                    }
-                }
-            }
-            None => crate::ask_dock::stack(
-                &view.rows,
-                std::rc::Rc::new(move |id: &str, _: &mut Window, cx: &mut App| {
-                    let _ = this.update(cx, |this, cx| {
-                        this.ask_dock.focus(id);
-                        cx.notify();
-                    });
-                }),
-                cx,
-            ),
+    /// N-12: the session's own DockCards (web `useSessionDock`): the queued
+    /// messages, THE Queue and the status banners. The session view adds
+    /// its waiting cards; a root's host (thread, agent channel) adds the
+    /// tree's.
+    pub(crate) fn session_dock_sources(&self, cx: &App) -> Vec<domain::dock::DockSource> {
+        use domain::dock::{DockQueue, DockQueueCompleted, DockQueueItem, DockQueueTodo, DockQueuedMessage, DockSource};
+        let queued = if self.run_open() {
+            self.feed
+                .queue()
+                .iter()
+                .map(|message| DockQueuedMessage { id: message.id.clone(), text: message.text.split_whitespace().collect::<Vec<_>>().join(" ") })
+                .collect()
+        } else {
+            Vec::new()
         };
-        let dock = crate::ask_dock::dock(&mut self.ask_dock, &view, content, window);
-        Some(div().w_full().flex_shrink_0().py_2().child(work_column_row(dock)).into_any_element())
+        let queue = self.task_queue_model().map(|queue| DockQueue {
+            todo: DockQueueTodo {
+                title: queue.todo.title.clone(),
+                items: queue
+                    .todo
+                    .items
+                    .iter()
+                    .map(|item| DockQueueItem {
+                        label: item.label.clone(),
+                        description: item.description.clone(),
+                        state: format!("{:?}", item.state).to_lowercase(),
+                    })
+                    .collect(),
+            },
+            completed: queue.completed.as_ref().map(|section| DockQueueCompleted { title: section.title.clone() }),
+        });
+        let mut out = vec![DockSource::Queued { messages: queued }, DockSource::Tasks { queue }];
+        out.extend(self.dock_banners(cx));
+        out
     }
 
-    /// EXP-1280: the TOOL-posted card ([`Self::tool_card`]) as the dock's
-    /// big card: the thread's rich card (`thread_screen::ask_row_card`).
-    fn render_tool_card(
+    /// N-12: the sheet of one of [`Self::session_dock_sources`]' cards: THE
+    /// Queue's Trace, the queued list with its remove glyphs.
+    pub(crate) fn render_session_dock_sheet(
         &mut self,
-        back: Option<AnyElement>,
+        row: &domain::dock::DockRow,
         window: &Window,
         cx: &mut gpui::Context<Self>,
-    ) -> Option<AnyElement> {
-        let row = self.tool_card.clone()?;
-        let images = self.images.clone();
-        crate::thread_screen::ask_row_card(
-            &row,
-            &crate::thread_screen::ThreadText::default(),
-            &images,
-            crate::thread_screen::CardChrome { docked: true, back },
-            window,
-            cx,
-        )
+    ) -> Option<crate::dock::SheetContent> {
+        let body = match row.kind {
+            domain::dock::DockKind::Tasks => self.render_task_queue(window, cx)?,
+            domain::dock::DockKind::Queued => self.render_queue_strip(cx)?,
+            _ => return None,
+        };
+        Some(crate::dock::SheetContent {
+            meta: None,
+            body: crate::dock::sheet_body(SharedString::from(format!("steer-dock-sheet-{}", row.id)), body),
+            footer: None,
+        })
     }
 
-    /// The composer's bottom stack — a notice, THE composer box — for a
-    /// screen hosting this view as a ROOT session's composer (the thread
-    /// screen, the agent channel): the SAME composer and footer the session
-    /// view paints, targeting this session. NO queue strip: the person's
-    /// queued rows already render in the Conversation with their Remove X
-    /// (EXP-1317). `None` only for a reader who may not steer: a root's
-    /// host yields this slot to ITS ask dock itself (the tree's waiting
-    /// cards, `thread_screen::conversation_dock`).
+    /// N-12: the banners' action buttons (Reconnect, Switch account).
+    pub(crate) fn session_dock_actions(&self, cx: &mut gpui::Context<Self>) -> Vec<(String, AnyElement)> {
+        let mut out = Vec::new();
+        if matches!(self.phase, ViewerPhase::Reconnecting) {
+            out.push((
+                "banner:closed".to_string(),
+                Button::new("steer-dock-reconnect")
+                    .outline()
+                    .small()
+                    .cursor_pointer()
+                    .icon(Icon::new(registry::UI_REFRESH).xsmall())
+                    .label("Reconnect")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.wake("reconnect");
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            ));
+        }
+        if let Some(switch) = self.switch_account_control(cx) {
+            out.push(("banner:rate-limit".to_string(), switch));
+        }
+        out
+    }
+
+    /// N-12: THE Dock of the session view: the relay's waiting card, the
+    /// tool-posted ones, the session's own cards, then THE composer; and
+    /// the open card's sheet. Auto-open runs here (the view is in front
+    /// while it renders).
+    fn render_session_dock(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> (Option<AnyElement>, Option<AnyElement>) {
+        let mut sources = Vec::new();
+        for (index, row) in self.tool_cards.iter().enumerate() {
+            sources.extend(crate::thread_screen::ask_source(row, None, index as i64));
+        }
+        sources.extend(self.relay_source());
+        sources.extend(self.session_dock_sources(cx));
+        let rows = domain::dock::dock_rows(&sources);
+        let dock = self.dock.clone();
+        // The relay replays its history after the first frame: cards in it
+        // were already waiting.
+        let loaded = matches!(self.phase, ViewerPhase::Live | ViewerPhase::Ended { .. }) || self.source.read_only();
+        dock.update(cx, |state, _| state.auto_open(&rows, true, loaded));
+        let sheet = self.render_dock_sheet(&rows, window, cx);
+        let actions = self.session_dock_actions(cx);
+        let composer = self.composer_visible().then(|| self.render_composer_card(window, cx)).flatten();
+        let band = crate::dock::band(
+            &dock,
+            crate::dock::Band { id: "steer".into(), rows, actions, composer },
+            window,
+            cx,
+        );
+        (band, sheet)
+    }
+
+    /// The open card's sheet (the relay ask's chromeless card, a tool card's
+    /// plan / question sheet, the Queue, the queued list).
+    fn render_dock_sheet(&mut self, rows: &[domain::dock::DockRow], window: &mut Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let open = self.dock.read(cx).sheet_id()?.to_string();
+        let Some(row) = rows.iter().find(|row| row.id == open).cloned() else {
+            self.dock.update(cx, |state, _| state.close());
+            return None;
+        };
+        // THE sheet is a sheet host: its pickers open inline.
+        let content = crate::dock::sheet_host(|| -> Option<crate::dock::SheetContent> {
+            Some(if open.starts_with(RELAY_PREFIX) {
+                let spec = self.docked.clone()?;
+                let resolved = spec.resolve(self.feed.items());
+                let active = self.active.clone();
+                let card = match &resolved {
+                    FeedRow::Single(item) => self.render_question(item, &active, true, window, cx),
+                    FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, &active, true, window, cx),
+                    _ => return None,
+                };
+                crate::dock::SheetContent {
+                    meta: None,
+                    body: crate::dock::sheet_body("steer-dock-sheet-relay", card),
+                    footer: None,
+                }
+            } else if let Some(tool) = self.tool_cards.iter().find(|tool| tool.id() == open).cloned() {
+                let images = self.images.clone();
+                crate::thread_screen::ask_row_sheet(&tool, &crate::thread_screen::ThreadText::default(), &images, window, cx)?
+            } else {
+                self.render_session_dock_sheet(&row, window, cx)?
+            })
+        })?;
+        Some(crate::dock::sheet(&self.dock.clone(), &row, content, window, cx))
+    }
+
+    /// THE composer card (the notice above it) for THE Dock's band.
+    pub(crate) fn render_composer_card(&mut self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        self.ensure_mcp_loaded(cx);
+        Some(self.render_composer(window, cx))
+    }
+
+    /// THE composer card for a screen hosting this view as a ROOT session's
+    /// composer (the thread screen, the agent channel), for its Dock's
+    /// band: the SAME composer the session view paints, targeting this
+    /// session. `None` for a reader who may not steer.
     pub(crate) fn render_session_composer(
         &mut self,
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> Option<AnyElement> {
         self.refresh_derived();
-        let notice = self.notice.clone().map(|notice| {
-            banner_block(
-                div()
-                    .text_xs()
-                    .text_color(theme::tokens::YELLOW.to_hsla())
-                    .child(notice)
-                    .into_any_element(),
-            )
-            .into_any_element()
-        });
-        self.ensure_mcp_loaded(cx);
-        let composer = self.composer_visible().then(|| self.render_composer(window, cx));
-        if notice.is_none() && composer.is_none() {
+        if !self.composer_visible() {
             return None;
         }
-        Some(
-            v_flex()
-                .w_full()
-                .min_w_0()
-                .children(notice)
-                .children(composer)
-                .into_any_element(),
-        )
+        self.render_composer_card(window, cx)
     }
 
     /// Host this view as a ROOT session's composer (the thread screen, the
@@ -7737,23 +7594,6 @@ impl SteerSessionView {
                 )
                 .into_any_element(),
         )
-    }
-
-    /// EXP-1334 — the emoji tool: THE shared picker; a pick inserts the
-    /// unicode at the cursor.
-    fn render_emoji_tool(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let id = SharedString::from(format!("{}-emoji", self.composer_ids.attach));
-        crate::emoji_picker::emoji_picker_popover(
-            SharedString::from(format!("{id}-popover")),
-            crate::composer::composer_tool(id, registry::EDITOR_EMOJI, cx).tooltip("Insert emoji"),
-            self.emoji.clone(),
-            self.emoji_open,
-            cx.listener(|this, open: &bool, _window, cx| {
-                this.emoji_open = *open;
-                cx.notify();
-            }),
-        )
-        .into_any_element()
     }
 
     /// EXP-1334 — the composer's "+": THE composer menu (composer-menu.json)
@@ -8012,57 +7852,6 @@ impl SteerSessionView {
     /// and the only honest signal is "still going". EXP-1157: a quiet
     /// status line, not a banner — a short hairline track beside the label,
     /// no divider above it.
-    fn render_compaction_strip(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
-        let row = h_flex()
-            .min_w_0()
-            .gap_1p5()
-            .items_center()
-            .child(
-                Icon::new(registry::CODING_COMPACT)
-                    .xsmall()
-                    .text_color(muted.opacity(0.6)),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(muted.opacity(0.8))
-                    .child(COMPACTING_LABEL),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .ml_1()
-                    .w(px(COMPACTING_TRACK_W))
-                    .h(px(2.))
-                    .rounded_full()
-                    .bg(muted.opacity(0.12))
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .h_full()
-                            .w(relative(0.35))
-                            .rounded_full()
-                            .bg(muted.opacity(0.55))
-                            .with_stepped_animation(
-                                "steer-compacting",
-                                gpui::Animation::new(Duration::from_millis(1400))
-                                    .repeat()
-                                    .with_easing(bounce(ease_in_out)),
-                                SMOOTH_STEP,
-                                |bar, delta| bar.ml(relative(delta * 0.65)),
-                            ),
-                    ),
-            );
-        div()
-            .w_full()
-            .flex_shrink_0()
-            .py_1()
-            .child(work_column_row(row.into_any_element()))
-            .into_any_element()
-    }
-
     /// EXP-698: pending images render as 48px THUMBNAILS with a corner ✕ —
     /// the web/iOS/Android strip. The bytes are already in hand (they are
     /// what the send uploads), so the old filename chip was showing the
@@ -8267,38 +8056,6 @@ fn body_text<E: Styled>(element: E) -> E {
     element
         .text_size(px(transcript::BODY_SIZE))
         .line_height(px(transcript::BODY_LINE_HEIGHT))
-}
-
-/// EXP-927 — one block of the strip above the composer (the task list, the
-/// background tasks and waits, the queue bar): the pane's padding spanning
-/// the PANEL, its content in the reading column ([`work_column_row`]). Every
-/// block shares the recipe, so they stack into one surface instead of three.
-/// EXP-1191: NO hairline above it (web parity) — the transcript's fade
-/// ([`crate::surface::composer_edge_fade`]) is the only edge.
-fn strip_block(content: AnyElement) -> gpui::Div {
-    div()
-        .w_full()
-        .flex_shrink_0()
-        .py_1p5()
-        .child(work_column_row(content))
-}
-
-/// The status banners under the transcript (the rate-limit wall, replay,
-/// connection and ended lines, the notice, the compaction strip): the
-/// [`strip_block`] recipe at the banners' own `py_2` — the pane's padding
-/// spans the panel, the content sits in the reading column, no hairline.
-/// They ran edge to edge and read as a different surface, like the strips
-/// before EXP-927.
-/// EXP-1157: the compaction strip's indeterminate track — a short accent
-/// beside its label, never the column's full width.
-const COMPACTING_TRACK_W: f32 = 72.;
-
-fn banner_block(content: AnyElement) -> gpui::Div {
-    div()
-        .w_full()
-        .flex_shrink_0()
-        .py_2()
-        .child(work_column_row(content))
 }
 
 /// EXP-787/EXP-927/EXP-1191 — the reading column every part of the
@@ -8708,34 +8465,13 @@ impl Render for SteerSessionView {
         // EXP-1294: the session view ALWAYS shows the full transcript, under
         // its status row.
         let status_row = self.render_status_row(cx);
-        let feed = self.render_feed(cx);
-        let banners = self.render_banners(cx);
+        // N-12: THE Dock (the waiting cards, THE Queue, the queued messages,
+        // the banners, then THE composer) floats over the transcript's
+        // bottom edge; the transcript is the ONE scroll region and pads by
+        // the band's height.
+        let (dock, sheet) = self.render_session_dock(window, cx);
         let composer_visible = self.composer_visible();
-        // EXP-724: between the banners and the composer, exactly where the
-        // web view puts it — and gone with the composer once the run ends.
-        let compacting = (composer_visible && self.feed.compacting().is_some())
-            .then(|| self.render_compaction_strip(cx));
-        // EXP-784: the agent's rate-limit report, beside the compaction
-        // strip in the same status stack; gone the moment it clears.
-        let rate_limit = composer_visible
-            .then(|| self.render_rate_limit_banner(cx))
-            .flatten();
-        self.ensure_mcp_loaded(cx);
-        let composer = composer_visible.then(|| self.render_composer(window, cx));
-        // THE ask dock in the composer's slot (ask-dock.json ×4).
-        let dock = self.render_dock(window, cx);
-        // EXP-1191 (web order): banners → the queue bar (EXP-861) → the
-        // background tasks / waits (EXP-850) → the agent's task list
-        // (EXP-927), which is ALWAYS the last block, directly on the composer.
-        // EXP-1324: THE Queue, right above the queued-messages strip.
-        let task_queue = self.render_task_queue(window, cx);
-        // The strip follows the RUN, not the composer: with a question or
-        // plan card pending (EXP-820 hides the field) a held message is still
-        // revocable — it would otherwise go out the moment the card is
-        // answered, with no × to catch it. Android/iOS show it the same way.
-        let queue = queue_strip_visible(self.run_open(), self.feed.queue().len())
-            .then(|| self.render_queue_strip(cx))
-            .flatten();
+        let feed = self.render_feed(cx);
         let width_probe = self.view_width.clone();
         let jump =
             self.render_jump_to_bottom(&self.list, !self.feed.is_empty(), composer_visible, cx);
@@ -8747,9 +8483,6 @@ impl Render for SteerSessionView {
             .overflow_hidden()
             .children(strip)
             .children(status_row)
-            // EXP-1162: the transcript fades out over the bottom edge strip
-            // into whatever sits under it (the composer band lost its
-            // hairline for it).
             .child(
                 div()
                     .relative()
@@ -8767,16 +8500,10 @@ impl Render for SteerSessionView {
                         cx.listener(Self::on_feed_context_menu),
                     )
                     .child(feed)
-                    .child(crate::surface::composer_edge_fade())
-                    .child(jump),
-            )
-            .children(banners)
-            .children(compacting)
-            .children(rate_limit)
-            .children(task_queue)
-            .children(queue)
-            .children(dock)
-            .children(composer);
+                    .children(dock)
+                    .child(jump)
+                    .children(sheet),
+            );
         v_flex()
             .key_context("SteerSession")
             .track_focus(&self.focus_handle)
@@ -8965,8 +8692,8 @@ mod tests {
         assert_eq!(card_row_id(&messages[..1], "q-1"), None);
     }
 
-    /// EXP-1280: the session view's dock lists a tool-posted card as the
-    /// contract's pending entry; a non-card row is none.
+    /// EXP-1280: the session view's Dock lists a tool-posted card as a
+    /// DockCard.
     #[test]
     fn a_tool_card_is_a_pending_entry_of_the_dock() {
         let message = domain::rows::MessageRow {
@@ -8977,11 +8704,11 @@ mod tests {
         };
         assert!(domain::session_tree::is_tool_card(&message), "no questionId: an agent's card");
         let question = domain::session_tree::ask_card_row(&message).expect("a question row");
-        let pending = tool_card_pending(&question, 0).expect("a question card is pending");
-        assert_eq!(pending.id, "m-1");
-        assert_eq!(pending.kind, domain::ask_dock::AskDockKind::Question);
-        assert_eq!(pending.text, "Ship it?");
-        assert_eq!(pending.created_at, 0);
+        let source = crate::thread_screen::ask_source(&question, None, 0).expect("a question card waits");
+        let rows = domain::dock::dock_rows(&[source]);
+        assert_eq!(rows[0].id, "m-1");
+        assert_eq!(rows[0].kind, domain::dock::DockKind::Question);
+        assert_eq!(rows[0].title, "Ship it?");
     }
 
     // ── A session tab that exists at boot dials once an account is active ──
@@ -9361,18 +9088,6 @@ mod tests {
         assert!(keyboard_drives_card(true, false, true, true, false), "composer shown, empty");
         assert!(!keyboard_drives_card(true, false, true, false, false), "composer has a draft");
         assert!(!keyboard_drives_card(true, false, true, true, true), "slash menu open");
-    }
-
-    /// EXP-861 — the queue strip shows whenever a message is held on a live
-    /// run; a pending card (which hides the composer) never hides it, so a
-    /// queued line can still be revoked before the answer releases it.
-    #[test]
-    fn the_queue_strip_follows_the_run_not_the_composer() {
-        assert!(queue_strip_visible(true, 1));
-        assert!(queue_strip_visible(true, 3));
-        assert!(!queue_strip_visible(true, 0), "nothing held");
-        assert!(!queue_strip_visible(false, 1), "run ended / replay");
-        assert!(!queue_strip_visible(false, 0));
     }
 
     fn option(label: &str, free_text: bool) -> QuestionOption {

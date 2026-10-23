@@ -6993,6 +6993,1321 @@
       }
     ]
   },
+  "DockCard\/example" : {
+    "height" : 68,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card.trigger",
+        "radius" : 16
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          13,
+          13,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          42
+        ],
+        "id" : "dock-card.trigger.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          13,
+          80,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          125,
+          13,
+          64,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.caption"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          197,
+          23,
+          84,
+          0
+        ],
+        "id" : "dock-card.trigger.body.header.spacer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          289,
+          13,
+          88,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.meta"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          35,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          35,
+          316,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row.title"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          361,
+          37,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.body.row.chevron"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          68,
+          0,
+          0
+        ],
+        "id" : "dock-card.sheet"
+      }
+    ]
+  },
+  "DockCard\/open=false" : {
+    "height" : 68,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card.trigger",
+        "radius" : 16
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          13,
+          13,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          42
+        ],
+        "id" : "dock-card.trigger.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          13,
+          80,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          125,
+          13,
+          64,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.caption"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          197,
+          23,
+          84,
+          0
+        ],
+        "id" : "dock-card.trigger.body.header.spacer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          289,
+          13,
+          88,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.meta"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          35,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          35,
+          316,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row.title"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          361,
+          37,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.body.row.chevron"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          68,
+          0,
+          0
+        ],
+        "id" : "dock-card.sheet"
+      }
+    ]
+  },
+  "DockCard\/open=true" : {
+    "height" : 68,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card.trigger",
+        "radius" : 16
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          13,
+          13,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          42
+        ],
+        "id" : "dock-card.trigger.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          13,
+          80,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          125,
+          13,
+          64,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.caption"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          197,
+          23,
+          84,
+          0
+        ],
+        "id" : "dock-card.trigger.body.header.spacer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          289,
+          13,
+          88,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.meta"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          35,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          35,
+          316,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row.title"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          361,
+          37,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.body.row.chevron"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          68,
+          0,
+          0
+        ],
+        "id" : "dock-card.sheet"
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          626,
+          390,
+          174
+        ],
+        "id" : "dock-card.sheet.content",
+        "part" : "content",
+        "radius" : 24,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          145,
+          651,
+          100,
+          8
+        ],
+        "id" : "dock-card.sheet.handle",
+        "part" : "handle",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          25,
+          675,
+          340,
+          28
+        ],
+        "id" : "dock-card.sheet.title",
+        "part" : "title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          25,
+          719,
+          340,
+          20
+        ],
+        "id" : "dock-card.sheet.description",
+        "part" : "description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          25,
+          755,
+          340,
+          20
+        ],
+        "id" : "dock-card.sheet.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          25,
+          755,
+          340,
+          20
+        ],
+        "id" : "dock-card-child"
+      }
+    ]
+  },
+  "DockCard\/tone=danger" : {
+    "height" : 68,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card.trigger",
+        "radius" : 16
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          13,
+          13,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          42
+        ],
+        "id" : "dock-card.trigger.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          13,
+          80,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          125,
+          13,
+          64,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.caption"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          197,
+          23,
+          84,
+          0
+        ],
+        "id" : "dock-card.trigger.body.header.spacer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          289,
+          13,
+          88,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.meta"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          35,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          35,
+          316,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row.title"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          361,
+          37,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.body.row.chevron"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          68,
+          0,
+          0
+        ],
+        "id" : "dock-card.sheet"
+      }
+    ]
+  },
+  "DockCard\/tone=info" : {
+    "height" : 68,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card.trigger",
+        "radius" : 16
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          13,
+          13,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          42
+        ],
+        "id" : "dock-card.trigger.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          13,
+          80,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          125,
+          13,
+          64,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.caption"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          197,
+          23,
+          84,
+          0
+        ],
+        "id" : "dock-card.trigger.body.header.spacer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          289,
+          13,
+          88,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.meta"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          35,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          35,
+          316,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row.title"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          361,
+          37,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.body.row.chevron"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          68,
+          0,
+          0
+        ],
+        "id" : "dock-card.sheet"
+      }
+    ]
+  },
+  "DockCard\/tone=neutral" : {
+    "height" : 68,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card.trigger",
+        "radius" : 16
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          13,
+          13,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          42
+        ],
+        "id" : "dock-card.trigger.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          13,
+          80,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          125,
+          13,
+          64,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.caption"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          197,
+          23,
+          84,
+          0
+        ],
+        "id" : "dock-card.trigger.body.header.spacer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          289,
+          13,
+          88,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.meta"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          35,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          35,
+          316,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row.title"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          361,
+          37,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.body.row.chevron"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          68,
+          0,
+          0
+        ],
+        "id" : "dock-card.sheet"
+      }
+    ]
+  },
+  "DockCard\/tone=primary" : {
+    "height" : 68,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card.trigger",
+        "radius" : 16
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          13,
+          13,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          42
+        ],
+        "id" : "dock-card.trigger.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          13,
+          80,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          125,
+          13,
+          64,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.caption"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          197,
+          23,
+          84,
+          0
+        ],
+        "id" : "dock-card.trigger.body.header.spacer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          289,
+          13,
+          88,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.meta"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          35,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          35,
+          316,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row.title"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          361,
+          37,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.body.row.chevron"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          68,
+          0,
+          0
+        ],
+        "id" : "dock-card.sheet"
+      }
+    ]
+  },
+  "DockCard\/tone=success" : {
+    "height" : 68,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card.trigger",
+        "radius" : 16
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          13,
+          13,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          42
+        ],
+        "id" : "dock-card.trigger.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          13,
+          80,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          125,
+          13,
+          64,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.caption"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          197,
+          23,
+          84,
+          0
+        ],
+        "id" : "dock-card.trigger.body.header.spacer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          289,
+          13,
+          88,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.meta"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          35,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          35,
+          316,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row.title"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          361,
+          37,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.body.row.chevron"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          68,
+          0,
+          0
+        ],
+        "id" : "dock-card.sheet"
+      }
+    ]
+  },
+  "DockCard\/tone=warning" : {
+    "height" : 68,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "dock-card.trigger",
+        "radius" : 16
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          13,
+          13,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          42
+        ],
+        "id" : "dock-card.trigger.body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          13,
+          80,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          125,
+          13,
+          64,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.caption"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          197,
+          23,
+          84,
+          0
+        ],
+        "id" : "dock-card.trigger.body.header.spacer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          289,
+          13,
+          88,
+          20
+        ],
+        "id" : "dock-card.trigger.body.header.meta"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          35,
+          340,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          35,
+          316,
+          20
+        ],
+        "id" : "dock-card.trigger.body.row.title"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          361,
+          37,
+          16,
+          16
+        ],
+        "id" : "dock-card.trigger.body.row.chevron"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          68,
+          0,
+          0
+        ],
+        "id" : "dock-card.sheet"
+      }
+    ]
+  },
   "Drawer\/dismissible=false" : {
     "height" : 0,
     "nodes" : [

@@ -14,6 +14,9 @@ name: record-compose-fixtures
 # here and uploaded as `gpui-ratchet`.
 # FEED-128 (2026-10-21): re-recorded for the 4th built-in theme `orange`
 # (the Compose golden `kitchen-sink-orange.png` + the gpui budget).
+# N-12 (2026-10-23): re-recorded for the core catalog's DockCard (the
+# kitchen sink's dock-card node: the Compose goldens + `DockCard.png`, the
+# web baseline rewrite's gpui budget).
 
 on:
   workflow_dispatch: {}

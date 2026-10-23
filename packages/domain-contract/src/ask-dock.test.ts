@@ -2,16 +2,7 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/ask-dock.json" with { type: "json" }
-import { askDock, askDockTitle, planDecisionLabel, threadPendingAsks, threadSessionNames, type AskDockPending } from "./ask-dock"
-
-describe(`askDock`, () => {
-  for (const entry of fixture.cases) {
-    test(entry.name, () => {
-      const input = entry.input as { pending: AskDockPending[]; focusedId: string | null }
-      expect(askDock(input)).toEqual(entry.expected as never)
-    })
-  }
-})
+import { askDockTitle, planDecisionLabel, threadPendingAsks, threadSessionNames } from "./ask-dock"
 
 describe(`askDockTitle`, () => {
   for (const entry of fixture.titleCases) {

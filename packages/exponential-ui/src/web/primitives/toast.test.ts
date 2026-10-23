@@ -89,3 +89,28 @@ describe(`createToastStore`, () => {
     expect(store.toasts().map((t) => t.title)).toEqual([`A2`, `B`])
   })
 })
+
+describe(`stackGeometry (N-12: the Dock pile draws the toast's stack)`, () => {
+  it(`the toast's stack is stackGeometry with the toast's numbers`, async () => {
+    const { stackGeometry, TOAST_CONSTANTS: C } = await import(`./toast`)
+    for (const c of fixture.geometry) {
+      expect(stackGeometry(c.heights, c.expanded, c.anchoredBottom, C)).toEqual({ height: c.height, items: c.items })
+    }
+  })
+  it(`the Dock pile shares the toast's peek, scale step and visible count`, async () => {
+    const { DOCK_PILE_CONSTANTS, dockPileGeometry } = await import(`./dock`)
+    expect(DOCK_PILE_CONSTANTS.peek).toBe(fixture.constants.peek)
+    expect(DOCK_PILE_CONSTANTS.scaleStep).toBe(fixture.constants.scaleStep)
+    expect(DOCK_PILE_CONSTANTS.visible).toBe(fixture.constants.visible)
+    expect(dockPileGeometry([60, 60, 60, 60], false)).toEqual({
+      height: 102,
+      items: [
+        { offset: 0, scale: 0.9, visible: false },
+        { offset: 14, scale: 0.9, visible: true },
+        { offset: 28, scale: 0.95, visible: true },
+        { offset: 42, scale: 1, visible: true },
+      ],
+    })
+    expect(dockPileGeometry([60, 60], true)).toEqual({ height: 126, items: [{ offset: 0, scale: 1, visible: true }, { offset: 66, scale: 1, visible: true }] })
+  })
+})

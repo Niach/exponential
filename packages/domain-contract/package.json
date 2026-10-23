@@ -31,6 +31,8 @@
     "./trace": "./src/trace.ts",
     "./task-queue": "./src/task-queue.ts",
     "./ask-dock": "./src/ask-dock.ts",
+    "./dock": "./src/dock.ts",
+    "./stack": "./src/stack.ts",
     "./plan-card": "./src/plan-card.ts",
     "./fixtures/*": "./fixtures/*"
   }

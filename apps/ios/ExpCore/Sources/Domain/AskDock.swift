@@ -1,20 +1,14 @@
 import Foundation
 
-/// THE ask dock ×4 (`packages/domain-contract/fixtures/ask-dock.json`, TS
-/// reference `src/ask-dock.ts`): the question/plan cards waiting on the
-/// viewer take the composer's place, in the session view AND the thread.
-/// One pending card = the big card (the composer hides); several = compact
-/// cards stacked in the composer's slot, a tap grows one into the big card
-/// (only that one answers), a back arrow returns to the stack. The plan
-/// card's options are ONE list ×4 (`planOptions`). `AskDockTests` replays
-/// every fixture case and pins the constants below to the fixture.
+/// THE ask cards ×4 (`packages/domain-contract/fixtures/ask-dock.json`, TS
+/// reference `src/ask-dock.ts`): N-12: a question or plan card waiting on the
+/// viewer is a DockCard of THE Dock (ExpCore `Dock`, fixtures/dock.json); the
+/// composer never leaves. This keeps the cards' own words and models: the
+/// row's label and title, the plan options ONE list ×4 (`planOptions`), a
+/// thread's waiting cards. `AskDockTests` replays every fixture case.
 public enum AskDock {
     public enum Kind: String, Equatable, Sendable {
         case plan, question
-    }
-
-    public enum Mode: String, Equatable, Sendable {
-        case none, single, stack, focused
     }
 
     /// One card waiting on the viewer.
@@ -28,53 +22,25 @@ public enum AskDock {
         public let sessionName: String?
         /// Stack order, oldest first.
         public let createdAt: Double
+        /// A plan's question count (a question: nil).
+        public let questions: Int?
 
-        public init(id: String, kind: Kind, text: String, sessionName: String?, createdAt: Double) {
+        public init(
+            id: String, kind: Kind, text: String, sessionName: String?, createdAt: Double, questions: Int? = nil
+        ) {
             self.id = id
             self.kind = kind
             self.text = text
             self.sessionName = sessionName
             self.createdAt = createdAt
+            self.questions = questions
         }
-    }
 
-    /// One compact card of the stack.
-    public struct Row: Equatable, Sendable, Identifiable {
-        public let id: String
-        public let kind: Kind
-        /// The header label ("Plan ready" / "Question").
-        public let label: String
-        /// The first plain line of the text (the row truncates it).
-        public let title: String
-        /// The asking session's name, else nil.
-        public let caption: String?
-
-        public init(id: String, kind: Kind, label: String, title: String, caption: String?) {
-            self.id = id
-            self.kind = kind
-            self.label = label
-            self.title = title
-            self.caption = caption
-        }
-    }
-
-    public struct Layout: Equatable, Sendable {
-        public let mode: Mode
-        /// Whether the composer yields its slot to the dock.
-        public let composerHidden: Bool
-        /// The back arrow (only a focused card out of a stack).
-        public let back: Bool
-        /// The big card's id (`single` | `focused`), else nil.
-        public let cardId: String?
-        /// The compact cards (`stack` only), oldest first.
-        public let rows: [Row]
-
-        public init(mode: Mode, composerHidden: Bool, back: Bool, cardId: String?, rows: [Row]) {
-            self.mode = mode
-            self.composerHidden = composerHidden
-            self.back = back
-            self.cardId = cardId
-            self.rows = rows
+        /// The Dock's source for this card.
+        public var dockSource: Dock.Source {
+            kind == .plan
+                ? .plan(id: id, text: text, sessionName: sessionName, questions: questions ?? 0, createdAt: createdAt)
+                : .question(id: id, text: text, sessionName: sessionName, createdAt: createdAt)
         }
     }
 
@@ -94,23 +60,17 @@ public enum AskDock {
         public static let question = "Question"
         public static let back = "Back to all cards"
         public static let feedbackPlaceholder = "Tell the agent what to change…"
+        public static let cancel = "Cancel"
     }
 
-    public enum TestIds {
-        public static let dock = "ask-dock"
-        public static let row = "ask-dock-row"
-        public static let back = "ask-dock-back"
-        public static let card = "ask-dock-card"
+    public enum Icons {
+        public static let plan = "coding-plan"
+        public static let question = "ui-help"
     }
-
-    /// The big card's body cap, as a fraction of the viewport height.
-    public static let bodyMaxHeightFraction: Double = 0.4
-    /// The gap between stacked compact cards (pt).
-    public static let stackGap: Double = 6
 
     /// THE plan card's options ×4 (the claude adapter's ExitPlanMode menu):
-    /// Yes (primary) · Yes, and start with a fresh context · No, keep
-    /// planning (the feedback field rides any decision).
+    /// Yes (the footer's primary) · Yes, and start with a fresh context (its
+    /// menu) · No, keep planning (the secondary; opens the feedback field).
     public static let planOptions: [PlanOption] = [
         PlanOption(key: "approve", label: "Yes", description: nil, decision: "approved", fresh: false),
         PlanOption(
@@ -178,35 +138,6 @@ public enum AskDock {
         return ""
     }
 
-    public static func dock(pending input: [Pending], focusedId: String?) -> Layout {
-        let pending = input.sorted { a, b in
-            a.createdAt != b.createdAt ? a.createdAt < b.createdAt : a.id < b.id
-        }
-        guard let first = pending.first else {
-            return Layout(mode: .none, composerHidden: false, back: false, cardId: nil, rows: [])
-        }
-        if pending.count == 1 {
-            return Layout(mode: .single, composerHidden: true, back: false, cardId: first.id, rows: [])
-        }
-        if let focused = pending.first(where: { $0.id == focusedId }) {
-            return Layout(mode: .focused, composerHidden: true, back: true, cardId: focused.id, rows: [])
-        }
-        return Layout(
-            mode: .stack,
-            composerHidden: true,
-            back: false,
-            cardId: nil,
-            rows: pending.map { p in
-                let title = title(p.text)
-                return Row(
-                    id: p.id, kind: p.kind, label: label(p.kind),
-                    title: title.isEmpty ? label(p.kind) : title,
-                    caption: p.sessionName
-                )
-            }
-        )
-    }
-
     /// A thread's waiting cards, in Conversation order: every `plan` row with
     /// no decision and every unanswered `question` row, of ANY session in the
     /// tree. `sessionName` names the asking session (nil = unnamed).
@@ -219,7 +150,7 @@ public enum AskDock {
             case let .plan(card) where card.decision == nil:
                 pending.append(Pending(
                     id: card.id, kind: .plan, text: card.plan, sessionName: sessionName(card.sessionId),
-                    createdAt: Double(index)
+                    createdAt: Double(index), questions: card.questions.count
                 ))
             case let .question(card) where !card.answered:
                 pending.append(Pending(

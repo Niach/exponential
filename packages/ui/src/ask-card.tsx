@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react"
-import { ASK_DOCK_COPY, ASK_DOCK_TEST_IDS } from "@exp/domain-contract/ask-dock"
+import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import { Button } from "./button"
 import { cn } from "./cn"
@@ -25,7 +25,6 @@ const SelectedIcon = conceptIcon(`ui-selected`)
 const UnselectedIcon = conceptIcon(`ui-unselected`)
 const CheckIcon = conceptIcon(`ui-check`)
 const CloseIcon = conceptIcon(`ui-close`)
-const BackIcon = conceptIcon(`ui-back`)
 
 /** The generic ask card's own words ×web (hand-mirrored ×4 with the steer
  *  views). The plan / question card's copy lives in the fixtures:
@@ -74,13 +73,12 @@ export function askOptionHotkey(index: number): string | null {
   return index >= 0 && index < HOTKEY_MAX ? String(index + 1) : null
 }
 
-/** The card chrome. `onBack` (the ask dock's focused card) leads the
- *  header row with the back arrow (fixtures/ask-dock.json). */
+/** The card chrome (N-12: a waiting card's chrome is the DockCard's; this
+ *  is the transcript's closed card and the relay cards' face). */
 export function AskCard({
   plan,
   label,
   meta,
-  onBack,
   children,
   className,
   ...rest
@@ -89,7 +87,6 @@ export function AskCard({
   label?: ReactNode
   /** A trailing note beside the label (the stepper's "k of n"). */
   meta?: ReactNode
-  onBack?: () => void
   children: ReactNode
   className?: string
   "data-slot"?: string
@@ -101,18 +98,6 @@ export function AskCard({
   return (
     <GlassCard className={cn(`p-3`, className)} {...rest}>
       <div className="flex items-start gap-2">
-        {onBack && (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="-my-1 -ml-1 shrink-0"
-            aria-label={ASK_DOCK_COPY.back}
-            data-testid={ASK_DOCK_TEST_IDS.back}
-            onClick={onBack}
-          >
-            <BackIcon />
-          </Button>
-        )}
         {plan ? (
           <PlanIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
         ) : (

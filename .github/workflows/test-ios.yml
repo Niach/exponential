@@ -126,6 +126,9 @@ jobs:
           workspaces: apps/desktop
       - name: Build the Exponential UI xcframework
         working-directory: ${{ github.workspace }}
+        # EXP-1364: the device compile + the arm64 simulator suites, nothing else.
+        env:
+          EXPONENTIAL_UI_APPLE_TARGETS: aarch64-apple-ios aarch64-apple-ios-sim
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
 
       # A fresh checkout has no Tuist/.build SPM checkouts; `tuist generate`
