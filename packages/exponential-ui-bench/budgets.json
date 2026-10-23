@@ -17,7 +17,7 @@
           "measureCallsPerPass": 29
         },
         "list-100k": {
-          "firstPaintMs": 168.4,
+          "firstPaintMs": 145.3,
           "scrollStepMs": 7.2,
           "scrollToIndexMs": 9.1,
           "renderedItems": 30,
@@ -48,7 +48,7 @@
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 830.9,
+          "firstPaintMs": 917.3,
           "rebindMs": 1016.1,
           "nodes": 10001
         },
@@ -57,7 +57,7 @@
           "closeMs": 0.2
         },
         "table-1k": {
-          "firstPaintMs": 16,
+          "firstPaintMs": 17.1,
           "scrollStepMs": 14,
           "sortMs": 14.4,
           "renderedRows": 30
@@ -76,7 +76,7 @@
           "warmPassMs": 0.2
         },
         "list-100k": {
-          "firstPaintMs": 92.6,
+          "firstPaintMs": 43.7,
           "memoryMb": 134.4,
           "renderedItems": 30,
           "scrollStepMs": 3.5,
@@ -103,7 +103,7 @@
           "warmPassMs": 0.2
         },
         "template-10k": {
-          "firstPaintMs": 113.2,
+          "firstPaintMs": 99.3,
           "nodes": 10001,
           "rebindMs": 130.7
         },
@@ -112,7 +112,7 @@
           "openMs": 0.2
         },
         "table-1k": {
-          "firstPaintMs": 4.3,
+          "firstPaintMs": 3.1,
           "renderedRows": 30,
           "scrollStepMs": 3.6,
           "sortMs": 4
@@ -129,7 +129,7 @@
           "warmPassMs": 0.7
         },
         "list-100k": {
-          "firstPaintMs": 249.9,
+          "firstPaintMs": 171,
           "scrollToIndexMs": 107.1,
           "scrollStepMs": 7.6,
           "renderedItems": 30,
@@ -154,7 +154,7 @@
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 715.7,
+          "firstPaintMs": 780.4,
           "nodes": 10001,
           "rebindMs": 822.8
         },
@@ -163,7 +163,7 @@
           "closeMs": 1.4
         },
         "table-1k": {
-          "firstPaintMs": 50.1,
+          "firstPaintMs": 47,
           "scrollStepMs": 3.7,
           "renderedRows": 36,
           "sortMs": 11.2
@@ -180,7 +180,7 @@
           "warmPassMs": 11.9
         },
         "list-100k": {
-          "firstPaintMs": 203.9,
+          "firstPaintMs": 108,
           "scrollToIndexMs": 61.8,
           "scrollStepMs": 4.9,
           "renderedItems": 30,
@@ -205,7 +205,7 @@
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 431.9,
+          "firstPaintMs": 489.5,
           "nodes": 10001,
           "rebindMs": 563.1
         },
@@ -214,7 +214,7 @@
           "closeMs": 5.1
         },
         "table-1k": {
-          "firstPaintMs": 60.5,
+          "firstPaintMs": 56.7,
           "scrollStepMs": 2.6,
           "renderedRows": 36,
           "sortMs": 6.5
@@ -231,7 +231,7 @@
           "warmPassMs": 0.7
         },
         "list-100k": {
-          "firstPaintMs": 237.8,
+          "firstPaintMs": 168.2,
           "scrollToIndexMs": 90.5,
           "scrollStepMs": 7.3,
           "renderedItems": 30,
@@ -256,7 +256,7 @@
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 692.5,
+          "firstPaintMs": 781.1,
           "nodes": 10001,
           "rebindMs": 810.6
         },
@@ -265,7 +265,7 @@
           "closeMs": 1.5
         },
         "table-1k": {
-          "firstPaintMs": 49.2,
+          "firstPaintMs": 49.1,
           "scrollStepMs": 3.6,
           "renderedRows": 36,
           "sortMs": 10.8
@@ -291,7 +291,7 @@
         "list-100k": {
           "ffiBytesPerStep": 33633,
           "ffiCallsPerStep": 275,
-          "firstPaintMs": 568.5,
+          "firstPaintMs": 250.2,
           "measureCallsPerStep": 78,
           "memoryMb": 126,
           "renderedItems": 30,
@@ -314,13 +314,13 @@
           "totalMs": 1369.3
         },
         "table-1k": {
-          "firstPaintMs": 94,
+          "firstPaintMs": 35.8,
           "renderedRows": 30,
           "scrollStepMs": 36.5,
           "sortMs": 73.1
         },
         "template-10k": {
-          "firstPaintMs": 3414.4,
+          "firstPaintMs": 1390.2,
           "nodes": 10001,
           "rebindMs": 3885.1
         },
@@ -350,7 +350,7 @@
         "list-100k": {
           "ffiBytesPerStep": 33633,
           "ffiCallsPerStep": 275,
-          "firstPaintMs": 512.2,
+          "firstPaintMs": 229.6,
           "measureCallsPerStep": 78,
           "memoryMb": 243.8,
           "renderedItems": 30,
@@ -373,13 +373,13 @@
           "totalMs": 1437
         },
         "table-1k": {
-          "firstPaintMs": 90.2,
+          "firstPaintMs": 35.2,
           "renderedRows": 30,
           "scrollStepMs": 34.9,
           "sortMs": 71
         },
         "template-10k": {
-          "firstPaintMs": 1916,
+          "firstPaintMs": 1368.3,
           "nodes": 10001,
           "rebindMs": 3851
         },

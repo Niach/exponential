@@ -25,7 +25,7 @@
           "measureCallsPerPass": 29
         },
         "list-100k": {
-          "firstPaintMs": 112.206,
+          "firstPaintMs": 96.853,
           "scrollStepMs": 4.75,
           "scrollToIndexMs": 6.027,
           "renderedItems": 30,
@@ -56,7 +56,7 @@
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 553.898,
+          "firstPaintMs": 611.498,
           "rebindMs": 677.378,
           "nodes": 10001
         },
@@ -65,7 +65,7 @@
           "closeMs": 0.092
         },
         "table-1k": {
-          "firstPaintMs": 10.647,
+          "firstPaintMs": 11.336,
           "scrollStepMs": 9.318,
           "sortMs": 9.56,
           "renderedRows": 30
@@ -89,7 +89,7 @@
           "warmPassMs": 0.111
         },
         "list-100k": {
-          "firstPaintMs": 61.701,
+          "firstPaintMs": 29.12,
           "memoryMb": 89.547,
           "renderedItems": 30,
           "scrollStepMs": 2.306,
@@ -116,7 +116,7 @@
           "warmPassMs": 0.074
         },
         "template-10k": {
-          "firstPaintMs": 75.408,
+          "firstPaintMs": 66.156,
           "nodes": 10001,
           "rebindMs": 87.131
         },
@@ -125,7 +125,7 @@
           "openMs": 0.09
         },
         "table-1k": {
-          "firstPaintMs": 2.828,
+          "firstPaintMs": 2.001,
           "renderedRows": 30,
           "scrollStepMs": 2.358,
           "sortMs": 2.631
@@ -147,7 +147,7 @@
           "warmPassMs": 0.4
         },
         "list-100k": {
-          "firstPaintMs": 166.6,
+          "firstPaintMs": 114,
           "scrollToIndexMs": 71.4,
           "scrollStepMs": 5.03,
           "renderedItems": 30,
@@ -172,7 +172,7 @@
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 477.1,
+          "firstPaintMs": 520.2,
           "nodes": 10001,
           "rebindMs": 548.5
         },
@@ -181,7 +181,7 @@
           "closeMs": 0.9
         },
         "table-1k": {
-          "firstPaintMs": 33.4,
+          "firstPaintMs": 31.3,
           "scrollStepMs": 2.43,
           "renderedRows": 36,
           "sortMs": 7.4
@@ -203,7 +203,7 @@
           "warmPassMs": 7.7
         },
         "list-100k": {
-          "firstPaintMs": 120.4,
+          "firstPaintMs": 72,
           "scrollToIndexMs": 38.9,
           "scrollStepMs": 3.02,
           "renderedItems": 30,
@@ -228,7 +228,7 @@
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 267.7,
+          "firstPaintMs": 326.3,
           "nodes": 10001,
           "rebindMs": 344.7
         },
@@ -237,7 +237,7 @@
           "closeMs": 3.1
         },
         "table-1k": {
-          "firstPaintMs": 39.3,
+          "firstPaintMs": 37.8,
           "scrollStepMs": 1.62,
           "renderedRows": 36,
           "sortMs": 4.1
@@ -259,7 +259,7 @@
           "warmPassMs": 0.4
         },
         "list-100k": {
-          "firstPaintMs": 160.1,
+          "firstPaintMs": 112.1,
           "scrollToIndexMs": 61.5,
           "scrollStepMs": 4.89,
           "renderedItems": 30,
@@ -284,7 +284,7 @@
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 474.3,
+          "firstPaintMs": 520.7,
           "nodes": 10001,
           "rebindMs": 553.5
         },
@@ -293,7 +293,7 @@
           "closeMs": 1
         },
         "table-1k": {
-          "firstPaintMs": 33.9,
+          "firstPaintMs": 32.7,
           "scrollStepMs": 2.38,
           "renderedRows": 36,
           "sortMs": 7
@@ -325,7 +325,7 @@
         "list-100k": {
           "ffiBytesPerStep": 33633,
           "ffiCallsPerStep": 275,
-          "firstPaintMs": 378.987,
+          "firstPaintMs": 166.752,
           "measureCallsPerStep": 78,
           "memoryMb": 84,
           "renderedItems": 30,
@@ -348,13 +348,13 @@
           "totalMs": 912.803
         },
         "table-1k": {
-          "firstPaintMs": 62.634,
+          "firstPaintMs": 23.84,
           "renderedRows": 30,
           "scrollStepMs": 24.289,
           "sortMs": 48.694
         },
         "template-10k": {
-          "firstPaintMs": 2276.262,
+          "firstPaintMs": 926.784,
           "nodes": 10001,
           "rebindMs": 2590.008
         },
@@ -390,7 +390,7 @@
         "list-100k": {
           "ffiBytesPerStep": 33633,
           "ffiCallsPerStep": 275,
-          "firstPaintMs": 341.411,
+          "firstPaintMs": 153.025,
           "measureCallsPerStep": 78,
           "memoryMb": 162.5,
           "renderedItems": 30,
@@ -413,13 +413,13 @@
           "totalMs": 957.95
         },
         "table-1k": {
-          "firstPaintMs": 60.101,
+          "firstPaintMs": 23.439,
           "renderedRows": 30,
           "scrollStepMs": 23.222,
           "sortMs": 47.33
         },
         "template-10k": {
-          "firstPaintMs": 1277.33,
+          "firstPaintMs": 912.187,
           "nodes": 10001,
           "rebindMs": 2567.331
         },
