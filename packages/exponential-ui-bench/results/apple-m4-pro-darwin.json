@@ -11,67 +11,67 @@
     "compose-jvm": {
       "platform": "macos",
       "device": "Robolectric API 34, aarch64, 14 cpus",
-      "date": "2026-10-22T14:27:55.754852Z",
+      "date": "2026-10-23T05:59:02.930844Z",
       "scenarios": {
         "cold-start": {
-          "coldStartMs": 2419.044,
-          "firstPaintMs": 28.875,
-          "nodes": 591,
-          "memoryMb": 225.015
+          "coldStartMs": 838.705,
+          "firstPaintMs": 22.091,
+          "nodes": 604,
+          "memoryMb": 176.36
         },
         "card-grid": {
-          "warmPassMs": 0.172,
+          "warmPassMs": 0.159,
           "upcallsPerPass": 1,
           "measureCallsPerPass": 29
         },
         "list-100k": {
-          "firstPaintMs": 96.853,
-          "scrollStepMs": 4.75,
-          "scrollToIndexMs": 6.027,
+          "firstPaintMs": 113.216,
+          "scrollStepMs": 3.428,
+          "scrollToIndexMs": 3.565,
           "renderedItems": 30,
           "measureCallsPerStep": 78.04,
-          "ffiCallsPerStep": 181.94,
-          "ffiBytesPerStep": 57688.82,
-          "memoryMb": 127.338
+          "ffiCallsPerStep": 143.02,
+          "ffiBytesPerStep": 49993.64,
+          "memoryMb": 94.303
         },
         "streaming": {
-          "applyMs": 1.87,
-          "p95ApplyMs": 4.678,
-          "totalMs": 374.078,
+          "applyMs": 1.736,
+          "p95ApplyMs": 4.805,
+          "totalMs": 347.11,
           "nodes": 607,
-          "ffiBytesTotal": 12210953
+          "ffiBytesTotal": 5212191
         },
         "theme-switch": {
-          "themeSwitchMs": 18.718,
-          "modeSwitchMs": 5.49,
-          "restyled": 596
+          "themeSwitchMs": 13.217,
+          "modeSwitchMs": 5.508,
+          "restyled": 609
         },
         "resize": {
-          "resizeMs": 3.28,
+          "resizeMs": 3.668,
           "upcallsPerResize": 1
         },
         "deep-nesting": {
-          "firstPaintMs": 3.472,
-          "warmPassMs": 0.11,
+          "firstPaintMs": 2.595,
+          "warmPassMs": 0.1,
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 611.498,
-          "rebindMs": 677.378,
+          "firstPaintMs": 332.863,
+          "rebindMs": 329.343,
           "nodes": 10001
         },
         "overlay": {
-          "openMs": 0.277,
-          "closeMs": 0.092
+          "openMs": 0.245,
+          "closeMs": 0.103
         },
         "table-1k": {
-          "firstPaintMs": 11.336,
-          "scrollStepMs": 9.318,
-          "sortMs": 9.56,
+          "firstPaintMs": 10.253,
+          "scrollStepMs": 4.493,
+          "sortMs": 6.528,
           "renderedRows": 30
         }
       },
-      "commit": "e66a7cbd608"
+      "commit": "ac0f9af62bb"
     },
     "core": {
       "platform": "macos",

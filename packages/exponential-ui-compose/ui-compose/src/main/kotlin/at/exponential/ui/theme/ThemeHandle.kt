@@ -36,6 +36,19 @@ class ThemeHandle(val theme: Theme) {
     private val parts = HashMap<String, PartStyle>()
     private val colors = HashMap<String, Color?>()
     private val rawColors = HashMap<String, String?>()
+
+    /**
+     * VAPP-136: the scalar tokens (spacing, radius, control, font family),
+     * memoised per handle (a [Theme] never changes; a JNA call each was
+     * half of a 10,000-item measure).
+     */
+    private val scalars = HashMap<String, Any?>()
+    private inline fun <T> scalar(key: String, read: () -> T): T {
+        synchronized(lock) { if (scalars.containsKey(key)) @Suppress("UNCHECKED_CAST") return scalars[key] as T }
+        val v = read()
+        synchronized(lock) { scalars[key] = v }
+        return v
+    }
     private val lock = Any()
 
     companion object {
@@ -101,13 +114,13 @@ class ThemeHandle(val theme: Theme) {
     }
 
     /** A spacing token (dp; 0 when missing). */
-    fun spacing(name: String): Float = (theme.spacing(name) ?: 0.0).toFloat()
+    fun spacing(name: String): Float = scalar("s|$name") { (theme.spacing(name) ?: 0.0).toFloat() }
 
     /** A radius token (dp; 0 when missing). */
-    fun radius(name: String): Float = (theme.radius(name) ?: 0.0).toFloat()
+    fun radius(name: String): Float = scalar("r|$name") { (theme.radius(name) ?: 0.0).toFloat() }
 
     /** A control size token (dp), else `fallback`. */
-    fun control(name: String, fallback: Float): Float = theme.control(name)?.toFloat() ?: fallback
+    fun control(name: String, fallback: Float): Float = scalar<Float?>("c|$name") { theme.control(name)?.toFloat() } ?: fallback
 
     /**
      * EXP-1259: a `scale` token (`press` = a pressed button, `popoverFrom` =
@@ -122,7 +135,7 @@ class ThemeHandle(val theme: Theme) {
     private val tokens: JsonValue by lazy { JsonValue.parse(theme.resolvedJson())["tokens"] ?: JsonValue.Null }
 
     /** A font family NAME by kind (`sans`, `mono`). */
-    fun fontFamily(kind: String): String? = theme.fontFamily(kind)
+    fun fontFamily(kind: String): String? = scalar("f|$kind") { theme.fontFamily(kind) }
 
     /** The sans family NAME. */
     val sansFamily: String? get() = fontFamily("sans")

@@ -5,7 +5,7 @@
 // real bundles are checked by `size.ts npm` in CI (exponential-ui.yml).
 
 import { describe, expect, test } from "bun:test"
-import { RENDERER_ENTRIES, SPLIT_RULES, overBudget, splitViolations } from "./size"
+import { RENDERER_ENTRIES, SPLIT_RULES, budgetFor, overBudget, readBudget, splitViolations } from "./size"
 
 const clean = [
   `packages/exponential-ui/src/index.ts`,
@@ -55,5 +55,28 @@ describe(`the budget (VAPP-106)`, () => {
     expect(overBudget({ "a/index": { bytes: 100, gzip: 50 }, "a/styles.css": { bytes: 10 }, "b/index": { bytes: 10 ** 9 } }, budget)).toEqual([])
     expect(overBudget({ "a/index": { bytes: 101, gzip: 50 } }, budget)).toEqual([`a/index: 101 bytes, budget 100 (+1)`])
     expect(overBudget({ "a/index": { bytes: 90, gzip: 51 } }, budget)).toEqual([`a/index: 51 bytes gzipped, budget 50 (+1)`])
+  })
+})
+
+describe(`the budget per build machine (EXP-1371)`, () => {
+  const file = {
+    $comment: `x`,
+    "a/index": { bytes: 100 },
+    "xcframework/ios-arm64": { bytes: 10 },
+    $machines: { $comment: `y`, "github-macos-26": { "xcframework/ios-arm64": { bytes: 13 } } },
+  }
+  test(`no machine = the base budgets`, () => {
+    expect(budgetFor(file)).toEqual({ "a/index": { bytes: 100 }, "xcframework/ios-arm64": { bytes: 10 } })
+  })
+  test(`a machine overrides only its own entries`, () => {
+    expect(budgetFor(file, `github-macos-26`)).toEqual({ "a/index": { bytes: 100 }, "xcframework/ios-arm64": { bytes: 13 } })
+  })
+  test(`an unknown machine fails loudly instead of gating on the wrong numbers`, () => {
+    expect(() => budgetFor(file, `nope`)).toThrow(`$machines.nope`)
+  })
+  test(`the committed file has every xcframework slice for github-macos-26`, () => {
+    const gh = readBudget(`github-macos-26`)
+    const base = readBudget(``)
+    for (const key of Object.keys(base).filter((k) => k.startsWith(`xcframework/`))) expect(gh[key].bytes).toBeGreaterThan(base[key].bytes)
   })
 })

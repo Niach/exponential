@@ -25,4 +25,5 @@ First release.
 - `SurfaceModel.snap` reaches `max` when the step does not divide the range.
 - The example's `brand` theme loads with `ThemeHandle.loadOrDefault`; a unit test loads every shipped sample theme strictly.
 - Text `shimmer` paints a moving gradient (`textShimmerJson` colours, plain under reduced motion); `Trace` / `TraceItem` and CodeBlock `variant` / `size` / ANSI tokens paint from the core; CodeBlock copy copies the `copy` part's `text` (ANSI escapes stripped).
+- Faster passes (VAPP-134 to 138): nodes are patched from the layout's delta (`nodesAt`), visuals and text styles are re-read only for the changed nodes and the leaves under them, theme scalars and wrapped line counts are memoised, and ICU formatters load on first use. A 10,000-item template paints in half the time; a Table scroll step costs 0.5×; the facade moves 57 % less data over a stream.
 - Robolectric unit, conformance and snapshot suites, plus instrumented tests (`src/androidTest`) that run on an emulator in CI.

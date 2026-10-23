@@ -61,6 +61,8 @@ android {
             it.systemProperty("jna.library.path", File(cargoTarget, "release").absolutePath)
             it.systemProperty("exponential.ui.fixtures", File(repoRoot, "packages/exponential-ui/fixtures").absolutePath)
             it.systemProperty("exponential.ui.record", System.getenv("EXPONENTIAL_UI_RECORD") ?: "")
+            // VAPP-138: every pass's delta-patched nodes and paint are checked against a full read (off under the bench).
+            it.systemProperty("exponential.ui.verifyDelta", System.getenv("EXPONENTIAL_UI_VERIFY_DELTA") ?: if (System.getenv("EXPONENTIAL_UI_BENCH") == "1") "" else "1")
             // ConformanceTest: the default report path and the renderer version (VAPP-91).
             it.systemProperty("exponential.ui.conformanceReport", File(repoRoot, ".conformance/exponential-ui-compose.json").absolutePath)
             it.systemProperty("exponential.ui.version", project.version.toString())
