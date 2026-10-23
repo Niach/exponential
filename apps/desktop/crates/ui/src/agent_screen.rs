@@ -64,7 +64,7 @@ pub(crate) fn message_placeholder(name: &str) -> String {
 /// The agent's display name: the `agents` row's `name`, `Untitled` while it
 /// is blank (EXP-1341's ladder bottom).
 pub(crate) fn agent_def_name(agent: &AgentDefRow) -> String {
-    domain::session_title::title_from_parts(agent.name.as_deref(), None, &[], None, None)
+    domain::session_title::title_from_parts(agent.name.as_deref(), &[], None)
 }
 
 /// The agent's mark: its icon in its colour (web `BoardGlyph`).

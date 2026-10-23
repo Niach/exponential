@@ -2,9 +2,7 @@
 //! has, the REAL [`crate::work_card::session_card`] over
 //! `domain::session_tree::session_card`, fed `fixtures/session-card.json`'s
 //! own cases (the first case per state): Working with its spinner, Waiting,
-//! Queued (no elapsed), Needs you, Usage limit, Ended; EXP-1323: then the
-//! fixture's captioned cards (a live caption, an ended aside's answer) with
-//! the muted second line. A card is the work card's header row in the glass
+//! Queued (no elapsed), Needs you, Usage limit, Ended. A card is the work card's header row in the glass
 //! frame plus a chevron; no device, account or branch.
 
 use gpui::{px, App, Div, ParentElement as _, Styled as _, Window};
@@ -37,27 +35,9 @@ pub(crate) fn cards() -> Vec<SessionCard> {
     cards
 }
 
-/// EXP-1323: the fixture's cards that carry a caption line.
-pub(crate) fn captioned_cards() -> Vec<SessionCard> {
-    let fixture: serde_json::Value =
-        serde_json::from_str(fixture_rows::SESSION_CARD_JSON).expect("session-card.json parses");
-    fixture["cases"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|case| {
-            let input = &case["input"];
-            let session: SessionRow = fixture_rows::row(&input["session"]);
-            let title = input["title"].as_str().unwrap_or_default();
-            session_card(&session, title, fixture_rows::now_ms(&input["now"]))
-        })
-        .filter(|card| card.caption.is_some())
-        .collect()
-}
-
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let mut column = v_flex().w(px(520.)).gap_2();
-    for card in cards().into_iter().chain(captioned_cards()) {
+    for card in cards() {
         column = column.child(crate::work_card::session_card(&card, |_, _| {}, cx));
     }
     column
@@ -82,12 +62,5 @@ mod tests {
                 SessionState::Ended,
             ]
         );
-    }
-
-    /// EXP-1323: a live caption and an ended aside's answer both draw.
-    #[test]
-    fn the_demo_draws_the_captioned_cards() {
-        let states: Vec<SessionState> = captioned_cards().iter().map(|card| card.state).collect();
-        assert_eq!(states, vec![SessionState::Working, SessionState::Ended]);
     }
 }
