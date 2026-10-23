@@ -1,6 +1,6 @@
 {
-  "name": "@exponential-at/ui-solid",
-  "version": "0.1.0",
+  "name": "@exponential_app/ui-solid",
+  "version": "0.1.1",
   "private": true,
   "description": "Exponential UI for SolidJS: the core A2UI catalog painted on plain elements (floating-ui, aria-hidden) with the same DOM, the same compiled stylesheet and the same runtime themes as the React renderer, run through the conformance suite and the web-parity check.",
   "license": "Apache-2.0",
@@ -34,14 +34,14 @@
     "solid-js": "^1.9.0"
   },
   "dependencies": {
-    "@exponential-at/ui": "workspace:*",
+    "@exponential_app/ui": "workspace:*",
     "@floating-ui/dom": "^1.7.0",
     "aria-hidden": "^1.2.6",
     "lucide-solid": "0.544.0"
   },
   "devDependencies": {
     "@exp/tsconfig": "workspace:*",
-    "@exponential-at/ui-react": "workspace:*",
+    "@exponential_app/ui-react": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
     "@tailwindcss/node": "^4.3.0",
     "@tailwindcss/oxide": "^4.3.0",

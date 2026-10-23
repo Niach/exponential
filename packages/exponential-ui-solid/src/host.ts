@@ -1,15 +1,15 @@
 // FEED-128: what an EMBEDDING APP provides (the host plugin) and what the
 // Solid renderer sends it. The framework-free half (events, paint errors,
-// source options, the plugin shape) is `@exponential-at/ui/web`
+// source options, the plugin shape) is `@exponential_app/ui/web`
 // (host-types.ts); Solid pins its component types. VAPP-91: the host API
 // plugs in through `hostPlugin(host)` / `<HostSurface>` (host-surface.tsx).
 
 import type { Component, JSX } from "solid-js"
 import type { LucideProps } from "lucide-solid"
-import type { UiNode, ResolvedTheme, ModeName } from "@exponential-at/ui"
-import type { HostPlugin as WebHostPlugin, IconMap as WebIconMap } from "@exponential-at/ui/web"
+import type { UiNode, ResolvedTheme, ModeName } from "@exponential_app/ui"
+import type { HostPlugin as WebHostPlugin, IconMap as WebIconMap } from "@exponential_app/ui/web"
 
-export type { SurfaceActionEvent, SurfaceInputEvent, PaintError, SourceOption } from "@exponential-at/ui/web"
+export type { SurfaceActionEvent, SurfaceInputEvent, PaintError, SourceOption } from "@exponential_app/ui/web"
 
 /** An icon component the host maps a registry name to (`lucide-solid`'s
  *  icon shape). */

@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-91: the wire decoders (catalog/host.json transport). Inputs hand-written; `expected` filled by `bun run --filter @exponential-at/ui generate` from the TS reference (src/host/decoders.ts). Every renderer's conformance runner replays it: feed `chunks` in order through ONE decoder, then end().",
+  "$comment": "VAPP-91: the wire decoders (catalog/host.json transport). Inputs hand-written; `expected` filled by `bun run --filter @exponential_app/ui generate` from the TS reference (src/host/decoders.ts). Every renderer's conformance runner replays it: feed `chunks` in order through ONE decoder, then end().",
   "jsonl": [
     {
       "name": "one message per line",

@@ -13,8 +13,8 @@
 // "on|off"`): Kobalte's ToggleButton writes `data-pressed` instead.
 
 import { Show, createEffect, createMemo, createSignal, onCleanup, type Accessor, type Component, type JSX } from "solid-js"
-import { PENDING_DELAY_MS } from "@exponential-at/ui"
-import { linkHref } from "@exponential-at/ui/web"
+import { PENDING_DELAY_MS } from "@exponential_app/ui"
+import { linkHref } from "@exponential_app/ui/web"
 import { useSurfaceContext } from "../context"
 import { useForm } from "../form"
 import { CHROME, IconGlyph, PaintIcon } from "../icons"

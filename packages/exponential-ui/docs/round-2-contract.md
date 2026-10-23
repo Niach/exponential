@@ -9,7 +9,7 @@
 Round 2 adds the authoring features round 1 left out, settles the open
 contract questions in TS and Rust together, and turns the 53 gpui-vs-web
 divergence causes into decisions. This file is the CONTRACT half: what
-changed in `@exponential-at/ui` and what each renderer implements to match.
+changed in `@exponential_app/ui` and what each renderer implements to match.
 Everything here is locked by a fixture or a test (`src/round2.test.ts`).
 
 Read §0, the sections you own, then §9 (your checklist) and §10.
@@ -388,7 +388,7 @@ of trailing punctuation (gpui), resp-states line breaks (survivor: UAX #14
 both sides, inside the ±1 line tolerance), part coverage (React).
 
 **Ratchet procedure** once React and gpui land: `bun run --filter
-@exponential-at/ui conformance -- --write-baseline` (intended web changes:
+@exponential_app/ui conformance -- --write-baseline` (intended web changes:
 lifted template, Resizable, layout-box dump, Nunito/Fira Code, the React
 fixes), then `EXP_UI_WRITE_FIXTURES=1 cargo test -p exponential-ui-gpui
 --test conformance` (keeps `causes`/`rules`), target zero origins; a
@@ -405,7 +405,7 @@ resizable`.
 
 ## 9. Per-renderer checklists
 
-### React (`@exponential-at/ui-react`)
+### React (`@exponential_app/ui-react`)
 1. Resizable native (flex + hairline handles, pointer capture from the drag START sizes, `keyboardResize`, `normalizeSizes`, two-way `sizes`, separator a11y, recipes incl. grip).
 2. `position: sticky` (CSS), `backdropBlur` (`styleToCss` already maps it), `animation` (`ANIMATION_PROPERTIES_CSS` + `keyframesCss` once per document, replacing the own `--xui-band` rule; `styleToCss(…, theme)` multiplies opacity; drop it under reduced motion), `direction` on inner boxes (the CSS cascade does it; mirror glyphs by the node's direction).
 3. Formatter: build `intlFormatter(locale, timeZone)` per surface, pass it to the bind pass (`formatter`), use it for Table cells (new `currency`/`percent`/`relativeTime` types), NumberField, chart ticks, pickers, calendar names.

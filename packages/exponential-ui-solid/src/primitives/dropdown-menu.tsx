@@ -1,7 +1,7 @@
 import { Show, createContext, createEffect, createSignal, on, onCleanup, splitProps, untrack, useContext, type Accessor, type ComponentProps, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { Check, ChevronRight, Circle } from "lucide-solid"
-import { DROPDOWN_MENU_CLASSES } from "@exponential-at/ui/web/primitives"
+import { DROPDOWN_MENU_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { MenuContent, createMenuRow, createPresence, createSelectable, useKeyboardTracking, type Align, type OutsideEvent, type Side } from "../behaviors"
 import { DialogPortalPart, layerMountedThisTask, noteLayerMount, callRef, composeHandlers, createId, createOpenState, mergeRefs, stateOf, type AsProps } from "../behaviors/dialog"

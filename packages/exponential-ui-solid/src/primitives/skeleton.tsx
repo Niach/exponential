@@ -1,5 +1,5 @@
 import { splitProps, type ComponentProps } from "solid-js"
-import { SKELETON_CLASSES } from "@exponential-at/ui/web/primitives"
+import { SKELETON_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 

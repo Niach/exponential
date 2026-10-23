@@ -1,1 +1,1 @@
-export * from "@exponential-at/ui-react/primitives/progress-ring"
+export * from "@exponential_app/ui-react/primitives/progress-ring"

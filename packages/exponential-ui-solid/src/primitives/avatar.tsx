@@ -1,5 +1,5 @@
 import { Show, createContext, createEffect, createSignal, on, onCleanup, splitProps, useContext, type Accessor, type ComponentProps, type JSX } from "solid-js"
-import { AVATAR_CLASSES, avatarFallbackColors, avatarFallbackHue } from "@exponential-at/ui/web/primitives"
+import { AVATAR_CLASSES, avatarFallbackColors, avatarFallbackHue } from "@exponential_app/ui/web/primitives"
 
 import { createImageLoadingStatus, type LoadingStatus } from "../behaviors"
 import { css } from "../style"

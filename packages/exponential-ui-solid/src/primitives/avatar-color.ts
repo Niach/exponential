@@ -1,1 +1,1 @@
-export { AVATAR_HUE_COUNT, avatarHueIndex } from "@exponential-at/ui/web/primitives"
+export { AVATAR_HUE_COUNT, avatarHueIndex } from "@exponential_app/ui/web/primitives"

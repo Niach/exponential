@@ -2070,12 +2070,12 @@ async function captureEval(options: Options, ids: string[]): Promise<number> {
   const skipped = options.platforms.filter((p) => !(platforms as string[]).includes(p))
   console.log(`shots: eval lane · ${ids.length} surface(s) · ${platforms.join(`, `) || `no native platform`}`)
   if (skipped.length > 0 && options.platforms.length < PLATFORMS.length) {
-    console.log(`  ${skipped.join(`, `)}: not this lane — the web renders are \`bun run --filter @exponential-at/ui eval:render\``)
+    console.log(`  ${skipped.join(`, `)}: not this lane — the web renders are \`bun run --filter @exponential_app/ui eval:render\``)
   }
   const known = new Set(specimenIds())
   const missing = ids.filter((id) => !known.has(evalSpecimenId(id)))
   if (missing.length > 0) {
-    throw new Error(`eval-specimens.json has no specimen for ${missing.join(`, `)}: run \`bun run --filter @exponential-at/ui eval\` first`)
+    throw new Error(`eval-specimens.json has no specimen for ${missing.join(`, `)}: run \`bun run --filter @exponential_app/ui eval\` first`)
   }
   if (options.dryRun || options.plan || platforms.length === 0) return 0
 
@@ -2163,7 +2163,7 @@ async function captureEval(options: Options, ids: string[]): Promise<number> {
 
   console.log(`\n── eval/out ──────────────────────────────────────────`)
   for (const line of stored) console.log(`  ${line}`)
-  console.log(`  ${stored.length} picture(s); next: bun run --filter @exponential-at/ui eval:natives`)
+  console.log(`  ${stored.length} picture(s); next: bun run --filter @exponential_app/ui eval:natives`)
   const failures = outcomes.filter((o) => !o.ok)
   for (const f of failures) console.error(`  ${f.platform}: ${f.detail ?? `failed`}`)
   return failures.length > 0 ? 1 : 0

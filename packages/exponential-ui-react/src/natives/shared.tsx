@@ -6,17 +6,17 @@
 // `builtinIcons` (never a hardcoded glyph for an owned part).
 
 import { useContext, useMemo, type ReactNode } from "react"
-import { displayString, nativeRecipeProps } from "@exponential-at/ui"
-import { arr, bool, builtinIconName, failingCheck, failingChecks, formatFileSize, num, objects, phrase, str } from "@exponential-at/ui/web"
-import type { UiNode } from "@exponential-at/ui"
+import { displayString, nativeRecipeProps } from "@exponential_app/ui"
+import { arr, bool, builtinIconName, failingCheck, failingChecks, formatFileSize, num, objects, phrase, str } from "@exponential_app/ui/web"
+import type { UiNode } from "@exponential_app/ui"
 import { InstanceContext, useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 // FEED-128: `PLACED` (round 2 §6, the placed-part table) lives in the web layer, shared with Solid.
-import { PLACED, partClass, propAttribute } from "@exponential-at/ui/web"
+import { PLACED, partClass, propAttribute } from "@exponential_app/ui/web"
 
 export type Attrs = Record<string, unknown>
 
-// FEED-128: the pure helpers live in `@exponential-at/ui/web` (coerce.ts).
+// FEED-128: the pure helpers live in `@exponential_app/ui/web` (coerce.ts).
 export { str, num, bool, arr, objects, phrase, formatFileSize, failingChecks, failingCheck, builtinIconName }
 
 export type PartFn = ((name: string, ...states: (string | false | undefined | null)[]) => Attrs) & {

@@ -70,27 +70,27 @@ const gz = (text: string | Uint8Array) => gzipSync(text, { level: 9 }).length
 
 /** The packages `build-npm.ts` ships, by directory. */
 const NPM_PACKAGES: Record<string, string> = {
-  "@exponential-at/ui": `packages/exponential-ui`,
-  "@exponential-at/ui-react": `packages/exponential-ui-react`,
-  "@exponential-at/ui-solid": `packages/exponential-ui-solid`,
-  "@exponential-at/ui-element": `packages/exponential-ui-element`,
+  "@exponential_app/ui": `packages/exponential-ui`,
+  "@exponential_app/ui-react": `packages/exponential-ui-react`,
+  "@exponential_app/ui-solid": `packages/exponential-ui-solid`,
+  "@exponential_app/ui-element": `packages/exponential-ui-element`,
 }
 
 /** The entries a RENDERER loads: the root (the runtime catalog, the reducer,
  *  the themes), the host API, the shared web layer and its primitives'
  *  recipes, and both web renderers' entries. */
 export const RENDERER_ENTRIES: readonly string[] = [
-  `@exponential-at/ui/index`,
-  `@exponential-at/ui/host`,
-  `@exponential-at/ui/web`,
-  `@exponential-at/ui/web/primitives`,
-  `@exponential-at/ui-react/index`,
-  `@exponential-at/ui-react/primitives`,
-  `@exponential-at/ui-solid/index`,
-  `@exponential-at/ui-solid/primitives`,
-  `@exponential-at/ui-element/index`,
-  `@exponential-at/ui-element/define`,
-  `@exponential-at/ui-element/standalone.js`,
+  `@exponential_app/ui/index`,
+  `@exponential_app/ui/host`,
+  `@exponential_app/ui/web`,
+  `@exponential_app/ui/web/primitives`,
+  `@exponential_app/ui-react/index`,
+  `@exponential_app/ui-react/primitives`,
+  `@exponential_app/ui-solid/index`,
+  `@exponential_app/ui-solid/primitives`,
+  `@exponential_app/ui-element/index`,
+  `@exponential_app/ui-element/define`,
+  `@exponential_app/ui-element/standalone.js`,
 ]
 
 /** What a renderer entry must never carry (VAPP-106, the root-entry split):

@@ -6,9 +6,9 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render } from "@testing-library/react"
-import { CORE_CATALOG_ID, reduceNested } from "@exponential-at/ui"
-import type { NestedNode } from "@exponential-at/ui"
-import fixture from "@exponential-at/ui/fixtures/interactions-round1.json"
+import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/ui"
+import type { NestedNode } from "@exponential_app/ui"
+import fixture from "@exponential_app/ui/fixtures/interactions-round1.json"
 import { ExponentialSurface } from "./surface"
 import { sortRows, type TableColumn } from "./natives/table"
 import type { SurfaceActionEvent } from "./host"

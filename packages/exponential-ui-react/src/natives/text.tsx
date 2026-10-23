@@ -1,7 +1,7 @@
 // VAPP-87 + round 1: Text (`live` → an aria-live region; EXP-1324 `shimmer`
 // → `data-xui-shimmer`, base-css), Markdown (`lines` truncation), Icon.
 
-import { displayString } from "@exponential-at/ui"
+import { displayString } from "@exponential_app/ui"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import { BuiltinMarkdown } from "../markdown"

@@ -9,7 +9,7 @@ import {
   type ToastKind,
   type ToastRecord,
   type ToastStore,
-} from "@exponential-at/ui/web/primitives"
+} from "@exponential_app/ui/web/primitives"
 
 import { bindStyle } from "../behaviors/style-writer"
 import { PaintIcon } from "../icons"
@@ -168,5 +168,5 @@ export function Toaster(props: ToasterProps) {
   )
 }
 
-export { createToastStore, toastStackGeometry, toastPlacement, TOAST_CONSTANTS, TOAST_KINDS, TOAST_TOUCH_QUERY } from "@exponential-at/ui/web/primitives"
-export type { ToastKind, ToastOptions, ToastRecord, ToastStore, ToastAction, ToastPlacement } from "@exponential-at/ui/web/primitives"
+export { createToastStore, toastStackGeometry, toastPlacement, TOAST_CONSTANTS, TOAST_KINDS, TOAST_TOUCH_QUERY } from "@exponential_app/ui/web/primitives"
+export type { ToastKind, ToastOptions, ToastRecord, ToastStore, ToastAction, ToastPlacement } from "@exponential_app/ui/web/primitives"

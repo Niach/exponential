@@ -1,7 +1,7 @@
 // VAPP-91: the framework-agnostic host runtime for TypeScript renderers.
 // It owns the transport, the router, one SurfaceStore per surface, the
 // source subscriptions, the function registry and the policy hooks; a
-// renderer (React: `@exponential-at/ui-react` `<HostSurface>`) paints a
+// renderer (React: `@exponential_app/ui-react` `<HostSurface>`) paints a
 // store and hands its interactions back through `dispatch`.
 
 import { writePointer } from "../dynamic"

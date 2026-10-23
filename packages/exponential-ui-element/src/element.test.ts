@@ -3,8 +3,8 @@
 // store it makes, detach disposes and re-attach paints again.
 
 import { afterEach, describe, expect, it } from "vitest"
-import { builtinTheme } from "@exponential-at/ui"
-import type { NestedNode } from "@exponential-at/ui"
+import { builtinTheme } from "@exponential_app/ui"
+import type { NestedNode } from "@exponential_app/ui"
 import { ExponentialSurfaceElement, TAG, define } from "./index"
 import { cardTree, cleanup, mount, surfaceOf, tick, tree } from "./test/helpers"
 

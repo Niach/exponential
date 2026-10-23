@@ -2,8 +2,8 @@
    from the catalog prompt. Every number comes from
    packages/exponential-ui/eval/report.json (score.ts, render.ts,
    parity.ts) and eval/rewrite-gaps.json; nothing is typed here by hand. */
-import report from "@exponential-at/ui/eval/report.json"
-import gaps from "@exponential-at/ui/eval/rewrite-gaps.json"
+import report from "@exponential_app/ui/eval/report.json"
+import gaps from "@exponential_app/ui/eval/rewrite-gaps.json"
 import { DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { DocsTable, PageHero } from "../components/Content"
 import { componentHref } from "../lib/catalog-facts"
@@ -89,10 +89,10 @@ export default function EvalPage({ path }: PageProps) {
             measures the boxes of each and compares them with React;{` `}
             <code>parity.ts</code> measures the Devices template against the native page on the stored shots.
           </p>
-          <DocsCode>{`bun run --filter @exponential-at/ui eval:record   # once, needs ANTHROPIC_API_KEY
-bun run --filter @exponential-at/ui eval          # score the fixtures → eval/report.json
-bun run --filter @exponential-at/ui eval:render   # web renders, React + Solid + element, at every width (Playwright)
-bun run --filter @exponential-at/ui eval:parity   # the Devices template vs the native page`}</DocsCode>
+          <DocsCode>{`bun run --filter @exponential_app/ui eval:record   # once, needs ANTHROPIC_API_KEY
+bun run --filter @exponential_app/ui eval          # score the fixtures → eval/report.json
+bun run --filter @exponential_app/ui eval:render   # web renders, React + Solid + element, at every width (Playwright)
+bun run --filter @exponential_app/ui eval:parity   # the Devices template vs the native page`}</DocsCode>
           <p>
             Recorded by: {Object.entries(a.recordedBy).map(([k, v]) => `${v} ${k === `api` ? `over the API` : k === `claude-cli` ? `through the Claude Code CLI (real usage)` : `by the session's own model from the same prompt`}`).join(`, `)}.
           </p>

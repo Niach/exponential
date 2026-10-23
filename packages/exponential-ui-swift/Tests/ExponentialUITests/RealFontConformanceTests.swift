@@ -66,7 +66,7 @@ final class RealFontConformanceTests: XCTestCase {
         var totals = (size: 0, position: 0, wrap: 0, onlyRef: 0, onlyCand: 0, origins: 0)
         for c in cases {
             guard let ref = baseline[c.key] else {
-                XCTFail("\(c.key): not in the baseline (rewrite it: bun run --filter @exponential-at/ui conformance -- --write-baseline)")
+                XCTFail("\(c.key): not in the baseline (rewrite it: bun run --filter @exponential_app/ui conformance -- --write-baseline)")
                 continue
             }
             let cand = dump.cases[c.key]!

@@ -9,13 +9,13 @@ import {
   type ToastKind,
   type ToastRecord,
   type ToastStore,
-} from "@exponential-at/ui/web/primitives"
+} from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 import { useMediaQuery } from "./use-media-query"
 
 // FEED-131: THE toast without sonner: the stack of fixtures/toast-stack.json
-// (the engine in @exponential-at/ui/web/primitives/toast) painted on plain
+// (the engine in @exponential_app/ui/web/primitives/toast) painted on plain
 // elements. A region `<section>` holds the stack box `<ol>`, one `<li>` per
 // toast placed by `--offset`/`--scale`; hover (pointer) or a tap (touch)
 // expands the stack and pauses every clock. The Solid twin paints the same.
@@ -159,5 +159,5 @@ export function Toaster({ store = toastStore, touch, closeLabel = `Close`, class
   )
 }
 
-export { createToastStore, toastStackGeometry, toastPlacement, TOAST_CONSTANTS, TOAST_KINDS, TOAST_TOUCH_QUERY } from "@exponential-at/ui/web/primitives"
-export type { ToastKind, ToastOptions, ToastRecord, ToastStore, ToastAction, ToastPlacement } from "@exponential-at/ui/web/primitives"
+export { createToastStore, toastStackGeometry, toastPlacement, TOAST_CONSTANTS, TOAST_KINDS, TOAST_TOUCH_QUERY } from "@exponential_app/ui/web/primitives"
+export type { ToastKind, ToastOptions, ToastRecord, ToastStore, ToastAction, ToastPlacement } from "@exponential_app/ui/web/primitives"

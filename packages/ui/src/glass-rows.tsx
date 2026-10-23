@@ -1,1 +1,1 @@
-export * from "@exponential-at/ui-react/primitives/glass-rows"
+export * from "@exponential_app/ui-react/primitives/glass-rows"

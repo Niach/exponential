@@ -1,4 +1,4 @@
-// FEED-128: the web-parity gate (@exponential-at/ui/conformance/parity.ts):
+// FEED-128: the web-parity gate (@exponential_app/ui/conformance/parity.ts):
 // the React harness = the REFERENCE, the Solid one = the candidate, every
 // case compared exactly (DOM, computed styles, frames, pixels). Report to
 // EXPONENTIAL_UI_PARITY_REPORT (default

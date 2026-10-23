@@ -1,11 +1,11 @@
 // VAPP-87 — compiles src/primitives/tailwind.css into the stylesheet the
-// package ships (`@exponential-at/ui-react/styles.css` →
+// package ships (`@exponential_app/ui-react/styles.css` →
 // dist/exponential-ui-react.css). Same wiring as @exp/ui's `compileUiCss`
 // (packages/ui/src/island.ts): `compile` resolves the imports and the
 // `@source` globs, the oxide `Scanner` collects the candidates from the
 // primitives' sources, `optimize` lowers + minifies.
 //
-//   bun run --filter @exponential-at/ui-react build:css
+//   bun run --filter @exponential_app/ui-react build:css
 
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"

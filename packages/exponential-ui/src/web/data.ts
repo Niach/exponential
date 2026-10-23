@@ -4,12 +4,12 @@
 // client functions + round 1's 13 CORE functions the macro expander emits
 // for bound inputs); `resolveValue` turns a prop tree into literals for one
 // render, `$string.<id>` built-in copy included (round-1 contract §1, §4:
-// the React mirror of `@exponential-at/ui` `resolveDynamic`). The format
+// the React mirror of `@exponential_app/ui` `resolveDynamic`). The format
 // functions run through the SURFACE Formatter (round 2 §3: Intl in the
 // surface locale + time zone). Pure, so the host can run it too.
 
-import { CORE_FUNCTIONS, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, sharedCatalogView, truthy, writePointer } from "@exponential-at/ui"
-import type { CatalogView, ExtensionDef, Formatter } from "@exponential-at/ui"
+import { CORE_FUNCTIONS, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, sharedCatalogView, truthy, writePointer } from "@exponential_app/ui"
+import type { CatalogView, ExtensionDef, Formatter } from "@exponential_app/ui"
 
 export type DataModel = Record<string, unknown> | unknown[]
 
@@ -292,7 +292,7 @@ export function hasDynamic(value: unknown): boolean {
 }
 
 /** The React renderer's BIND pass as a pure function (round-1 contract §1;
- *  `@exponential-at/ui` `bindTree` is the reference, fixtures/bind-time.json
+ *  `@exponential_app/ui` `bindTree` is the reference, fixtures/bind-time.json
  *  locks both): a node whose `visible` resolves falsy is dropped with its
  *  subtree, props / style values / recipe props resolve, `visible` goes,
  *  actions and templates stay. `NodeView` binds node by node with the same

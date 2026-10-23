@@ -1,1 +1,1 @@
-export * from "@exponential-at/ui-react/primitives/choice-tiles"
+export * from "@exponential_app/ui-react/primitives/choice-tiles"

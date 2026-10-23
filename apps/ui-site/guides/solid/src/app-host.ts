@@ -1,7 +1,7 @@
 // A declarative app = templates + data + bindings + the functions it may
 // call. Data, never code: validate it, then run it in any host.
-import { createAppHost, validatePackage } from "@exponential-at/ui"
-import type { AppPackage } from "@exponential-at/ui"
+import { createAppHost, validatePackage } from "@exponential_app/ui"
+import type { AppPackage } from "@exponential_app/ui"
 import pkg from "./hello.app.json"
 
 const issues = validatePackage(pkg)
@@ -16,4 +16,4 @@ export const app = createAppHost({
 })
 
 app.open(`hello`) // applyTemplate: the first template onto surface "hello"
-// Paint it: <HostSurface host={app.host} surfaceId="hello" theme="neutral" /> (from @exponential-at/ui-solid)
+// Paint it: <HostSurface host={app.host} surfaceId="hello" theme="neutral" /> (from @exponential_app/ui-solid)

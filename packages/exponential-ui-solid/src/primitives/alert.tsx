@@ -1,5 +1,5 @@
 import { splitProps, type ComponentProps } from "solid-js"
-import { ALERT_CLASSES, alertVariants, type AlertVariantProps } from "@exponential-at/ui/web/primitives"
+import { ALERT_CLASSES, alertVariants, type AlertVariantProps } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 

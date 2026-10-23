@@ -21,10 +21,10 @@
 
 import { Show, batch, createComponent, createEffect, createMemo, createRoot, createSignal, onCleanup, untrack, type Accessor, type JSX, type Setter } from "solid-js"
 import { render } from "solid-js/web"
-import type { ExponentialHost, ModeName, ScrollAlign, SurfaceCommand, ThemeIssue, TransportStatus, UiNode } from "@exponential-at/ui"
-import { setPointer, type DataModel } from "@exponential-at/ui/web"
-import { ExponentialSurface, createHostSurface, createSurface, extensionCatalogs, hostPlugin, px } from "@exponential-at/ui-solid"
-import type { A2uiMessage, ExponentialSurfaceProps, HostPlugin, SolidExtension, SurfaceHandle, SurfaceState, ThemeInput } from "@exponential-at/ui-solid"
+import type { ExponentialHost, ModeName, ScrollAlign, SurfaceCommand, ThemeIssue, TransportStatus, UiNode } from "@exponential_app/ui"
+import { setPointer, type DataModel } from "@exponential_app/ui/web"
+import { ExponentialSurface, createHostSurface, createSurface, extensionCatalogs, hostPlugin, px } from "@exponential_app/ui-solid"
+import type { A2uiMessage, ExponentialSurfaceProps, HostPlugin, SolidExtension, SurfaceHandle, SurfaceState, ThemeInput } from "@exponential_app/ui-solid"
 import { emit, emitWaiting, joinPending } from "./events"
 import { createHost, decideTransport, transportKey } from "./transport"
 

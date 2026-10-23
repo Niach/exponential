@@ -1,5 +1,5 @@
 // VAPP-87: the theme builder's PREVIEW, painted by the real React renderer
-// (`@exponential-at/ui-react`): the recipe sheet (every component part × its
+// (`@exponential_app/ui-react`): the recipe sheet (every component part × its
 // recipe props, the interaction states forced per column) and the kitchen
 // sink, re-rendered on every draft edit. The VAPP-92 stand-in DOM painter is
 // gone; what the builder shows IS what a host gets.
@@ -7,8 +7,8 @@
 import { createElement, Fragment } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import * as lucide from "lucide-react"
-import { ExponentialSurface } from "@exponential-at/ui-react"
-import type { IconComponent, IconMap } from "@exponential-at/ui-react"
+import { ExponentialSurface } from "@exponential_app/ui-react"
+import type { IconComponent, IconMap } from "@exponential_app/ui-react"
 import { CORE_CATALOG_ID } from "../src/catalog"
 import { reduceNested } from "../src/reducer"
 import type { ModeName, ResolvedTheme } from "../src/theme-types"

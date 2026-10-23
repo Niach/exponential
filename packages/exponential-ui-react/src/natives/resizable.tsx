@@ -10,7 +10,7 @@
 // fires after every drag end or key.
 
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react"
-import { dragDelta, keyboardResize, normalizeSizes, resizePanels, RESIZE_HANDLE_HIT, type PanelLimits } from "@exponential-at/ui"
+import { dragDelta, keyboardResize, normalizeSizes, resizePanels, RESIZE_HANDLE_HIT, type PanelLimits } from "@exponential_app/ui"
 import { useSurfaceContext } from "../context"
 import type { NativeProps } from "../node-view"
 import { NodeView } from "../node-view"

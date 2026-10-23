@@ -2,8 +2,8 @@
    one A2UI tree in the Exponential theme's dark mode. Loaded by the island
    after hydration, never by the prerender. */
 import { useLayoutEffect, useMemo } from "react"
-import { ExponentialSurface, useSurface } from "@exponential-at/ui-react"
-import type { A2uiMessage, HostPlugin } from "@exponential-at/ui-react"
+import { ExponentialSurface, useSurface } from "@exponential_app/ui-react"
+import type { A2uiMessage, HostPlugin } from "@exponential_app/ui-react"
 import { surfaceMessages } from "../../blog/a2ui"
 import { BLOG_ICONS } from "./surface-icons"
 import type { SurfaceRuntimeProps } from "./LiveSurface"

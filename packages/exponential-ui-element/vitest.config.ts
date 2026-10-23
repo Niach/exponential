@@ -3,7 +3,7 @@ import solid from "vite-plugin-solid"
 
 // FEED-130: the element's DOM suites run in jsdom (customElements, the
 // Solid painter's client build). The package itself has no JSX; the Solid
-// plugin is here because `@exponential-at/ui-solid` resolves to its TSX
+// plugin is here because `@exponential_app/ui-solid` resolves to its TSX
 // sources inside the monorepo. The React renderer (a dev dependency, the
 // DOM-parity reference) stays out of the Solid JSX transform.
 export default defineConfig({

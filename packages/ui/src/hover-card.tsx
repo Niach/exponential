@@ -1,1 +1,1 @@
-export * from "@exponential-at/ui-react/primitives/hover-card"
+export * from "@exponential_app/ui-react/primitives/hover-card"

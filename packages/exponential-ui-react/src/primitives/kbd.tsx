@@ -1,5 +1,5 @@
 import * as React from "react"
-import { KBD_CLASSES } from "@exponential-at/ui/web/primitives"
+import { KBD_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 

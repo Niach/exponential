@@ -1,6 +1,6 @@
 import { splitProps, type ComponentProps, type JSX } from "solid-js"
 import { ChevronDown, ChevronRight } from "lucide-solid"
-import { DISCLOSURE_HEADER_CLASSES } from "@exponential-at/ui/web/primitives"
+import { DISCLOSURE_HEADER_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { PaintIcon } from "../icons"
 import { cn } from "./cn"

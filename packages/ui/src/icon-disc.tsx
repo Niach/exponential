@@ -1,1 +1,1 @@
-export * from "@exponential-at/ui-react/primitives/icon-disc"
+export * from "@exponential_app/ui-react/primitives/icon-disc"

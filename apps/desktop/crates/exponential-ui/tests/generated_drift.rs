@@ -8,7 +8,7 @@ const CRATE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/generated");
 fn same(a: &str, b: &str) {
     let x = std::fs::read_to_string(a).unwrap_or_else(|e| panic!("{a}: {e}"));
     let y = std::fs::read_to_string(b).unwrap_or_else(|e| panic!("{b}: {e}"));
-    assert!(x == y, "{b} differs from {a}: run `bun run --filter @exponential-at/ui generate`");
+    assert!(x == y, "{b} differs from {a}: run `bun run --filter @exponential_app/ui generate`");
 }
 
 #[test]

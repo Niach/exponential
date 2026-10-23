@@ -1,6 +1,6 @@
 // VAPP-87: Ring, Spinner, Skeleton, TreeGuides (Chart: chart.tsx).
 
-import { resolveRecipe, nativeRecipeProps, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS } from "@exponential-at/ui"
+import { resolveRecipe, nativeRecipeProps, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS } from "@exponential_app/ui"
 import { useSurfaceContext } from "../context"
 import { CHROME } from "../icons"
 import type { NativeProps } from "../node-view"

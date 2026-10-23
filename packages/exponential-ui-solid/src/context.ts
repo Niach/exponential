@@ -6,8 +6,8 @@
 // tracking); derive a changed copy with `deriveContext`.
 
 import { createContext, useContext, type Accessor } from "solid-js"
-import type { ExtensionDef, Formatter, ModeName, ResolvedTheme, ScrollAlign, TemplateBudget, UiNode } from "@exponential-at/ui"
-import type { ClientFunction, CompiledTheme, DataModel, ResolveContext } from "@exponential-at/ui/web"
+import type { ExtensionDef, Formatter, ModeName, ResolvedTheme, ScrollAlign, TemplateBudget, UiNode } from "@exponential_app/ui"
+import type { ClientFunction, CompiledTheme, DataModel, ResolveContext } from "@exponential_app/ui/web"
 import type { HostPlugin } from "./host"
 import type { SolidExtension } from "./extensions"
 

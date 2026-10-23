@@ -7,12 +7,12 @@
 
 import { For, Show, createMemo, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { linkHref, mediaRequestOf, parseMarkdown, type MarkdownBlock, type MarkdownInline, type MarkdownList } from "@exponential-at/ui/web"
+import { linkHref, mediaRequestOf, parseMarkdown, type MarkdownBlock, type MarkdownInline, type MarkdownList } from "@exponential_app/ui/web"
 import type { HostPlugin } from "./host"
 import { createMediaSource } from "./media"
 import { css } from "./style"
 
-export { MAX_LINK_NESTING, MAX_LINK_DEST, MAX_BLOCK_NESTING, linkAt, wholeImage, parseList } from "@exponential-at/ui/web"
+export { MAX_LINK_NESTING, MAX_LINK_DEST, MAX_BLOCK_NESTING, linkAt, wholeImage, parseList } from "@exponential_app/ui/web"
 
 /** A block image through the media policy and loader (alt text while it
  *  loads or when it fails); a DENIED src is a paragraph of its alt text. */

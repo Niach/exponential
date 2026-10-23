@@ -4,8 +4,8 @@
 // maxLines, an empty line, dark + rtl).
 
 import { describe, it } from "vitest"
-import fixture from "@exponential-at/ui/fixtures/catalog-components.json"
-import type { NestedNode } from "@exponential-at/ui"
+import fixture from "@exponential_app/ui/fixtures/catalog-components.json"
+import type { NestedNode } from "@exponential_app/ui"
 import { expectDomParity } from "../test/parity"
 
 const cases = (fixture as unknown as { cases: { name: string; node: NestedNode }[] }).cases.filter((c) => c.node.component === `CodeBlock`)

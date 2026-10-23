@@ -4,10 +4,10 @@
    columns, per scenario), the weak points the numbers exposed with their
    follow-up issues, and how to run the suite and read the ratchet. */
 import type { ReactNode } from "react"
-import manifest from "@exponential-at/ui-bench/scenarios/manifest.json"
-import budgets from "@exponential-at/ui-bench/budgets.json"
-import findings from "@exponential-at/ui-bench/findings.json"
-import { RESULTS } from "@exponential-at/ui-bench/results"
+import manifest from "@exponential_app/ui-bench/scenarios/manifest.json"
+import budgets from "@exponential_app/ui-bench/budgets.json"
+import findings from "@exponential_app/ui-bench/findings.json"
+import { RESULTS } from "@exponential_app/ui-bench/results"
 import { DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { DocsTable } from "../components/Content"
 import { LEARN_NAV } from "../lib/content"
@@ -207,9 +207,9 @@ export default function NumbersPage({ path }: PageProps) {
             on macOS and the iPhone Simulator, Compose on the JVM, and an attached iPhone or Android device when there is
             one), merges the fragments into <code>results/&lt;machine&gt;.json</code> and prints the ratchet's verdicts:
           </p>
-          <DocsCode>{`bun run --filter @exponential-at/ui-bench bench                 # everything this machine can run
-bun run --filter @exponential-at/ui-bench bench -- --renderers react,solid --scenario list-100k --repeat 5
-bun run --filter @exponential-at/ui-bench machine               # the id results are filed under`}</DocsCode>
+          <DocsCode>{`bun run --filter @exponential_app/ui-bench bench                 # everything this machine can run
+bun run --filter @exponential_app/ui-bench bench -- --renderers react,solid --scenario list-100k --repeat 5
+bun run --filter @exponential_app/ui-bench machine               # the id results are filed under`}</DocsCode>
           <p>
             CI (<a href={LINKS.source(`.github/workflows/exponential-ui.yml`)}>exponential-ui.yml</a>) runs each runner
             in its renderer's job and ratchets every fragment against{` `}
@@ -218,8 +218,8 @@ bun run --filter @exponential-at/ui-bench machine               # the id results
             prints a warning asking to lower it. A machine without budgets is reported, never gated: after a green run,
             record it from the artifacts.
           </p>
-          <DocsCode>{`bun run --filter @exponential-at/ui-bench ratchet .bench/*.json           # the verdicts
-bun run --filter @exponential-at/ui-bench ratchet .bench/*.json --write   # timings × headroom, counts exact`}</DocsCode>
+          <DocsCode>{`bun run --filter @exponential_app/ui-bench ratchet .bench/*.json           # the verdicts
+bun run --filter @exponential_app/ui-bench ratchet .bench/*.json --write   # timings × headroom, counts exact`}</DocsCode>
           <p className="conf-total">
             Budgeted machines today: {budgetedMachines.length ? budgetedMachines.map((m) => <code key={m}>{m}</code>).reduce<ReactNode[]>((acc, el, i) => (i ? [...acc, `, `, el] : [el]), []) : `none yet`}.
           </p>

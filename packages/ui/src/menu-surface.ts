@@ -9,4 +9,4 @@ export {
   MENU_SHORTCUT_CLASS,
   MENU_VALUE_CLASS,
   MENU_CHEVRON_CLASS,
-} from "@exponential-at/ui-react/primitives"
+} from "@exponential_app/ui-react/primitives"

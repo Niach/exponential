@@ -1,5 +1,5 @@
 /* The playground's starter examples: one per input form it accepts. */
-import demo from "@exponential-at/ui/fixtures/demo-surface.json"
+import demo from "@exponential_app/ui/fixtures/demo-surface.json"
 import { CORE_CATALOG, createSurface, flatten, replayChunks, type Nested } from "./a2ui"
 
 const BASIC_CATALOG = `https://a2ui.org/specification/v0_9/basic_catalog.json`

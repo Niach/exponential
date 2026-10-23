@@ -20,8 +20,8 @@
     "react-dom": "^19.2.0"
   },
   "dependencies": {
-    "@exponential-at/ui": "workspace:*",
-    "@exponential-at/ui-react": "workspace:*",
+    "@exponential_app/ui": "workspace:*",
+    "@exponential_app/ui-react": "workspace:*",
     "@exp/db-schema": "workspace:*",
     "@exp/domain-contract": "workspace:*",
     "@exp/emoji": "workspace:*",

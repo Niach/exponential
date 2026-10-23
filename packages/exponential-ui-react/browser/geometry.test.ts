@@ -4,7 +4,7 @@
 // LayoutUnit is the only delta the spike ever saw).
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import geometry from "@exponential-at/ui/fixtures/layout-geometry.json"
+import geometry from "@exponential_app/ui/fixtures/layout-geometry.json"
 import { openPage, startHarness, type Harness } from "./support"
 
 type Frame = { id: string; x: number; y: number; w: number; h: number }

@@ -8,7 +8,7 @@
 
 import { createElement, StrictMode, useMemo } from "react"
 import { createRoot } from "react-dom/client"
-import type { NestedNode } from "@exponential-at/ui"
+import type { NestedNode } from "@exponential_app/ui"
 import { allCases, caseInput, fontFaceCss, parseCaseKey, MANIFEST_PATH, type CaseDump, type ConformanceManifest, type FontManifest } from "../../exponential-ui/conformance/dump"
 import { domDump } from "../../exponential-ui/conformance/dom"
 import { ExponentialSurface, useSurface } from "../src/index"

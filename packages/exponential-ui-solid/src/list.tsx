@@ -12,8 +12,8 @@
 // ACCESSOR (a keyed row keeps its subtree while its index moves).
 
 import { For, createEffect, createMemo, createSignal, on, onCleanup, untrack, type Accessor, type JSX } from "solid-js"
-import { itemExtents, itemOffsets, scrollOffsetForIndex, stickyHeader, virtualWindow, WINDOW_OVERSCAN, type ScrollAlign } from "@exponential-at/ui"
-import { listViewport as viewportOf, scrollParent, type ListAxis } from "@exponential-at/ui/web"
+import { itemExtents, itemOffsets, scrollOffsetForIndex, stickyHeader, virtualWindow, WINDOW_OVERSCAN, type ScrollAlign } from "@exponential_app/ui"
+import { listViewport as viewportOf, scrollParent, type ListAxis } from "@exponential_app/ui/web"
 import { bindAttrs } from "./bind-attrs"
 import { css } from "./style"
 

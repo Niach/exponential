@@ -1,4 +1,4 @@
-// VAPP-106: `@exponential-at/ui/prompt`, the model-facing prompt as its own
+// VAPP-106: `@exponential_app/ui/prompt`, the model-facing prompt as its own
 // entry. The root entry ships the catalog WITHOUT its descriptions (a browser
 // that renders never needs them); this entry attaches them
 // (`describeCatalog`) before the prompt reads them. The prompt itself is

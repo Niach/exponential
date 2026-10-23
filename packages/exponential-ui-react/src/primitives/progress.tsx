@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Progress as ProgressPrimitive } from "radix-ui"
-import { PROGRESS_CLASSES, progressIndicatorTransform } from "@exponential-at/ui/web/primitives"
+import { PROGRESS_CLASSES, progressIndicatorTransform } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 

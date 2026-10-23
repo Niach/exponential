@@ -6,7 +6,7 @@
 // the parity gate, so the pictures show the fonts the gate compares. Writes
 // to /tmp/feed131/primitive-shots/ by default, never into shots/.
 //
-//   bun run --filter @exponential-at/ui-solid shots:primitives [--out <dir>]
+//   bun run --filter @exponential_app/ui-solid shots:primitives [--out <dir>]
 
 import { chromium, type Browser, type Page } from "playwright"
 import { spawn, type ChildProcess } from "node:child_process"

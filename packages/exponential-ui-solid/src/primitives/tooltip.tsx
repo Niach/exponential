@@ -1,6 +1,6 @@
 import { Show, createContext, createSignal, onCleanup, onMount, splitProps, untrack, useContext, type Accessor, type ComponentProps, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { TOOLTIP_CLASSES } from "@exponential-at/ui/web/primitives"
+import { TOOLTIP_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { Popper, VisuallyHidden, createLayer, createPresence, graceArea, inPolygon, popperContentStyle, type Align, type OutsideEvent, type Point, type Side } from "../behaviors"
 import { DialogPortalPart, layerMountedThisTask, layerPointerEvents, noteLayerMount, callRef, composeHandlers, createId, createOpenState, mergeRefs, styleObject, type AsProps } from "../behaviors/dialog"

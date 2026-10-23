@@ -33,19 +33,19 @@ describe(`the root-entry split (VAPP-106)`, () => {
       `packages/exponential-ui/fixtures/toast-stack.json`,
     ]
     expect(caught).toHaveLength(SPLIT_RULES.length)
-    const problems = splitViolations(`@exponential-at/ui/web/primitives`, [...clean, ...caught])
+    const problems = splitViolations(`@exponential_app/ui/web/primitives`, [...clean, ...caught])
     expect(problems).toHaveLength(caught.length)
     for (const rule of SPLIT_RULES) expect(problems.some((p) => p.includes(rule.name)), rule.name).toBe(true)
   })
 
   test(`the prompt, schema and conformance entries may carry what they are for`, () => {
-    expect(splitViolations(`@exponential-at/ui/prompt`, [`packages/exponential-ui/generated/core.descriptions.json`])).toEqual([])
-    expect(splitViolations(`@exponential-at/ui/schema`, [`packages/exponential-ui/vendor/a2ui/v0_9/basic_catalog.json`])).toEqual([])
-    expect(splitViolations(`@exponential-at/ui/conformance`, [`packages/exponential-ui/fixtures/theme-recipes.json`])).toEqual([])
+    expect(splitViolations(`@exponential_app/ui/prompt`, [`packages/exponential-ui/generated/core.descriptions.json`])).toEqual([])
+    expect(splitViolations(`@exponential_app/ui/schema`, [`packages/exponential-ui/vendor/a2ui/v0_9/basic_catalog.json`])).toEqual([])
+    expect(splitViolations(`@exponential_app/ui/conformance`, [`packages/exponential-ui/fixtures/theme-recipes.json`])).toEqual([])
   })
 
   test(`the web layer, the Solid renderer and the element are renderer entries`, () => {
-    for (const e of [`@exponential-at/ui/web`, `@exponential-at/ui/web/primitives`, `@exponential-at/ui-solid/index`, `@exponential-at/ui-solid/primitives`, `@exponential-at/ui-element/index`, `@exponential-at/ui-element/define`, `@exponential-at/ui-element/standalone.js`]) expect(RENDERER_ENTRIES).toContain(e)
+    for (const e of [`@exponential_app/ui/web`, `@exponential_app/ui/web/primitives`, `@exponential_app/ui-solid/index`, `@exponential_app/ui-solid/primitives`, `@exponential_app/ui-element/index`, `@exponential_app/ui-element/define`, `@exponential_app/ui-element/standalone.js`]) expect(RENDERER_ENTRIES).toContain(e)
   })
 })
 

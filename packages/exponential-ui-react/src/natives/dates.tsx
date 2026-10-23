@@ -10,15 +10,15 @@
 
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { Popover as PopoverPrimitive } from "radix-ui"
-import { OVERLAY_OFFSET, OVERLAY_PADDING, weekStart } from "@exponential-at/ui"
-import type { Formatter } from "@exponential-at/ui"
+import { OVERLAY_OFFSET, OVERLAY_PADDING, weekStart } from "@exponential_app/ui"
+import type { Formatter } from "@exponential_app/ui"
 import { useSurfaceContext } from "../context"
 import { FieldErrors, useField } from "../form"
 import type { NativeProps } from "../node-view"
 import { useBoundState } from "./bound"
 import { useListNavigation } from "./listbox"
 import { bool, BuiltinIcon, num, str, useParts, TextPart, type PartFn } from "./shared"
-import { addDays, addMonths, calendarStop, isoDate, monthGrid, parseIsoDate, sameDay } from "@exponential-at/ui/web"
+import { addDays, addMonths, calendarStop, isoDate, monthGrid, parseIsoDate, sameDay } from "@exponential_app/ui/web"
 
 export { calendarStop, isoDate, monthGrid, parseIsoDate }
 

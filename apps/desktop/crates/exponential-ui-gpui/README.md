@@ -460,7 +460,7 @@ host.update(cx, |h, cx| h.connect(cx));
 pure suites through the core's shared cases) and writes a pass/fail report,
 `<repo>/.conformance/exponential-ui-gpui.json` (or
 `$EXPONENTIAL_UI_CONFORMANCE_REPORT`). Check it with `bun run --filter
-@exponential-at/ui conformance:check <abs path>`.
+@exponential_app/ui conformance:check <abs path>`.
 
 The painted suites go through a `SurfaceView` in a headless window:
 

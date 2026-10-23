@@ -16,7 +16,7 @@ import java.io.File
  * like [ListBenchTest]. Runs only under `EXPONENTIAL_UI_BENCH=1` (the
  * `exponential.ui.bench` system property; `exponential.ui.benchRepeat` =
  * the in-process repeats, default 3). Writes the fragment to
- * `build/bench-suite.json` (`bun run --filter @exponential-at/ui-bench
+ * `build/bench-suite.json` (`bun run --filter @exponential_app/ui-bench
  * bench:compose-jvm` picks it up) and prints it.
  */
 @RunWith(RobolectricTestRunner::class)

@@ -1,7 +1,7 @@
 // Round 1 (contract §3 Chart, a11y.json Chart): kinds bar, stackedBar,
 // line, area, pie, donut and sparkline. The width is the BOX's (measured,
 // no fixed viewBox, so text is never stretched); the numbers every painter
-// shares come from `@exponential-at/ui` (`chartExtent`, `niceTicks` for the
+// shares come from `@exponential_app/ui` (`chartExtent`, `niceTicks` for the
 // axis ticks and grid lines, `seriesColor` = the tone else
 // `$color.chart1..8` wrapping, `DONUT_HOLE`). Pie and donut draw one RING
 // per series (slices = categories). The legend shows with 2+ series or
@@ -13,12 +13,12 @@
 // mirror.
 
 import { useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
-import { chartExtent, chartSummaryParams, niceTicks, seriesColor, DONUT_HOLE } from "@exponential-at/ui"
+import { chartExtent, chartSummaryParams, niceTicks, seriesColor, DONUT_HOLE } from "@exponential_app/ui"
 import { useSurfaceContext } from "../context"
 import type { NativeProps } from "../node-view"
 import { mergeStyle } from "../node-view"
 import { useElementSize } from "../platform"
-import { tokenVar } from "@exponential-at/ui/web"
+import { tokenVar } from "@exponential_app/ui/web"
 import { arr, bool, num, str, useParts, objects } from "./shared"
 
 interface Series {

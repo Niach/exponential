@@ -4,9 +4,9 @@
    actions to the page. Client-only (loaded by the islands, never by the
    prerender). */
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react"
-import { ExponentialSurface, useSurface } from "@exponential-at/ui-react"
-import type { A2uiMessage, HostPlugin, IconMap, SurfaceActionEvent, ThemeInput } from "@exponential-at/ui-react"
-import type { ExtensionDef, ModeName, ReduceIssue } from "@exponential-at/ui"
+import { ExponentialSurface, useSurface } from "@exponential_app/ui-react"
+import type { A2uiMessage, HostPlugin, IconMap, SurfaceActionEvent, ThemeInput } from "@exponential_app/ui-react"
+import type { ExtensionDef, ModeName, ReduceIssue } from "@exponential_app/ui"
 import type { Message } from "./a2ui"
 
 export interface LiveSurfaceProps {

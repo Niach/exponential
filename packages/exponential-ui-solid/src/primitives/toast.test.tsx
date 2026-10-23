@@ -4,8 +4,8 @@
 
 import { fireEvent, render } from "@solidjs/testing-library"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import fixture from "@exponential-at/ui/fixtures/toast-stack.json"
-import { TOAST_CLASSES } from "@exponential-at/ui/web/primitives"
+import fixture from "@exponential_app/ui/fixtures/toast-stack.json"
+import { TOAST_CLASSES } from "@exponential_app/ui/web/primitives"
 import { Toaster, createToastStore, toast, toastStore } from "./toast"
 
 const cards = () => [...document.querySelectorAll<HTMLElement>(`[data-slot="toast"]`)]

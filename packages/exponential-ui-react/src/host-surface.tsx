@@ -1,10 +1,10 @@
 // VAPP-91: the React side of the host API. An `ExponentialHost` (from
-// `@exponential-at/ui`: transport, router, surfaces, sources, functions,
+// `@exponential_app/ui`: transport, router, surfaces, sources, functions,
 // policy) feeds `<HostSurface>`; the renderer's interactions go back through
 // `hostPlugin(host)`. Nothing here knows a transport or a backend.
 
 import { useCallback, useMemo, useSyncExternalStore } from "react"
-import type { ExponentialHost, SurfaceStore, TransportStatus } from "@exponential-at/ui"
+import type { ExponentialHost, SurfaceStore, TransportStatus } from "@exponential_app/ui"
 import type { HostPlugin } from "./host"
 import type { SurfaceState } from "./use-surface"
 import { ExponentialSurface, type ExponentialSurfaceProps } from "./surface"

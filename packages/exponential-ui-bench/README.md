@@ -1,4 +1,4 @@
-# @exponential-at/ui-bench
+# @exponential_app/ui-bench
 
 The Exponential UI benchmark suite (VAPP-105): one set of scenario fixtures,
 one runner per renderer, the results committed per machine, a ratchet in CI,
@@ -49,11 +49,11 @@ body or composition. Compare a renderer with itself across scenarios first.
 ## Run
 
 ```bash
-bun run --filter @exponential-at/ui-bench bench                       # every runner this machine can run
-bun run --filter @exponential-at/ui-bench bench -- --renderers react,core --scenario list-100k --repeat 5
-bun run --filter @exponential-at/ui-bench bench:react                 # one runner (also runners/<name>.ts directly)
-bun run --filter @exponential-at/ui-bench machine                     # the id results are filed under
-bun run --filter @exponential-at/ui-bench ratchet .bench/*.json       # the verdicts; --write records budgets
+bun run --filter @exponential_app/ui-bench bench                       # every runner this machine can run
+bun run --filter @exponential_app/ui-bench bench -- --renderers react,core --scenario list-100k --repeat 5
+bun run --filter @exponential_app/ui-bench bench:react                 # one runner (also runners/<name>.ts directly)
+bun run --filter @exponential_app/ui-bench machine                     # the id results are filed under
+bun run --filter @exponential_app/ui-bench ratchet .bench/*.json       # the verdicts; --write records budgets
 ```
 
 `bench` picks the runners: React, Solid, the web component and the core everywhere, gpui on Linux

@@ -14,7 +14,7 @@
   "properties": {
     "renderer": {
       "type": "string",
-      "description": "The renderer's package name, e.g. @exponential-at/ui-react, exponential-ui-gpui, ExponentialUI, at.exponential:ui-compose."
+      "description": "The renderer's package name, e.g. @exponential_app/ui-react, exponential-ui-gpui, ExponentialUI, at.exponential:ui-compose."
     },
     "platform": {
       "type": "string",

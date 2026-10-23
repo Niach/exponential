@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Popover as PopoverPrimitive } from "radix-ui"
-import { POPOVER_CLASSES } from "@exponential-at/ui/web/primitives"
+import { POPOVER_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 

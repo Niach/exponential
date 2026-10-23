@@ -1,5 +1,5 @@
 import { splitProps, type ComponentProps, type JSX } from "solid-js"
-import { LABEL_CLASSES } from "@exponential-at/ui/web/primitives"
+import { LABEL_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 

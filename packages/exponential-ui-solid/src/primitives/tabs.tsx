@@ -1,10 +1,10 @@
 import { Show, createContext, createSignal, createUniqueId, onCleanup, onMount, splitProps, untrack, useContext, type Accessor, type ComponentProps, type JSX } from "solid-js"
-import { TABS_CLASSES } from "@exponential-at/ui/web/primitives"
+import { TABS_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { createPresence, rovingFocusFirst, focusIntent, wrapArray } from "../behaviors"
 import { cn } from "./cn"
 
-export { SEGMENTED_ITEM, SEGMENTED_LIST, SEGMENTED_ROW, SEGMENTED_ROW_COMPACT, SEGMENTED_TAB } from "@exponential-at/ui/web/primitives"
+export { SEGMENTED_ITEM, SEGMENTED_LIST, SEGMENTED_ROW, SEGMENTED_ROW_COMPACT, SEGMENTED_TAB } from "@exponential_app/ui/web/primitives"
 
 // Radix Tabs on plain DOM: the root (`dir`, `data-orientation`), the list =
 // a RovingFocusGroup (its own tab stop until a trigger holds it, entry focus
