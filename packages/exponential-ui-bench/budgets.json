@@ -22,8 +22,8 @@
           "scrollToIndexMs": 17.4,
           "renderedItems": 30,
           "measureCallsPerStep": 78.04,
-          "ffiCallsPerStep": 143.02,
-          "ffiBytesPerStep": 49993.64,
+          "ffiCallsPerStep": 82.04,
+          "ffiBytesPerStep": 47674.64,
           "memoryMb": 169.3
         },
         "streaming": {
@@ -31,7 +31,7 @@
           "p95ApplyMs": 35.4,
           "totalMs": 2570.1,
           "nodes": 607,
-          "ffiBytesTotal": 5212191
+          "ffiBytesTotal": 5336991
         },
         "theme-switch": {
           "themeSwitchMs": 89.3,
@@ -81,8 +81,8 @@
           "scrollToIndexMs": 6.1,
           "renderedItems": 30,
           "measureCallsPerStep": 78.04,
-          "ffiCallsPerStep": 143.02,
-          "ffiBytesPerStep": 49993.64,
+          "ffiCallsPerStep": 82.04,
+          "ffiBytesPerStep": 47674.64,
           "memoryMb": 148.5
         },
         "streaming": {
@@ -90,7 +90,7 @@
           "p95ApplyMs": 7.1,
           "totalMs": 561.2,
           "nodes": 607,
-          "ffiBytesTotal": 5212191
+          "ffiBytesTotal": 5336991
         },
         "theme-switch": {
           "themeSwitchMs": 20.8,

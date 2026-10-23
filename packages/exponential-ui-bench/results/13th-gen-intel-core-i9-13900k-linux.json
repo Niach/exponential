@@ -1,0 +1,142 @@
+{
+  "$comment": "Exponential UI benchmark results (VAPP-105) on ONE machine, written by `bun run --filter @exponential-at/ui-bench bench`: one run per renderer, every scenario's metrics (scenarios/manifest.json says what each is; ms unless named otherwise). Commit a rerun whole, never edit a number.",
+  "machine": {
+    "id": "13th-gen-intel-core-i9-13900k-linux",
+    "cpu": "13th Gen Intel(R) Core(TM) i9-13900K",
+    "cores": 32,
+    "memoryGb": 63,
+    "os": "linux 6.17.0-42-generic"
+  },
+  "runs": {
+    "compose-android": {
+      "platform": "android",
+      "device": "Google sdk_gphone64_x86_64 (API 34) emulator",
+      "date": "2026-10-23T09:26:08.619637Z",
+      "scenarios": {
+        "cold-start": {
+          "coldStartMs": 656.601,
+          "firstPaintMs": 144.582,
+          "nodes": 604,
+          "memoryMb": 45.137
+        },
+        "card-grid": {
+          "warmPassMs": 0.586,
+          "upcallsPerPass": 1,
+          "measureCallsPerPass": 29
+        },
+        "list-100k": {
+          "firstPaintMs": 1879.462,
+          "scrollStepMs": 11.377,
+          "scrollToIndexMs": 16.521,
+          "renderedItems": 30,
+          "measureCallsPerStep": 78.04,
+          "ffiCallsPerStep": 82.04,
+          "ffiBytesPerStep": 47674.64,
+          "memoryMb": 112.224
+        },
+        "streaming": {
+          "applyMs": 4.813,
+          "p95ApplyMs": 9.44,
+          "totalMs": 962.604,
+          "nodes": 607,
+          "ffiBytesTotal": 5336991
+        },
+        "theme-switch": {
+          "themeSwitchMs": 58.18,
+          "modeSwitchMs": 7.536,
+          "restyled": 609
+        },
+        "resize": {
+          "resizeMs": 14.986,
+          "upcallsPerResize": 1
+        },
+        "deep-nesting": {
+          "firstPaintMs": 14.06,
+          "warmPassMs": 0.385,
+          "depth": 48
+        },
+        "template-10k": {
+          "firstPaintMs": 2396.067,
+          "rebindMs": 2296.64,
+          "nodes": 10001
+        },
+        "overlay": {
+          "openMs": 1.181,
+          "closeMs": 0.902
+        },
+        "table-1k": {
+          "firstPaintMs": 77.88,
+          "scrollStepMs": 19.743,
+          "sortMs": 27.826,
+          "renderedRows": 30
+        }
+      },
+      "commit": "f16ffee67"
+    },
+    "compose-jvm": {
+      "platform": "linux",
+      "device": "Robolectric API 34, amd64, 32 cpus",
+      "date": "2026-10-23T09:19:49.437961898Z",
+      "scenarios": {
+        "cold-start": {
+          "coldStartMs": 649.261,
+          "firstPaintMs": 25.474,
+          "nodes": 604,
+          "memoryMb": 84.342
+        },
+        "card-grid": {
+          "warmPassMs": 0.263,
+          "upcallsPerPass": 1,
+          "measureCallsPerPass": 29
+        },
+        "list-100k": {
+          "firstPaintMs": 110.771,
+          "scrollStepMs": 2.394,
+          "scrollToIndexMs": 2.739,
+          "renderedItems": 30,
+          "measureCallsPerStep": 78.04,
+          "ffiCallsPerStep": 82.04,
+          "ffiBytesPerStep": 47674.64,
+          "memoryMb": 82.217
+        },
+        "streaming": {
+          "applyMs": 1.845,
+          "p95ApplyMs": 4.084,
+          "totalMs": 369.089,
+          "nodes": 607,
+          "ffiBytesTotal": 5336991
+        },
+        "theme-switch": {
+          "themeSwitchMs": 12.958,
+          "modeSwitchMs": 3.195,
+          "restyled": 609
+        },
+        "resize": {
+          "resizeMs": 4.601,
+          "upcallsPerResize": 1
+        },
+        "deep-nesting": {
+          "firstPaintMs": 1.929,
+          "warmPassMs": 0.097,
+          "depth": 48
+        },
+        "template-10k": {
+          "firstPaintMs": 232.622,
+          "rebindMs": 239.165,
+          "nodes": 10001
+        },
+        "overlay": {
+          "openMs": 0.292,
+          "closeMs": 0.126
+        },
+        "table-1k": {
+          "firstPaintMs": 11.267,
+          "scrollStepMs": 4.83,
+          "sortMs": 8.003,
+          "renderedRows": 30
+        }
+      },
+      "commit": "f16ffee67"
+    }
+  }
+}
