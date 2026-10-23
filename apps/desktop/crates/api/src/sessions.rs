@@ -83,6 +83,11 @@ pub struct SendInput {
     /// session with it (created on first use; agents never end).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
+    /// VAPP-110: a message to an APP = into the caller's own editor session
+    /// with it (created on first use on `device_id`; an ended one
+    /// continues).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_id: Option<String>,
     /// EXP-1323: a `/btw` aside child (with `parent_id`; `text` = the
     /// question): answered without adding to the parent's context.
     #[serde(skip_serializing_if = "Option::is_none")]

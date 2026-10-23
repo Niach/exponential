@@ -686,6 +686,10 @@ pub struct SessionRow {
     /// runs; `None` = a thread.
     #[serde(default)]
     pub agent_id: Option<String>,
+    /// VAPP-110: the APP whose editor session this root is (`apps` row; one
+    /// root per app and member).
+    #[serde(default)]
+    pub app_id: Option<String>,
     /// The person who STARTED it (not necessarily the host's owner).
     #[serde(default)]
     pub user_id: Option<String>,
@@ -815,6 +819,12 @@ impl SessionRow {
     /// shim).
     pub fn is_agent(&self) -> bool {
         self.session_kind() == crate::contract::SESSION_KIND_AGENT
+    }
+
+    /// VAPP-110: a member's app EDITOR session (`app_id` set): no thread,
+    /// like an agent's conversation (`partitionThreads` skips both).
+    pub fn is_app_editor(&self) -> bool {
+        self.app_id.as_deref().is_some_and(|id| !id.is_empty())
     }
 
     /// EXP-1341: a persistent session (an agent's conversation): it idles
@@ -1164,6 +1174,59 @@ pub struct PromptRow {
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
+}
+
+/// VAPP-110: `apps` shape row: a team's declarative Exponential UI app. The
+/// HEAD version's `package` rides along (the editor's live preview repaints
+/// from it); `deleted_at` is the trash mirror (clients hide trashed rows).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AppRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub package: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub head_version: Option<i64>,
+    #[serde(default)]
+    pub created_by: Option<String>,
+    #[serde(default)]
+    pub deleted_at: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// VAPP-110: `app_versions` shape row: one published version, package-less
+/// (an old version's package loads on demand, tRPC `apps.get {version}`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AppVersionRow {
+    pub id: String,
+    #[serde(default)]
+    pub app_id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub number: Option<i64>,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub created_by: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
 }
 
 /// `issue_statuses` shape row (EXP-314) — the 16th shape: one team's status

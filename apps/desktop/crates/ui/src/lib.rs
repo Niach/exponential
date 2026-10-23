@@ -68,9 +68,12 @@ mod entity_chip;
 mod entity_preview;
 // VAPP-90: the Exponential UI kitchen-sink dev screen.
 mod exponential_ui_screen;
-// VAPP-91: the IDE as an Exponential UI host + the Devices template screen.
-mod exponential_ui_devices;
+// VAPP-91: the IDE as an Exponential UI host.
 mod exponential_ui_host;
+// VAPP-110: the Apps page, one app's editor, the New app / Rename form.
+mod app_form_dialog;
+mod app_screen;
+mod apps_view;
 mod emoji_picker;
 pub mod diff;
 mod diff_pane;

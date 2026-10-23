@@ -159,8 +159,13 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     /// painter asks the same question).
     let mediaAllowed: (String) -> Bool
 
-    init(theme: ThemeHandle?, mode: Mode, extensions: ExtensionRegistry, kinds: [String: String], generation: UInt64, mediaAllowed: @escaping (String) -> Bool = { _ in true }) {
+    /// The model's answers from earlier passes (nil: measure everything).
+    let memo: MeasureMemo?
+
+    init(theme: ThemeHandle?, mode: Mode, extensions: ExtensionRegistry, kinds: [String: String], generation: UInt64, memo: MeasureMemo? = nil, mediaAllowed: @escaping (String) -> Bool = { _ in true }) {
         self.mediaAllowed = mediaAllowed
+        self.memo = memo
+        memo?.stamp(theme: theme, mode: mode, generation: generation)
         self.theme = theme
         self.mode = mode
         self.extensions = extensions
@@ -174,19 +179,31 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
 
     func measureIntrinsics(leaves: [FfiLeaf]) -> [FfiIntrinsics] {
         leaves.map { raw in
+            let key = MeasureMemo.key(raw)
+            if let key, let hit = memo?.intrinsics[key] { return hit }
             let leaf = LeafRequest(raw, defaultFamily: theme?.sansFamily)
             let maxC = answer(leaf, wrap: nil)
             let minC = answer(leaf, wrap: 0)
-            return FfiIntrinsics(minContentWidth: Float(min(minC.width, maxC.width)), maxContentWidth: Float(maxC.width), heightAtMaxContent: Float(maxC.height), baseline: maxC.baseline.map { Float($0) })
+            let out = FfiIntrinsics(minContentWidth: Float(min(minC.width, maxC.width)), maxContentWidth: Float(maxC.width), heightAtMaxContent: Float(maxC.height), baseline: maxC.baseline.map { Float($0) })
+            if let key { memo?.intrinsics[key] = out }
+            return out
         }
     }
 
     func measureHeights(leaves: [FfiLeaf], requests: [FfiHeightRequest]) -> [Float] {
-        var byIndex: [UInt32: LeafRequest] = [:]
-        for l in leaves { byIndex[l.index] = LeafRequest(l, defaultFamily: theme?.sansFamily) }
+        var raws: [UInt32: FfiLeaf] = [:]
+        for l in leaves { raws[l.index] = l }
+        // A leaf's request is built once, on the first miss.
+        var requestsByIndex: [UInt32: LeafRequest] = [:]
         return requests.map { r in
-            guard let leaf = byIndex[r.index] else { return 0 }
-            return Float(answer(leaf, wrap: CGFloat(r.width)).height)
+            guard let raw = raws[r.index] else { return 0 }
+            let key = MeasureMemo.key(raw).map { MeasureMemo.HeightKey(leaf: $0, width: r.width) }
+            if let key, let hit = memo?.heights[key] { return hit }
+            let leaf = requestsByIndex[r.index] ?? LeafRequest(raw, defaultFamily: theme?.sansFamily)
+            requestsByIndex[r.index] = leaf
+            let h = Float(answer(leaf, wrap: CGFloat(r.width)).height)
+            if let key { memo?.heights[key] = h }
+            return h
         }
     }
 
@@ -671,4 +688,47 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     static let treeGuideColumn: CGFloat = 14
     static let treeGuideRadius: CGFloat = 3
     static let treeGuideBridge: CGFloat = 1
+}
+
+/// VAPP-142: the measurer's answers kept across passes, per model. A
+/// leaf's answer is a pure function of its record (minus the slot and the
+/// id), the theme, the mode, the measure generation and the installed
+/// fonts: a re-windowed list row, a rebound template item with a text
+/// seen before, a Table's repeated badge pay a dictionary lookup instead
+/// of TextKit. Extensions (their painter decides) and Markdown (its
+/// images pass the host's media policy) are never memoised. Cleared when
+/// any input of the answer changes, and when it outgrows `limit`.
+final class MeasureMemo: @unchecked Sendable {
+    struct HeightKey: Hashable {
+        var leaf: FfiLeaf
+        var width: Float
+    }
+
+    var intrinsics: [FfiLeaf: FfiIntrinsics] = [:]
+    var heights: [HeightKey: Float] = [:]
+    private var inputs: (theme: ObjectIdentifier?, mode: Mode, generation: UInt64, fonts: UInt64)?
+    /// Entries per table before it starts over (a 100k list keeps ~2 per row it showed).
+    static let limit = 32_768
+
+    /// The record as the memo keys it: slot and id dropped (nil = never memoised).
+    static func key(_ leaf: FfiLeaf) -> FfiLeaf? {
+        if leaf.component == "Extension" || leaf.component == "Markdown" { return nil }
+        var k = leaf
+        k.index = 0
+        k.id = ""
+        return k
+    }
+
+    /// The pass's inputs: a change empties the memo.
+    func stamp(theme: ThemeHandle?, mode: Mode, generation: UInt64) {
+        let now = (theme: theme.map(ObjectIdentifier.init), mode: mode, generation: generation, fonts: TextFonts.epoch)
+        if let i = inputs, i.theme == now.theme, i.mode == now.mode, i.generation == now.generation, i.fonts == now.fonts {
+            if intrinsics.count > Self.limit { intrinsics.removeAll(keepingCapacity: true) }
+            if heights.count > Self.limit { heights.removeAll(keepingCapacity: true) }
+            return
+        }
+        inputs = now
+        intrinsics.removeAll()
+        heights.removeAll()
+    }
 }

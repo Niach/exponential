@@ -211,6 +211,9 @@ pub struct Settings {
     /// `changelog-seen.ts` per-device key). Per-DEVICE like every other key
     /// here, never synced. `None` = never seen anything.
     pub changelog_seen_id: Option<String>,
+    /// VAPP-129: the app editor's layout (`floating` | `docked`, apps.json
+    /// `layout`); per-DEVICE, never synced. `None` = the fixture's default.
+    pub app_editor_layout: Option<String>,
     /// EXP-551: recently picked BASE emoji unicodes, most recent first (the
     /// picker's "Recent" section). Capped at 24 by the ui writer. Per-DEVICE
     /// like the rail state, never synced. (The EXP-551 `emojiSkinTone` key is
@@ -303,6 +306,7 @@ impl Default for Settings {
             computer_use_model: DEFAULT_COMPUTER_USE_MODEL.to_string(),
             terminal_shell: None,
             changelog_seen_id: None,
+            app_editor_layout: None,
             tools_setup_seen: false,
             emoji_recents: Vec::new(),
             os_notifications: true,
@@ -984,6 +988,7 @@ mod tests {
             computer_use_model: "sonnet".to_string(),
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
             changelog_seen_id: Some("2026-09-relations-and-design-refresh".to_string()),
+            app_editor_layout: Some("docked".to_string()),
             tools_setup_seen: true,
             emoji_recents: vec!["🎉".to_string()],
             os_notifications: true,

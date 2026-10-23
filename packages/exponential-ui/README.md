@@ -49,7 +49,7 @@ nothing from the Exponential app.
 | `docs/round-2-contract.md` | round 2: Resizable, sticky, backdrop blur, animations, the Formatter, sections + scrollToIndex, the 53 gpui-vs-web decisions; a checklist per renderer |
 | `docs/round-3-contract.md` | round 3 (VAPP-102): ONE Row / Section / Chip / Segmented / Menu, the core-computed tree guides (`src/tree-guides.ts`, `fixtures/tree-guides.json`), the 16 names round 4 removed, the lite prune |
 | `src/host/` | the host API reference: router, decoders, policy, sources, packages, the `ExponentialHost` runtime + transports |
-| `src/connector/` | the Exponential connector (MCP OAuth + `exp:` sources over MCP) and `createVappHost` |
+| `src/connector/` | the Exponential connector (MCP OAuth + `exp:` sources over MCP) and `createAppHost` |
 | `conformance/` | the conformance suite: `manifest.json` (generated), `report.schema.json`, the runner guide; round 1's real-font harness beside it (`run.ts`, `dump.ts`, `compare.ts`, `fonts.json`); the shared web runner (`browser-suites.ts`) and the web-parity check (`parity.ts`: Solid and the web component against React) |
 | `release/` | the npm build + staging scripts and the release runbook (all registries) |
 | `vendor/a2ui/` | A2UI v0.9 schemas, byte-pinned (see its README) |
@@ -77,7 +77,7 @@ style?, on?, children: [UiNode], slots?, template?, recipe?}`.
 ## Themes (VAPP-92)
 
 A theme is **data, never code**: one JSON file (`catalog/theme.schema.json`)
-every renderer loads at runtime, safe to fetch from a URL or a vapp package.
+every renderer loads at runtime, safe to fetch from a URL or a app package.
 Three levels of customisation, cheapest first: **tokens** (colours per mode,
 radius, spacing, type, control heights, shadows, border widths, motion, the press / popover-enter `scale`),
 **recipes** (per component part × `when` selector a small style object), and a
@@ -181,7 +181,7 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
   around it when that is a dismissible Dialog/Drawer); `themeOrDefault` (never throws: the default theme + the issues); a
   theme must name `$schema` = `THEME_SCHEMA_ID`; an action's function is
   its `functionCall`.
-- `validateStyle` / `create` / `props` — the VAPP-4 `vapp-css` over the whitelist.
+- `validateStyle` / `create` / `props` — the VAPP-4 `app-css` over the whitelist.
 - `defineExtension(def)` — an extension catalog: own id, `extends` the core,
   components (+ macro templates), no core name shadowed.
 - `catalogPrompt({extensions?, lite?, terse?})` — the compact system prompt.
@@ -262,16 +262,16 @@ painters through the facade); `catalog/host.json` is the contract and
   `<HostSurface host surfaceId>` (the surface's theme wins over `theme`).
   Stream transports end on a clean EOF (`resumable` or an SSE `retry:`
   reconnects) and reconnect after errors.
-- **Declarative vapps** (VAPP-82): a package `{id, name, version, catalogId,
+- **Declarative apps** (VAPP-82): a package `{id, name, version, catalogId,
   templates: {<id>: {components, data?, bindings?}}, functions?, theme?,
-  icon?}` (`validatePackage`); `createVappHost({package, …})` runs one in any
+  icon?}` (`validatePackage`); `createAppHost({package, …})` runs one in any
   host. Against an Exponential instance, `ExponentialConnector` does the MCP
   OAuth grant (discovery, dynamic registration, PKCE S256, consent;
   `authorizeUrl()` returns `{url, verifier, state, clientId}`: keep all
   three for the callback, `exchange(code, verifier, clientId)`, so a
   connector rebuilt after the redirect never registers a second client) and
   serves `exp:issues|boards|teams|members` over the instance's MCP tools
-  (`sources()`, polled) plus `exponential.mcp` (`functions()`). Hosted vapps
+  (`sources()`, polled) plus `exponential.mcp` (`functions()`). Hosted apps
   (the peer-link transport, VAPP-10) embed through the same `Transport`
   interface.
 

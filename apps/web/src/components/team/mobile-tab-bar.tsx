@@ -65,13 +65,19 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/agents/$agentId`,
     fuzzy: true,
   })
+  // VAPP-110: the app editor owns the bottom edge (its composer).
+  const onAppEditor = matchRoute({
+    to: `/t/$teamSlug/apps/$appSlug`,
+    fuzzy: true,
+  })
   // The Agent page (HOME) and the Threads list keep the standard chrome.
   return (
     !onIssueDetail &&
     !onSessionDetail &&
     !onDraftPage &&
     !onThreadDetail &&
-    !onAgentChannel
+    !onAgentChannel &&
+    !onAppEditor
   )
 }
 

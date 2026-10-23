@@ -912,6 +912,7 @@ pub(crate) fn plan_sheet(
     }
     crate::dock::SheetContent {
         meta: question.map(|_| SharedString::from(model::copy().step_label(page, count))),
+        action: None,
         body: crate::dock::sheet_body(SharedString::from(format!("{}-{message_id}", domain::dock::DOCK.test_ids.sheet_body)), body),
         footer: Some(crate::dock::sheet_footer(footer)),
     }
@@ -1248,6 +1249,7 @@ pub(crate) fn question_sheet(
     };
     crate::dock::SheetContent {
         meta: None,
+        action: None,
         body: crate::dock::sheet_body(SharedString::from(format!("{}-{message_id}", domain::dock::DOCK.test_ids.sheet_body)), body),
         footer: Some(crate::dock::sheet_footer(footer)),
     }

@@ -16,6 +16,16 @@ enum ThreadPage: Hashable {
     case guide
 }
 
+/// VAPP-110: what an app EDITOR puts into the thread screen hosting its
+/// chat (`ThreadScreen.editor`): the header title (glyph + name + version
+/// pill), the band under it (the Chat | Preview | Versions control) and the
+/// pane covering the Conversation (nil = the Chat tab).
+struct ThreadEditorSlot {
+    let title: AnyView
+    let band: AnyView
+    let pane: AnyView?
+}
+
 /// EXP-1295: everything ONE root's screen reads, in one snapshot — the root
 /// (a thread, or a team agent's channel), its tree, the sessions its cards
 /// name outside the tree (the threads an agent started), its issues, its
@@ -48,16 +58,23 @@ struct ThreadRows: Sendable {
     /// thread, or a definition not synced yet (the root's mirrored legacy
     /// facets stand in).
     var agent: AgentDefinitionEntity?
+    /// VAPP-110: an app EDITOR session's app (`apps`, the root's `app_id`):
+    /// its chat is a CHANNEL like an agent's (the app's glyph + name on the
+    /// editor's rows); nil = not an editor session, or not synced yet.
+    var app: AppEntity?
 
-    var isAgent: Bool { root.isAgent }
+    /// A CHANNEL root: an agent's conversation, or (VAPP-110) an app's
+    /// editor session — the Conversation alone, Slack-like rows.
+    var isAgent: Bool { root.isAgent || root.appId != nil }
 
-    /// The agent's name / icon / colour: the definition's, else the root's
-    /// mirrored legacy facets (`kind = agent` shim), else the defaults.
-    var agentName: String { agent?.name ?? root.name ?? "" }
+    /// The channel's name / icon / colour: the app's (an editor session),
+    /// the agent definition's, else the root's mirrored legacy facets
+    /// (`kind = agent` shim), else the defaults.
+    var agentName: String { app?.name ?? agent?.name ?? root.name ?? "" }
     var agentIcon: String {
-        BoardTypeDisplay.iconName(for: agent?.icon ?? root.icon) ?? SessionTree.ListCopy.agentDefaultIcon
+        BoardTypeDisplay.iconName(for: app?.icon ?? agent?.icon ?? root.icon) ?? SessionTree.ListCopy.agentDefaultIcon
     }
-    var agentColor: String { agent?.color ?? root.color ?? SessionTree.ListCopy.agentDefaultColor }
+    var agentColor: String { app?.color ?? agent?.color ?? root.color ?? SessionTree.ListCopy.agentDefaultColor }
 
     func session(id: String) -> SessionEntity? {
         sessions.first { $0.id == id }
@@ -131,6 +148,8 @@ struct ThreadRows: Sendable {
     /// (web `agents/$agentId`, Android `ThreadUiCopy.messageAgent`), else the
     /// thread's own.
     func composerPlaceholder(_ view: SessionThreadView) -> String {
+        // VAPP-110: an app's editor chat (`copy.composerPlaceholder`).
+        if root.appId != nil { return Apps.Copy.composerPlaceholder }
         guard isAgent, !agentName.isEmpty else { return view.composer.placeholder }
         return "Message \(agentName)"
     }
@@ -239,6 +258,7 @@ struct ThreadRows: Sendable {
             issueParents: try issueParents(db: db, issueIds: issues.map(\.id)),
             rootDevice: try DeviceEntity.filter(Column("device_id") == root.deviceId).fetchOne(db),
             agent: try root.agentId.flatMap { try AgentDefinitionEntity.fetchOne(db, key: $0) },
+            app: try root.appId.flatMap { try AppEntity.fetchOne(db, key: $0) },
             stackIssueIds: stackIssueIds,
             stackIssues: stackIssues
         )

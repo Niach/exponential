@@ -8,12 +8,12 @@
 // read the repo, so the scenario files are copied into the test target's
 // Resources/bench/ for the run and removed after (gitignored). Device runs
 // need a signing team: `EXPONENTIAL_UI_TEAM=<id>` (`-allowProvisioningUpdates`).
-//   bun run runners/swift-ios.ts [--repeat <n>] [--device [<udid>]] [--simulator <udid>]
+//   bun run runners/swift-ios.ts [--repeat <n>] [--scenario <id>]… [--device [<udid>]] [--simulator <udid>]
 import { spawnSync } from "node:child_process"
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { BENCH_ROOT, fragmentPath } from "../src/results"
-import { SWIFT_PKG, file, fragmentFrom, repeatArg } from "./swift"
+import { SWIFT_PKG, file, fragmentFrom, repeatArg, scenarioArg } from "./swift"
 
 type Sim = { udid: string; name: string; state: string; runtime: string }
 
@@ -72,7 +72,7 @@ if (import.meta.main) {
   rmSync(out, { force: true })
   const derived = join(process.env.TMPDIR ?? `/tmp`, `exponential-ui-bench-dd`)
   const copied = onDevice ? copyScenarios() : []
-  const env = { ...process.env, TEST_RUNNER_EXPONENTIAL_UI_BENCH: `1`, TEST_RUNNER_EXPONENTIAL_UI_BENCH_REPEAT: repeatArg(args), TEST_RUNNER_EXPONENTIAL_UI_BENCH_OUT: out }
+  const env = { ...process.env, TEST_RUNNER_EXPONENTIAL_UI_BENCH: `1`, TEST_RUNNER_EXPONENTIAL_UI_BENCH_REPEAT: repeatArg(args), TEST_RUNNER_EXPONENTIAL_UI_BENCH_OUT: out, TEST_RUNNER_EXPONENTIAL_UI_BENCH_SCENARIO: scenarioArg(args) }
   const xcargs = [`test`, `-scheme`, `ExponentialUI-Package`, `-destination`, destination, `-only-testing:ExponentialUITests/BenchSuiteTests`, `-configuration`, `Release`, `ENABLE_TESTABILITY=YES`, `-derivedDataPath`, derived]
   if (onDevice) {
     xcargs.push(`-allowProvisioningUpdates`)

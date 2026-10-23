@@ -10,6 +10,8 @@ import {
   selectSyncedAgentSchema,
   selectEventSchema,
   selectSyncedPromptSchema,
+  selectAppSchema,
+  selectSyncedAppVersionSchema,
   selectSyncedConversationSchema,
   selectSyncedSessionSchema,
   selectSyncedSessionIssueSchema,
@@ -173,6 +175,26 @@ export const promptCollection = createCollection(
     id: `prompts`,
     shapeOptions: shapeOptions(`/api/shapes/prompts`),
     schema: selectSyncedPromptSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// VAPP-110: the team's apps (the head package rides along: the editor's live
+// preview) and their versions (metadata; a package loads via tRPC
+// `apps.get {version}`).
+export const appCollection = createCollection(
+  electricCollectionOptions({
+    id: `apps`,
+    shapeOptions: shapeOptions(`/api/shapes/apps`),
+    schema: selectAppSchema,
+    getKey: (item) => item.id,
+  })
+)
+export const appVersionCollection = createCollection(
+  electricCollectionOptions({
+    id: `app_versions`,
+    shapeOptions: shapeOptions(`/api/shapes/app-versions`),
+    schema: selectSyncedAppVersionSchema,
     getKey: (item) => item.id,
   })
 )

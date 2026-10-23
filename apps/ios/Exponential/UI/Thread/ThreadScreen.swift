@@ -46,6 +46,12 @@ import SwiftUI
 struct ThreadScreen: View {
     let rootId: String
     let initialPage: ThreadPage
+    /// VAPP-110: an app EDITOR hosting this channel as its Chat tab — its
+    /// title replaces the header's, its band (the segmented control) the
+    /// strip, and a non-nil `pane` (Preview, Versions) covers the
+    /// Conversation, which stays mounted under it (its draft and scroll
+    /// survive a tab switch).
+    var editor: ThreadEditorSlot?
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -114,9 +120,10 @@ struct ThreadScreen: View {
     /// EXP-1347: the innermost outlet for issue pills inside this thread.
     @State private var issueOutlet = ThreadIssueOutlet()
 
-    init(rootId: String, initialPage: ThreadPage = .conversation) {
+    init(rootId: String, initialPage: ThreadPage = .conversation, editor: ThreadEditorSlot? = nil) {
         self.rootId = rootId
         self.initialPage = initialPage
+        self.editor = editor
         // An issue or session tab may not be in the strip yet: hold it
         // (`pendingPage`).
         if initialPage != .conversation, initialPage != .guide {
@@ -170,11 +177,19 @@ struct ThreadScreen: View {
         ZStack {
             AppBackground()
             if let model, let rows = model.rows, let view = model.view {
-                FacePager(
-                    pages: pages(rows, view),
-                    selection: Binding(get: { page }, set: { switchPage($0) })
-                ) { page in
-                    pageView(page, rows: rows, view: view)
+                ZStack {
+                    FacePager(
+                        pages: pages(rows, view),
+                        selection: Binding(get: { page }, set: { switchPage($0) })
+                    ) { page in
+                        pageView(page, rows: rows, view: view)
+                    }
+                    .opacity(editor?.pane == nil ? 1 : 0)
+                    .allowsHitTesting(editor?.pane == nil)
+                    .accessibilityHidden(editor?.pane != nil)
+                    if let pane = editor?.pane {
+                        pane
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .environment(\.threadIssueOutlet, issueOutlet)
@@ -182,7 +197,11 @@ struct ThreadScreen: View {
                 // every tab — the nav row (‹ · title + lock · …) over the
                 // strip, content scrolling under its scrim + edge fade.
                 .workHeaderBand {
-                    header(rows: rows, view: view)
+                    if let editor {
+                        editor.band
+                    } else {
+                        header(rows: rows, view: view)
+                    }
                 }
             } else if model?.missing == true {
                 EmptyState(.threadNotFound)
@@ -203,7 +222,9 @@ struct ThreadScreen: View {
         .toolbar {
             // EXP-1316: the title, ONE line, not tappable, the lock beside it.
             ToolbarItem(placement: .principal) {
-                if let rows, let view = model?.view {
+                if let editor {
+                    editor.title
+                } else if let rows, let view = model?.view {
                     if rows.isAgent {
                         // NEW-2: the agent DEFINITION's icon (coloured) + name.
                         ThreadHeaderTitle(

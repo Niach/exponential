@@ -36,6 +36,8 @@ export interface TreeSession {
   sortOrder: number
   /** NEW-2: the agent this root is a conversation of (absent = null). */
   agentId?: string | null
+  /** VAPP-110: the app this root is a member's editor session of (absent = null). */
+  appId?: string | null
   startedAt: string | null
   endedAt: string | null
   createdAt: string
@@ -1057,8 +1059,10 @@ export function partitionThreads(input: {
   const roots = input.sessions.filter(
     (s) =>
       s.parentId === null &&
-      // NEW-2: an agent's conversation (a root with `agentId`) is no thread.
+      // NEW-2: an agent's conversation (a root with `agentId`) is no thread;
+      // VAPP-110: neither is an app's editor session (`appId`).
       !s.agentId &&
+      !s.appId &&
       (input.teamId === null || s.teamId === input.teamId)
   )
   const byRoot = new Map<string, TreeSession[]>()

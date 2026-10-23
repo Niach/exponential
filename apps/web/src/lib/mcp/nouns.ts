@@ -7,7 +7,7 @@ import type { McpUser } from "./server"
 import type { McpAccess } from "./scope"
 import { err } from "./helpers"
 
-// NEW-4 (plan 3.11): the MCP surface is 15 tools, the SAME set for every
+// NEW-4 (plan 3.11): the MCP surface is 16 tools, the SAME set for every
 // caller, no conditional registration. ONE tool per noun takes an `op` and
 // that op's parameters flat beside it (`{op: "get", id: "EXP-42"}`); two
 // verbs stay whole (`sessions_send`, `guide_write`). The 79 per-operation
@@ -57,7 +57,7 @@ export interface NounSpec {
 
 const PREFIX = `exponential_`
 
-/** The 15. Order = the order the tools list. */
+/** The 16. Order = the order the tools list. */
 export const NOUN_TOOLS: readonly NounSpec[] = [
   {
     name: `issues`,
@@ -145,6 +145,17 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
       mcp_servers_remove: `mcp_servers_remove`,
       repositories_list: `repositories_list`,
       repositories_add: `repositories_add`,
+    },
+  },
+  {
+    name: `apps`,
+    blurb: `Exponential apps (a team's declarative Exponential UI packages, rendered in every client): list, get (the head or a version's package), upsert (= a new version; creates the app on a new slug), delete, catalog (the components, bindings and functions a package may use).`,
+    ops: {
+      list: `apps_list`,
+      get: `apps_get`,
+      upsert: `apps_upsert`,
+      delete: `apps_delete`,
+      catalog: `apps_catalog`,
     },
   },
   { name: `sessions_send`, blurb: ``, verb: `sessions_send`, alwaysLoad: true },

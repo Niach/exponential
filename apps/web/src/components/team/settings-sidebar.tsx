@@ -7,6 +7,7 @@ import { Link, useRouterState } from "@tanstack/react-router"
 import type { TeamPermissions } from "@/hooks/use-team-permissions"
 import { useTeamBoards, useTeamBySlug } from "@/hooks/use-team-data"
 import { useAgents } from "@/hooks/use-session-tree"
+import { useApps } from "@/hooks/use-apps"
 import { useSession } from "@/hooks/use-session"
 import { AGENT_SETTINGS_TEST_IDS } from "@/components/team/agents-section"
 import { getRuntimeConfigCached, type RuntimeConfig } from "@/lib/runtime-config"
@@ -29,6 +30,8 @@ import {
   NEW_AGENT_LABEL,
   NEW_BOARD_LABEL,
   SETTINGS_AGENTS_GROUP,
+  SETTINGS_APPS_GROUP,
+  NEW_APP_LABEL,
   SETTINGS_BOARDS_GROUP,
   SETTINGS_NAV,
   type SettingsNavContext,
@@ -137,6 +140,7 @@ export function SettingsSidebar({
   // member sees them (their pages read-only); "New agent" is owner-only.
   const { data: authSession } = useSession()
   const { agents } = useAgents(team?.id, authSession?.user?.id)
+  const { apps } = useApps(team?.id)
 
   return (
     <>
@@ -152,7 +156,10 @@ export function SettingsSidebar({
           const isAgentsGroup = group.group === SETTINGS_AGENTS_GROUP
           const withAgents =
             isAgentsGroup && (agents.length > 0 || permissions.isOwner)
-          if (items.length === 0 && !withBoards && !withAgents) return null
+          // VAPP-110: the Apps group lists the team's apps + "New app" (members).
+          const isAppsGroup = group.group === SETTINGS_APPS_GROUP
+          const withApps = isAppsGroup && permissions.isMember
+          if (items.length === 0 && !withBoards && !withAgents && !withApps) return null
           return (
             <SidebarGroup
               key={group.group}
@@ -167,6 +174,18 @@ export function SettingsSidebar({
                     activeOptions={{ exact: true }}
                     activeProps={{ className: `text-sidebar-foreground` }}
                     data-testid="settings-agents-index"
+                  >
+                    {group.group}
+                  </Link>
+                </SidebarGroupLabel>
+              ) : isAppsGroup ? (
+                <SidebarGroupLabel asChild className="hover:text-sidebar-foreground">
+                  <Link
+                    to="/t/$teamSlug/settings/apps"
+                    params={{ teamSlug }}
+                    activeOptions={{ exact: true }}
+                    activeProps={{ className: `text-sidebar-foreground` }}
+                    data-testid="settings-apps-index"
                   >
                     {group.group}
                   </Link>
@@ -237,6 +256,31 @@ export function SettingsSidebar({
                           </SidebarMenuButton>
                         </SidebarMenuItem>
                       )}
+                    </Fragment>
+                  )}
+                  {withApps && (
+                    <Fragment>
+                      {apps.filter((app) => !app.builtin).map((app) => (
+                        <SidebarMenuItem key={app.id}>
+                          <SidebarMenuButton asChild>
+                            <Link
+                              to="/t/$teamSlug/settings/apps/$appId"
+                              params={{ teamSlug, appId: app.id }}
+                            >
+                              <BoardGlyph board={{ icon: app.icon, color: app.color }} />
+                              <span>{app.name}</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ))}
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild className="text-muted-foreground">
+                          <Link to="/t/$teamSlug/settings/apps/new" params={{ teamSlug }}>
+                            <AddIcon className="h-4 w-4" />
+                            <span>{NEW_APP_LABEL}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
                     </Fragment>
                   )}
                   {items.map((item) =>

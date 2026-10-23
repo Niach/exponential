@@ -10,7 +10,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { cleanup, fireEvent, render } from "@solidjs/testing-library"
 import { CORE_CATALOG_ID, ExponentialHost, MemoryTransport } from "@exponential-at/ui"
-import type { ClientMessage, FlatComponent, VappPackage } from "@exponential-at/ui"
+import type { ClientMessage, FlatComponent, AppPackage } from "@exponential-at/ui"
 import { HostSurface, hostPlugin } from "./host-surface"
 
 afterEach(() => cleanup())
@@ -22,7 +22,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0))
 
 /** `host-router.json`'s acme.scoped: one template bound to exp:devices,
  *  one function, two listed sources (exp:devices and the acme.* prefix). */
-const scoped: VappPackage = {
+const scoped: AppPackage = {
   id: `acme.scoped`,
   name: `Scoped`,
   version: `1.0.0`,
@@ -40,7 +40,7 @@ const scoped: VappPackage = {
   },
   functions: [`harness.toast`],
   sources: [`exp:devices`, `acme.*`],
-} as unknown as VappPackage
+} as unknown as AppPackage
 
 describe(`HostSurface follows the host's allowlists`, () => {
   it(`runs host functions through the gate and urls through the policy (https only)`, async () => {

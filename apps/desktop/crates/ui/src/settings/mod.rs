@@ -40,6 +40,7 @@ mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device
 // candidates + picker are shared with the New agent dialog.
 pub(crate) mod agent_detail;
+mod app_detail;
 mod new_agent;
 mod agents;
 mod agents_index;
@@ -224,6 +225,15 @@ pub(crate) enum SettingsSection {
     /// EXP-1319: the agent page in CREATE mode (web `settings/agents/new`) —
     /// the Agents group's "New agent" row and the rail's `+`. Owner-only.
     NewAgent,
+    /// VAPP-110: the Apps index (the Agents index's twin): the list band.
+    /// The Apps group's LABEL opens it. Member-visible.
+    Apps,
+    /// VAPP-110: one app's settings page (identity, description, Delete);
+    /// the payload is the `apps` row id. The creator's and the owners'.
+    App(String),
+    /// VAPP-110: the app page in CREATE mode (web `settings/apps/new`): the
+    /// Apps group's "New app" row. Create opens the editor.
+    NewApp,
     /// NEW-6: the team's saved prompts (web `settings/prompts`) — the
     /// Agents group's Prompts entry. Member-visible (members read them);
     /// writes are owner-only inside the pane.
@@ -329,6 +339,9 @@ const NAV_GROUPS: &[NavGroup] = &[
             NavItem::leaf(prompts::PROMPTS_TITLE, SettingsSection::Prompts),
         ],
     },
+    // VAPP-110: the Agents group's twin — the per-app rows + New app are
+    // injected at render.
+    NavGroup { label: APPS_GROUP, items: &[] },
     // EXP-771: the web's Features group, verbatim (SLOP-4: the Helpdesk row
     // is gone with the helpdesk; the widget page is "Widget" now).
     NavGroup {
@@ -380,6 +393,9 @@ const NAV_GROUPS: &[NavGroup] = &[
 /// `copy.title` (a test locks the two together).
 const AGENTS_GROUP: &str = "Agents";
 
+/// VAPP-110: the team Apps group's label — `apps.json` `copy.title`.
+const APPS_GROUP: &str = "Apps";
+
 /// EXP-288: every nav entry carries an icon. Board rows use the tinted board
 /// glyph instead (`icons::board_icon`), so they don't route through here.
 ///
@@ -406,6 +422,9 @@ fn section_icon(section: &SettingsSection) -> Icon {
         | SettingsSection::Agent(_)
         | SettingsSection::NewAgent => {
             Icon::from(registry::SETTINGS_AGENTS)
+        }
+        SettingsSection::Apps | SettingsSection::App(_) | SettingsSection::NewApp => {
+            Icon::from(registry::NAV_APPS)
         }
         SettingsSection::Prompts | SettingsSection::Prompt(_) | SettingsSection::NewPrompt => {
             Icon::from(registry::NAV_ACTIONS)
@@ -482,6 +501,21 @@ fn valid_agent_ids(
     )
 }
 
+/// VAPP-110: the apps of the active team (a selected `App(id)` clamps to
+/// them), `None` while the apps collection loads.
+fn valid_app_ids(
+    cx: &App,
+    nav: &Entity<Navigation>,
+) -> Option<std::collections::HashSet<String>> {
+    if !Store::global(cx).collections().apps.read(cx).is_ready() {
+        return None;
+    }
+    let Some(team_id) = active_team_id(nav, cx) else {
+        return Some(Default::default());
+    };
+    Some(crate::apps_view::team_apps(&team_id, cx).into_iter().map(|app| app.id).collect())
+}
+
 /// EXP-1294: `Agent("")` (the DEV `EXP_DEV_SETTINGS=agent` seed) = the
 /// active team's first agent, or the empty Agents pane while it has none.
 fn first_agent_resolved(
@@ -494,6 +528,23 @@ fn first_agent_resolved(
             .and_then(|team_id| crate::session_data::agents_in_team(&team_id, cx).into_iter().next())
             .map(|agent| SettingsSection::Agent(agent.agent_id))
             .unwrap_or(SettingsSection::Agent(id)),
+        // VAPP-110: `App("")` = the team's first app; a slug (the dev
+        // `app:<slug>`) names its app.
+        SettingsSection::App(id) => {
+            let apps = active_team_id(nav, cx)
+                .map(|team_id| crate::apps_view::team_apps(&team_id, cx))
+                .unwrap_or_default();
+            let hit = if id.is_empty() {
+                apps.first()
+            } else {
+                apps.iter().find(|app| app.id == id || app.slug == id)
+            };
+            match hit {
+                Some(app) => SettingsSection::App(app.id.clone()),
+                None if id.is_empty() => SettingsSection::Apps,
+                None => SettingsSection::App(id),
+            }
+        }
         other => other,
     }
 }
@@ -526,7 +577,9 @@ fn effective_selection(
     let visible = section_visible(&selected, owner)
         && match &selected {
             SettingsSection::Board(id) => board_ok(id),
-            SettingsSection::Agent(id) => agent_ok(id),
+            // VAPP-110: an app page shares the agent check's closure shape
+            // (`agent_ok` answers for every id-keyed team page).
+            SettingsSection::Agent(id) | SettingsSection::App(id) => agent_ok(id),
             _ => true,
         };
     if visible {
@@ -569,6 +622,9 @@ pub struct SettingsView {
     new_agent: Option<(String, Entity<NewAgentPane>)>,
     /// NEW-6: the Agents index (the agents + the Events band).
     agents_index: Entity<agents_index::AgentsIndexPane>,
+    /// VAPP-110: the Apps index and ONE per-app page (the agents' twins).
+    apps_index: Entity<crate::apps_view::AppsIndexPane>,
+    app_detail: Entity<app_detail::AppDetailPane>,
     /// NEW-6: the Prompts list (live off the synced `prompts` shape).
     prompts: Entity<PromptsPane>,
     /// NEW-6: the open prompt page, keyed by its prompt id (`new:<team>` in
@@ -635,6 +691,8 @@ impl SettingsView {
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
         let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), cx));
         let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
+        let apps_index = cx.new(|cx| crate::apps_view::AppsIndexPane::new(nav.clone(), cx));
+        let app_detail = cx.new(|cx| app_detail::AppDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), cx));
         let mcp_servers = cx.new(|cx| McpServersPane::new(nav.clone(), window, cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
@@ -677,6 +735,8 @@ impl SettingsView {
             agent_detail,
             new_agent: None,
             agents_index,
+            apps_index,
+            app_detail,
             prompts,
             prompt_page: None,
             repositories,
@@ -760,11 +820,16 @@ impl Render for SettingsView {
         // the detail column alone.
         let board_ids = valid_board_ids(cx, &self.nav);
         let agent_ids = valid_agent_ids(cx, &self.nav);
+        let app_ids = valid_app_ids(cx, &self.nav);
         let effective = effective_selection(
             first_agent_resolved(self.shared.read(cx).settings_section(), &self.nav, cx),
             owner,
             |id| board_ids.as_ref().is_none_or(|ids| ids.contains(id)),
-            |id| id.is_empty() || agent_ids.as_ref().is_none_or(|ids| ids.contains(id)),
+            |id| {
+                id.is_empty()
+                    || agent_ids.as_ref().is_none_or(|ids| ids.contains(id))
+                    || app_ids.as_ref().is_none_or(|ids| ids.contains(id))
+            },
         );
 
         // A switch INTO a server-read pane refetches it (the screen-level
@@ -830,6 +895,8 @@ impl Render for SettingsView {
                     .unwrap_or_else(|| div().into_any_element())
             }
             SettingsSection::Agents => self.agents_index.clone().into_any_element(),
+            SettingsSection::Apps => self.apps_index.clone().into_any_element(),
+            SettingsSection::App(_) | SettingsSection::NewApp => self.app_detail.clone().into_any_element(),
             SettingsSection::Prompts => self.prompts.clone().into_any_element(),
             SettingsSection::NewPrompt => {
                 let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
@@ -968,6 +1035,8 @@ impl SettingsNavPanel {
             // EXP-1294: the Agents group lists the live agent roots.
             cx.observe(&collections.sessions, |_, _, cx| cx.notify()),
             cx.observe(&collections.agents, |_, _, cx| cx.notify()),
+            // VAPP-110: the Apps group lists the synced apps.
+            cx.observe(&collections.apps, |_, _, cx| cx.notify()),
         ];
         Self {
             nav,
@@ -1042,11 +1111,16 @@ impl Render for SettingsNavPanel {
             .unwrap_or(false);
         let board_ids = valid_board_ids(cx, &self.nav);
         let agent_ids = valid_agent_ids(cx, &self.nav);
+        let app_ids = valid_app_ids(cx, &self.nav);
         let effective = effective_selection(
             first_agent_resolved(self.shared.read(cx).settings_section(), &self.nav, cx),
             owner,
             |id| board_ids.as_ref().is_none_or(|ids| ids.contains(id)),
-            |id| id.is_empty() || agent_ids.as_ref().is_none_or(|ids| ids.contains(id)),
+            |id| {
+                id.is_empty()
+                    || agent_ids.as_ref().is_none_or(|ids| ids.contains(id))
+                    || app_ids.as_ref().is_none_or(|ids| ids.contains(id))
+            },
         );
         let team_id = active_team_id(&self.nav, cx);
         let boards = team_id
@@ -1056,6 +1130,11 @@ impl Render for SettingsNavPanel {
         let agents = team_id
             .as_deref()
             .map(|team_id| crate::session_data::agents_in_team(team_id, cx))
+            .unwrap_or_default();
+        // VAPP-110: the Apps group's rows = the apps the viewer manages.
+        let apps = team_id
+            .as_deref()
+            .map(|team_id| crate::apps_view::team_apps(team_id, cx))
             .unwrap_or_default();
 
         let mut list = v_flex().p_2().gap_0p5();
@@ -1072,13 +1151,72 @@ impl Render for SettingsNavPanel {
             // EXP-1294: the Agents group is every member's (only an agent's
             // Delete is owner-only), so it shows whenever a team is active.
             let agent_group = group.label == AGENTS_GROUP && team_id.is_some();
-            if visible.is_empty() && !board_group && !agent_group {
+            // VAPP-110: the Apps group likewise (every member creates apps).
+            let app_group = group.label == APPS_GROUP && team_id.is_some();
+            if visible.is_empty() && !board_group && !agent_group && !app_group {
                 continue;
             }
             if !first_group {
                 list = list.child(Self::group_divider());
             }
             first_group = false;
+            if app_group {
+                // VAPP-110: the label opens the Apps index, lit while it
+                // shows (the Agents label's twin).
+                let lit = effective == SettingsSection::Apps;
+                let foreground = cx.theme().foreground;
+                list = list.child(
+                    div()
+                        .id("settings-apps-index")
+                        .cursor_pointer()
+                        .px_2()
+                        .pt_2()
+                        .pb_0p5()
+                        .text_xs()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(if lit { foreground } else { cx.theme().muted_foreground })
+                        .hover(move |label| label.text_color(foreground))
+                        .child(group.label)
+                        .on_click(cx.listener(|_, _, window, cx| {
+                            select_settings_section(window, cx, SettingsSection::Apps);
+                            navigate(window, cx, Screen::Settings);
+                        })),
+                );
+                for app in &apps {
+                    let section = SettingsSection::App(app.id.clone());
+                    let selected = section == effective;
+                    list = list.child(
+                        Self::row(
+                            SharedString::from(format!("settings-nav-app-{}", app.id)),
+                            app.name.clone(),
+                            Some(app.icon()),
+                            selected,
+                            cx,
+                        )
+                        .on_click(cx.listener(move |_, _, window, cx| {
+                            select_settings_section(window, cx, section.clone());
+                            navigate(window, cx, Screen::Settings);
+                        })),
+                    );
+                }
+                // "New app" = the app page in create mode (web parity).
+                let selected = effective == SettingsSection::NewApp;
+                list = list.child(
+                    Self::row(
+                        "settings-nav-new-app",
+                        domain::apps::APPS.copy.new_app.clone(),
+                        Some(Icon::new(registry::UI_ADD)),
+                        selected,
+                        cx,
+                    )
+                    .when(!selected, |row| row.text_color(cx.theme().muted_foreground))
+                    .on_click(cx.listener(|_, _, window, cx| {
+                        select_settings_section(window, cx, SettingsSection::NewApp);
+                        navigate(window, cx, Screen::Settings);
+                    })),
+                );
+                continue;
+            }
             if agent_group {
                 // NEW-6 (web parity): the label opens the Agents page (the
                 // list + Events), lit while it shows.
@@ -1848,8 +1986,9 @@ mod tests {
         // closes the nav AFTER Personal, so the fallback scan is unchanged.
         assert_eq!(
             groups,
-            vec!["Team", "Boards", "Agents", "Features", "This device", "Personal", "Advanced"]
+            vec!["Team", "Boards", "Agents", "Apps", "Features", "This device", "Personal", "Advanced"]
         );
+        assert_eq!(APPS_GROUP, domain::apps::APPS.copy.title);
         let features = NAV_GROUPS
             .iter()
             .find(|group| group.label == "Features")
