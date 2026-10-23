@@ -9,6 +9,9 @@
 # staticlib`): with the facade's `[lib] crate-type` listing an rlib too, cargo
 # skips the profile's LTO, which left every std object (with its debug info)
 # in the archive, ~44 MB a slice. LTO + `strip -S -x` on a copy = ~6 MB.
+# Knob: EXPONENTIAL_UI_APPLE_TARGETS="aarch64-apple-ios" builds only those
+# rust targets and only the slices they fill (EXP-1364: the App Store archive
+# needs the device slice alone; five LTO builds were 16 of its 29 minutes).
 # Knob: EXPONENTIAL_UI_FEATURES="descriptions" builds the facade with
 # `--no-default-features --features <list>` (an empty list drops the
 # non-default themes; see crates/exponential-ui/Cargo.toml).
@@ -46,6 +49,7 @@ echo "== apple targets (profile mobile: LTO, stripped; no \`cli\` feature)"
 # One fat slice per platform: device arm64; simulator arm64 + x86_64 (Intel
 # Macs, Rosetta CI runners); macOS arm64 + x86_64.
 APPLE_TARGETS=(aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-apple-darwin x86_64-apple-darwin)
+if [ -n "${EXPONENTIAL_UI_APPLE_TARGETS:-}" ]; then read -r -a APPLE_TARGETS <<<"$EXPONENTIAL_UI_APPLE_TARGETS"; fi
 FEATURE_ARGS=()
 if [ -n "${EXPONENTIAL_UI_FEATURES+x}" ]; then FEATURE_ARGS=(--no-default-features --features "$EXPONENTIAL_UI_FEATURES"); fi
 THIN="$HERE/out/thin"
@@ -66,16 +70,26 @@ rm -rf "$HEADERS" && mkdir -p "$HEADERS"
 cp "$HERE/bindings/swift/ExponentialUIFFIFFI.h" "$HEADERS/"
 cp "$HERE/bindings/swift/module.modulemap" "$HEADERS/module.modulemap"
 FAT="$HERE/out/fat"
-rm -rf "$FAT" && mkdir -p "$FAT/ios-simulator" "$FAT/macos"
-lipo -create "$(lib aarch64-apple-ios-sim)" "$(lib x86_64-apple-ios)" -output "$FAT/ios-simulator/libexponential_ui_ffi.a"
-lipo -create "$(lib aarch64-apple-darwin)" "$(lib x86_64-apple-darwin)" -output "$FAT/macos/libexponential_ui_ffi.a"
+rm -rf "$FAT"
+built() { [ -f "$(lib "$1")" ]; }
+# One -library per platform the built targets fill; two archs = one lipo'd slice.
+slice() {
+  local name="$1"; shift
+  local libs=()
+  for t in "$@"; do built "$t" && libs+=("$(lib "$t")"); done
+  [ ${#libs[@]} -eq 0 ] && return 0
+  mkdir -p "$FAT/$name"
+  if [ ${#libs[@]} -eq 1 ]; then cp "${libs[0]}" "$FAT/$name/libexponential_ui_ffi.a"
+  else lipo -create "${libs[@]}" -output "$FAT/$name/libexponential_ui_ffi.a"; fi
+  XCF_ARGS+=(-library "$FAT/$name/libexponential_ui_ffi.a" -headers "$HEADERS")
+}
+XCF_ARGS=()
+slice ios aarch64-apple-ios
+slice ios-simulator aarch64-apple-ios-sim x86_64-apple-ios
+slice macos aarch64-apple-darwin x86_64-apple-darwin
 XCF="$SWIFT_PKG/Binaries/ExponentialUIFFI.xcframework"
 rm -rf "$HERE/out/ExponentialUIFFI.xcframework" "$XCF" && mkdir -p "$SWIFT_PKG/Binaries"
-xcodebuild -create-xcframework \
-  -library "$(lib aarch64-apple-ios)" -headers "$HEADERS" \
-  -library "$FAT/ios-simulator/libexponential_ui_ffi.a" -headers "$HEADERS" \
-  -library "$FAT/macos/libexponential_ui_ffi.a" -headers "$HEADERS" \
-  -output "$XCF" | tail -2
+xcodebuild -create-xcframework "${XCF_ARGS[@]}" -output "$XCF" | tail -2
 rm -rf "$FAT" "$THIN"
 for slice in "$XCF"/*/libexponential_ui_ffi.a; do
   echo "$(basename "$(dirname "$slice")"): $(lipo -archs "$slice") $(du -h "$slice" | cut -f1)"
