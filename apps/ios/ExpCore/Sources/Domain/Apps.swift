@@ -39,6 +39,10 @@ public enum Apps {
         public static let delete = "Delete"
         public static let openEditor = "Open in the editor"
         public static let settingsTitle = "Apps"
+        // VAPP-129: the floating layout (web and the IDE; phones keep the tabs).
+        public static let dockToSide = "Move to the side"
+        public static let float = "Minimize"
+        public static let working = "Working"
 
         public enum Menu {
             public static let rename = "Rename"
