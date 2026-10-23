@@ -85,7 +85,7 @@ core computes. Docs, the catalog, themes and the host API:
 // Package.swift
 .package(url: "<this repository>", from: "$version")
 // target
-.product(name: "ExponentialUI", package: "ExponentialUI")
+.product(name: "ExponentialUI", package: "exponential-ui-swift")
 \`\`\`
 
 \`\`\`swift

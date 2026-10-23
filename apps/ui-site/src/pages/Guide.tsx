@@ -15,13 +15,6 @@ import { LINKS } from "../lib/site"
 
 type Section = { id: string; label: string; body: ReactNode }
 
-/** "Not published yet": the one honest install note every guide shares. */
-const Unpublished = ({ children }: { children: ReactNode }) => (
-  <DocsCallout kind="warn" title="Not on the registries yet">
-    Nothing is published yet: every package publishes on the first <code>ui-v*</code> tag. {children}
-  </DocsCallout>
-)
-
 const SDK_README = (path: string, label: string) => <a href={LINKS.source(path)}>{label}</a>
 
 const GUIDE_SECTIONS: Record<string, Section[]> = {
@@ -37,12 +30,6 @@ const GUIDE_SECTIONS: Record<string, Section[]> = {
             so there is no stylesheet or Tailwind setup.
           </p>
           <DocsCode>{`npm install @exponential-at/ui @exponential-at/ui-react`}</DocsCode>
-          <Unpublished>
-            Until then, pack the tarballs from a checkout of the repo and install those:
-          </Unpublished>
-          <DocsCode>{`bun samples/exponential-ui/pack-local.ts      # → samples/exponential-ui/.packs/*.tgz
-npm install ../exponential/samples/exponential-ui/.packs/exponential-at-ui-0.1.0.tgz \\
-            ../exponential/samples/exponential-ui/.packs/exponential-at-ui-react-0.1.0.tgz`}</DocsCode>
           <GuideFile path="react/package.json" caption="the whole dependency list" />
         </>
       ),
@@ -128,12 +115,6 @@ const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in
             <code>vite-plugin-solid</code>; the surface injects its own styles, so there is no stylesheet setup.
           </p>
           <DocsCode>{`npm install @exponential-at/ui @exponential-at/ui-solid solid-js`}</DocsCode>
-          <Unpublished>
-            Until then, pack the tarballs from a checkout of the repo and install those:
-          </Unpublished>
-          <DocsCode>{`bun samples/exponential-ui/pack-local.ts      # → samples/exponential-ui/.packs/*.tgz
-npm install ../exponential/samples/exponential-ui/.packs/exponential-at-ui-0.1.0.tgz \\
-            ../exponential/samples/exponential-ui/.packs/exponential-at-ui-solid-0.1.0.tgz`}</DocsCode>
           <GuideFile path="solid/package.json" caption="the whole dependency list" />
           <GuideFile path="solid/vite.config.ts" />
         </>
@@ -242,13 +223,6 @@ const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in
             styles.
           </p>
           <DocsCode>{`npm install @exponential-at/ui @exponential-at/ui-element`}</DocsCode>
-          <Unpublished>
-            Until then, pack the tarballs from a checkout of the repo and install those:
-          </Unpublished>
-          <DocsCode>{`bun samples/exponential-ui/pack-local.ts      # → samples/exponential-ui/.packs/*.tgz
-npm install ../exponential/samples/exponential-ui/.packs/exponential-at-ui-0.1.0.tgz \\
-            ../exponential/samples/exponential-ui/.packs/exponential-at-ui-solid-0.1.0.tgz \\
-            ../exponential/samples/exponential-ui/.packs/exponential-at-ui-element-0.1.0.tgz`}</DocsCode>
           <GuideFile path="element/package.json" caption="the whole dependency list" />
           <GuideFile path="element/vite.config.ts" />
           <p>
@@ -340,14 +314,20 @@ el.plugin = { icons: iconsFromSvg((name) => svgFor(name)), openUrl: (url) => win
         <>
           <p>
             The Swift package <code>ExponentialUI</code> (iOS 17, macOS 14) carries the painter and the Rust core as
-            an xcframework, so your app never builds Rust. Published, it is a SwiftPM dependency on{` `}
-            <code>github.com/Niach/exponential-ui-swift</code>.
+            an xcframework, so your app never builds Rust. It is a SwiftPM dependency on{` `}
+            <code>github.com/Niach/exponential-ui-swift</code>, whose tag <code>0.1.0</code> pins the xcframework of
+            that release by checksum:
           </p>
-          <Unpublished>
-            Until then, build the xcframework once from a checkout and depend on the package by path.
-          </Unpublished>
-          <DocsCode>{`bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh   # → packages/exponential-ui-swift/Binaries/`}</DocsCode>
-          <GuideFile path="swift/Package.swift" />
+          <DocsCode language="swift">{`dependencies: [
+    .package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.1.0"),
+],
+targets: [
+    .executableTarget(name: "App", dependencies: [.product(name: "ExponentialUI", package: "exponential-ui-swift")]),
+]`}</DocsCode>
+          <GuideFile
+            path="swift/Package.swift"
+            caption="the guide's own manifest builds the monorepo's package by path, so CI checks it without a download"
+          />
         </>
       ),
     },
@@ -408,12 +388,11 @@ el.plugin = { icons: iconsFromSvg((name) => svgFor(name)), openUrl: (url) => win
             Compose, coroutines and JNA, and the AAR carries the Rust core for arm64-v8a, armeabi-v7a and x86_64. R8
             needs no extra rules.
           </p>
-          <Unpublished>Until it is on Maven Central, publish it to your local Maven repository from a checkout:</Unpublished>
-          <DocsCode>{`bash apps/desktop/crates/exponential-ui-ffi/build-android.sh
-cd packages/exponential-ui-compose
-./gradlew :ui-compose:publishReleasePublicationToMavenLocal :ui-compose-primitives:publishReleasePublicationToMavenLocal`}</DocsCode>
+          <DocsCode language="kotlin">{`dependencies {
+    implementation("at.exponential:ui-compose:0.1.0")
+}`}</DocsCode>
           <p>
-            Then add <code>mavenLocal()</code> to your repositories and the one dependency:
+            It resolves from <code>mavenCentral()</code>; the whole dependency block of the guide's app:
           </p>
           <GuideFile path="compose/app/build.gradle.kts" />
         </>
@@ -461,10 +440,13 @@ cd packages/exponential-ui-compose
           <p>
             Two crates: <code>exponential-ui</code> (the core) and <code>exponential-ui-gpui</code> (the painter and
             host runtime). The painter depends on gpui and gpui-component as git dependencies, which crates.io
-            refuses, so it stays a git or path dependency until both are published there. gpui needs Rust 1.96:
-            pin it in <code>rust-toolchain.toml</code>.
+            refuses, so it stays a git or path dependency until both are published there; the core is on crates.io
+            (<code>cargo add exponential-ui</code>), and the painter wants the core at its own revision, so an app
+            takes both from the repo. gpui needs Rust 1.96: pin it in <code>rust-toolchain.toml</code>.
           </p>
-          <Unpublished>Until then, depend on both crates by path or git, as below.</Unpublished>
+          <DocsCode language="toml">{`[dependencies]
+exponential-ui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.0" }
+exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.0" }`}</DocsCode>
           <GuideFile path="gpui/Cargo.toml" caption="path dependencies standing in for crates.io" />
         </>
       ),

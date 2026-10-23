@@ -35,10 +35,9 @@ cd packages/exponential-ui-compose
 
 ### In a blank project
 
-`./gradlew :ui-compose:publishReleasePublicationToMavenLocal :ui-compose-primitives:publishReleasePublicationToMavenLocal`
-puts both AARs in `~/.m2`. A blank Android Studio project (Compose template, AGP 8.10, Kotlin 2.4,
-minSdk 26) then needs only `mavenLocal()` in its repositories and
-`implementation("at.exponential:ui-compose:0.1.0")`; the POM brings the primitives, Compose,
+A blank Android Studio project (Compose template, AGP 8.10, Kotlin 2.4, minSdk 26) needs only
+`mavenCentral()` in its repositories and `implementation("at.exponential:ui-compose:0.1.0")`;
+the POM brings the primitives, Compose,
 coroutines and JNA (`@aar`). Ten lines of `MainActivity` (a `SurfaceModel`, `setNested` with the
 kitchen sink from `assets/`, `ExponentialSurface` in a `verticalScroll`) render the kitchen sink
 with R8 on and no extra rules. Verified on the emulator on 2026-10-08.

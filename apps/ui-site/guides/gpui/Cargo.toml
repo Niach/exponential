@@ -9,9 +9,11 @@ publish = false
 [workspace]
 
 [dependencies]
-# The SDK. Path dependencies stand in for crates.io (`exponential-ui = "0.1"`,
-# `exponential-ui-gpui = "0.1"`) until gpui + gpui-component publish there;
-# a git dependency on github.com/Niach/exponential works the same way.
+# The SDK. The core is on crates.io (`exponential-ui = "0.1"`); the painter
+# is not until gpui + gpui-component publish there, and it wants the core at
+# its own revision, so an app takes both from one git dependency on
+# github.com/Niach/exponential (`tag = "ui-v0.1.0"`). Path dependencies stand
+# in for it here.
 exponential-ui = { path = "../../../../apps/desktop/crates/exponential-ui" }
 exponential-ui-gpui = { path = "../../../../apps/desktop/crates/exponential-ui-gpui" }
 # gpui + gpui-component at the SDK's revisions (Cargo.lock pins zed's commit).

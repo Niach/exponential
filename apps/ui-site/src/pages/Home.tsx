@@ -167,8 +167,8 @@ export default function HomePage(_: PageProps) {
           </div>
           <DocsTable
             className="home-packages-table"
-            head={[`Package`, `Registry`, `What`, `Until it is published`]}
-            rows={PACKAGES.map((p) => [<code key="n">{p.name}</code>, p.registry, p.what, p.fromRepo])}
+            head={[`Package`, `Registry`, `What`, `Install`]}
+            rows={PACKAGES.map((p) => [<code key="n">{p.name}</code>, p.registry, p.what, <code key="i">{p.install}</code>])}
           />
         </div>
       </section>
