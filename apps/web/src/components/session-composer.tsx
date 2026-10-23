@@ -13,6 +13,7 @@ import {
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
+  InlinePickerRow,
   ModelPicker,
   Prompt,
   Spinner,
@@ -421,6 +422,10 @@ export function SessionComposer({
         )
       }
     >
+      {/* N-14: the one-row card is a ROW host: inside a dialog or a sheet an
+          opened pin (Device, Model) drops its rows under the whole row, as
+          wide as it; the collapsed pins never move. */}
+      <InlinePickerRow slotClassName="pt-1.5 text-sm text-foreground">
       <Composer
         opaque={opaque}
         strip={
@@ -570,6 +575,7 @@ export function SessionComposer({
           )}
         </div>
       </Composer>
+      </InlinePickerRow>
       <Prompt
         open={confirming !== null}
         onOpenChange={(next) => {

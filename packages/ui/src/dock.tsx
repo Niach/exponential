@@ -7,7 +7,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from "react"
 import {
@@ -17,17 +16,20 @@ import {
   DOCK_COPY,
   DOCK_ICONS,
   DOCK_SHEET,
-  DOCK_STACK,
   DOCK_TEST_IDS,
   type DockRow,
   type DockTint,
 } from "@exp/domain-contract/dock"
-import { stackLayout } from "@exp/domain-contract/stack"
 import type { IconConcept } from "@exp/icons"
 import { Button } from "./button"
 import { cn } from "./cn"
-import { GlassCard } from "./glass-card"
+import {
+  DOCK_CARD_CLASSES,
+  DockCard as PrimitiveDockCard,
+  DockPile as PrimitiveDockPile,
+} from "@exponential-at/ui-react/primitives/dock-card"
 import { conceptIcon } from "./icons.generated"
+import { DialogPresentationContext } from "@exponential-at/ui-react/primitives/dialog"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "./sheet"
 import { useMediaQuery } from "./use-media-query"
 import { useIsMobile } from "./use-mobile"
@@ -45,15 +47,9 @@ import { useIsMobile } from "./use-mobile"
 // (`onHeight`): the host pads the transcript by it and lifts the jump button
 // over it.
 
-const OpenIcon = conceptIcon(DOCK_ICONS.open as IconConcept)
 const CloseIcon = conceptIcon(DOCK_ICONS.close as IconConcept)
 
-const TINT_CLASS: Record<DockTint, string> = {
-  plan: `text-primary`,
-  question: `text-yellow-400`,
-  muted: `text-muted-foreground`,
-  warning: `text-amber-400`,
-}
+const TINT_CLASS: Record<DockTint, string> = DOCK_CARD_CLASSES.tint
 
 /** The band's column: the work column's measure, the phone's gutter. */
 export const DOCK_COLUMN_CLASS = `mx-auto w-full max-w-4xl px-3 md:px-5`
@@ -154,10 +150,11 @@ export function Dock({
   )
 }
 
-/** The pile: every card absolutely placed by `stackLayout` (measured
- *  heights), the front one last; collapsed = the older cards peek out above
- *  it, their words hidden; a hover-capable pointer fans it on hover, a
- *  touch on it fans it (the next touch on a card opens the card). */
+/** The pile: THE Dock pile primitive (`DockPile`, @exponential-at/ui-react
+ *  primitives: the toast's stack geometry with the Dock's numbers, anchored
+ *  at the bottom), the front card last; collapsed = the older cards peek
+ *  out above it, their words hidden; a hover-capable pointer fans it on
+ *  hover, a touch on it fans it (the next touch on a card opens the card). */
 export function DockPile({
   rows,
   expanded,
@@ -174,91 +171,41 @@ export function DockPile({
   renderAction?: (row: DockRow) => ReactNode
 }) {
   const hover = useMediaQuery(`(hover: hover)`)
-  const [heights, setHeights] = useState<Record<string, number>>({})
-  const observers = useRef(new Map<string, ResizeObserver>())
-  const measure = useCallback((id: string, node: HTMLDivElement | null) => {
-    observers.current.get(id)?.disconnect()
-    observers.current.delete(id)
-    if (!node) return
-    const update = () =>
-      setHeights((current) =>
-        current[id] === node.offsetHeight ? current : { ...current, [id]: node.offsetHeight }
-      )
-    update()
-    if (typeof ResizeObserver === `undefined`) return
-    const observer = new ResizeObserver(update)
-    observer.observe(node)
-    observers.current.set(id, observer)
-  }, [])
-  useEffect(() => {
-    const live = observers.current
-    return () => live.forEach((observer) => observer.disconnect())
-  }, [])
   const fanned = expanded || single
-  const layout = stackLayout(
-    rows.map((row) => heights[row.id] ?? 0),
-    { expanded: fanned, anchoredBottom: true },
-    DOCK_STACK
-  )
   const frontId = rows.at(-1)?.id ?? null
   return (
-    <div
+    <PrimitiveDockPile
       data-testid={DOCK_TEST_IDS.pile}
-      data-expanded={fanned}
-      className="relative transition-[height] duration-slow ease-standard motion-reduce:transition-none"
-      style={{ height: layout.height }}
-      onMouseEnter={hover ? () => onExpandedChange(true) : undefined}
-      onMouseLeave={hover ? () => onExpandedChange(false) : undefined}
-      onFocus={() => onExpandedChange(true)}
-      onBlur={(event) => {
-        const next = event.relatedTarget as Node | null
-        if (!next || !event.currentTarget.contains(next)) onExpandedChange(false)
-      }}
-    >
-      {rows.map((row, index) => {
-        const item = layout.items[index]!
-        const front = row.id === frontId
-        const style: CSSProperties = {
-          top: item.offset,
-          transform: `scale(${item.scale})`,
-          opacity: item.visible ? 1 : 0,
-        }
-        return (
-          <div
-            key={row.id}
-            ref={(node) => measure(row.id, node)}
-            data-front={front}
-            className={cn(
-              `absolute inset-x-0 origin-top transition-[top,transform,opacity] duration-slow ease-standard motion-reduce:transition-none`,
-              !item.visible && `pointer-events-none`
-            )}
-            style={style}
-          >
-            <DockCard
-              row={row}
-              hidden={!fanned && !front}
-              action={renderAction?.(row)}
-              onOpen={() => {
-                // A touch fans the pile first; the next touch opens.
-                if (!hover && !fanned) {
-                  onExpandedChange(true)
-                  return
-                }
-                onOpen(row)
-              }}
-            />
-          </div>
-        )
-      })}
-    </div>
+      expanded={fanned}
+      onExpandedChange={hover || !fanned ? onExpandedChange : (next) => (next ? undefined : onExpandedChange(false))}
+      items={rows.map((row) => ({
+        id: row.id,
+        node: (
+          <DockCard
+            row={row}
+            hidden={!fanned && row.id !== frontId}
+            action={renderAction?.(row)}
+            onOpen={() => {
+              // A touch fans the pile first; the next touch opens.
+              if (!hover && !fanned) {
+                onExpandedChange(true)
+                return
+              }
+              onOpen(row)
+            }}
+          />
+        ),
+      }))}
+    />
   )
 }
 
-/** A DockCard collapsed: the AskCard chrome (the kind icon, the tinted
- *  label, the muted caption, the trailing meta) over the one title line and
- *  the open chevron (an expandable card) or the banner's action. `hidden`
- *  = a card behind the front one while piled (its chrome peeks, its words
- *  do not). */
+/** A DockCard collapsed = THE DockCard primitive (@exponential-at/ui-react
+ *  primitives `DockCard`, its Solid twin paints the same): the kind glyph,
+ *  the tinted label, the muted caption, the trailing meta, the one title
+ *  line and the open chevron (an expandable card) or the banner's action.
+ *  `hidden` = a card behind the front one while piled (its chrome peeks,
+ *  its words do not). */
 export function DockCard({
   row,
   onOpen,
@@ -272,56 +219,27 @@ export function DockCard({
   hidden?: boolean
   className?: string
 }) {
-  const Icon = conceptIcon(row.icon as IconConcept)
-  const pressable = row.expandable && onOpen !== undefined
   return (
-    <GlassCard
-      role={pressable ? `button` : undefined}
-      tabIndex={pressable && !hidden ? 0 : undefined}
-      aria-label={pressable ? `${row.label}: ${row.title}` : undefined}
-      aria-hidden={hidden || undefined}
+    <PrimitiveDockCard
+      tint={row.tint}
+      icon={conceptIcon(row.icon as IconConcept)}
+      label={row.label}
+      caption={row.caption ?? undefined}
+      meta={row.meta ?? undefined}
+      title={row.title}
+      onOpen={row.expandable ? (onOpen ?? noop) : undefined}
+      openLabel={row.expandable ? `${row.label}: ${row.title}` : undefined}
+      trailing={row.expandable ? undefined : action}
+      hidden={hidden}
       data-testid={DOCK_TEST_IDS.card}
       data-kind={row.kind}
       data-id={row.id}
-      className={cn(
-        `p-3 outline-none`,
-        pressable &&
-          `cursor-pointer transition-colors duration-fast hover:bg-glass-active focus-visible:ring-[3px] focus-visible:ring-ring/50`,
-        className
-      )}
-      onClick={pressable ? onOpen : undefined}
-      onKeyDown={
-        pressable
-          ? (event) => {
-              if (event.key === `Enter` || event.key === ` `) {
-                event.preventDefault()
-                onOpen?.()
-              }
-            }
-          : undefined
-      }
-    >
-      <div className={cn(`flex items-start gap-2`, hidden && `opacity-0`)}>
-        <Icon className={cn(`mt-0.5 size-3.5 shrink-0`, TINT_CLASS[row.tint])} />
-        <div className="min-w-0 flex-1">
-          <div className="mb-1 flex items-center gap-2">
-            <span className={cn(`truncate text-xs font-medium`, TINT_CLASS[row.tint])}>{row.label}</span>
-            {row.caption && <span className="min-w-0 truncate text-xs text-muted-foreground">{row.caption}</span>}
-            {row.meta && <span className="ml-auto shrink-0 text-xs text-muted-foreground">{row.meta}</span>}
-          </div>
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">{row.title}</span>
-            {row.expandable ? (
-              <OpenIcon className="size-3.5 shrink-0 text-muted-foreground" />
-            ) : (
-              action && <span className="shrink-0">{action}</span>
-            )}
-          </div>
-        </div>
-      </div>
-    </GlassCard>
+      className={className}
+    />
   )
 }
+
+const noop = () => {}
 
 const SheetMetaContext = createContext<((meta: ReactNode) => void) | null>(null)
 
@@ -439,6 +357,10 @@ export function DockSheet({
           borderTopRightRadius: DOCK_SHEET.radius,
         }}
       >
+        {/* N-6/N-14: the Dock sheet is a SHEET host: every picker inside it
+            (the suggestions' Start on… / Start with…) takes the inline
+            presentation. */}
+        <DialogPresentationContext.Provider value="sheet">
         <DockSheetChrome
           row={row}
           onClose={() => onOpenChange(false)}
@@ -451,6 +373,7 @@ export function DockSheet({
           <SheetDescription className="sr-only">{row.caption ?? row.label}</SheetDescription>
           {children}
         </DockSheetChrome>
+        </DialogPresentationContext.Provider>
       </SheetContent>
     </Sheet>
   )
