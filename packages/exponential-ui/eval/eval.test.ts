@@ -240,9 +240,9 @@ describe(`the parser and the rubric`, () => {
   })
 })
 
-describe(`the VAPP-128 baseline (eval/recordings/baseline-1181)`, () => {
+describe(`the VAPP-128 baseline (eval/baseline-1181)`, () => {
   test(`VAPP-125's prompt through the same recorder scores what the Guide states, with today's rubric`, () => {
-    const { rows, missing } = scoreAll(join(import.meta.dir, `recordings`, `baseline-1181`))
+    const { rows, missing } = scoreAll(join(import.meta.dir, `baseline-1181`))
     expect(missing).toEqual([])
     const a = aggregate(rows)
     expect([a.validatorClean, a.issuesTotal, a.components.total]).toEqual([10, 43, 469])

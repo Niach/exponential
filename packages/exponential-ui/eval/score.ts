@@ -103,7 +103,7 @@ export function printSummary(report: EvalReport): string {
 }
 
 /** VAPP-128: `--fixtures <dir>` scores another recording of the corpus
- *  (eval/recordings/<name>/, the same fixture shape) and prints its summary
+ *  (e.g. eval/baseline-1181/, the same fixture shape) and prints its summary
  *  without touching report.json: the before side of a before/after. */
 const fixturesArg = process.argv.indexOf(`--fixtures`)
 if (import.meta.main && fixturesArg >= 0) {
