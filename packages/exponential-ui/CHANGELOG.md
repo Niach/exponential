@@ -7,6 +7,9 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 First release.
 
+- VAPP-147: `nativeRecipeProps` and `validateProps` read the catalog view and the part table built once per extension list (they rebuilt both on every call, i.e. every painted node on every render).
+- VAPP-146: `fixtures/interactions-round1.json` `select`: an empty-string option value is an ordinary value on every renderer.
+
 - `@exponential-at/ui/web/primitives` (FEED-131): the primitives' class recipes, framework-free and shared by the React and Solid primitive sets (cva recipes under their shadcn names, plain strings as `<MODULE>_CLASSES`, `cn`). New runtime dependencies: `class-variance-authority`, `clsx`, `tailwind-merge`.
 - The web-parity check covers the primitive specimens (`fixtures/primitive-specimens.json`, group `primitive`), compared over the whole page body.
 - `fixtures/toast-stack.json`: the toast stack contract both toast primitives follow.
