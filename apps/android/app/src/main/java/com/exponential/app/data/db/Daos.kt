@@ -251,30 +251,6 @@ interface CommentDao {
     suspend fun clear()
 }
 
-@Dao
-interface ActionDao {
-    @Query("SELECT * FROM actions WHERE team_id = :teamId ORDER BY sort_order, name")
-    fun observeByTeam(teamId: String): Flow<List<ActionEntity>>
-
-    // EXP-1186: Actions is CROSS-TEAM — every member team's actions; the
-    // screen groups them by team.
-    @Query("SELECT * FROM actions ORDER BY sort_order, name")
-    fun observeAll(): Flow<List<ActionEntity>>
-
-    // SLOP-2: the action page's own row (its triggers ride it).
-    @Query("SELECT * FROM actions WHERE id = :id LIMIT 1")
-    fun observeById(id: String): Flow<ActionEntity?>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: ActionEntity)
-
-    @Query("DELETE FROM actions WHERE id = :id")
-    suspend fun deleteById(id: String)
-
-    @Query("DELETE FROM actions")
-    suspend fun clear()
-}
-
 // EXP-778: the caller's personal pins. The per-account DB only ever holds
 // the signed-in user's rows (the shape is `user_id = me`), so no user filter.
 // Sync-only since EXP-976: the phone has no sidebar, so nothing reads pins

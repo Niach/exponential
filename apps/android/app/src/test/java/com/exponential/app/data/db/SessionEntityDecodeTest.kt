@@ -5,7 +5,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Dispatcher roots: the synced `sessions.dispatch` flag, decoded like `plan_mode`. */
+/** The sessions shape row: NEW-8's dropped legacy columns are tolerated
+ *  while today's server still sends them, and never needed. */
 class SessionEntityDecodeTest {
 
     // Mirrors HttpClientProvider's shared Json.
@@ -16,16 +17,18 @@ class SessionEntityDecodeTest {
     }
 
     @Test
-    fun `dispatch decodes from Postgres text booleans and defaults to false`() {
-        val root = json.decodeFromString(
+    fun `the legacy columns decode present or absent`() {
+        val today = json.decodeFromString(
             SessionEntity.serializer(),
-            """{"id":"s-1","root_id":"s-1","kind":"thread","dispatch":"t","plan_mode":"f"}""",
+            """{"id":"s-1","root_id":"s-1","kind":"agent","dispatch":"t","plan_mode":"f","caption":"Reading",""" +
+                """"aside":"f","move_to_device_id":"mac","handoff_restored_at":null,"action_id":"a-1",""" +
+                """"action_name":"Nightly","action_inputs":{"repo":"r-1"},"spawned_by_session_id":"s-0",""" +
+                """"name":"Scout","icon":"bot","color":"blue","triggers":[],"sort_order":2}""",
         )
-        assertTrue(root.dispatch)
-        assertFalse(root.planMode)
-        // A row from a server that predates the column still decodes.
-        val older = json.decodeFromString(SessionEntity.serializer(), """{"id":"s-2"}""")
-        assertFalse(older.dispatch)
+        assertFalse(today.planMode)
+        org.junit.Assert.assertEquals("s-1", today.rootId)
+        val afterDrop = json.decodeFromString(SessionEntity.serializer(), """{"id":"s-2","root_id":"s-2"}""")
+        org.junit.Assert.assertEquals(today.copy(id = "s-2", rootId = "s-2"), afterDrop)
     }
 
     /** NEW-2: `agent_id` = the agent whose conversation the root is; the kind

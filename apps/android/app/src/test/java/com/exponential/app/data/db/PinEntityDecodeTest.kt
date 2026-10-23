@@ -3,7 +3,9 @@ package com.exponential.app.data.db
 import com.exponential.app.domain.DomainContract
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -45,12 +47,12 @@ class PinEntityDecodeTest {
         assertEquals(DomainContract.pinKindIssue, entity.kind)
         assertEquals("issue-1", entity.issueId)
         assertNull(entity.sessionId)
-        assertNull(entity.actionId)
+        assertTrue(entity.isKept)
         assertEquals(1.0, entity.sortOrder, 0.0)
     }
 
     @Test
-    fun `a fractional sort_order and a session or action target decode`() {
+    fun `a fractional sort_order and a session target decode, a legacy action pin is not kept`() {
         val session = """
             {
               "id": "pin-2",
@@ -83,8 +85,11 @@ class PinEntityDecodeTest {
         """.trimIndent()
         val actionPin = json.decodeFromString(PinEntity.serializer(), action)
         assertEquals(DomainContract.pinKindAction, actionPin.kind)
-        assertEquals("action-1", actionPin.actionId)
         assertNull(actionPin.sessionId)
+        assertNull(actionPin.issueId)
+        assertTrue(sessionPin.isKept)
+        // NEW-8: actions are gone, so the pins shape never stores it.
+        assertFalse(actionPin.isKept)
     }
 
     @Test
@@ -108,7 +113,7 @@ class PinEntityDecodeTest {
     }
 
     @Test
-    fun `every contract kind is one the entity can carry`() {
+    fun `every contract kind decodes (action stays in the contract until the server drops it)`() {
         assertEquals(
             listOf(DomainContract.pinKindIssue, DomainContract.pinKindSession, DomainContract.pinKindAction),
             DomainContract.pinKindValues,

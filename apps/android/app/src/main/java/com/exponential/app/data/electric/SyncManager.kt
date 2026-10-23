@@ -10,7 +10,6 @@ import androidx.room.withTransaction
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.SessionInvalidator
-import com.exponential.app.data.db.ActionEntity
 import com.exponential.app.data.db.AgentDefinitionEntity
 import com.exponential.app.data.db.AppEntity
 import com.exponential.app.data.db.AppVersionEntity
@@ -417,7 +416,6 @@ class SyncManager @Inject constructor(
         val notificationDao = db.notificationDao()
         val issueSubscriberDao = db.issueSubscriberDao()
         val issueEventDao = db.issueEventDao()
-        val actionDao = db.actionDao()
         val deviceDao = db.deviceDao()
         val deviceWorktreeDao = db.deviceWorktreeDao()
         val pinDao = db.pinDao()
@@ -572,15 +570,6 @@ class SyncManager @Inject constructor(
                 onRefetch = { issueSubscriberDao.clear() },
             ),
             launchShape(
-                shape = "actions", path = "/api/shapes/actions", tableName = "actions",
-                serializer = ActionEntity.serializer(),
-                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
-                reporter = reporter("actions"),
-                onInsert = { actionDao.upsert(it) },
-                onDelete = { actionDao.deleteById(it.id) },
-                onRefetch = { actionDao.clear() },
-            ),
-            launchShape(
                 shape = "devices", path = "/api/shapes/devices", tableName = "devices",
                 serializer = DeviceEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
@@ -600,12 +589,13 @@ class SyncManager @Inject constructor(
             ),
             // EXP-778: personal pins — static per user, never team/trash
             // scoped (the client resolves targets against the other shapes).
+            // NEW-8: a legacy `action` pin is ignored (actions are gone).
             launchShape(
                 shape = "pins", path = "/api/shapes/pins", tableName = "pins",
                 serializer = PinEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
                 reporter = reporter("pins"),
-                onInsert = { pinDao.upsert(it) },
+                onInsert = { if (it.isKept) pinDao.upsert(it) else pinDao.deleteById(it.id) },
                 onDelete = { pinDao.deleteById(it.id) },
                 onRefetch = { pinDao.clear() },
             ),

@@ -307,35 +307,6 @@ val CommentEntity.isToReporter: Boolean
 // tolerant decode maps any legacy value to Regular.
 fun commentKindOf(raw: String?): CommentKind = CommentKind.Regular
 
-// A team action prompt (EXP-253, synced via the actions shape since EXP-268).
-// The shape deliberately EXCLUDES the ≤64KB markdown `body` — mobile is
-// view + run only, and the desktop fetches the body via tRPC `actions.get`
-// right before a run.
-@Entity(
-    tableName = "actions",
-    indices = [Index("team_id")],
-)
-@Serializable
-data class ActionEntity(
-    @PrimaryKey val id: String,
-    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String,
-    val name: String,
-    val description: String? = null,
-    // EXP-273: curated registry icon name (same set as boards.icon); null =
-    // the generic action glyph.
-    val icon: String? = null,
-    // jsonb array of typed run-input defs ({key,label,type,required,placeholder}
-    // — EXP-257), kept as its raw JSON string and parsed at the consumer.
-    @Serializable(with = JsonAsStringSerializer::class) val inputs: String? = null,
-    // EXP-825: the composer's field hint while this action is picked (≤200
-    // chars, server-trimmed); null = the generic "Additional instructions
-    // (optional)…" prompt. Absent on rows synced before the column existed.
-    @ColumnInfo(name = "prompt_placeholder") @SerialName("prompt_placeholder") @JsonNames("promptPlaceholder") val promptPlaceholder: String? = null,
-    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
-    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
-    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
-)
-
 @Entity(
     tableName = "attachments",
     indices = [Index("issue_id"), Index("team_id")],
@@ -564,31 +535,34 @@ data class DeviceWorktreeEntity(
 )
 
 // One personal pin (EXP-778, the 21st Electric shape): the caller's own
-// "Pinned" sidebar rows — an issue, a coding session or an action, exactly one
-// of the three ids set (`kind` names which). The shape is static per user
-// (`user_id = me`), NOT team- or trash-scoped: the client renders only the pins
-// of the active team whose TARGET resolves from the other synced tables, so a
-// pin whose issue/session/action is not synced is simply hidden. Every field
+// "Pinned" sidebar rows — an issue or a session, exactly one of the two ids set
+// (`kind` names which). The shape is static per user (`user_id = me`), NOT
+// team- or trash-scoped: the client renders only the pins of the active team
+// whose TARGET resolves from the other synced tables, so a pin whose
+// issue/session is not synced is simply hidden. Every field
 // that can be absent is defaulted (the attachments.uploader_id lesson).
 @Entity(
     tableName = "pins",
-    indices = [Index("team_id"), Index("issue_id"), Index("session_id"), Index("action_id")],
+    indices = [Index("team_id"), Index("issue_id"), Index("session_id")],
 )
 @Serializable
 data class PinEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String = "",
     @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String,
-    // Contract `pinKind`: issue | session | action.
+    // Contract `pinKind`: issue | session (a legacy `action` pin is never
+    // stored, [isKept]; NEW-8 drops `pins.action_id`, the decoder skips it).
     val kind: String,
     @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String? = null,
     @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
-    @ColumnInfo(name = "action_id") @SerialName("action_id") @JsonNames("actionId") val actionId: String? = null,
     // Ascending = display order (a Postgres double, appended one past the tail).
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
-)
+) {
+    /** NEW-8: actions are gone, so an `action` pin is ignored. */
+    val isKept: Boolean get() = kind != com.exponential.app.domain.DomainContract.pinKindAction
+}
 
 // One unsent issue draft (EXP-878, the 22nd Electric shape): the create
 // screen's form, saved when the screen closes with content in it. The shape is
@@ -655,8 +629,6 @@ data class SessionEntity(
     // The root's id (its own on a root).
     @ColumnInfo(name = "root_id") @SerialName("root_id") @JsonNames("rootId") val rootId: String = "",
     @Serializable(with = PgIntSerializer::class) val depth: Int? = 0,
-    // Contract `sessionKind`: thread | agent.
-    val kind: String = com.exponential.app.domain.DomainContract.sessionKindThread,
     // The STARTER (visibility keys on it).
     @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String = "",
     // The steer deviceId of the machine that runs it.
@@ -669,9 +641,6 @@ data class SessionEntity(
     @ColumnInfo(name = "plan_mode") @SerialName("plan_mode") @JsonNames("planMode") val planMode: PgBool = false,
     @ColumnInfo(name = "computer_use") @SerialName("computer_use") @JsonNames("computerUse") val computerUse: PgBool = false,
     val ultracode: PgBool = false,
-    // A DISPATCHER root (threads + team agents since 2026-10-15): runs on the
-    // device's thread model, never plans, hands real work to child sessions.
-    @ColumnInfo(name = "dispatch", defaultValue = "0") val dispatch: PgBool = false,
     @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String? = null,
     // The session's working branch (device-written at claim).
     val branch: String? = null,
@@ -697,30 +666,6 @@ data class SessionEntity(
     // `CodingSessionResult[]`; NULL or `[]` = nothing published.
     @ColumnInfo(name = "guide") @SerialName("guide")
     @Serializable(with = JsonAsStringSerializer::class) val guide: String? = null,
-    // The saved prompt (action) this thread ran, a name snapshot and its picks.
-    @ColumnInfo(name = "action_id") @SerialName("action_id") @JsonNames("actionId") val actionId: String? = null,
-    @ColumnInfo(name = "action_name") @SerialName("action_name") @JsonNames("actionName") val actionName: String? = null,
-    @ColumnInfo(name = "action_inputs") @SerialName("action_inputs") @JsonNames("actionInputs")
-    @Serializable(with = JsonAsStringSerializer::class) val actionInputs: String? = null,
-    @ColumnInfo(name = "spawned_by_session_id") @SerialName("spawned_by_session_id") @JsonNames("spawnedBySessionId")
-    val spawnedBySessionId: String? = null,
-    // ── agent facets (roots of kind agent) ──
-    val name: String? = null,
-    val icon: String? = null,
-    val color: String? = null,
-    // EXP-1323: the live status line (device-written on tool edges, <=80
-    // chars, cleared at turn end; an aside keeps its answer's first line).
-    val caption: String? = null,
-    // EXP-1323: a `/btw` aside child (read-only fork, ends after its reply).
-    @ColumnInfo(name = "aside", defaultValue = "0") val aside: PgBool = false,
-    // EXP-1252: a pending move to that steer deviceId (NULL = none); the
-    // source host hands the session off after its current turn.
-    @ColumnInfo(name = "move_to_device_id") @SerialName("move_to_device_id") @JsonNames("moveToDeviceId")
-    val moveToDeviceId: String? = null,
-    // Legacy read shim (NEW-8 drops): triggers live on `agents` now.
-    @ColumnInfo(name = "triggers") @SerialName("triggers")
-    @Serializable(with = JsonAsStringSerializer::class) val triggers: String? = null,
-    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
     // NEW-2: the agent whose conversation this root is (one per agent and
@@ -865,9 +810,6 @@ data class SessionIssueEntity(
     @ColumnInfo(name = "added_by") @SerialName("added_by") @JsonNames("addedBy") val addedBy: String? = null,
     @ColumnInfo(name = "added_by_session_id") @SerialName("added_by_session_id") @JsonNames("addedBySessionId")
     val addedBySessionId: String? = null,
-    // EXP-1341: the tree session working on it (null = the root's own).
-    @ColumnInfo(name = "assigned_session_id") @SerialName("assigned_session_id") @JsonNames("assignedSessionId")
-    val assignedSessionId: String? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",

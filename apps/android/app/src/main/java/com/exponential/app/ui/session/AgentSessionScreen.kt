@@ -4446,8 +4446,7 @@ private fun middleTruncate(s: String, max: Int = 72): String {
  * message rides `sessions.send({sessionId: root})`) and the agent channel —
  * the queue strip, the `/` menu (steerCommands ∪ agent commands) and the
  * `@`/`#`/`:` autocomplete above the card, and the card's footer: `+`, the
- * ONE `/model` picker, the context ring and Send ⇄ Stop while busy. A
- * dispatcher (`sessions.dispatch`) never shows the plan chip.
+ * ONE `/model` picker, the context ring and Send ⇄ Stop while busy.
  *
  * The host's own blocks slot in around the menus: [banners] (status /
  * rate-limit lines), [beforeMenus] (the background-work strip) and
@@ -4957,15 +4956,13 @@ internal fun SessionComposer(
                     val command = viewModel.pendingSlashCommand()
                     if (command?.confirm == true && pendingImages.isEmpty()) slashConfirm = command else viewModel.sendDraft()
                 },
-                // EXP-1334: the Plan switch under the card (a dispatcher's =
-                // the work pick its children inherit). Before the relay's first
-                // `config_state` the synced row's `planMode` stands in.
+                // EXP-1334: the Plan switch under the card. Before the relay's
+                // first `config_state` the synced row's `planMode` stands in.
                 planMode = plusMenu.planMode,
                 model = composerModel(
                     config = sessionConfig,
                     rowModel = session?.model,
                     cli = session?.cli,
-                    dispatch = session?.dispatch == true,
                     launchDefaults = hostLaunchDefaults,
                 ),
                 modelPickable = catalogAgent == DEFAULT_AGENT,

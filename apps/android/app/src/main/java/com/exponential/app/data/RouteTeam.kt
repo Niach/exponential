@@ -15,22 +15,22 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
 /**
- * EXP-1186: what a route names that OWNS a team — a team action (the agent
- * route's `action` arg or the action page's `actionId`), else the issue a
+ * EXP-1186: what a route names that OWNS a team — a saved prompt (the agent
+ * route's `action` arg, NEW-2), else the issue a
  * `pr` / `issues` seed names, else the thread a `thread` seed starts into
  * (EXP-1284). Null = nothing team-owned (an empty composer,
  * a builtin): the screen keeps the SELECTED team.
  */
 sealed interface RouteSubject {
-    data class Action(val id: String) : RouteSubject
+    data class Prompt(val id: String) : RouteSubject
     data class Issue(val id: String) : RouteSubject
     data class Thread(val id: String) : RouteSubject
 }
 
 /** The [RouteSubject] off a route's args, [get] answering one key at a time. */
 fun routeSubject(get: (String) -> String?): RouteSubject? {
-    val actionId = (get("actionId") ?: get(ARG_ACTION))?.takeIf { it.isNotEmpty() }
-    if (actionId != null && !actionId.startsWith("builtin:")) return RouteSubject.Action(actionId)
+    val promptId = get(ARG_ACTION)?.takeIf { it.isNotEmpty() }
+    if (promptId != null && !promptId.startsWith("builtin:")) return RouteSubject.Prompt(promptId)
     val pr = get(ARG_PR)?.takeIf { it.isNotEmpty() }
     if (pr != null) return RouteSubject.Issue(pr)
     val issue = get(ARG_ISSUES)?.split(',')?.map { it.trim() }?.firstOrNull { it.isNotEmpty() }
@@ -40,7 +40,7 @@ fun routeSubject(get: (String) -> String?): RouteSubject? {
 
 /**
  * EXP-1186: the team a route-hosted screen works in. Cross-team lists
- * (Actions, Reviews) open rows of ANY member team, so a page reached from one
+ * open rows of ANY member team, so a page reached from one
  * of those rows must work in the ROW's team — its owner gate, its pools, its
  * start — never silently in the selection. A route naming nothing team-owned
  * keeps [selectedId] (the Agent composer's Chat FAB). Until the subject's row
@@ -59,7 +59,7 @@ fun routeTeamIdFlow(
         } else {
             when (subject) {
                 // NEW-2: an `action` route arg names a saved prompt.
-                is RouteSubject.Action -> db.promptDao().observeById(subject.id).map { it?.teamId }
+                is RouteSubject.Prompt -> db.promptDao().observeById(subject.id).map { it?.teamId }
                 is RouteSubject.Issue -> combine(
                     db.issueDao().observeById(subject.id),
                     db.boardDao().observeAll(),
