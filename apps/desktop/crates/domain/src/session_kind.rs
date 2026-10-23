@@ -33,8 +33,7 @@ pub fn session_traits(kind: Option<&str>) -> SessionTraits {
 }
 
 /// NEW-2: the kind of a session row: `agent` when it is an agent's
-/// conversation session (`agent_id` set), else `thread`. The row's `kind`
-/// column is a never-trusted legacy read shim (NEW-8 drops it).
+/// conversation session (`agent_id` set), else `thread`.
 pub fn session_kind_of(agent_id: Option<&str>) -> &'static str {
     match agent_id {
         Some(id) if !id.is_empty() => SESSION_KIND_AGENT,
@@ -43,7 +42,7 @@ pub fn session_kind_of(agent_id: Option<&str>) -> &'static str {
 }
 
 /// A persistent session (an agent's conversation): it idles instead of
-/// ending. Keyed on `agent_id`, never on the `kind` shim.
+/// ending. Keyed on `agent_id`.
 pub fn is_persistent(agent_id: Option<&str>) -> bool {
     session_traits(Some(session_kind_of(agent_id))).persistent
 }

@@ -11,7 +11,7 @@ import type { StyleguideEntry } from "./types.ts"
 // by the contract's `sessionCard` (the same state the session card shows).
 // The rail's Running rows: the agent mark, the issue identifier, the title.
 // EXP-1323: a live tree nests its children (depth + TreeGuides), a bold
-// title = unread, a child's live caption is its muted second line (big).
+// title = unread.
 
 const NOW = `2026-10-13T12:00:00.000Z`
 
@@ -19,7 +19,6 @@ const session = (over: Partial<TreeSession> & { id: string }): TreeSession => ({
   teamId: `t-acme`,
   parentId: null,
   rootId: over.id,
-  kind: `thread`,
   userId: `u-alex`,
   status: `running`,
   busy: false,
@@ -28,11 +27,6 @@ const session = (over: Partial<TreeSession> & { id: string }): TreeSession => ({
   shared: true,
   title: null,
   guide: null,
-  actionName: null,
-  name: null,
-  icon: null,
-  color: null,
-  sortOrder: 0,
   startedAt: `2026-10-13T11:40:00.000Z`,
   endedAt: null,
   createdAt: `2026-10-13T11:40:00.000Z`,
@@ -73,7 +67,6 @@ const ROWS: readonly SpecimenRow[] = [
       rootId: `s1`,
       title: `Profile the launch path`,
       busy: true,
-      caption: `Reading LaunchTracer.kt`,
     }),
   },
   {
@@ -109,12 +102,11 @@ function SessionRowSpecimen() {
         return (
           <SessionRow
             key={row.session.id}
-            size={card.caption ? `big` : `small`}
+            size="small"
             agent="claude"
             markState={MARK[card.state]}
             identifier={row.identifier}
             title={card.name}
-            caption={card.caption}
             unread={row.unread}
             depth={row.depth}
             guide={guides[index]}
@@ -133,7 +125,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1248`,
   title: `Session row`,
-  blurb: `ONE list item for a session, nested by the session tree (a child session under its root). Anatomy ×4: [tree guides][session mark at 12 + 14·depth][mono id · title]. The mark is the agent's brand mark, its state the session card's (\`sessionCard\`: Claude's spark while it works, a badge when it needs you, dimmed once ended). EXP-1293: no device. small = one line, 32px (the rail's Running). EXP-1323: a live tree's children nest under the root in the Threads list and the rail (depth + TreeGuides, 14px a level, the 3px corner tee; a child opens that session); a bold title = an agent reply the viewer has not read; a child's live caption (\`Reading LaunchTracer.kt\`, the session card rule) is the big row's muted second line.`,
+  blurb: `ONE list item for a session, nested by the session tree (a child session under its root). Anatomy ×4: [tree guides][session mark at 12 + 14·depth][mono id · title]. The mark is the agent's brand mark, its state the session card's (\`sessionCard\`: Claude's spark while it works, a badge when it needs you, dimmed once ended). EXP-1293: no device. small = one line, 32px (the rail's Running). EXP-1323: a live tree's children nest under the root in the Threads list and the rail (depth + TreeGuides, 14px a level, the 3px corner tee; a child opens that session); a bold title = an agent reply the viewer has not read.`,
   status: {
     web: {
       state: `ok`,

@@ -260,10 +260,10 @@ pub fn session_own_branch(row: &SessionRow) -> String {
 
 /// EXP-1292/1341 — what a session is CALLED on this device (tab title, the
 /// computer-use cursor badge, logs): THE session title
-/// (`domain::session_title`) over what the launch knows — the row's name /
-/// stored title, its issues (`issue_identifiers`, titled by the brief's
-/// `## Issues` lines: a child's brief lists only its ASSIGNED issues), its
-/// action, the brief's `## Request` first line — else `Untitled`. Never a
+/// (`domain::session_title`) over what the launch knows — the row's stored
+/// title, its issues (`issue_identifiers`, titled by the brief's
+/// `## Issues` lines: a child's brief lists only its ASSIGNED issues), the
+/// brief's `## Request` first line — else `Untitled`. Never a
 /// generic `Session`.
 pub fn session_label(row: &SessionRow, issue_identifiers: &[String], brief: &str) -> String {
     use domain::session_title::{title_from_parts, TitleIssue};
@@ -278,13 +278,7 @@ pub fn session_label(row: &SessionRow, issue_identifiers: &[String], brief: &str
                 .map_or("", |(_, title)| title.as_str()),
         })
         .collect();
-    let label = title_from_parts(
-        row.name.as_deref(),
-        row.title.as_deref(),
-        &issues,
-        row.action_name.as_deref(),
-        brief_request(brief),
-    );
+    let label = title_from_parts(row.title.as_deref(), &issues, brief_request(brief));
     // An issue the brief did not title reads `#EXP-42` / `#EXP-42 + 2`.
     if issues.first().is_some_and(|issue| issue.title.trim().is_empty()) && label.starts_with('#') {
         return label.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -3334,8 +3328,7 @@ mod tests {
     }
 
     /// EXP-1341: the label = THE session title over what the launch knows
-    /// (name/title, the brief-titled issues, the action, the request's first
-    /// line), never a generic `Session`.
+    /// (title, the brief-titled issues, the request's first line), never a generic `Session`.
     #[test]
     fn the_label_is_the_session_title() {
         let brief = "## Request\n\n![shot](/api/attachments/x)\nSpeed it up\n\n## Issues\n\n- EXP-42 Cold start is slow\n- EXP-43 Lag";
@@ -3357,15 +3350,10 @@ mod tests {
         // An issue the brief does not title reads by its identifier alone.
         assert_eq!(session_label(&thread, &["EXP-9".to_string(), "EXP-42".to_string()], ""), "#EXP-9 + 1");
         assert_eq!(session_label(&thread, &[], brief), "Speed it up");
-        thread.action_name = Some("Tidy up".to_string());
-        assert_eq!(session_label(&thread, &[], brief), "Run Tidy up");
-        thread.action_name = None;
         assert_eq!(session_label(&thread, &[], "## Issues\n\n- not-an-id"), "Untitled");
         let mut agent = row("a-1", None);
-        agent.kind = Some("agent".to_string());
         agent.agent_id = Some("ag-1".to_string());
-        agent.title = None;
-        agent.name = Some("Inbox watcher".to_string());
+        agent.title = Some("Inbox watcher".to_string());
         assert_eq!(session_label(&agent, &[], ""), "Inbox watcher");
     }
 

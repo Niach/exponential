@@ -22,7 +22,7 @@ final class SessionTitleTests: XCTestCase {
         let titles = try XCTUnwrap(fixture["titles"] as? [String: String])
         XCTAssertEqual(titles["issue"], SessionTitle.Copy.issue)
         XCTAssertEqual(titles["issues"], SessionTitle.Copy.issues)
-        XCTAssertEqual(titles["action"], SessionTitle.Copy.action)
+        XCTAssertNil(titles["action"])
         XCTAssertEqual(fixture["titleMax"] as? Int, SessionTitle.Copy.titleMax)
         XCTAssertEqual(fixture["untitled"] as? String, SessionTitle.Copy.untitled)
     }
@@ -37,9 +37,7 @@ final class SessionTitleTests: XCTestCase {
             let session = SessionTitle.Session(
                 id: try XCTUnwrap(row["id"] as? String),
                 rootId: try XCTUnwrap(row["rootId"] as? String),
-                name: row["name"] as? String,
-                title: row["title"] as? String,
-                actionName: row["actionName"] as? String
+                title: row["title"] as? String
             )
             let links = try XCTUnwrap(input["links"] as? [[String: Any]]).map {
                 TreeSessionIssue(

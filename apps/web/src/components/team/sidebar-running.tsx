@@ -38,8 +38,8 @@ import { useEnteringRows } from "@/hooks/use-entering-rows"
 // the thread with the `running` origin, which creates NO work tab
 // (`lib/work-tabs.ts` `TABLESS_ORIGIN`). EXP-1323: a live tree nests its
 // children under the root (TreeGuides, 14px a level; a child opens that
-// session in its thread), a bold title = unread, the live caption the muted
-// second line; a row that changes band enters on the motion tokens.
+// session in its thread), a bold title = unread; a row that changes band
+// enters on the motion tokens.
 
 /** The words a row shows while its title is held (EXP-1316: an
  *  issue-linked row waits for the issue shapes). */
@@ -47,34 +47,14 @@ export const SIDEBAR_RUNNING_LOADING_LABEL = `Loading`
 
 /** A held row's title line: a skeleton bar in the text's place, never an
  *  empty row beside a glyph. */
-function SidebarRunningTitle({
-  title,
-  unread = false,
-  caption = null,
-}: {
-  title: string
-  unread?: boolean
-  caption?: string | null
-}) {
+function SidebarRunningTitle({ title, unread = false }: { title: string; unread?: boolean }) {
   if (title) {
-    const line = (
+    return (
       <span
         data-unread={unread || undefined}
-        className={cn(`min-w-0 truncate`, !caption && `flex-1`, unread && `font-semibold`)}
+        className={cn(`min-w-0 flex-1 truncate`, unread && `font-semibold`)}
       >
         {title}
-      </span>
-    )
-    if (!caption) return line
-    return (
-      <span className="flex min-w-0 flex-1 flex-col">
-        {line}
-        <span
-          data-slot="sidebar-running-caption"
-          className="truncate text-xs text-muted-foreground"
-        >
-          {caption}
-        </span>
       </span>
     )
   }
@@ -216,7 +196,7 @@ export function SidebarRunningSection({
                     child ? openThread(row.rootId, row.sessionId) : openThread(row.sessionId)
                   }
                   data-testid={`sidebar-running-${row.sessionId}`}
-                  className={cn(child && `relative`, row.caption && `h-auto py-1`)}
+                  className={cn(child && `relative`)}
                   style={
                     child
                       ? { paddingLeft: SIDEBAR_TREE_BASE + row.depth * TREE_INDENT }
@@ -225,11 +205,7 @@ export function SidebarRunningSection({
                 >
                   {child && <TreeGuides guide={guides[index]} base={SIDEBAR_TREE_BASE} />}
                   <ThreadRunMark row={row} />
-                  <SidebarRunningTitle
-                    title={row.title}
-                    unread={row.unread}
-                    caption={row.caption}
-                  />
+                  <SidebarRunningTitle title={row.title} unread={row.unread} />
                   {/* EXP-1318: the root's device, trailing. */}
                   {device && <SessionRowDevice icon={device.icon} name={device.name} />}
                 </SidebarMenuButton>

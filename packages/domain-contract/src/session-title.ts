@@ -14,9 +14,7 @@ export const SESSION_TITLE_COPY = {
 export interface TitleSession {
   id: string
   rootId: string
-  name: string | null
   title: string | null
-  actionName: string | null
 }
 
 export interface TitleLink {
@@ -120,12 +118,10 @@ export function sessionTitle(
   issues: readonly TitleIssue[],
   messages: readonly TitleMessage[]
 ): string {
-  const named = session.name?.trim() || session.title?.trim()
+  const named = session.title?.trim()
   if (named) return named
   const own = sessionIssues(session, links, issues)
   if (own.length > 0) return issueLabel(own)
-  const action = session.actionName?.trim()
-  if (action) return SESSION_TITLE_COPY.titles.action.replace(`{action}`, () => action)
   const prompt = firstPrompt(session.id, messages)
   return prompt ? clip(prompt, SESSION_TITLE_COPY.titleMax) : SESSION_TITLE_COPY.untitled
 }

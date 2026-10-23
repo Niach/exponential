@@ -937,23 +937,6 @@ fun SessionCard(
             .testTag(card.testId),
     ) {
         SessionCardHeader(card)
-        // EXP-1323: the live caption = the muted second line, at the name's x
-        // (12dp padding + the 14dp icon + its 8dp gap).
-        card.caption?.let { caption ->
-            Text(
-                caption,
-                style = threadCardTextStyle(),
-                color = Muted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    // Drawn 6dp up into the header row (web `-mt-1.5`): the
-                    // 2dp of layout below + those 6 = the 8dp bottom inset.
-                    .offset(y = (-6).dp)
-                    .padding(start = 34.dp, end = 12.dp, bottom = 2.dp)
-                    .testTag("session-card-caption"),
-            )
-        }
     }
 }
 
