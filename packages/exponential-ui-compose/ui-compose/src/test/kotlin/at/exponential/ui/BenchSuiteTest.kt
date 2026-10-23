@@ -34,6 +34,11 @@ class BenchSuiteTest {
         val dir = File(System.getProperty("exponential.ui.benchScenarios") ?: "../../exponential-ui-bench/scenarios")
         assumeTrue("bench scenarios not in this checkout ($dir)", dir.isDirectory)
         val repeat = System.getProperty("exponential.ui.benchRepeat")?.toIntOrNull() ?: 3
+        // VAPP-134: what the zygote preloads before any app code runs on
+        // Android: the system typefaces. Robolectric's native graphics load
+        // them on the first `Typeface` touch (1.3-1.6 s on an M4 Pro), which
+        // the cold start charged to the painter; it stays out of the timing.
+        android.graphics.Typeface.DEFAULT
         val shaper = robolectricShaper(density = 2.75f)
         val suite = BenchSuite(
             read = { id -> JsonValue.parse(File(dir, "$id.json").readText()) },
