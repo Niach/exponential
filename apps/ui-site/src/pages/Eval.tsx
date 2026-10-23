@@ -23,6 +23,9 @@ const SECTIONS: DocsSectionType[] = [
 ]
 
 type Row = (typeof report.rows)[number]
+// VAPP-125: typed by hand, not inferred: a clean eval leaves these arrays empty (`never[]`).
+type Issue = { id: string; message: string }
+type IssueKind = { message: string; count: number }
 type RendererMeasure = { height: number; nodes: number; gaps: number[]; distinctGaps: number[]; textInset: number | null; overflowsX: boolean }
 type Candidate = `solid` | `element`
 const CANDIDATES: Candidate[] = [`solid`, `element`]
@@ -59,7 +62,7 @@ const CLASS_LABEL: Record<string, string> = {
   native: `Needs a new native`,
 }
 
-const findingsOf = (r: Row) => [...r.issues.map((i) => `${i.id}: ${i.message}`), ...r.findings]
+const findingsOf = (r: Row) => [...(r.issues as Issue[]).map((i) => `${i.id}: ${i.message}`), ...r.findings]
 
 export default function EvalPage({ path }: PageProps) {
   const source = (p: string) => LINKS.source(`packages/exponential-ui/eval/${p}`)
@@ -129,7 +132,11 @@ bun run --filter @exponential-at/ui eval:parity   # the Devices template vs the 
             ]}
           />
           <h3>The mistakes, by frequency</h3>
-          <DocsTable head={[`Issue`, `Count`]} rows={a.issueKinds.map((k) => [<code key={k.message}>{k.message}</code>, k.count])} />
+          {a.issueKinds.length ? (
+            <DocsTable head={[`Issue`, `Count`]} rows={(a.issueKinds as IssueKind[]).map((k) => [<code key={k.message}>{k.message}</code>, k.count])} />
+          ) : (
+            <p>None: every surface validates.</p>
+          )}
         </DocsSection>
 
         <DocsSection id="rubric" num="04" label="The visual rubric">
