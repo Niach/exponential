@@ -13,12 +13,14 @@
 import { useMemo, useRef, useSyncExternalStore } from "react"
 import { catalogView } from "@exponential-at/ui"
 import type { ExtensionDef, UiNode } from "@exponential-at/ui"
-import { CLIENT_FUNCTIONS, absolutePath, getPointer, isBinding, isCall } from "@exponential-at/ui/web"
+import { CLIENT_FUNCTIONS, absolutePath, isBinding, isCall, pointerTokens } from "@exponential-at/ui/web"
 import type { SurfaceContextValue } from "./context"
 import { extensionComponent } from "./extensions"
 
 export interface NodeDeps {
   paths: string[]
+  /** `paths` as pointer tokens (read on every change of every node). */
+  tokens: string[][]
   /** Re-render on any data change. */
   all: boolean
   breakpoint: boolean
@@ -91,7 +93,22 @@ export function nodeDeps(node: UiNode, scope: string, ctx: SurfaceContextValue):
     collect(node.recipe?.props, scope, paths, ctx.functions) ||
     collect(node.accessibility, scope, paths, ctx.functions)
   if (node.template) paths.push(absolutePath(node.template.path, scope))
-  return { paths: [...new Set(paths)], all, breakpoint: hosted || responsiveProps(node.component, ctx.extensionDefs).length > 0, xq: hosted || mediaDirection(node.style as Record<string, unknown> | undefined), mode: hosted || MODE_READERS.has(node.component) }
+  const unique = [...new Set(paths)]
+  return { paths: unique, tokens: unique.map(pointerTokens), all, breakpoint: hosted || responsiveProps(node.component, ctx.extensionDefs).length > 0, xq: hosted || mediaDirection(node.style as Record<string, unknown> | undefined), mode: hosted || MODE_READERS.has(node.component) }
+}
+
+const INDEX = /^[0-9]+$/
+
+/** `getPointer` over pre-split tokens (the same rule: real indices and
+ *  OWN keys only). */
+function readTokens(data: unknown, tokens: readonly string[]): unknown {
+  let cur = data
+  for (const token of tokens) {
+    if (cur === null || typeof cur !== `object`) return undefined
+    if (Array.isArray(cur)) cur = INDEX.test(token) ? cur[Number(token)] : undefined
+    else cur = Object.prototype.hasOwnProperty.call(cur, token) ? (cur as Record<string, unknown>)[token] : undefined
+  }
+  return cur
 }
 
 const NONE: readonly unknown[] = []
@@ -106,7 +123,7 @@ export function useLive(ctx: SurfaceContextValue, node: UiNode, scope: string): 
   const read = (): readonly unknown[] => {
     if (!watches) return NONE
     const data = ctx.data
-    const next: unknown[] = deps.paths.map((p) => getPointer(data, p))
+    const next: unknown[] = deps.tokens.map((t) => readTokens(data, t))
     next.push(deps.all ? data : undefined, deps.breakpoint ? ctx.breakpoint : undefined, deps.xq ? ctx.xq : undefined, deps.mode ? ctx.mode : undefined)
     const prev = last.current
     if (prev.length === next.length && prev.every((v, i) => Object.is(v, next[i]))) return prev

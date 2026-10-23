@@ -28,7 +28,7 @@ import {
   DEFAULT_LOCALE,
   DEFAULT_THEME_ID,
 } from "@exponential-at/ui"
-import type { ModeName, ResolvedTheme, ScrollAlign, TemplateBudget, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
+import type { Formatter, ModeName, ResolvedTheme, ScrollAlign, TemplateBudget, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
 import { BASE_CSS } from "@exponential-at/ui/web"
 import { compileNodeSheet, queryToken, surfaceClass } from "@exponential-at/ui/web"
 import { SurfaceContext, type SurfaceContextValue } from "./context"
@@ -205,6 +205,23 @@ export function surfaceLayout(box: SurfaceBox, inputs: LayoutInputs): { breakpoi
 }
 
 const FOCUSABLE = `input:not([disabled]),textarea:not([disabled]),select:not([disabled]),button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"]),[contenteditable="true"]`
+
+/** `intlFormatter` built on its first use (VAPP-137): the platform zone
+ *  costs an `Intl.DateTimeFormat` (~7 ms cold), and most surfaces format
+ *  nothing. */
+function lazyFormatter(locale: string, timeZone: string | undefined): Formatter {
+  let base: Formatter | undefined
+  const get = () => (base ??= intlFormatter(locale, timeZone ?? platformZone()))
+  return {
+    locale,
+    number: (value, o) => get().number(value, o),
+    currency: (value, currency, o) => get().currency(value, currency, o),
+    percent: (value, o) => get().percent(value, o),
+    date: (value, o) => get().date(value, o),
+    relativeTime: (value, now) => get().relativeTime(value, now),
+    plural: (value) => get().plural(value),
+  }
+}
 
 const platformZone = (): string => {
   try {
@@ -450,8 +467,7 @@ export function ExponentialSurface({
   }, [])
 
   const functions = useMemo(() => ({ ...CLIENT_FUNCTIONS, ...(host?.functions ?? {}) }), [host?.functions])
-  const zone = timeZone ?? platformZone()
-  const formatter = useMemo(() => memoFormatter(intlFormatter(locale, zone)), [locale, zone])
+  const formatter = useMemo(() => memoFormatter(lazyFormatter(locale, timeZone)), [locale, timeZone])
   // The surface clock: a tree that formats a relative time against "now"
   // re-binds once a minute (a new `now` reaches every node).
   const liveClock = useMemo(() => usesLiveClock(root) || usesLiveClock(templateRoots), [root, templateRoots])

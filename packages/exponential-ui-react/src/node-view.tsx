@@ -14,7 +14,7 @@
 // `set`, then dispatch the event. A data template renders its component
 // once per item under the item's scope, keyed by `template.key`.
 
-import { Component, Fragment, memo, useCallback, useContext, useEffect, useMemo, type CSSProperties, type ReactNode } from "react"
+import { Component, Fragment, memo, useCallback, useContext, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react"
 import { UNKNOWN_COMPONENT, instanceSegment, isResponsiveValue, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential-at/ui"
 import type { UiNode } from "@exponential-at/ui"
 import { dynamicStyleEntries, nodeClass, queryToken, styleDirection } from "@exponential-at/ui/web"
@@ -372,14 +372,29 @@ export function TemplateItemView({ tpl, item }: { tpl: UiNode; item: TemplateIte
   )
 }
 
+/** VAPP-140: a template whose items share NO key with the last render's
+ *  (a replaced array) mounts as one new block: React's keyed reconcile
+ *  would place each new item on its own, every placement scanning the new
+ *  siblings after it (quadratic: 10,000 items, 150 ms of sibling search). */
 function TemplateChildren({ node, scope }: { node: UiNode; scope: string }) {
   const ctx = useSurfaceContext()
   const t = templateItems(ctx, node, scope)
+  const last = useRef<{ keys: Set<string>; generation: number }>({ keys: new Set(), generation: 0 })
+  const keys = t ? t.items.map((item) => item.key) : []
+  let generation = last.current.generation
+  if (keys.length > 0 && last.current.keys.size > 0 && !keys.some((k) => last.current.keys.has(k))) generation++
+  useEffect(() => {
+    last.current = { keys: new Set(keys), generation }
+  })
   if (!t) return null
+  return <TemplateBlock key={generation} items={t.items} tpl={t.tpl} />
+}
+
+function TemplateBlock({ items, tpl }: { items: TemplateItem[]; tpl: UiNode }) {
   return (
     <>
-      {t.items.map((item) => (
-        <TemplateItemView key={item.key} tpl={t.tpl} item={item} />
+      {items.map((item) => (
+        <TemplateItemView key={item.key} tpl={tpl} item={item} />
       ))}
     </>
   )
