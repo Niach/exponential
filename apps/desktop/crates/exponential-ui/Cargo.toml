@@ -54,6 +54,9 @@ cosmic-text = { version = "0.19", optional = true }
 # runs low (iOS secondary threads have 512 KB); the version already in
 # apps/desktop/Cargo.lock.
 stacker = "0.1"
+# VAPP-132: the restyle memo's key hash (the version already in
+# apps/desktop/Cargo.lock).
+rustc-hash = "2"
 
 # VAPP-124: stacker has no Android or iOS stack-limit backend; `src/stack.rs`
 # asks pthread there.
