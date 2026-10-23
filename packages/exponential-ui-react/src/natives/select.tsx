@@ -30,6 +30,42 @@ export interface SelectOption {
   disabled?: boolean
 }
 
+// VAPP-146 (fixtures/interactions-round1.json `select`): `""` is an ordinary
+// option value. Radix's Select.Item refuses it (Radix keeps `""` for "no
+// value"), so an empty value crosses the Radix boundary as EMPTY and comes
+// back as `""`; the one DOM place Radix writes an item value (the hidden
+// native <select> inside a <form>) is set back to `""`, so the DOM stays
+// the Solid painter's.
+const EMPTY = `\u0000xui-empty`
+const toRadix = (value: string): string => (value === `` ? EMPTY : value)
+const fromRadix = (value: string): string => (value === EMPTY ? `` : value)
+
+/** Keeps the hidden native <select>'s options free of `EMPTY`; a select
+ *  mounted while the value is `""` gets the empty placeholder option first
+ *  and keeps it (the Solid painter's `NativeSelect`; Radix only renders it
+ *  for an uncontrolled value). */
+function useNativeEmptyOption(root: HTMLElement | null, empty: boolean): void {
+  const emptyNow = useRef(empty)
+  emptyNow.current = empty
+  useEffect(() => {
+    if (!root || typeof MutationObserver === `undefined`) return
+    const seen = new WeakSet<HTMLSelectElement>()
+    const fix = () => {
+      for (const select of Array.from(root.querySelectorAll<HTMLSelectElement>(`select[aria-hidden]`))) {
+        if (!seen.has(select)) {
+          seen.add(select)
+          if (emptyNow.current) select.insertBefore(document.createElement(`option`), select.firstChild).setAttribute(`value`, ``)
+        }
+        for (const option of Array.from(select.options)) if (option.getAttribute(`value`) === EMPTY) option.setAttribute(`value`, ``)
+      }
+    }
+    fix()
+    const observer = new MutationObserver(fix)
+    observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: [`value`] })
+    return () => observer.disconnect()
+  }, [root])
+}
+
 const asList = (raw: unknown): string[] => (Array.isArray(raw) ? raw.map(String) : raw === undefined || raw === null || raw === `` ? [] : String(raw).split(`,`))
 
 export function SelectNative({ node, props, rootProps, emit, scope, domId }: NativeProps) {
@@ -72,6 +108,9 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
   )
   const inline = objects<SelectOption>(props.options)
   const options = sourced ?? inline
+  const hasEmpty = options.some((o) => o.value === ``)
+  const [plainRoot, setPlainRoot] = useState<HTMLDivElement | null>(null)
+  useNativeEmptyOption(hasEmpty ? plainRoot : null, value === ``)
   const commit = (next: string | string[]) => {
     const out = multiple && !rawIsArray && typeof raw === `string` ? (next as string[]).join(`,`) : next
     setValue(next, out)
@@ -101,12 +140,28 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
 
   if (!multiple && !searchable) {
     const chosen = options.find((o) => o.value === value)
+    const chosenLabel = chosen ? str(chosen.label) : ``
     return (
-      <div {...(rootProps as Record<string, unknown>)} data-source={source || undefined}>
+      <div ref={hasEmpty ? setPlainRoot : undefined} {...(rootProps as Record<string, unknown>)} data-source={source || undefined}>
         {label}
-        <SelectPrimitive.Root value={(value as string) || undefined} onValueChange={commit} disabled={disabled} open={open} onOpenChange={setOpen} name={str(props.name, node.id)} dir={ctx.direction}>
+        <SelectPrimitive.Root
+          // With an empty option the Select stays CONTROLLED through every
+          // pick (`""` is Radix's controlled "no value": the placeholder
+          // state, no item checked, the same DOM); a flip to `undefined`
+          // and back would make Radix warn. Without one, an unset value
+          // stays `undefined` (the hidden native <select> keeps its empty
+          // placeholder option, as Solid's).
+          value={hasEmpty ? (value as string) : (value as string) || undefined}
+          // The option already holding the value fires nothing (Radix's rule;
+          // `""` reads as Radix's "no value", so it is checked here).
+          onValueChange={(v) => {
+            const next = fromRadix(v)
+            if (next !== value) commit(next)
+          }} disabled={disabled} open={open} onOpenChange={setOpen} name={str(props.name, node.id)} dir={ctx.direction}>
           <SelectPrimitive.Trigger ref={triggerRef} id={id} {...(part(`trigger`, ...triggerStates(open)) as Record<string, string>)} aria-invalid={f.invalid || undefined} aria-describedby={f.describedBy}>
-            <span>{chosen ? <SelectPrimitive.Value>{str(chosen.label)}</SelectPrimitive.Value> : <span {...(part(`placeholder`) as Record<string, string>)}>{placeholder}</span>}</span>
+            {/* Radix shows `placeholder` for its "no value" (`""`): the chosen
+                label either way. */}
+            <span>{chosen ? <SelectPrimitive.Value placeholder={chosenLabel}>{chosenLabel}</SelectPrimitive.Value> : <span {...(part(`placeholder`) as Record<string, string>)}>{placeholder}</span>}</span>
             <SelectPrimitive.Icon asChild>
               <BuiltinIcon slot="Select.trigger" />
             </SelectPrimitive.Icon>
@@ -116,7 +171,7 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
               <SelectPrimitive.Viewport>
                 {options.length === 0 ? <div {...(part(`empty`) as Record<string, string>)}>{str(props.emptyText) || ctx.t(`noResults`)}</div> : null}
                 {options.map((o) => (
-                  <SelectPrimitive.Item key={o.value} value={o.value} disabled={bool(o.disabled)} {...(part(`item`, o.value === value && `selected`, bool(o.disabled) && `disabled`) as Record<string, string>)}>
+                  <SelectPrimitive.Item key={o.value} value={toRadix(o.value)} disabled={bool(o.disabled)} {...(part(`item`, o.value === value && `selected`, bool(o.disabled) && `disabled`) as Record<string, string>)}>
                     {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} /> : null}
                     <SelectPrimitive.ItemText>{str(o.label)}</SelectPrimitive.ItemText>
                     <SelectPrimitive.ItemIndicator {...(part(`check`) as Record<string, string>)} className={`${part(`check`).className as string} xui-Select-check`}>

@@ -2299,7 +2299,7 @@
         "width": 1280,
         "react": {
           "height": 511,
-          "nodes": 71,
+          "nodes": 73,
           "gaps": [
             12,
             12
@@ -2342,25 +2342,19 @@
           "overflowsX": false,
           "picture": "eval/out/issue-list-filters/element-1280.png"
         },
-        "equal": false,
+        "equal": true,
         "differences": {
-          "solid": [
-            "nodes: react 71, solid 73",
-            "pixels: 57921 differ (1.26 %)"
-          ],
-          "element": [
-            "nodes: react 71, element 73",
-            "pixels: 57921 differ (1.26 %)"
-          ]
+          "solid": [],
+          "element": []
         },
         "pixelDiff": {
           "solid": {
-            "pixels": 57921,
-            "share": 0.012569661458333334
+            "pixels": 0,
+            "share": 0
           },
           "element": {
-            "pixels": 57921,
-            "share": 0.012569661458333334
+            "pixels": 0,
+            "share": 0
           }
         }
       }
@@ -3199,8 +3193,8 @@
           "distinctGaps": [
             24
           ],
-          "textInset": 351,
-          "textPadding": 327,
+          "textInset": 362,
+          "textPadding": 338,
           "overflowsX": false,
           "picture": "eval/out/pricing/react-1280.png"
         },
@@ -3214,8 +3208,8 @@
           "distinctGaps": [
             24
           ],
-          "textInset": 351,
-          "textPadding": 327,
+          "textInset": 362,
+          "textPadding": 338,
           "overflowsX": false,
           "picture": "eval/out/pricing/solid-1280.png"
         },
@@ -3229,8 +3223,8 @@
           "distinctGaps": [
             24
           ],
-          "textInset": 351,
-          "textPadding": 327,
+          "textInset": 362,
+          "textPadding": 338,
           "overflowsX": false,
           "picture": "eval/out/pricing/element-1280.png"
         },
@@ -3259,7 +3253,7 @@
           "nodes": 104,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": 159,
+          "textInset": 158,
           "textPadding": 20,
           "overflowsX": false,
           "picture": "eval/out/file-manager/react-1280.png"
@@ -3269,7 +3263,7 @@
           "nodes": 104,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": 159,
+          "textInset": 158,
           "textPadding": 20,
           "overflowsX": false,
           "picture": "eval/out/file-manager/solid-1280.png"
@@ -3279,7 +3273,7 @@
           "nodes": 104,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": 159,
+          "textInset": 158,
           "textPadding": 20,
           "overflowsX": false,
           "picture": "eval/out/file-manager/element-1280.png"
@@ -4227,8 +4221,8 @@
           "nodes": 7,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": 165,
-          "textPadding": 165,
+          "textInset": 163,
+          "textPadding": 163,
           "overflowsX": false,
           "picture": "eval/out/team-switcher/react-1280.png"
         },
@@ -4237,8 +4231,8 @@
           "nodes": 7,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": 165,
-          "textPadding": 165,
+          "textInset": 163,
+          "textPadding": 163,
           "overflowsX": false,
           "picture": "eval/out/team-switcher/solid-1280.png"
         },
@@ -4247,8 +4241,8 @@
           "nodes": 7,
           "gaps": [],
           "distinctGaps": [],
-          "textInset": 165,
-          "textPadding": 165,
+          "textInset": 163,
+          "textPadding": 163,
           "overflowsX": false,
           "picture": "eval/out/team-switcher/element-1280.png"
         },

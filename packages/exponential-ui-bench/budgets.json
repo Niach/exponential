@@ -230,53 +230,53 @@
       },
       "react-chromium": {
         "cold-start": {
-          "firstPaintMs": 185.4,
-          "nodes": 599,
-          "coldStartMs": 290.4,
-          "memoryMb": 40
+          "firstPaintMs": 146.7,
+          "nodes": 612,
+          "coldStartMs": 253.1,
+          "memoryMb": 33
         },
         "card-grid": {
-          "warmPassMs": 11.9
+          "warmPassMs": 0.7
         },
         "list-100k": {
           "firstPaintMs": 108,
-          "scrollToIndexMs": 61.8,
-          "scrollStepMs": 4.9,
+          "scrollToIndexMs": 5.7,
+          "scrollStepMs": 3,
           "renderedItems": 30,
-          "memoryMb": 228.5
+          "memoryMb": 182.3
         },
         "streaming": {
           "nodes": 607,
-          "applyMs": 15.8,
-          "p95ApplyMs": 26.7,
-          "totalMs": 3145.7
+          "applyMs": 3.7,
+          "p95ApplyMs": 9.7,
+          "totalMs": 728
         },
         "theme-switch": {
-          "themeSwitchMs": 56.1,
-          "modeSwitchMs": 44.6
+          "themeSwitchMs": 34.5,
+          "modeSwitchMs": 11.2
         },
         "resize": {
-          "resizeMs": 39.1
+          "resizeMs": 1.8
         },
         "deep-nesting": {
-          "firstPaintMs": 59.6,
-          "warmPassMs": 5.6,
+          "firstPaintMs": 38.5,
+          "warmPassMs": 0.5,
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 431.9,
+          "firstPaintMs": 222.6,
           "nodes": 10001,
-          "rebindMs": 563.1
+          "rebindMs": 200.2
         },
         "overlay": {
-          "openMs": 5.5,
-          "closeMs": 5.1
+          "openMs": 1.8,
+          "closeMs": 1.5
         },
         "table-1k": {
-          "firstPaintMs": 56.7,
-          "scrollStepMs": 2.6,
+          "firstPaintMs": 52.5,
+          "scrollStepMs": 2.2,
           "renderedRows": 36,
-          "sortMs": 6.5
+          "sortMs": 3.5
         }
       },
       "solid-chromium": {

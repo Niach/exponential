@@ -20,15 +20,7 @@ import { CANDIDATES, RENDERERS, type Candidate, type RenderMeasure } from "./ren
 /** Where a renderer differs from React on the corpus, by surface and
  *  candidate: the findings the eval produced (the web-parity gate had no
  *  case for them). */
-const RENDER_FINDINGS: Record<string, Partial<Record<Candidate, RegExp[]>>> = {
-  // React's Select throws on an option whose value is "" (Radix Select.Item refuses the empty string) and paints
-  // its error placeholder; the Solid painter (Solid and the element) paints the control. The Opus 5.5 recording
-  // (VAPP-127): 2 nodes more on the Solid side.
-  "issue-list-filters": {
-    solid: [/^nodes: react 71, solid 73$/, /^pixels: \d+ differ/],
-    element: [/^nodes: react 71, element 73$/, /^pixels: \d+ differ/],
-  },
-}
+const RENDER_FINDINGS: Record<string, Partial<Record<Candidate, RegExp[]>>> = {}
 
 const prompts = (corpus as Corpus).prompts
 

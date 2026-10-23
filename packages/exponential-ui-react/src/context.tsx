@@ -6,6 +6,7 @@ import type { CompiledTheme } from "@exponential-at/ui/web"
 import type { HostPlugin } from "./host"
 import type { ReactExtension } from "./extensions"
 import type { ClientFunction, DataModel, ResolveContext } from "@exponential-at/ui/web"
+import { setPointer } from "@exponential-at/ui/web"
 
 export interface SurfaceContextValue {
   surfaceId: string
@@ -72,6 +73,11 @@ export interface SurfaceContextValue {
   hover: boolean
   /** Speak a message through the surface's live regions. */
   announce: (text: string, live?: `polite` | `assertive`) => void
+  /** VAPP-141: `data`, `breakpoint`, `xq` and `mode` are LIVE (the surface's
+   *  latest render; the context object keeps its identity when only they
+   *  change): a listener hears every change, and a node re-renders when a
+   *  value it reads is new (`live.ts`). Returns the unsubscribe. */
+  subscribe: (listener: () => void) => () => void
 }
 
 export const SurfaceContext = createContext<SurfaceContextValue | null>(null)
@@ -80,6 +86,31 @@ export function useSurfaceContext(): SurfaceContextValue {
   const ctx = useContext(SurfaceContext)
   if (!ctx) throw new Error(`exponential-ui: this component must render inside <ExponentialSurface>`)
   return ctx
+}
+
+/** A context with some members replaced, the live getters (`data`,
+ *  `breakpoint`, `xq`, `mode`) kept live (a plain spread would freeze them);
+ *  `data` may be a getter of its own (a read view over the live model). */
+export function deriveContext(ctx: SurfaceContextValue, values: Partial<SurfaceContextValue>, data?: () => DataModel): SurfaceContextValue {
+  const out = Object.defineProperties({}, Object.getOwnPropertyDescriptors(ctx)) as SurfaceContextValue
+  for (const [key, value] of Object.entries(values)) Object.defineProperty(out, key, { value, enumerable: true, configurable: true, writable: true })
+  if (data) Object.defineProperty(out, `data`, { get: data, enumerable: true, configurable: true })
+  return out
+}
+
+/** The live model with `value` mounted at `pointer` (a literal scope's
+ *  read view), rebuilt only when the live model is a new object. */
+export function readView(ctx: SurfaceContextValue, pointer: string, value: unknown): () => DataModel {
+  let base: unknown = undefined
+  let view: DataModel = {}
+  return () => {
+    const data = ctx.data
+    if (data !== base || base === undefined) {
+      base = data
+      view = setPointer(data as Record<string, unknown>, pointer, value)
+    }
+    return view
+  }
 }
 
 /** The data scope of a template item (relative paths resolve here). */

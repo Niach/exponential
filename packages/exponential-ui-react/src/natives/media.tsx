@@ -137,7 +137,9 @@ export function AvatarNative({ node, props, rootProps }: NativeProps) {
   return (
     <AvatarPrimitive.Root {...(rootProps as Record<string, unknown>)} aria-label={name || undefined} role="img">
       {src ? <AvatarPrimitive.Image {...(part(`image`) as Record<string, string>)} src={url} alt={name} /> : null}
-      <AvatarPrimitive.Fallback {...(part(`fallback`) as Record<string, string>)} delayMs={src ? 300 : 0} style={tint}>
+      {/* No picture to wait for: the initials paint with the first frame
+          (Radix holds a 0 ms delay one timer tick; Solid paints at once). */}
+      <AvatarPrimitive.Fallback {...(part(`fallback`) as Record<string, string>)} delayMs={src ? 300 : undefined} style={tint}>
         {initials(name) || `?`}
       </AvatarPrimitive.Fallback>
     </AvatarPrimitive.Root>

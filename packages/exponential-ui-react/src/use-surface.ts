@@ -61,9 +61,12 @@ interface Inner {
   deleted: boolean
 }
 
+/** One empty list: a fresh `[]` per render would re-reduce on every render. */
+const NO_EXTENSIONS: readonly ExtensionDef[] = []
+
 export function useSurface(options: UseSurfaceOptions = {}): SurfaceState {
   const surfaceId = options.surfaceId ?? `main`
-  const extensions = options.extensions ?? []
+  const extensions = options.extensions ?? NO_EXTENSIONS
   const initialRef = useRef<Inner>({
     catalogId: options.catalogId ?? CORE_CATALOG_ID,
     components: [],
