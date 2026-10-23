@@ -4,9 +4,9 @@ import Foundation
 // port of the TS reference `packages/domain-contract/src/session-title.ts`
 // (desktop `domain::session_title`, Android `domain/SessionTitle.kt`), locked
 // by fixtures/session-title.json (`SessionTitleTests`), whose `$comment`
-// holds the rungs: the explicit name (`name`, else `title`) → the session's
-// issues (the session's OWN rows, root or child alike, NEW-1) → `Run <action>` → the
-// first prompt's usable line → `Untitled`.
+// holds the rungs: the explicit `title` → the session's issues (the
+// session's OWN rows, root or child alike, NEW-1) → the first prompt's usable
+// line → `Untitled`.
 
 public enum SessionTitle {
     /// fixtures/session-title.json `titles` + `titleMax` + `untitled`.
@@ -15,8 +15,6 @@ public enum SessionTitle {
         public static let issue = "#{identifier} {title}"
         /// `{identifier}`, `{title}`, `{more}`.
         public static let issues = "#{identifier} {title} + {more}"
-        /// `{action}`.
-        public static let action = "Run {action}"
         public static let titleMax = 80
         public static let untitled = "Untitled"
     }
@@ -24,25 +22,19 @@ public enum SessionTitle {
     public struct Session: Equatable, Sendable {
         public let id: String
         public let rootId: String
-        public let name: String?
         public let title: String?
-        public let actionName: String?
 
-        public init(id: String, rootId: String, name: String?, title: String?, actionName: String?) {
+        public init(id: String, rootId: String, title: String?) {
             self.id = id
             self.rootId = rootId
-            self.name = name
             self.title = title
-            self.actionName = actionName
         }
 
         public init(_ session: TreeSession) {
             self.init(
                 id: session.id,
                 rootId: session.rootId,
-                name: session.name,
-                title: session.title,
-                actionName: session.actionName
+                title: session.title
             )
         }
     }
@@ -168,14 +160,10 @@ public enum SessionTitle {
 
     /// THE display title off a prebuilt `Index` (one index, many rows).
     public static func title(_ session: Session, index: Index) -> String {
-        let name = trimmed(session.name)
-        if !name.isEmpty { return name }
         let stored = trimmed(session.title)
         if !stored.isEmpty { return stored }
         let own = index.sessionIssues(id: session.id)
         if !own.isEmpty { return issueLabel(own) }
-        let action = trimmed(session.actionName)
-        if !action.isEmpty { return Copy.action.replacingOccurrences(of: "{action}", with: action) }
         if let prompt = index.firstPrompt(sessionId: session.id) {
             return clip(prompt, Copy.titleMax)
         }

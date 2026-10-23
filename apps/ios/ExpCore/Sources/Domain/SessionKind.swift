@@ -4,7 +4,7 @@ import Foundation
 // run the same way; a conversation session (a root with `agentId`) is just
 // `persistent` (never ends, revived on its device's return). Branch on these
 // traits, never on the kind string: `kindOf(agentId:)` derives the kind from
-// `agentId`; the row's `kind` column is a legacy read shim (NEW-8 drops it).
+// `agentId`.
 // A port of `packages/domain-contract/src/session-kind.ts`, locked by
 // fixtures/session-kind.json (`SessionKindTests`).
 

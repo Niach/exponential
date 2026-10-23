@@ -5,8 +5,7 @@ import SwiftUI
 /// desktop `run_rows::run_row`, Android `SessionRow.kt`; geometry =
 /// `list-item.json`, the row facts = `threads-list.json`). ONE line:
 /// [tree guides][lead at 12 + 14·depth][mono id · title][state]. The state
-/// is label-free (EXP-1323: the live caption alone may ride a muted second
-/// line, the bold title marks unread): the inline spinner while it works,
+/// is label-free (EXP-1323: the bold title marks unread): the inline spinner while it works,
 /// the amber dot while it needs you. EXP-1309: the Threads list instead
 /// ends on ONE quiet `word` (web `ThreadsListItem`: `stack`, `question`…;
 /// EXP-1339: no lock) and carries its state in the lead. No fold chevron, no trailing
@@ -23,7 +22,6 @@ public struct SessionRow<Lead: View>: View {
     private let needsYou: Bool
     private let active: Bool
     private let unread: Bool
-    private let caption: String?
     private let word: String?
     private let wordIcon: String?
     private let deviceIcon: String?
@@ -42,8 +40,6 @@ public struct SessionRow<Lead: View>: View {
     ///     (`DeviceIconDisplay`), last on the row; nil = none.
     ///   - deviceName: the device glyph's accessibility label.
     ///   - unread: EXP-1323: news the viewer has not read — a bold title.
-    ///   - caption: EXP-1323: the live caption, a muted second line (the
-    ///     two-line row height).
     public init(
         identifier: String? = nil,
         title: String,
@@ -52,7 +48,6 @@ public struct SessionRow<Lead: View>: View {
         needsYou: Bool = false,
         active: Bool = false,
         unread: Bool = false,
-        caption: String? = nil,
         word: String? = nil,
         wordIcon: String? = nil,
         deviceIcon: String? = nil,
@@ -60,7 +55,6 @@ public struct SessionRow<Lead: View>: View {
         @ViewBuilder lead: () -> Lead
     ) {
         self.unread = unread
-        self.caption = caption
         self.identifier = identifier
         self.title = title
         self.guide = guide
@@ -93,14 +87,6 @@ public struct SessionRow<Lead: View>: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                }
-                if let caption, !caption.isEmpty {
-                    Text(caption)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .accessibilityIdentifier("session-row-caption")
                 }
             }
             Spacer(minLength: 0)
@@ -135,7 +121,7 @@ public struct SessionRow<Lead: View>: View {
         }
         .padding(.leading, ListItem.leadX(depth: guide.depth))
         .padding(.trailing, ListItem.base)
-        .frame(height: (caption?.isEmpty ?? true) ? ListItem.small : ListItem.big)
+        .frame(height: ListItem.small)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(TreeGuidesOverlay(guide: guide, base: ListItem.base))
         .contentShape(Rectangle())
