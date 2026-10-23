@@ -13,12 +13,11 @@
 // child, or a root another live session watches: its spawner) closes out with
 // `exponential_sessions_end` LAST, an attended one only when asked, and a
 // team agent's conversation (its root carries `agent_id`) never ends.
-import { and, eq, sql } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
-import { devices, sessions } from "@/db/schema"
-import { parseVersionTuple } from "@/lib/client-version"
-import { isSessionPrincipal, sessionDeviceOwner } from "@/lib/sessions/host"
+import { sessions } from "@/db/schema"
+import { isSessionPrincipal } from "@/lib/sessions/host"
 import type { McpAccess } from "./scope"
 
 export interface McpToolGates {
@@ -33,29 +32,6 @@ export interface McpToolGates {
   /** EXP-1280: that session is still planning (`sessions.plan_mode`), so the
    * instructions carry the plan-mode gate. Wording only. */
   planMode?: boolean
-  /** EXP-1280: that session's host device feeds a card the session posts on
-   * ITSELF back as its next message (`hostFeedsOwnCards`). False drops the
-   * registration of `exponential_plan_propose` / `exponential_sessions_ask`
-   * and their instructions sentence. Absent = true. */
-  cards?: boolean
-}
-
-/** The first desktop/CLI that feeds a session its OWN answered cards. */
-const OWN_CARDS_MIN_VERSION: readonly [number, number, number] = [0, 14, 73]
-
-/** EXP-1280: a desktop/CLI before 0.14.73 feeds a session only its pending
- * inputs and open cards: a card the session authored itself is neither, so
- * an agent that posts one and ends its turn waits forever. Its host's
- * reported version decides; an unreported or unparseable one fails OPEN
- * (the client-version rule). */
-export function hostFeedsOwnCards(version: string | null | undefined): boolean {
-  if (!version) return true
-  const have = parseVersionTuple(version)
-  if (!have) return true
-  for (let i = 0; i < 3; i++) {
-    if (have[i]! !== OWN_CARDS_MIN_VERSION[i]!) return have[i]! > OWN_CARDS_MIN_VERSION[i]!
-  }
-  return true
 }
 
 /** The worst-case surface — the default `registerExponentialTools` takes, so
@@ -66,7 +42,6 @@ export const ALL_MCP_TOOL_GATES: McpToolGates = {
   unattended: true,
   agent: false,
   planMode: true,
-  cards: true,
 }
 
 const CLOSED: McpToolGates = { inSession: false, unattended: false, agent: false }
@@ -100,18 +75,10 @@ export async function resolveMcpToolGates(
     .limit(1)
   if (!row) return CLOSED
   if (!(await isSessionPrincipal(userId, row))) return CLOSED
-  // The host device's row (devices are per (user, deviceId)): its reported
-  // version says whether it feeds the session's own cards (`cards`).
-  const [host] = await db
-    .select({ version: devices.version })
-    .from(devices)
-    .where(and(eq(devices.deviceId, row.deviceId), eq(devices.userId, await sessionDeviceOwner(row))))
-    .limit(1)
   return {
     inSession: true,
     unattended: row.parentId !== null || row.watched === true,
     agent: row.rootAgentId !== null,
     planMode: row.planMode === true,
-    cards: hostFeedsOwnCards(host?.version),
   }
 }

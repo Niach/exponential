@@ -132,6 +132,12 @@ fun DockCards(
 ) {
     var expanded by remember { mutableStateOf(initialExpanded) }
     val view = Dock.dock(rows, expanded, openId)
+    // Release train 2026-10-23 (N-12 F2): the open card vanished (the run
+    // ended, the ask was answered): forget its id, or a later row with the
+    // same fixed id (`tasks`, `queued`, `banner:*`) reopens the sheet unasked.
+    LaunchedEffect(openId, view.openId) {
+        if (openId != null && view.openId == null) onOpenChange(null)
+    }
     if (view.mode != Dock.Mode.None) {
         DockPile(
             rows = view.rows,
@@ -213,9 +219,15 @@ fun DockPile(
                     row = row,
                     hidden = !fanned && !front,
                     action = action?.let { draw -> { draw(row) } },
-                    onOpen = {
-                        // A touch fans the pile first; the next touch opens.
-                        if (!fanned) onExpandedChange(true) else onOpen(row)
+                    // Release train 2026-10-23 (N-12 F5, iOS `allowsHitTesting`):
+                    // a card beyond `stack.visible` takes no tap.
+                    onOpen = if (!item.visible) {
+                        null
+                    } else {
+                        {
+                            // A touch fans the pile first; the next touch opens.
+                            if (!fanned) onExpandedChange(true) else onOpen(row)
+                        }
                     },
                 )
             }
@@ -241,6 +253,9 @@ fun DockCard(
     val shape = RoundedCornerShape(GlassTokens.CardRadius)
     // A piled card behind the front one still takes the tap that fans.
     val pressable = onOpen != null && (row.expandable || hidden)
+    // Release train 2026-10-23 (N-12 F5, iOS `onTapGesture`): a front banner
+    // still takes the tap that fans or re-piles, without a button's role.
+    val tappable = onOpen != null && !pressable
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -248,7 +263,13 @@ fun DockCard(
             // ONE gray ×4: the card composite under the card hairline.
             .background(GlassTokens.OpaqueCardFill, shape)
             .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
-            .then(if (pressable) Modifier.clickable(role = Role.Button) { onOpen?.invoke() } else Modifier)
+            .then(
+                when {
+                    pressable -> Modifier.clickable(role = Role.Button) { onOpen?.invoke() }
+                    tappable -> Modifier.clickable(interactionSource = null, indication = null) { onOpen?.invoke() }
+                    else -> Modifier
+                },
+            )
             .then(
                 if (hidden) {
                     Modifier.clearAndSetSemantics {}
@@ -501,7 +522,7 @@ fun DockAutoOpen(rows: List<Dock.Row>, enabled: Boolean, ready: Boolean = true, 
         }
         val now = System.currentTimeMillis()
         val since = readyAt ?: now.also { readyAt = it }
-        if (now - since < DOCK_AUTO_OPEN_GRACE_MS) {
+        if (now - since < Dock.AUTO_OPEN_GRACE_MS) {
             seen += ids
             return@LaunchedEffect
         }
@@ -511,5 +532,3 @@ fun DockAutoOpen(rows: List<Dock.Row>, enabled: Boolean, ready: Boolean = true, 
     }
 }
 
-/** dock.json `autoOpenGraceMs`. */
-private const val DOCK_AUTO_OPEN_GRACE_MS = 1500L

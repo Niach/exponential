@@ -1,4 +1,7 @@
-- Il nuovo sistema di sessioni: un thread è una sessione che lavora da sola e viene risvegliata dai messaggi, con una scheda del piano che pone una domanda alla volta
-- Gli agenti sono definizioni con una propria conversazione per ogni membro, trigger avviati dal server e un flusso Events; scrivi a un agente dal composer
-- I prompt sostituiscono le azioni: li trovi nel / menu e in Impostazioni → Prompt
-- Le viste sessioni, ti aspetta e in esecuzione seguono il nuovo sistema su ogni schermata
+- Apps: crea piccole app con la sessione editor, con anteprima dal vivo e salvate in versioni; l'elenco delle Apps si trova dietro il pulsante nell'intestazione di Threads
+- Il Dock: la trascrizione scorre in un'unica vista, ciò che ti aspetta fluttua come schede sopra il composer e un piano si apre come foglio inferiore con «Sì» e «No, continua a pianificare»
+- Un solo grigio: ogni scheda, il composer e i fogli hanno lo stesso tono opaco
+- I selettori all'interno di un foglio si aprono direttamente sotto la loro riga
+- I thread con una sola sessione mostrano di nuovo la scheda Conversation, e una riga di thread inizia con la sua pull request aperta
+- Le tabelle Markdown non allungano più le righe oltre il loro contenuto
+- Un messaggio a un thread terminato riprende la stessa sessione invece di avviarne una copia

@@ -53,7 +53,6 @@ import {
   prompts,
   attachments,
   comments,
-  devices,
   events,
   issueEvents,
   issueLabels,
@@ -140,7 +139,6 @@ import {
   assertCanSteer,
   isSessionPrincipal,
   loadSessionForUser,
-  sessionDeviceOwner,
 } from "@/lib/sessions/access"
 import { getSessionTree, listSessions } from "@/lib/sessions/tree"
 import { endSession, stopSession } from "@/lib/sessions/lifecycle"
@@ -180,11 +178,7 @@ import { requestSessionCompaction } from "./handlers/sessions-compact"
 import { deviceAccountLogin } from "./handlers/device-account-login"
 import { ALWAYS_LOAD_META } from "./always-load"
 import { mcpAppToolMeta, type McpAppView } from "./apps"
-import {
-  ALL_MCP_TOOL_GATES,
-  hostFeedsOwnCards,
-  type McpToolGates,
-} from "./gates"
+import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 import type { McpUser } from "./server"
 import {
   assertFullAccess,
@@ -326,19 +320,8 @@ interface CallerSession {
   unattended: boolean
   /** EXP-1280: the session plans (`exponential_pr_open` refuses). */
   planMode: boolean
-  /** EXP-1280: the host device feeds a card the session posts on ITSELF
-   *  back as its next message (`hostFeedsOwnCards`). */
-  cards: boolean
 }
 
-
-// EXP-1280: `hostFeedsOwnCards` lives with the gates (gates.ts resolves
-// `cards` from the same devices join); re-exported for the tests.
-export { hostFeedsOwnCards }
-
-/** What `exponential_plan_propose` / `exponential_sessions_ask` answer on
- *  such a host: the agent asks inline instead of waiting on a card. */
-export const CARDS_NEED_HOST_UPDATE = `This session's device runs a build that cannot deliver a card's answer (it needs 0.14.73 or later): ask the question in your reply and end your turn instead.`
 /** What a session-scoped tool answers a caller with no session of its own. */
 function noSessionMessage(tool: string, param?: string): string {
   return `No session: ${tool} ${param ? `needs ${param} outside` : `only works inside`} a session started by the Exponential launcher (missing X-Exp-Session-Id).`
@@ -605,13 +588,6 @@ export function registerExponentialTools(
       .limit(1)
     if (!row) return null
     if (!(await isSessionPrincipal(user.id, row))) return null
-    // The host device's row (devices are per (user, deviceId)): its
-    // reported version says whether it feeds the session's own cards.
-    const [host] = await db
-      .select({ version: devices.version })
-      .from(devices)
-      .where(and(eq(devices.deviceId, row.deviceId), eq(devices.userId, await sessionDeviceOwner(row))))
-      .limit(1)
     return {
       id: row.id,
       teamId: row.teamId,
@@ -619,7 +595,6 @@ export function registerExponentialTools(
       rootAgentId: row.rootAgentId ?? null,
       unattended: row.parentId !== null || row.watched === true,
       planMode: row.planMode === true,
-      cards: hostFeedsOwnCards(host?.version),
     }
   }
 
@@ -2491,12 +2466,8 @@ export function registerExponentialTools(
   // EXP-1280 custom plan mode: the session posts ONE rich card on itself
   // (lib/sessions/plan.ts) and stops; a person answers IN the card and the
   // answer arrives as the session's next message. Not always-loaded: the
-  // runbook names both, tool search finds them. A host that cannot feed the
-  // answer back (`hostFeedsOwnCards`) gets neither: `gates.cards === false`
-  // (resolved with the gates) drops the registration, and a call on such a
-  // host is refused with the inline alternative either way.
-  const cards = gates.cards !== false
-  if (gates.inSession && cards) {
+  // runbook names both, tool search finds them.
+  if (gates.inSession) {
     server.registerTool(
       `exponential_plan_propose`,
       {
@@ -2523,7 +2494,6 @@ export function registerExponentialTools(
         try {
           const own = await loadCallerSession()
           if (!own) throw new Error(noSessionMessage(`exponential_plan_propose`))
-          if (!own.cards) throw new Error(CARDS_NEED_HOST_UPDATE)
           if (!access.full) assertTeamFullyGranted(access, own.teamId)
           const card = buildPlanCard(input)
           return ok(await postAskCard({ userId: user.id, sessionId: own.id, card }))
@@ -2550,7 +2520,6 @@ export function registerExponentialTools(
         try {
           const own = await loadCallerSession()
           if (!own) throw new Error(noSessionMessage(`exponential_sessions_ask`))
-          if (!own.cards) throw new Error(CARDS_NEED_HOST_UPDATE)
           if (!access.full) assertTeamFullyGranted(access, own.teamId)
           const card = buildQuestionCard(input)
           return ok(await postAskCard({ userId: user.id, sessionId: own.id, card }))

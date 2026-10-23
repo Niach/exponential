@@ -1,4 +1,7 @@
-- Nový systém session: thread je jedna session, ktorá pracuje sama a prebúdzajú ju správy, s kartou plánu, ktorá sa pýta vždy na jednu otázku
-- Agenti sú definície s vlastnou konverzáciou pre každého člena, triggermi spúšťanými serverom a streamom Events; napíšte agentovi priamo z composera
-- Prompty nahrádzajú akcie: nájdete ich v / menu a v Nastavenia → Prompty
-- Zobrazenia sessions, "potrebuje vás" a bežiacich sa na každej obrazovke riadia novým systémom
+- Apps: vytvárajte malé aplikácie v editorovej session, so živým náhľadom a uložené vo verziách; zoznam Apps nájdete pod tlačidlom v hlavičke Threads
+- Dock: prepis je jedno súvislé posúvanie, to, čo na vás čaká, sa vznáša ako karty nad composerom, a plán sa otvorí ako spodný panel s tlačidlami „Áno“ a „Nie, plánovať ďalej“
+- Jedna sivá: každá karta, composer aj panely majú rovnaký nepriehľadný odtieň
+- Výbery vo vnútri panela sa otvárajú priamo pod svojím riadkom
+- Thready s jedinou session opäť zobrazujú kartu Conversation a riadok threadu začína jeho otvoreným pull requestom
+- Tabuľky v Markdowne už nenaťahujú riadky za hranice ich obsahu
+- Správa do ukončeného threadu obnoví tú istú session namiesto spustenia kópie

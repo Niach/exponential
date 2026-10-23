@@ -3,6 +3,7 @@ import {
   THREAD_ROW_WORDS,
   THREADS_LIST_COPY,
   threadInStack,
+  threadRowLeadPr,
   threadRowMarkState,
   threadRowWord,
   type AgentRow,
@@ -81,9 +82,8 @@ export function threadRunMarkState(row: {
  *  ×4): any open PR (a stacked one too) = pr-open emerald, else a merged
  *  one = pr-merged violet, else none. */
 export function threadLeadPrState(prs: readonly ThreadsListPr[]): `open` | `merged` | null {
-  if (prs.some((pr) => pr.state === `open`)) return `open`
-  if (prs.some((pr) => pr.state === `merged`)) return `merged`
-  return null
+  // Release train 2026-10-23: the contract's rule, locked by `leadCases` ×4.
+  return threadRowLeadPr(prs.map((pr) => pr.state))
 }
 
 function rowLead(

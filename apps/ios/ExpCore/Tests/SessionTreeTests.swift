@@ -692,6 +692,16 @@ final class SessionTreeTests: XCTestCase {
         }
     }
 
+    /// Release train 2026-10-23 (NEW-41): `leadCases`, the row lead's PR glyph.
+    func testThreadRowLeadPrReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("threads-list.json"), "leadCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let states = try XCTUnwrap(testCase["prStates"] as? [String])
+            let lead = SessionTree.threadRowLeadPr(prStates: states)
+            XCTAssertEqual(lead?.rawValue, string(testCase["expected"]), name)
+        }
+    }
+
     /// EXP-1318: `stackCases`.
     func testThreadInStackReplaysEveryCase() throws {
         for testCase in try cases(try fixture("threads-list.json"), "stackCases") {

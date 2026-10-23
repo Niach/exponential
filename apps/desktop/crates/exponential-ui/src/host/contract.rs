@@ -34,7 +34,7 @@ pub const DEFAULT_FUNCTION_DECISION: &str = "allow";
 pub const DEFAULT_URL_SCHEMES: &[&str] = &["https", "http", "mailto", "tel"];
 /// VAPP-107: the hosts `decide_url` denies by default (`urls.privateHosts`,
 /// the rule itself is [`super::is_private_host`]).
-pub const PRIVATE_HOSTS: &[&str] = &["localhost", "*.localhost", "*.local", "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "::", "::1", "fe80::/10", "fc00::/7", "::ffff:<private IPv4>"];
+pub const PRIVATE_HOSTS: &[&str] = &["localhost", "*.localhost", "*.local", "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "::", "::1", "fe80::/10", "fc00::/7", "::ffff:<private IPv4>", "::<private IPv4>", "64:ff9b::<private IPv4>", "2002:<private IPv4>::/48"];
 pub const URL_REASONS: &[&str] = &["invalid", "scheme", "host", "private"];
 pub const MEDIA_RULE_KEYS: &[&str] = &["prefix", "headers"];
 pub const MEDIA_OPTION_KEYS: &[&str] = &["baseUrl", "rules", "schemes", "hosts", "allowPrivate"];

@@ -122,16 +122,24 @@ function ipv6(host: string): number[] | null {
 }
 
 function privateV4([a, b]: [number, number, number, number]): boolean {
-  // 0.0.0.0/8 ("this" network), 10/8, 127/8 (loopback), 169.254/16
-  // (link-local), 172.16/12, 192.168/16.
-  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+  // 0.0.0.0/8 ("this" network), 10/8, 100.64/10 (CGNAT, release train
+  // 2026-10-23: a carrier's or a tailnet's internal range), 127/8
+  // (loopback), 169.254/16 (link-local), 172.16/12, 192.168/16.
+  return a === 0 || a === 10 || (a === 100 && (b & 0xc0) === 64) || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+}
+
+/** The IPv4 two 16-bit pieces carry. */
+function v4Of(hi: number, lo: number): [number, number, number, number] {
+  return [hi >> 8, hi & 0xff, lo >> 8, lo & 0xff]
 }
 
 /** VAPP-107: is a parsed, lower-cased hostname one the URL and media policy
  *  deny by default (`catalog/host.json` urls.privateHosts)? `localhost`
  *  and `*.localhost`, `*.local` (mDNS), the IPv4 blocks 0/8, 10/8, 127/8,
- *  169.254/16, 172.16/12, 192.168/16, and IPv6 `::`, `::1`, fe80::/10,
- *  fc00::/7 plus an IPv4-mapped address of a private IPv4. LITERALS only:
+ *  169.254/16, 172.16/12, 192.168/16, 100.64/10, and IPv6 `::`, `::1`,
+ *  fe80::/10, fc00::/7 plus a private IPv4 embedded IPv4-mapped
+ *  (`::ffff:a.b.c.d`), IPv4-compatible (`::a.b.c.d`), NAT64
+ *  (`64:ff9b::a.b.c.d`) or 6to4 (`2002:AABB:CCDD::`). LITERALS only:
  *  the policy never resolves names (a public name that resolves privately
  *  is the host network's job). */
 export function isPrivateHost(hostname: string): boolean {
@@ -144,7 +152,12 @@ export function isPrivateHost(hostname: string): boolean {
   if (v6.every((p) => p === 0)) return true
   if (v6.slice(0, 7).every((p) => p === 0) && v6[7] === 1) return true
   if ((v6[0]! & 0xffc0) === 0xfe80 || (v6[0]! & 0xfe00) === 0xfc00) return true
-  if (v6.slice(0, 5).every((p) => p === 0) && v6[5] === 0xffff) return privateV4([v6[6]! >> 8, v6[6]! & 0xff, v6[7]! >> 8, v6[7]! & 0xff])
+  // Release train 2026-10-23: every form that embeds an IPv4 reaches it
+  // (mapped ::ffff:0:0/96, compatible ::/96, NAT64 64:ff9b::/96, 6to4 2002::/16).
+  const mapped = v6.slice(0, 5).every((p) => p === 0) && (v6[5] === 0xffff || v6[5] === 0)
+  const nat64 = v6[0] === 0x64 && v6[1] === 0xff9b && v6.slice(2, 6).every((p) => p === 0)
+  if (mapped || nat64) return privateV4(v4Of(v6[6]!, v6[7]!))
+  if (v6[0] === 0x2002) return privateV4(v4Of(v6[1]!, v6[2]!))
   return false
 }
 

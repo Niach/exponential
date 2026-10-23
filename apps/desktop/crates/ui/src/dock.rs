@@ -120,6 +120,19 @@ impl DockState {
         }
     }
 
+    /// Release train 2026-10-23 (N-12 F2): the open card vanished (`dock`
+    /// reads no open id while one is held): forget it, or a later row with
+    /// the same fixed id (`tasks`, `queued`, `banner:*`) reopens the sheet
+    /// unasked. Returns whether it forgot one.
+    pub(crate) fn forget_vanished(&mut self, view_open_id: Option<&str>) -> bool {
+        if self.open.is_none() || view_open_id.is_some() {
+            return false;
+        }
+        self.open = None;
+        self.opened_at = None;
+        true
+    }
+
     /// The band's measured height (px): the transcript's bottom padding.
     pub(crate) fn band_height(&self) -> f32 {
         self.band_height.get()
@@ -277,6 +290,9 @@ pub(crate) fn band(state: &Entity<DockState>, band: Band, window: &mut Window, c
         (state.expanded, state.open.clone())
     };
     let view = dock(&rows, expanded, open.as_deref());
+    if open.is_some() && view.open_id.is_none() {
+        state.update(cx, |state, _| state.forget_vanished(view.open_id.as_deref()));
+    }
     if view.mode == DockMode::None && composer.is_none() {
         state.read(cx).band_height.set(0.);
         return None;
@@ -802,6 +818,23 @@ mod tests {
         assert!(!state.auto_open(&dock_rows(&[plan("p1", 1)]), true, false));
         assert!(!state.auto_open(&dock_rows(&[plan("p1", 1), plan("p2", 2)]), true, true));
         assert_eq!(state.open_id(), None);
+    }
+
+    /// Release train 2026-10-23 (N-12 F2): a sheet whose card vanished is
+    /// forgotten, so the same fixed id returning stays collapsed.
+    #[test]
+    fn a_vanished_open_card_is_forgotten() {
+        let mut state = settled();
+        state.open("p1");
+        let rows = dock_rows(&[plan("p1", 1)]);
+        let view = dock(&rows, false, state.open_id());
+        assert!(!state.forget_vanished(view.open_id.as_deref()));
+        assert_eq!(state.open_id(), Some("p1"));
+        let view = dock(&[], false, state.open_id());
+        assert!(state.forget_vanished(view.open_id.as_deref()));
+        assert_eq!(state.open_id(), None);
+        let view = dock(&rows, false, state.open_id());
+        assert_eq!(view.open_id, None);
     }
 
     /// A state whose memory has settled on nothing.

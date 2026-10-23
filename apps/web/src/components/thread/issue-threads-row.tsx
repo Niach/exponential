@@ -128,7 +128,7 @@ export function IssueThreadsRow({
   const roots = useThreadsOfIssue(issueId)
   // Threads only: an agent's conversation is not a thread the issue sits in.
   const threads = useMemo(
-    () => roots.filter((root) => root.parentId === null && !root.agentId),
+    () => roots.filter((root) => root.parentId === null && !root.agentId && !root.appId),
     [roots]
   )
   return (

@@ -1,4 +1,7 @@
-- Novi sustav sessiona: thread je jedan session koji radi sam i bude ga poruke, s karticom plana koja postavlja jedno pitanje odjednom
-- Agenti su definicije s vlastitim razgovorom za svakog člana, triggerima koje pokreće server i Events tokom; pošaljite poruku agentu iz composera
-- Promptovi zamjenjuju akcije: pronađite ih u / menu i pod Postavke → Promptovi
-- Prikazi sessiona, "treba vas" i pokrenutih prate novi sustav na svakom zaslonu
+- Apps: izradite male aplikacije u sesiji uređivača, uz pregled uživo i spremljene u verzijama; popis Apps nalazi se iza gumba u zaglavlju Threads
+- Dock: transkript je jedno neprekinuto pomicanje, ono što čeka na vas lebdi kao kartice iznad composera, a plan se otvara kao donji list s gumbima „Da” i „Ne, nastavi planirati”
+- Jedna siva: svaka kartica, composer i listovi imaju isti neprozirni ton
+- Birači unutar lista otvaraju se izravno ispod svog retka
+- Threadovi s jednom sesijom ponovno prikazuju svoju karticu Conversation, a redak threada počinje njegovim otvorenim pull requestom
+- Markdown tablice više ne razvlače retke preko njihova sadržaja
+- Poruka završenom threadu nastavlja istu sesiju umjesto pokretanja kopije

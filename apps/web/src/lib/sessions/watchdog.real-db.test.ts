@@ -183,7 +183,7 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     expect(await lines(rootId, `session_unclaimed`, late)).toHaveLength(1)
 
     // The claim clears the flag.
-    await w.host.claim({ sessionId: late })
+    await w.host.claim({ sessionId: late, deviceId: w.deviceId })
     expect(await row(late)).toMatchObject({ status: `running`, blocked: null, needsInput: false })
   })
 
@@ -191,10 +191,10 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     const w = await world({ shared: true })
     // A teammate's start on the owner's shared box: the owner hosts it.
     const rootId = await w.root(`hosted`, w.mate)
-    await w.host.claim({ sessionId: rootId })
+    await w.host.claim({ sessionId: rootId, deviceId: w.deviceId })
     const waiting = await sendSession({ userId: w.mate, input: { sessionId: rootId, text: `are you there?` } })
     const fresh = await w.root(`fresh`, w.mate)
-    await w.host.claim({ sessionId: fresh })
+    await w.host.claim({ sessionId: fresh, deviceId: w.deviceId })
     await sendSession({ userId: w.mate, input: { sessionId: fresh, text: `just now` } })
     await backdate(
       () =>
@@ -231,7 +231,7 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     const stuck = await w.child(rootId, `long turn`)
     const working = await w.child(rootId, `short turn`)
     for (const id of [stuck, working]) {
-      await w.host.claim({ sessionId: id })
+      await w.host.claim({ sessionId: id, deviceId: w.deviceId })
       await w.host.report({ sessionId: id, busy: true })
     }
     await backdateSession(stuck, `updated_at`, ago((watchdog.stuckMinutes + 1) * MIN))
@@ -261,11 +261,11 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     const w = await world({ shared: true })
     const rootId = await w.root()
     const childId = await w.child(rootId, `working`)
-    await w.host.claim({ sessionId: childId })
+    await w.host.claim({ sessionId: childId, deviceId: w.deviceId })
     await w.host.report({ sessionId: childId, busy: true })
     // A teammate's session hosted on the same shared box, waiting on its own card.
     const hosted = await w.root(`hosted`, w.mate)
-    await w.host.claim({ sessionId: hosted })
+    await w.host.claim({ sessionId: hosted, deviceId: w.deviceId })
     await postAskCard({
       userId: w.mate,
       sessionId: hosted,
@@ -320,7 +320,7 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     // A teammate's session on the same shared box: the heartbeat speaks for
     // every session the device hosts, whoever started it.
     const mates = await w.root(`hosted`, w.mate)
-    for (const id of [dead, alive, between, mates]) await w.host.claim({ sessionId: id })
+    for (const id of [dead, alive, between, mates]) await w.host.claim({ sessionId: id, deviceId: w.deviceId })
     for (const id of [dead, alive, mates]) await w.host.report({ sessionId: id, busy: true })
     const beat = (liveSessionIds?: string[]) =>
       devicesRouter
@@ -368,7 +368,7 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
   it(`a usage wall keeps the session under Needs you until the device clears it`, async () => {
     const w = await world()
     const rootId = await w.root()
-    await w.host.claim({ sessionId: rootId })
+    await w.host.claim({ sessionId: rootId, deviceId: w.deviceId })
     const wall = {
       kind: `rate_limit`,
       agent: `claude`,
@@ -395,7 +395,7 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     const past = await w.root(`past`)
     const ahead = await w.root(`ahead`)
     const unset = await w.root(`unset`)
-    for (const id of [past, ahead, unset]) await w.host.claim({ sessionId: id })
+    for (const id of [past, ahead, unset]) await w.host.claim({ sessionId: id, deviceId: w.deviceId })
     const wall = (resetsAt: string | null) =>
       ({ kind: `rate_limit`, agent: `claude`, window: `session`, resetsAt, since: ago(2 * MIN).toISOString() }) as const
     await w.host.report({ sessionId: past, blocked: wall(ago(MIN).toISOString()) })

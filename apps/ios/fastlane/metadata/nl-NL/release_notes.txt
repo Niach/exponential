@@ -1,4 +1,7 @@
-- Het nieuwe sessiesysteem: een thread is één sessie die zelf werkt en door berichten wordt gewekt, met een plankaart die één vraag tegelijk stelt
-- Agents zijn definities met een eigen gesprek per lid, door de server gestarte triggers en een Events-stroom; stuur een agent een bericht vanuit de composer
-- Prompts vervangen acties: je vindt ze in het / menu en onder Instellingen → Prompts
-- De weergaven sessies, heeft je nodig en actief volgen het nieuwe systeem op elk scherm
+- Apps: bouw kleine apps met de editorsessie, live te bekijken en bewaard in versies; de Apps-lijst zit achter de knop in de Threads-header
+- Het Dock: het transcript is één doorlopende scroll, wat op jou wacht zweeft als kaarten boven de composer, en een plan opent als bottom sheet met 'Ja' en 'Nee, blijf plannen'
+- Eén grijs: elke kaart, de composer en de sheets hebben dezelfde dekkende tint
+- Kiezers in een sheet openen direct onder hun rij
+- Threads met één sessie tonen weer hun Conversation-tab, en een threadrij begint met de openstaande pull request
+- Markdown-tabellen rekken rijen niet meer op voorbij hun inhoud
+- Een bericht aan een beëindigde thread hervat dezelfde sessie in plaats van een kopie te starten

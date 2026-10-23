@@ -1,4 +1,7 @@
-- Uusi sessiojärjestelmä: thread on yksi sessio, joka työskentelee itse ja herää viesteistä, ja sen suunnitelmakortti kysyy yhden kysymyksen kerrallaan
-- Agentit ovat määrityksiä, joilla on oma keskustelu jokaisen jäsenen kanssa, palvelimen laukaisemat triggerit ja Events-virta; lähetä agentille viesti suoraan composerista
-- Promptit korvaavat toiminnot: löydät ne / menu -valikosta ja kohdasta Asetukset → Promptit
-- Sessiot-, tarvitsee sinua- ja käynnissä-näkymät noudattavat uutta järjestelmää jokaisella näytöllä
+- Apps: rakenna pieniä sovelluksia editori-sessiolla, live-esikatselulla ja versioihin tallennettuina; Apps-lista löytyy Threads-otsikon painikkeen takaa
+- Dock: transkripti on yksi yhtenäinen vieritys, sinua odottavat asiat leijuvat kortteina composerin yläpuolella, ja suunnitelma avautuu alapaneelina vaihtoehdoilla ”Kyllä” ja ”Ei, jatka suunnittelua”
+- Yksi harmaa: jokainen kortti, composer ja paneelit käyttävät samaa peittävää sävyä
+- Paneelin sisällä olevat valitsimet avautuvat suoraan rivinsä alle
+- Yhden session threadit näyttävät taas Conversation-välilehtensä, ja thread-rivi alkaa sen avoimella pull requestilla
+- Markdown-taulukot eivät enää venytä rivejä sisältöään pidemmiksi
+- Viesti päättyneeseen threadiin jatkaa samaa sessiota sen sijaan, että aloittaisi kopion

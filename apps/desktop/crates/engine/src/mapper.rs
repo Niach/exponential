@@ -1651,10 +1651,11 @@ impl Mapper {
     }
 
     /// EXP-1292: an answered Conversation card (`messages.card` with
-    /// `answer`) as the answer the open ask takes. A question's answer matches an option by label (or key),
-    /// case-insensitively; a comma-separated answer to a multi-select step
-    /// picks every option it names; anything else is the step's typed
-    /// answer. `None` when nothing is open under `question_id` or the card
+    /// `answers`, or the joined legacy `answer`) as the answer the open ask
+    /// takes. A question's answer matches an option by label (or key),
+    /// case-insensitively; several picked labels (or a comma-separated
+    /// legacy answer) to a multi-select step pick every option they name;
+    /// anything else is the step's typed answer. `None` when nothing is open under `question_id` or the card
     /// says nothing the ask can take.
     pub fn card_answer(&self, question_id: &str, card: &Value) -> Option<CardAnswer> {
         let text = |key: &str| {
@@ -1664,6 +1665,22 @@ impl Mapper {
                 .filter(|text| !text.is_empty())
                 .map(str::to_string)
         };
+        // Release train 2026-10-23 (compat cleanup round 37, C1): read `answers` first; the joined `answer` is the pre-EXP-1322 form the server stops writing once CLIENT_MIN_VERSION_DESKTOP/CLI pass 0.14.76.
+        // `answers` also keeps a label with a comma in it whole, which the
+        // joined form cannot.
+        let answers = card
+            .get("answers")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::trim)
+                    .filter(|label| !label.is_empty())
+                    .map(str::to_string)
+                    .collect::<Vec<String>>()
+            })
+            .filter(|labels| !labels.is_empty());
         let remote = |ask_id: Option<String>, keys: Vec<String>, typed: Option<String>| {
             steer::RemoteAnswer {
                 question_id: question_id.to_string(),
@@ -1675,7 +1692,10 @@ impl Mapper {
         match self.questions.get(question_id)? {
             AskRef::Permission(id) => {
                 let ask = self.permissions.get(id)?;
-                let answer = text("answer")?;
+                let answer = match &answers {
+                    Some(labels) => labels[0].clone(),
+                    None => text("answer")?,
+                };
                 let key = ask
                     .options
                     .iter()
@@ -1690,7 +1710,10 @@ impl Mapper {
                 let ask = self.elicitations.get(ask_id)?;
                 let step = elicit_step_index(ask_id, question_id)
                     .and_then(|index| ask.steps.get(index))?;
-                let answer = text("answer")?;
+                let (answer, labels) = match answers {
+                    Some(labels) => (labels.join(", "), Some(labels)),
+                    None => (text("answer")?, None),
+                };
                 let find = |part: &str| {
                     step.options
                         .iter()
@@ -1701,14 +1724,22 @@ impl Mapper {
                         })
                         .map(|option| option.key.clone())
                 };
-                let keys = match find(&answer) {
-                    Some(key) => Some(vec![key]),
-                    None if step.multi_select => answer
-                        .split(',')
-                        .map(find)
-                        .collect::<Option<Vec<String>>>()
-                        .filter(|keys| !keys.is_empty()),
-                    None => None,
+                let keys = match labels.as_deref() {
+                    Some([label]) => find(label).map(|key| vec![key]),
+                    Some(labels) if step.multi_select => labels
+                        .iter()
+                        .map(|label| find(label))
+                        .collect::<Option<Vec<String>>>(),
+                    Some(_) => None,
+                    None => match find(&answer) {
+                        Some(key) => Some(vec![key]),
+                        None if step.multi_select => answer
+                            .split(',')
+                            .map(find)
+                            .collect::<Option<Vec<String>>>()
+                            .filter(|keys| !keys.is_empty()),
+                        None => None,
+                    },
                 };
                 let (keys, typed) = match keys {
                     Some(keys) => (keys, None),
@@ -7024,6 +7055,67 @@ mod conversation_tests {
         assert!(mapper
             .card_answer("tc-unknown", &json!({"kind": "question", "answer": "Yes"}))
             .is_none());
+        // Release train 2026-10-23 (C1): `answers` first, `answer` the fallback.
+        let answers_only = mapper
+            .card_answer("tc-perm", &json!({"kind": "question", "answers": ["No, keep planning"]}))
+            .expect("the label in `answers` matches");
+        assert_eq!(answers_only.answer.keys, vec!["reject".to_string()]);
+        let disagree = mapper
+            .card_answer(
+                "tc-perm",
+                &json!({"kind": "question", "answers": ["Yes"], "answer": "No, keep planning"}),
+            )
+            .expect("`answers` wins");
+        assert_eq!(disagree.answer.keys, vec!["allow".to_string()]);
+        let empty = mapper
+            .card_answer("tc-perm", &json!({"kind": "question", "answers": [], "answer": "Yes"}))
+            .expect("an empty `answers` falls back to `answer`");
+        assert_eq!(empty.answer.keys, vec!["allow".to_string()]);
+    }
+
+    /// Release train 2026-10-23 (compat cleanup round 37, C1): a multi-select
+    /// step reads `answers` first, so a label with a comma stays whole; the
+    /// joined `answer` is the fallback for older servers.
+    #[test]
+    fn a_multi_select_card_answer_reads_answers_first() {
+        use agent_client_protocol::schema::v1::{EnumOption, MultiSelectPropertySchema};
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        let request = CreateElicitationRequest::new(
+            ElicitationFormMode::new(
+                ElicitationSessionScope::new(SessionId::new("acp-1")),
+                ElicitationSchema::new().property(
+                    "steps",
+                    ElicitationPropertySchema::Array(
+                        MultiSelectPropertySchema::titled(vec![
+                            EnumOption::new("tests", "Tests, then docs"),
+                            EnumOption::new("lint", "Lint"),
+                            EnumOption::new("docs", "Docs"),
+                        ])
+                        .title("Which steps?"),
+                    ),
+                    false,
+                ),
+            ),
+            "One question",
+        );
+        mapper.on_elicitation("ask-m", &request, &mut out);
+        let keys = |card: Value| mapper.card_answer("ask-m#0", &card).map(|mapped| mapped.answer);
+
+        let answers_only = keys(json!({"answers": ["Tests, then docs", "Lint"]})).expect("answers");
+        assert_eq!(answers_only.keys, vec!["tests".to_string(), "lint".to_string()]);
+        assert_eq!(answers_only.text, None);
+
+        let disagree = keys(json!({"answers": ["Docs"], "answer": "Lint"})).expect("answers wins");
+        assert_eq!(disagree.keys, vec!["docs".to_string()]);
+
+        let comma = keys(json!({"answers": ["Tests, then docs"], "answer": "Tests, then docs"}))
+            .expect("a comma inside one label");
+        assert_eq!(comma.keys, vec!["tests".to_string()]);
+
+        let fallback = keys(json!({"answer": "Lint, Docs"})).expect("the joined legacy answer");
+        assert_eq!(fallback.keys, vec!["lint".to_string(), "docs".to_string()]);
+        assert_eq!(fallback.text, None);
     }
 
     #[test]

@@ -984,6 +984,11 @@ class AgentSessionViewModel @AssistedInject constructor(
      *  no phase-gated entry could. */
     fun ensureConnected() = connection.kick("screen-attach")
 
+    /** Release train 2026-10-23 (N-12 F3): the "Connection lost" banner's
+     *  Reconnect (iOS `connect(force: true)`). [ensureConnected] leaves a
+     *  stream that closed for good alone; a tap forces a fresh dial loop. */
+    fun reconnect() = connection.connect()
+
     fun setDraft(text: String) = connection.setDraft(text)
 
     /**
