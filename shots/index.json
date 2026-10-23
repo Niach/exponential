@@ -140,8 +140,8 @@
         "file": "shots/app/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 59508,
-        "sha256": "75e5ce10beaf52ffb517112087bcddcb13c772865cec5b97bafa90546a01d522"
+        "bytes": 59408,
+        "sha256": "29b992d5623973378ebfb1124f0b0ea76645f712161a95c3b716855b9816415b"
       },
       "ios": {
         "file": "shots/app/ios.webp",
