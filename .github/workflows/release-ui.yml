@@ -123,6 +123,8 @@ jobs:
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
       - uses: oven-sh/setup-bun@v2
       - name: Size gate (xcframework slices, VAPP-106)
+        env:
+          EXPONENTIAL_UI_SIZE_MACHINE: github-macos-26  # EXP-1371
         run: bun packages/exponential-ui/release/size.ts xcframework --check
       - name: Zip + checksum
         id: zip

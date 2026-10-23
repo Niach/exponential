@@ -730,14 +730,10 @@ final class AgentSessionModel {
     var composerPlaceholder: String { AgentFeed.composerPlaceholder }
 
     /// EXP-820: a card is waiting on THIS steerer — live, not ended, and an
-    /// unresolved question card in the feed. The session view drops the
-    /// composer band while this holds (the draft stays here, so it is back
-    /// intact once the card resolves). The rule = ExpCore
-    /// `SessionTree.composerYieldsToCard` (fixture `composerCases` ×4).
+    /// unresolved question card in the feed. N-12: it waits in THE Dock; the
+    /// composer stays.
     var cardPending: Bool {
-        SessionTree.composerYieldsToCard(
-            live: phase == .live && !sessionEnded, pendingAsk: !activeQuestionIds.isEmpty
-        )
+        phase == .live && !sessionEnded && !activeQuestionIds.isEmpty
     }
 
     /// EXP-848: the agent is actively working — the ONE predicate this screen

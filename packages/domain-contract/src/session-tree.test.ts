@@ -6,7 +6,6 @@ import list from "../fixtures/threads-list.json" with { type: "json" }
 import {
   buildSessionThread,
   composerReplies,
-  composerYieldsToCard,
   guideMenuEntries,
   guidePullRequest,
   listAgents,
@@ -69,11 +68,6 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   for (const entry of thread.repliesCases) {
     test(`quick replies (EXP-1211): ${entry.name}`, () => {
       expect(composerReplies(entry.input as never)).toEqual(entry.expected as never)
-    })
-  }
-  for (const entry of thread.composerCases) {
-    test(`composer: ${entry.name}`, () => {
-      expect(composerYieldsToCard(entry.input)).toBe(entry.expected)
     })
   }
   for (const entry of list.cases) {

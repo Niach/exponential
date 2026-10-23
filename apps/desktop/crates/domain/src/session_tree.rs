@@ -7,8 +7,7 @@
 //! * `fixtures/session-thread.json` → [`build_session_thread`] (the thread
 //!   screen: tabs, conversation rows, composer target) + [`guide_pull_request`]
 //!   (the Guide's ONE PR) + [`guide_menu_entries`] (its header `…`,
-//!   EXP-1307) + [`composer_yields_to_card`] (EXP-820) +
-//!   [`partition_thread_strip`] (the never-scrolling strip, EXP-1334);
+//!   EXP-1307) + [`partition_thread_strip`] (the never-scrolling strip, EXP-1334);
 //! * `fixtures/threads-list.json`   → [`partition_threads`] (the Threads page:
 //!   Needs you · Running · Recent, live trees nested, EXP-1323) +
 //!   [`threads_unread`] (the nav dot) + [`list_agents`] (the rail's Agents).
@@ -1223,12 +1222,6 @@ pub fn composer_replies(session_id: &str, messages: &[&MessageRow]) -> Option<Co
         })
         .collect();
     (!items.is_empty()).then(|| ComposerReplies { message_id: newest.id.clone(), items })
-}
-
-/// EXP-1306 (EXP-820 ×4): a question or plan card waiting on the viewer
-/// takes the session composer's place.
-pub fn composer_yields_to_card(live: bool, pending_ask: bool) -> bool {
-    live && pending_ask
 }
 
 // ── EXP-1334: the thread strip never scrolls ────────────────────────────────
@@ -2611,7 +2604,7 @@ mod tests {
         }
     }
 
-    /// `session-thread.json` `guidePullRequestCases` + `composerCases`.
+    /// `session-thread.json` `guidePullRequestCases`.
     #[test]
     fn guide_pull_request_and_composer_match_the_fixture() {
         let fixture = fixture(SESSION_THREAD_JSON);
@@ -2622,17 +2615,6 @@ mod tests {
             assert_eq!(
                 guide_pull_request(&prs).map(|pull| pull.id.as_str()),
                 case["expected"].as_str(),
-                "{}",
-                case["name"]
-            );
-        }
-        let cases = fixture["composerCases"].as_array().unwrap();
-        assert!(!cases.is_empty());
-        for case in cases {
-            let input = &case["input"];
-            assert_eq!(
-                composer_yields_to_card(input["live"].as_bool().unwrap(), input["pendingAsk"].as_bool().unwrap()),
-                case["expected"].as_bool().unwrap(),
                 "{}",
                 case["name"]
             );

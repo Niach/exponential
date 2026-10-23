@@ -9,10 +9,10 @@ import SwiftUI
 // inside an `.ultraThinMaterial` bar. All three carried the same drop shadow,
 // the one thing the flat glass language does not have.
 //
-// `GlassComposer` is that card: `Radius.xl` corners, `fillCard` + the
-// `strokeCard` hairline, no material and no shadow. `isOpaque` swaps in
-// `opaqueCardFill` + `strokeStrong` for a composer that FLOATS over scrolling
-// content, the same switch `GlassCard` and `GlassPill` carry.
+// `GlassComposer` is that card: `Radius.xl` corners, `opaqueCardFill` + the
+// `strokeCard` hairline, no material and no shadow. N-12 (ONE gray ×4): the
+// floating composer and the inline one wear the same fill; `isOpaque` stays
+// for its call sites.
 //
 // The card owns the chrome and the tool row; the slots keep their own inner
 // padding, because a `MarkdownEditor` pads itself and a bare `TextField` does
@@ -179,14 +179,13 @@ public struct GlassComposer<
             .padding(.horizontal, GlassComposerTokens.horizontalPadding)
             .padding(.bottom, GlassComposerTokens.bottomPadding)
         }
-        .background(isOpaque ? GlassTokens.opaqueCardFill : GlassTokens.fillCard)
+        // N-12: ONE gray ×4 — the card composite under the card hairline,
+        // floating or not (`isOpaque` keeps its API; the look is one).
+        .background(GlassTokens.opaqueCardFill)
         .clipShape(RoundedRectangle(cornerRadius: GlassComposerTokens.cornerRadius))
         .overlay(
             RoundedRectangle(cornerRadius: GlassComposerTokens.cornerRadius)
-                .stroke(
-                    isOpaque ? GlassTokens.strokeStrong : GlassTokens.strokeCard,
-                    lineWidth: GlassTokens.hairline
-                )
+                .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
         )
     }
 }

@@ -7,6 +7,7 @@ import {
   SkeletonRows,
   TraceSpecimen,
   AskDockSpecimen,
+  DockCardSpecimen,
   PlanCardSpecimen,
   useKeyboardInset,
 } from "@exp/ui"
@@ -62,7 +63,7 @@ const str = (value: unknown): string | undefined =>
 // CodeBlock specimens (`?dev=ask-dock` THE ask dock's, EXP-1280 `?dev=plan-card`
 // THE rich plan card's) (identical ×4) for theirs. Never parsed in a
 // production build (`isProductionBuild`).
-const DEV_VIEWS = [`feedback-states`, `trace`, `code-block`, `ask-dock`, `plan-card`] as const
+const DEV_VIEWS = [`feedback-states`, `trace`, `code-block`, `ask-dock`, `dock-card`, `plan-card`] as const
 type DevView = (typeof DEV_VIEWS)[number]
 const devView = (value: unknown): DevView | undefined =>
   !isProductionBuild && DEV_VIEWS.includes(value as DevView)
@@ -102,6 +103,8 @@ function AgentRoute() {
           <TraceSpecimen />
         ) : dev === `ask-dock` ? (
           <AskDockSpecimen />
+        ) : dev === `dock-card` ? (
+          <DockCardSpecimen />
         ) : dev === `plan-card` ? (
           <PlanCardSpecimen />
         ) : dev === `code-block` ? (
