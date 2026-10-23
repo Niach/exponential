@@ -6,21 +6,21 @@
       "host": "darwin-arm64",
       "entries": {
         "@exponential-at/ui/index": {
-          "bytes": 387879,
-          "gzip": 110297,
+          "bytes": 388048,
+          "gzip": 110373,
           "parts": {
             "index.js": 73498,
-            "chunks/index-nv47xbkn.js": 104881,
-            "chunks/index-ny5gdqpt.js": 122362,
+            "chunks/index-rq3r99dd.js": 104882,
+            "chunks/index-kj3egm64.js": 122530,
             "chunks/index-kb3b0ex6.js": 11815,
             "chunks/index-4bwxx9h8.js": 75323
           }
         },
         "@exponential-at/ui-react/index": {
-          "bytes": 134673,
-          "gzip": 46643,
+          "bytes": 140489,
+          "gzip": 48797,
           "parts": {
-            "index.js": 131687,
+            "index.js": 137503,
             "chunks/index-38zfg7nq.js": 2986
           }
         },
@@ -56,22 +56,22 @@
           }
         },
         "@exponential-at/ui/conformance": {
-          "bytes": 1857340,
-          "gzip": 170149,
+          "bytes": 1857508,
+          "gzip": 170227,
           "parts": {
             "conformance.js": 1647840,
-            "chunks/index-ny5gdqpt.js": 122362,
+            "chunks/index-kj3egm64.js": 122530,
             "chunks/index-kb3b0ex6.js": 11815,
             "chunks/index-4bwxx9h8.js": 75323
           }
         },
         "@exponential-at/ui/host": {
-          "bytes": 316145,
-          "gzip": 83548,
+          "bytes": 316314,
+          "gzip": 83620,
           "parts": {
             "host/index.js": 1764,
-            "chunks/index-nv47xbkn.js": 104881,
-            "chunks/index-ny5gdqpt.js": 122362,
+            "chunks/index-rq3r99dd.js": 104882,
+            "chunks/index-kj3egm64.js": 122530,
             "chunks/index-kb3b0ex6.js": 11815,
             "chunks/index-4bwxx9h8.js": 75323
           }
@@ -127,8 +127,8 @@
           }
         },
         "@exponential-at/ui-element/standalone.js": {
-          "bytes": 654508,
-          "gzip": 182236
+          "bytes": 654681,
+          "gzip": 182327
         }
       }
     },

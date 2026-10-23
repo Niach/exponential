@@ -304,6 +304,9 @@ jobs:
           name: exponential-ui-xcframework
           path: packages/exponential-ui-swift/Binaries/
           retention-days: 1
+      - name: Swift binding suite (the committed binding vs the host dylib, VAPP-151)
+        # build-ios.sh's host build is the same `--release --features cli` dylib, so this only links.
+        run: bash apps/desktop/crates/exponential-ui-ffi/run-binding-tests.sh swift
       - name: Swift painter tests (SwiftUI conformance)
         working-directory: packages/exponential-ui-swift
         env:
@@ -492,6 +495,12 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           packages: 'platforms;android-36 build-tools;35.0.0'
+      - name: Kotlin binding suite (the committed binding vs the host .so, VAPP-151)
+        # Before Gradle, to fail fast: the script pins kotlin + JNA to the Compose
+        # version catalog and fetches any jar the (empty) gradle cache lacks from Maven Central.
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/apps/desktop/target
+        run: bash apps/desktop/crates/exponential-ui-ffi/run-binding-tests.sh kotlin
       - name: Compose painter tests (Compose conformance)
         working-directory: packages/exponential-ui-compose
         env:
