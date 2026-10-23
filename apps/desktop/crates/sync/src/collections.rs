@@ -3,7 +3,7 @@
 //!
 //! Design (§5.8, mirrored from §3.5's threading model):
 //!
-//! * **One `gpui::Entity<Collection<T>>` per shape** (32 entities), all held
+//! * **One `gpui::Entity<Collection<T>>` per shape** (31 entities), all held
 //!   by the global [`Store`]. Separate entities give fine-grained
 //!   `cx.notify()` — an issue update wakes only the issue-list views, not the
 //!   label chips.
@@ -44,7 +44,7 @@ use crate::shapes::{shape_by_name, ShapeSpec};
 use crate::store::{ShapeStore, StoreError};
 
 use domain::rows::{
-    ActionRow, AgentDefRow, Attachment, Board, Comment, DeviceRow, DeviceWorktreeRow, Issue, IssueDraftRow,
+    AgentDefRow, Attachment, Board, Comment, DeviceRow, DeviceWorktreeRow, Issue, IssueDraftRow,
     IssueEvent, IssueLabel, IssueRelation, IssueStatusRow, IssueSubscriber, Label, MessageRow, ConversationRow,
     Notification, Pin, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow,
     EventRow, PromptRow, AppRow, AppVersionRow, SessionRow, Team, TeamInvite, TeamMember, User,
@@ -194,7 +194,6 @@ id_shape_row!(MessageRow, "messages");
 id_shape_row!(ConversationRow, "conversations");
 id_shape_row!(PullRequestRow, "pull_requests");
 id_shape_row!(PullRequestIssueRow, "pull_request_issues");
-id_shape_row!(ActionRow, "actions");
 id_shape_row!(IssueStatusRow, "issue_statuses");
 id_shape_row!(DeviceRow, "devices");
 id_shape_row!(DeviceWorktreeRow, "device_worktrees");
@@ -378,7 +377,7 @@ pub struct Collections {
     pub session_issues: Entity<Collection<SessionIssueRow>>,
     /// EXP-1294 every session's conversation (`consumed_at` NULL = queued).
     pub messages: Entity<Collection<MessageRow>>,
-    /// NEW-8 the conversations messages live in (the 32nd shape): a
+    /// NEW-8 the conversations messages live in (the 31st shape): a
     /// message's session is its conversation's
     /// (`domain::message_conversation`).
     pub conversations: Entity<Collection<ConversationRow>>,
@@ -386,7 +385,6 @@ pub struct Collections {
     pub pull_requests: Entity<Collection<PullRequestRow>>,
     /// EXP-1294 pull request ↔ issue links.
     pub pull_request_issues: Entity<Collection<PullRequestIssueRow>>,
-    pub actions: Entity<Collection<ActionRow>>,
     /// EXP-314 per-team custom issue statuses (the 16th shape).
     pub issue_statuses: Entity<Collection<IssueStatusRow>>,
     /// EXP-481 per-user device registry (the 17th shape).
@@ -462,8 +460,6 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.pull_request_issues;
         $body;
-        let $entity = &$collections.actions;
-        $body;
         let $entity = &$collections.issue_statuses;
         $body;
         let $entity = &$collections.devices;
@@ -513,7 +509,6 @@ impl Collections {
             conversations: cx.new(|_| Collection::new()),
             pull_requests: cx.new(|_| Collection::new()),
             pull_request_issues: cx.new(|_| Collection::new()),
-            actions: cx.new(|_| Collection::new()),
             issue_statuses: cx.new(|_| Collection::new()),
             devices: cx.new(|_| Collection::new()),
             device_worktrees: cx.new(|_| Collection::new()),
@@ -563,7 +558,6 @@ impl Collections {
             "pull_request_issues" => {
                 apply_to(&self.pull_request_issues, keys, full_replace, sqlite, cx)
             }
-            "actions" => apply_to(&self.actions, keys, full_replace, sqlite, cx),
             "issue_statuses" => {
                 apply_to(&self.issue_statuses, keys, full_replace, sqlite, cx)
             }
@@ -1402,7 +1396,7 @@ mod tests {
 
     #[test]
     fn every_shape_has_a_typed_row_binding() {
-        // The 32 ShapeRow impls cover the registry exactly (a 33rd shape
+        // The 31 ShapeRow impls cover the registry exactly (a 32nd shape
         // without a typed row would silently never reach the UI).
         let bound = [
             Team::spec().name,
@@ -1424,7 +1418,6 @@ mod tests {
             ConversationRow::spec().name,
             PullRequestRow::spec().name,
             PullRequestIssueRow::spec().name,
-            ActionRow::spec().name,
             IssueStatusRow::spec().name,
             DeviceRow::spec().name,
             DeviceWorktreeRow::spec().name,

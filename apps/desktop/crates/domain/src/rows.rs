@@ -303,8 +303,8 @@ pub struct IssueRelation {
 
 /// `pins` shape row (EXP-778) — one personal pin (`user_id = me`, static
 /// per-user shape, NOT team/trash scoped). `kind` is a contract `pinKind`
-/// (`issue` | `session` | `action`) and exactly one of the three target ids
-/// is set; every non-PK field is `Option` like `Notification` so an unknown
+/// (`issue` | `session`; NEW-8: a legacy `action` pin is ignored) and its
+/// target id is set; every non-PK field is `Option` like `Notification` so an unknown
 /// kind or an absent target degrades to a hidden row, never a wedged
 /// hydration. `sort_order` ascending = display order (a new pin appends).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -320,8 +320,6 @@ pub struct Pin {
     pub issue_id: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
-    #[serde(default)]
-    pub action_id: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
     #[serde(default)]
@@ -652,14 +650,16 @@ pub struct IssueSubscriber {
 }
 
 /// EXP-1294 `sessions` shape row — ONE table = the session TREE (Threads v2).
-/// Roots (`parent_id` NULL, `root_id = id`, depth 0) are `kind` `thread` or
-/// `agent`; children are `thread` sessions under a root. The runner columns
+/// Roots (`parent_id` NULL, `root_id = id`, depth 0) are threads or an
+/// agent's conversation (`agent_id` set; its name/icon/color live on the
+/// `agents` definition); children are thread sessions under a root. The runner columns
 /// (`device_id`, `cli`, `account`, `model`, …) say where and how it runs;
 /// `status` = contract `sessionStatus` (`queued`/`running`/`idle`/`ended`),
 /// with `busy`/`needs_input`/`blocked` device-written beside it. Thread
-/// facets (`title`, `guide`, `action_*`) live on roots; agent facets
-/// (`name`, `icon`, `color`, `triggers`, `sort_order`) on agent roots.
-/// Server-only (never synced): `host_user_id`, `mcp_server_ids`,
+/// facets (`title`, `guide`) live on roots. NEW-8: the legacy columns
+/// (`kind`, `dispatch`, `caption`, `aside`, `action_*`, `name`, `icon`, …)
+/// are never decoded: present today, absent after the drop, ignored both
+/// ways (serde is non-strict). Server-only (never synced): `host_user_id`, `mcp_server_ids`,
 /// `instructions` (`sessions.getAgent`).
 ///
 /// Only `id` is required; the bools the UI branches on read `false` when
@@ -678,10 +678,6 @@ pub struct SessionRow {
     pub root_id: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_i64")]
     pub depth: Option<i64>,
-    /// Contract `sessionKind`: `thread` | `agent`. NEW-2: a never-trusted
-    /// legacy read shim; the kind derives from [`Self::agent_id`].
-    #[serde(default)]
-    pub kind: Option<String>,
     /// NEW-2: the agent DEFINITION (`agents` row) this conversation session
     /// runs; `None` = a thread.
     #[serde(default)]
@@ -710,10 +706,6 @@ pub struct SessionRow {
     pub computer_use: bool,
     #[serde(default, deserialize_with = "tolerant_bool_or_false")]
     pub ultracode: bool,
-    /// A DISPATCHER root (every new thread or team agent): it runs on the
-    /// device's thread model and hands the work to children.
-    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
-    pub dispatch: bool,
     #[serde(default)]
     pub repository_id: Option<String>,
     #[serde(default)]
@@ -747,64 +739,12 @@ pub struct SessionRow {
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub guide: Option<serde_json::Value>,
     #[serde(default)]
-    pub action_id: Option<String>,
-    /// The action's name SNAPSHOT (outlives the action row).
-    #[serde(default)]
-    pub action_name: Option<String>,
-    /// jsonb `Record<string, string>`: the action's picked inputs.
-    #[serde(default, deserialize_with = "tolerant_opt_json")]
-    pub action_inputs: Option<serde_json::Value>,
-    /// The session whose agent started this root (an agent channel's
-    /// `thread_started`), `None` = a person did.
-    #[serde(default)]
-    pub spawned_by_session_id: Option<String>,
-    /// Agent roots: the agent's name, icon concept and `#rrggbb` color.
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub icon: Option<String>,
-    #[serde(default)]
-    pub color: Option<String>,
-    /// Agent roots: jsonb `AgentTrigger[]` (schedule | event).
-    #[serde(default, deserialize_with = "tolerant_opt_json")]
-    pub triggers: Option<serde_json::Value>,
-    #[serde(default, deserialize_with = "tolerant_opt_f64")]
-    pub sort_order: Option<f64>,
-    /// EXP-1323: the live status line (device-written, <=80 chars,
-    /// cleared at turn end); read through the session card's caption rule.
-    #[serde(default)]
-    pub caption: Option<String>,
-    /// EXP-1323: a `/btw` aside child (its card stays in the parent's
-    /// Conversation, never a nested list row).
-    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
-    pub aside: bool,
-    /// EXP-1252: a pending MOVE to this device (`sessions.send{sessionId,
-    /// deviceId}`): the current host hands the session off after its turn;
-    /// `None` = no move pending.
-    #[serde(default)]
-    pub move_to_device_id: Option<String>,
-    /// EXP-1349 legacy read shim (NEW-1: the server never writes it; no
-    /// device reads it — NEW-5 removed the handoff package).
-    #[serde(default)]
-    pub handoff_restored_at: Option<String>,
-    #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
 }
 
 impl SessionRow {
-    /// EXP-1252: the device a pending move takes this session to (`None` =
-    /// none pending, or a blank value). A target naming the CURRENT device
-    /// still reads as a move, as on web/iOS/Android (`Moving to <current>…`
-    /// until the server clears it).
-    pub fn moving_to(&self) -> Option<&str> {
-        self.move_to_device_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|target| !target.is_empty())
-    }
-
     /// A tree root (no parent).
     pub fn is_root(&self) -> bool {
         self.parent_id.as_deref().is_none_or(str::is_empty)
@@ -895,10 +835,6 @@ pub struct SessionIssueRow {
     pub added_by: Option<String>,
     #[serde(default)]
     pub added_by_session_id: Option<String>,
-    /// EXP-1341: the tree session working on it (`None` = the root's own);
-    /// a child's title + brief read only its ASSIGNED links.
-    #[serde(default)]
-    pub assigned_session_id: Option<String>,
     /// Ascending = the thread's issue-chip order.
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
@@ -1076,41 +1012,6 @@ pub struct PullRequestIssueRow {
     pub issue_id: String,
     #[serde(default)]
     pub team_id: Option<String>,
-    #[serde(default)]
-    pub created_at: Option<String>,
-    #[serde(default)]
-    pub updated_at: Option<String>,
-}
-
-/// `actions` shape row (EXP-268) — the body-less list projection: the ≤64KB
-/// prompt `body` is excluded from sync server-side (runs/editors fetch it
-/// fresh via tRPC `actions.get`), so no local field may exist to hold a
-/// stale copy. NEW-2: prompts replaced actions; the shape stays as an EMPTY
-/// read shim (NEW-8 drops it).
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct ActionRow {
-    pub id: String,
-    #[serde(default)]
-    pub team_id: Option<String>,
-    #[serde(default)]
-    pub repository_id: Option<String>,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub description: Option<String>,
-    /// EXP-273: curated registry icon name; `None` = the generic action glyph.
-    #[serde(default)]
-    pub icon: Option<String>,
-    /// jsonb `ActionInputDef[]` — TEXT-stored (§5.5), re-parsed at hydrate
-    /// like `issue_events.payload`.
-    #[serde(default, deserialize_with = "tolerant_opt_json")]
-    pub inputs: Option<serde_json::Value>,
-    /// EXP-825: the composer's field hint while the action is picked (≤200
-    /// chars, NULL = the generic "Additional instructions" hint).
-    #[serde(default)]
-    pub prompt_placeholder: Option<String>,
-    #[serde(default, deserialize_with = "tolerant_opt_f64")]
-    pub sort_order: Option<f64>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -1758,20 +1659,6 @@ mod tests {
         assert!(unmarked.agents.is_none());
     }
 
-    #[test]
-    fn action_row_ignores_a_stale_triggers_column() {
-        // NEW-2: the actions shim no longer syncs triggers; a stale local
-        // column is IGNORED (serde is non-strict), never a dropped row.
-        let action: ActionRow = serde_json::from_value(json!({
-            "id": "act-1",
-            "team_id": "t-1",
-            "name": "Groom",
-            "triggers": "[]",
-        }))
-        .unwrap();
-        assert_eq!(action.name.as_deref(), Some("Groom"));
-    }
-
     /// NEW-2: the three new rows hydrate tolerantly (TEXT-stored jsonb and
     /// numerics, unknown columns ignored); a session's kind derives from
     /// `agent_id`, never the `kind` shim.
@@ -1807,6 +1694,18 @@ mod tests {
         let legacy: SessionRow =
             serde_json::from_value(json!({"id": "s-2", "kind": "agent"})).unwrap();
         assert!(!legacy.is_agent() && !legacy.is_persistent());
+        // NEW-8: every legacy column, present (today) or absent (after the
+        // drop), hydrates the same row.
+        let with: SessionRow = serde_json::from_value(json!({
+            "id": "s-3", "kind": "thread", "dispatch": "t", "move_to_device_id": "d-2",
+            "handoff_restored_at": "2026-10-01", "caption": "Editing", "aside": "f",
+            "action_id": "a-1", "action_name": "Groom", "action_inputs": "{}",
+            "spawned_by_session_id": "s-0", "name": "Triage", "icon": "bot",
+            "color": "#ff0000", "triggers": "[]", "sort_order": "2"
+        }))
+        .unwrap();
+        let without: SessionRow = serde_json::from_value(json!({"id": "s-3"})).unwrap();
+        assert_eq!(with, without);
     }
 
     #[test]
@@ -2164,7 +2063,6 @@ mod tests {
             "plan_mode": null,
             "blocked": "{\"window\":\"weekly\"}",
             "guide": "[{\"topic\":\"Summary\",\"text\":\"Done.\"}]",
-            "sort_order": "2.5",
             "some_future_column": "x"
         }))
         .unwrap();
@@ -2173,7 +2071,6 @@ mod tests {
         assert!(row.busy && row.shared && !row.needs_input && !row.plan_mode);
         assert!(!row.computer_use, "absent reads false");
         assert_eq!(row.depth, Some(0));
-        assert_eq!(row.sort_order, Some(2.5));
         assert_eq!(row.blocked.as_ref().unwrap()["window"], "weekly");
         assert!(row.guide.as_ref().unwrap().is_array());
         assert_eq!(row.root_id_or_self(), "s-1");

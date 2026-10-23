@@ -14,8 +14,7 @@
 //! - NEW-2: agent definitions live in [`crate::agents`] (`agents.*`).
 //! - `pullRequests.merge` / `close` / `files`.
 //! - EXP-1323: `markRead`, the suggestions verbs (`startSuggestion`,
-//!   `startAllSuggestions`, `dismissSuggestion`, `fileSuggestion`) and the
-//!   `/btw` aside send ([`SendInput::aside`]).
+//!   `startAllSuggestions`, `dismissSuggestion`, `fileSuggestion`).
 //! - EXP-1211: the quick replies verbs (`sendReply`, `dismissReplies`).
 //!
 //! Plain blocking calls: run them on a background executor only. Rows
@@ -88,10 +87,6 @@ pub struct SendInput {
     /// continues).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_id: Option<String>,
-    /// EXP-1323: a `/btw` aside child (with `parent_id`; `text` = the
-    /// question): answered without adding to the parent's context.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub aside: Option<bool>,
 }
 
 impl SendInput {
@@ -103,17 +98,6 @@ impl SendInput {
             // Blank text is no text (the server refuses whitespace alone).
             text: Some(text.to_string()).filter(|text| !text.trim().is_empty()),
             attachment_ids: Some(attachment_ids).filter(|ids| !ids.is_empty()),
-            ..Self::default()
-        }
-    }
-
-    /// EXP-1323: a `/btw` aside under `parent_id` (the server places it on
-    /// the parent's device).
-    pub fn aside(parent_id: &str, question: &str) -> Self {
-        Self {
-            parent_id: Some(parent_id.to_string()),
-            text: Some(question.trim().to_string()).filter(|text| !text.is_empty()),
-            aside: Some(true),
             ..Self::default()
         }
     }
@@ -535,14 +519,9 @@ mod tests {
             .ends_with(r#"{"teamId":"t-1","deviceId":"dev-1","text":"only the web","promptId":"p-1"}"#));
     }
 
-    /// EXP-1323: the aside send, markRead and the suggestion verbs.
+    /// EXP-1323: markRead and the suggestion verbs.
     #[test]
-    fn aside_mark_read_and_suggestions_post_their_inputs() {
-        let (base, captured) =
-            one_shot_server(200, r#"{"result":{"data":{"sessionId":"c-9","messageId":"m-9","txid":1}}}"#);
-        send(&client(&base), &SendInput::aside("s-1", " Why? ")).unwrap();
-        assert!(request(&captured).ends_with(r#"{"parentId":"s-1","text":"Why?","aside":true}"#));
-
+    fn mark_read_and_suggestions_post_their_inputs() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":2}}}"#);
         mark_read(&client(&base), "s-1").unwrap();
         let text = request(&captured);

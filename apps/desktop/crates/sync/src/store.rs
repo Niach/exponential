@@ -379,7 +379,8 @@ fn row_to_map(row: &Row<'_>, names: &[String]) -> Result<Map<String, Value>> {
 ///
 /// * the pre-SLOP-2 `automations` table;
 /// * EXP-1294 (Threads v2): `coding_sessions`, `threads` and `thread_items`
-///   (superseded by the `sessions` tree, `messages` and `pull_requests`).
+///   (superseded by the `sessions` tree, `messages` and `pull_requests`);
+/// * NEW-8: `actions` (prompts replaced them; the server drops the shape).
 fn migrate_legacy_schema(conn: &Connection) -> Result<()> {
     for table in LEGACY_TABLES {
         conn.execute_batch(&format!(r#"DROP TABLE IF EXISTS "{table}""#))?;
@@ -389,7 +390,7 @@ fn migrate_legacy_schema(conn: &Connection) -> Result<()> {
 }
 
 /// Local tables of shapes that left the registry ([`migrate_legacy_schema`]).
-const LEGACY_TABLES: [&str; 4] = ["automations", "coding_sessions", "threads", "thread_items"];
+const LEGACY_TABLES: [&str; 5] = ["automations", "coding_sessions", "threads", "thread_items", "actions"];
 
 /// Bring an existing table up to the current [`ShapeSpec::columns`] set by
 /// adding any missing columns as `TEXT` (see the §5.4 wedge note at the call

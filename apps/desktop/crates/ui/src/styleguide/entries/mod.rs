@@ -9,7 +9,6 @@ pub(crate) mod picker;
 pub(crate) mod fixture_rows;
 pub(crate) mod picker_board;
 pub(crate) mod picker_issue;
-pub(crate) mod picker_action;
 pub(crate) mod picker_account;
 pub(crate) mod picker_device;
 pub(crate) mod picker_assignee;
@@ -88,7 +87,6 @@ pub(crate) fn find(id: &str) -> Option<&'static Entry> {
 pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: picker_board::ID, owner: picker_board::OWNER, render: picker_board::render },
     Entry { id: picker_issue::ID, owner: picker_issue::OWNER, render: picker_issue::render },
-    Entry { id: picker_action::ID, owner: picker_action::OWNER, render: picker_action::render },
     Entry { id: picker_account::ID, owner: picker_account::OWNER, render: picker_account::render },
     Entry { id: picker_device::ID, owner: picker_device::OWNER, render: picker_device::render },
     Entry { id: picker_assignee::ID, owner: picker_assignee::OWNER, render: picker_assignee::render },

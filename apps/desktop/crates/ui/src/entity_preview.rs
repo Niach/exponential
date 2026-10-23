@@ -123,9 +123,9 @@ pub(crate) fn row_facts(kind: &str, id: &str, cx: &App) -> EntityRowFacts {
     match kind {
         "issue" => synced(find_issue(id, cx).is_some()),
         "board" => synced(collections.boards.read(cx).get(id).is_some()),
-        "action" => synced(collections.actions.read(cx).get(id).is_some()),
-        // NEW-2: prompts, agent definitions and events.
-        "prompt" => synced(collections.prompts.read(cx).get(id).is_some()),
+        // NEW-2: prompts, agent definitions and events. NEW-8: the legacy
+        // `action` kind (old message bodies carry it) IS a prompt.
+        "action" | "prompt" => synced(collections.prompts.read(cx).get(id).is_some()),
         "agent" => synced(collections.agents.read(cx).get(id).is_some()),
         "event" => synced(collections.events.read(cx).get(id).is_some()),
         "comment" => match collections.comments.read(cx).get(id) {
@@ -298,7 +298,6 @@ pub(crate) fn card(r#ref: &EntityRef, members: &[EntityRef], cx: &mut App) -> Op
             crate::issue_preview::card(&issue.id, cx)
         }
         "board" => board_card(&r#ref.id, cx),
-        "action" => action_card(&r#ref.id, cx),
         "comment" => comment_card(&r#ref.id, cx),
         "session" => session_card(&r#ref.id, cx),
         "label" => label_card(&r#ref.id, cx),
@@ -385,42 +384,6 @@ fn board_card(board_id: &str, cx: &mut App) -> Option<AnyElement> {
     if total > BOARD_CARD_ISSUES {
         card = card.child(muted_line(format!("+{} more", total - BOARD_CARD_ISSUES), cx));
     }
-    Some(card.into_any_element())
-}
-
-fn action_card(action_id: &str, cx: &mut App) -> Option<AnyElement> {
-    let collections = sync::Store::try_global(cx)?.collections().clone();
-    let action = collections.actions.read(cx).get(action_id).cloned()?;
-    let name = action
-        .name
-        .clone()
-        .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "Action".to_string());
-    let mut card = card_frame(cx).child(header(
-        crate::icons::action_icon(action.icon.as_deref()).small(),
-        name,
-    ));
-    if let Some(description) = action
-        .description
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
-        card = card.child(muted_line(description.to_string(), cx));
-    }
-    let mut facts: Vec<String> = Vec::new();
-    let inputs = action
-        .inputs
-        .as_ref()
-        .and_then(|inputs| inputs.as_array())
-        .map(|inputs| inputs.len())
-        .unwrap_or(0);
-    facts.push(match inputs {
-        1 => "1 input".to_string(),
-        n => format!("{n} inputs"),
-    });
-    card = card.child(muted_line(facts.join(" · "), cx));
     Some(card.into_any_element())
 }
 

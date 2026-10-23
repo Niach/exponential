@@ -5,8 +5,10 @@
 //! (NEW-1: the session ends here and continues on the target on the same
 //! branch; no device packs or hands anything off). This module is the
 //! decision surface over it:
-//! which devices the session could move to, why a row is refused, what the
-//! pin says while a move is pending, and the one call that asks for it.
+//! which devices the session could move to, why a row is refused, and the
+//! one call that asks for it. NEW-8: a move is immediate (the server ends
+//! the session here and continues it there), so there is no pending move to
+//! show or cancel.
 //!
 //! The pin sits on THE session composer's options line BEFORE the model
 //! ([`crate::composer::SessionComposerControls::device_pin`]) and is built
@@ -34,9 +36,6 @@ use crate::queries::LaunchDevice;
 #[allow(dead_code)]
 pub(crate) const PICKER_TITLE: &str = "Move to device";
 
-/// The pin while `move_to_device_id` is set; `{device}` = the target's name.
-pub(crate) const MOVING_LABEL: &str = "Moving to {device}…";
-
 /// What a move does (copy-locked ×4).
 #[allow(dead_code)]
 pub(crate) const NOTE: &str =
@@ -44,12 +43,10 @@ pub(crate) const NOTE: &str =
 
 pub(crate) const REASON_STEER: &str = "Only people who can steer this session can move it.";
 pub(crate) const REASON_ENDED: &str = "This session has ended.";
-// The server's refusals for an agent / an aside: the pin is HIDDEN for both,
-// so only the other clients' copy-lock tests (and the server) say them.
+// The server's refusal for an agent: the pin is HIDDEN for one, so only
+// the other clients' copy-lock tests (and the server) say it.
 #[allow(dead_code)]
 pub(crate) const REASON_AGENT: &str = "Agents move from Settings → Agents.";
-#[allow(dead_code)]
-pub(crate) const REASON_ASIDE: &str = "An aside stays on its parent's device.";
 pub(crate) const REASON_OFFLINE: &str = "This device is offline.";
 pub(crate) const REASON_VISIBILITY: &str =
     "This device is shared differently, so the session can't move here.";
@@ -67,18 +64,18 @@ pub(crate) const FAILURE_THING: &str = "the session";
 /// Whether the pin shows at all, and whether it can be used.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PinState {
-    /// Agents (persistent kind) and asides: no pin. The reasons
-    /// [`REASON_AGENT`]/[`REASON_ASIDE`] are the server's refusals for them.
+    /// Agents (persistent kind): no pin. [`REASON_AGENT`] is the server's
+    /// refusal for one.
     Hidden,
     /// Shown, inert, the reason on its tooltip.
     Disabled(&'static str),
     Enabled,
 }
 
-/// The pin's state for a session: hidden for an agent or an aside, then
-/// disabled when the viewer cannot steer it, then when it has ended.
-pub(crate) fn pin_state(persistent: bool, aside: bool, may_steer: bool, ended: bool) -> PinState {
-    if persistent || aside {
+/// The pin's state for a session: hidden for an agent, then disabled when
+/// the viewer cannot steer it, then when it has ended.
+pub(crate) fn pin_state(persistent: bool, may_steer: bool, ended: bool) -> PinState {
+    if persistent {
         return PinState::Hidden;
     }
     if !may_steer {
@@ -96,8 +93,6 @@ pub(crate) struct MoveCandidate {
     pub device_id: String,
     /// The picker line ([`crate::queries::launch_device_label`]).
     pub label: String,
-    /// The device's plain name (the moving label's `{device}`).
-    pub name: String,
     pub online: bool,
     /// The device is shared with the SESSION's team.
     pub shared_with_team: bool,
@@ -167,9 +162,8 @@ pub(crate) fn refusal(candidate: &MoveCandidate, session_shared: bool) -> Option
 }
 
 /// The picker rows: every candidate in the launch order, the current device
-/// selected and never refused (picking it is "stay" or, mid-move, cancel).
-/// A current device the candidates do not list still heads the rows (its
-/// id as the label), so a pending move always has its cancel row — web
+/// selected and never refused (picking it is "stay"). A current device the
+/// candidates do not list still heads the rows (its id as the label) — web
 /// `sessionDeviceMoveRows`.
 pub(crate) fn move_rows(
     candidates: &[MoveCandidate],
@@ -208,48 +202,10 @@ pub(crate) fn move_rows(
     rows
 }
 
-/// [`MOVING_LABEL`] for `device`.
-pub(crate) fn moving_label(device: &str) -> String {
-    MOVING_LABEL.replace("{device}", device)
-}
-
-/// The pin's word: the current device, or [`MOVING_LABEL`] while a move to
-/// `moving_to` is pending.
-pub(crate) fn pin_label(current: &str, moving_to: Option<&str>) -> String {
-    match moving_to {
-        Some(target) => moving_label(target),
-        None => current.to_string(),
-    }
-}
-
-/// What picking `picked` asks for.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum PickOutcome {
-    /// Move to `picked` (`sessions.send{sessionId, deviceId}`).
-    Move(String),
-    /// The current device while a move is pending: cancel it (the same call,
-    /// naming the current device).
-    Cancel(String),
-    /// Nothing to ask (the current device with no move, or the pending
-    /// target again).
-    Nothing,
-}
-
-pub(crate) fn pick_outcome(
-    picked: &str,
-    current_device_id: Option<&str>,
-    moving_to: Option<&str>,
-) -> PickOutcome {
-    if Some(picked) == current_device_id {
-        return match moving_to {
-            Some(_) => PickOutcome::Cancel(picked.to_string()),
-            None => PickOutcome::Nothing,
-        };
-    }
-    if Some(picked) == moving_to {
-        return PickOutcome::Nothing;
-    }
-    PickOutcome::Move(picked.to_string())
+/// What picking `picked` asks for: a move to another device, nothing for
+/// the current one (web `deviceMovePick`).
+pub(crate) fn pick_outcome(picked: &str, current_device_id: Option<&str>) -> Option<String> {
+    (Some(picked) != current_device_id).then(|| picked.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -272,13 +228,6 @@ fn device_row(
         .find(|row| row.user_id.as_deref() == Some(me))
         .or_else(|| matches.first())
         .map(|row| (*row).clone())
-}
-
-fn device_name(row: Option<&domain::rows::DeviceRow>, device_id: &str) -> String {
-    row.and_then(|row| row.label.clone())
-        .map(|label| label.trim().to_string())
-        .filter(|label| !label.is_empty())
-        .unwrap_or_else(|| device_id.to_string())
 }
 
 /// The candidates for `session`: the devices the launch composer offers
@@ -310,7 +259,6 @@ pub(crate) fn candidates(session: &domain::rows::SessionRow, cx: &mut App) -> Ve
             MoveCandidate {
                 device_id: device.device_id.clone(),
                 label: device.label.clone(),
-                name: device_name(row.as_ref(), &device.device_id),
                 // The launch list holds this device and ONLINE remote ones.
                 online: true,
                 shared_with_team: row.as_ref().is_some_and(|row| row.is_shared_with(&team_id)),
@@ -352,7 +300,6 @@ pub(crate) fn candidates(session: &domain::rows::SessionRow, cx: &mut App) -> Ve
                     owner.as_deref(),
                     false,
                 ),
-                name: device_name(row.as_ref(), current),
                 online: row.as_ref().is_some_and(|row| {
                     crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms)
                 }),
@@ -363,24 +310,6 @@ pub(crate) fn candidates(session: &domain::rows::SessionRow, cx: &mut App) -> Ve
         }
     }
     out
-}
-
-/// The name of `device_id` for the moving label, off the candidates, else
-/// the synced row, else the id.
-fn target_name(candidates: &[MoveCandidate], device_id: &str, cx: &App) -> String {
-    if let Some(candidate) = candidates.iter().find(|c| c.device_id == device_id) {
-        return candidate.name.clone();
-    }
-    let row = sync::Store::try_global(cx).and_then(|store| {
-        store
-            .collections()
-            .devices
-            .read(cx)
-            .iter()
-            .find(|row| row.device_id.as_deref() == Some(device_id))
-            .cloned()
-    });
-    device_name(row.as_ref(), device_id)
 }
 
 // ---------------------------------------------------------------------------
@@ -395,12 +324,11 @@ pub(crate) fn session_device_pin(
     may_steer: bool,
     cx: &mut App,
 ) -> Option<AnyElement> {
-    let state = pin_state(session.is_persistent(), session.aside, may_steer, session.is_ended());
+    let state = pin_state(session.is_persistent(), may_steer, session.is_ended());
     if state == PinState::Hidden {
         return None;
     }
     let current = session.device_id.clone().filter(|id| !id.is_empty())?;
-    let moving_to = session.moving_to().map(str::to_string);
     let candidates = candidates(session, cx);
     let rows = move_rows(&candidates, Some(current.as_str()), session.shared);
     let current_label = candidates
@@ -408,15 +336,11 @@ pub(crate) fn session_device_pin(
         .find(|candidate| candidate.device_id == current)
         .map(|candidate| candidate.label.clone())
         .unwrap_or_else(|| current.clone());
-    let moving_name = moving_to.as_deref().map(|target| target_name(&candidates, target, cx));
-    let label = pin_label(&current_label, moving_name.as_deref());
-    // N-12: the pin is its glyph alone (the target's while a move is
-    // pending); the name, or the pending move, is the tooltip.
-    let shown = moving_to.as_deref().unwrap_or(current.as_str());
-    let glyph = crate::icons::device_icon(Some(crate::launch_options::device_glyph_name(shown, cx)), false);
+    // N-12: the pin is its glyph alone; the name is the tooltip.
+    let glyph = crate::icons::device_icon(Some(crate::launch_options::device_glyph_name(&current, cx)), false);
     let tooltip = match state {
-        PinState::Disabled(reason) => SharedString::from(format!("{label}\n{reason}")),
-        _ => SharedString::from(label),
+        PinState::Disabled(reason) => SharedString::from(format!("{current_label}\n{reason}")),
+        _ => SharedString::from(current_label),
     };
     let trigger = crate::launch_options::inline_pin_glyph_trigger(id.clone(), glyph, cx)
         .tooltip(tooltip)
@@ -448,11 +372,8 @@ pub(crate) fn session_device_pin(
                     let Some(picked) = values.into_iter().next() else {
                         return;
                     };
-                    match pick_outcome(&picked, Some(current.as_str()), moving_to.as_deref()) {
-                        PickOutcome::Move(device_id) | PickOutcome::Cancel(device_id) => {
-                            request_move(session_id.clone(), device_id, cx);
-                        }
-                        PickOutcome::Nothing => {}
+                    if let Some(device_id) = pick_outcome(&picked, Some(current.as_str())) {
+                        request_move(session_id.clone(), device_id, cx);
                     }
                 }),
             )
@@ -464,9 +385,9 @@ pub(crate) fn session_device_pin(
     )
 }
 
-/// `sessions.send{sessionId, deviceId}`: a move request, or (naming the
-/// current device while a move is pending) its cancel. The synced
-/// `move_to_device_id` confirms; a refusal is `Couldn't move the session`.
+/// `sessions.send{sessionId, deviceId}`: a move request. The synced row
+/// (ended here, continued there) confirms; a refusal is `Couldn't move the
+/// session`.
 pub(crate) fn request_move(session_id: String, device_id: String, cx: &mut App) {
     let Some(trpc) = crate::queries::trpc_client(cx) else {
         crate::action_error::failed_action(FAILURE_VERB, FAILURE_THING, None, cx);
@@ -499,7 +420,6 @@ mod tests {
     #[test]
     fn copy_is_the_contract() {
         assert_eq!(PICKER_TITLE, "Move to device");
-        assert_eq!(MOVING_LABEL, "Moving to {device}\u{2026}");
         assert_eq!(
             NOTE,
             "The session ends here and continues on that device on the same branch; its conversation goes with it, logins stay on each device."
@@ -507,7 +427,6 @@ mod tests {
         assert_eq!(REASON_STEER, "Only people who can steer this session can move it.");
         assert_eq!(REASON_ENDED, "This session has ended.");
         assert_eq!(REASON_AGENT, "Agents move from Settings \u{2192} Agents.");
-        assert_eq!(REASON_ASIDE, "An aside stays on its parent's device.");
         assert_eq!(REASON_OFFLINE, "This device is offline.");
         assert_eq!(
             REASON_VISIBILITY,
@@ -519,20 +438,18 @@ mod tests {
     }
 
     #[test]
-    fn pin_hides_for_agents_and_asides_then_gates_steer_then_ended() {
-        assert_eq!(pin_state(true, false, true, false), PinState::Hidden);
-        assert_eq!(pin_state(false, true, true, false), PinState::Hidden);
-        assert_eq!(pin_state(true, false, false, true), PinState::Hidden);
-        assert_eq!(pin_state(false, false, false, true), PinState::Disabled(REASON_STEER));
-        assert_eq!(pin_state(false, false, true, true), PinState::Disabled(REASON_ENDED));
-        assert_eq!(pin_state(false, false, true, false), PinState::Enabled);
+    fn pin_hides_for_agents_then_gates_steer_then_ended() {
+        assert_eq!(pin_state(true, true, false), PinState::Hidden);
+        assert_eq!(pin_state(true, false, true), PinState::Hidden);
+        assert_eq!(pin_state(false, false, true), PinState::Disabled(REASON_STEER));
+        assert_eq!(pin_state(false, true, true), PinState::Disabled(REASON_ENDED));
+        assert_eq!(pin_state(false, true, false), PinState::Enabled);
     }
 
     fn candidate(id: &str, online: bool, shared: bool, login: bool) -> MoveCandidate {
         MoveCandidate {
             device_id: id.into(),
             label: format!("{id} label"),
-            name: id.into(),
             online,
             shared_with_team: shared,
             has_login: login,
@@ -584,7 +501,7 @@ mod tests {
 
     /// A current device the candidates do not list (its row never synced,
     /// or the launch list dropped it) still heads the rows, selected and
-    /// never refused: a pending move keeps its cancel row.
+    /// never refused.
     #[test]
     fn an_unlisted_current_device_still_heads_the_rows() {
         let rows = move_rows(&[candidate("there", true, false, true)], Some("gone"), false);
@@ -594,7 +511,6 @@ mod tests {
             MoveRow { device_id: "gone".into(), label: "gone".into(), current: true, reason: None }
         );
         assert!(!rows[1].current);
-        assert_eq!(pick_outcome("gone", Some("gone"), Some("there")), PickOutcome::Cancel("gone".into()));
         // No current device at all: nothing is synthesised.
         assert_eq!(move_rows(&[candidate("there", true, false, true)], None, false).len(), 1);
         assert_eq!(move_rows(&[candidate("there", true, false, true)], Some(""), false).len(), 1);
@@ -619,17 +535,9 @@ mod tests {
     }
 
     #[test]
-    fn pin_label_names_the_current_device_or_the_move() {
-        assert_eq!(pin_label("mint — This device", None), "mint — This device");
-        assert_eq!(pin_label("mint — This device", Some("Studio")), "Moving to Studio\u{2026}");
-    }
-
-    #[test]
-    fn picking_moves_cancels_or_does_nothing() {
-        assert_eq!(pick_outcome("b", Some("a"), None), PickOutcome::Move("b".into()));
-        assert_eq!(pick_outcome("a", Some("a"), None), PickOutcome::Nothing);
-        assert_eq!(pick_outcome("a", Some("a"), Some("b")), PickOutcome::Cancel("a".into()));
-        assert_eq!(pick_outcome("b", Some("a"), Some("b")), PickOutcome::Nothing);
-        assert_eq!(pick_outcome("c", Some("a"), Some("b")), PickOutcome::Move("c".into()));
+    fn picking_moves_or_does_nothing() {
+        assert_eq!(pick_outcome("b", Some("a")), Some("b".into()));
+        assert_eq!(pick_outcome("a", Some("a")), None);
+        assert_eq!(pick_outcome("b", None), Some("b".into()));
     }
 }

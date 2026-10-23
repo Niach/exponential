@@ -204,8 +204,9 @@ fn open_heals_missing_columns_from_an_older_schema() {
     assert!(store.shape_state("boards").unwrap().is_none());
 }
 
-/// SLOP-17 + EXP-1294: open drops the tables of shapes that left the
-/// registry (`automations`, `coding_sessions`, `threads`, `thread_items`)
+/// SLOP-17 + EXP-1294 + NEW-8: open drops the tables of shapes that left the
+/// registry (`automations`, `coding_sessions`, `threads`, `thread_items`,
+/// `actions`)
 /// together with their cursor rows, idempotently (a second open is a no-op).
 #[test]
 fn open_drops_the_legacy_shape_tables() {
@@ -222,19 +223,22 @@ fn open_drops_the_legacy_shape_tables() {
                INSERT INTO electric_offsets (shape, handle, "offset") VALUES ('automations', 'h', '0_0');
                INSERT INTO electric_offsets (shape, handle, "offset") VALUES ('coding_sessions', 'h', '0_0');
                INSERT INTO electric_offsets (shape, handle, "offset") VALUES ('thread_items', 'h', '0_0');
+               INSERT INTO electric_offsets (shape, handle, "offset") VALUES ('actions', 'h', '0_0');
                CREATE TABLE "automations" ("id" TEXT NOT NULL, PRIMARY KEY ("id"));
                INSERT INTO "automations" ("id") VALUES ('au-1');
                CREATE TABLE "coding_sessions" ("id" TEXT NOT NULL, "automation_id" TEXT, PRIMARY KEY ("id"));
                INSERT INTO "coding_sessions" ("id", "automation_id") VALUES ('s-1', 'tr-1');
                CREATE TABLE "threads" ("id" TEXT NOT NULL, PRIMARY KEY ("id"));
-               CREATE TABLE "thread_items" ("id" TEXT NOT NULL, PRIMARY KEY ("id"));"#,
+               CREATE TABLE "thread_items" ("id" TEXT NOT NULL, PRIMARY KEY ("id"));
+               CREATE TABLE "actions" ("id" TEXT NOT NULL, "name" TEXT, PRIMARY KEY ("id"));
+               INSERT INTO "actions" ("id", "name") VALUES ('a-1', 'Groom');"#,
         )
         .unwrap();
     }
 
     for _ in 0..2 {
         let store = db.open();
-        for gone in ["automations", "coding_sessions", "threads", "thread_items"] {
+        for gone in ["automations", "coding_sessions", "threads", "thread_items", "actions"] {
             assert!(store.shape_state(gone).unwrap().is_none(), "{gone} cursor dropped");
         }
         // The new tree's table exists from the registry.
@@ -243,7 +247,7 @@ fn open_drops_the_legacy_shape_tables() {
         let conn = rusqlite::Connection::open(&db.path).unwrap();
         let tables: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('automations', 'coding_sessions', 'threads', 'thread_items')",
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('automations', 'coding_sessions', 'threads', 'thread_items', 'actions')",
                 [],
                 |row| row.get(0),
             )

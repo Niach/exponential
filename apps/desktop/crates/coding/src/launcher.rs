@@ -1647,12 +1647,12 @@ fn prepare_session(
             kind: RunKind::of(row),
             team_id: row.team_id.clone().unwrap_or_default(),
             issues: own_issues.to_vec(),
-            // EXP-1134/1292/1341: only a REAL name — an agent's name, else
-            // the row's stored title (`domain::session_title`'s first rung). Blank stays `None`, which is what asks the
-            // agent CLI to name the conversation
-            // (`engine::session::record_wants_name`): children, issue and
-            // action threads included (never the action name).
-            title: named_text(&row.name).or_else(|| named_text(&row.title)),
+            // EXP-1134/1292/1341: only a REAL name — the row's stored title
+            // (`domain::session_title`'s first rung). Blank stays `None`,
+            // which is what asks the agent CLI to name a thread
+            // (`engine::session::record_wants_name`): children and issue
+            // threads included; NEW-8: an agent's conversation never asks.
+            title: named_text(&row.title),
             cwd: cwd.clone(),
             clone: workspace.as_ref().map(|workspace| workspace.clone.clone()),
             repo: workspace.as_ref().map(|workspace| workspace.full_name.clone()),
@@ -3270,24 +3270,18 @@ mod tests {
         assert_eq!(session_branch(&child, &one, "exp/", None), "exp/EXP-42");
         assert_eq!(session_branch(&child, &one, "exp/", Some("  ")), "exp/EXP-42");
         assert_eq!(session_branch(&child, &two, "exp/", None), "exp/session-5ecb3c42");
-        // NEW-1: every root owns its issue work, a legacy `dispatch` stamp
-        // included (a read shim, never trusted).
-        let mut stamped = row(SESSION_ID, Some("repo-1"));
-        stamped.dispatch = true;
-        assert!(owns_issue_work(&stamped, None));
+        // NEW-1: every root owns its issue work.
+        assert!(owns_issue_work(&row(SESSION_ID, Some("repo-1")), None));
         assert!(owns_issue_work(&row(SESSION_ID, None), None));
         assert!(owns_issue_work(&child, None) && !owns_issue_work(&child, Some("exp/x")));
     }
 
     /// Who reads the agents part of the playbook: exactly an agent's
-    /// conversation session (the persistent kind); NEW-1: the legacy
-    /// `dispatch` stamp never decides.
+    /// conversation session (the persistent kind).
     #[test]
     fn only_agent_conversations_read_the_agents_playbook() {
-        let mut thread = row("t-1", None);
+        let thread = row("t-1", None);
         assert!(!dispatches(&thread));
-        thread.dispatch = true;
-        assert!(!dispatches(&thread), "the legacy stamp never decides");
         let mut agent = row("a-1", None);
         agent.agent_id = Some("ag-1".to_string());
         assert!(dispatches(&agent));
@@ -3296,10 +3290,10 @@ mod tests {
         assert!(!dispatches(&child));
     }
 
-    /// NEW-1: a legacy `dispatch` stamp never changes a launch's options;
-    /// every launch carries an explicit model.
+    /// NEW-1: a root's own pickers decide its options; every launch carries
+    /// an explicit model.
     #[test]
-    fn the_legacy_dispatch_stamp_never_changes_the_options() {
+    fn a_roots_pickers_decide_the_options() {
         let dir = temp_dir("dispatch-options");
         let mut deps = make_deps("http://127.0.0.1:1", &dir.0, fake_worktrees(&dir.0.join("wt")));
         let mut root = row("d-1", None);
@@ -3308,14 +3302,9 @@ mod tests {
         root.ultracode = true;
         let host = base_options();
         let plain = session_launch_options(&root, &host, &deps.settings);
-        root.dispatch = true;
-        let stamped = session_launch_options(&root, &host, &deps.settings);
         assert_eq!(plain.model, "opus");
-        assert_eq!(stamped.model, plain.model);
-        assert_eq!(stamped.effort, plain.effort);
-        assert_eq!(stamped.ultracode, plain.ultracode);
-        assert_eq!(stamped.plan_mode, plain.plan_mode);
-        assert_eq!(stamped.computer_use, plain.computer_use);
+        assert_eq!(plain.effort, "max");
+        assert!(plain.ultracode);
         // A blank model anywhere still launches explicit.
         let mut blank_host = base_options();
         blank_host.model = String::new();
@@ -3556,8 +3545,8 @@ mod tests {
     }
 
     /// NEW-1: a ROOT with a repository works itself — a worktree on its
-    /// `exp/<IDENT>` branch cut from the default, exactly like a child (a
-    /// legacy `dispatch` stamp changes nothing), with the coding playbook;
+    /// `exp/<IDENT>` branch cut from the default, exactly like a child, with
+    /// the coding playbook;
     /// NEW-5: a worktree run is never confined, a repo-less one is confined
     /// to its scratch dir.
     #[test]
@@ -3568,8 +3557,7 @@ mod tests {
         let (base, captured) = canned_server_recording(repo_calls());
         let worktrees = fake_worktrees(&worktree);
         let deps = make_deps(&base, &dir.0, worktrees.clone());
-        let mut root = row("root-1", Some("repo-r"));
-        root.dispatch = true;
+        let root = row("root-1", Some("repo-r"));
 
         let prepared = ready(launch(session_request(root, &["EXP-42"]), &deps));
         assert_eq!(prepared.branch, "exp/EXP-42");
@@ -3720,7 +3708,6 @@ mod tests {
         let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
         let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         let mut agent = row("agent-1", None);
-        agent.kind = Some("agent".to_string());
         agent.agent_id = Some("ag-1".to_string());
         agent.title = Some("Inbox watcher".to_string());
         agent.plan_mode = false;
@@ -4135,7 +4122,6 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         let child = PrepareRequest::Session(session_request(child_row, &[]));
         assert_eq!(last_used_stamp(&child, &options(Some("0a1b2c3d"))), None);
         let mut agent_row = row("s-agent", None);
-        agent_row.kind = Some("agent".to_string());
         agent_row.agent_id = Some("ag-1".to_string());
         let agent = PrepareRequest::Session(session_request(agent_row, &[]));
         assert_eq!(last_used_stamp(&agent, &options(None)), None);

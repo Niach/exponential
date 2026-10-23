@@ -1,15 +1,16 @@
 //! EXP-778 personal pins — the ONE place the desktop reads the per-user
 //! `pins` shape and fires `pins.toggle`.
 //!
-//! A pin names an issue or an action. The contract also has `pinKind.session`
-//! and the DB still stores those rows, but EXP-877 retired session pinning:
+//! A pin names an issue. The contract also has `pinKind.session` and
+//! `pinKind.action`, and the DB still stores those rows, but EXP-877 retired
+//! session pinning and NEW-8 actions (prompts replaced them):
 //! a run now lives in the top tab strip beside its issue, and a bookmark to
-//! one was a second, staler way to reach the same place. Old rows simply do
-//! not resolve here, so the rail hides them.
+//! one was a second, staler way to reach the same place. Old rows of either
+//! kind simply do not resolve here, so the rail hides them.
 //!
 //! The shape is static per user and NOT team/trash scoped, so every reader
 //! here filters to the ACTIVE team and to targets that still resolve in the
-//! sibling collections (`issues` / `actions`): a pin whose issue was trashed
+//! sibling `issues` collection: a pin whose issue was trashed
 //! with its board is simply hidden — never an empty row, never an error.
 //!
 //! The toggle is fire-and-forget: the server pins when absent and unpins
@@ -30,16 +31,14 @@ use crate::queries;
 
 /// The target a pin row names: `(kind, id)` — or `None` when the row is
 /// malformed (unknown kind, or the id column that kind needs is empty).
-/// EXP-877: `session` is one of those unknown kinds now (see the module doc).
+/// EXP-877 / NEW-8: `session` and `action` are unknown kinds now (see the
+/// module doc).
 /// Pure so the resolution rule is testable without a store.
 pub(crate) fn pin_target(pin: &Pin) -> Option<(&'static str, &str)> {
     let kind = pin.kind.as_deref()?;
     let (kind, id) = match kind {
         domain::contract::PIN_KIND_ISSUE => {
             (domain::contract::PIN_KIND_ISSUE, pin.issue_id.as_deref())
-        }
-        domain::contract::PIN_KIND_ACTION => {
-            (domain::contract::PIN_KIND_ACTION, pin.action_id.as_deref())
         }
         _ => return None,
     };
@@ -110,8 +109,7 @@ pub(crate) fn toggle_pin(team_id: String, kind: &'static str, target_id: String,
         .detach();
 }
 
-/// The pin toggle every pinnable header wears (issue detail, session screen,
-/// action dialog): `ui-pin` while unpinned, `ui-unpin` while pinned, tooltip
+/// The pin toggle every pinnable header wears (issue detail): `ui-pin` while unpinned, `ui-unpin` while pinned, tooltip
 /// to match. The click stops propagation so a row-level click handler
 /// underneath never fires too.
 ///
@@ -156,7 +154,6 @@ mod tests {
             kind: kind.map(str::to_string),
             issue_id: Some("i-1".to_string()),
             session_id: Some("s-1".to_string()),
-            action_id: Some("a-1".to_string()),
             sort_order: order,
             created_at: Some("2026-09-11T00:00:00Z".to_string()),
             updated_at: None,
@@ -166,16 +163,17 @@ mod tests {
     #[test]
     fn target_follows_kind_and_tolerates_junk() {
         assert_eq!(pin_target(&pin("p", Some("issue"), None)), Some(("issue", "i-1")));
-        assert_eq!(pin_target(&pin("p", Some("action"), None)), Some(("action", "a-1")));
-        // EXP-877: a session pin is a row the rail no longer renders — the
-        // contract kind survives, the target does not resolve.
+        // EXP-877 / NEW-8: a session or action pin is a row the rail no
+        // longer renders — the contract kind survives, the target does not
+        // resolve.
         assert_eq!(pin_target(&pin("p", Some("session"), None)), None);
+        assert_eq!(pin_target(&pin("p", Some("action"), None)), None);
         // Unknown kind / missing kind → hidden, never a panic.
         assert_eq!(pin_target(&pin("p", Some("board"), None)), None);
         assert_eq!(pin_target(&pin("p", None, None)), None);
         // The kind's own id column is the one that must be set.
-        let mut orphan = pin("p", Some("action"), None);
-        orphan.action_id = None;
+        let mut orphan = pin("p", Some("issue"), None);
+        orphan.issue_id = None;
         assert_eq!(pin_target(&orphan), None);
         let mut blank = pin("p", Some("issue"), None);
         blank.issue_id = Some(String::new());

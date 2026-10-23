@@ -292,8 +292,6 @@ pub(crate) struct ChatScreenView {
     /// `actions_ready` = the shape reached readiness.
     actions: Vec<api::prompts::Prompt>,
     actions_ready: bool,
-    /// A seed's action preselect, applied once the shape is ready.
-    pending_action: Option<String>,
     /// Release review R5: the `#` picker's ranked list, memoised so a busy
     /// repaint never re-ranks the pool. EXP-1030: the picker's QUERY and its
     /// keyboard cursor are the primitive's now — this memo is all the host
@@ -461,7 +459,6 @@ impl ChatScreenView {
             probe_generation: 0,
             actions: Vec::new(),
             actions_ready: false,
-            pending_action: None,
             issue_pick_memo: RefCell::new(issue_picker::VisibleRowsMemo::default()),
             team_pool: RefCell::new(None),
             plus_tool_bounds: Rc::new(std::cell::Cell::new(gpui::Bounds::default())),
@@ -686,7 +683,6 @@ impl ChatScreenView {
         self.team_id = team_id.clone();
         self.subject = Subject::None;
         self.probe_generation += 1;
-        self.pending_action = None;
         self.mention.update(cx, |mention, _| {
             mention.set_source(team_id.clone().map(crate::markdown::store_completion_source));
         });
@@ -726,13 +722,10 @@ impl ChatScreenView {
 
     // ── the seed (every play button) ──────────────────────────────────────
 
-    /// Apply a [`ChatSeed`]: an action wins over issues (the web rule),
-    /// a device seed is a sticky explicit pick, text lands on an EMPTY draft.
+    /// Apply a [`ChatSeed`]: its issues become the subject, a device seed
+    /// is a sticky explicit pick, text lands on an EMPTY draft.
     fn apply_seed(&mut self, seed: ChatSeed, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if let Some(action_id) = seed.action_id {
-            self.pending_action = Some(action_id);
-            self.refresh_actions(window, cx);
-        } else if !seed.issue_ids.is_empty() {
+        if !seed.issue_ids.is_empty() {
             self.set_issue_subject(seed.issue_ids.into_iter().collect(), cx);
         }
         if let Some(device_id) = seed.device_id {
@@ -873,8 +866,7 @@ impl ChatScreenView {
 
     // ── subject: action ───────────────────────────────────────────────────
 
-    /// Refresh the actions list from the synced shape (EXP-268) and apply a
-    /// pending seed once the shape is ready.
+    /// Refresh the team's prompts from the synced `prompts` shape.
     fn refresh_actions(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(team_id) = self.team_id.clone() else {
             self.actions = Vec::new();
@@ -884,11 +876,6 @@ impl ChatScreenView {
         let (actions, ready) = queries::team_prompts(cx, &team_id);
         self.actions = actions;
         self.actions_ready = ready;
-        if ready {
-            if let Some(pending) = self.pending_action.take() {
-                self.select_action(pending, cx);
-            }
-        }
     }
 
     /// Pick an action: the subject becomes that ONE chip (issues, if any,
@@ -905,7 +892,7 @@ impl ChatScreenView {
         cx.notify();
     }
 
-    /// The picked action's row, if the list holds it.    /// The picked action's row, if the list holds it.
+    /// The picked prompt's row, if the list holds it.
     fn selected_action(&self) -> Option<&api::prompts::Prompt> {
         let Subject::Action(subject) = &self.subject else {
             return None;
