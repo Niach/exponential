@@ -241,6 +241,14 @@ bun run --filter @exponential-at/ui eval:parity   # the Devices template vs the 
             head={[`Macro`, `What it is`, `Solid`]}
             rows={Object.entries(gaps.candidates).map(([k, v]) => [<code key={k}>{k}</code>, v, (gaps.renderers.solid.candidates as string[]).includes(k) ? `a Solid painter too` : `reducer only`])}
           />
+          <p>
+            Landed (VAPP-126): {Object.keys(gaps.landed).map((c, i) => (
+              <span key={c}>
+                {i ? `, ` : ``}
+                <a href={componentHref(c)}>{c}</a>
+              </span>
+            ))}.
+          </p>
           <h3>Every screen</h3>
           <DocsTable
             head={[`Screen`, `Class`, `With`, `Solid`]}

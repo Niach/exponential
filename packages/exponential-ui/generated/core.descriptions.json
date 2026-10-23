@@ -192,6 +192,21 @@
         "collapseBelow": "md"
       }
     },
+    "SplitView": {
+      "props": {
+        "open": {
+          "description": "On phones, the detail shows instead of the list; bind it to the open item."
+        },
+        "width": {
+          "description": "The list column width in px."
+        }
+      },
+      "description": "List (`list` slot) + detail (children); phones show one at a time, the detail with a back button.",
+      "example": {
+        "open": true,
+        "width": 320
+      }
+    },
     "AppBar": {
       "props": {
         "title": {
@@ -208,6 +223,38 @@
       "example": {
         "title": "Settings",
         "back": true
+      }
+    },
+    "Page": {
+      "props": {
+        "title": {
+          "description": "The screen title."
+        },
+        "subtitle": {
+          "description": "A muted line under the title."
+        },
+        "back": {
+          "description": "Shows a back button that fires `back`."
+        },
+        "padded": {
+          "description": "Pads the body; off for edge-to-edge lists."
+        }
+      },
+      "description": "A screen: an AppBar row (back, title, trailing actions) over a padded scrolling body.",
+      "example": {
+        "title": "Settings",
+        "back": true
+      }
+    },
+    "Toolbar": {
+      "props": {
+        "gap": {
+          "description": "The space between controls."
+        }
+      },
+      "description": "Controls in one row, bottoms aligned, wrapping on phones; `trailing` = the end action.",
+      "example": {
+        "gap": "sm"
       }
     },
     "Section": {
@@ -1345,6 +1392,40 @@
         ]
       }
     },
+    "StatTile": {
+      "props": {
+        "label": {
+          "description": "What is measured."
+        },
+        "value": {
+          "description": "The formatted value."
+        },
+        "delta": {
+          "description": "The change (`+12 %`)."
+        },
+        "tone": {
+          "description": "The change's tone."
+        },
+        "trend": {
+          "description": "Recent values (sparkline)."
+        }
+      },
+      "description": "A dashboard tile: label, big value, toned change, trend sparkline.",
+      "example": {
+        "label": "Active users",
+        "value": "1,284",
+        "delta": "+12 %",
+        "tone": "success",
+        "trend": [
+          3,
+          4,
+          3,
+          5,
+          6,
+          8
+        ]
+      }
+    },
     "Button": {
       "props": {
         "label": {
@@ -1439,6 +1520,35 @@
       "description": "Collects its fields by `name` and fires `submit` with their values once every check passes.",
       "example": {
         "name": "profile"
+      }
+    },
+    "FieldGroup": {
+      "props": {
+        "columns": {
+          "description": "Columns from md up (1-4)."
+        }
+      },
+      "description": "Fields side by side (Starts / Ends) that stack on phones.",
+      "example": {
+        "columns": 2
+      }
+    },
+    "FormActions": {
+      "props": {
+        "submit": {
+          "description": "The submit label."
+        },
+        "cancel": {
+          "description": "An outline Cancel firing `cancel`."
+        },
+        "destructive": {
+          "description": "A dangerous submit."
+        }
+      },
+      "description": "The end-aligned button row: children, Cancel, then THE submit (the one primary).",
+      "example": {
+        "submit": "Save",
+        "cancel": true
       }
     },
     "Input": {

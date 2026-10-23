@@ -185,6 +185,14 @@ impl PaintStyle {
             scroll_x = true;
             scroll_y = true;
         }
+        // VAPP-126: a display:none box is laid out at zero size and still
+        // painted (the conformance replay wants every visible node); clipping
+        // it keeps a control inside (an icon button's glyph) from drawing
+        // past the zero frame.
+        if v.display_none {
+            clip_x = true;
+            clip_y = true;
+        }
         let gradient = v.background_gradient.as_ref().and_then(|g| {
             let stops: Vec<(Hsla, f32)> = g.stops.iter().filter_map(|s| color_of(Some(&s.color)).map(|c| (c, s.offset.clamp(0.0, 1.0)))).collect();
             (stops.len() >= 2).then_some(GradientPaint { angle: g.angle, stops })

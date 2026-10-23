@@ -17,16 +17,16 @@
     "gzip": 16384
   },
   "@exponential-at/ui/prompt": {
-    "bytes": 129024,
+    "bytes": 135823,
     "gzip": 33792
   },
   "@exponential-at/ui/schema": {
-    "bytes": 169984,
+    "bytes": 176665,
     "gzip": 43008
   },
   "@exponential-at/ui/conformance": {
-    "bytes": 1944225,
-    "gzip": 172032
+    "bytes": 2057625,
+    "gzip": 177016
   },
   "@exponential-at/ui/host": {
     "bytes": 323584,
