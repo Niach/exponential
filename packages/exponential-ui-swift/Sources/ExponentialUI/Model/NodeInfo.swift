@@ -81,6 +81,42 @@ public struct NodeInfo: Identifiable, Sendable {
         hovered = n.hovered
     }
 
+    /// VAPP-131: the tombstone the core answers for a slot it just freed
+    /// (`Surface::placed` of a dead slot), built from the live record the
+    /// model already holds: no props, no tree links, not pressable, hidden;
+    /// a dead slot has no layout node, so no part states, macro name or
+    /// host hover either.
+    init(tombstoneOf n: NodeInfo) {
+        index = n.index
+        id = n.id
+        component = n.component
+        part = n.part
+        owner = n.owner
+        ownerComponent = n.ownerComponent
+        catalogId = n.catalogId
+        extensionKind = n.extensionKind
+        depth = n.depth
+        parent = nil
+        children = []
+        layer = n.layer
+        isLeaf = n.isLeaf
+        props = [:]
+        lines = n.lines
+        pressable = false
+        hidden = true
+        triggerFor = n.triggerFor
+        accessibility = n.accessibility
+        a11y = n.a11y
+        states = n.states
+        partStates = []
+        form = n.form
+        live = n.live
+        removed = true
+        macroName = nil
+        hoverStyled = false
+        hovered = false
+    }
+
     public var isContainer: Bool { !isLeaf }
     /// The component whose recipe this node paints with (the owner of a part).
     public var recipeComponent: String { ownerComponent ?? component }

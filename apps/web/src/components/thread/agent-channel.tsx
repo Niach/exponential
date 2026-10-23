@@ -224,6 +224,9 @@ interface PendingFile {
 export function AgentComposer({
   teamId,
   agentId,
+  appId,
+  deviceId,
+  disabled = false,
   placeholder,
   users = [],
   testId,
@@ -231,7 +234,14 @@ export function AgentComposer({
   onSent,
 }: {
   teamId: string
-  agentId: string
+  /** The agent to message (`sessions.send({agentId})`). */
+  agentId?: string
+  /** VAPP-110: the app whose editor session to open instead
+   *  (`sessions.send({appId, deviceId})`). */
+  appId?: string
+  /** The device a fresh editor session runs on (an app send). */
+  deviceId?: string
+  disabled?: boolean
   placeholder: string
   users?: readonly User[]
   testId?: string
@@ -265,7 +275,7 @@ export function AgentComposer({
     })
 
   const send = async () => {
-    if (sending || empty) return
+    if (sending || empty || disabled) return
     setSending(true)
     try {
       const attachmentIds: string[] = []
@@ -275,7 +285,7 @@ export function AgentComposer({
       }
       const result = await trpc.sessions.send.mutate(
         {
-          agentId,
+          ...(appId ? { appId, deviceId } : { agentId }),
           text: text.trim() || undefined,
           attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
         },
@@ -323,13 +333,13 @@ export function AgentComposer({
             ref={toolsRef}
             fieldRef={fieldRef}
             onFiles={addFiles}
-            disabled={sending}
+            disabled={sending || disabled}
           />
         }
         submit={
           <ComposerSubmit
             aria-label="Send"
-            disabled={empty || sending}
+            disabled={empty || sending || disabled}
             onClick={() => void send()}
           >
             {sending ? <Spinner size={16} label="Sending" /> : undefined}

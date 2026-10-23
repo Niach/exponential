@@ -143,4 +143,19 @@ class PromptsTest {
         assertEquals("Move \"Web\" to trash?", Prompts.TrashBoard.prompt("Web").title)
         assertEquals("Delete \"Triage\"?", Prompts.DeleteAction.prompt("Triage").title)
     }
+
+    /** VAPP-107: the destructive consent rule (web `destructiveTool`,
+     *  desktop `destructive_tool`): a word of the tool or its op. */
+    @Test
+    fun destructiveTool() {
+        assertTrue(Prompts.destructiveTool("exponential_issues", "delete"))
+        assertTrue(Prompts.destructiveTool("exponential_pr", "merge"))
+        assertTrue(Prompts.destructiveTool("harness.trash"))
+        assertEquals(false, Prompts.destructiveTool("exponential_issues", "get"))
+        assertEquals(false, Prompts.destructiveTool("exponential_sessions_send", "endless"))
+        assertEquals(
+            Prompts.Role.Destructive,
+            Prompts.exponentialUiConsent("exponential_pr", destructive = true).actions.first { it.id == "allow" }.role,
+        )
+    }
 }

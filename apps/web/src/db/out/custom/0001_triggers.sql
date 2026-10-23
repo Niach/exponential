@@ -102,6 +102,8 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON actions FOR EACH RO
 -- NEW-2: agent definitions and prompts.
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON agents FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON prompts FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- VAPP-110: apps (rename, a new head version, trash).
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON apps FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 -- NEW-3: conversations.
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON conversations FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON user_notification_prefs FOR EACH ROW EXECUTE FUNCTION update_updated_at();

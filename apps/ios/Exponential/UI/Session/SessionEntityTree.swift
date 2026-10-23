@@ -37,7 +37,8 @@ extension TreeSession {
             deviceId: row.deviceId.isEmpty ? nil : row.deviceId,
             caption: row.caption,
             aside: row.aside,
-            agentId: row.agentId
+            agentId: row.agentId,
+            appId: row.appId
         )
     }
 }

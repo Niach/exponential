@@ -1,4 +1,4 @@
-//! The 29 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 31 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 29 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 31 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 29] = [
+pub const SHAPES: [ShapeSpec; 31] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -399,6 +399,8 @@ pub const SHAPES: [ShapeSpec; 29] = [
             // NEW-2: the agent definition a conversation session runs (the
             // kind derives from it; `kind` stays a legacy read shim).
             "agent_id",
+            // VAPP-110: the app whose editor session this root is.
+            "app_id",
             "user_id",
             "device_id",
             "cli",
@@ -785,6 +787,36 @@ pub const SHAPES: [ShapeSpec; 29] = [
         columns: &["id", "team_id", "name", "icon", "sort_order", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "apps",
+        path: "/api/shapes/apps",
+        // VAPP-110: the team's apps. Byte-matches the proxy; the HEAD
+        // version's `package` rides along (the editor's live preview).
+        columns: &[
+            "id",
+            "team_id",
+            "slug",
+            "name",
+            "icon",
+            "color",
+            "description",
+            "package",
+            "head_version",
+            "created_by",
+            "deleted_at",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "app_versions",
+        path: "/api/shapes/app-versions",
+        // VAPP-110: an app's versions. MUST NOT declare `package`: an old
+        // version's package loads on demand (tRPC `apps.get {version}`).
+        columns: &["id", "app_id", "team_id", "number", "note", "session_id", "created_by", "created_at"],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Look a shape up by its table name.
@@ -797,8 +829,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_29_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 29);
+    fn registry_has_31_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 31);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -977,6 +1009,25 @@ mod tests {
         assert_eq!(sessions.columns[kind + 1], "agent_id");
     }
 
+    /// VAPP-110: apps and app_versions byte-match the proxies; an old
+    /// version's package never syncs; sessions carry the editor's app.
+    #[test]
+    fn the_apps_shapes_match_the_proxies() {
+        assert_eq!(
+            shape_by_name("apps").unwrap().columns,
+            &["id", "team_id", "slug", "name", "icon", "color", "description", "package", "head_version", "created_by", "deleted_at", "created_at", "updated_at"]
+        );
+        let versions = shape_by_name("app_versions").unwrap();
+        assert_eq!(
+            versions.columns,
+            &["id", "app_id", "team_id", "number", "note", "session_id", "created_by", "created_at"]
+        );
+        assert!(!versions.columns.contains(&"package"));
+        let sessions = shape_by_name("sessions").unwrap();
+        let agent = sessions.columns.iter().position(|c| *c == "agent_id").unwrap();
+        assert_eq!(sessions.columns[agent + 1], "app_id");
+    }
+
     #[test]
     fn teams_sync_the_pr_automation_columns() {
         // EXP-319: the settings PR-automation card reads these four —
@@ -1145,7 +1196,7 @@ mod tests {
     fn the_session_tree_shapes_match_the_proxies() {
         let sessions = shape_by_name("sessions").unwrap();
         assert_eq!(sessions.path, "/api/shapes/sessions");
-        assert_eq!(sessions.columns.len(), 44);
+        assert_eq!(sessions.columns.len(), 45);
         for column in [
             "parent_id", "root_id", "kind", "status", "busy", "needs_input", "shared", "guide", "triggers",
             // EXP-1323: the live status line + a `/btw` aside child.

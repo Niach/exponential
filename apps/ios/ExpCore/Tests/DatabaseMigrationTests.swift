@@ -134,7 +134,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v67_issue_draft_thread", "v68_session_tree",
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
-             "v74_agents_events_prompts", "v75_conversations"]
+             "v74_agents_events_prompts", "v75_conversations", "v76_apps"]
         )
     }
 
@@ -190,7 +190,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v67_issue_draft_thread", "v68_session_tree",
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
-             "v74_agents_events_prompts", "v75_conversations"]
+             "v74_agents_events_prompts", "v75_conversations", "v76_apps"]
         )
     }
 
@@ -717,7 +717,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v67_issue_draft_thread", "v68_session_tree",
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
-             "v74_agents_events_prompts", "v75_conversations"]
+             "v74_agents_events_prompts", "v75_conversations", "v76_apps"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -821,7 +821,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v67_issue_draft_thread", "v68_session_tree",
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
-             "v74_agents_events_prompts", "v75_conversations"]
+             "v74_agents_events_prompts", "v75_conversations", "v76_apps"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1880,7 +1880,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "shared", "title", "guide", "action_id", "action_name", "action_inputs",
              "spawned_by_session_id", "name", "icon", "color", "triggers",
              "sort_order", "created_at", "updated_at", "dispatch", "caption", "aside",
-             "move_to_device_id", "agent_id"]
+             "move_to_device_id", "agent_id", "app_id"]
         )
         // NEW-2: agent definitions, events and prompts carry exactly the
         // shape allowlists (`instructions`, `trigger_state`, `body` never).
@@ -3151,7 +3151,7 @@ final class DatabaseMigrationTests: XCTestCase {
                     """, arguments: [shape])
             }
         }
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v75_conversations"))
         XCTAssertEqual(
             try columnNames(pool, "conversations"),
             ["id", "team_id", "kind", "session_id", "title", "created_at", "updated_at"]
@@ -3163,6 +3163,44 @@ final class DatabaseMigrationTests: XCTestCase {
                 sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
             )
             XCTAssertEqual(reset, ["messages"])
+        }
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // VAPP-110: v76 adds `apps` + `app_versions` (the shape allowlists) and
+    // `sessions.app_id`, resetting ONLY the sessions cursor.
+    func testAppsTablesAndSessionAppId() throws {
+        let pool = try makePool("vapp110-apps")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v75_conversations")
+        try pool.write { db in
+            for shape in ["sessions", "messages"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertEqual(
+            try columnNames(pool, "apps"),
+            ["id", "team_id", "slug", "name", "icon", "color", "description", "package",
+             "head_version", "created_by", "deleted_at", "created_at", "updated_at"]
+        )
+        XCTAssertEqual(
+            try columnNames(pool, "app_versions"),
+            ["id", "app_id", "team_id", "number", "note", "session_id", "created_by", "created_at"]
+        )
+        try pool.read { db in
+            XCTAssertTrue(try db.columns(in: "sessions").contains { $0.name == "app_id" })
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["sessions"])
         }
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }

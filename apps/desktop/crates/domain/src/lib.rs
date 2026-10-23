@@ -93,6 +93,8 @@ pub mod activity_fold;
 pub mod ask_dock;
 // EXP-1294: Team settings → Agents (trigger summary, validation), fixture-locked ×4.
 pub mod agent_settings;
+// VAPP-110: Exponential apps (slugify, version label, list order), fixture-locked ×4.
+pub mod apps;
 // EXP-1188: what a clicked link in agent prose opens, fixture-locked ×4.
 pub mod app_link;
 pub mod board;

@@ -12,8 +12,9 @@
 //!   `{rows, count, online}`, derived exactly as the web derives it;
 //!   `exp:issues?board=…&limit=…` → `{rows, count}`);
 //! - extensions: the app extension (`packages/ui/exponential-ui/extension.json`)
-//!   with gpui painters for its `IconDisc` and `LiveDot` natives, and the
-//!   app's declarative package (Devices);
+//!   with gpui painters for its `IconDisc` and `LiveDot` natives, the
+//!   app's declarative package (Devices) and (VAPP-110) a team app's own
+//!   package ([`IdeHost::with_packages`], the editor's preview);
 //! - policy: `harness.mcp` ASKS first, through a native confirm window
 //!   (`crate::native_dialog`), Deny on Return.
 //!
@@ -657,6 +658,13 @@ pub(crate) struct IdeHost {
 
 impl IdeHost {
     pub(crate) fn new(mode: Mode, cx: &mut App) -> Self {
+        Self::with_packages(mode, &[], None, cx)
+    }
+
+    /// VAPP-110: the host with `packages` installed after the Devices one
+    /// (a team app's package, the editor's preview) and the package's
+    /// `theme` (the default theme when `None` or unknown).
+    pub(crate) fn with_packages(mode: Mode, packages: &[Value], theme_id: Option<&str>, cx: &mut App) -> Self {
         let feeds = Rc::new(RefCell::new(Feeds::default()));
         refresh_devices(&feeds, cx);
         refresh_issues(&feeds, cx);
@@ -722,7 +730,9 @@ impl IdeHost {
                     ..Default::default()
                 }),
             },
-            theme: exponential_ui::themes::builtin_theme(THEME_ID),
+            theme: theme_id
+                .and_then(exponential_ui::themes::builtin_theme)
+                .or_else(|| exponential_ui::themes::builtin_theme(THEME_ID)),
             mode,
             plugin: Rc::new(IdePlugin),
             ..HostOptions::default()
@@ -736,6 +746,11 @@ impl IdeHost {
                     }
                 }
                 Err(e) => log::error!("[exponential-ui host] the Devices package does not parse: {e}"),
+            }
+            for pkg in packages {
+                for issue in host.install_package(pkg) {
+                    log::warn!("[exponential-ui host] app package: {issue:?}");
+                }
             }
             host
         });

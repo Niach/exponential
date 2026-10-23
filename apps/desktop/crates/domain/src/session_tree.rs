@@ -1846,8 +1846,9 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
     for root in input.sessions.iter().copied().filter(|session| {
         is_root(session)
             // NEW-2: an agent's conversation (a root with `agent_id`) is no
-            // thread.
+            // thread; VAPP-110: neither is an app's editor session (`app_id`).
             && !session.is_agent()
+            && !session.is_app_editor()
             && input
                 .team_id
                 .is_none_or(|team| session.team_id.as_deref() == Some(team))

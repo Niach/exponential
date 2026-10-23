@@ -534,6 +534,9 @@ impl gpui::Element for SheetHostScope {
 /// of 3"), the ONE scrolling body, the pinned footer.
 pub(crate) struct SheetContent {
     pub meta: Option<SharedString>,
+    /// VAPP-129: a trailing header button before the close glyph (web: the
+    /// meta slot takes any node; the app editor's "Move to the side").
+    pub action: Option<AnyElement>,
     pub body: AnyElement,
     pub footer: Option<AnyElement>,
 }
@@ -620,6 +623,7 @@ pub(crate) fn sheet_chrome(
                 .text_xs()
                 .text_color(muted)
                 .when_some(content.meta, |meta_row, meta| meta_row.child(meta))
+                .children(content.action)
                 .child(close),
         );
     let mut out = vec![header.into_any_element(), content.body];

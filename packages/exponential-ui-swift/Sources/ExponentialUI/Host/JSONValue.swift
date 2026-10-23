@@ -24,8 +24,13 @@ public enum JSONValue: Equatable, Sendable, CustomStringConvertible {
         }
     }
 
-    /// Parse a JSON document (`{}` on failure).
+    /// Parse a JSON document (`.null` on failure; `JSONParser`, VAPP-142).
     public static func parse(_ json: String) -> JSONValue {
+        JSONParser.parse(json) ?? .null
+    }
+
+    /// The Foundation path `parse` replaced (the parser's tests compare against it).
+    static func parseWithFoundation(_ json: String) -> JSONValue {
         guard let data = json.data(using: .utf8), let any = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return .null }
         return JSONValue(any: any)
     }

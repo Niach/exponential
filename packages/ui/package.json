@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./styles.css": "./src/styles.css",
-    "./island": "./src/island.ts"
+    "./island": "./src/island.ts",
+    "./exponential-ui/*": "./exponential-ui/*"
   },
   "scripts": {
     "test": "vitest run",

@@ -522,6 +522,24 @@ public enum Prompts {
         }
     }
 
+    /// VAPP-107 (the destructive entry's `variants`): a word of the tool name
+    /// or of its `op` argument, split on anything but letters and
+    /// lower-cased, is one of these. Mirrors web `destructiveTool` and
+    /// desktop `destructive_tool`.
+    public static let destructiveToolWords: [String] = ["delete", "merge", "close", "end", "remove", "trash"]
+
+    public static func destructiveTool(_ tool: String, op: String? = nil) -> Bool {
+        let text = "\(tool) \(op ?? "")".lowercased()
+        let words = text.split(whereSeparator: { !("a"..."z").contains($0) }).map(String.init)
+        return words.contains(where: destructiveToolWords.contains)
+    }
+
+    /// The consent card's copy for a call: the destructive entry when it
+    /// sounds destructive, else the plain one.
+    public static func exponentialUiConsent(tool: String, destructive: Bool) -> PromptCopy {
+        destructive ? ExponentialUiConsentDestructive.copy(tool: tool) : ExponentialUiConsent.copy(tool: tool)
+    }
+
     /// Every mirrored entry, locked against the fixture's `prompts` key set.
     public static let all: [PromptEntry] = [
         DeleteIssue.entry, DeleteIssues.entry, DeleteFile.entry, MoveIssue.entry,

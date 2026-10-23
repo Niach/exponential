@@ -95,6 +95,12 @@ pub enum Screen {
     /// Needs you / Running / Recent (`domain::session_tree::partition_threads`).
     /// Tab-less full-page mode like Devices.
     Threads,
+    /// VAPP-110: one app's EDITOR ([`crate::app_screen`], web
+    /// `apps/$appSlug`): the member's editor session beside the live preview.
+    /// `app` = the `apps` row id, or a slug of the active team (the dev route
+    /// `app:<slug>`); the built-in app's slug opens its preview alone.
+    /// Tab-less full-page mode: leaving it ENDS the live editor session.
+    App { app: String },
     /// EXP-1294: one thread — a ROOT `sessions` row of kind `thread`
     /// ([`crate::thread_screen`]). A detail tab; the sessions of its tree open
     /// INSIDE that tab ([`Screen::Session`]), never beside it.
@@ -124,11 +130,6 @@ pub enum Screen {
     /// Tab-less full-page mode like Devices; reachable only through
     /// `EXP_DEV_SCREEN=exponential-ui-kitchen-sink`, never from the rail.
     ExponentialUiKitchenSink,
-    /// VAPP-91 (DEV-ONLY): the Devices template through the IDE's Exponential
-    /// UI host ([`crate::exponential_ui_devices`]), the desktop twin of the
-    /// web route `/exponential-ui-devices`. Reachable only through
-    /// `EXP_DEV_SCREEN=exponential-ui-devices`.
-    ExponentialUiDevices,
     /// VAPP-93 (DEV-ONLY): one entry of the site's specimens fixture
     /// (`packages/exponential-ui/fixtures/specimens.json`) painted alone
     /// ([`crate::exponential_ui_screen::ExponentialUiSpecimen`]). `id` = the
@@ -396,7 +397,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::Home => "Home".into(),
         Screen::Threads => domain::session_tree::THREADS_LIST.copy.title.clone().into(),
         Screen::ExponentialUiKitchenSink => "Exponential UI".into(),
-        Screen::ExponentialUiDevices => "Devices · Exponential UI".into(),
+        Screen::App { app } => crate::app_screen::app_tab_title(app, cx),
         Screen::ExponentialUiSpecimen { .. } => "Exponential UI".into(),
         Screen::StyleguideEntry { .. } => "Styleguide".into(),
     }
@@ -850,8 +851,6 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         // VAPP-90: the Exponential UI kitchen sink (view
         // `exponential-ui-kitchen-sink`), the painter's dev screen.
         "exponential-ui-kitchen-sink" | "exponential-ui" => Some(Screen::ExponentialUiKitchenSink),
-        // VAPP-91: the Devices template through the IDE host.
-        "exponential-ui-devices" => Some(Screen::ExponentialUiDevices),
         // VAPP-93: any id of the site's specimens fixture.
         id if crate::exponential_ui_screen::is_specimen_id(id) => {
             Some(Screen::ExponentialUiSpecimen { id: id.to_string() })
@@ -872,6 +871,10 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                 return Some(Screen::Session {
                     session_id: id.to_string(),
                 });
+            }
+            // VAPP-110: one app's editor, by id or by slug.
+            if let Some(app) = spec.strip_prefix("app:") {
+                return Some(Screen::App { app: app.to_string() });
             }
             if let Some(id) = spec.strip_prefix("agent:") {
                 return Some(Screen::Agent {
@@ -2141,11 +2144,12 @@ mod tests {
             parse_dev_screen("exponential-ui-kitchen-sink"),
             Some(Screen::ExponentialUiKitchenSink)
         );
-        // VAPP-91: the Devices template (view `exponential-ui-devices`).
+        // VAPP-110: one app's editor (by slug or id).
         assert_eq!(
-            parse_dev_screen("exponential-ui-devices"),
-            Some(Screen::ExponentialUiDevices)
+            parse_dev_screen("app:team-dashboard"),
+            Some(Screen::App { app: "team-dashboard".into() })
         );
+        assert!(!Screen::App { app: "a".into() }.is_detail());
         // VAPP-93: every specimen id of the site (view `exponential-ui-<x>`).
         assert_eq!(
             parse_dev_screen("exponential-ui-button"),
@@ -2369,7 +2373,7 @@ mod tests {
             Screen::Files,
             Screen::SourceControl,
             Screen::ExponentialUiKitchenSink,
-            Screen::ExponentialUiDevices,
+            Screen::App { app: "a".into() },
             Screen::IssueDetail {
                 issue_id: "i1".into(),
             },
@@ -2690,7 +2694,7 @@ mod tests {
             Screen::Threads,
             Screen::Agent { agent_id: "a1".into() },
             Screen::ExponentialUiKitchenSink,
-            Screen::ExponentialUiDevices,
+            Screen::App { app: "a".into() },
         ] {
             assert_eq!(derive_origin(Some(&previous), None, &issue), None, "{previous:?}");
             assert_eq!(derive_origin(Some(&previous), None, &session), None);

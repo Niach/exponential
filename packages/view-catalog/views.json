@@ -161,6 +161,10 @@
     {
       "route": "/t/$teamSlug/settings/prompts/$promptId",
       "reason": "The same page as `settings-prompt` (captured on /settings/prompts/new) filled from a prompt row; a seeded prompt id is not resolvable by the capture."
+    },
+    {
+      "route": "/t/$teamSlug/settings/apps/new",
+      "reason": "VAPP-110: the app settings page in create mode, the same layout settings-app photographs with an empty form."
     }
   ],
   "views": [
@@ -1935,6 +1939,60 @@
       }
     },
     {
+      "id": "settings-apps",
+      "group": "settings",
+      "title": "Settings · Apps",
+      "blurb": "VAPP-110: Settings → Apps, the Agents page's twin (fixtures/apps.json): the Apps band (New app) whose rows open the app's settings page; the settings nav lists the team's apps under Agents with New app.",
+      "order": 26,
+      "web": {
+        "route": "/t/$teamSlug/settings/apps",
+        "anchor": {
+          "testId": "apps-list",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "apps"
+        }
+      },
+      "notes": {
+        "ios": "Phones have no settings mirror in slice 1 (the Apps list is the management surface).",
+        "android": "Phones have no settings mirror in slice 1 (the Apps list is the management surface)."
+      }
+    },
+    {
+      "id": "settings-app",
+      "group": "settings",
+      "title": "Settings · App",
+      "blurb": "VAPP-110: one app's settings page (the agent page's layout): icon, colour and name in one row, the description card, Open in the editor, the version pill and Delete app for the creator or an owner.",
+      "order": 27,
+      "web": {
+        "route": "/t/$teamSlug/settings/apps/$appId",
+        "anchor": {
+          "testId": "app-settings-page",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "app:team-dashboard"
+        }
+      },
+      "notes": {
+        "web": "`$appId` resolves to DEMO_APP_ID (apps/web/scripts/screenshot-demo.ts), the Team dashboard app.",
+        "desktop": "`app:<slug>` resolves the app in the active team: the seeded Team dashboard.",
+        "ios": "Phones have no settings mirror in slice 1.",
+        "android": "Phones have no settings mirror in slice 1."
+      }
+    },
+    {
       "id": "files",
       "group": "ide",
       "title": "Files",
@@ -2070,30 +2128,76 @@
       }
     },
     {
-      "id": "exponential-ui-devices",
-      "group": "exponential-ui",
-      "title": "Exponential UI · Devices template",
-      "blurb": "The Devices page as a declarative package (packages/ui/exponential-ui/templates/devices.json) rendered through the public host API (VAPP-91): the app host's `exp:devices` binding over the synced devices, the app extension's IconDisc + LiveDot painters, a row press through the function policy. VAPP-83 puts it beside the native page on every client.",
-      "order": 2,
+      "id": "apps",
+      "group": "coding",
+      "title": "Apps",
+      "blurb": "VAPP-110: the team's Exponential apps (fixtures/apps.json): the band with New app, one row per app (glyph, name, the version pill, the … menu with Rename and Delete), the built-in Devices app first with its Built-in pill. An app is a declarative Exponential UI package every client renders; the list is where apps are created, renamed, deleted and opened.",
+      "order": 30,
       "web": {
-        "route": "/exponential-ui-devices",
+        "route": "/t/$teamSlug/apps",
         "anchor": {
-          "text": "Devices",
-          "timeoutMs": 20000
+          "testId": "apps-list",
+          "timeoutMs": 30000
         },
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_apps",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "ios": "VAPP-112: the LIVE walk: the Threads tab's Apps button (phones have no sixth tab), gated on the seeded Team dashboard row and the built-in Devices row.",
+        "android": "VAPP-116: the LIVE walk (signed in, the seeded demo apps): Threads → the header's Apps entry. The phone reaches Apps from the Threads tab (no sidebar).",
+        "desktop": "The IDE has no Apps page: the rail lists the apps as a group (like Agents), and Settings → Apps (`settings-apps`) draws this list band."
+      },
+      "android": {
+        "shot": "sg_apps",
+        "lane": "styleguide"
+      }
+    },
+    {
+      "id": "app",
+      "group": "coding",
+      "title": "App editor",
+      "blurb": "VAPP-110: one app's editor (fixtures/apps.json): the member's editor session (the chat: channel rows + the composer) beside the live preview of the head package rendered by the Exponential UI renderer through the app host; Versions opens the history (restore = a new head). Phones show Chat | Preview | Versions as a segmented control.",
+      "order": 31,
+      "web": {
+        "route": "/t/$teamSlug/apps/$appSlug",
+        "anchor": {
+          "testId": "app-editor-preview",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1500
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/apps/$appSlug",
+        "anchor": {
+          "testId": "app-editor-tabs",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1500
+      },
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "exponential-ui-devices"
+          "value": "app:team-dashboard"
         },
-        "anchorDelayMs": 800
+        "anchorDelayMs": 1500
+      },
+      "ios": {
+        "shot": "sg_app",
+        "lane": "styleguide"
       },
       "notes": {
-        "ios": "The iOS app does not link the SwiftUI painter yet (VAPP-83).",
-        "android": "The Android app does not link the Compose painter yet (VAPP-83)."
+        "web": "`$appSlug` resolves to DEMO_APP_SLUG (apps/web/scripts/screenshot-demo.ts), the seeded Team dashboard app with three versions and the demo user's editor session.",
+        "ios": "VAPP-112: the LIVE walk: the Apps list's Team dashboard row, the Chat tab gated on the seeded editor chat.",
+        "android": "VAPP-116: Apps → Team dashboard (DEMO_APP_SLUG) on its Chat tab (the web-mobile `app` shot's tab), the head package rendering on Preview through the Compose app host.",
+        "desktop": "`app:<slug>` opens the editor by slug in the active team: the seeded Team dashboard app (DEMO_APP_SLUG) with its versions and the demo user's editor session."
+      },
+      "android": {
+        "shot": "sg_app",
+        "lane": "styleguide"
       }
     },
     {

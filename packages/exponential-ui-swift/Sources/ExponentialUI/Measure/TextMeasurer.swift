@@ -262,7 +262,9 @@ public enum TextShaper {
         // Letter spacing follows every character (CSS), the last one too.
         let w = layoutUnit(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) + spacing * CGFloat(text.count))
         lock.lock()
-        if widths.count > 8192 { widths.removeAll() }
+        // VAPP-142: room for a 10k template's texts (at 8192 the cache emptied
+        // mid-pass and every text of a rebind was shaped twice).
+        if widths.count > 65_536 { widths.removeAll() }
         widths[key] = w
         lock.unlock()
         return w
@@ -361,6 +363,9 @@ public enum TextShaper {
 
     /// The text split at its hard breaks only.
     static func hardLines(_ text: String) -> [String] {
+        // VAPP-142: without a line break the soft segments (one ICU line
+        // tokenizer per call) only join back into the text itself.
+        if !text.contains(where: isNewline) { return [text] }
         var lines = [""]
         for s in segments(text) {
             lines[lines.count - 1] += s.text

@@ -1,5 +1,9 @@
 package com.exponential.app.ui.threads
 
+import com.exponential.app.domain.Apps
+
+import com.exponential.app.ui.components.CircleIconButton
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
@@ -72,6 +76,8 @@ fun ThreadsScreen(
     onOpenSession: (sessionId: String) -> Unit = onOpenThread,
     /** NEW-7: an agent with no conversation of mine yet = its empty DM. */
     onOpenAgent: (agentId: String) -> Unit = {},
+    /** VAPP-110: the team's Apps (the header's `nav-apps` entry). */
+    onOpenApps: (() -> Unit)? = null,
     viewModel: ThreadsViewModel = hiltViewModel(),
 ) {
     val groups by viewModel.groups.collectAsStateWithLifecycle()
@@ -93,6 +99,7 @@ fun ThreadsScreen(
             onOpenThread = onOpenThread,
             onOpenSession = onOpenSession,
             onOpenAgent = onOpenAgent,
+            onOpenApps = onOpenApps,
             modifier = Modifier.padding(padding),
         )
     }
@@ -117,15 +124,33 @@ fun ThreadsContent(
     onOpenAgent: (agentId: String) -> Unit = {},
     /** NEW-41: each root's PR glyph (web `rowLead`), by root id. */
     prLeads: Map<String, ThreadRowPrLead> = emptyMap(),
+    /** VAPP-110: the team's Apps; null hides the entry. */
+    onOpenApps: (() -> Unit)? = null,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         // The root screens' header (Actions parity): a plain large title.
-        Text(
-            SessionTree.ListCopy.TITLE,
-            style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
-        )
+        // VAPP-110: the phone's Apps entry (web's nav row after Threads)
+        // rides its trailing edge.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 12.dp),
+        ) {
+            Text(
+                SessionTree.ListCopy.TITLE,
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            if (onOpenApps != null) {
+                CircleIconButton(
+                    ExpIcons.navApps,
+                    contentDescription = Apps.Copy.NAV,
+                    onClick = onOpenApps,
+                    borderless = true,
+                    modifier = Modifier.testTag("nav-apps"),
+                )
+            }
+        }
         if (groups.isEmpty() && agents.isEmpty()) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth().testTag(SessionTree.ListCopy.TEST_ID_LIST)) {
                 EmptyState(EmptyStateCopy.threads)

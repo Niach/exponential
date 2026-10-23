@@ -4075,6 +4075,45 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `layout-grid`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "layout-grid",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M4 3H9A1 1 0 0 1 10 4V9A1 1 0 0 1 9 10H4A1 1 0 0 1 3 9V4A1 1 0 0 1 4 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 3H20A1 1 0 0 1 21 4V9A1 1 0 0 1 20 10H15A1 1 0 0 1 14 9V4A1 1 0 0 1 15 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 14H20A1 1 0 0 1 21 15V20A1 1 0 0 1 20 21H15A1 1 0 0 1 14 20V15A1 1 0 0 1 15 14Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M4 14H9A1 1 0 0 1 10 15V20A1 1 0 0 1 9 21H4A1 1 0 0 1 3 20V15A1 1 0 0 1 4 14Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `leaf`: ImageVector by lazy {
         ImageVector.Builder(
             name = "leaf",
@@ -8421,6 +8460,7 @@ public object ExpIcons {
         "laptop" -> `laptop`
         "layers" -> `layers`
         "layers-2" -> `layers-2`
+        "layout-grid" -> `layout-grid`
         "leaf" -> `leaf`
         "lightbulb" -> `lightbulb`
         "link" -> `link`
@@ -8555,6 +8595,288 @@ public object ExpIcons {
         else -> null
     }
 
+    /** Concept name (`nav-devices`) -> glyph. Null for an unknown concept. */
+    public fun byConcept(name: String): ImageVector? = when (name) {
+        "action-chat" -> `message-circle`
+        "action-create" -> `sparkles`
+        "action-default" -> `zap`
+        "action-repository" -> `git-branch`
+        "action-run" -> `play`
+        "action-suggestion" -> `lightbulb`
+        "app-editor-chat" -> `message-square`
+        "auth-passkey" -> `fingerprint`
+        "coding-assistant" -> `sparkles`
+        "coding-command" -> `square-slash`
+        "coding-compact" -> `fold-vertical`
+        "coding-diff" -> `file-diff`
+        "coding-ended" -> `circle-check`
+        "coding-in-review" -> `git-pull-request`
+        "coding-needs-input" -> `triangle-alert`
+        "coding-plan" -> `clipboard-list`
+        "coding-running" -> `play`
+        "coding-stop" -> `circle-x`
+        "coding-subagent" -> `bot`
+        "coding-tool" -> `wrench`
+        "editor-bold" -> `bold`
+        "editor-clear-formatting" -> `remove-formatting`
+        "editor-code" -> `code`
+        "editor-emoji" -> `smile`
+        "editor-heading-1" -> `heading-1`
+        "editor-heading-2" -> `heading-2`
+        "editor-heading-3" -> `heading-3`
+        "editor-image" -> `image`
+        "editor-issue-ref" -> `hash`
+        "editor-italic" -> `italic`
+        "editor-link" -> `link`
+        "editor-list" -> `list`
+        "editor-list-ordered" -> `list-ordered`
+        "editor-list-todo" -> `list-todo`
+        "editor-mention" -> `at-sign`
+        "editor-quote" -> `quote`
+        "editor-strikethrough" -> `strikethrough`
+        "editor-text" -> `type`
+        "editor-text-format" -> `a-large-small`
+        "editor-unlink" -> `unlink`
+        "event-assignee-changed" -> `user-plus`
+        "event-board-moved" -> `move`
+        "event-estimate-changed" -> `gauge`
+        "event-label-added" -> `tag`
+        "event-label-removed" -> `tag`
+        "event-priority-changed" -> `signal-high`
+        "event-relation-added" -> `link`
+        "event-relation-removed" -> `unlink`
+        "event-status-changed" -> `circle-dot`
+        "event-title-changed" -> `pencil`
+        "guide-changes" -> `code`
+        "media-fast-forward" -> `fast-forward`
+        "media-rewind" -> `rewind`
+        "media-skip-next" -> `skip-forward`
+        "media-skip-previous" -> `skip-back`
+        "media-volume-down" -> `volume-1`
+        "media-volume-mute" -> `volume-x`
+        "media-volume-off" -> `volume-off`
+        "media-volume-up" -> `volume-2`
+        "nav-account" -> `circle-user`
+        "nav-actions" -> `rocket`
+        "nav-admin" -> `shield`
+        "nav-apps" -> `layout-grid`
+        "nav-boards" -> `folder-kanban`
+        "nav-changelog" -> `megaphone`
+        "nav-computer" -> `computer`
+        "nav-create-issue" -> `square-pen`
+        "nav-devices" -> `monitor`
+        "nav-drafts" -> `file-pen-line`
+        "nav-files" -> `folder`
+        "nav-getting-started" -> `sparkles`
+        "nav-inbox" -> `inbox`
+        "nav-issues" -> `list`
+        "nav-my-issues" -> `list`
+        "nav-notifications" -> `bell`
+        "nav-rail-collapse" -> `panel-left-close`
+        "nav-rail-expand" -> `panel-left-open`
+        "nav-report-bug" -> `bug`
+        "nav-search" -> `search`
+        "nav-settings" -> `settings`
+        "nav-sign-out" -> `log-out`
+        "nav-source-control" -> `git-merge`
+        "nav-team-switcher" -> `chevrons-up-down`
+        "nav-terminal" -> `square-terminal`
+        "nav-threads" -> `list-tree`
+        "notification-agent-message" -> `bot`
+        "notification-issue-assigned" -> `user-plus`
+        "notification-issue-comment" -> `message-square`
+        "notification-issue-created" -> `circle-dot`
+        "notification-issue-mention" -> `at-sign`
+        "notification-issue-status-changed" -> `circle-check`
+        "notification-mark-read" -> `list-checks`
+        "notification-mute" -> `bell-off`
+        "notification-pr-merged" -> `git-merge`
+        "notification-pr-opened" -> `git-pull-request`
+        "notification-reporter-reply" -> `message-square-reply`
+        "notification-session-blocked" -> `hourglass`
+        "pr-batch" -> `boxes`
+        "pr-closed" -> `circle-x`
+        "pr-draft" -> `circle-dot`
+        "pr-merged" -> `git-merge`
+        "pr-open" -> `git-pull-request`
+        "pr-stack" -> `layers`
+        "priority-high" -> `signal-high`
+        "priority-low" -> `signal-low`
+        "priority-medium" -> `signal-medium`
+        "priority-none" -> `minus`
+        "priority-urgent" -> `triangle-alert`
+        "relation-blocked-by" -> `circle-slash`
+        "relation-blocks" -> `ban`
+        "relation-duplicate" -> `copy`
+        "relation-parent" -> `list-tree`
+        "relation-related" -> `link`
+        "relation-section" -> `link-2`
+        "relation-sub-issue" -> `corner-down-right`
+        "run-pause" -> `pause`
+        "run-resume" -> `rotate-ccw`
+        "sc-push" -> `upload`
+        "session-shell" -> `terminal`
+        "session-tree" -> `workflow`
+        "settings-about" -> `info`
+        "settings-account" -> `circle-user`
+        "settings-agents" -> `bot`
+        "settings-api" -> `key`
+        "settings-billing" -> `credit-card`
+        "settings-boards" -> `square-kanban`
+        "settings-general" -> `building-2`
+        "settings-import" -> `download`
+        "settings-issues" -> `list-checks`
+        "settings-labels" -> `tag`
+        "settings-licenses" -> `scale`
+        "settings-local-repos" -> `hard-drive`
+        "settings-mcp" -> `plug`
+        "settings-members" -> `users`
+        "settings-notifications" -> `bell`
+        "settings-rate" -> `star`
+        "settings-repositories" -> `github`
+        "settings-servers" -> `server`
+        "settings-sessions" -> `history`
+        "settings-statuses" -> `circle-dot`
+        "settings-storage" -> `hard-drive`
+        "settings-sync" -> `refresh-cw`
+        "settings-tools" -> `square-terminal`
+        "settings-widget" -> `message-square-plus`
+        "status-backlog" -> `circle-dashed`
+        "status-cancelled" -> `circle-x`
+        "status-done" -> `circle-check`
+        "status-duplicate" -> `copy`
+        "status-in-progress" -> `progress-2-4`
+        "status-in-review" -> `progress-3-4`
+        "status-todo" -> `circle`
+        "support-open" -> `circle-dot`
+        "support-resolved" -> `circle-check`
+        "tool-script" -> `braces`
+        "trace-background" -> `repeat`
+        "trace-chevron" -> `chevron-right`
+        "trace-completed" -> `list-checks`
+        "trace-edit" -> `pencil`
+        "trace-failed" -> `circle-x`
+        "trace-fetch" -> `globe`
+        "trace-read" -> `file-text`
+        "trace-reasoning" -> `brain`
+        "trace-search" -> `search`
+        "trace-subagent" -> `bot`
+        "trace-task-done" -> `circle-check`
+        "trace-task-pending" -> `circle`
+        "trace-task-running" -> `circle-dot`
+        "trace-terminal" -> `terminal`
+        "trace-todo" -> `list-todo`
+        "trace-tool" -> `wrench`
+        "trigger-event" -> `zap`
+        "trigger-schedule" -> `clock`
+        "ui-add" -> `plus`
+        "ui-agent-source" -> `bot`
+        "ui-archive" -> `archive`
+        "ui-arrow-down" -> `arrow-down`
+        "ui-arrow-right" -> `arrow-right`
+        "ui-assignee" -> `circle-user`
+        "ui-attach" -> `paperclip`
+        "ui-avatar-placeholder" -> `user`
+        "ui-back" -> `arrow-left`
+        "ui-branch" -> `git-branch`
+        "ui-check" -> `check`
+        "ui-checklist" -> `list-checks`
+        "ui-chevron-down" -> `chevron-down`
+        "ui-chevron-left" -> `chevron-left`
+        "ui-chevron-right" -> `chevron-right`
+        "ui-chevron-up" -> `chevron-up`
+        "ui-clean" -> `brush-cleaning`
+        "ui-clear" -> `circle-x`
+        "ui-clock" -> `clock`
+        "ui-close" -> `x`
+        "ui-cloud" -> `cloud`
+        "ui-copy" -> `copy`
+        "ui-delete" -> `trash-2`
+        "ui-delete-account" -> `user-x`
+        "ui-device" -> `monitor`
+        "ui-device-default" -> `star`
+        "ui-device-offline" -> `monitor-off`
+        "ui-dock-side" -> `panel-left-open`
+        "ui-docs" -> `book-open`
+        "ui-download" -> `download`
+        "ui-due-date" -> `calendar-days`
+        "ui-edit" -> `pencil`
+        "ui-empty-search" -> `search-x`
+        "ui-error" -> `circle-x`
+        "ui-estimate" -> `gauge`
+        "ui-external-link" -> `external-link`
+        "ui-favorite-off" -> `heart-off`
+        "ui-file" -> `file`
+        "ui-float" -> `panel-left-close`
+        "ui-folder" -> `folder`
+        "ui-folder-open" -> `folder-open`
+        "ui-fullscreen" -> `maximize-2`
+        "ui-fullscreen-exit" -> `minimize-2`
+        "ui-github" -> `github`
+        "ui-help" -> `circle-question-mark`
+        "ui-hide" -> `eye-off`
+        "ui-history" -> `history`
+        "ui-icon-placeholder" -> `circle-dashed`
+        "ui-indeterminate" -> `circle-minus`
+        "ui-info" -> `info`
+        "ui-invite" -> `user-plus`
+        "ui-issue" -> `file-text`
+        "ui-link" -> `link`
+        "ui-loading" -> `loader-circle`
+        "ui-mail" -> `mail`
+        "ui-mcp" -> `plug`
+        "ui-member" -> `shield-check`
+        "ui-menu" -> `menu`
+        "ui-minus" -> `minus`
+        "ui-more" -> `ellipsis`
+        "ui-more-vertical" -> `ellipsis-vertical`
+        "ui-offline" -> `wifi-off`
+        "ui-organization" -> `building-2`
+        "ui-owner" -> `crown`
+        "ui-permission" -> `shield-question-mark`
+        "ui-pin" -> `pin`
+        "ui-print" -> `printer`
+        "ui-private" -> `lock`
+        "ui-properties" -> `sliders-horizontal`
+        "ui-queued" -> `list-end`
+        "ui-redock" -> `arrow-down-left`
+        "ui-refresh" -> `refresh-cw`
+        "ui-remove-member" -> `user-minus`
+        "ui-repeat" -> `repeat`
+        "ui-repository" -> `code`
+        "ui-selected" -> `circle-check`
+        "ui-selector" -> `chevrons-up-down`
+        "ui-send" -> `send`
+        "ui-server" -> `server`
+        "ui-share" -> `share-2`
+        "ui-sign-in" -> `log-in`
+        "ui-sign-out" -> `log-out`
+        "ui-staging" -> `flask-conical`
+        "ui-star-half" -> `star-half`
+        "ui-star-off" -> `star-off`
+        "ui-stop" -> `circle-stop`
+        "ui-submit" -> `circle-arrow-up`
+        "ui-subscribe" -> `bell`
+        "ui-success" -> `circle-check`
+        "ui-swap" -> `arrow-left-right`
+        "ui-team" -> `users`
+        "ui-unassigned" -> `user-x`
+        "ui-undo" -> `undo-2`
+        "ui-undock" -> `arrow-up-right`
+        "ui-unlock" -> `lock-open`
+        "ui-unpin" -> `pin-off`
+        "ui-unselected" -> `circle`
+        "ui-unsubscribe" -> `bell-off`
+        "ui-update" -> `circle-arrow-up`
+        "ui-usage" -> `chart-line`
+        "ui-warning" -> `triangle-alert`
+        "ui-watch" -> `eye`
+        "ui-widget" -> `megaphone`
+        "work-faces" -> `layers-2`
+        "work-results" -> `images`
+        else -> null
+    }
+
     /** Concept `action-chat`. */
     public val actionChat: ImageVector get() = `message-circle`
     /** Concept `action-create`. */
@@ -8567,6 +8889,8 @@ public object ExpIcons {
     public val actionRun: ImageVector get() = `play`
     /** Concept `action-suggestion`. */
     public val actionSuggestion: ImageVector get() = `lightbulb`
+    /** Concept `app-editor-chat`. */
+    public val appEditorChat: ImageVector get() = `message-square`
     /** Concept `auth-passkey`. */
     public val authPasskey: ImageVector get() = `fingerprint`
     /** Concept `coding-assistant`. */
@@ -8677,6 +9001,8 @@ public object ExpIcons {
     public val navActions: ImageVector get() = `rocket`
     /** Concept `nav-admin`. */
     public val navAdmin: ImageVector get() = `shield`
+    /** Concept `nav-apps`. */
+    public val navApps: ImageVector get() = `layout-grid`
     /** Concept `nav-boards`. */
     public val navBoards: ImageVector get() = `folder-kanban`
     /** Concept `nav-changelog`. */
@@ -8949,6 +9275,8 @@ public object ExpIcons {
     public val uiDeviceDefault: ImageVector get() = `star`
     /** Concept `ui-device-offline`. */
     public val uiDeviceOffline: ImageVector get() = `monitor-off`
+    /** Concept `ui-dock-side`. */
+    public val uiDockSide: ImageVector get() = `panel-left-open`
     /** Concept `ui-docs`. */
     public val uiDocs: ImageVector get() = `book-open`
     /** Concept `ui-download`. */
@@ -8969,6 +9297,8 @@ public object ExpIcons {
     public val uiFavoriteOff: ImageVector get() = `heart-off`
     /** Concept `ui-file`. */
     public val uiFile: ImageVector get() = `file`
+    /** Concept `ui-float`. */
+    public val uiFloat: ImageVector get() = `panel-left-close`
     /** Concept `ui-folder`. */
     public val uiFolder: ImageVector get() = `folder`
     /** Concept `ui-folder-open`. */
@@ -8983,6 +9313,8 @@ public object ExpIcons {
     public val uiHelp: ImageVector get() = `circle-question-mark`
     /** Concept `ui-hide`. */
     public val uiHide: ImageVector get() = `eye-off`
+    /** Concept `ui-history`. */
+    public val uiHistory: ImageVector get() = `history`
     /** Concept `ui-icon-placeholder`. */
     public val uiIconPlaceholder: ImageVector get() = `circle-dashed`
     /** Concept `ui-indeterminate`. */

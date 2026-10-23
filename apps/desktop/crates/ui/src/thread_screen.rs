@@ -1637,7 +1637,7 @@ pub(crate) fn suggestions_sheet(
             ),
         )
     });
-    crate::dock::SheetContent { meta: None, body, footer }
+    crate::dock::SheetContent { meta: None, action: None, body, footer }
 }
 
 /// An open item's ⋯ = THE Menu (web `session-thread-view`): Do it here ·

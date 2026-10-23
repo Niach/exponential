@@ -2638,7 +2638,59 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v76 (VAPP-110): `apps` + `app_versions` — two brand-new synced
+        // tables (no cursor yet) mirroring the shape allowlists — and
+        // `sessions.app_id` (a member's editor session of an app; a guarded
+        // additive ALTER, the sessions cursor resets only when it was added).
+        migrator.registerMigration("v76_apps") { db in
+            try createAppsTables(db)
+            guard try db.tableExists("sessions") else { return }
+            let existing = Set(try db.columns(in: "sessions").map(\.name))
+            guard !existing.contains("app_id") else { return }
+            try db.alter(table: "sessions") { t in
+                t.add(column: "app_id", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'sessions'
+                    """)
+            }
+        }
+
         return migrator
+    }
+
+    /// VAPP-110: the `apps` / `app_versions` tables, mirroring the shape
+    /// allowlists (`/api/shapes/{apps,app-versions}`). The head `package`
+    /// (jsonb) is stored as its JSON text; a version's package never syncs.
+    static func createAppsTables(_ db: Database) throws {
+        try db.create(table: "apps", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("slug", .text).notNull().defaults(to: "")
+            t.column("name", .text).notNull().defaults(to: "")
+            t.column("icon", .text)
+            t.column("color", .text)
+            t.column("description", .text).notNull().defaults(to: "")
+            t.column("package", .text)
+            t.column("head_version", .integer).notNull().defaults(to: 0)
+            t.column("created_by", .text).notNull().defaults(to: "")
+            t.column("deleted_at", .text)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
+        try db.create(table: "app_versions", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("app_id", .text).notNull().indexed()
+            t.column("team_id", .text).notNull().indexed()
+            t.column("number", .integer).notNull().defaults(to: 0)
+            t.column("note", .text)
+            t.column("session_id", .text)
+            t.column("created_by", .text)
+            t.column("created_at", .text).notNull()
+        }
     }
 
     /// NEW-3: the `conversations` table, mirroring the shape allowlist
@@ -2837,6 +2889,9 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM conversations")
             try db.execute(sql: "DELETE FROM session_issues")
             try db.execute(sql: "DELETE FROM sessions")
+            // VAPP-110: the team's apps and their versions.
+            try db.execute(sql: "DELETE FROM app_versions")
+            try db.execute(sql: "DELETE FROM apps")
             // EXP-481: child before parent, like the issue tables below.
             try db.execute(sql: "DELETE FROM device_worktrees")
             try db.execute(sql: "DELETE FROM devices")
