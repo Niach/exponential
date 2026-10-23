@@ -69,12 +69,23 @@ export const WindowedList = forwardRef<WindowedListHandle, WindowedListProps>(fu
   const rtl = horizontal && direction === `rtl`
 
   const estimate = useCallback((i: number) => (typeof estimatedItemHeight === `function` ? estimatedItemHeight(i) : estimatedItemHeight), [estimatedItemHeight])
+  // Bumped with every new measurement (synchronously, unlike `version`).
+  const measured = useRef(0)
+  const extentsCache = useRef<{ count: number; itemKey: WindowedListProps[`itemKey`]; estimate: WindowedListProps[`estimatedItemHeight`]; measured: number; ext: number[] } | null>(null)
+  /** Every row's extent; one pass over the rows per measurement (VAPP-139:
+   *  a 100,000-row jump read them twice). */
   const extents = (): number[] => {
+    const c = extentsCache.current
+    if (c && c.count === count && c.itemKey === itemKey && c.estimate === estimatedItemHeight && c.measured === measured.current) return c.ext
+    let ext: number[]
     // §5: a fixed estimate gives way to the mean of the measured rows.
-    if (typeof estimatedItemHeight === `number`) return itemExtents(Array.from({ length: count }, (_, i) => extentsByKey.current.get(itemKey(i))), estimatedItemHeight)
-    const out = new Array<number>(count)
-    for (let i = 0; i < count; i++) out[i] = extentsByKey.current.get(itemKey(i)) ?? estimate(i)
-    return out
+    if (typeof estimatedItemHeight === `number`) ext = itemExtents(Array.from({ length: count }, (_, i) => extentsByKey.current.get(itemKey(i))), estimatedItemHeight)
+    else {
+      ext = new Array<number>(count)
+      for (let i = 0; i < count; i++) ext[i] = extentsByKey.current.get(itemKey(i)) ?? estimate(i)
+    }
+    extentsCache.current = { count, itemKey, estimate: estimatedItemHeight, measured: measured.current, ext }
+    return ext
   }
 
   useEffect(() => {
@@ -98,7 +109,10 @@ export const WindowedList = forwardRef<WindowedListHandle, WindowedListProps>(fu
           changed = true
         }
       }
-      if (changed) bump((n) => n + 1)
+      if (changed) {
+        measured.current++
+        bump((n) => n + 1)
+      }
     })
     observer.current = ro
     for (const el of observed.current.values()) ro.observe(el)

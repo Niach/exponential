@@ -59,8 +59,11 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
   // The idle width is the pending state's minimum.
   const ref = useRef<HTMLButtonElement | null>(null)
   const idleWidth = useRef<number | null>(null)
+  // The width the pending label keeps: read while loading but not yet
+  // shown (the idle label still painted), never on an idle render (a read
+  // there forces a layout in every commit).
   useLayoutEffect(() => {
-    if (!shown && ref.current) idleWidth.current = ref.current.offsetWidth || null
+    if (loading && !shown && ref.current) idleWidth.current = ref.current.offsetWidth || null
   })
   const rootStyle = (rootProps as { style?: Record<string, unknown> }).style
   return (

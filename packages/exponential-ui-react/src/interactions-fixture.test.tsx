@@ -4,7 +4,7 @@
 // apps/desktop/crates/exponential-ui/tests/interactions_fixture.rs, so gpui
 // and the natives (through the FFI) behave like this renderer.
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render } from "@testing-library/react"
 import { CORE_CATALOG_ID, reduceNested } from "@exponential-at/ui"
 import type { NestedNode } from "@exponential-at/ui"
@@ -116,6 +116,55 @@ describe(`fixtures/interactions-round1.json choiceTiles`, () => {
       expect(actions.filter((a) => a.name === `change`).map((a) => a.context.value)).toEqual(c.expect.changes)
       const picked = [...container.querySelectorAll(`.xui-ChoiceTiles-tile[aria-checked="true"]`)].map((b) => b.getAttribute(`data-value`))
       expect(picked.join(`,`)).toBe(c.expect.value)
+    })
+  }
+})
+
+interface SelectCase {
+  name: string
+  value: string | null
+  presses: number[]
+  expect: { value: string | null; shows: string; changes: string[] }
+}
+
+// VAPP-146: an empty-string option is an ordinary value (Radix reserves `""`
+// for "no value"; the painter maps it at the Radix boundary only).
+describe(`fixtures/interactions-round1.json select`, () => {
+  for (const c of (fixture as unknown as { select: SelectCase[] }).select) {
+    it(`Select: ${c.name}`, () => {
+      // A pick to or from "" must not flip Radix between controlled and
+      // uncontrolled (Radix warns in development) or log any error.
+      const errors = vi.spyOn(console, `error`).mockImplementation(() => {})
+      const warnings = vi.spyOn(console, `warn`).mockImplementation(() => {})
+      const actions: SurfaceActionEvent[] = []
+      const options = [
+        { label: `Any`, value: `` },
+        { label: `Open`, value: `open` },
+        { label: `Done`, value: `done` },
+      ]
+      const root = tree({
+        id: `root`,
+        component: `Box`,
+        children: [
+          { id: `s`, component: `Select`, props: { label: `Status`, name: `s`, options, value: { path: `/v` } }, on: { change: { event: { name: `change` } } } },
+          // /v as it is: `<unset>` when the path holds nothing.
+          { id: `v`, component: `Text`, props: { text: { call: `fallback`, args: { value: { path: `/v` }, default: `<unset>` } } } },
+        ],
+      })
+      const data = c.value === null ? {} : { v: c.value }
+      const { container } = render(<ExponentialSurface root={root} data={data} theme="neutral" id={`sel`} host={{ onAction: (e) => void actions.push(e) }} />)
+      const trigger = () => container.querySelector(`[data-xui-id="s.trigger"]`) as HTMLElement
+      expect(container.querySelector(`[data-xui-error]`)).toBeNull()
+      for (const i of c.presses) {
+        fireEvent.keyDown(trigger(), { key: `Enter` })
+        fireEvent.click(container.querySelectorAll(`[data-xui-overlay="Select"] [role="option"]`)[i]!)
+      }
+      expect(actions.filter((a) => a.name === `change`).map((a) => a.context.value)).toEqual(c.expect.changes)
+      expect(trigger().textContent).toBe(c.expect.shows)
+      expect(container.querySelector(`[data-xui-id="v"]`)?.textContent).toBe(c.expect.value === null ? `<unset>` : c.expect.value)
+      expect([...errors.mock.calls, ...warnings.mock.calls].map((call) => String(call[0]))).toEqual([])
+      errors.mockRestore()
+      warnings.mockRestore()
     })
   }
 })

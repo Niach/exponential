@@ -18,7 +18,7 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
 import { Checkbox as CheckboxPrimitive } from "radix-ui"
 import { tableRowKeys, WINDOW_THRESHOLD } from "@exponential-at/ui"
-import { InstanceContext, ScopeContext, SurfaceContext, useSurfaceContext } from "../context"
+import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, readView, useSurfaceContext } from "../context"
 import { boundPath, getPointer, setPointer, LITERAL_ROWS_ROOT } from "@exponential-at/ui/web"
 import { WindowedList, type WindowedListHandle } from "../list"
 import { NodeView, type NativeProps } from "../node-view"
@@ -324,12 +324,12 @@ function RowScope({ rowsPath, row, rowKey, index, tableId, node, onLiteralEdit }
   const literalPath = `${LITERAL_ROWS_ROOT}/${tableId.replace(/[~/]/g, `_`)}/${index}`
   const view = useMemo(() => {
     if (rowsPath) return ctx
-    const data = setPointer(ctx.data as Record<string, unknown>, literalPath, row)
+    const data = readView(ctx, literalPath, row)
     const setData = (pointer: string, value: unknown) => {
-      if (pointer === literalPath || pointer.startsWith(`${literalPath}/`)) onLiteralEdit(rowKey, (getPointer(data, literalPath) as Record<string, unknown>) ?? row, pointer.slice(literalPath.length), value)
+      if (pointer === literalPath || pointer.startsWith(`${literalPath}/`)) onLiteralEdit(rowKey, (getPointer(data(), literalPath) as Record<string, unknown>) ?? row, pointer.slice(literalPath.length), value)
       else ctx.setData(pointer, value)
     }
-    return { ...ctx, data, setData }
+    return deriveContext(ctx, { setData }, data)
   }, [ctx, rowsPath, literalPath, row, rowKey, onLiteralEdit])
   return (
     <SurfaceContext.Provider value={view}>

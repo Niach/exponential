@@ -241,6 +241,6 @@ export function validateProps(
   options: { path?: string; extensions?: readonly ExtensionDef[] } = {}
 ): PropIssue[] {
   const issues: PropIssue[] = []
-  checkProps(def.props, props, options.path ?? `props`, catalogView(options.extensions), issues)
+  checkProps(def.props, props, options.path ?? `props`, viewOf(options.extensions), issues)
   return issues
 }

@@ -7,6 +7,10 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 First release.
 
+- VAPP-141, VAPP-130, VAPP-137, VAPP-139, VAPP-140: a change re-renders only the nodes it reaches. The surface context keeps its identity when only the data, the breakpoint, `data-xq` or the mode change (`SurfaceContextValue.data`/`breakpoint`/`xq`/`mode` are live getters, `subscribe` announces a change, `deriveContext` derives one); each node re-renders when a value its bindings read is new. A re-reduced tree shares its unchanged nodes, the two stylesheets are rewritten only when their text changes, a template whose keys all change mounts as one block, a windowed list reads its extents once per measurement. On the benchmark Mac: a streamed message 13.6 → 2.4 ms, a mode switch 32 → 7.5 ms, a resize 28 → 1.2 ms, `scrollToIndex` on 100,000 rows 28 → 3.8 ms, 10,000 template items 328 / 406 → 148 / 133 ms.
+- VAPP-146: a Select option whose value is `""` is an ordinary option (it threw); `fixtures/interactions-round1.json` `select`.
+- An Avatar without a picture paints its initials with the first frame.
+
 - The primitives' class strings come from `@exponential-at/ui/web/primitives` (FEED-131), the one source the Solid twins share; the exports keep their names.
 - New primitives: `table`, `command` (no cmdk) and `toast` (no sonner, on the toast stack contract).
 
