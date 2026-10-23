@@ -48,7 +48,7 @@
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 917.3,
+          "firstPaintMs": 830.9,
           "rebindMs": 1016.1,
           "nodes": 10001
         },
@@ -154,7 +154,7 @@
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 780.4,
+          "firstPaintMs": 715.7,
           "nodes": 10001,
           "rebindMs": 822.8
         },
@@ -205,7 +205,7 @@
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 489.5,
+          "firstPaintMs": 431.9,
           "nodes": 10001,
           "rebindMs": 563.1
         },
@@ -256,7 +256,7 @@
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 781.1,
+          "firstPaintMs": 692.5,
           "nodes": 10001,
           "rebindMs": 810.6
         },
