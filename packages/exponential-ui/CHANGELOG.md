@@ -7,6 +7,8 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 First release.
 
+- VAPP-152: `compileNodeSheet` keeps each styled node's rules (`NodeSheet.chunks`, cached per node object), and the new `nodeSheetBatches` splits the node sheet into `<style>` batches. A streamed `updateComponents` appends one batch with its new nodes' rules; the batches whose rules are unchanged keep their element, so Chromium no longer re-matches every node of the surface. `share` (structural sharing between two reduced trees, React's VAPP-141 helper) moved to `@exponential-at/ui/web`. The reducer and the macro expander read one shared catalog view (`sharedCatalogView`) instead of copying every table on each update.
+
 - `@exponential-at/ui/web/primitives` (FEED-131): the primitives' class recipes, framework-free and shared by the React and Solid primitive sets (cva recipes under their shadcn names, plain strings as `<MODULE>_CLASSES`, `cn`). New runtime dependencies: `class-variance-authority`, `clsx`, `tailwind-merge`.
 - The web-parity check covers the primitive specimens (`fixtures/primitive-specimens.json`, group `primitive`), compared over the whole page body.
 - `fixtures/toast-stack.json`: the toast stack contract both toast primitives follow.
