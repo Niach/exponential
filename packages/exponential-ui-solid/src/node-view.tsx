@@ -87,7 +87,7 @@ export function createRootProps(node: Accessor<UiNode>, props: Accessor<Record<s
     if (ctx.states.length) attrs[`data-xs`] = ctx.states.join(` `)
     // Contract §6: the node's accessibility resolved, then mapped to ARIA. A
     // painter's own role/aria-* set after the spread wins.
-    if (n.accessibility) Object.assign(attrs, ariaAttributes(resolveAccessibility(n.accessibility, { data: ctx.data, scope: scope(), functions: ctx.functions, locale: ctx.locale, strings: ctx.strings })))
+    if (n.accessibility) Object.assign(attrs, ariaAttributes(resolveAccessibility(n.accessibility, resolveContextOf(ctx, scope()))))
     const s = style?.()
     if (s) attrs.style = s
     const dir = ownDirection(n, ctx)
@@ -172,8 +172,10 @@ export function createEmitter(node: Accessor<UiNode>, scope: Accessor<string>, d
  *  included. */
 export function ownDirection(node: UiNode, ctx?: Pick<SurfaceContextValue, `theme` | `xq`>): `ltr` | `rtl` | undefined {
   if (!node.style) return undefined
-  const tokens = ctx?.xq ? ctx.xq.split(` `) : []
-  return styleDirection(node.style, ctx?.theme, (key) => tokens.includes(queryToken(key)))
+  // `xq` read only when a `@media` block sets a direction (VAPP-152: a
+  // memo over every styled node would follow the surface's queries).
+  let tokens: string[] | undefined
+  return styleDirection(node.style, ctx?.theme, (key) => (tokens ??= ctx?.xq ? ctx.xq.split(` `) : []).includes(queryToken(key)))
 }
 
 /** A node, or nothing when its `visible` resolves falsy. `props.node` is
@@ -201,12 +203,17 @@ export function NodeView(props: { node: UiNode }): JSX.Element {
 /** Nodes painted in order, KEYED BY ID: a re-reduce hands new node objects
  *  for the same ids and each keeps its painted subtree. */
 export function NodeList(props: { nodes: readonly UiNode[] }): JSX.Element {
+  const ctx = useSurfaceContext()
   const byId = createMemo(() => new Map(props.nodes.map((n) => [n.id, n])))
   const ids = createMemo(() => props.nodes.map((n) => n.id), undefined, { equals: sameList })
   return (
     <For each={ids()}>
       {(id) => {
-        const node = createMemo<UiNode>((prev) => byId().get(id) ?? prev!)
+        // The surface's cell when this list paints the tree's own node
+        // (VAPP-152), else the parent's list.
+        const cell = ctx.nodeCell?.(id)
+        const own = cell && untrack(cell) === untrack(byId).get(id) ? cell : undefined
+        const node = createMemo<UiNode>((prev) => (own ? own() : byId().get(id)) ?? prev!)
         return <NodeView node={node()} />
       }}
     </For>

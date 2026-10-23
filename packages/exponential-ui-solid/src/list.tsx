@@ -162,7 +162,9 @@ export function WindowedList(props: WindowedListProps): JSX.Element {
   let pending: { index: number; align: ScrollAlign; tries: number } | null = null
   const jump = (index: number, align: ScrollAlign): boolean => {
     if (!el || index < 0 || index >= props.count) return false
-    const e = extents()
+    // The memo: one pass over the rows per measurement (VAPP-148, React's
+    // VAPP-139); a jump and every re-aim reuse it.
+    const e = ext()
     const v = viewportOf(el, axis(), rtl())
     let header = -1
     for (const r of headers()) if (r <= index) header = r

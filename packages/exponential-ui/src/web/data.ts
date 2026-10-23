@@ -8,7 +8,7 @@
 // functions run through the SURFACE Formatter (round 2 §3: Intl in the
 // surface locale + time zone). Pure, so the host can run it too.
 
-import { CORE_FUNCTIONS, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, catalogView, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, truthy, writePointer } from "@exponential-at/ui"
+import { CORE_FUNCTIONS, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, sharedCatalogView, truthy, writePointer } from "@exponential-at/ui"
 import type { CatalogView, ExtensionDef, Formatter } from "@exponential-at/ui"
 
 export type DataModel = Record<string, unknown> | unknown[]
@@ -228,15 +228,9 @@ export function resolveProps(props: Record<string, unknown>, ctx: ResolveContext
 
 type PropSchema = NonNullable<Parameters<typeof isDataSchema>[0]>
 
-const CORE_VIEW = catalogView()
-const views = new WeakMap<readonly ExtensionDef[], CatalogView>()
-
 /** The catalog (core + extensions) a node's props resolve along. */
 export function viewOf(extensions?: readonly ExtensionDef[]): CatalogView {
-  if (!extensions || extensions.length === 0) return CORE_VIEW
-  let view = views.get(extensions)
-  if (!view) views.set(extensions, (view = catalogView(extensions)))
-  return view
+  return sharedCatalogView(extensions)
 }
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === `object` && v !== null && !Array.isArray(v)

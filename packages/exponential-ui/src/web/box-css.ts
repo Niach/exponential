@@ -71,6 +71,9 @@ export interface NodeSheet {
   /** The resolved condition keys the surface must evaluate itself and list
    *  in `data-xq` when they hold (height, orientation). */
   queries: string[]
+  /** VAPP-152: each styled node's rules by id, in walk order (`css` is
+   *  their concatenation inside the `xui-node` layer). */
+  chunks: ReadonlyMap<string, string>
 }
 
 /** The key a surface evaluates itself for a `@media` block (size values
@@ -112,10 +115,96 @@ function breakpointPx(value: string, theme: ResolvedTheme | undefined): number |
   return Number.isFinite(n) ? n : null
 }
 
+interface NodeChunk {
+  css: string
+  queries: readonly string[]
+}
+
+/** VAPP-152: a node's rules, per node OBJECT (a re-reduced tree shares its
+ *  unchanged nodes) and the inputs they depend on. */
+const chunkCache = new WeakMap<UiNode, { scope: string; theme: ResolvedTheme | undefined; fonts: Record<string, FontSpec>; chunk: NodeChunk }>()
+
+function nodeChunk(node: UiNode, style: Record<string, unknown>, scope: string, theme: ResolvedTheme | undefined, fonts: Record<string, FontSpec>): NodeChunk {
+  const hit = chunkCache.get(node)
+  if (hit && hit.scope === scope && hit.theme === theme && hit.fonts === fonts) return hit.chunk
+  const rules: string[] = []
+  const queries = new Set<string>()
+  const dyn = dynamicStyleEntries(style)
+  const withVars = (block: string, s: Record<string, unknown>) => {
+    const mine = dyn.filter((d) => d.block === block)
+    if (mine.length === 0) return s
+    const copy = { ...s }
+    for (const d of mine) copy[d.key] = `var(${d.name})`
+    return copy
+  }
+  const cls = nodeClass(node.id)
+  const sel = `${scope} .${cls}`
+  const own = withVars(``, style)
+  const base = declarations(own, fonts)
+  if (base.length) rules.push(rule(sel, base) + shimmerRule(sel, style))
+  for (const [key, value] of Object.entries(style)) {
+    if (!key.startsWith(`@`) || typeof value !== `object` || value === null) continue
+    const block = declarations(withVars(key, value as Record<string, unknown>), fonts, own)
+    if (block.length === 0) continue
+    const condition = parseMediaCondition(key)
+    if (!condition) continue
+    // A block that sets `direction` is ALSO evaluated by the surface
+    // (`data-xq`): the node's direction drives `dir`, Radix and keys.
+    if (isDirection((value as Record<string, unknown>).direction)) {
+      const resolved = resolvedMediaKey(key, theme)
+      if (resolved) queries.add(resolved)
+    }
+    const band = (selector: string) => shimmerRule(selector, value as Record<string, unknown>)
+    switch (condition.feature) {
+      case `min-width`:
+      case `max-width`: {
+        const px = breakpointPx(condition.value, theme)
+        if (px === null) break // an unknown token never matches
+        const op = condition.feature === `min-width` ? `>=` : `<`
+        rules.push(`@container xui (width ${op} ${px}px){${rule(sel, block)}${band(sel)}}`)
+        break
+      }
+      case `min-height`:
+      case `max-height`: {
+        const px = breakpointPx(condition.value, theme)
+        if (px === null) break
+        const resolved = `@media (${condition.feature}: ${px}px)`
+        queries.add(resolved)
+        const q = `${scope}:where([data-xq~="${queryToken(resolved)}"]) .${cls}`
+        rules.push(rule(q, block) + band(q))
+        break
+      }
+      case `orientation`:
+        queries.add(key)
+        const q = `${scope}:where([data-xq~="${queryToken(key)}"]) .${cls}`
+        rules.push(rule(q, block) + band(q))
+        break
+      case `hover`:
+      case `prefers-reduced-motion`:
+        rules.push(`@media (${condition.feature}: ${condition.value}){${rule(sel, block)}${band(sel)}}`)
+        break
+    }
+  }
+  const states: [string, string][] = [
+    [`:hover`, `${sel}:hover,${sel}[data-xs~="hover"]`],
+    [`:focus-visible`, `${sel}:focus-visible,${sel}[data-xs~="focus-visible"]`],
+    [`:pressed`, `${sel}:active,${sel}[data-xs~="pressed"]`],
+  ]
+  for (const [key, selector] of states) {
+    const value = style[key]
+    if (typeof value !== `object` || value === null) continue
+    const block = declarations(withVars(key, value as Record<string, unknown>), fonts, own)
+    if (block.length) rules.push(rule(selector, block) + shimmerRule(selector, value as Record<string, unknown>))
+  }
+  const chunk = { css: rules.join(``), queries: [...queries] }
+  chunkCache.set(node, { scope, theme, fonts, chunk })
+  return chunk
+}
+
 /** The node sheet for one tree (plus the template subtrees it renders). */
 export function compileNodeSheet(roots: readonly UiNode[], surfaceId: string, theme?: ResolvedTheme, fonts: Record<string, FontSpec> = theme?.fonts ?? {}): NodeSheet {
   const scope = `.${surfaceClass(surfaceId)}`
-  const rules: string[] = []
+  const chunks = new Map<string, string>()
   const queries = new Set<string>()
   const seen = new Set<string>()
   for (const root of roots) {
@@ -123,76 +212,61 @@ export function compileNodeSheet(roots: readonly UiNode[], surfaceId: string, th
       const style = node.style
       if (!style || seen.has(node.id)) continue
       seen.add(node.id)
-      const dyn = dynamicStyleEntries(style)
-      const withVars = (block: string, s: Record<string, unknown>) => {
-        const mine = dyn.filter((d) => d.block === block)
-        if (mine.length === 0) return s
-        const copy = { ...s }
-        for (const d of mine) copy[d.key] = `var(${d.name})`
-        return copy
-      }
-      const cls = nodeClass(node.id)
-      const sel = `${scope} .${cls}`
-      const own = withVars(``, style)
-      const base = declarations(own, fonts)
-      if (base.length) rules.push(rule(sel, base) + shimmerRule(sel, style))
-      for (const [key, value] of Object.entries(style)) {
-        if (!key.startsWith(`@`) || typeof value !== `object` || value === null) continue
-        const block = declarations(withVars(key, value as Record<string, unknown>), fonts, own)
-        if (block.length === 0) continue
-        const condition = parseMediaCondition(key)
-        if (!condition) continue
-        // A block that sets `direction` is ALSO evaluated by the surface
-        // (`data-xq`): the node's direction drives `dir`, Radix and keys.
-        if (isDirection((value as Record<string, unknown>).direction)) {
-          const resolved = resolvedMediaKey(key, theme)
-          if (resolved) queries.add(resolved)
-        }
-        const band = (selector: string) => shimmerRule(selector, value as Record<string, unknown>)
-        switch (condition.feature) {
-          case `min-width`:
-          case `max-width`: {
-            const px = breakpointPx(condition.value, theme)
-            if (px === null) break // an unknown token never matches
-            const op = condition.feature === `min-width` ? `>=` : `<`
-            rules.push(`@container xui (width ${op} ${px}px){${rule(sel, block)}${band(sel)}}`)
-            break
-          }
-          case `min-height`:
-          case `max-height`: {
-            const px = breakpointPx(condition.value, theme)
-            if (px === null) break
-            const resolved = `@media (${condition.feature}: ${px}px)`
-            queries.add(resolved)
-            const q = `${scope}:where([data-xq~="${queryToken(resolved)}"]) .${cls}`
-            rules.push(rule(q, block) + band(q))
-            break
-          }
-          case `orientation`:
-            queries.add(key)
-            const q = `${scope}:where([data-xq~="${queryToken(key)}"]) .${cls}`
-            rules.push(rule(q, block) + band(q))
-            break
-          case `hover`:
-          case `prefers-reduced-motion`:
-            rules.push(`@media (${condition.feature}: ${condition.value}){${rule(sel, block)}${band(sel)}}`)
-            break
-        }
-      }
-      const states: [string, string][] = [
-        [`:hover`, `${sel}:hover,${sel}[data-xs~="hover"]`],
-        [`:focus-visible`, `${sel}:focus-visible,${sel}[data-xs~="focus-visible"]`],
-        [`:pressed`, `${sel}:active,${sel}[data-xs~="pressed"]`],
-      ]
-      for (const [key, selector] of states) {
-        const value = style[key]
-        if (typeof value !== `object` || value === null) continue
-        const block = declarations(withVars(key, value as Record<string, unknown>), fonts, own)
-        if (block.length) rules.push(rule(selector, block) + shimmerRule(selector, value as Record<string, unknown>))
-      }
+      const chunk = nodeChunk(node, style, scope, theme, fonts)
+      if (chunk.css) chunks.set(node.id, chunk.css)
+      for (const q of chunk.queries) queries.add(q)
     }
   }
-  return { css: `@layer xui-node{${rules.join(``)}}`, queries: [...queries] }
+  return { css: `@layer xui-node{${[...chunks.values()].join(``)}}`, queries: [...queries], chunks }
+}
+
+/** VAPP-152: one `<style>` of the node sheet: the rules of some nodes. */
+export interface NodeSheetBatch {
+  readonly chunks: ReadonlyMap<string, string>
+  readonly css: string
+}
+
+const sheetBatch = (chunks: ReadonlyMap<string, string>): NodeSheetBatch => ({ chunks, css: `@layer xui-node{${[...chunks.values()].join(``)}}` })
+
+/** VAPP-152: the node sheet as `<style>` batches, the last ones kept. A
+ *  rewritten stylesheet makes Chromium re-match every node its rules
+ *  select, so a batch whose rules are all unchanged keeps its OBJECT (the
+ *  renderers leave its element alone), a batch with a changed or removed
+ *  node is rewritten in place, and the new nodes' rules land in ONE new
+ *  batch at the end (a streamed card restyles only itself). A batch at
+ *  least as large as the one before it merges into it (a binary counter:
+ *  at most log2(n) batches, each node rewritten O(log n) times). Rules of
+ *  different nodes never select the same element, so the order of the
+ *  batches does not change the cascade. */
+export function nodeSheetBatches(prev: readonly NodeSheetBatch[], chunks: ReadonlyMap<string, string>): NodeSheetBatch[] {
+  const out: NodeSheetBatch[] = []
+  const placed = new Set<string>()
+  for (const b of prev) {
+    let dirty = false
+    for (const [id, css] of b.chunks) {
+      placed.add(id)
+      if (chunks.get(id) !== css) dirty = true
+    }
+    if (!dirty) {
+      out.push(b)
+      continue
+    }
+    const kept = new Map<string, string>()
+    for (const id of b.chunks.keys()) {
+      const css = chunks.get(id)
+      if (css !== undefined) kept.set(id, css)
+    }
+    if (kept.size) out.push(sheetBatch(kept))
+  }
+  const fresh = new Map<string, string>()
+  for (const [id, css] of chunks) if (!placed.has(id)) fresh.set(id, css)
+  if (fresh.size) out.push(sheetBatch(fresh))
+  while (out.length > 1 && out[out.length - 1].chunks.size >= out[out.length - 2].chunks.size) {
+    const last = out.pop()!
+    const before = out.pop()!
+    out.push(sheetBatch(new Map([...before.chunks, ...last.chunks])))
+  }
+  return out
 }
 
 /** The node sheet's CSS for one tree (the VAPP-87 entry point). */
