@@ -706,16 +706,20 @@ extension SessionIssueEntity: Codable {
 // MARK: - Message (EXP-1291)
 
 // The Conversation: one row per person message, per agent turn reply (the
-// turn's FINAL text) and per card, on the session that wrote it (`root_id`
-// names its thread/agent). `card` = the raw jsonb TEXT of a `MessageCard`
-// (`{kind, …}`, contract `messageCardKind`; an unknown kind renders as
-// nothing); `consumed_at` nil on a person's message = still queued for the
-// device.
+// turn's FINAL text) and per card, in the CONVERSATION that holds it
+// (`root_id` names its thread/agent). NEW-8: a message never names its
+// session; it belongs to the session of its conversation
+// (`MessageConversations`, read through `SessionMessage`). `card` = the raw
+// jsonb TEXT of a `MessageCard` (`{kind, …}`, contract `messageCardKind`; an
+// unknown kind renders as nothing); `consumed_at` nil on a person's message =
+// still queued for the device.
 public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "messages"
 
     public let id: String
-    public let sessionId: String
+    /// NEW-3/NEW-8: the conversation it lives in (`messages.conversation_id`,
+    /// NOT NULL on the server); a legacy `session_id` on the wire is ignored.
+    public let conversationId: String
     public let rootId: String
     public let teamId: String
     /// `user` | `agent` | `system` (`DomainContract.messageAuthorKindValues`).
@@ -732,13 +736,10 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// EXP-1323: the session that posted it (a child asking its parent);
     /// nil = none.
     public let authorSessionId: String?
-    /// NEW-3: the conversation it belongs to (beside the kept `session_id`;
-    /// the server derives either from the other); nil on pre-NEW-3 rows.
-    public let conversationId: String?
 
     public init(
         id: String,
-        sessionId: String,
+        conversationId: String,
         rootId: String,
         teamId: String,
         authorKind: String,
@@ -749,13 +750,11 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
         consumedAt: String? = nil,
         createdAt: String,
         updatedAt: String,
-        authorSessionId: String? = nil,
-        conversationId: String? = nil
+        authorSessionId: String? = nil
     ) {
         self.authorSessionId = authorSessionId
         self.conversationId = conversationId
         self.id = id
-        self.sessionId = sessionId
         self.rootId = rootId
         self.teamId = teamId
         self.authorKind = authorKind
@@ -770,7 +769,6 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
 
     enum CodingKeys: String, CodingKey {
         case id, body, card
-        case sessionId = "session_id"
         case rootId = "root_id"
         case teamId = "team_id"
         case authorKind = "author_kind"
@@ -788,7 +786,7 @@ extension MessageEntity: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
-        sessionId = try c.decode(String.self, forKey: .sessionId)
+        conversationId = try c.decode(String.self, forKey: .conversationId)
         rootId = try c.decode(String.self, forKey: .rootId)
         teamId = try c.decode(String.self, forKey: .teamId)
         authorKind = try c.decode(String.self, forKey: .authorKind)
@@ -800,7 +798,36 @@ extension MessageEntity: Codable {
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
         authorSessionId = try c.decodeIfPresent(String.self, forKey: .authorSessionId)
-        conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
+    }
+}
+
+// NEW-8: a message KEYED to the session of its conversation
+// (`MessageConversations.keyMessagesBySession`, contract
+// `message-conversation.json`): fetched by `SessionQueries.messages`, which
+// joins the synced `conversations` — a dm/channel message or one whose
+// conversation has not synced yet never reaches it.
+@dynamicMemberLookup
+public struct SessionMessage: FetchableRecord, Identifiable, Equatable, Sendable {
+    public let message: MessageEntity
+    /// The RESOLVED session: its conversation's `session_id`.
+    public let sessionId: String
+
+    public var id: String { message.id }
+
+    public init(message: MessageEntity, sessionId: String) {
+        self.message = message
+        self.sessionId = sessionId
+    }
+
+    /// A `messages` row joined with its conversation's session as
+    /// `conversation_session_id` (`SessionQueries.keyedMessagesSQL`).
+    public init(row: Row) throws {
+        message = try MessageEntity(row: row)
+        sessionId = row["conversation_session_id"]
+    }
+
+    public subscript<T>(dynamicMember keyPath: KeyPath<MessageEntity, T>) -> T {
+        message[keyPath: keyPath]
     }
 }
 

@@ -158,20 +158,25 @@ final class SessionListsModel {
         let issues = issueIds.isEmpty
             ? []
             : try IssueEntity.filter(issueIds.contains(Column("id"))).fetchAll(db)
-        let messages = try MessageEntity
-            .filter(Column("card") == nil || Column("card") == "null")
-            .filter(
-                Column("author_kind") == DomainContract.messageAuthorKindUser
-                    || (Column("author_session_id") != nil
-                        && Column("author_session_id") != Column("session_id"))
-            )
-            .order(Column("created_at"), Column("id"))
-            .fetchAll(db)
+        // NEW-8: every message is keyed through its conversation
+        // (`SessionQueries.keyedMessagesSQL`); "another session's" text =
+        // posted by a session other than the one its conversation belongs to.
+        let messages = try SessionMessage.fetchAll(db, sql: """
+            \(SessionQueries.keyedMessagesSQL)
+            AND ("messages"."card" IS NULL OR "messages"."card" = 'null')
+            AND ("messages"."author_kind" = ?
+                OR ("messages"."author_session_id" IS NOT NULL
+                    AND "messages"."author_session_id" <> "conversations"."session_id"))
+            ORDER BY "messages"."created_at", "messages"."id"
+            """, arguments: [DomainContract.messageAuthorKindUser])
         // EXP-1323: unread only reads each session's NEWEST agent message, so
         // one aggregate row per session stands in for the transcript.
         let newestAgent = try Row.fetchAll(db, sql: """
-            SELECT "session_id", MAX("created_at") AS "at" FROM "messages"
-            WHERE "author_kind" = ? GROUP BY "session_id"
+            SELECT "conversations"."session_id" AS "session_id", MAX("messages"."created_at") AS "at"
+            FROM "messages"
+            JOIN "conversations" ON "conversations"."id" = "messages"."conversation_id"
+            WHERE "messages"."author_kind" = ? AND "conversations"."session_id" IS NOT NULL
+            GROUP BY "conversations"."session_id"
             """, arguments: [DomainContract.messageAuthorKindAgent])
             .compactMap { row -> TreeMessage? in
                 guard let sessionId: String = row["session_id"], let at: String = row["at"] else { return nil }

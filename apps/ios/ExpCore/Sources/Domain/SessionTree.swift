@@ -488,6 +488,9 @@ public struct ComposerReplies: Equatable, Sendable {
 /// One `messages` row.
 public struct TreeMessage: Equatable, Sendable, Identifiable {
     public let id: String
+    /// NEW-8: the session its conversation belongs to, keyed through the
+    /// `conversations` shape (`MessageConversations`), never the row's own
+    /// legacy `session_id`.
     public let sessionId: String
     /// Contract `messageAuthorKindValues`: user | agent | system.
     public let authorKind: String

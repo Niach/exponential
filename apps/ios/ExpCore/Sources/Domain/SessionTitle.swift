@@ -41,6 +41,8 @@ public enum SessionTitle {
 
     public struct Message: Equatable, Sendable {
         public let id: String
+        /// NEW-8: the session its conversation belongs to (keyed through the
+        /// `conversations` shape), never the row's own legacy `session_id`.
         public let sessionId: String
         public let authorKind: String
         public let authorSessionId: String?
