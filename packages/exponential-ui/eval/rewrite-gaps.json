@@ -76,7 +76,7 @@
     { "id": "settings-mcp-servers", "class": "expressible", "with": "Section + Row (Chip Default, trailing Button + Menu) + Dialog + Form" },
     { "id": "settings-issues", "class": "expressible", "with": "Page + Group + Segmented (estimate scale) + FieldGroup (the PR targets) + FormActions" },
     { "id": "settings-import", "class": "expressible", "with": "Stepper + Card + Table (the mapping) + Progress + Button" },
-    { "id": "settings-team-agent", "class": "native", "with": "Page + FieldGroup (icon, colour, name) + Group + Select + Row (schedule sentence) + Textarea + FormActions; the instructions want the markdown editor (native) to match the app (VAPP-126 landed the macros; the editor is what is left)" },
+    { "id": "settings-team-agent", "class": "native", "with": "Page + FieldGroup (icon, colour, name) + Group + Select + Row (schedule sentence) + Textarea + FormActions; the instructions want the markdown editor (native) to match the app (the macros have landed; the editor is what is left)" },
     { "id": "settings-prompts", "class": "expressible", "with": "Section + Row + Button" },
     { "id": "settings-prompt", "class": "native", "with": "the markdown editor for the body; FieldGroup for icon + name" },
     { "id": "files", "class": "native", "with": "Tree (the file tree with keyboard + drag) beside a read-only CodeBlock; Resizable splits them" },
