@@ -526,6 +526,20 @@
         "bytes": 64248,
         "sha256": "7060075f430094f2c3c9467adb4bf8723c7d5083196c9cc4cfd66cb4fe4439a0"
       },
+      "desktop": {
+        "file": "shots/dock-card/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 62292,
+        "sha256": "6970c6325f4de204e1de7dfed9e5239fe3183bb3c4f919b2bb75ccf164aa8b8a"
+      },
+      "ios": {
+        "file": "shots/dock-card/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 67072,
+        "sha256": "8d79682f64402c58ef4ff99e1ed685209ad05510694ebc033f8732bdd574a2a6"
+      },
       "web": {
         "file": "shots/dock-card/web.webp",
         "width": 1800,
