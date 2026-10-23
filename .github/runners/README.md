@@ -8,12 +8,12 @@ fork never runs any workflow (the same job skips, everything needs it).
 | Label | Machine | Takes |
 |---|---|---|
 | `exp-linux` | the Mint, 4 Docker runners (`linux/`) | test: desktop, android · build-desktop Linux · build-android · exponential-ui rust |
-| `exp-mac` | the MacBook, native (`mac/`) | test-ios · exponential-ui swift, swift-ios |
+| `exp-mac` | the MacBook, native (`mac/`) | test-ios · exponential-ui swift, swift-ios · release-ui swift (the xcframework, unsigned) |
 
 Stays on GitHub: build-web (pushing an image from the Mint goes through a
 home upload link), the exponential-ui compose leg (its snapshots are pixel-exact
 to the ubuntu image they are recorded on), the web unit shards (4 free parallel runners beat one
-machine), every signed Apple artifact (build-ios, the desktop .app, release-ui:
+machine), every signed Apple artifact (build-ios, the desktop .app:
 App Store review rejects a beta-macOS host and the signing steps rewrite the
 user's keychain list), build-cli (its glibc floor is Ubuntu 22.04), arm64 and
 Windows.

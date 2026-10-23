@@ -124,7 +124,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: Size gate (xcframework slices, VAPP-106)
         env:
-          EXPONENTIAL_UI_SIZE_MACHINE: github-macos-26  # EXP-1371
+          # EXP-1371: the MacBook (pick-runner) and GitHub's macos-26 fallback
+          # link different sizes; each has its own budgets ($machines).
+          EXPONENTIAL_UI_SIZE_MACHINE: ${{ runner.environment == 'github-hosted' && 'github-macos-26' || '' }}
         run: bun packages/exponential-ui/release/size.ts xcframework --check
       - name: Zip + checksum
         id: zip
