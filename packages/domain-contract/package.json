@@ -23,6 +23,7 @@
     "./session-tree": "./src/session-tree.ts",
     "./session-title": "./src/session-title.ts",
     "./session-kind": "./src/session-kind.ts",
+    "./message-conversation": "./src/message-conversation.ts",
     "./guide-viewer": "./src/guide-viewer.ts",
     "./agent-settings": "./src/agent-settings.ts",
     "./schedule-picker": "./src/schedule-picker.ts",
