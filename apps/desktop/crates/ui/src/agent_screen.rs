@@ -36,6 +36,8 @@ use domain::rows::{AgentDefRow, AppRow, MessageRow, SessionRow};
 use domain::session_tree::SessionThreadRow;
 
 use crate::composer_images::{self, PendingImages};
+use crate::controls::WebControl as _;
+use gpui_component::button::ButtonVariants as _;
 use crate::icons::registry;
 use crate::markdown::ImageCache;
 
@@ -140,6 +142,11 @@ pub struct AgentScreenView {
     /// THE ask dock's state (the focused card, the swap animation).
     /// N-12: THE Dock's state (the fan, the open sheet, the band height).
     dock: Entity<crate::dock::DockState>,
+    /// VAPP-129: an editor chat drawn as THE Dock's ONE chat card over the
+    /// preview (the editor's floating layout) instead of the channel.
+    floating: bool,
+    /// VAPP-129: the floating sheet's "Move to the side" (the editor's).
+    on_dock_side: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App)>>,
     /// The name the placeholder was built for.
     placeholder_name: Option<String>,
     scroll: ScrollHandle,
@@ -221,6 +228,8 @@ impl AgentScreenView {
                 mention_team: None,
             },
             dock: cx.new(|_| crate::dock::DockState::default()),
+            floating: false,
+            on_dock_side: None,
             placeholder_name: None,
             scroll: ScrollHandle::new(),
             follow: crate::controls::TailFollow::default(),
@@ -654,9 +663,107 @@ impl Focusable for AgentScreenView {
     }
 }
 
+impl AgentScreenView {
+    /// VAPP-129: the editor's layout for this chat: floating = THE Dock's
+    /// chat card over the preview, else the channel (the docked pane).
+    pub(crate) fn set_floating(
+        &mut self,
+        floating: bool,
+        on_dock_side: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App)>>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if floating != self.floating {
+            self.dock.update(cx, |dock, _| dock.close());
+        }
+        self.floating = floating;
+        self.on_dock_side = on_dock_side;
+        cx.notify();
+    }
+
+    /// The floating band's measured height (the preview's bottom padding).
+    pub(crate) fn band_height(&self, cx: &App) -> f32 {
+        if self.floating { self.dock.read(cx).band_height() } else { 0. }
+    }
+
+    /// VAPP-129 (apps.json `layout` floating): THE Dock over the host's
+    /// box (the editor layers this view over its preview): ONE chat card
+    /// (`chat_card`: the newest message's first line, `Working` while the
+    /// session is busy) over THE composer; the card opens the chat as the
+    /// Dock sheet whose header carries "Move to the side". The root is a
+    /// plain box: the preview under it keeps its clicks.
+    fn render_floating(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let mut ordered: Vec<&MessageRow> = self.messages.values().collect();
+        ordered.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
+        let bodies: Vec<&str> = ordered.iter().filter_map(|message| message.body.as_deref()).collect();
+        let busy = self.conversation.as_ref().is_some_and(|row| row.busy);
+        let row = domain::apps::chat_card(&bodies, busy);
+        let composer = match self.composer.as_ref().map(|(_, composer)| composer.clone()) {
+            Some(composer) if composer.read(cx).may_message() => {
+                composer.update(cx, |composer, cx| composer.render_session_composer(window, cx))
+            }
+            Some(_) => None,
+            None => Some(self.render_first_composer(cx)),
+        };
+        let sheet = if self.dock.read(cx).sheet_id() == Some(row.id.as_str()) {
+            let rows_snapshot = self.rows.clone();
+            let rows: Vec<AnyElement> = rows_snapshot.iter().map(|row| self.render_row(row, window, cx)).collect();
+            let empty = rows.is_empty().then(|| {
+                crate::controls::empty_state_list(
+                    Icon::new(registry::NAV_APPS),
+                    domain::apps::APPS.copy.chat_empty.clone(),
+                    cx,
+                )
+                .py_6()
+            });
+            let action = self.on_dock_side.clone().map(|on_dock_side| {
+                gpui_component::button::Button::new(SharedString::from(domain::apps::APPS.test_ids.dock_to_side.clone()))
+                    .ghost()
+                    .web_sm()
+                    .cursor_pointer()
+                    .icon(Icon::new(
+                        registry::concept_by_name(&domain::apps::APPS.dock_card.dock_icon).unwrap_or(registry::UI_INFO),
+                    ))
+                    .label(domain::apps::APPS.copy.dock_to_side.clone())
+                    .on_click(move |_, window, cx| {
+                        cx.stop_propagation();
+                        on_dock_side(window, cx);
+                    })
+                    .into_any_element()
+            });
+            let body = crate::dock::sheet_host(|| {
+                crate::dock::sheet_body(
+                    "app-editor-chat-sheet-body",
+                    v_flex().w_full().gap_4().pt_2().children(rows).children(empty),
+                )
+            });
+            Some(crate::dock::sheet(
+                &self.dock,
+                &row,
+                crate::dock::SheetContent { meta: None, action, body, footer: None },
+                window,
+                cx,
+            ))
+        } else {
+            None
+        };
+        let band = crate::dock::band(
+            &self.dock,
+            crate::dock::Band { id: "app-chat".into(), rows: vec![row], actions: Vec::new(), composer },
+            window,
+            cx,
+        );
+        div().relative().size_full().children(band).children(sheet).into_any_element()
+    }
+}
+
 impl Render for AgentScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let editor = matches!(self.subject, ChannelSubject::App(_));
+        if editor && self.floating && self.has_subject() {
+            // A plain box, no focus or mouse handlers: the preview under it
+            // keeps its clicks.
+            return v_flex().size_full().child(self.render_floating(window, cx));
+        }
         if !self.has_subject() {
             // VAPP-110: the editor screen owns the app's not-found verdict.
             if editor {

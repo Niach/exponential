@@ -97,6 +97,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         &question,
         SheetContent {
             meta: None,
+            action: None,
             body: crate::dock::sheet_body(
                 "sg-dock-card-sheet-body",
                 v_flex()

@@ -103,6 +103,9 @@ pub enum DockKind {
     Queued,
     Suggestions,
     Banner,
+    /// VAPP-129: the app editor's floating chat card (apps.json
+    /// `dockCard`; built by the editor, never by [`dock_rows`]).
+    Chat,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -255,6 +258,7 @@ fn order(kind: DockKind) -> usize {
         DockKind::Suggestions => "suggestions",
         DockKind::Banner => "banner",
         DockKind::Plan | DockKind::Question => "ask",
+        DockKind::Chat => return DOCK.order.len(),
     };
     DOCK.order.iter().position(|k| k == key).unwrap_or(usize::MAX)
 }

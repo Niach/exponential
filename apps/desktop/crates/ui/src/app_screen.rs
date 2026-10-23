@@ -11,6 +11,13 @@
 //! newest first; a row PREVIEWS that version under the `Viewing v{n}` banner
 //! with Restore (`apps.restore` = a NEW head, toast `Restored v{n} as v{m}`).
 //!
+//! VAPP-129 (apps.json `layout`, kept per device in the settings'
+//! `appEditorLayout`): FLOATING = the preview fills the body and the chat is
+//! THE Dock's chat card over its bottom edge (the channel view's floating
+//! mode, layered over the preview); the card opens the chat as the Dock
+//! sheet whose "Move to the side" docks it = DOCKED, the two panes, the
+//! chat pane led by a header strip with Minimize, which floats it back.
+//!
 //! LIFETIME: entering starts nothing; leaving (a navigation off the screen,
 //! the window closing) ENDS the member's live editor session
 //! (`sessions.end` on the root); the next send continues it.
@@ -29,7 +36,7 @@ use gpui_component::{
 use serde_json::{json, Value};
 use sync::Store;
 
-use domain::apps::{version_label, viewing_label, APPS};
+use domain::apps::{editor_layout, version_label, viewing_label, EditorLayout, APPS};
 use domain::rows::AppVersionRow;
 
 use crate::apps_view::{find_app, version_pill, AppEntry};
@@ -100,6 +107,8 @@ pub struct AppScreenView {
     /// The live editor root this screen saw last (ended on leave).
     live_root: Option<String>,
     preview_scroll: ScrollHandle,
+    /// VAPP-129: floating (the chat in THE Dock) or docked (two panes).
+    layout: EditorLayout,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -138,10 +147,42 @@ impl AppScreenView {
             restoring: false,
             live_root: None,
             preview_scroll: ScrollHandle::new(),
+            layout: editor_layout(
+                crate::coding_flow::CodingHub::global(cx).read(cx).settings.app_editor_layout.as_deref(),
+            ),
             _subscriptions: subscriptions,
         };
         this.refresh(window, cx);
         this
+    }
+
+    /// VAPP-129: switch the layout, keep it per device (the settings'
+    /// `appEditorLayout`), and tell the chat.
+    fn set_layout(&mut self, layout: EditorLayout, cx: &mut gpui::Context<Self>) {
+        if self.layout == layout {
+            return;
+        }
+        self.layout = layout;
+        let hub = crate::coding_flow::CodingHub::global(cx);
+        let mut settings = hub.read(cx).settings.clone();
+        settings.app_editor_layout = Some(layout.as_str().to_string());
+        if let Err(err) = crate::coding_flow::CodingHub::save_settings(&hub, settings, cx) {
+            log::warn!("[ui] persisting the app editor layout failed: {err}");
+        }
+        self.sync_chat_layout(cx);
+        cx.notify();
+    }
+
+    /// The chat view's mode follows the layout; its sheet's "Move to the
+    /// side" docks it.
+    fn sync_chat_layout(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(chat) = self.chat.clone() else { return };
+        let floating = self.layout == EditorLayout::Floating;
+        let this = cx.entity().downgrade();
+        let dock_side: std::rc::Rc<dyn Fn(&mut Window, &mut App)> = std::rc::Rc::new(move |_, cx| {
+            let _ = this.update(cx, |this, cx| this.set_layout(EditorLayout::Docked, cx));
+        });
+        chat.update(cx, |chat, cx| chat.set_floating(floating, Some(dock_side), cx));
     }
 
     /// The id or slug this view was opened with.
@@ -174,6 +215,7 @@ impl AppScreenView {
             if self.chat.is_none() {
                 let app_id = app_id.clone();
                 self.chat = Some(cx.new(|cx| crate::agent_screen::AgentScreenView::for_app(app_id, window, cx)));
+                self.sync_chat_layout(cx);
             }
             if let Some(root) = crate::session_data::my_editor_session(app_id, cx) {
                 self.live_root = Some(root.id);
@@ -635,20 +677,52 @@ impl Render for AppScreenView {
         };
         let panes = &APPS.panes;
         let chat_share = panes.chat / (panes.chat + panes.preview);
-        v_flex()
-            .id(SharedString::from(APPS.test_ids.editor.clone()))
-            .size_full()
-            .min_h_0()
-            .overflow_hidden()
-            .child(self.render_header(&app, cx))
-            .child(
+        let body = match (&self.chat, self.layout) {
+            // The built-in app has no chat: the preview alone.
+            (None, _) => div().flex_1().min_h_0().w_full().child(self.render_preview(cx)).into_any_element(),
+            (Some(chat), EditorLayout::Floating) => {
+                let band = chat.read(cx).band_height(cx);
+                div()
+                    .id("app-editor-floating")
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .child(div().size_full().pb(px(band + crate::dock::DOCK_GAP)).child(self.render_preview(cx)))
+                    .child(div().absolute().top_0().left_0().size_full().child(chat.clone()))
+                    .into_any_element()
+            }
+            (Some(_), EditorLayout::Docked) => {
+                let header = h_flex()
+                    .flex_shrink_0()
+                    .h(px(panes.header_height))
+                    .w_full()
+                    .px_4()
+                    .items_center()
+                    .justify_between()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(SharedString::from(APPS.copy.tabs.chat.clone()))
+                    .child(
+                        Button::new(SharedString::from(APPS.test_ids.float.clone()))
+                            .ghost()
+                            .web_icon_sm()
+                            .cursor_pointer()
+                            .icon(Icon::new(
+                                registry::concept_by_name(&APPS.dock_card.float_icon).unwrap_or(registry::UI_INFO),
+                            ))
+                            .tooltip(APPS.copy.float.clone())
+                            .on_click(cx.listener(|this, _, _, cx| this.set_layout(EditorLayout::Floating, cx))),
+                    );
                 h_flex()
                     .flex_1()
                     .min_h_0()
                     .w_full()
                     .items_stretch()
                     .child(
-                        div()
+                        v_flex()
                             .h_full()
                             .min_h_0()
                             .w(relative(chat_share))
@@ -656,10 +730,20 @@ impl Render for AppScreenView {
                             .flex_shrink_0()
                             .border_r_1()
                             .border_color(cx.theme().border)
-                            .child(self.render_chat(&app, cx)),
+                            .child(header)
+                            .child(div().flex_1().min_h_0().child(self.render_chat(&app, cx))),
                     )
-                    .child(div().h_full().min_h_0().min_w_0().flex_1().child(self.render_preview(cx))),
-            )
+                    .child(div().h_full().min_h_0().min_w_0().flex_1().child(self.render_preview(cx)))
+                    .into_any_element()
+            }
+        };
+        v_flex()
+            .id(SharedString::from(APPS.test_ids.editor.clone()))
+            .size_full()
+            .min_h_0()
+            .overflow_hidden()
+            .child(self.render_header(&app, cx))
+            .child(body)
             .into_any_element()
     }
 }
