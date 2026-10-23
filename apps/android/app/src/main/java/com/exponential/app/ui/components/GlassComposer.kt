@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.components.picker.InlinePickerRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -75,9 +76,12 @@ fun GlassComposer(
         strip?.invoke(this)
         field()
         if (footer != null) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
+            // N-14: the footer is a ROW host: a pin opened inline (the
+            // composer inside a sheet) discloses its rows under the WHOLE
+            // row, as wide as it; collapsed the row is exactly as before.
+            InlinePickerRow(
                 verticalAlignment = Alignment.CenterVertically,
+                scroll = false,
                 content = footer,
             )
         } else if (tools != null || submit != null) {

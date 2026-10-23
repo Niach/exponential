@@ -7,6 +7,9 @@ import com.exponential.app.ui.components.DockAutoOpen
 import com.exponential.app.ui.components.DockCards
 import com.exponential.app.ui.components.DockSheetBody
 import com.exponential.app.ui.components.DockSheetFooter
+import com.exponential.app.ui.components.picker.LocalPickerPresentation
+import com.exponential.app.ui.components.picker.PickerDefaults
+import com.exponential.app.ui.components.picker.PickerPresentation
 import com.exponential.app.ui.theme.fullBleed
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.RowScope
@@ -48,6 +51,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
@@ -1627,6 +1631,8 @@ fun ColumnScope.ThreadSuggestionsSheet(
     onOpenSession: ((String) -> Unit)?,
 ) {
     var optionsFor by remember(row.id) { mutableStateOf<SessionTree.SuggestionRow?>(null) }
+    // N-6: the Dock sheet is a sheet host: the ⋯ menu discloses inline.
+    val inline = LocalPickerPresentation.current == PickerPresentation.Inline
     DockSheetBody {
         Column(modifier = Modifier.fillMaxWidth().fullBleed(12.dp).testTag("thread-suggestions-sheet")) {
             row.items.forEachIndexed { index, item ->
@@ -1636,8 +1642,17 @@ fun ColumnScope.ThreadSuggestionsSheet(
                     item = item,
                     actions = actions,
                     onOpenSession = onOpenSession,
-                    onOptions = { optionsFor = item },
+                    onOptions = { optionsFor = if (optionsFor?.id == item.id) null else item },
                 )
+                if (inline && actions != null && optionsFor?.id == item.id) {
+                    SuggestionOptionsInline(
+                        actions = actions,
+                        onPick = { pick ->
+                            optionsFor = null
+                            pick(row.id, item.id)
+                        },
+                    )
+                }
             }
         }
     }
@@ -1658,7 +1673,7 @@ fun ColumnScope.ThreadSuggestionsSheet(
         }
     }
     val target = optionsFor
-    if (target != null && actions != null) {
+    if (!inline && target != null && actions != null) {
         SuggestionOptionsSheet(
             item = target,
             actions = actions,
@@ -1677,7 +1692,8 @@ private typealias SuggestionPick = (rowId: String, itemId: String) -> Unit
 /**
  * EXP-1323: an open item's ⋯ = THE menu as its phone sheet (the "+"'s
  * idiom): Do it here · Start on… › (the runnable devices) · Start with… ›
- * (the models, never a Default row) · File as issue · Dismiss. A submenu row pushes its
+ * (the models, never a Default row) · File as issue · Dismiss (N-6: in the
+ * Dock sheet the same rows open inline, [SuggestionOptionsInline]). A submenu row pushes its
  * page inside the sheet; back returns to the rows.
  */
 @Composable
@@ -1687,75 +1703,106 @@ private fun SuggestionOptionsSheet(
     onPick: (SuggestionPick) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    GlassSheet(title = item.title, onDismiss = onDismiss, modifier = Modifier.testTag("thread-suggestion-menu")) {
+        SuggestionOptionsRows(actions = actions, onPick = onPick)
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+/**
+ * N-6: the same ⋯ rows INLINE (the Dock sheet is a sheet host, so no second
+ * sheet): disclosed right under the item's row, at the sheet's width; the ⋯
+ * again folds them.
+ */
+@Composable
+private fun SuggestionOptionsInline(
+    actions: ThreadSuggestionActions,
+    onPick: (SuggestionPick) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = PickerDefaults.InlineMaxHeight)
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 6.dp)
+            .testTag("thread-suggestion-menu"),
+    ) {
+        SuggestionOptionsRows(actions = actions, onPick = onPick)
+    }
+}
+
+/** THE ⋯ rows and their Start on… / Start with… pages, either presentation. */
+@Composable
+private fun SuggestionOptionsRows(
+    actions: ThreadSuggestionActions,
+    onPick: (SuggestionPick) -> Unit,
+) {
     var page by remember { mutableStateOf<String?>(null) }
     val iconTint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    GlassSheet(title = item.title, onDismiss = onDismiss, modifier = Modifier.testTag("thread-suggestion-menu")) {
-        when (page) {
-            PAGE_DEVICE -> {
-                BackHandler { page = null }
+    when (page) {
+        PAGE_DEVICE -> {
+            BackHandler { page = null }
+            GlassSheetRow(
+                label = SessionTree.SuggestionsCopy.START_ON,
+                onClick = { page = null },
+                leading = { Icon(ExpIcons.uiBack, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
+            )
+            actions.devices.forEach { device ->
                 GlassSheetRow(
-                    label = SessionTree.SuggestionsCopy.START_ON,
-                    onClick = { page = null },
-                    leading = { Icon(ExpIcons.uiBack, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
-                )
-                actions.devices.forEach { device ->
-                    GlassSheetRow(
-                        label = device.name,
-                        onClick = { onPick { rowId, itemId -> actions.onStart(rowId, itemId, device.id, null) } },
-                        leading = { Icon(device.icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
-                    )
-                }
-            }
-            PAGE_MODEL -> {
-                BackHandler { page = null }
-                GlassSheetRow(
-                    label = SessionTree.SuggestionsCopy.START_WITH,
-                    onClick = { page = null },
-                    leading = { Icon(ExpIcons.uiBack, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
-                )
-                actions.models.forEach { (value, label) ->
-                    GlassSheetRow(
-                        label = label,
-                        onClick = { onPick { rowId, itemId -> actions.onStart(rowId, itemId, null, value) } },
-                    )
-                }
-            }
-            else -> {
-                val chevron: @Composable RowScope.() -> Unit = {
-                    Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = iconTint, modifier = Modifier.size(16.dp))
-                }
-                GlassSheetRow(
-                    label = SessionTree.SuggestionsCopy.HERE,
-                    onClick = { onPick(actions.onHere) },
-                )
-                GlassSheetRow(
-                    label = SessionTree.SuggestionsCopy.START_ON,
-                    onClick = { page = PAGE_DEVICE },
-                    enabled = actions.devices.isNotEmpty(),
-                    trailing = chevron,
-                )
-                GlassSheetRow(
-                    label = SessionTree.SuggestionsCopy.START_WITH,
-                    onClick = { page = PAGE_MODEL },
-                    enabled = actions.models.isNotEmpty(),
-                    trailing = chevron,
-                )
-                HorizontalDivider(
-                    thickness = GlassTokens.Hairline,
-                    color = GlassTokens.StrokeRow,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                )
-                GlassSheetRow(
-                    label = SessionTree.SuggestionsCopy.FILE,
-                    onClick = { onPick(actions.onFile) },
-                )
-                GlassSheetRow(
-                    label = SessionTree.SuggestionsCopy.DISMISS,
-                    onClick = { onPick(actions.onDismiss) },
+                    label = device.name,
+                    onClick = { onPick { rowId, itemId -> actions.onStart(rowId, itemId, device.id, null) } },
+                    leading = { Icon(device.icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
                 )
             }
         }
-        Spacer(Modifier.height(8.dp))
+        PAGE_MODEL -> {
+            BackHandler { page = null }
+            GlassSheetRow(
+                label = SessionTree.SuggestionsCopy.START_WITH,
+                onClick = { page = null },
+                leading = { Icon(ExpIcons.uiBack, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
+            )
+            actions.models.forEach { (value, label) ->
+                GlassSheetRow(
+                    label = label,
+                    onClick = { onPick { rowId, itemId -> actions.onStart(rowId, itemId, null, value) } },
+                )
+            }
+        }
+        else -> {
+            val chevron: @Composable RowScope.() -> Unit = {
+                Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = iconTint, modifier = Modifier.size(16.dp))
+            }
+            GlassSheetRow(
+                label = SessionTree.SuggestionsCopy.HERE,
+                onClick = { onPick(actions.onHere) },
+            )
+            GlassSheetRow(
+                label = SessionTree.SuggestionsCopy.START_ON,
+                onClick = { page = PAGE_DEVICE },
+                enabled = actions.devices.isNotEmpty(),
+                trailing = chevron,
+            )
+            GlassSheetRow(
+                label = SessionTree.SuggestionsCopy.START_WITH,
+                onClick = { page = PAGE_MODEL },
+                enabled = actions.models.isNotEmpty(),
+                trailing = chevron,
+            )
+            HorizontalDivider(
+                thickness = GlassTokens.Hairline,
+                color = GlassTokens.StrokeRow,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+            GlassSheetRow(
+                label = SessionTree.SuggestionsCopy.FILE,
+                onClick = { onPick(actions.onFile) },
+            )
+            GlassSheetRow(
+                label = SessionTree.SuggestionsCopy.DISMISS,
+                onClick = { onPick(actions.onDismiss) },
+            )
+        }
     }
 }
 

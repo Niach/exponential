@@ -69,7 +69,7 @@ import com.exponential.app.ui.session.AskCard
 import com.exponential.app.ui.components.DockSheetBody
 import com.exponential.app.ui.components.DockSheetFooter
 import com.exponential.app.ui.components.DockSheetScope
-import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassHostMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
@@ -585,7 +585,7 @@ private fun ApproveSplitButton(
             Box {
                 Box(
                     modifier = Modifier
-                        .then(if (enabled) Modifier.clickable(role = Role.Button) { menuOpen = true } else Modifier)
+                        .then(if (enabled) Modifier.clickable(role = Role.Button) { menuOpen = !menuOpen } else Modifier)
                         .heightIn(min = PlanCard.Look.ROW_MIN_HEIGHT.dp)
                         .padding(horizontal = 6.dp)
                         .semantics { contentDescription = fresh.label },
@@ -598,7 +598,9 @@ private fun ApproveSplitButton(
                         tint = MaterialTheme.colorScheme.onPrimary,
                     )
                 }
-                GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                // N-6: in the Dock sheet the menu's row opens inline, under
+                // the footer's row; in the Conversation it is the popup.
+                GlassHostMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     GlassMenuItem(
                         text = { Text(fresh.label) },
                         onClick = {

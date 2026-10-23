@@ -28,8 +28,6 @@ import com.exponential.app.ui.components.DockSheetSpecimenFrame
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.thread.PlanAskCard
-import com.exponential.app.ui.thread.ThreadSuggestionActions
-import com.exponential.app.ui.thread.ThreadSuggestionsSheet
 
 /** The capture's anchor (shot `sg_ask-dock`). */
 const val AskDockSpecimenScreenTestId = "ask-dock-specimen-screen"
@@ -109,42 +107,13 @@ private val STATE: List<Dock.Source> = listOf(
     Dock.Source.Suggestions("m4", "3 suggested tasks", "1 started", "Lazy-load the markdown editor", 2),
 )
 
-private val SUGGESTIONS = SessionTree.ThreadRow.Suggestions(
-    id = "m4",
-    sessionId = "a",
-    header = "3 suggested tasks · 1 started",
-    startAll = true,
-    items = listOf(
-        SessionTree.SuggestionRow(
-            "s1", "Measure on the Galaxy A54", "The cold start before and after.",
-            SessionTree.SuggestionState.Filed, null, "i-9", "EXP-9",
-        ),
-        SessionTree.SuggestionRow(
-            "s2", "Lazy-load the markdown editor", "Keep it out of the first bundle.",
-            SessionTree.SuggestionState.Open, null, null, null,
-        ),
-        SessionTree.SuggestionRow(
-            "s3", "Cache the board icons", "They reload on every board switch.",
-            SessionTree.SuggestionState.Open, null, null, null,
-        ),
-    ),
-)
-
-private val SUGGESTION_ACTIONS = ThreadSuggestionActions(
-    onStart = { _, _, _, _ -> },
-    onStartAll = {},
-    onHere = { _, _ -> },
-    onDismiss = { _, _ -> },
-    onFile = { _, _ -> },
-)
-
 /**
- * THE Dock specimen (dock.json + ask-dock.json ×4; web `AskDockSpecimen`):
- * the DockCards at rest in their four states drawn by the REAL [DockCard] /
- * [DockPile] / [DockSheetSpecimenFrame]: one waiting plan, the pile (a plan,
- * a question, THE Queue, the queued messages, the suggested tasks), the pile
- * fanned, the plan's sheet ([PlanAskCard] in sheet mode) and the suggested
- * tasks' sheet ([ThreadSuggestionsSheet]). A capture-only screen, shot
+ * THE Dock specimen (dock.json + ask-dock.json ×4): EXACTLY the rows of the
+ * canonical web `AskDockSpecimen` (packages/ui ask-dock-specimen.tsx), its
+ * four cases drawn by the REAL [DockCard] / [DockPile] /
+ * [DockSheetSpecimenFrame]: one waiting plan, the pile (the queued messages,
+ * THE Queue, the suggested tasks, a plan, a question), the pile fanned and
+ * the plan's sheet ([PlanAskCard] in sheet mode). A capture-only screen, shot
  * `sg_ask-dock`.
  */
 @Composable
@@ -164,7 +133,7 @@ fun AskDockSpecimenScreen() {
                 SpecimenCase("One waiting plan") {
                     DockCard(row = single[0], onOpen = {})
                 }
-                SpecimenCase("A plan, a question, the Queue, the queued messages and the suggested tasks, piled") {
+                SpecimenCase("A plan, a question, the suggested tasks, the Queue and the queued messages, piled") {
                     DockPile(rows = pile, expanded = false, onExpandedChange = {}, onOpen = {})
                 }
                 SpecimenCase("The pile fanned (hover or a tap)") {
@@ -173,12 +142,6 @@ fun AskDockSpecimenScreen() {
                 SpecimenCase("The plan's sheet") {
                     DockSheetSpecimenFrame(row = single[0], height = 420.dp) { scope ->
                         PlanAskCard(RICH_PLAN, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> }, sheet = scope)
-                    }
-                }
-                SpecimenCase("The suggested tasks' sheet") {
-                    val row = pile.first { it.kind == Dock.Kind.Suggestions }
-                    DockSheetSpecimenFrame(row = row, height = 300.dp) {
-                        ThreadSuggestionsSheet(SUGGESTIONS, SUGGESTION_ACTIONS, onOpenSession = null)
                     }
                 }
             }

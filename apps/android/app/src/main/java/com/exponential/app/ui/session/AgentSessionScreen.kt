@@ -5280,7 +5280,11 @@ private fun ExpandedSteerComposer(
             )
             // N-12: THE composer row ×4: "+" · the Device glyph · the model ·
             // the Plan switch … the context ring · Send ⇄ Stop, all inside
-            // the card; nothing under it.
+            // the card; nothing under it. N-14: the card's footer is THE ROW
+            // host ([GlassComposer] wraps it in InlinePickerRow): a pin
+            // opened inline discloses its rows under the whole row, as wide
+            // as it, and its trigger never changes (the Device pin stays
+            // the glyph alone); on this page the pins keep their sheets.
             Row(
                 modifier = Modifier.weight(1f).testTag("steer-options-line"),
                 verticalAlignment = Alignment.CenterVertically,
