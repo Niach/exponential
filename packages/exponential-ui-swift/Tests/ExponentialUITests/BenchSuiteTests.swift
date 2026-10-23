@@ -14,7 +14,8 @@ import UIKit
 /// only under `EXPONENTIAL_UI_BENCH=1` (through xcodebuild:
 /// `TEST_RUNNER_EXPONENTIAL_UI_BENCH=1`); `EXPONENTIAL_UI_BENCH_REPEAT` (3)
 /// repeats every scenario in-process and keeps the median per metric
-/// (cold-start's `coldStartMs` is the first, only cold, run). The result
+/// (cold-start's `coldStartMs` is the first, only cold, run);
+/// `EXPONENTIAL_UI_BENCH_SCENARIO=<id>,<id>` runs only those. The result
 /// fragment goes to `EXPONENTIAL_UI_BENCH_OUT` when set and writable, and
 /// ALWAYS to stdout as one line `EXPONENTIAL_UI_BENCH_FRAGMENT <json>`
 /// (`packages/exponential-ui-bench/runners/swift.ts` and `swift-ios.ts`
@@ -29,7 +30,8 @@ final class BenchSuiteTests: XCTestCase {
         guard Self.flag("EXPONENTIAL_UI_BENCH") == "1" else { throw XCTSkip("EXPONENTIAL_UI_BENCH=1 runs the benchmark suite") }
         let dir = try Self.scenarioDir()
         let manifest = try Self.read(dir.appendingPathComponent("manifest.json"))
-        let ids = (manifest["scenarios"]?.array ?? []).compactMap { $0["id"]?.string }
+        let only = Set((Self.flag("EXPONENTIAL_UI_BENCH_SCENARIO") ?? "").split(separator: ",").map(String.init))
+        let ids = (manifest["scenarios"]?.array ?? []).compactMap { $0["id"]?.string }.filter { only.isEmpty || only.contains($0) }
         XCTAssertFalse(ids.isEmpty, "scenarios/manifest.json lists scenarios")
         let repeats = max(1, Int(Self.flag("EXPONENTIAL_UI_BENCH_REPEAT") ?? "3") ?? 3)
 
@@ -266,24 +268,45 @@ final class BenchSuiteTests: XCTestCase {
     }
 
     /// `generateItems` of src/scenarios.ts: every field a STRING; `{i}`, `{i % N}`.
+    /// Each template is cut into its pieces once (VAPP-131: a regex per
+    /// item and field cost the 100k list's first paint ~150 ms of harness).
     static func generate(_ spec: JSONValue) -> JSONValue {
+        enum Piece { case text(String), index, modulo(Int) }
         let count = Int(spec["count"]?.number ?? 0)
         let item = spec["item"]?.object ?? [:]
-        let fields = item.keys.sorted().map { ($0, item[$0]!.string ?? "") }
-        let modulo = try! NSRegularExpression(pattern: "\\{i % (\\d+)\\}")
-        return .array((0..<count).map { i in
-            var o: [String: JSONValue] = [:]
-            for (k, template) in fields {
-                var text = template
-                let ns = text as NSString
-                for m in modulo.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
-                    let n = Int(ns.substring(with: m.range(at: 1))) ?? 1
-                    text = (text as NSString).replacingCharacters(in: m.range, with: String(i % n))
-                }
-                o[k] = .string(text.replacingOccurrences(of: "{i}", with: String(i)))
+        let pattern = try! NSRegularExpression(pattern: "\\{i(?: % (\\d+))?\\}")
+        let fields: [(String, [Piece])] = item.keys.sorted().map { key in
+            let template = item[key]!.string ?? ""
+            let ns = template as NSString
+            var pieces: [Piece] = []
+            var at = 0
+            for m in pattern.matches(in: template, range: NSRange(location: 0, length: ns.length)) {
+                if m.range.location > at { pieces.append(.text(ns.substring(with: NSRange(location: at, length: m.range.location - at)))) }
+                pieces.append(m.range(at: 1).location == NSNotFound ? .index : .modulo(Int(ns.substring(with: m.range(at: 1))) ?? 1))
+                at = m.range.location + m.range.length
             }
-            return .object(o)
-        })
+            if at < ns.length { pieces.append(.text(ns.substring(from: at))) }
+            return (key, pieces)
+        }
+        var items: [JSONValue] = []
+        items.reserveCapacity(count)
+        for i in 0..<count {
+            var o: [String: JSONValue] = [:]
+            o.reserveCapacity(fields.count)
+            for (key, pieces) in fields {
+                var text = ""
+                for p in pieces {
+                    switch p {
+                    case let .text(t): text += t
+                    case .index: text += String(i)
+                    case let .modulo(n): text += String(i % n)
+                    }
+                }
+                o[key] = .string(text)
+            }
+            items.append(.object(o))
+        }
+        return .array(items)
     }
 
     private static func fragment(scenarios: [String: [String: Double]]) -> [String: Any] {

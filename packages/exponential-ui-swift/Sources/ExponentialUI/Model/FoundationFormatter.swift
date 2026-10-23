@@ -35,10 +35,26 @@ public final class FoundationFormatter: HostFormatter, @unchecked Sendable {
 
     /// The shortest round-trip decimal of `value` (`1.005`, not `1.00499…`).
     private func decimal(_ value: Double) -> NSDecimalNumber {
-        NSDecimalNumber(string: "\(value)", locale: Locale(identifier: "en_US_POSIX"))
+        NSDecimalNumber(string: "\(value)", locale: Self.posix)
     }
 
+    private static let posix = Locale(identifier: "en_US_POSIX")
+    /// VAPP-133: one formatter per (style, digits, grouping): a Table's
+    /// number column asks once per cell, a `NumberFormatter` costs ~20 µs
+    /// to set up (formatting from several threads is safe since macOS 10.9).
+    private var numberFormatters: [String: NumberFormatter] = [:]
+
     private func numberFormatter(_ style: NumberFormatter.Style, min: Int, max: Int, grouping: Bool) -> NumberFormatter {
+        let key = "\(style.rawValue)|\(min)|\(max)|\(grouping)"
+        lock.lock()
+        defer { lock.unlock() }
+        if let hit = numberFormatters[key] { return hit }
+        let f = makeNumberFormatter(style, min: min, max: max, grouping: grouping)
+        numberFormatters[key] = f
+        return f
+    }
+
+    private func makeNumberFormatter(_ style: NumberFormatter.Style, min: Int, max: Int, grouping: Bool) -> NumberFormatter {
         let f = NumberFormatter()
         f.locale = foundationLocale
         f.numberStyle = style

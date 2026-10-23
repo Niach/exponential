@@ -5,7 +5,7 @@
 // `EXPONENTIAL_UI_BENCH_FRAGMENT <json>` line (or the file it wrote) and
 // filed as `swift-macos`. Needs the xcframework
 // (`bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh`).
-//   bun run runners/swift.ts [--repeat <n>]
+//   bun run runners/swift.ts [--repeat <n>] [--scenario <id>]…
 import { spawnSync } from "node:child_process"
 import { existsSync, readFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
@@ -13,6 +13,11 @@ import { REPO_ROOT, fragmentPath, gitCommit, machineInfo, round, writeFragment, 
 
 export const SWIFT_PKG = join(REPO_ROOT, `packages`, `exponential-ui-swift`)
 export const FRAGMENT_LINE = /^EXPONENTIAL_UI_BENCH_FRAGMENT (\{.*\})\s*$/m
+
+/** `--scenario <id>` (repeatable) as the test's `EXPONENTIAL_UI_BENCH_SCENARIO` list. */
+export function scenarioArg(args: string[]): string {
+  return args.flatMap((a, i) => (a === `--scenario` ? [args[i + 1]] : [])).join(`,`)
+}
 
 export function repeatArg(args: string[], fallback = `3`): string {
   const at = args.indexOf(`--repeat`)
@@ -43,7 +48,7 @@ if (import.meta.main) {
   }
   const out = fragmentPath(`swift-macos`)
   rmSync(out, { force: true })
-  const env = { ...process.env, EXPONENTIAL_UI_BENCH: `1`, EXPONENTIAL_UI_BENCH_REPEAT: repeatArg(process.argv.slice(2)), EXPONENTIAL_UI_BENCH_OUT: out }
+  const env = { ...process.env, EXPONENTIAL_UI_BENCH: `1`, EXPONENTIAL_UI_BENCH_REPEAT: repeatArg(process.argv.slice(2)), EXPONENTIAL_UI_BENCH_OUT: out, EXPONENTIAL_UI_BENCH_SCENARIO: scenarioArg(process.argv.slice(2)) }
   const r = spawnSync(`swift`, [`test`, `-c`, `release`, `-Xswiftc`, `-enable-testing`, `--filter`, `BenchSuiteTests`], { cwd: SWIFT_PKG, env, encoding: `utf8`, maxBuffer: 1 << 28 })
   const output = `${r.stdout ?? ``}\n${r.stderr ?? ``}`
   process.stdout.write(output.split(`\n`).filter((l) => l.startsWith(`bench `) || /error|failed|Executed/.test(l)).join(`\n`) + `\n`)
