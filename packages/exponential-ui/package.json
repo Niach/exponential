@@ -22,11 +22,12 @@
     "./vendor/*": "./vendor/*",
     "./themes/*": "./themes/*",
     "./generated/*": "./generated/*",
-    "./conformance/*": "./conformance/*"
+    "./conformance/*": "./conformance/*",
+    "./eval/*": "./eval/*"
   },
   "scripts": {
     "generate": "bun run ./scripts/generate.ts",
-    "test": "bun test ./src ./conformance ./release",
+    "test": "bun test ./src ./conformance ./release ./eval",
     "conformance": "bun run ./conformance/run.ts",
     "typecheck": "tsc --noEmit",
     "build:builder": "bun build ./builder/main.ts --outdir ./builder/dist --target browser --format esm --define process.env.NODE_ENV='\"production\"'",
@@ -34,6 +35,10 @@
     "conformance:check": "bun run ./scripts/conformance-check.ts",
     "conformance:parity": "bun run ./scripts/parity-run.ts",
     "parity:check": "bun run ./scripts/parity-check.ts",
+    "eval": "bun run ./eval/score.ts",
+    "eval:record": "bun run ./eval/record.ts",
+    "eval:render": "bun run ./eval/render.ts",
+    "eval:parity": "bun run ./eval/parity.ts",
     "size": "bun run ./release/size.ts"
   },
   "dependencies": {
@@ -42,6 +47,7 @@
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^1.1.0",
     "@exp/tsconfig": "workspace:*",
     "@exponential-at/ui-react": "workspace:*",
     "@types/bun": "latest",

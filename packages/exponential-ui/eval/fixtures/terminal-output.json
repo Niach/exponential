@@ -1,0 +1,16 @@
+{
+  "$comment": "VAPP-108 eval fixture: the reply to corpus prompt `terminal-output` given catalogPrompt() as the system prompt. Recorded by the session's own model from the same prompt (no API key in the recording environment); `bun eval/record.ts --force --only terminal-output` replaces it with an API recording (recordedBy: api).",
+  "id": "terminal-output",
+  "prompt": "The result of a command an agent ran: the command line, its output with terminal colours, the exit code, and Copy and Run again buttons.",
+  "model": "claude-fable-5-1",
+  "promptVariant": "full",
+  "recordedAt": "2026-10-22T10:00:00.000Z",
+  "recordedBy": "session",
+  "usage": {
+    "inputTokens": 7033,
+    "outputTokens": 445,
+    "cacheReadInputTokens": 0,
+    "estimated": true
+  },
+  "text": "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"command\",\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\":\"v0.9\",\"updateComponents\":{\"surfaceId\":\"command\",\"components\":[{\"id\":\"root\",\"component\":\"Stack\",\"gap\":\"sm\",\"children\":[\"cmd\",\"out\",\"foot\"]},{\"id\":\"cmd\",\"component\":\"CodeBlock\",\"code\":{\"path\":\"/run/command\"},\"language\":\"bash\",\"copyable\":false,\"size\":\"sm\"},{\"id\":\"out\",\"component\":\"CodeBlock\",\"code\":{\"path\":\"/run/output\"},\"language\":\"ansi\",\"title\":\"Output\",\"maxLines\":20,\"variant\":{\"call\":\"cond\",\"args\":{\"if\":{\"call\":\"eq\",\"args\":{\"a\":{\"path\":\"/run/exitCode\"},\"b\":0}},\"then\":\"default\",\"else\":\"destructive\"}}},{\"id\":\"foot\",\"component\":\"Stack\",\"direction\":\"horizontal\",\"align\":\"center\",\"justify\":\"between\",\"children\":[\"exit\",\"actions\"]},{\"id\":\"exit\",\"component\":\"Chip\",\"label\":{\"call\":\"concat\",\"args\":{\"values\":[\"exit \",{\"path\":\"/run/exitCode\"}]}},\"tone\":{\"call\":\"cond\",\"args\":{\"if\":{\"call\":\"eq\",\"args\":{\"a\":{\"path\":\"/run/exitCode\"},\"b\":0}},\"then\":\"success\",\"else\":\"danger\"}}},{\"id\":\"actions\",\"component\":\"Stack\",\"direction\":\"horizontal\",\"gap\":\"sm\",\"children\":[\"copy\",\"rerun\"]},{\"id\":\"copy\",\"component\":\"Button\",\"label\":\"Copy\",\"variant\":\"ghost\",\"size\":\"sm\",\"icon\":\"ui-copy\",\"on\":{\"press\":{\"event\":{\"name\":\"copy\"}}}},{\"id\":\"rerun\",\"component\":\"Button\",\"label\":\"Run again\",\"variant\":\"outline\",\"size\":\"sm\",\"icon\":\"ui-refresh\",\"on\":{\"press\":{\"event\":{\"name\":\"rerun\",\"context\":{\"command\":{\"path\":\"/run/command\"}}}}}}]}}\n{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"command\",\"path\":\"/run\",\"value\":{\"command\":\"bun test src/launch.test.ts\",\"output\":\"\\u001b[32m✓\\u001b[0m launch > warms the cache before first paint\\n\\u001b[31m✗\\u001b[0m launch > skips the warm-up when offline\\n  TypeError: cache.prime is not a function\\n\\n 1 pass\\n 1 fail\",\"exitCode\":1}}}"
+}

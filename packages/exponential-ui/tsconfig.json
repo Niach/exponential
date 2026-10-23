@@ -5,7 +5,8 @@
     "scripts/**/*.ts",
     "builder/**/*.ts",
     "builder/**/*.tsx",
-    "conformance/**/*.ts"
+    "conformance/**/*.ts",
+    "eval/**/*.ts"
   ],
   "compilerOptions": {
     "lib": [

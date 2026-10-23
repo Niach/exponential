@@ -84,6 +84,9 @@ export { defineExtension, validateExtension } from "./extension"
 // PROMPT_RULES, the described catalog), `./schema` (coreSchema,
 // extensionSchema + the vendored A2UI basic catalog), `./conformance` (the
 // suite + every fixture), `./host` (the host API, also re-exported below).
+// VAPP-108: the typed authoring DSL (defineSurface + the ui factories).
+export { defineSurface, flattenSurface, ui, el, bind, call, event, run } from "./define"
+export type { SurfaceNode, TemplateChildren, DefineOptions, DefinedSurface, Factory } from "./define"
 // VAPP-92: themes
 export * from "./theme-types"
 export { parseColor, toHex, toThemeHex, isThemeHex, luminance, contrast } from "./color"

@@ -1,0 +1,16 @@
+{
+  "$comment": "VAPP-108 eval fixture: the reply to corpus prompt `form-validation` given catalogPrompt() as the system prompt. Recorded by the session's own model from the same prompt (no API key in the recording environment); `bun eval/record.ts --force --only form-validation` replaces it with an API recording (recordedBy: api).",
+  "id": "form-validation",
+  "prompt": "A sign-up form: name, email (must be valid), password (at least 8 characters), a terms checkbox that must be ticked. One Create account button.",
+  "model": "claude-fable-5-1",
+  "promptVariant": "full",
+  "recordedAt": "2026-10-22T10:00:00.000Z",
+  "recordedBy": "session",
+  "usage": {
+    "inputTokens": 7035,
+    "outputTokens": 397,
+    "cacheReadInputTokens": 0,
+    "estimated": true
+  },
+  "text": "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"signup\",\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\":\"v0.9\",\"updateComponents\":{\"surfaceId\":\"signup\",\"components\":[{\"id\":\"root\",\"component\":\"Card\",\"title\":\"Create your account\",\"children\":[\"form\"]},{\"id\":\"form\",\"component\":\"Form\",\"name\":\"signup\",\"children\":[\"name\",\"email\",\"password\",\"terms\",\"submit\"],\"on\":{\"submit\":{\"event\":{\"name\":\"signup\"}}}},{\"id\":\"name\",\"component\":\"Input\",\"label\":\"Name\",\"name\":\"name\",\"value\":{\"path\":\"/form/name\"},\"checks\":[{\"condition\":{\"call\":\"required\",\"args\":{\"value\":{\"path\":\"/form/name\"}}},\"message\":\"Enter your name\"}]},{\"id\":\"email\",\"component\":\"Input\",\"label\":\"Email\",\"name\":\"email\",\"type\":\"email\",\"value\":{\"path\":\"/form/email\"},\"checks\":[{\"condition\":{\"call\":\"email\",\"args\":{\"value\":{\"path\":\"/form/email\"}}},\"message\":\"Enter a valid email address\"}]},{\"id\":\"password\",\"component\":\"Input\",\"label\":\"Password\",\"name\":\"password\",\"type\":\"password\",\"value\":{\"path\":\"/form/password\"},\"checks\":[{\"condition\":{\"call\":\"length\",\"args\":{\"value\":{\"path\":\"/form/password\"},\"min\":8,\"max\":128}},\"message\":\"At least 8 characters\"}]},{\"id\":\"terms\",\"component\":\"Checkbox\",\"label\":\"I accept the terms of service\",\"name\":\"terms\",\"checked\":{\"path\":\"/form/terms\"},\"checks\":[{\"condition\":{\"call\":\"eq\",\"args\":{\"a\":{\"path\":\"/form/terms\"},\"b\":true}},\"message\":\"You need to accept the terms\"}]},{\"id\":\"submit\",\"component\":\"Button\",\"label\":\"Create account\",\"submit\":true}]}}\n{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"signup\",\"path\":\"/form\",\"value\":{\"name\":\"\",\"email\":\"\",\"password\":\"\",\"terms\":false}}}"
+}

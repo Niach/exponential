@@ -66,6 +66,8 @@ export default function PlaygroundApp() {
   const [actions, setActions] = useState<SurfaceActionEvent[]>([])
   const [lite, setLite] = useState(false)
   const [terse, setTerse] = useState(false)
+  // VAPP-108: the sectioned prompt: the index (one line per component) instead of every block.
+  const [index, setIndex] = useState(false)
   const [shareNote, setShareNote] = useState(``)
   const restored = useRef(false)
 
@@ -120,7 +122,10 @@ export default function PlaygroundApp() {
     }
   }, [extensionJson])
 
-  const prompt = useMemo(() => catalogPrompt({ extensions: extension.defs, lite, terse }), [extension.defs, lite, terse])
+  const prompt = useMemo(
+    () => catalogPrompt({ extensions: extension.defs, lite, terse, ...(index ? { sections: [`rules`, `index`, `functions`, `style`] } : {}) }),
+    [extension.defs, lite, terse, index]
+  )
 
   const onIssues = useCallback((id: string, list: ReduceIssue[]) => setIssues((cur) => (cur[id] === list ? cur : { ...cur, [id]: list })), [])
   const onAction = useCallback((e: SurfaceActionEvent) => setActions((cur) => [e, ...cur].slice(0, 6)), [])
@@ -340,6 +345,9 @@ export default function PlaygroundApp() {
           </label>
           <label className="sdk-check">
             <input type="checkbox" checked={terse} onChange={(e) => setTerse(e.target.checked)} /> terse
+          </label>
+          <label className="sdk-check">
+            <input type="checkbox" checked={index} onChange={(e) => setIndex(e.target.checked)} /> index only
           </label>
           <span className="sdk-grow" />
           <span className="sdk-note">~{estimateTokens(prompt).toLocaleString(`en-US`)} tokens</span>
