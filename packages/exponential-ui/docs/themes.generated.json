@@ -2433,6 +2433,19 @@
       ]
     },
     {
+      "name": "SplitView",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "list",
+        "divider",
+        "detail",
+        "backBar",
+        "back"
+      ],
+      "props": []
+    },
+    {
       "name": "AppBar",
       "kind": "macro",
       "parts": [
@@ -2441,6 +2454,25 @@
         "body",
         "title",
         "subtitle"
+      ],
+      "props": []
+    },
+    {
+      "name": "Page",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "header",
+        "body"
+      ],
+      "props": []
+    },
+    {
+      "name": "Toolbar",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "spacer"
       ],
       "props": []
     },
@@ -3068,6 +3100,20 @@
       ]
     },
     {
+      "name": "StatTile",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "card",
+        "header",
+        "label",
+        "delta",
+        "value",
+        "trend"
+      ],
+      "props": []
+    },
+    {
       "name": "Button",
       "kind": "native",
       "parts": [
@@ -3118,6 +3164,24 @@
         "disabled",
         "busy"
       ]
+    },
+    {
+      "name": "FieldGroup",
+      "kind": "macro",
+      "parts": [
+        "root"
+      ],
+      "props": []
+    },
+    {
+      "name": "FormActions",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "cancel",
+        "submit"
+      ],
+      "props": []
     },
     {
       "name": "Input",

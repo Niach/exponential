@@ -627,6 +627,42 @@
       "keys": [
         "Enter, Space: press; Delete, Backspace: remove when removable"
       ]
+    },
+    "Page": {
+      "role": "none",
+      "notes": "Layout only: its header is the AppBar (banner, the title heading level 1), its body the main landmark ($a11y).",
+      "keys": [
+        "Enter, Space on back"
+      ]
+    },
+    "Toolbar": {
+      "role": "group",
+      "notes": "group of controls in reading order; the trailing action last",
+      "keys": []
+    },
+    "SplitView": {
+      "role": "none",
+      "notes": "Layout only: the `list` part is a navigation landmark, the `detail` part the main landmark; the phone back button is labelled `back` ($a11y).",
+      "keys": [
+        "Enter, Space on back"
+      ]
+    },
+    "FieldGroup": {
+      "role": "group",
+      "notes": "group of fields; each field keeps its own label",
+      "keys": []
+    },
+    "FormActions": {
+      "role": "group",
+      "notes": "group: Cancel, then the submit (the last in focus order)",
+      "keys": [
+        "Enter, Space on a button"
+      ]
+    },
+    "StatTile": {
+      "role": "group",
+      "notes": "group labelled by its label; the sparkline is an img with the generated summary",
+      "keys": []
     }
   }
 }

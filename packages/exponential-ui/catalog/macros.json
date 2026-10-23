@@ -3042,6 +3042,363 @@
           "width": "100%"
         }
       }
+    },
+    "Page": {
+      "recipeProps": [],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "flexGrow": 1,
+          "minHeight": 0,
+          "width": "100%"
+        },
+        "children": [
+          {
+            "part": "header",
+            "component": "AppBar",
+            "props": {
+              "title": "{props.title}",
+              "subtitle": "{props.subtitle}",
+              "back": "{props.back|false}"
+            },
+            "slots": {
+              "leading": "$slot:leading",
+              "trailing": "$slot:trailing"
+            },
+            "$on": {
+              "back": "back"
+            }
+          },
+          {
+            "part": "body",
+            "component": "Box",
+            "$a11y": {
+              "role": "main"
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "minHeight": 0,
+              "overflowY": "auto",
+              "gap": "$spacing.lg",
+              "padding": {
+                "$map": {
+                  "from": "props.padded",
+                  "cases": {
+                    "false": "$spacing.none"
+                  },
+                  "default": "$spacing.lg"
+                }
+              }
+            },
+            "children": [
+              "$children"
+            ]
+          }
+        ]
+      }
+    },
+    "Toolbar": {
+      "recipeProps": [],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "group"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "flexWrap": "wrap",
+          "alignItems": "flex-end",
+          "gap": "$spacing.{props.gap|sm}",
+          "width": "100%"
+        },
+        "children": [
+          "$children",
+          {
+            "part": "spacer",
+            "component": "Box",
+            "style": {
+              "flexGrow": 1,
+              "minWidth": 0
+            }
+          },
+          "$slot:trailing"
+        ]
+      }
+    },
+    "SplitView": {
+      "recipeProps": [],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "stretch",
+          "width": "100%",
+          "flexGrow": 1,
+          "minHeight": 0
+        },
+        "children": [
+          {
+            "part": "list",
+            "component": "Box",
+            "$a11y": {
+              "role": "navigation"
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "width": "{props.width|320}",
+              "flexShrink": 0,
+              "minHeight": 0,
+              "overflowY": "auto",
+              "@media (max-width: $breakpoint.md)": {
+                "width": "100%",
+                "flexShrink": 1,
+                "display": {
+                  "$cond": [
+                    "props.open",
+                    "none",
+                    "flex"
+                  ]
+                }
+              }
+            },
+            "children": [
+              "$slot:list"
+            ]
+          },
+          {
+            "part": "divider",
+            "component": "Separator",
+            "props": {
+              "orientation": "vertical"
+            },
+            "style": {
+              "@media (max-width: $breakpoint.md)": {
+                "display": "none"
+              }
+            }
+          },
+          {
+            "part": "detail",
+            "component": "Box",
+            "$a11y": {
+              "role": "main"
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "minWidth": 0,
+              "minHeight": 0,
+              "@media (max-width: $breakpoint.md)": {
+                "display": {
+                  "$cond": [
+                    "props.open",
+                    "flex",
+                    "none"
+                  ]
+                }
+              }
+            },
+            "children": [
+              {
+                "part": "backBar",
+                "component": "Box",
+                "style": {
+                  "display": "none",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "height": "$control.appBar",
+                  "paddingHorizontal": "$spacing.sm",
+                  "@media (max-width: $breakpoint.md)": {
+                    "display": "flex"
+                  }
+                },
+                "children": [
+                  {
+                    "part": "back",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-back",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "$string.back"
+                    },
+                    "$on": {
+                      "press": "back"
+                    },
+                    "$set": {
+                      "press": {
+                        "prop": "open",
+                        "value": false
+                      }
+                    }
+                  }
+                ]
+              },
+              "$children"
+            ]
+          }
+        ]
+      }
+    },
+    "FieldGroup": {
+      "recipeProps": [],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "group"
+        },
+        "style": {
+          "display": "grid",
+          "gridTemplateColumns": "repeat(1, minmax(0, 1fr))",
+          "gap": "$spacing.md",
+          "alignItems": "start",
+          "@media (min-width: $breakpoint.md)": {
+            "gridTemplateColumns": "repeat({props.columns|2}, minmax(0, 1fr))"
+          }
+        },
+        "children": [
+          "$children"
+        ]
+      }
+    },
+    "FormActions": {
+      "recipeProps": [],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "group"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "flexWrap": "wrap",
+          "justifyContent": "flex-end",
+          "alignItems": "center",
+          "gap": "$spacing.sm",
+          "width": "100%"
+        },
+        "children": [
+          "$children",
+          {
+            "part": "cancel",
+            "component": "Button",
+            "$if": "props.cancel",
+            "props": {
+              "label": "$string.cancel",
+              "variant": "outline"
+            },
+            "$on": {
+              "press": "cancel"
+            }
+          },
+          {
+            "part": "submit",
+            "component": "Button",
+            "props": {
+              "label": "{props.submit}",
+              "variant": {
+                "$cond": [
+                  "props.destructive",
+                  "destructive",
+                  "default"
+                ]
+              },
+              "submit": true
+            }
+          }
+        ]
+      }
+    },
+    "StatTile": {
+      "recipeProps": [],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "group",
+          "label": "{props.label}"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "children": [
+          {
+            "part": "card",
+            "component": "Card",
+            "children": [
+              {
+                "part": "header",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm"
+                },
+                "children": [
+                  {
+                    "part": "label",
+                    "component": "Text",
+                    "props": {
+                      "text": "{props.label}",
+                      "variant": "muted",
+                      "lines": 1
+                    },
+                    "style": {
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    }
+                  },
+                  {
+                    "part": "delta",
+                    "component": "Text",
+                    "$if": "props.delta",
+                    "props": {
+                      "text": "{props.delta}",
+                      "variant": "caption",
+                      "tone": "{props.tone|neutral}"
+                    }
+                  }
+                ]
+              },
+              {
+                "part": "value",
+                "component": "Text",
+                "props": {
+                  "text": "{props.value}",
+                  "variant": "title",
+                  "lines": 1
+                }
+              },
+              {
+                "part": "trend",
+                "component": "Sparkline",
+                "$if": "props.trend",
+                "props": {
+                  "values": "{props.trend}",
+                  "height": 32
+                }
+              }
+            ]
+          }
+        ]
+      }
     }
   }
 }

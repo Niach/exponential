@@ -7913,6 +7913,12 @@ data class FfiVisual (
     , 
     var `transitionEasing`: List<kotlin.Float>?
     , 
+    /**
+     * `visibility: hidden`, or (VAPP-126) `display: none`: the core lays the
+     * box out at zero size with its subtree; the painter paints nothing,
+     * takes no taps and leaves the a11y tree (a zero frame alone let an icon
+     * button's glyph draw past it on SwiftUI).
+     */
     var `visibilityHidden`: kotlin.Boolean
     , 
     var `pointerEventsNone`: kotlin.Boolean

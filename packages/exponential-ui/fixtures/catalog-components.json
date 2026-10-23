@@ -1438,6 +1438,66 @@
       }
     },
     {
+      "name": "SplitView/example",
+      "node": {
+        "id": "split-view",
+        "component": "SplitView",
+        "props": {
+          "open": true,
+          "width": 320
+        },
+        "children": [
+          {
+            "id": "split-view-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SplitView/open=true",
+      "node": {
+        "id": "split-view",
+        "component": "SplitView",
+        "props": {
+          "open": true,
+          "width": 320
+        },
+        "children": [
+          {
+            "id": "split-view-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SplitView/open=false",
+      "node": {
+        "id": "split-view",
+        "component": "SplitView",
+        "props": {
+          "open": false,
+          "width": 320
+        },
+        "children": [
+          {
+            "id": "split-view-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "AppBar/example",
       "node": {
         "id": "app-bar",
@@ -1468,6 +1528,241 @@
           "title": "Settings",
           "back": false
         }
+      }
+    },
+    {
+      "name": "Page/example",
+      "node": {
+        "id": "page",
+        "component": "Page",
+        "props": {
+          "title": "Settings",
+          "back": true
+        },
+        "children": [
+          {
+            "id": "page-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Page/back=true",
+      "node": {
+        "id": "page",
+        "component": "Page",
+        "props": {
+          "title": "Settings",
+          "back": true
+        },
+        "children": [
+          {
+            "id": "page-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Page/back=false",
+      "node": {
+        "id": "page",
+        "component": "Page",
+        "props": {
+          "title": "Settings",
+          "back": false
+        },
+        "children": [
+          {
+            "id": "page-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Page/padded=true",
+      "node": {
+        "id": "page",
+        "component": "Page",
+        "props": {
+          "title": "Settings",
+          "back": true,
+          "padded": true
+        },
+        "children": [
+          {
+            "id": "page-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Page/padded=false",
+      "node": {
+        "id": "page",
+        "component": "Page",
+        "props": {
+          "title": "Settings",
+          "back": true,
+          "padded": false
+        },
+        "children": [
+          {
+            "id": "page-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Toolbar/example",
+      "node": {
+        "id": "toolbar",
+        "component": "Toolbar",
+        "props": {
+          "gap": "sm"
+        },
+        "children": [
+          {
+            "id": "toolbar-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Toolbar/gap=none",
+      "node": {
+        "id": "toolbar",
+        "component": "Toolbar",
+        "props": {
+          "gap": "none"
+        },
+        "children": [
+          {
+            "id": "toolbar-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Toolbar/gap=xs",
+      "node": {
+        "id": "toolbar",
+        "component": "Toolbar",
+        "props": {
+          "gap": "xs"
+        },
+        "children": [
+          {
+            "id": "toolbar-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Toolbar/gap=sm",
+      "node": {
+        "id": "toolbar",
+        "component": "Toolbar",
+        "props": {
+          "gap": "sm"
+        },
+        "children": [
+          {
+            "id": "toolbar-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Toolbar/gap=md",
+      "node": {
+        "id": "toolbar",
+        "component": "Toolbar",
+        "props": {
+          "gap": "md"
+        },
+        "children": [
+          {
+            "id": "toolbar-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Toolbar/gap=lg",
+      "node": {
+        "id": "toolbar",
+        "component": "Toolbar",
+        "props": {
+          "gap": "lg"
+        },
+        "children": [
+          {
+            "id": "toolbar-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Toolbar/gap=xl",
+      "node": {
+        "id": "toolbar",
+        "component": "Toolbar",
+        "props": {
+          "gap": "xl"
+        },
+        "children": [
+          {
+            "id": "toolbar-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
       }
     },
     {
@@ -6678,6 +6973,153 @@
       }
     },
     {
+      "name": "StatTile/example",
+      "node": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": "success",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ]
+        }
+      }
+    },
+    {
+      "name": "StatTile/tone=neutral",
+      "node": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": "neutral",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ]
+        }
+      }
+    },
+    {
+      "name": "StatTile/tone=primary",
+      "node": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": "primary",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ]
+        }
+      }
+    },
+    {
+      "name": "StatTile/tone=success",
+      "node": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": "success",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ]
+        }
+      }
+    },
+    {
+      "name": "StatTile/tone=warning",
+      "node": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": "warning",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ]
+        }
+      }
+    },
+    {
+      "name": "StatTile/tone=danger",
+      "node": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": "danger",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ]
+        }
+      }
+    },
+    {
+      "name": "StatTile/tone=info",
+      "node": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": "info",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ]
+        }
+      }
+    },
+    {
       "name": "Button/example",
       "node": {
         "id": "button",
@@ -7307,6 +7749,127 @@
         "children": [
           {
             "id": "form-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "FieldGroup/example",
+      "node": {
+        "id": "field-group",
+        "component": "FieldGroup",
+        "props": {
+          "columns": 2
+        },
+        "children": [
+          {
+            "id": "field-group-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "FormActions/example",
+      "node": {
+        "id": "form-actions",
+        "component": "FormActions",
+        "props": {
+          "submit": "Save",
+          "cancel": true
+        },
+        "children": [
+          {
+            "id": "form-actions-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "FormActions/cancel=true",
+      "node": {
+        "id": "form-actions",
+        "component": "FormActions",
+        "props": {
+          "submit": "Save",
+          "cancel": true
+        },
+        "children": [
+          {
+            "id": "form-actions-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "FormActions/cancel=false",
+      "node": {
+        "id": "form-actions",
+        "component": "FormActions",
+        "props": {
+          "submit": "Save",
+          "cancel": false
+        },
+        "children": [
+          {
+            "id": "form-actions-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "FormActions/destructive=true",
+      "node": {
+        "id": "form-actions",
+        "component": "FormActions",
+        "props": {
+          "submit": "Save",
+          "cancel": true,
+          "destructive": true
+        },
+        "children": [
+          {
+            "id": "form-actions-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "FormActions/destructive=false",
+      "node": {
+        "id": "form-actions",
+        "component": "FormActions",
+        "props": {
+          "submit": "Save",
+          "cancel": true,
+          "destructive": false
+        },
+        "children": [
+          {
+            "id": "form-actions-child",
             "component": "Text",
             "props": {
               "text": "Child"

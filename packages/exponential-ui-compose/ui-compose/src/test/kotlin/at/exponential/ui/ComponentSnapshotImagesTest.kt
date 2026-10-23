@@ -169,7 +169,7 @@ class ComponentSnapshotImagesTest {
         compose.waitForIdle()
         assertEquals(0, m.issues.size)
         assertEquals(390f, m.width, 0.5f)
-        assertTrue("height ${m.surfaceSize.height}", m.surfaceSize.height in 1000f..8900f)
+        assertTrue("height ${m.surfaceSize.height}", m.surfaceSize.height in 1000f..9600f) // VAPP-126: + the layout macros card
         // The real measure batches (the views' shaper, not the fixed one).
         assertTrue("upcalls ${m.stats.upcalls}", m.stats.upcalls <= 3)
         capture("kitchen-sink-$theme.png")
@@ -204,7 +204,7 @@ class ComponentSnapshotImagesTest {
         }
         compose.waitForIdle()
         assertEquals("$theme issues", 0, m.issues.size)
-        assertTrue("$theme height ${m.surfaceSize.height}", m.surfaceSize.height in 1000f..8900f)
+        assertTrue("$theme height ${m.surfaceSize.height}", m.surfaceSize.height in 1000f..9600f) // VAPP-126: + the layout macros card
         capture("kitchen-sink-$theme.png")
     }
 

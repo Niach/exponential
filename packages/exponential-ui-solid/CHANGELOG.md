@@ -9,6 +9,9 @@ First release (FEED-128).
 
 - VAPP-146: picking the Select option that holds the current value fires nothing when that value is `""` (it fired a change); `fixtures/interactions-round1.json` `select` replays against React.
 - VAPP-147: the natives read the shared cached `nativeRecipeProps` (the package's own copy is gone).
+- VAPP-152: a streamed `updateComponents` re-binds only the nodes it changed: the new tree shares its unchanged nodes with the last (`share`), each listed node follows its own id, and a binding reads the data model only where it evaluates one (a data write no longer re-binds every node). The node sheet is painted in `<style>` batches (`nodeSheetBatches`). Streaming `applyMs` 13.8 → 2.4 ms on the Linux bench machine.
+- VAPP-148: `scrollToIndex` reuses the measured extents (one pass over the rows per measurement, React's VAPP-139); list-100k `scrollToIndexMs` 71.8 → 8.9 ms on the Linux bench machine.
+
 - VAPP-106: the package's entries and its stylesheet are measured by `packages/exponential-ui/release/size.ts` (`release/sizes.json` is the record, `release/size-budget.json` the budget CI fails on); its bundles carry neither the described catalog nor a fixture.
 
 - `@exponential-at/ui-solid/primitives` (FEED-131): the React primitive set on Solid with the same DOM and classes, every module but the six app-specific ones (glass-rows, typeahead, composer, trace, pill, segmented-bar). It includes `table`, `command`, `toast` and the calendar (react-day-picker v9's DOM). Gated against React by the web-parity check.

@@ -169,7 +169,9 @@ pub fn paint(cx: &LeafCx, hovered: Option<usize>, on_hover: impl Fn(&Option<usiz
     let inner_w = (width - pl - pr).max(1.0);
     let inner_h = (plot_h - pt - pb).max(1.0);
     let span = (max - min).max(f32::EPSILON);
-    let x_of = move |i: usize| pl + inner_w * (i as f32 + 0.5) / n_cat as f32;
+    // VAPP-126: a sparkline runs edge to edge (the web's `i / (n - 1)`); every
+    // other cartesian kind centres a point in its category band.
+    let x_of = move |i: usize| if spark { if n_cat <= 1 { pl + inner_w / 2.0 } else { pl + inner_w * i as f32 / (n_cat - 1) as f32 } } else { pl + inner_w * (i as f32 + 0.5) / n_cat as f32 };
     let y_of = move |v: f32| pt + inner_h - inner_h * (v - min) / span;
 
     let mut col = div().size_full().flex().flex_col().gap(px(gap));

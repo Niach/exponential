@@ -1105,6 +1105,29 @@
         }
       }
     },
+    "SplitView": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "many",
+      "slots": [
+        "list"
+      ],
+      "props": {
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "width": {
+          "type": "number",
+          "default": 320
+        }
+      },
+      "events": [
+        "back"
+      ]
+    },
     "AppBar": {
       "kind": "macro",
       "group": "layout",
@@ -1132,6 +1155,54 @@
       "events": [
         "back"
       ]
+    },
+    "Page": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "many",
+      "slots": [
+        "leading",
+        "trailing"
+      ],
+      "props": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "subtitle": {
+          "type": "string",
+          "bindable": true
+        },
+        "back": {
+          "type": "boolean",
+          "default": false
+        },
+        "padded": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "events": [
+        "back"
+      ]
+    },
+    "Toolbar": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "many",
+      "slots": [
+        "trailing"
+      ],
+      "props": {
+        "gap": {
+          "type": "enum",
+          "enum": "gap",
+          "default": "sm"
+        }
+      }
     },
     "Section": {
       "kind": "macro",
@@ -2480,6 +2551,41 @@
         }
       }
     },
+    "StatTile": {
+      "kind": "macro",
+      "group": "data",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "value": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "delta": {
+          "type": "string",
+          "bindable": true
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone",
+          "default": "neutral",
+          "bindable": true
+        },
+        "trend": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "bindable": true
+        }
+      }
+    },
     "Button": {
       "kind": "native",
       "group": "action",
@@ -2613,6 +2719,42 @@
         "submit",
         "invalid",
         "change"
+      ]
+    },
+    "FieldGroup": {
+      "kind": "macro",
+      "group": "input",
+      "lite": true,
+      "children": "many",
+      "props": {
+        "columns": {
+          "type": "number",
+          "default": 2
+        }
+      }
+    },
+    "FormActions": {
+      "kind": "macro",
+      "group": "input",
+      "lite": true,
+      "children": "many",
+      "props": {
+        "submit": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "cancel": {
+          "type": "boolean",
+          "default": false
+        },
+        "destructive": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "cancel"
       ]
     },
     "Input": {

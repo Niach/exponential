@@ -8,6 +8,7 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 First release.
 
 - VAPP-146: `selectPick` of the option that holds the current value (`""` when unseeded) fires nothing; `fixtures/interactions-round1.json` `select` replays in `InteractionTest`.
+- VAPP-126 (review #1187): a `display: none` box arrives as `visibilityHidden` from the facade: its zero-framed subtree is inert and hidden from accessibility, as on the web.
 - `:ui-compose`: `SurfaceModel` + `ExponentialSurface` paint an A2UI surface at the frames the Rust core computes on Android 8+. The AAR bundles the UniFFI facade (arm64-v8a, armeabi-v7a, x86_64) and its Kotlin binding.
 - `:ui-compose-primitives`: generic Compose primitives themed by `PrimitiveTokens`.
 - Host-owned text fields set the Input `type`'s keyboard, autocorrection and autofill hints (email, password, phone).

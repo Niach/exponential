@@ -481,10 +481,27 @@ impl SurfaceView {
     /// The Tab order in force: the top modal / menu layer's (focus trap),
     /// else the main tree's (paint order, roving stops).
     pub fn focus_order(&self) -> Vec<u32> {
-        match self.layers.iter().enumerate().rev().find(|(_, l)| l.class == LayerClass::Overlay && l.kind != "Tooltip") {
+        let mut order = match self.layers.iter().enumerate().rev().find(|(_, l)| l.class == LayerClass::Overlay && l.kind != "Tooltip") {
             Some((k, l)) => focus_order(&self.cache.nodes, self.layer_orders.get(k).map(Vec::as_slice).unwrap_or(&[]), l.layer),
             None => focus_order(&self.cache.nodes, &self.order, 0),
+        };
+        // VAPP-126: a `display: none` subtree (a SplitView's phone back bar on
+        // a wide surface) is laid out at zero size and clipped: no tab stop,
+        // as on the web.
+        order.retain(|&i| !self.in_display_none(i));
+        order
+    }
+
+    /// Whether the node or an ancestor has `display: none` in force.
+    fn in_display_none(&self, index: u32) -> bool {
+        let mut cur = Some(index);
+        while let Some(i) = cur {
+            if self.styles.get(i as usize).is_some_and(|s| s.display_none) {
+                return true;
+            }
+            cur = self.cache.node(i).and_then(|n| n.parent);
         }
+        false
     }
 
     /// Move focus to the next (previous) focusable node (from the keyboard).

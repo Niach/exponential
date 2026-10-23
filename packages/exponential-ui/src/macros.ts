@@ -13,7 +13,7 @@
 // part's action (two-way binding without a host round trip); a part's
 // `$a11y` becomes the node's `accessibility` (role, states, name: §6).
 
-import { TOKEN_GROUPS, catalogView } from "./catalog"
+import { TOKEN_GROUPS, sharedCatalogView } from "./catalog"
 import { applyTreeGuides } from "./tree-guides"
 import type { CatalogView } from "./catalog"
 import { evalConditionValue, evalValue, isBinding, isDynamic, truthy, type ExprContext } from "./expr"
@@ -326,7 +326,7 @@ export function expandMacros(
 ): UiNode {
   // Round 3: the tree guides of nested Rows come from their siblings, so
   // they are filled AFTER the whole tree is native (src/tree-guides.ts).
-  return applyTreeGuides(expandTree(clone(root), catalogView(options.extensions), 0, options.issues))
+  return applyTreeGuides(expandTree(clone(root), sharedCatalogView(options.extensions), 0, options.issues))
 }
 
 /** True for a value the expander would keep (see expr.ts). */

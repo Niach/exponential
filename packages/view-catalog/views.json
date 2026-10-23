@@ -4793,6 +4793,204 @@
       }
     },
     {
+      "id": "exponential-ui-page",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Page",
+      "blurb": "VAPP-126: A screen: an AppBar row (back, title, trailing actions) over a padded scrolling body. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/page/.",
+      "order": 92,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-page",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-page"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-page",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-page",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-toolbar",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Toolbar",
+      "blurb": "VAPP-126: Controls in one row, bottoms aligned, wrapping on phones; `trailing` = the end action. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/toolbar/.",
+      "order": 93,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-toolbar",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-toolbar"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-toolbar",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-toolbar",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-split-view",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · SplitView",
+      "blurb": "VAPP-126: List (`list` slot) + detail (children); phones show one at a time, the detail with a back button. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/split-view/.",
+      "order": 94,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-split-view",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-split-view"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-split-view",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-split-view",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-field-group",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · FieldGroup",
+      "blurb": "VAPP-126: Fields side by side (Starts / Ends) that stack on phones. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/field-group/.",
+      "order": 95,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-field-group",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-field-group"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-field-group",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-field-group",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-form-actions",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · FormActions",
+      "blurb": "VAPP-126: The end-aligned button row: children, Cancel, then THE submit (the one primary). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/form-actions/.",
+      "order": 96,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-form-actions",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-form-actions"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-form-actions",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-form-actions",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-stat-tile",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · StatTile",
+      "blurb": "VAPP-126: A dashboard tile: label, big value, toned change, trend sparkline. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/stat-tile/.",
+      "order": 97,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-stat-tile",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-stat-tile"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-stat-tile",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-stat-tile",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "work-card",
       "group": "coding",
       "title": "Work card",

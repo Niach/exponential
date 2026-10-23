@@ -836,6 +836,699 @@
       ]
     },
     {
+      "name": "SplitView/bound:open",
+      "input": {
+        "id": "split-view",
+        "component": "SplitView",
+        "props": {
+          "open": {
+            "path": "/open"
+          },
+          "width": 320
+        },
+        "children": [
+          {
+            "id": "split-view-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expanded": {
+        "id": "split-view",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "split-view.list",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "width": 320,
+              "flexShrink": 0,
+              "minHeight": 0,
+              "overflowY": "auto",
+              "@media (max-width: $breakpoint.md)": {
+                "width": "100%",
+                "flexShrink": 1,
+                "display": {
+                  "call": "cond",
+                  "args": {
+                    "if": {
+                      "path": "/open"
+                    },
+                    "then": "none",
+                    "else": "flex"
+                  }
+                }
+              }
+            },
+            "recipe": {
+              "macro": "SplitView",
+              "part": "list",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "navigation"
+            }
+          },
+          {
+            "id": "split-view.divider",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "alignSelf": "stretch",
+              "flexShrink": 0,
+              "width": 1,
+              "height": "auto",
+              "@media (max-width: $breakpoint.md)": {
+                "display": "none"
+              }
+            },
+            "recipe": {
+              "macro": "Separator",
+              "part": "root",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "separator"
+            }
+          },
+          {
+            "id": "split-view.detail",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "split-view.detail.backBar",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "split-view.detail.backBar.back",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-back",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "$string.back"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "SplitView",
+                      "part": "back",
+                      "props": {}
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "set",
+                          "args": {
+                            "path": "/open",
+                            "value": false
+                          }
+                        }
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "none",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "height": "$control.appBar",
+                  "paddingHorizontal": "$spacing.sm",
+                  "@media (max-width: $breakpoint.md)": {
+                    "display": "flex"
+                  }
+                },
+                "recipe": {
+                  "macro": "SplitView",
+                  "part": "backBar",
+                  "props": {}
+                }
+              },
+              {
+                "id": "split-view-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "minWidth": 0,
+              "minHeight": 0,
+              "@media (max-width: $breakpoint.md)": {
+                "display": {
+                  "call": "cond",
+                  "args": {
+                    "if": {
+                      "path": "/open"
+                    },
+                    "then": "flex",
+                    "else": "none"
+                  }
+                }
+              }
+            },
+            "recipe": {
+              "macro": "SplitView",
+              "part": "detail",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "main"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "stretch",
+          "width": "100%",
+          "flexGrow": 1,
+          "minHeight": 0
+        },
+        "recipe": {
+          "macro": "SplitView",
+          "part": "root",
+          "props": {}
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "open": true
+          },
+          "bound": {
+            "id": "split-view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "split-view.list",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "width": 320,
+                  "flexShrink": 0,
+                  "minHeight": 0,
+                  "overflowY": "auto",
+                  "@media (max-width: $breakpoint.md)": {
+                    "width": "100%",
+                    "flexShrink": 1,
+                    "display": "none"
+                  }
+                },
+                "accessibility": {
+                  "role": "navigation"
+                },
+                "recipe": {
+                  "macro": "SplitView",
+                  "part": "list",
+                  "props": {}
+                }
+              },
+              {
+                "id": "split-view.divider",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "alignSelf": "stretch",
+                  "flexShrink": 0,
+                  "width": 1,
+                  "height": "auto",
+                  "@media (max-width: $breakpoint.md)": {
+                    "display": "none"
+                  }
+                },
+                "accessibility": {
+                  "role": "separator"
+                },
+                "recipe": {
+                  "macro": "Separator",
+                  "part": "root",
+                  "props": {}
+                }
+              },
+              {
+                "id": "split-view.detail",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "split-view.detail.backBar",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "split-view.detail.backBar.back",
+                        "component": "Button",
+                        "props": {
+                          "icon": "ui-back",
+                          "variant": "ghost",
+                          "size": "icon",
+                          "label": "Back"
+                        },
+                        "children": [],
+                        "on": {
+                          "press": {
+                            "functionCall": {
+                              "call": "set",
+                              "args": {
+                                "path": "/open",
+                                "value": false
+                              }
+                            }
+                          }
+                        },
+                        "recipe": {
+                          "macro": "SplitView",
+                          "part": "back",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "none",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "height": "$control.appBar",
+                      "paddingHorizontal": "$spacing.sm",
+                      "@media (max-width: $breakpoint.md)": {
+                        "display": "flex"
+                      }
+                    },
+                    "recipe": {
+                      "macro": "SplitView",
+                      "part": "backBar",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "split-view-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "minHeight": 0,
+                  "@media (max-width: $breakpoint.md)": {
+                    "display": "flex"
+                  }
+                },
+                "accessibility": {
+                  "role": "main"
+                },
+                "recipe": {
+                  "macro": "SplitView",
+                  "part": "detail",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "stretch",
+              "width": "100%",
+              "flexGrow": 1,
+              "minHeight": 0
+            },
+            "recipe": {
+              "macro": "SplitView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": [
+            {
+              "id": "split-view.detail.backBar.back",
+              "outcome": {
+                "data": {
+                  "open": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "data": {
+            "open": false
+          },
+          "bound": {
+            "id": "split-view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "split-view.list",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "width": 320,
+                  "flexShrink": 0,
+                  "minHeight": 0,
+                  "overflowY": "auto",
+                  "@media (max-width: $breakpoint.md)": {
+                    "width": "100%",
+                    "flexShrink": 1,
+                    "display": "flex"
+                  }
+                },
+                "accessibility": {
+                  "role": "navigation"
+                },
+                "recipe": {
+                  "macro": "SplitView",
+                  "part": "list",
+                  "props": {}
+                }
+              },
+              {
+                "id": "split-view.divider",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "alignSelf": "stretch",
+                  "flexShrink": 0,
+                  "width": 1,
+                  "height": "auto",
+                  "@media (max-width: $breakpoint.md)": {
+                    "display": "none"
+                  }
+                },
+                "accessibility": {
+                  "role": "separator"
+                },
+                "recipe": {
+                  "macro": "Separator",
+                  "part": "root",
+                  "props": {}
+                }
+              },
+              {
+                "id": "split-view.detail",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "split-view.detail.backBar",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "split-view.detail.backBar.back",
+                        "component": "Button",
+                        "props": {
+                          "icon": "ui-back",
+                          "variant": "ghost",
+                          "size": "icon",
+                          "label": "Back"
+                        },
+                        "children": [],
+                        "on": {
+                          "press": {
+                            "functionCall": {
+                              "call": "set",
+                              "args": {
+                                "path": "/open",
+                                "value": false
+                              }
+                            }
+                          }
+                        },
+                        "recipe": {
+                          "macro": "SplitView",
+                          "part": "back",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "none",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "height": "$control.appBar",
+                      "paddingHorizontal": "$spacing.sm",
+                      "@media (max-width: $breakpoint.md)": {
+                        "display": "flex"
+                      }
+                    },
+                    "recipe": {
+                      "macro": "SplitView",
+                      "part": "backBar",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "split-view-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "minHeight": 0,
+                  "@media (max-width: $breakpoint.md)": {
+                    "display": "none"
+                  }
+                },
+                "accessibility": {
+                  "role": "main"
+                },
+                "recipe": {
+                  "macro": "SplitView",
+                  "part": "detail",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "stretch",
+              "width": "100%",
+              "flexGrow": 1,
+              "minHeight": 0
+            },
+            "recipe": {
+              "macro": "SplitView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": [
+            {
+              "id": "split-view.detail.backBar.back",
+              "outcome": {
+                "data": {
+                  "open": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "split-view",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "split-view.list",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "width": 320,
+                  "flexShrink": 0,
+                  "minHeight": 0,
+                  "overflowY": "auto",
+                  "@media (max-width: $breakpoint.md)": {
+                    "width": "100%",
+                    "flexShrink": 1,
+                    "display": "flex"
+                  }
+                },
+                "accessibility": {
+                  "role": "navigation"
+                },
+                "recipe": {
+                  "macro": "SplitView",
+                  "part": "list",
+                  "props": {}
+                }
+              },
+              {
+                "id": "split-view.divider",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "alignSelf": "stretch",
+                  "flexShrink": 0,
+                  "width": 1,
+                  "height": "auto",
+                  "@media (max-width: $breakpoint.md)": {
+                    "display": "none"
+                  }
+                },
+                "accessibility": {
+                  "role": "separator"
+                },
+                "recipe": {
+                  "macro": "Separator",
+                  "part": "root",
+                  "props": {}
+                }
+              },
+              {
+                "id": "split-view.detail",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "split-view.detail.backBar",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "split-view.detail.backBar.back",
+                        "component": "Button",
+                        "props": {
+                          "icon": "ui-back",
+                          "variant": "ghost",
+                          "size": "icon",
+                          "label": "Back"
+                        },
+                        "children": [],
+                        "on": {
+                          "press": {
+                            "functionCall": {
+                              "call": "set",
+                              "args": {
+                                "path": "/open",
+                                "value": false
+                              }
+                            }
+                          }
+                        },
+                        "recipe": {
+                          "macro": "SplitView",
+                          "part": "back",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "none",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "height": "$control.appBar",
+                      "paddingHorizontal": "$spacing.sm",
+                      "@media (max-width: $breakpoint.md)": {
+                        "display": "flex"
+                      }
+                    },
+                    "recipe": {
+                      "macro": "SplitView",
+                      "part": "backBar",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "split-view-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "minHeight": 0,
+                  "@media (max-width: $breakpoint.md)": {
+                    "display": "none"
+                  }
+                },
+                "accessibility": {
+                  "role": "main"
+                },
+                "recipe": {
+                  "macro": "SplitView",
+                  "part": "detail",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "stretch",
+              "width": "100%",
+              "flexGrow": 1,
+              "minHeight": 0
+            },
+            "recipe": {
+              "macro": "SplitView",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": [
+            {
+              "id": "split-view.detail.backBar.back",
+              "outcome": {
+                "data": {
+                  "open": false
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "AppBar/bound:title",
       "input": {
         "id": "app-bar",
@@ -1542,6 +2235,1147 @@
             },
             "recipe": {
               "macro": "AppBar",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Page/bound:title",
+      "input": {
+        "id": "page",
+        "component": "Page",
+        "props": {
+          "title": {
+            "path": "/title"
+          },
+          "back": true
+        },
+        "children": [
+          {
+            "id": "page-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expanded": {
+        "id": "page",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "page.header",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "page.header.back",
+                "component": "Button",
+                "props": {
+                  "icon": "ui-back",
+                  "variant": "ghost",
+                  "size": "icon",
+                  "label": "$string.back"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "AppBar",
+                  "part": "back",
+                  "props": {}
+                }
+              },
+              {
+                "id": "page.header.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "page.header.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": {
+                        "path": "/title"
+                      },
+                      "variant": "title",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "title",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "heading",
+                      "level": 1
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "AppBar",
+                  "part": "body",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "height": "$control.appBar",
+              "paddingHorizontal": "$spacing.md",
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "AppBar",
+              "part": "root",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "banner"
+            }
+          },
+          {
+            "id": "page.body",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "page-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "minHeight": 0,
+              "overflowY": "auto",
+              "gap": "$spacing.lg",
+              "padding": "$spacing.lg"
+            },
+            "recipe": {
+              "macro": "Page",
+              "part": "body",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "main"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "flexGrow": 1,
+          "minHeight": 0,
+          "width": "100%"
+        },
+        "recipe": {
+          "macro": "Page",
+          "part": "root",
+          "props": {}
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "title": "Settings"
+          },
+          "bound": {
+            "id": "page",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "page.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "page.header.back",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-back",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Back"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "back",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "page.header.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "page.header.body.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Settings",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "accessibility": {
+                          "role": "heading",
+                          "level": 1
+                        },
+                        "recipe": {
+                          "macro": "AppBar",
+                          "part": "title",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm",
+                  "height": "$control.appBar",
+                  "paddingHorizontal": "$spacing.md",
+                  "width": "100%"
+                },
+                "accessibility": {
+                  "role": "banner"
+                },
+                "recipe": {
+                  "macro": "AppBar",
+                  "part": "root",
+                  "props": {}
+                }
+              },
+              {
+                "id": "page.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "page-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minHeight": 0,
+                  "overflowY": "auto",
+                  "gap": "$spacing.lg",
+                  "padding": "$spacing.lg"
+                },
+                "accessibility": {
+                  "role": "main"
+                },
+                "recipe": {
+                  "macro": "Page",
+                  "part": "body",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "minHeight": 0,
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Page",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "title": ""
+          },
+          "bound": {
+            "id": "page",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "page.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "page.header.back",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-back",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Back"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "back",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "page.header.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "page.header.body.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "accessibility": {
+                          "role": "heading",
+                          "level": 1
+                        },
+                        "recipe": {
+                          "macro": "AppBar",
+                          "part": "title",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm",
+                  "height": "$control.appBar",
+                  "paddingHorizontal": "$spacing.md",
+                  "width": "100%"
+                },
+                "accessibility": {
+                  "role": "banner"
+                },
+                "recipe": {
+                  "macro": "AppBar",
+                  "part": "root",
+                  "props": {}
+                }
+              },
+              {
+                "id": "page.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "page-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minHeight": 0,
+                  "overflowY": "auto",
+                  "gap": "$spacing.lg",
+                  "padding": "$spacing.lg"
+                },
+                "accessibility": {
+                  "role": "main"
+                },
+                "recipe": {
+                  "macro": "Page",
+                  "part": "body",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "minHeight": 0,
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Page",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "page",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "page.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "page.header.back",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-back",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Back"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "back",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "page.header.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "page.header.body.title",
+                        "component": "Text",
+                        "props": {
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "accessibility": {
+                          "role": "heading",
+                          "level": 1
+                        },
+                        "recipe": {
+                          "macro": "AppBar",
+                          "part": "title",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm",
+                  "height": "$control.appBar",
+                  "paddingHorizontal": "$spacing.md",
+                  "width": "100%"
+                },
+                "accessibility": {
+                  "role": "banner"
+                },
+                "recipe": {
+                  "macro": "AppBar",
+                  "part": "root",
+                  "props": {}
+                }
+              },
+              {
+                "id": "page.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "page-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minHeight": 0,
+                  "overflowY": "auto",
+                  "gap": "$spacing.lg",
+                  "padding": "$spacing.lg"
+                },
+                "accessibility": {
+                  "role": "main"
+                },
+                "recipe": {
+                  "macro": "Page",
+                  "part": "body",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "minHeight": 0,
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Page",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Page/bound:subtitle",
+      "input": {
+        "id": "page",
+        "component": "Page",
+        "props": {
+          "title": "Settings",
+          "back": true,
+          "subtitle": {
+            "path": "/subtitle"
+          }
+        },
+        "children": [
+          {
+            "id": "page-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expanded": {
+        "id": "page",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "page.header",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "page.header.back",
+                "component": "Button",
+                "props": {
+                  "icon": "ui-back",
+                  "variant": "ghost",
+                  "size": "icon",
+                  "label": "$string.back"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "AppBar",
+                  "part": "back",
+                  "props": {}
+                }
+              },
+              {
+                "id": "page.header.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "page.header.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Settings",
+                      "variant": "title",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "title",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "heading",
+                      "level": 1
+                    }
+                  },
+                  {
+                    "id": "page.header.body.subtitle",
+                    "component": "Text",
+                    "props": {
+                      "text": {
+                        "path": "/subtitle"
+                      },
+                      "variant": "muted",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "visible": {
+                      "path": "/subtitle"
+                    },
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "subtitle",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "AppBar",
+                  "part": "body",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "height": "$control.appBar",
+              "paddingHorizontal": "$spacing.md",
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "AppBar",
+              "part": "root",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "banner"
+            }
+          },
+          {
+            "id": "page.body",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "page-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "minHeight": 0,
+              "overflowY": "auto",
+              "gap": "$spacing.lg",
+              "padding": "$spacing.lg"
+            },
+            "recipe": {
+              "macro": "Page",
+              "part": "body",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "main"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "flexGrow": 1,
+          "minHeight": 0,
+          "width": "100%"
+        },
+        "recipe": {
+          "macro": "Page",
+          "part": "root",
+          "props": {}
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "subtitle": "Bound"
+          },
+          "bound": {
+            "id": "page",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "page.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "page.header.back",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-back",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Back"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "back",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "page.header.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "page.header.body.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Settings",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "accessibility": {
+                          "role": "heading",
+                          "level": 1
+                        },
+                        "recipe": {
+                          "macro": "AppBar",
+                          "part": "title",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "page.header.body.subtitle",
+                        "component": "Text",
+                        "props": {
+                          "text": "Bound",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "AppBar",
+                          "part": "subtitle",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm",
+                  "height": "$control.appBar",
+                  "paddingHorizontal": "$spacing.md",
+                  "width": "100%"
+                },
+                "accessibility": {
+                  "role": "banner"
+                },
+                "recipe": {
+                  "macro": "AppBar",
+                  "part": "root",
+                  "props": {}
+                }
+              },
+              {
+                "id": "page.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "page-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minHeight": 0,
+                  "overflowY": "auto",
+                  "gap": "$spacing.lg",
+                  "padding": "$spacing.lg"
+                },
+                "accessibility": {
+                  "role": "main"
+                },
+                "recipe": {
+                  "macro": "Page",
+                  "part": "body",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "minHeight": 0,
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Page",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "subtitle": ""
+          },
+          "bound": {
+            "id": "page",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "page.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "page.header.back",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-back",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Back"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "back",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "page.header.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "page.header.body.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Settings",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "accessibility": {
+                          "role": "heading",
+                          "level": 1
+                        },
+                        "recipe": {
+                          "macro": "AppBar",
+                          "part": "title",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm",
+                  "height": "$control.appBar",
+                  "paddingHorizontal": "$spacing.md",
+                  "width": "100%"
+                },
+                "accessibility": {
+                  "role": "banner"
+                },
+                "recipe": {
+                  "macro": "AppBar",
+                  "part": "root",
+                  "props": {}
+                }
+              },
+              {
+                "id": "page.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "page-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minHeight": 0,
+                  "overflowY": "auto",
+                  "gap": "$spacing.lg",
+                  "padding": "$spacing.lg"
+                },
+                "accessibility": {
+                  "role": "main"
+                },
+                "recipe": {
+                  "macro": "Page",
+                  "part": "body",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "minHeight": 0,
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Page",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "page",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "page.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "page.header.back",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-back",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Back"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "back",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "page.header.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "page.header.body.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Settings",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "accessibility": {
+                          "role": "heading",
+                          "level": 1
+                        },
+                        "recipe": {
+                          "macro": "AppBar",
+                          "part": "title",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm",
+                  "height": "$control.appBar",
+                  "paddingHorizontal": "$spacing.md",
+                  "width": "100%"
+                },
+                "accessibility": {
+                  "role": "banner"
+                },
+                "recipe": {
+                  "macro": "AppBar",
+                  "part": "root",
+                  "props": {}
+                }
+              },
+              {
+                "id": "page.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "page-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minHeight": 0,
+                  "overflowY": "auto",
+                  "gap": "$spacing.lg",
+                  "padding": "$spacing.lg"
+                },
+                "accessibility": {
+                  "role": "main"
+                },
+                "recipe": {
+                  "macro": "Page",
+                  "part": "body",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "minHeight": 0,
+              "width": "100%"
+            },
+            "recipe": {
+              "macro": "Page",
               "part": "root",
               "props": {}
             }
@@ -17484,6 +19318,3710 @@
               "props": {
                 "tone": "primary"
               }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "StatTile/bound:label",
+      "input": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": {
+            "path": "/label"
+          },
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": "success",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ]
+        }
+      },
+      "expanded": {
+        "id": "stat-tile",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "stat-tile.card",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": {
+                            "path": "/label"
+                          },
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "label",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.header.delta",
+                        "component": "Text",
+                        "props": {
+                          "text": "+12 %",
+                          "variant": "caption",
+                          "tone": "success"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "delta",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "header",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "stat-tile.card.value",
+                    "component": "Text",
+                    "props": {
+                      "text": "1,284",
+                      "variant": "title",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "value",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "stat-tile.card.trend",
+                    "component": "Chart",
+                    "props": {
+                      "kind": "sparkline",
+                      "series": [
+                        {
+                          "name": "",
+                          "values": [
+                            3,
+                            4,
+                            3,
+                            5,
+                            6,
+                            8
+                          ],
+                          "tone": "primary"
+                        }
+                      ],
+                      "height": 32,
+                      "showAxes": false,
+                      "showGrid": false,
+                      "showLegend": false
+                    },
+                    "children": [],
+                    "style": {
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "Sparkline",
+                      "part": "root",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.md",
+                  "padding": "$spacing.lg"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "body",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "borderRadius": "$radius.xl",
+              "overflow": "hidden"
+            },
+            "recipe": {
+              "macro": "Card",
+              "part": "root",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "group"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "StatTile",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group",
+          "label": {
+            "path": "/label"
+          }
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "label": "Active users"
+          },
+          "bound": {
+            "id": "stat-tile",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "stat-tile.card.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "Active users",
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "label",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "stat-tile.card.header.delta",
+                            "component": "Text",
+                            "props": {
+                              "text": "+12 %",
+                              "variant": "caption",
+                              "tone": "success"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "delta",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "header",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.value",
+                        "component": "Text",
+                        "props": {
+                          "text": "1,284",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "value",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.trend",
+                        "component": "Chart",
+                        "props": {
+                          "kind": "sparkline",
+                          "series": [
+                            {
+                              "name": "",
+                              "values": [
+                                3,
+                                4,
+                                3,
+                                5,
+                                6,
+                                8
+                              ],
+                              "tone": "primary"
+                            }
+                          ],
+                          "height": 32,
+                          "showAxes": false,
+                          "showGrid": false,
+                          "showLegend": false
+                        },
+                        "children": [],
+                        "style": {
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Sparkline",
+                          "part": "root",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.md",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "borderRadius": "$radius.xl",
+                  "overflow": "hidden"
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Active users"
+            },
+            "recipe": {
+              "macro": "StatTile",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "label": ""
+          },
+          "bound": {
+            "id": "stat-tile",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "stat-tile.card.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "",
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "label",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "stat-tile.card.header.delta",
+                            "component": "Text",
+                            "props": {
+                              "text": "+12 %",
+                              "variant": "caption",
+                              "tone": "success"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "delta",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "header",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.value",
+                        "component": "Text",
+                        "props": {
+                          "text": "1,284",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "value",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.trend",
+                        "component": "Chart",
+                        "props": {
+                          "kind": "sparkline",
+                          "series": [
+                            {
+                              "name": "",
+                              "values": [
+                                3,
+                                4,
+                                3,
+                                5,
+                                6,
+                                8
+                              ],
+                              "tone": "primary"
+                            }
+                          ],
+                          "height": 32,
+                          "showAxes": false,
+                          "showGrid": false,
+                          "showLegend": false
+                        },
+                        "children": [],
+                        "style": {
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Sparkline",
+                          "part": "root",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.md",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "borderRadius": "$radius.xl",
+                  "overflow": "hidden"
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group",
+              "label": ""
+            },
+            "recipe": {
+              "macro": "StatTile",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "stat-tile",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "stat-tile.card.header.label",
+                            "component": "Text",
+                            "props": {
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "label",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "stat-tile.card.header.delta",
+                            "component": "Text",
+                            "props": {
+                              "text": "+12 %",
+                              "variant": "caption",
+                              "tone": "success"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "delta",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "header",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.value",
+                        "component": "Text",
+                        "props": {
+                          "text": "1,284",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "value",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.trend",
+                        "component": "Chart",
+                        "props": {
+                          "kind": "sparkline",
+                          "series": [
+                            {
+                              "name": "",
+                              "values": [
+                                3,
+                                4,
+                                3,
+                                5,
+                                6,
+                                8
+                              ],
+                              "tone": "primary"
+                            }
+                          ],
+                          "height": 32,
+                          "showAxes": false,
+                          "showGrid": false,
+                          "showLegend": false
+                        },
+                        "children": [],
+                        "style": {
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Sparkline",
+                          "part": "root",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.md",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "borderRadius": "$radius.xl",
+                  "overflow": "hidden"
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "recipe": {
+              "macro": "StatTile",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "StatTile/bound:value",
+      "input": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": {
+            "path": "/value"
+          },
+          "delta": "+12 %",
+          "tone": "success",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ]
+        }
+      },
+      "expanded": {
+        "id": "stat-tile",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "stat-tile.card",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Active users",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "label",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.header.delta",
+                        "component": "Text",
+                        "props": {
+                          "text": "+12 %",
+                          "variant": "caption",
+                          "tone": "success"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "delta",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "header",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "stat-tile.card.value",
+                    "component": "Text",
+                    "props": {
+                      "text": {
+                        "path": "/value"
+                      },
+                      "variant": "title",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "value",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "stat-tile.card.trend",
+                    "component": "Chart",
+                    "props": {
+                      "kind": "sparkline",
+                      "series": [
+                        {
+                          "name": "",
+                          "values": [
+                            3,
+                            4,
+                            3,
+                            5,
+                            6,
+                            8
+                          ],
+                          "tone": "primary"
+                        }
+                      ],
+                      "height": 32,
+                      "showAxes": false,
+                      "showGrid": false,
+                      "showLegend": false
+                    },
+                    "children": [],
+                    "style": {
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "Sparkline",
+                      "part": "root",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.md",
+                  "padding": "$spacing.lg"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "body",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "borderRadius": "$radius.xl",
+              "overflow": "hidden"
+            },
+            "recipe": {
+              "macro": "Card",
+              "part": "root",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "group"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "StatTile",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "Active users"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "value": "1,284"
+          },
+          "bound": {
+            "id": "stat-tile",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "stat-tile.card.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "Active users",
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "label",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "stat-tile.card.header.delta",
+                            "component": "Text",
+                            "props": {
+                              "text": "+12 %",
+                              "variant": "caption",
+                              "tone": "success"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "delta",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "header",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.value",
+                        "component": "Text",
+                        "props": {
+                          "text": "1,284",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "value",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.trend",
+                        "component": "Chart",
+                        "props": {
+                          "kind": "sparkline",
+                          "series": [
+                            {
+                              "name": "",
+                              "values": [
+                                3,
+                                4,
+                                3,
+                                5,
+                                6,
+                                8
+                              ],
+                              "tone": "primary"
+                            }
+                          ],
+                          "height": 32,
+                          "showAxes": false,
+                          "showGrid": false,
+                          "showLegend": false
+                        },
+                        "children": [],
+                        "style": {
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Sparkline",
+                          "part": "root",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.md",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "borderRadius": "$radius.xl",
+                  "overflow": "hidden"
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Active users"
+            },
+            "recipe": {
+              "macro": "StatTile",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "value": ""
+          },
+          "bound": {
+            "id": "stat-tile",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "stat-tile.card.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "Active users",
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "label",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "stat-tile.card.header.delta",
+                            "component": "Text",
+                            "props": {
+                              "text": "+12 %",
+                              "variant": "caption",
+                              "tone": "success"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "delta",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "header",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.value",
+                        "component": "Text",
+                        "props": {
+                          "text": "",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "value",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.trend",
+                        "component": "Chart",
+                        "props": {
+                          "kind": "sparkline",
+                          "series": [
+                            {
+                              "name": "",
+                              "values": [
+                                3,
+                                4,
+                                3,
+                                5,
+                                6,
+                                8
+                              ],
+                              "tone": "primary"
+                            }
+                          ],
+                          "height": 32,
+                          "showAxes": false,
+                          "showGrid": false,
+                          "showLegend": false
+                        },
+                        "children": [],
+                        "style": {
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Sparkline",
+                          "part": "root",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.md",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "borderRadius": "$radius.xl",
+                  "overflow": "hidden"
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Active users"
+            },
+            "recipe": {
+              "macro": "StatTile",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "stat-tile",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "stat-tile.card.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "Active users",
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "label",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "stat-tile.card.header.delta",
+                            "component": "Text",
+                            "props": {
+                              "text": "+12 %",
+                              "variant": "caption",
+                              "tone": "success"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "delta",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "header",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.value",
+                        "component": "Text",
+                        "props": {
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "value",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.trend",
+                        "component": "Chart",
+                        "props": {
+                          "kind": "sparkline",
+                          "series": [
+                            {
+                              "name": "",
+                              "values": [
+                                3,
+                                4,
+                                3,
+                                5,
+                                6,
+                                8
+                              ],
+                              "tone": "primary"
+                            }
+                          ],
+                          "height": 32,
+                          "showAxes": false,
+                          "showGrid": false,
+                          "showLegend": false
+                        },
+                        "children": [],
+                        "style": {
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Sparkline",
+                          "part": "root",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.md",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "borderRadius": "$radius.xl",
+                  "overflow": "hidden"
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Active users"
+            },
+            "recipe": {
+              "macro": "StatTile",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "StatTile/bound:delta",
+      "input": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": {
+            "path": "/delta"
+          },
+          "tone": "success",
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ]
+        }
+      },
+      "expanded": {
+        "id": "stat-tile",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "stat-tile.card",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Active users",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "label",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.header.delta",
+                        "component": "Text",
+                        "props": {
+                          "text": {
+                            "path": "/delta"
+                          },
+                          "variant": "caption",
+                          "tone": "success"
+                        },
+                        "children": [],
+                        "visible": {
+                          "path": "/delta"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "delta",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "header",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "stat-tile.card.value",
+                    "component": "Text",
+                    "props": {
+                      "text": "1,284",
+                      "variant": "title",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "value",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "stat-tile.card.trend",
+                    "component": "Chart",
+                    "props": {
+                      "kind": "sparkline",
+                      "series": [
+                        {
+                          "name": "",
+                          "values": [
+                            3,
+                            4,
+                            3,
+                            5,
+                            6,
+                            8
+                          ],
+                          "tone": "primary"
+                        }
+                      ],
+                      "height": 32,
+                      "showAxes": false,
+                      "showGrid": false,
+                      "showLegend": false
+                    },
+                    "children": [],
+                    "style": {
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "Sparkline",
+                      "part": "root",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.md",
+                  "padding": "$spacing.lg"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "body",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "borderRadius": "$radius.xl",
+              "overflow": "hidden"
+            },
+            "recipe": {
+              "macro": "Card",
+              "part": "root",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "group"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "StatTile",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "Active users"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "delta": "+12 %"
+          },
+          "bound": {
+            "id": "stat-tile",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "stat-tile.card.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "Active users",
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "label",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "stat-tile.card.header.delta",
+                            "component": "Text",
+                            "props": {
+                              "text": "+12 %",
+                              "variant": "caption",
+                              "tone": "success"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "delta",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "header",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.value",
+                        "component": "Text",
+                        "props": {
+                          "text": "1,284",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "value",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.trend",
+                        "component": "Chart",
+                        "props": {
+                          "kind": "sparkline",
+                          "series": [
+                            {
+                              "name": "",
+                              "values": [
+                                3,
+                                4,
+                                3,
+                                5,
+                                6,
+                                8
+                              ],
+                              "tone": "primary"
+                            }
+                          ],
+                          "height": 32,
+                          "showAxes": false,
+                          "showGrid": false,
+                          "showLegend": false
+                        },
+                        "children": [],
+                        "style": {
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Sparkline",
+                          "part": "root",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.md",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "borderRadius": "$radius.xl",
+                  "overflow": "hidden"
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Active users"
+            },
+            "recipe": {
+              "macro": "StatTile",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "delta": ""
+          },
+          "bound": {
+            "id": "stat-tile",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "stat-tile.card.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "Active users",
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "label",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "header",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.value",
+                        "component": "Text",
+                        "props": {
+                          "text": "1,284",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "value",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.trend",
+                        "component": "Chart",
+                        "props": {
+                          "kind": "sparkline",
+                          "series": [
+                            {
+                              "name": "",
+                              "values": [
+                                3,
+                                4,
+                                3,
+                                5,
+                                6,
+                                8
+                              ],
+                              "tone": "primary"
+                            }
+                          ],
+                          "height": 32,
+                          "showAxes": false,
+                          "showGrid": false,
+                          "showLegend": false
+                        },
+                        "children": [],
+                        "style": {
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Sparkline",
+                          "part": "root",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.md",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "borderRadius": "$radius.xl",
+                  "overflow": "hidden"
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Active users"
+            },
+            "recipe": {
+              "macro": "StatTile",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "stat-tile",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "stat-tile.card.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "Active users",
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "label",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "header",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.value",
+                        "component": "Text",
+                        "props": {
+                          "text": "1,284",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "value",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.trend",
+                        "component": "Chart",
+                        "props": {
+                          "kind": "sparkline",
+                          "series": [
+                            {
+                              "name": "",
+                              "values": [
+                                3,
+                                4,
+                                3,
+                                5,
+                                6,
+                                8
+                              ],
+                              "tone": "primary"
+                            }
+                          ],
+                          "height": 32,
+                          "showAxes": false,
+                          "showGrid": false,
+                          "showLegend": false
+                        },
+                        "children": [],
+                        "style": {
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Sparkline",
+                          "part": "root",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.md",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "borderRadius": "$radius.xl",
+                  "overflow": "hidden"
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Active users"
+            },
+            "recipe": {
+              "macro": "StatTile",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "StatTile/bound:tone",
+      "input": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": {
+            "path": "/tone"
+          },
+          "trend": [
+            3,
+            4,
+            3,
+            5,
+            6,
+            8
+          ]
+        }
+      },
+      "expanded": {
+        "id": "stat-tile",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "stat-tile.card",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Active users",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "label",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.header.delta",
+                        "component": "Text",
+                        "props": {
+                          "text": "+12 %",
+                          "variant": "caption",
+                          "tone": {
+                            "path": "/tone"
+                          }
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "delta",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "header",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "stat-tile.card.value",
+                    "component": "Text",
+                    "props": {
+                      "text": "1,284",
+                      "variant": "title",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "value",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "stat-tile.card.trend",
+                    "component": "Chart",
+                    "props": {
+                      "kind": "sparkline",
+                      "series": [
+                        {
+                          "name": "",
+                          "values": [
+                            3,
+                            4,
+                            3,
+                            5,
+                            6,
+                            8
+                          ],
+                          "tone": "primary"
+                        }
+                      ],
+                      "height": 32,
+                      "showAxes": false,
+                      "showGrid": false,
+                      "showLegend": false
+                    },
+                    "children": [],
+                    "style": {
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "Sparkline",
+                      "part": "root",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.md",
+                  "padding": "$spacing.lg"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "body",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "borderRadius": "$radius.xl",
+              "overflow": "hidden"
+            },
+            "recipe": {
+              "macro": "Card",
+              "part": "root",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "group"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "StatTile",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "Active users"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "tone": "success"
+          },
+          "bound": {
+            "id": "stat-tile",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "stat-tile.card.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "Active users",
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "label",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "stat-tile.card.header.delta",
+                            "component": "Text",
+                            "props": {
+                              "text": "+12 %",
+                              "variant": "caption",
+                              "tone": "success"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "delta",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "header",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.value",
+                        "component": "Text",
+                        "props": {
+                          "text": "1,284",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "value",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.trend",
+                        "component": "Chart",
+                        "props": {
+                          "kind": "sparkline",
+                          "series": [
+                            {
+                              "name": "",
+                              "values": [
+                                3,
+                                4,
+                                3,
+                                5,
+                                6,
+                                8
+                              ],
+                              "tone": "primary"
+                            }
+                          ],
+                          "height": 32,
+                          "showAxes": false,
+                          "showGrid": false,
+                          "showLegend": false
+                        },
+                        "children": [],
+                        "style": {
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Sparkline",
+                          "part": "root",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.md",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "borderRadius": "$radius.xl",
+                  "overflow": "hidden"
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Active users"
+            },
+            "recipe": {
+              "macro": "StatTile",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "tone": ""
+          },
+          "bound": {
+            "id": "stat-tile",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "stat-tile.card.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "Active users",
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "label",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "stat-tile.card.header.delta",
+                            "component": "Text",
+                            "props": {
+                              "text": "+12 %",
+                              "variant": "caption",
+                              "tone": ""
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "delta",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "header",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.value",
+                        "component": "Text",
+                        "props": {
+                          "text": "1,284",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "value",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.trend",
+                        "component": "Chart",
+                        "props": {
+                          "kind": "sparkline",
+                          "series": [
+                            {
+                              "name": "",
+                              "values": [
+                                3,
+                                4,
+                                3,
+                                5,
+                                6,
+                                8
+                              ],
+                              "tone": "primary"
+                            }
+                          ],
+                          "height": 32,
+                          "showAxes": false,
+                          "showGrid": false,
+                          "showLegend": false
+                        },
+                        "children": [],
+                        "style": {
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Sparkline",
+                          "part": "root",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.md",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "borderRadius": "$radius.xl",
+                  "overflow": "hidden"
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Active users"
+            },
+            "recipe": {
+              "macro": "StatTile",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "stat-tile",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "stat-tile.card.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "Active users",
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "label",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "stat-tile.card.header.delta",
+                            "component": "Text",
+                            "props": {
+                              "text": "+12 %",
+                              "variant": "caption"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "delta",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "header",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.value",
+                        "component": "Text",
+                        "props": {
+                          "text": "1,284",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "value",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.trend",
+                        "component": "Chart",
+                        "props": {
+                          "kind": "sparkline",
+                          "series": [
+                            {
+                              "name": "",
+                              "values": [
+                                3,
+                                4,
+                                3,
+                                5,
+                                6,
+                                8
+                              ],
+                              "tone": "primary"
+                            }
+                          ],
+                          "height": 32,
+                          "showAxes": false,
+                          "showGrid": false,
+                          "showLegend": false
+                        },
+                        "children": [],
+                        "style": {
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Sparkline",
+                          "part": "root",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.md",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "borderRadius": "$radius.xl",
+                  "overflow": "hidden"
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Active users"
+            },
+            "recipe": {
+              "macro": "StatTile",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "StatTile/bound:trend",
+      "input": {
+        "id": "stat-tile",
+        "component": "StatTile",
+        "props": {
+          "label": "Active users",
+          "value": "1,284",
+          "delta": "+12 %",
+          "tone": "success",
+          "trend": {
+            "path": "/trend"
+          }
+        }
+      },
+      "expanded": {
+        "id": "stat-tile",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "stat-tile.card",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Active users",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "label",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.header.delta",
+                        "component": "Text",
+                        "props": {
+                          "text": "+12 %",
+                          "variant": "caption",
+                          "tone": "success"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "delta",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "header",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "stat-tile.card.value",
+                    "component": "Text",
+                    "props": {
+                      "text": "1,284",
+                      "variant": "title",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "value",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "stat-tile.card.trend",
+                    "component": "Chart",
+                    "props": {
+                      "kind": "sparkline",
+                      "series": [
+                        {
+                          "name": "",
+                          "values": {
+                            "path": "/trend"
+                          },
+                          "tone": "primary"
+                        }
+                      ],
+                      "height": 32,
+                      "showAxes": false,
+                      "showGrid": false,
+                      "showLegend": false
+                    },
+                    "children": [],
+                    "style": {
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "Sparkline",
+                      "part": "root",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    },
+                    "visible": {
+                      "path": "/trend"
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.md",
+                  "padding": "$spacing.lg"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "body",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "borderRadius": "$radius.xl",
+              "overflow": "hidden"
+            },
+            "recipe": {
+              "macro": "Card",
+              "part": "root",
+              "props": {}
+            },
+            "accessibility": {
+              "role": "group"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "StatTile",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "Active users"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "trend": [
+              3,
+              4,
+              3,
+              5,
+              6,
+              8
+            ]
+          },
+          "bound": {
+            "id": "stat-tile",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "stat-tile.card.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "Active users",
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "label",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "stat-tile.card.header.delta",
+                            "component": "Text",
+                            "props": {
+                              "text": "+12 %",
+                              "variant": "caption",
+                              "tone": "success"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "delta",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "header",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.value",
+                        "component": "Text",
+                        "props": {
+                          "text": "1,284",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "value",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.trend",
+                        "component": "Chart",
+                        "props": {
+                          "kind": "sparkline",
+                          "series": [
+                            {
+                              "name": "",
+                              "values": [
+                                3,
+                                4,
+                                3,
+                                5,
+                                6,
+                                8
+                              ],
+                              "tone": "primary"
+                            }
+                          ],
+                          "height": 32,
+                          "showAxes": false,
+                          "showGrid": false,
+                          "showLegend": false
+                        },
+                        "children": [],
+                        "style": {
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Sparkline",
+                          "part": "root",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.md",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "borderRadius": "$radius.xl",
+                  "overflow": "hidden"
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Active users"
+            },
+            "recipe": {
+              "macro": "StatTile",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "trend": []
+          },
+          "bound": {
+            "id": "stat-tile",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "stat-tile.card.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "Active users",
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "label",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "stat-tile.card.header.delta",
+                            "component": "Text",
+                            "props": {
+                              "text": "+12 %",
+                              "variant": "caption",
+                              "tone": "success"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "delta",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "header",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.value",
+                        "component": "Text",
+                        "props": {
+                          "text": "1,284",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "value",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.trend",
+                        "component": "Chart",
+                        "props": {
+                          "kind": "sparkline",
+                          "series": [
+                            {
+                              "name": "",
+                              "values": [],
+                              "tone": "primary"
+                            }
+                          ],
+                          "height": 32,
+                          "showAxes": false,
+                          "showGrid": false,
+                          "showLegend": false
+                        },
+                        "children": [],
+                        "style": {
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Sparkline",
+                          "part": "root",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.md",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "borderRadius": "$radius.xl",
+                  "overflow": "hidden"
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Active users"
+            },
+            "recipe": {
+              "macro": "StatTile",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "stat-tile",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stat-tile.card",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "stat-tile.card.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "stat-tile.card.header",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "stat-tile.card.header.label",
+                            "component": "Text",
+                            "props": {
+                              "text": "Active users",
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "label",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "stat-tile.card.header.delta",
+                            "component": "Text",
+                            "props": {
+                              "text": "+12 %",
+                              "variant": "caption",
+                              "tone": "success"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "StatTile",
+                              "part": "delta",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm"
+                        },
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "header",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "stat-tile.card.value",
+                        "component": "Text",
+                        "props": {
+                          "text": "1,284",
+                          "variant": "title",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "StatTile",
+                          "part": "value",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.md",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Card",
+                      "part": "body",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "borderRadius": "$radius.xl",
+                  "overflow": "hidden"
+                },
+                "accessibility": {
+                  "role": "group"
+                },
+                "recipe": {
+                  "macro": "Card",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group",
+              "label": "Active users"
+            },
+            "recipe": {
+              "macro": "StatTile",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "FormActions/bound:submit",
+      "input": {
+        "id": "form-actions",
+        "component": "FormActions",
+        "props": {
+          "submit": {
+            "path": "/submit"
+          },
+          "cancel": true
+        },
+        "children": [
+          {
+            "id": "form-actions-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expanded": {
+        "id": "form-actions",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "form-actions-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            },
+            "children": []
+          },
+          {
+            "id": "form-actions.cancel",
+            "component": "Button",
+            "props": {
+              "label": "$string.cancel",
+              "variant": "outline"
+            },
+            "children": [],
+            "recipe": {
+              "macro": "FormActions",
+              "part": "cancel",
+              "props": {}
+            }
+          },
+          {
+            "id": "form-actions.submit",
+            "component": "Button",
+            "props": {
+              "label": {
+                "path": "/submit"
+              },
+              "variant": "default",
+              "submit": true
+            },
+            "children": [],
+            "recipe": {
+              "macro": "FormActions",
+              "part": "submit",
+              "props": {}
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "flexWrap": "wrap",
+          "justifyContent": "flex-end",
+          "alignItems": "center",
+          "gap": "$spacing.sm",
+          "width": "100%"
+        },
+        "recipe": {
+          "macro": "FormActions",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "submit": "Save"
+          },
+          "bound": {
+            "id": "form-actions",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "form-actions-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              },
+              {
+                "id": "form-actions.cancel",
+                "component": "Button",
+                "props": {
+                  "label": "Cancel",
+                  "variant": "outline"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "FormActions",
+                  "part": "cancel",
+                  "props": {}
+                }
+              },
+              {
+                "id": "form-actions.submit",
+                "component": "Button",
+                "props": {
+                  "label": "Save",
+                  "variant": "default",
+                  "submit": true
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "FormActions",
+                  "part": "submit",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "justifyContent": "flex-end",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "width": "100%"
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "recipe": {
+              "macro": "FormActions",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "submit": ""
+          },
+          "bound": {
+            "id": "form-actions",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "form-actions-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              },
+              {
+                "id": "form-actions.cancel",
+                "component": "Button",
+                "props": {
+                  "label": "Cancel",
+                  "variant": "outline"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "FormActions",
+                  "part": "cancel",
+                  "props": {}
+                }
+              },
+              {
+                "id": "form-actions.submit",
+                "component": "Button",
+                "props": {
+                  "label": "",
+                  "variant": "default",
+                  "submit": true
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "FormActions",
+                  "part": "submit",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "justifyContent": "flex-end",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "width": "100%"
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "recipe": {
+              "macro": "FormActions",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "form-actions",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "form-actions-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              },
+              {
+                "id": "form-actions.cancel",
+                "component": "Button",
+                "props": {
+                  "label": "Cancel",
+                  "variant": "outline"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "FormActions",
+                  "part": "cancel",
+                  "props": {}
+                }
+              },
+              {
+                "id": "form-actions.submit",
+                "component": "Button",
+                "props": {
+                  "variant": "default",
+                  "submit": true
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "FormActions",
+                  "part": "submit",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "justifyContent": "flex-end",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "width": "100%"
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "recipe": {
+              "macro": "FormActions",
+              "part": "root",
+              "props": {}
             }
           },
           "presses": []

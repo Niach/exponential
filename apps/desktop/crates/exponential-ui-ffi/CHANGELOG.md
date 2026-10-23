@@ -7,6 +7,7 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 First release.
 
+- VAPP-126 (review #1187): `visibility_hidden` is also set for a `display: none` box (the core lays it out at zero size with its subtree): SwiftUI and Compose paint nothing of it, take no taps and keep it out of the a11y tree; a zero frame alone let an icon button's glyph draw past it on SwiftUI.
 - A coarse `Surface` object: messages go in; frames, visuals, layers, lists and scrolls come out, with batched `Measurer` upcalls.
 - Swift and Kotlin bindings, committed and drift-gated.
 - `build-ios.sh` builds the xcframework: device, simulator and macOS slices, fat x86_64 + arm64, profile `mobile`, without the `cli` feature.

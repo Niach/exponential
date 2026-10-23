@@ -114,6 +114,9 @@ pub struct PaintStyle {
     pub transition: Option<Transition>,
     /// `visibility: hidden`.
     pub invisible: bool,
+    /// VAPP-126: `display: none` (laid out at zero size, clipped; the subtree
+    /// is no tab stop).
+    pub display_none: bool,
     /// `pointerEvents: none`.
     pub pointer_none: bool,
     pub cursor: Option<CursorStyle>,
@@ -185,6 +188,14 @@ impl PaintStyle {
             scroll_x = true;
             scroll_y = true;
         }
+        // VAPP-126: a display:none box is laid out at zero size and still
+        // painted (the conformance replay wants every visible node); clipping
+        // it keeps a control inside (an icon button's glyph) from drawing
+        // past the zero frame.
+        if v.display_none {
+            clip_x = true;
+            clip_y = true;
+        }
         let gradient = v.background_gradient.as_ref().and_then(|g| {
             let stops: Vec<(Hsla, f32)> = g.stops.iter().filter_map(|s| color_of(Some(&s.color)).map(|c| (c, s.offset.clamp(0.0, 1.0)))).collect();
             (stops.len() >= 2).then_some(GradientPaint { angle: g.angle, stops })
@@ -209,6 +220,7 @@ impl PaintStyle {
             transform: v.transform.as_deref().map(Affine::of).unwrap_or_default(),
             transition: v.transition.filter(|t| t.duration_ms > 0.0),
             invisible: v.visibility_hidden,
+            display_none: v.display_none,
             pointer_none: v.pointer_events_none,
             cursor: v.cursor.as_deref().and_then(cursor_of),
             italic: v.font_style.as_deref() == Some("italic"),

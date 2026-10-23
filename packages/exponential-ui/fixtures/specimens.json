@@ -1142,6 +1142,121 @@
       }
     },
     {
+      "id": "exponential-ui-split-view",
+      "component": "SplitView",
+      "title": "SplitView",
+      "node": {
+        "id": "specimen-split-view",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-split-view-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-split-view-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-split-view",
+                "component": "SplitView",
+                "props": {
+                  "width": 280
+                },
+                "children": [
+                  {
+                    "id": "c0-detail",
+                    "component": "Page",
+                    "props": {
+                      "title": "APP-9",
+                      "subtitle": "Fix crash when uploading HEIC photos"
+                    },
+                    "children": [
+                      {
+                        "id": "c0-body",
+                        "component": "Text",
+                        "props": {
+                          "text": "Uploading a HEIC photo from the iOS share sheet crashes the app.",
+                          "variant": "body"
+                        }
+                      },
+                      {
+                        "id": "c0-meta",
+                        "component": "Text",
+                        "props": {
+                          "text": "Opened 2 days ago by Ada.",
+                          "variant": "muted"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "slots": {
+                  "list": {
+                    "id": "c0-rows",
+                    "component": "List",
+                    "props": {
+                      "divided": true,
+                      "gap": "none"
+                    },
+                    "children": [
+                      {
+                        "id": "c0-r1",
+                        "component": "Row",
+                        "props": {
+                          "title": "Fix crash when uploading HEIC photos",
+                          "identifier": "APP-9",
+                          "selected": true,
+                          "pressable": true
+                        }
+                      },
+                      {
+                        "id": "c0-r2",
+                        "component": "Row",
+                        "props": {
+                          "title": "Offline queue for issue edits",
+                          "identifier": "APP-21",
+                          "pressable": true
+                        }
+                      },
+                      {
+                        "id": "c0-r3",
+                        "component": "Row",
+                        "props": {
+                          "title": "Reduce cold start below 800 ms",
+                          "identifier": "APP-18",
+                          "pressable": true
+                        }
+                      }
+                    ]
+                  }
+                },
+                "style": {
+                  "height": 160
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-app-bar",
       "component": "AppBar",
       "title": "AppBar",
@@ -1189,6 +1304,232 @@
                       "label": "More",
                       "variant": "ghost",
                       "size": "icon"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-page",
+      "component": "Page",
+      "title": "Page",
+      "node": {
+        "id": "specimen-page",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-page-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-page-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-page",
+                "component": "Page",
+                "props": {
+                  "title": "Settings",
+                  "subtitle": "Acme",
+                  "back": true
+                },
+                "children": [
+                  {
+                    "id": "c0-p1",
+                    "component": "Text",
+                    "props": {
+                      "text": "General",
+                      "variant": "label"
+                    }
+                  },
+                  {
+                    "id": "c0-c1",
+                    "component": "Card",
+                    "props": {
+                      "title": "Team name",
+                      "description": "Acme"
+                    }
+                  },
+                  {
+                    "id": "c0-c2",
+                    "component": "Card",
+                    "props": {
+                      "title": "Timezone",
+                      "description": "Europe/Vienna"
+                    }
+                  }
+                ],
+                "slots": {
+                  "trailing": {
+                    "id": "c0-more",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-more",
+                      "label": "More",
+                      "variant": "ghost",
+                      "size": "icon"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-page-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-page-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "padded · false",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-page",
+                "component": "Page",
+                "props": {
+                  "title": "Members",
+                  "padded": false
+                },
+                "children": [
+                  {
+                    "id": "c1-p1",
+                    "component": "Text",
+                    "props": {
+                      "text": "General",
+                      "variant": "label"
+                    }
+                  },
+                  {
+                    "id": "c1-c1",
+                    "component": "Card",
+                    "props": {
+                      "title": "Team name",
+                      "description": "Acme"
+                    }
+                  },
+                  {
+                    "id": "c1-c2",
+                    "component": "Card",
+                    "props": {
+                      "title": "Timezone",
+                      "description": "Europe/Vienna"
+                    }
+                  }
+                ],
+                "slots": {
+                  "trailing": {
+                    "id": "c1-more",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-more",
+                      "label": "More",
+                      "variant": "ghost",
+                      "size": "icon"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-toolbar",
+      "component": "Toolbar",
+      "title": "Toolbar",
+      "node": {
+        "id": "specimen-toolbar",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-toolbar-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-toolbar-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-toolbar",
+                "component": "Toolbar",
+                "props": {
+                  "gap": "sm"
+                },
+                "children": [
+                  {
+                    "id": "c0-search",
+                    "component": "Input",
+                    "props": {
+                      "label": "Search",
+                      "name": "q",
+                      "type": "search",
+                      "placeholder": "Search issues"
+                    },
+                    "style": {
+                      "width": 240
+                    }
+                  },
+                  {
+                    "id": "c0-filter",
+                    "component": "Button",
+                    "props": {
+                      "label": "Filter",
+                      "variant": "outline"
+                    }
+                  }
+                ],
+                "slots": {
+                  "trailing": {
+                    "id": "c0-new",
+                    "component": "Button",
+                    "props": {
+                      "label": "New issue",
+                      "variant": "default"
                     }
                   }
                 }
@@ -6536,6 +6877,125 @@
       }
     },
     {
+      "id": "exponential-ui-stat-tile",
+      "component": "StatTile",
+      "title": "StatTile",
+      "node": {
+        "id": "specimen-stat-tile",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-stat-tile-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-stat-tile-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-stat-tile",
+                "component": "StatTile",
+                "props": {
+                  "label": "Active users",
+                  "value": "1,284",
+                  "delta": "+12 %",
+                  "tone": "success",
+                  "trend": [
+                    3,
+                    4,
+                    3,
+                    5,
+                    6,
+                    8
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-stat-tile-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-stat-tile-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "tone · danger",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-stat-tile",
+                "component": "StatTile",
+                "props": {
+                  "label": "Error rate",
+                  "value": "0.42 %",
+                  "delta": "+0.1 %",
+                  "tone": "danger",
+                  "trend": [
+                    2,
+                    2,
+                    3,
+                    2,
+                    4,
+                    5
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-stat-tile-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-stat-tile-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "no trend",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-stat-tile",
+                "component": "StatTile",
+                "props": {
+                  "label": "Open issues",
+                  "value": "37"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-button",
       "component": "Button",
       "title": "Button",
@@ -7211,6 +7671,143 @@
                     }
                   }
                 ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-field-group",
+      "component": "FieldGroup",
+      "title": "FieldGroup",
+      "node": {
+        "id": "specimen-field-group",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-field-group-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-field-group-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-field-group",
+                "component": "FieldGroup",
+                "props": {
+                  "columns": 2
+                },
+                "children": [
+                  {
+                    "id": "c0-starts",
+                    "component": "Input",
+                    "props": {
+                      "label": "Starts",
+                      "name": "starts",
+                      "value": "09:00"
+                    }
+                  },
+                  {
+                    "id": "c0-ends",
+                    "component": "Input",
+                    "props": {
+                      "label": "Ends",
+                      "name": "ends",
+                      "value": "10:30"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-form-actions",
+      "component": "FormActions",
+      "title": "FormActions",
+      "node": {
+        "id": "specimen-form-actions",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-form-actions-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-form-actions-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-form-actions",
+                "component": "FormActions",
+                "props": {
+                  "submit": "Save",
+                  "cancel": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-form-actions-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-form-actions-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "destructive · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-form-actions",
+                "component": "FormActions",
+                "props": {
+                  "submit": "Delete team",
+                  "cancel": true,
+                  "destructive": true
+                }
               }
             ]
           }

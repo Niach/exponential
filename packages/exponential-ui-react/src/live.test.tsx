@@ -11,7 +11,7 @@ import { ExponentialSurface } from "./surface"
 import { useSurface, type SurfaceState } from "./use-surface"
 import { NATIVES } from "./natives"
 import type { NativeProps } from "./node-view"
-import { share } from "./live"
+import { share } from "@exponential-at/ui/web"
 
 afterEach(cleanup)
 
