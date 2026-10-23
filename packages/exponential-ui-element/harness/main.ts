@@ -18,6 +18,9 @@
 
 import "@exponential-at/ui-element/define"
 import { CORE_CATALOG_ID, reduceNested, reduceSurface, BUILTIN_THEME_IDS, THEME_SCHEMA_ID, componentDef } from "@exponential-at/ui"
+// VAPP-106: the runtime catalog ships without the components' examples; the
+// controls view paints each control from its example, so attach them here.
+import { describeCatalog } from "@exponential-at/ui/prompt"
 import type { FlatComponent, NestedNode, UiNode } from "@exponential-at/ui"
 import { BASE_CSS } from "@exponential-at/ui/web"
 import benchFixture from "@exponential-at/ui/fixtures/bench-list.json" with { type: "json" }
@@ -252,7 +255,7 @@ function Controls(): Node {
   return div(
     `display: flex; flex-wrap: wrap; gap: 16px; padding: 16px; align-items: flex-start`,
     ...all.map((c) => {
-      const example = (componentDef(c.component)?.example ?? {}) as Record<string, unknown>
+      const example = (describeCatalog().components[c.component]?.example ?? componentDef(c.component)?.example ?? {}) as Record<string, unknown>
       const { root, templates } = reduceNested({ id: `root`, component: c.component, props: { ...example, ...c.props } }, { catalogId: CORE_CATALOG_ID })
       const box = div(`width: 360px`, surfaceEl({ surfaceId: c.key.replace(/[^a-z0-9]/gi, `-`), root, templates, theme: themeId, mode: `light`, plugin: { icons: harnessIcons } }))
       box.dataset.case = c.key

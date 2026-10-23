@@ -79,9 +79,11 @@ export type { MappedComponent } from "./basic-map"
 export { reduceSurface, reduceNested, preorder, RESERVED_KEYS, validVisible, slotAllowed, childTemplate } from "./reducer"
 export type { ReduceOptions, ReduceResult } from "./reducer"
 export { defineExtension, validateExtension } from "./extension"
-export { coreSchema, extensionSchema } from "./schema"
-export { catalogPrompt, componentPrompt, catalogIndex, estimateTokens, PROMPT_RULES, PROMPT_SECTIONS, DEFAULT_SECTIONS, CHARS_PER_TOKEN } from "./prompt"
-export type { PromptOptions, PromptSection } from "./prompt"
+// VAPP-106: NOT here, each its own entry so the root stays what a renderer
+// needs: `@exponential-at/ui/prompt` (catalogPrompt, estimateTokens,
+// PROMPT_RULES, the described catalog), `./schema` (coreSchema,
+// extensionSchema + the vendored A2UI basic catalog), `./conformance` (the
+// suite + every fixture), `./host` (the host API, also re-exported below).
 // VAPP-108: the typed authoring DSL (defineSurface + the ui factories).
 export { defineSurface, flattenSurface, ui, el, bind, call, event, run } from "./define"
 export type { SurfaceNode, TemplateChildren, DefineOptions, DefinedSurface, Factory } from "./define"
@@ -124,8 +126,5 @@ export { OVERLAY_OFFSET, OVERLAY_PADDING, placeOverlay } from "./overlay"
 export type { OverlaySide, OverlayAlign, OverlayPlacement, Rect, Size } from "./overlay"
 // VAPP-91: the host API (transport, functions, bindings, negotiation, policy, packages).
 export * from "./host"
-// VAPP-91: the conformance suite.
-export { CONFORMANCE_VERSION, conformanceManifest, checkReport } from "./conformance"
-export type { ConformanceSuite, ConformanceManifest, ConformanceReport, ReportVerdict } from "./conformance"
 // VAPP-91: declarative vapps in any host + the Exponential connector.
 export * from "./connector"

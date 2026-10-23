@@ -6,7 +6,8 @@
    URL (the state deflated into the hash); the system prompt the catalog
    generates for a model, with an optional extension catalog. */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
-import { BUILTIN_THEMES, builtinTheme, catalogPrompt, estimateTokens, tryLoadTheme, validateExtension } from "@exponential-at/ui"
+import { BUILTIN_THEMES, builtinTheme, tryLoadTheme, validateExtension } from "@exponential-at/ui"
+import { catalogPrompt, estimateTokens } from "@exponential-at/ui/prompt"
 import type { ExtensionDef, ReduceIssue, ResolvedTheme } from "@exponential-at/ui"
 import type { SurfaceActionEvent } from "@exponential-at/ui-react"
 import extensionFixture from "@exponential-at/ui/fixtures/catalog-extension.json"

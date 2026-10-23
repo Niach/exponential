@@ -1345,7 +1345,10 @@ pub fn shadow_css(layers: &[Shadow]) -> String {
         .join(", ")
 }
 
-#[cfg(test)]
+// VAPP-106: these exercise `neutral` and `playful`, which only embed with
+// the default-on `builtin-themes` feature (tests/generated_drift.rs covers
+// the other state).
+#[cfg(all(test, feature = "builtin-themes"))]
 mod tests {
     /// VAPP-90: a conditioned rule wins over a LATER base rule (a child
     /// theme's appended override used to shadow every `checked`/`focus`
