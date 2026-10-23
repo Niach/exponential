@@ -646,7 +646,8 @@ mod tests {
             ("/clip", 200, vec![("Content-Type", "video/mp4".to_string())], big.clone()),
             ("/moved", 302, vec![("Location", "http://localhost:1/clip".to_string())], vec![]),
         ]);
-        let options = MediaOptions { hosts: Some(vec!["127.0.0.1".into()]), ..Default::default() };
+        // VAPP-107: the loopback test server is a private host; `hosts` alone does not opt it in.
+        let options = MediaOptions { hosts: Some(vec!["127.0.0.1".into()]), allow_private: Some(vec!["127.0.0.1".into()]), ..Default::default() };
         let key = |path: &str| MediaKey::new(&media_request(&format!("{base}{path}"), &options).unwrap(), &options);
         let path = fetch_to_file(&key("/clip"), "mp4").unwrap();
         assert_eq!(path.extension().and_then(|e| e.to_str()), Some("mp4"));
