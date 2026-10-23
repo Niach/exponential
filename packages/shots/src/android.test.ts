@@ -161,4 +161,9 @@ describe(`specimenState`, () => {
     expect(state.ready).toBe(false)
     expect(state.error).toContain(`exponential-ui-nope`)
   })
+  test(`an unknown eval specimen too (VAPP-127)`, () => {
+    const state = specimenState(`W ExponentialUI: specimen exponential-ui-eval-nope: not in eval-specimens.json`, `exponential-ui-eval-nope`)
+    expect(state.ready).toBe(false)
+    expect(state.error).toContain(`eval-specimens.json`)
+  })
 })

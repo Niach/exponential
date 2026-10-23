@@ -66,8 +66,8 @@ import { rawShotPath, repoRoot } from "./paths.ts"
 /** `[[bin]] name` of `apps/desktop/crates/app` — also the CGWindow owner name. */
 export const DEFAULT_PROCESS_NAME = `exp-desktop`
 export const DEFAULT_BINARY = `apps/desktop/target/release/${DEFAULT_PROCESS_NAME}`
-/** What the desktop app talks to. The vite dev server, not the Caddy proxy. */
-export const DEFAULT_BASE_URL = `http://localhost:5173`
+/** What the desktop app talks to. The vite dev server, not the Caddy proxy; `SHOTS_DEV_URL` overrides it (an isolated stack beside the shared one). */
+export const DEFAULT_BASE_URL = process.env.SHOTS_DEV_URL ?? `http://localhost:5173`
 /** `PLATFORM_FRAME.desktop` is 1800×1125 — this @2x source scales exactly onto it. */
 export const WINDOW_SIZE = `1440x900`
 /**
@@ -127,6 +127,12 @@ export interface CaptureDesktopOptions {
    * between a file tree and "This repository is not cloned yet."
    */
   reposRoot?: string
+  /**
+   * VAPP-127: capture these screens INSTEAD of the catalog's views (the
+   * eval lane): `viewId` names the raw file, `screen` is the
+   * `EXP_DEV_SCREEN` value, `env` layers on top.
+   */
+  targets?: readonly { viewId: string; screen: string; env?: Record<string, string> }[]
 }
 
 export interface DesktopShotResult {
@@ -393,7 +399,9 @@ export async function captureDesktop(
   const wanted = options.viewIds ? new Set(options.viewIds) : undefined
   const shots: DesktopShotResult[] = []
 
-  const views = viewsFor(`desktop`).filter((view) => !wanted || wanted.has(view.id))
+  const views: { id: string; desktop?: DesktopCapture }[] = options.targets
+    ? options.targets.map((t) => ({ id: t.viewId, desktop: { drive: { kind: `screen`, value: t.screen }, env: t.env } as DesktopCapture }))
+    : viewsFor(`desktop`).filter((view) => !wanted || wanted.has(view.id))
   if (views.length === 0) return { shots, failures: 0 }
 
   if (options.dryRun) {

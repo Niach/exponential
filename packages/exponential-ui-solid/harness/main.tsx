@@ -498,13 +498,16 @@ function benchData(scenario: BenchScenario): Record<string, unknown> {
 function BenchSuite(): JSX.Element {
   const id = params.get(`scenario`) ?? ``
   const scenario = BENCH_SCENARIOS[id]
+  // VAPP-149: the generated rows are built BEFORE the surface's clock starts
+  // (firstPaintMs times the renderer, not benchItems).
+  const initialData = scenario ? benchData(scenario) : {}
   return (
     <Show when={scenario} fallback={<div>unknown scenario {id} (one of {benchManifest.scenarios.map((s) => s.id).join(`, `)})</div>}>
-      <BenchSuiteSurface scenario={scenario!} />
+      <BenchSuiteSurface scenario={scenario!} initialData={initialData} />
     </Show>
   )
 }
-function BenchSuiteSurface(props: { scenario: BenchScenario }): JSX.Element {
+function BenchSuiteSurface(props: { scenario: BenchScenario; initialData: Record<string, unknown> }): JSX.Element {
   const scenario = props.scenario
   const t0 = performance.now()
   let handle: SurfaceHandle | null = null
@@ -512,7 +515,7 @@ function BenchSuiteSurface(props: { scenario: BenchScenario }): JSX.Element {
   const [theme, setTheme] = createSignal(scenario.theme)
   const [modeState, setMode] = createSignal<`light` | `dark`>(scenario.mode)
   const [surfaceWidth, setWidth] = createSignal(scenario.viewport.width)
-  const surface = createSurface({ surfaceId: `bench`, catalogId: scenario.catalogId, initial: `nested` in scenario.surface ? scenario.surface.nested : undefined, data: benchData(scenario) })
+  const surface = createSurface({ surfaceId: `bench`, catalogId: scenario.catalogId, initial: `nested` in scenario.surface ? scenario.surface.nested : undefined, data: props.initialData })
   // A flat surface (list-100k, streaming, template-10k, table-1k) arrives as
   // the updateComponents it would be streamed in, applied before the mount
   // (the React harness's layout effect re-renders before its first paint).

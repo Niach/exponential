@@ -1,12 +1,11 @@
 #!/usr/bin/env bun
 // FEED-128: builds harness/main.tsx with Vite (`vite-plugin-solid`: Solid's
-// JSX needs its compiler, Bun's bundler has none) into a temp dir on the
-// first request and serves it (`PORT`, default 4182) with the SAME page as
+// JSX needs its compiler, Bun's bundler has none) in memory on the first
+// request and serves it (`PORT`, default 4182) with the SAME page as
 // the React harness. The browser suites spawn this; `dev:harness` runs it
 // for a human.
 
-import { mkdtempSync, readFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { build } from "vite"
 import solid from "vite-plugin-solid"
@@ -14,10 +13,11 @@ import solid from "vite-plugin-solid"
 const root = import.meta.dir
 const port = Number(process.env.PORT ?? 4182)
 
-/** The harness bundle (one ES module, every import inlined). */
+/** The harness bundle (one ES module, every import inlined), built in
+ *  memory (`write: false`): nothing lands on disk, so no run leaves a
+ *  bundle behind in the system temp folder (VAPP-150). */
 export async function bundleHarness(): Promise<string> {
-  const outDir = mkdtempSync(join(tmpdir(), `xui-solid-harness-`))
-  await build({
+  const result = await build({
     configFile: false,
     root,
     logLevel: `warn`,
@@ -25,8 +25,7 @@ export async function bundleHarness(): Promise<string> {
     resolve: { conditions: [`browser`] },
     define: { "process.env.NODE_ENV": JSON.stringify(`production`) },
     build: {
-      outDir,
-      emptyOutDir: true,
+      write: false,
       minify: false,
       target: `es2022`,
       modulePreload: false,
@@ -36,7 +35,10 @@ export async function bundleHarness(): Promise<string> {
       },
     },
   })
-  return readFileSync(join(outDir, `main.js`), `utf8`)
+  const outputs = (Array.isArray(result) ? result : [result]).flatMap((r) => (`output` in r ? r.output : []))
+  const chunk = outputs.find((o) => o.type === `chunk` && o.fileName === `main.js`)
+  if (!chunk || chunk.type !== `chunk`) throw new Error(`the harness build produced no main.js`)
+  return chunk.code
 }
 
 /** `?view=primitives` (FEED-131): the package's OWN compiled stylesheet,

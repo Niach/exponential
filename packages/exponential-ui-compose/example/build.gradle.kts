@@ -20,6 +20,10 @@ val copyFixtureAssets by tasks.registering(Copy::class) {
     from(fixtures) {
         include("kitchen-sink.json", "specimens.json", "theme-extends.json")
     }
+    // VAPP-127: the recorded eval surfaces, painted by `--es shot exponential-ui-eval-<id>`.
+    from(File(repoRoot, "packages/exponential-ui/eval")) {
+        include("eval-specimens.json")
+    }
     into(fixtureAssets)
 }
 

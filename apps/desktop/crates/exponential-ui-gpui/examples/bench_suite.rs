@@ -147,6 +147,9 @@ mod linux {
         fn new(cx: &mut HeadlessAppContext, host: &Rc<dyn HostPlugin>, sc: &Value, started: Option<Instant>) -> Bench {
             let (w, h) = (sc["viewport"]["width"].as_f64().unwrap() as f32, sc["viewport"]["height"].as_f64().unwrap() as f32);
             let mode = if sc["mode"].as_str() == Some("dark") { Mode::Dark } else { Mode::Light };
+            // VAPP-149: the generated rows are built BEFORE the clock starts
+            // and handed over inside it (firstPaintMs times the renderer).
+            let mut generated = sc["data"].get("generate").map(|spec| (spec["path"].as_str().unwrap().to_string(), Value::Array(generate_items(spec))));
             let t = started.unwrap_or_else(Instant::now);
             let options = SurfaceViewOptions {
                 surface_id: sc["id"].as_str().unwrap_or("bench").into(),
@@ -161,13 +164,10 @@ mod linux {
             let surface = sc["surface"].clone();
             bench.frame(cx, &mut |view, _, cx| {
                 view.set_mode(mode, cx);
-                match &data {
-                    Value::Null => {}
-                    d if d.get("generate").is_some() => {
-                        let spec = &d["generate"];
-                        view.set_data(spec["path"].as_str().unwrap(), Some(Value::Array(generate_items(spec))), cx).expect("generated data");
-                    }
-                    d => view.set_data("", Some(d.clone()), cx).expect("literal data"),
+                match (&data, generated.take()) {
+                    (_, Some((path, items))) => view.set_data(&path, Some(items), cx).expect("generated data"),
+                    (Value::Null, None) => {}
+                    (d, None) => view.set_data("", Some(d.clone()), cx).expect("literal data"),
                 }
                 if let Some(nested) = surface.get("nested") {
                     let tree: NestedNode = serde_json::from_value(nested.clone()).expect("nested tree");

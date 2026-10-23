@@ -78,6 +78,8 @@ final class BenchSuiteTests: XCTestCase {
 
         /// A fresh model with the scenario's surface and data, painted once (the first pass). Returns the model and its first paint cost.
         func firstPaint(timeInit: Bool) throws -> (SurfaceModel, Double) {
+            // VAPP-149: the generated rows are built BEFORE the clock starts (firstPaintMs times the renderer).
+            let generated = s["data"]?["generate"].map { Self.generate($0) }
             let t0 = ContinuousClock.now
             let m = try SurfaceModel(id: "bench", options: options, host: NoHost())
             let t1 = timeInit ? t0 : ContinuousClock.now
@@ -88,7 +90,7 @@ final class BenchSuiteTests: XCTestCase {
             }
             if let data = s["data"] {
                 if let gen = data["generate"] {
-                    m.setData(path: gen["path"]!.string!, value: Self.generate(gen))
+                    m.setData(path: gen["path"]!.string!, value: generated!)
                 } else {
                     m.setData(path: "", value: data)
                 }
