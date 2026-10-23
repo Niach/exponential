@@ -152,6 +152,17 @@ ztracing_macro = { path = "crates/ztracing_macro" }
 # VAPP-86: the mobile facade (`crates/exponential-ui-ffi` → xcframework /
 # Android .so) ships smallest with LTO + one codegen unit + stripped symbols;
 # `build-ios.sh` / `build-android.sh` select it with `--profile mobile`.
+# VAPP-106: `lto` only takes effect when the facade is built as ONE crate
+# type (`cargo rustc --crate-type staticlib|cdylib`, what the scripts do):
+# with its `[lib] crate-type` listing an rlib too, cargo silently skips LTO.
+# `panic` stays "unwind" (Cargo's default): the facade's `catch_unwind`
+# boundary (VAPP-103, VAPP-107) turns a core panic into an issue for the host
+# instead of a dead app; `abort` would make it a no-op (it would save ~18% of
+# the Android .so). `opt-level` stays 3, measured on the arm64 slices with
+# LTO, stripped: "s" = -19% iOS / -22% Android for +5..15% on the grid
+# layout pass; "z" = -21% / -34% for 2x slower everything. A host that
+# prefers size builds with CARGO_PROFILE_MOBILE_OPT_LEVEL=s; the numbers
+# are on VAPP-106 and in packages/exponential-ui/release/sizes.json.
 [profile.mobile]
 inherits = "release"
 lto = true

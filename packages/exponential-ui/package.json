@@ -9,6 +9,10 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./prompt": "./src/entries/prompt.ts",
+    "./schema": "./src/entries/schema.ts",
+    "./conformance": "./src/conformance.ts",
+    "./host": "./src/host/index.ts",
     "./web": "./src/web/index.ts",
     "./web/primitives": "./src/web/primitives/index.ts",
     "./web/primitives/*": "./src/web/primitives/*.ts",
@@ -22,14 +26,15 @@
   },
   "scripts": {
     "generate": "bun run ./scripts/generate.ts",
-    "test": "bun test ./src ./conformance",
+    "test": "bun test ./src ./conformance ./release",
     "conformance": "bun run ./conformance/run.ts",
     "typecheck": "tsc --noEmit",
     "build:builder": "bun build ./builder/main.ts --outdir ./builder/dist --target browser --format esm --define process.env.NODE_ENV='\"production\"'",
     "dev:builder": "bun ./builder/serve.ts",
     "conformance:check": "bun run ./scripts/conformance-check.ts",
     "conformance:parity": "bun run ./scripts/parity-run.ts",
-    "parity:check": "bun run ./scripts/parity-check.ts"
+    "parity:check": "bun run ./scripts/parity-check.ts",
+    "size": "bun run ./release/size.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

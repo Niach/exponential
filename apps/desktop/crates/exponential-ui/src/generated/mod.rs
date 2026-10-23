@@ -12,3 +12,11 @@ pub mod catalog {
 pub mod themes {
     include!("themes.rs");
 }
+
+/// VAPP-106: the catalog's descriptions and examples, only with the
+/// `descriptions` feature (`crate::catalog::descriptions`).
+#[cfg(feature = "descriptions")]
+#[allow(dead_code)]
+pub mod descriptions {
+    include!("descriptions.rs");
+}

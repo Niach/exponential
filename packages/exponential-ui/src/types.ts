@@ -19,6 +19,9 @@ export type PropType =
 
 export interface PropSchema {
   type: PropType
+  /** Model-facing. VAPP-106: ABSENT at runtime on the runtime catalog (`coreCatalog`) until
+   *  `describeCatalog()` attaches it; typed present because its readers (the prompt, the schema
+   *  emitter, the docs, an extension's validation) always see it attached. */
   description: string
   required?: boolean
   default?: unknown
@@ -42,6 +45,9 @@ export interface PropSchema {
 }
 
 export interface DefSchema {
+  /** Model-facing. VAPP-106: ABSENT at runtime on the runtime catalog (`coreCatalog`) until
+   *  `describeCatalog()` attaches it; typed present because its readers (the prompt, the schema
+   *  emitter, the docs, an extension's validation) always see it attached. */
   description: string
   properties: Record<string, PropSchema>
 }
@@ -64,9 +70,13 @@ export interface ComponentDef {
   hidden?: boolean
   /** `planned` = in the catalog, painters land later. */
   status?: string
+  /** Model-facing. VAPP-106: ABSENT at runtime on the runtime catalog (`coreCatalog`) until
+   *  `describeCatalog()` attaches it; typed present because its readers (the prompt, the schema
+   *  emitter, the docs, an extension's validation) always see it attached. */
   description: string
   props: Record<string, PropSchema>
   events?: readonly string[]
+  /** The docs' and the fixtures' specimen props; absent on the runtime catalog like `description`. */
   example?: Record<string, unknown>
 }
 
@@ -94,6 +104,9 @@ export interface FunctionSignature {
 
 /** Round 1: one core function (core.catalog.json `functions.core`). */
 export interface CoreFunctionDef {
+  /** Model-facing. VAPP-106: ABSENT at runtime on the runtime catalog (`coreCatalog`) until
+   *  `describeCatalog()` attaches it; typed present because its readers (the prompt, the schema
+   *  emitter, the docs, an extension's validation) always see it attached. */
   description: string
   /** Argument name → its type (`number`, `string`, `boolean`, `array`, `object`, `any`). */
   args: Record<string, string>

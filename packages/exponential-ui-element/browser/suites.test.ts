@@ -12,7 +12,7 @@
 import { expect, it } from "vitest"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { checkReport } from "@exponential-at/ui"
+import { checkReport } from "@exponential-at/ui/conformance"
 import { runBrowserSuites } from "../../exponential-ui/conformance/browser-suites"
 import { bunHarness } from "../../exponential-ui/conformance/browser-page"
 import { itemInstance, runNodeAction, templateItems } from "../../exponential-ui-solid/src/node-view"

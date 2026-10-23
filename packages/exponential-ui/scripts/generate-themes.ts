@@ -388,11 +388,24 @@ export function renderThemesRust(themes: ResolvedTheme[]): string {
 
 pub const THEME_SCHEMA_ID: &str = ${JSON.stringify(THEME_SCHEMA_ID)};
 pub const DEFAULT_THEME_ID: &str = "exponential";
+// VAPP-106: the non-default built-ins (${r.ids.filter((id) => id !== `exponential`).join(`, `)}) embed with the crate's default-on
+// \`builtin-themes\` feature; without it only the default theme \`exponential\` does (the rest of the .rodata goes).
+#[cfg(feature = "builtin-themes")]
 ${arr(`BUILTIN_THEME_IDS`, r.ids)}
+#[cfg(not(feature = "builtin-themes"))]
+${arr(`BUILTIN_THEME_IDS`, r.ids.filter((id) => id === `exponential`))}
+#[cfg(feature = "builtin-themes")]
 ${arr(`BUILTIN_THEME_NAMES`, r.names)}
+#[cfg(not(feature = "builtin-themes"))]
+${arr(`BUILTIN_THEME_NAMES`, r.names.filter((_, i) => r.ids[i] === `exponential`))}
 /// The built-ins RESOLVED (extends flattened, every token present), one JSON document each; parse once at startup.
+#[cfg(feature = "builtin-themes")]
 pub const BUILTIN_THEME_JSON: &[&str] = &[
 ${r.jsons.map((j) => `    r####"${j}"####,`).join(`\n`)}
+];
+#[cfg(not(feature = "builtin-themes"))]
+pub const BUILTIN_THEME_JSON: &[&str] = &[
+${r.jsons.filter((_, i) => r.ids[i] === `exponential`).map((j) => `    r####"${j}"####,`).join(`\n`)}
 ];
 ${arr(`RECIPE_STATES`, RECIPE_STATES)}
 ${arr(`RECIPE_KEYS`, RECIPE_KEYS)}

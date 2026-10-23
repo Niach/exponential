@@ -64,3 +64,48 @@ Licences: everything is Apache-2.0; the vendored A2UI schemas and the
 json-render wording carry their `VENDORED` rows in
 `packages/licenses/curated/supplement.ts` (`bun run notices` regenerates the
 NOTICES; `docs/third-party-licences.md` is the policy).
+
+## Sizes (VAPP-106)
+
+`bun run --filter @exponential-at/ui size` (= `bun packages/exponential-ui/release/size.ts`)
+measures what the SDK ships and `release/sizes.json` is the number on
+record; `release/size-budget.json` is the gate: `size.ts <section> --check`
+fails anything over its budget, and `exponential-ui.yml` runs it per job on
+what that job built (`npm` in the React job, `xcframework` in the Swift
+job, the x86_64 `.so` in the Compose emulator job, `cargo bloat` in the
+Rust job; `release-ui.yml` gates every ABI and every slice before
+publishing).
+
+| section | what | how |
+|---|---|---|
+| `npm` | every entry of `build-npm.ts`, bundled MINIFIED (the release ships them readable + source-mapped): the entry plus the chunks it imports, bytes and gzip; each web renderer's `styles.css` as built; the element's `standalone.js` (everything inlined). Also the root-entry split: a renderer entry that bundles the described catalog, the prompt, the schema emitters or a fixture fails | `bundle()` from `build-npm.ts` into a temp dir (Bun; Vite for the Solid package and the standalone file) |
+| `xcframework` | each slice's static library and its thin archs (`lipo`) | after `build-ios.sh` |
+| `android` | each ABI's `libexponential_ui_ffi.so`, the AAR when Gradle built one | after `build-android.sh` |
+| `crate` | `cargo bloat --crates` on the core's `bench` example (the top crates by `.text`), the host build of the facade | `cargo install cargo-bloat` |
+
+What the native numbers rest on (VAPP-106): the device builds compile the
+facade as ONE crate type (`cargo rustc --crate-type staticlib|cdylib`),
+because cargo skips the profile's LTO when a target also builds an rlib, and
+`build-ios.sh` strips a copy of each archive (`strip -S -x`: the debug info
+and local symbols of the prebuilt std objects) before `lipo`; the `.so` is
+stripped by the profile. The crate's `builtin-themes` (default on) and
+`descriptions` (off) features gate the embedded data; the device builds keep
+the defaults (the Swift and Compose conformance suites paint `playful`).
+
+The root-entry split (VAPP-106): `@exponential-at/ui` ships the runtime
+catalog (`generated/core.runtime.json`, no descriptions or examples); the
+prompt, the schema emitters (+ the vendored A2UI basic catalog), the
+conformance suite (+ every fixture) and the host API are `./prompt`,
+`./schema`, `./conformance` and `./host`. The web layer the React and Solid
+renderers import (`./web`, `./web/primitives`), both renderers' entries and
+the element's (`.`, `./define`, `standalone.js`) are renderer entries too: `size.ts npm` fails (`--check` or not) when one of
+them bundles the described catalog, the prompt, the schema emitters or a
+fixture (`SPLIT_RULES`, `release/size.test.ts`); the primitives' constants
+that a fixture locks are written in code and held equal by a test.
+
+Updating the record: `size.ts <section> --write` rewrites that section of
+`sizes.json`; a change that shrinks something lowers its budget in the same
+commit (the ratchet never loosens by accident), a change that must grow
+something raises the budget and says why in the PR. Native budgets come
+from a macOS build; Linux hosts (CI's Rust job) report without a budget.
+

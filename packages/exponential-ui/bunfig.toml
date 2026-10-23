@@ -1,0 +1,5 @@
+# VAPP-106: the tests run over the catalog WITH its descriptions and examples
+# (src/test-preload.ts attaches them); the runtime catalog the root entry
+# ships has neither (src/catalog.described.ts).
+[test]
+preload = ["./src/test-preload.ts"]
