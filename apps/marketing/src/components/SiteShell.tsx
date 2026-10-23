@@ -6,7 +6,7 @@ import { DownloadIconRow } from "./DownloadSection"
 import { IcArrow } from "./icons"
 import { WidgetEmbed } from "./WidgetEmbed"
 
-export function SiteHeader() {
+export function SiteHeader({ currentPath }: { currentPath?: string } = {}) {
   useEffect(() => {
     /* Cookieless ref/utm forwarding onto app + internal links (EXP-362);
        every page renders SiteHeader once, and the module self-guards. */
@@ -22,10 +22,12 @@ export function SiteHeader() {
       {/* The bar itself is shared with ui.exponential.at (@exp/site-shell). */}
       <SiteHeaderBar
         brand="Exponential"
+        currentPath={currentPath}
         nav={[
           { label: `Product`, href: `/#product` },
           { label: `Pricing`, href: `/pricing/` },
           { label: `Docs`, href: `/docs/` },
+          { label: `Blog`, href: `/blog/` },
           { label: `UI SDK`, href: LINKS.ui },
           { label: `Download`, href: LINKS.downloadPage },
         ]}
@@ -86,6 +88,7 @@ export function SiteFooter() {
             { label: `Pricing`, href: `/pricing/` },
             { label: `Download`, href: LINKS.downloadPage },
             { label: `Docs`, href: `/docs/` },
+            { label: `Blog`, href: `/blog/` },
             { label: `Self-host`, href: `/docs/self-host/` },
             { label: `UI SDK`, href: LINKS.ui },
           ],
