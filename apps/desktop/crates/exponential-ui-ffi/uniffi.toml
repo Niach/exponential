@@ -1,6 +1,19 @@
 [bindings.swift]
 module_name = "ExponentialUIFFI"
+# VAPP-134: no API checksum calls at load (≈280, like Kotlin's). They guard
+# a binding loaded against a DIFFERENT build of the library; ours never ship
+# apart (binding and library travel in one xcframework, built by
+# build-ios.sh from the same commit), and the contract version check uniffi
+# keeps still refuses an incompatible scaffolding.
+omit_checksums = true
 
 [bindings.kotlin]
 package_name = "at.exponential.ui.ffi"
 cdylib_name = "exponential_ui_ffi"
+# VAPP-134: no API checksum calls at load: ≈280 JNA calls, 70–95 ms of every
+# JVM and Android cold start. They guard a binding loaded against a
+# DIFFERENT build of the library; ours never ship apart (binding and .so
+# travel in one AAR, built by build-android.sh from the same commit), and
+# the contract version check uniffi keeps still refuses an incompatible
+# scaffolding.
+omit_checksums = true

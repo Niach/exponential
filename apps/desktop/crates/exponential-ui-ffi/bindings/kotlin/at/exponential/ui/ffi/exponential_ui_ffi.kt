@@ -754,7 +754,6 @@ internal object IntegrityCheckingUniffiLib {
     init {
         Native.register(IntegrityCheckingUniffiLib::class.java, findLibraryName(componentName = "exponential_ui_ffi"))
         uniffiCheckContractApiVersion(this)
-        uniffiCheckApiChecksums(this)
     }
     external fun uniffi_exponential_ui_ffi_checksum_func_action_message_json(
 ): Short
@@ -955,6 +954,8 @@ external fun uniffi_exponential_ui_ffi_checksum_method_surface_node_count(
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_nodes(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_nodes_at(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_paint_at(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_register_extension(
 ): Short
@@ -1230,6 +1231,8 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_node_count(`ptr`: Long,
 external fun uniffi_exponential_ui_ffi_fn_method_surface_nodes(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_nodes_at(`ptr`: Long,`indices`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_paint_at(`ptr`: Long,`indices`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_register_extension(`ptr`: Long,`extensionJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -1586,501 +1589,6 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
     val scaffolding_contract_version = lib.ffi_exponential_ui_ffi_uniffi_contract_version()
     if (bindings_contract_version != scaffolding_contract_version) {
         throw RuntimeException("UniFFI contract version mismatch: try cleaning and rebuilding your project")
-    }
-}
-@Suppress("UNUSED_PARAMETER")
-private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_action_message_json() != 2647.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_animation_frame_json() != 34139.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_basic_catalog_id() != 30075.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_bench_tree_json() != 31910.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_bind_row_slot_json() != 45227.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_bind_section_header_json() != 42416.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_bind_tree_json() != 42404.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_builtin_theme_ids() != 16938.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json() != 60746.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_chart_extent_json() != 41730.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_client_capabilities_json() != 21405.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_code_text() != 23100.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_combine_decisions() != 28171.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_component_a11y_json() != 31430.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_control_geometry_json() != 60105.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_core_catalog_id() != 35263.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_decide_function() != 53224.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_decide_url_json() != 6103.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_decode_jsonl_json() != 63269.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_default_theme_id() != 10974.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_display_string_json() != 16203.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_error_message_json() != 45756.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_extension_errors() != 24175.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_format_call_json() != 40402.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_format_pattern_json() != 12110.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_format_string() != 31957.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_host_contract_json() != 18735.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_json_diff() != 38474.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_json_equal() != 25552.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_list_json() != 2952.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_load_theme_json() != 35667.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_mcp_action_call_json() != 5104.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_media_image_header() != 16289.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_media_request_json() != 38964.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_messages_from_mcp_result_json() != 8649.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json() != 40785.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_package_policy_json() != 10529.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_parse_date_value_json() != 60626.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_parse_source_json() != 38003.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_place_overlay() != 44395.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_reduce_nested_json() != 7405.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json() != 59777.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_relative_time_unit_json() != 52328.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_resizable_json() != 39983.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json() != 827.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_resolve_dynamic_json() != 12682.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json() != 7595.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_run_action_json() != 39985.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_string_table_json() != 50623.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_supported_catalog_ids_for() != 9150.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_template_messages_json() != 21577.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_text_direction() != 32593.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_text_shimmer_json() != 7457.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_theme_issues_json() != 53537.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_tokenize_code_json() != 16111.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_validate_package_json() != 13412.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_validate_style_json() != 34628.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_version() != 37022.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_func_week_start() != 43637.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale() != 12162.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_number() != 35282.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_currency() != 28224.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_percent() != 54520.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_date() != 10148.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_relative_time() != 19375.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_plural() != 18062.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_bytes() != 58182.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostrouter_install_package() != 53902.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostrouter_package_id_of() != 10640.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_extension() != 46286.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostrouter_route() != 34070.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostrouter_supported_catalog_ids() != 37235.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostrouter_surface_ids() != 45773.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostzone_offset_minutes() != 22212.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_jsonldecoder_end() != 43219.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_jsonldecoder_push() != 9759.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_measurer_measure_id() != 47158.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_measurer_measure_intrinsics() != 2340.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_measurer_measure_heights() != 22303.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_ssedecoder_end() != 33049.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_ssedecoder_push() != 38769.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_apply() != 62930.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_command_json() != 27523.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_data_json() != 48232.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_dismiss_toast() != 60544.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme() != 34484.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme_json() != 59305.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_event() != 18560.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_failing_checks() != 25004.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_hover_timeout() != 3003.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_index_of() != 6030.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_invalidate_measures() != 22083.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_issues_json() != 12552.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_layout() != 59309.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_layout_fixed() != 38533.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_mark_dirty() != 26385.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_mode() != 14752.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_node_count() != 13599.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_nodes() != 4838.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_nodes_at() != 51362.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_register_extension() != 9834.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_scroll() != 2061.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to() != 16099.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to_index() != 44001.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_builtin_theme() != 56744.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_clock() != 29426.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_components() != 46659.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_contrast() != 9302.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_data() != 29980.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_density() != 26135.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_fallback_zone() != 58767.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_font_scale() != 25889.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_formatter() != 35944.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_hover() != 19545.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_hovered() != 21550.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_insets() != 63206.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_locale() != 43927.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_mode() != 40915.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_mode_setting() != 7979.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_nested() != 14592.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_open() != 30902.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_pointer() != 58287.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_pressed() != 9582.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_rounding() != 56260.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_settings() != 54680.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_states() != 56941.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_strings_json() != 27566.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_surface_scroll() != 60657.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_theme() != 2832.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_theme_json() != 36009.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_viewport() != 36786.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_settings() != 47099.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_strings_json() != 14666.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_structure_version() != 30765.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_submit_form() != 27583.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_take_events() != 5811.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_text_style() != 3961.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_theme() != 51512.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_tick() != 40589.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_uses_clock() != 32081.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_visual() != 1946.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_visuals() != 48935.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_theme_color() != 46286.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_theme_colors_json() != 55774.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_theme_control() != 55429.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_theme_control_geometry() != 40611.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_theme_font_family() != 927.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_theme_fonts_json() != 23830.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_theme_id() != 22448.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_theme_line_height() != 27673.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_theme_name() != 36856.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_theme_opacity() != 50625.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_theme_radius() != 47519.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_theme_resolve_part() != 25979.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_theme_resolved_json() != 2959.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_theme_spacing() != 47885.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_theme_type_size() != 27563.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_constructor_hostrouter_new() != 1496.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_constructor_jsonldecoder_new() != 47547.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_constructor_ssedecoder_new() != 2920.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_constructor_surface_new() != 63721.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_constructor_surface_with_theme() != 19728.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_constructor_theme_builtin() != 49233.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_exponential_ui_ffi_checksum_constructor_theme_load() != 18071.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
 
@@ -4963,6 +4471,13 @@ public interface SurfaceInterface {
     fun `nodesAt`(`indices`: List<kotlin.UInt>): List<FfiNode>
     
     /**
+     * [`Self::visual`] and, for a leaf, [`Self::text_style`] of every slot
+     * in `indices`, in that order: one call per step instead of two per
+     * slot. A slot past the end is left out (like [`Self::nodes_at`]).
+     */
+    fun `paintAt`(`indices`: List<kotlin.UInt>): List<FfiPaint>
+    
+    /**
      * Register an extension catalog (its JSON definition), validated.
      */
     fun `registerExtension`(`extensionJson`: kotlin.String)
@@ -5554,6 +5069,24 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_nodes_at(
+        it,
+        FfiConverterSequenceUInt.lower(`indices`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * [`Self::visual`] and, for a leaf, [`Self::text_style`] of every slot
+     * in `indices`, in that order: one call per step instead of two per
+     * slot. A slot past the end is left out (like [`Self::nodes_at`]).
+     */override fun `paintAt`(`indices`: List<kotlin.UInt>): List<FfiPaint> {
+            return FfiConverterSequenceTypeFfiPaint.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_paint_at(
         it,
         FfiConverterSequenceUInt.lower(`indices`),_status)
 }
@@ -7790,6 +7323,56 @@ public object FfiConverterTypeFfiNode: FfiConverterRustBuffer<FfiNode> {
 
 
 /**
+ * VAPP-131 / VAPP-138: what a painter reads per slot after a pass, in ONE
+ * call for a step's added and changed slots ([`Surface::paint_at`]).
+ * `visual` is always there (every slot carries one, the default before
+ * its first restyle); `text_style` only for a live leaf, the only nodes
+ * whose text a painter shapes.
+ */
+data class FfiPaint (
+    var `index`: kotlin.UInt
+    , 
+    var `visual`: FfiVisual
+    , 
+    var `textStyle`: FfiTextStyle?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiPaint: FfiConverterRustBuffer<FfiPaint> {
+    override fun read(buf: ByteBuffer): FfiPaint {
+        return FfiPaint(
+            FfiConverterUInt.read(buf),
+            FfiConverterTypeFfiVisual.read(buf),
+            FfiConverterOptionalTypeFfiTextStyle.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiPaint) = (
+            FfiConverterUInt.allocationSize(value.`index`) +
+            FfiConverterTypeFfiVisual.allocationSize(value.`visual`) +
+            FfiConverterOptionalTypeFfiTextStyle.allocationSize(value.`textStyle`)
+    )
+
+    override fun write(value: FfiPaint, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`index`, buf)
+            FfiConverterTypeFfiVisual.write(value.`visual`, buf)
+            FfiConverterOptionalTypeFfiTextStyle.write(value.`textStyle`, buf)
+    }
+}
+
+
+
+/**
  * A part's resolved look (VAPP-88): the painted visual plus the flat style
  * map (`width`, `height`, `borderWidth`… as JSON) for the parts the core does
  * not synthesize (a Checkbox `check`, a Switch `thumb`, a Select `trigger`).
@@ -9549,6 +9132,34 @@ public object FfiConverterSequenceTypeFfiNode: FfiConverterRustBuffer<List<FfiNo
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeFfiNode.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeFfiPaint: FfiConverterRustBuffer<List<FfiPaint>> {
+    override fun read(buf: ByteBuffer): List<FfiPaint> {
+        val len = buf.getInt()
+        return List<FfiPaint>(len) {
+            FfiConverterTypeFfiPaint.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiPaint>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiPaint.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiPaint>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiPaint.write(it, buf)
         }
     }
 }
