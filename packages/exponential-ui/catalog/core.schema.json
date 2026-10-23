@@ -4727,20 +4727,10 @@
               "const": "Breadcrumb"
             },
             "items": {
-              "oneOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/$defs/option"
-                  }
-                },
-                {
-                  "$ref": "#/$defs/DataBinding"
-                },
-                {
-                  "$ref": "#/$defs/FunctionCall"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/option"
+              },
               "description": "The path from the root to the current page."
             },
             "on": {

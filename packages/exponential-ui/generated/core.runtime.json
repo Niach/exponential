@@ -1758,8 +1758,7 @@
             "type": "object",
             "shape": "option"
           },
-          "required": true,
-          "bindable": true
+          "required": true
         }
       },
       "events": [

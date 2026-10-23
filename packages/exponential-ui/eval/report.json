@@ -5,18 +5,18 @@
     "budgetTokens": 7000,
     "full": {
       "components": 75,
-      "chars": 27998,
+      "chars": 27997,
       "tokens": 7000
     },
     "lite": {
       "components": 53,
-      "chars": 20557,
-      "tokens": 5140
+      "chars": 20556,
+      "tokens": 5139
     },
     "terse": {
       "components": 75,
-      "chars": 20597,
-      "tokens": 5150
+      "chars": 20596,
+      "tokens": 5149
     },
     "index": {
       "components": 75,
@@ -38,9 +38,14 @@
     "recordedBy": {
       "session": 30
     },
-    "validatorClean": 30,
-    "issuesTotal": 0,
-    "issueKinds": [],
+    "validatorClean": 29,
+    "issuesTotal": 1,
+    "issueKinds": [
+      {
+        "message": "props.items: expected an array",
+        "count": 1
+      }
+    ],
     "components": {
       "total": 304,
       "mean": 10.1,
@@ -1043,7 +1048,12 @@
       "messages": 4,
       "components": 8,
       "depth": 4,
-      "issues": [],
+      "issues": [
+        {
+          "id": "crumbs",
+          "message": "props.items: expected an array"
+        }
+      ],
       "spacing": {
         "tokenised": 0,
         "raw": 0,

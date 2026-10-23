@@ -2177,7 +2177,6 @@
             "shape": "option"
           },
           "required": true,
-          "bindable": true,
           "description": "The path from the root to the current page."
         }
       },

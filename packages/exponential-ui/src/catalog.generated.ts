@@ -194,7 +194,7 @@ export interface ComponentProps {
   Trace: { size?: TraceSizeValue }
   TraceItem: { title: string | Dynamic; icon?: IconName; description?: string; status?: TraceStatusValue; size?: TraceSizeValue; collapsible?: boolean; open?: boolean | Dynamic }
   Pagination: { totalPages: number; page?: number | Dynamic }
-  Breadcrumb: { items: Shapes["option"][] | Dynamic }
+  Breadcrumb: { items: Shapes["option"][] }
   Stepper: { steps: Shapes["step"][]; current?: number | Dynamic; orientation?: OrientationValue }
   Dialog: { title?: string; description?: string; open?: boolean | Dynamic; dismissible?: boolean }
   Drawer: { title?: string; description?: string; open?: boolean | Dynamic; side?: SideValue | Responsive<SideValue>; dismissible?: boolean; dragToDismiss?: boolean }

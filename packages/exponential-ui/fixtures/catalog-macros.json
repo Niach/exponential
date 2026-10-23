@@ -22611,40 +22611,6 @@
       }
     },
     {
-      "name": "Breadcrumb/bound:items",
-      "input": {
-        "id": "breadcrumb",
-        "component": "Breadcrumb",
-        "props": {
-          "items": {
-            "path": "/items"
-          }
-        }
-      },
-      "expected": {
-        "id": "breadcrumb",
-        "component": "Box",
-        "props": {},
-        "children": [],
-        "style": {
-          "display": "flex",
-          "flexDirection": "row",
-          "alignItems": "center",
-          "flexWrap": "wrap",
-          "gap": "$spacing.xs"
-        },
-        "recipe": {
-          "macro": "Breadcrumb",
-          "part": "root",
-          "props": {}
-        },
-        "accessibility": {
-          "role": "navigation",
-          "label": "$string.breadcrumb"
-        }
-      }
-    },
-    {
       "name": "Stepper/bound:current",
       "input": {
         "id": "stepper",

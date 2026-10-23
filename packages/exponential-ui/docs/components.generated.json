@@ -2115,7 +2115,7 @@
           "name": "items",
           "type": "[option]",
           "required": true,
-          "bindable": true,
+          "bindable": false,
           "responsive": false,
           "description": "The path from the root to the current page."
         }
