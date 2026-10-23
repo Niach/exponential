@@ -32,6 +32,9 @@ export interface TitleIssue {
 
 export interface TitleMessage {
   id: string
+  /** NEW-8: the session its conversation belongs to, keyed through the
+   *  `conversations` shape (`keyMessagesBySession`), never the row's own
+   *  legacy `session_id`. */
   sessionId: string
   authorKind: string
   authorSessionId?: string | null
