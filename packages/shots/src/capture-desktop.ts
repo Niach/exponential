@@ -127,6 +127,12 @@ export interface CaptureDesktopOptions {
    * between a file tree and "This repository is not cloned yet."
    */
   reposRoot?: string
+  /**
+   * VAPP-127: capture these screens INSTEAD of the catalog's views (the
+   * eval lane): `viewId` names the raw file, `screen` is the
+   * `EXP_DEV_SCREEN` value, `env` layers on top.
+   */
+  targets?: readonly { viewId: string; screen: string; env?: Record<string, string> }[]
 }
 
 export interface DesktopShotResult {
@@ -393,7 +399,9 @@ export async function captureDesktop(
   const wanted = options.viewIds ? new Set(options.viewIds) : undefined
   const shots: DesktopShotResult[] = []
 
-  const views = viewsFor(`desktop`).filter((view) => !wanted || wanted.has(view.id))
+  const views: { id: string; desktop?: DesktopCapture }[] = options.targets
+    ? options.targets.map((t) => ({ id: t.viewId, desktop: { drive: { kind: `screen`, value: t.screen }, env: t.env } as DesktopCapture }))
+    : viewsFor(`desktop`).filter((view) => !wanted || wanted.has(view.id))
   if (views.length === 0) return { shots, failures: 0 }
 
   if (options.dryRun) {

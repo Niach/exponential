@@ -14,8 +14,9 @@
 //
 //   bun eval/render.ts [--only <id,id>] [--theme exponential] [--mode dark]
 //
-// The natives go through the shots pipeline's specimen lane once a corpus
-// surface is a view (follow-up on VAPP-108); this is the stack-free door.
+// The natives paint the same tree + data (eval-specimens.json) through the
+// shots pipeline's `eval` lane, measured by natives.ts (VAPP-127); this is the
+// web's stack-free door.
 
 import pixelmatch from "pixelmatch"
 import { chromium, type Browser } from "playwright"
@@ -24,9 +25,9 @@ import { spawn } from "node:child_process"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { reduceSurface } from "../src/reducer"
-import type { FlatComponent, UiNode } from "../src/types"
+import type { UiNode } from "../src/types"
 import corpus from "./corpus.json" with { type: "json" }
-import { parseReply, surfaceOf, widthsOf, type Corpus } from "./lib"
+import { nestedSurface, parseReply, surfaceOf, widthsOf, type AuthoredSurface, type Corpus } from "./lib"
 import { REPORT_PATH, buildReport, readFixture, readReport } from "./score"
 
 const argv = process.argv.slice(2)
@@ -156,44 +157,11 @@ async function serveHarness(renderer: Renderer): Promise<{ base: string; stop: (
   throw new Error(`the ${renderer} harness did not come up on :${port}`)
 }
 
-/** The flat components + data → the harness `?view=tree` query (a nested
- *  tree, the data model). */
-function treeQuery(components: FlatComponent[], data: Record<string, unknown>, width: number): string {
-  const { root, templates } = reduceSurface(components, { catalogId: `https://ui.exponential.at/catalogs/core/v1`, expand: false })
-  const nested = JSON.stringify(withTemplates(root, templates ?? {}))
-  return `?view=tree&tree=${encodeURIComponent(nested)}&data=${encodeURIComponent(JSON.stringify(data))}&width=${width}&theme=${theme}&mode=${mode}`
-}
-
-/** The harness takes ONE nested tree: template nodes ride along under
- *  their owner as `template` children (what reduceNested lifts back out). */
-function withTemplates(node: UiNode, templates: Record<string, UiNode>): unknown {
-  const out: Record<string, unknown> = { id: node.id, component: node.component, props: node.props }
-  if (node.style) out.style = node.style
-  if (node.on) out.on = node.on
-  if (node.visible !== undefined) out.visible = node.visible
-  if (node.accessibility) out.accessibility = node.accessibility
-  if (node.template) {
-    out.template = node.template
-    const t = templates[node.template.component]
-    if (t) out.children = [withTemplates(t, templates)]
-  } else if (node.children.length) out.children = node.children.map((c) => withTemplates(c, templates))
-  if (node.slots) out.slots = Object.fromEntries(Object.entries(node.slots).map(([k, v]) => [k, withTemplates(v, templates)]))
-  return out
-}
-
-function dataModel(writes: { path: string; value: unknown }[]): Record<string, unknown> {
-  const data: Record<string, unknown> = {}
-  for (const w of writes) {
-    const parts = w.path.split(`/`).filter(Boolean)
-    if (!parts.length) {
-      Object.assign(data, w.value as Record<string, unknown>)
-      continue
-    }
-    let cursor: Record<string, unknown> = data
-    for (const p of parts.slice(0, -1)) cursor = (cursor[p] ??= {}) as Record<string, unknown>
-    cursor[parts[parts.length - 1]] = w.value
-  }
-  return data
+/** The authored surface → the harness `?view=tree` query (one nested tree,
+ *  the data model: lib.ts nestedSurface, the natives' specimens too). */
+function treeQuery(surface: AuthoredSurface, width: number): string {
+  const { tree, data } = nestedSurface(surface)
+  return `?view=tree&tree=${encodeURIComponent(JSON.stringify(tree))}&data=${encodeURIComponent(JSON.stringify(data))}&width=${width}&theme=${theme}&mode=${mode}`
 }
 
 /** What conformance/parity.ts injects before a picture: a spinner's frame or a blinking caret is no difference. */
@@ -246,13 +214,12 @@ async function main(): Promise<void> {
         continue
       }
       const surface = surfaceOf(parseReply(fixture.text).messages)
-      const data = dataModel(surface.data)
       const dir = join(OUT, entry.id)
       mkdirSync(dir, { recursive: true })
       const { root } = reduceSurface(surface.components, { catalogId: surface.catalogId })
       const measures: RenderMeasure[] = []
       for (const width of widthsOf(entry)) {
-        const query = treeQuery(surface.components, data, width)
+        const query = treeQuery(surface, width)
         const painted = {} as Record<Renderer, { measure: RendererMeasure; png: Buffer; errors: string[] }>
         for (const renderer of RENDERERS) {
           const relative = `eval/out/${entry.id}/${renderer}-${width}.png`

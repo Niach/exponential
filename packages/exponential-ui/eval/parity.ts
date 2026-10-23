@@ -25,8 +25,10 @@
 
 import pixelmatch from "pixelmatch"
 import sharp from "sharp"
-import { readFileSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import corpus from "./corpus.json" with { type: "json" }
+import { widthsOf, type Corpus } from "./lib"
 import { REPORT_PATH, buildReport, readReport } from "./score"
 
 const ROOT = join(import.meta.dir, `..`, `..`, `..`)
@@ -247,10 +249,139 @@ export function describe(row: ParityRow): string {
   ].join(`\n`)
 }
 
+// ---------------------------------------------------------------------------
+// VAPP-127: every corpus surface that names an `appView` against that app
+// screen, on every platform where both pictures exist: the eval's own render
+// (web: eval/out/<id>/react-<w>.png from render.ts; android / ios / desktop:
+// eval/out/<id>/<platform>.webp from the shots pipeline's eval lane) and the
+// stored app shot (shots/<appView>/<platform>.webp). The screens differ in
+// content on purpose (an agent's surface is not the app's screen), so what is
+// compared is the SPACING both draw, measured the same way on both, in css px:
+// the left inset of the first ink from the content's edge, the top inset,
+// and the vertical rhythm (the gaps between successive runs of ink rows: the
+// median and the most common values). No gate: a record, like the Devices
+// rows' first run was.
+// ---------------------------------------------------------------------------
+
+export type SurfacePlatform = Platform | `android` | `ios`
+export const SURFACE_PLATFORMS: readonly SurfacePlatform[] = [`web`, `desktop`, `android`, `ios`]
+/** The phones' css width the stored captures span (the Medium Phone AVD's 412 dp, the iPhone 17 Pro Max's 440 pt). */
+const PHONE_CSS_WIDTH = { android: 412, ios: 440 } as const
+
+export interface Spacing {
+  /** Where the content starts (the app chrome's width), css px. */
+  contentLeft: number
+  /** The first ink's left inset from the content's edge. */
+  inset: number
+  /** The first ink's top inset from the measured region's top. */
+  top: number
+  /** Runs of ink rows (text lines, controls, rules). */
+  runs: number
+  medianGap: number
+  /** The most common gaps (to 2 css px), most frequent first. */
+  gaps: number[]
+}
+
+export interface SurfaceParityRow {
+  surface: string
+  appView: string
+  platform: SurfacePlatform
+  template: Spacing
+  native: Spacing
+  /** template − native, css px. */
+  delta: { inset: number; top: number; medianGap: number }
+  /** Share of the template's common gaps the app screen also uses (±2 css px). */
+  sharedGaps: number
+  pictures: { template: string; native: string }
+}
+
+const round = (v: number) => Math.round(v * 10) / 10
+
+/** The spacing of one picture (`cssPerPx` = css px per image px; `top` = the
+ *  fraction of the height the status bar / tab strip takes; `chrome` = find
+ *  the app's sidebar first). */
+export function spacing(img: Raw, cssPerPx: number, options: { top: number; chrome: boolean }): Spacing {
+  const bg0 = background(img, Math.floor(img.width * 0.4), img.width)
+  const left = options.chrome ? contentLeft(img, bg0) : 0
+  const bg = background(img, left, img.width)
+  const y0 = Math.floor(img.height * options.top)
+  const y1 = Math.floor(img.height * 0.95)
+  const px = (css: number) => Math.max(1, Math.round(css / cssPerPx))
+  // Ink runs, the ones closer than 2 css px merged, the ones thinner than 2 css px dropped.
+  const raw = runs(inkRows(img, left, img.width, y0, y1, bg), y0)
+  const merged: [number, number][] = []
+  for (const r of raw) {
+    const last = merged[merged.length - 1]
+    if (last && r[0] - last[1] < px(2)) last[1] = r[1]
+    else merged.push([r[0], r[1]])
+  }
+  const ink = merged.filter(([a, b]) => b - a >= px(2))
+  const gaps = ink.slice(1).map((r, i) => (r[0] - ink[i][1]) * cssPerPx)
+  const sorted = [...gaps].sort((a, b) => a - b)
+  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0
+  const counts = new Map<number, number>()
+  for (const g of gaps) counts.set(Math.round(g / 2) * 2, (counts.get(Math.round(g / 2) * 2) ?? 0) + 1)
+  const insets = ink.slice(0, 8).map(([a, b]) => firstInkX(img, left, img.width, a, b, bg, 30)).filter((x) => x >= 0)
+  return {
+    contentLeft: round(left * cssPerPx),
+    inset: insets.length ? round((Math.min(...insets) - left) * cssPerPx) : 0,
+    top: ink.length ? round((ink[0][0] - y0) * cssPerPx) : 0,
+    runs: ink.length,
+    medianGap: round(median),
+    gaps: [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, 6).map(([g]) => g),
+  }
+}
+
+/** The eval's own picture of `id` on `platform`, if one was taken. */
+function templatePicture(id: string, platform: SurfacePlatform, widths: number[]): string | undefined {
+  const dir = join(import.meta.dir, `out`, id)
+  if (platform !== `web`) return existsSync(join(dir, `${platform}.webp`)) ? join(dir, `${platform}.webp`) : undefined
+  const w = widths.includes(1280) ? 1280 : Math.max(...widths)
+  return existsSync(join(dir, `react-${w}.png`)) ? join(dir, `react-${w}.png`) : undefined
+}
+
+export async function compareSurfaces(): Promise<SurfaceParityRow[]> {
+  const rows: SurfaceParityRow[] = []
+  for (const entry of (corpus as Corpus).prompts) {
+    if (!entry.appView) continue
+    for (const platform of SURFACE_PLATFORMS) {
+      const t = templatePicture(entry.id, platform, widthsOf(entry))
+      const n = join(SHOTS, entry.appView, `${platform}.webp`)
+      if (!t || !existsSync(n)) continue
+      const template = await raw(t)
+      const native = await raw(n)
+      const phone = platform === `android` || platform === `ios`
+      const scale = (img: Raw, isTemplate: boolean) =>
+        phone ? PHONE_CSS_WIDTH[platform as `android` | `ios`] / img.width : platform === `web` && isTemplate ? 0.5 : 1 / STORE_SCALE
+      const top = platform === `web` ? (0.02) : 0.06
+      const st = spacing(template, scale(template, true), { top: platform === `web` ? 0 : top, chrome: platform === `desktop` })
+      const sn = spacing(native, scale(native, false), { top, chrome: platform === `web` || platform === `desktop` })
+      const shared = st.gaps.length ? st.gaps.filter((g) => sn.gaps.some((h) => Math.abs(g - h) <= 2)).length / st.gaps.length : 0
+      rows.push({
+        surface: entry.id,
+        appView: entry.appView,
+        platform,
+        template: st,
+        native: sn,
+        delta: { inset: round(st.inset - sn.inset), top: round(st.top - sn.top), medianGap: round(st.medianGap - sn.medianGap) },
+        sharedGaps: Math.round(shared * 100) / 100,
+        pictures: { template: t.slice(ROOT.length + 1), native: n.slice(ROOT.length + 1) },
+      })
+    }
+  }
+  return rows
+}
+
+export function describeSurface(row: SurfaceParityRow): string {
+  return `${row.surface} vs ${row.appView} (${row.platform}): inset ${row.template.inset} vs ${row.native.inset} (Δ ${row.delta.inset}), median gap ${row.template.medianGap} vs ${row.native.medianGap} (Δ ${row.delta.medianGap}), gaps ${row.template.gaps.join(`/`)} vs ${row.native.gaps.join(`/`)} (${Math.round(row.sharedGaps * 100)} % shared) css px`
+}
+
 if (import.meta.main) {
   const rows = [await compare(`web`), await compare(`desktop`)]
   for (const row of rows) console.log(describe(row))
-  const report = buildReport({ ...readReport(), parity: { $comment: `Devices template (exponential-ui-devices) vs the native Devices page (agents), on the stored shots; store px (1 css px = ${STORE_SCALE} store px).`, rows } })
+  const surfaces = await compareSurfaces()
+  for (const row of surfaces) console.log(describeSurface(row))
+  const report = buildReport({ ...readReport(), parity: { $comment: `Devices template (exponential-ui-devices) vs the native Devices page (agents), on the stored shots; store px (1 css px = ${STORE_SCALE} store px). \`surfaces\` (VAPP-127): every corpus surface naming an appView vs that app screen's stored shot, per platform where the eval has a picture (web: render.ts; android / ios / desktop: the shots pipeline's eval lane), the spacing both draw in css px.`, rows, surfaces } })
   writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`)
   console.log(`→ ${REPORT_PATH}`)
 }

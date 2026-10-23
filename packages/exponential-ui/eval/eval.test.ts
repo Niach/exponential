@@ -11,7 +11,8 @@ import { describe, expect, test } from "bun:test"
 import corpus from "./corpus.json" with { type: "json" }
 import report from "./report.json" with { type: "json" }
 import { RUBRICS, aggregate, authoredDepth, parseReply, rubricScores, scoreFixture, spacingStats, surfaceOf, type Corpus } from "./lib"
-import { readFixture, scoreAll } from "./score"
+import specimens from "./eval-specimens.json" with { type: "json" }
+import { buildSpecimens, readFixture, scoreAll } from "./score"
 import type { ParityRow } from "./parity"
 import { CANDIDATES, RENDERERS, type Candidate, type RenderMeasure } from "./render"
 
@@ -53,6 +54,12 @@ describe(`the report`, () => {
     expect(report.rows).toEqual(JSON.parse(JSON.stringify(rows)))
     expect(report.aggregate).toEqual(JSON.parse(JSON.stringify(aggregate(rows))))
     expect(report.prompt.full.chars).toBe(report.prompt.full.chars)
+  })
+
+  test(`eval/eval-specimens.json is every fixture as a native specimen (rerun \`bun run eval\`)`, () => {
+    expect(specimens).toEqual(JSON.parse(JSON.stringify(buildSpecimens())))
+    expect(specimens.specimens.map((s) => s.corpusId)).toEqual(prompts.map((p) => p.id))
+    for (const s of specimens.specimens) expect(s.id).toBe(`exponential-ui-eval-${s.corpusId}`)
   })
 
   test(`the numbers the issue quotes`, () => {

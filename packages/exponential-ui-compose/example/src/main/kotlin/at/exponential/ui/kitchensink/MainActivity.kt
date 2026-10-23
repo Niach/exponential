@@ -56,6 +56,8 @@ import at.exponential.ui.theme.Mode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import at.exponential.ui.json.JsonValue
+import at.exponential.ui.model.SurfaceModel
 import java.io.File
 
 /**
@@ -128,6 +130,7 @@ fun SinkScreen(state: SinkState, rootView: View) {
             writeText(rootView, path, labels.joinToString("\n") + "\n---\n" + AccessibilityWalk.trace(rootView).joinToString("\n") + "\n")
         }
         options.dump?.let { path -> dump?.write(resolve(rootView, path)) }
+        options.frames?.let { path -> writeFrames(rootView, path, model) }
         if (options.benchLoop) Bench.run(model)
     }
 
@@ -225,4 +228,26 @@ private fun writeText(view: View, path: String, text: String) {
     runCatching { File(target).writeText(text) }
         .onSuccess { Log.i(LOG_TAG, "a11yDump → $target") }
         .onFailure { Log.w(LOG_TAG, "a11yDump $target: ${it.message}") }
+}
+
+/** `--es frames` (VAPP-127): every visible node's frame, dp in surface coordinates. */
+private fun writeFrames(view: View, path: String, model: SurfaceModel) {
+    val target = resolve(view, path)
+    val frames = model.nodes.mapIndexedNotNull { i, n ->
+        val f = model.frames.getOrNull(i) ?: return@mapIndexedNotNull null
+        if (n.hidden) return@mapIndexedNotNull null
+        JsonValue.Obj(
+            mapOf(
+                "id" to JsonValue.Str(n.id),
+                "x" to JsonValue.Num(f.left.toDouble()),
+                "y" to JsonValue.Num(f.top.toDouble()),
+                "w" to JsonValue.Num(f.width.toDouble()),
+                "h" to JsonValue.Num(f.height.toDouble()),
+            ),
+        )
+    }
+    val doc = JsonValue.Obj(mapOf("surface" to JsonValue.Str(model.id), "width" to JsonValue.Num(model.width.toDouble()), "frames" to JsonValue.Arr(frames)))
+    runCatching { File(target).writeText(doc.json + "\n") }
+        .onSuccess { Log.i(LOG_TAG, "frames ${frames.size} → $target") }
+        .onFailure { Log.w(LOG_TAG, "frames $target: ${it.message}") }
 }

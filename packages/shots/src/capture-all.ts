@@ -32,7 +32,7 @@
  * Everything long-lived is tracked and killed in a `finally`, so a Ctrl-C leaves
  * no orphan relay stub or desktop window behind.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import {
@@ -60,6 +60,19 @@ import {
   resolveBinary,
   screenRecordingAllowed,
 } from "./capture-desktop.ts"
+import { encodeShot } from "./encode.ts"
+import {
+  EVAL_SPECIMEN_PREFIX,
+  corpusIds,
+  evalFramesPath,
+  evalPlatforms,
+  evalRawPath,
+  evalScope,
+  evalShotPath,
+  evalSpecimenId,
+  specimenIds,
+  type EvalPlatform,
+} from "./eval-lane.ts"
 import { fetchDemoIds, type DemoIds } from "./ids.ts"
 import { importNative, NATIVE_PLATFORMS } from "./import-native.ts"
 import {
@@ -887,9 +900,23 @@ async function simulatorUdid(name: string): Promise<string | undefined> {
  * STRAIGHT into `.shots-raw/ios/<view-id>.png` — no fastlane dir, so the
  * native importer never sees these.
  */
-async function capturePackageIOS(views: string[], outcomes: LaneOutcome[]): Promise<void> {
+/**
+ * VAPP-127: how the eval lane reuses a package capture: where each raw PNG
+ * goes, the extra launch arguments per view, and what runs after a good shot
+ * (default = the catalog's package lane).
+ */
+interface PackageLane {
+  label: string
+  rawPath: (viewId: string) => string
+  extraArgs?: (viewId: string) => string[]
+  afterShot?: (viewId: string) => Promise<void>
+}
+
+async function capturePackageIOS(views: string[], outcomes: LaneOutcome[], lane?: PackageLane): Promise<void> {
   if (views.length === 0) return
-  console.log(`\n── ios: package example (${views.length} view(s)) ──────────────`)
+  const label = lane?.label ?? `package`
+  const rawPath = lane?.rawPath ?? ((viewId: string) => rawShotPath(`ios`, viewId))
+  console.log(`\n── ios: ${label} example (${views.length} view(s)) ──────────────`)
   const root = repoRoot()
   const fail = (detail: string) => outcomes.push({ platform: `ios`, ok: false, detail, failedViews: views })
 
@@ -956,12 +983,12 @@ async function capturePackageIOS(views: string[], outcomes: LaneOutcome[]): Prom
 
   const failed: string[] = []
   for (const viewId of views) {
-    const png = rawShotPath(`ios`, viewId)
+    const png = rawPath(viewId)
     // A stale raw file would be stored as if this run had produced it.
     rmSync(png, { force: true })
     mkdirSync(dirname(png), { recursive: true })
     await simctl([`terminate`, udid, PACKAGE_IOS.bundleId])
-    const launched = await simctl([`launch`, udid, PACKAGE_IOS.bundleId, `-shot`, viewId])
+    const launched = await simctl([`launch`, udid, PACKAGE_IOS.bundleId, `-shot`, viewId, ...(lane?.extraArgs?.(viewId) ?? [])])
     if (launched.code !== 0) {
       failed.push(viewId)
       console.log(`  fail  ${viewId} — simctl launch exited ${launched.code}`)
@@ -974,13 +1001,14 @@ async function capturePackageIOS(views: string[], outcomes: LaneOutcome[]): Prom
       console.log(`  fail  ${viewId} — simctl io screenshot exited ${shot.code}`)
       continue
     }
+    await lane?.afterShot?.(viewId)
     console.log(`  ok    ${viewId} → ${png}`)
   }
   await simctl([`terminate`, udid, PACKAGE_IOS.bundleId])
   outcomes.push({
     platform: `ios`,
     ok: failed.length === 0,
-    detail: failed.length === 0 ? undefined : `${failed.length} package view(s) failed: ${failed.join(`, `)}`,
+    detail: failed.length === 0 ? undefined : `${failed.length} ${label} view(s) failed: ${failed.join(`, `)}`,
     failedViews: failed,
   })
 }
@@ -1093,9 +1121,11 @@ function buildAndroidFfi(sdk: AndroidSdk): Promise<{ abi: FfiAbi } | { error: st
  * shot: the launcher behind a crashed app looks like a real change. The caller
  * pins the status bar (demo mode) around it.
  */
-async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[]): Promise<void> {
+async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[], lane?: PackageLane): Promise<void> {
   if (views.length === 0) return
-  console.log(`\n── android: package example (${views.length} view(s)) ──────────`)
+  const label = lane?.label ?? `package`
+  const rawPath = lane?.rawPath ?? ((viewId: string) => rawShotPath(`android`, viewId))
+  console.log(`\n── android: ${label} example (${views.length} view(s)) ──────────`)
   const root = repoRoot()
   const fail = (detail: string) => outcomes.push({ platform: `android`, ok: false, detail, failedViews: views })
 
@@ -1150,7 +1180,7 @@ async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[]): 
     console.log(`  fail  ${viewId} — ${why}`)
   }
   for (const viewId of views) {
-    const png = rawShotPath(`android`, viewId)
+    const png = rawPath(viewId)
     // A stale raw file would be stored as if this run had produced it.
     rmSync(png, { force: true })
     mkdirSync(dirname(png), { recursive: true })
@@ -1160,6 +1190,7 @@ async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[]): 
     const launched = await adb([
       `shell`, `am`, `start`, `-W`, `-n`, PACKAGE_ANDROID.activity,
       `--es`, `shot`, viewId, `--es`, `theme`, `exponential`, `--es`, `mode`, `dark`,
+      ...(lane?.extraArgs?.(viewId) ?? []),
     ])
     // `am start` exits 0 even when it cannot resolve the activity.
     if (launched.code !== 0 || /Error/.test(launched.stdout + launched.stderr)) {
@@ -1220,13 +1251,14 @@ async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[]): 
       refuse(viewId, png, `after the screenshot: ${after.reason}`)
       continue
     }
+    await lane?.afterShot?.(viewId)
     console.log(`  ok    ${viewId} → ${png}`)
   }
   await adb([`shell`, `am`, `force-stop`, PACKAGE_ANDROID.appId])
   outcomes.push({
     platform: `android`,
     ok: failed.length === 0,
-    detail: failed.length === 0 ? undefined : `${failed.length} package view(s) failed: ${failed.join(`, `)}`,
+    detail: failed.length === 0 ? undefined : `${failed.length} ${label} view(s) failed: ${failed.join(`, `)}`,
     failedViews: failed,
   })
 }
@@ -2020,10 +2052,129 @@ function failedByPlatform(outcomes: LaneOutcome[]): Map<string, string[]> {
 
 /* ---------------------------------------------------------------------- main */
 
+/* ----------------------------------------------------- eval lane (VAPP-127) */
+
+/**
+ * `--views eval` / `eval:<id>`: the recorded eval surfaces painted by the
+ * native hosts (eval-lane.ts says what and where). Outside the catalog and
+ * the store: android + ios through the package lane's example apps (one
+ * build, `--es frames` / `-frames` for the boxes), desktop through the
+ * desktop lane's signed-in IDE (`EXP_DEV_SCREEN=exponential-ui-eval-<id>`,
+ * `EXP_DEV_EVAL_FRAMES`, so it needs the seeded stack; `--skip-seed` reuses
+ * it). Every capture is encoded like a store shot into
+ * `eval/out/<id>/<platform>.webp`; the raw PNG is dropped.
+ */
+async function captureEval(options: Options, ids: string[]): Promise<number> {
+  const platforms = evalPlatforms(options.platforms)
+  const skipped = options.platforms.filter((p) => !(platforms as string[]).includes(p))
+  console.log(`shots: eval lane · ${ids.length} surface(s) · ${platforms.join(`, `) || `no native platform`}`)
+  if (skipped.length > 0 && options.platforms.length < PLATFORMS.length) {
+    console.log(`  ${skipped.join(`, `)}: not this lane — the web renders are \`bun run --filter @exponential-at/ui eval:render\``)
+  }
+  const known = new Set(specimenIds())
+  const missing = ids.filter((id) => !known.has(evalSpecimenId(id)))
+  if (missing.length > 0) {
+    throw new Error(`eval-specimens.json has no specimen for ${missing.join(`, `)}: run \`bun run --filter @exponential-at/ui eval\` first`)
+  }
+  if (options.dryRun || options.plan || platforms.length === 0) return 0
+
+  const views = ids.map(evalSpecimenId)
+  const corpusOf = (viewId: string) => viewId.slice(EVAL_SPECIMEN_PREFIX.length)
+  const outcomes: LaneOutcome[] = []
+  const stored: string[] = []
+  const store = async (platform: EvalPlatform, viewId: string, raw: string) => {
+    const corpusId = corpusOf(viewId)
+    const out = evalShotPath(corpusId, platform)
+    mkdirSync(dirname(out), { recursive: true })
+    const encoded = await encodeShot(readFileSync(raw))
+    writeFileSync(out, encoded.buf)
+    rmSync(raw, { force: true })
+    stored.push(`${corpusId}/${platform}.webp (${encoded.width}×${encoded.height}${existsSync(evalFramesPath(corpusId, platform)) ? `, frames` : `, NO frames`})`)
+  }
+  const fresh = (viewId: string, platform: EvalPlatform) => {
+    const frames = evalFramesPath(corpusOf(viewId), platform)
+    rmSync(frames, { force: true })
+    mkdirSync(dirname(frames), { recursive: true })
+    return frames
+  }
+
+  for (const platform of platforms) {
+    if (platform === `android`) {
+      const remote = (viewId: string) => `/sdcard/Android/data/${PACKAGE_ANDROID.appId}/files/${corpusOf(viewId)}.frames.json`
+      let demoMode = false
+      try {
+        await waitForAndroidBoot()
+        demoMode = await enableAndroidDemoMode()
+        await capturePackageAndroid(views, outcomes, {
+          label: `eval`,
+          rawPath: (viewId) => evalRawPath(`android`, corpusOf(viewId)),
+          extraArgs: (viewId) => {
+            fresh(viewId, `android`)
+            return [`--es`, `frames`, remote(viewId)]
+          },
+          afterShot: async (viewId) => {
+            const pulled = await run({ cmd: [`adb`, `pull`, remote(viewId), evalFramesPath(corpusOf(viewId), `android`)], timeoutMs: 60_000 })
+            if (pulled.code !== 0) console.log(`  warn  ${viewId}: no frames (${pulled.stderr.trim() || `adb pull exited ${pulled.code}`})`)
+            await run({ cmd: [`adb`, `shell`, `rm`, `-f`, remote(viewId)], timeoutMs: 30_000 })
+            await store(`android`, viewId, evalRawPath(`android`, corpusOf(viewId)))
+          },
+        })
+      } finally {
+        await restoreAndroidStatusBar(demoMode)
+      }
+    } else if (platform === `ios`) {
+      if (process.platform !== `darwin`) {
+        outcomes.push({ platform: `ios`, ok: false, detail: `the iOS Simulator needs macOS`, failedViews: views })
+        continue
+      }
+      await capturePackageIOS(views, outcomes, {
+        label: `eval`,
+        rawPath: (viewId) => evalRawPath(`ios`, corpusOf(viewId)),
+        // A Simulator app writes the host's file system directly.
+        extraArgs: (viewId) => [`-frames`, fresh(viewId, `ios`)],
+        afterShot: (viewId) => store(`ios`, viewId, evalRawPath(`ios`, corpusOf(viewId))),
+      })
+    } else {
+      const allowed = await screenRecordingAllowed()
+      if (!allowed.ok) {
+        outcomes.push({ platform: `desktop`, ok: false, detail: allowed.message, failedViews: views })
+        continue
+      }
+      // The IDE paints a specimen inside its signed-in shell: the desktop
+      // lane's world (seed unless --skip-seed, a syncable shape proxy, the demo ids).
+      if (!options.skipSeed) {
+        const seed = await run({ cmd: [`bun`, `run`, `seed:screenshots`], cwd: join(repoRoot(), `apps/web`), stream: true, label: `[seed]`, timeoutMs: 15 * 60_000 })
+        if (seed.code !== 0) throw new Error(`seeding failed (exit ${seed.code})`)
+      }
+      await assertShapesSyncable(DEV_URL)
+      const demo = await fetchDemoIds()
+      console.log(`\n── desktop: eval (${views.length} view(s)) ──────────────────`)
+      const result = await captureDesktop({
+        ids: demo,
+        reposRoot: options.reposRoot,
+        targets: views.map((viewId) => ({ viewId, screen: viewId, env: { EXP_DEV_EVAL_FRAMES: fresh(viewId, `desktop`) } })),
+      })
+      for (const shot of result.shots) if (shot.state === `captured` && shot.file) await store(`desktop`, shot.viewId, shot.file)
+      const failed = result.shots.filter((shot) => shot.state !== `captured`).map((shot) => shot.viewId)
+      outcomes.push({ platform: `desktop`, ok: failed.length === 0, detail: failed.length ? `${failed.length} eval view(s) not captured: ${failed.join(`, `)}` : undefined, failedViews: failed })
+    }
+  }
+
+  console.log(`\n── eval/out ──────────────────────────────────────────`)
+  for (const line of stored) console.log(`  ${line}`)
+  console.log(`  ${stored.length} picture(s); next: bun run --filter @exponential-at/ui eval:natives`)
+  const failures = outcomes.filter((o) => !o.ok)
+  for (const f of failures) console.error(`  ${f.platform}: ${f.detail ?? `failed`}`)
+  return failures.length > 0 ? 1 : 0
+}
+
 async function main(): Promise<number> {
   // F39: raws written before this instant belong to an earlier run.
   const runStartedAt = Date.now()
   const options = parseArgs(process.argv.slice(2))
+  // VAPP-127: eval surfaces never mix with the catalog's views.
+  const evalIds = evalScope(options.viewIds, corpusIds())
+  if (evalIds) return captureEval(options, evalIds)
   const { scope, affected, since } = await resolveScope(options)
   if (!options.writeOnly) {
     // `--plan` touches nothing, not even the auth-config probe.
