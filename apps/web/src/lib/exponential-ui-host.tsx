@@ -19,7 +19,7 @@ import { ExponentialHost, isPrivateHost } from "@exponential-at/ui"
 import type { FunctionCallInfo, ParsedSource, SourceEmit, Transport } from "@exponential-at/ui"
 import { useHostStatus } from "@exponential-at/ui-react"
 import { Button, CodeBlock, CodeBlockContent, Collapsible, CollapsibleContent, CollapsibleTrigger, Prompt, appExtensionCatalog, devicesPackage, toast } from "@exp/ui"
-import type { VappPackage } from "@exponential-at/ui"
+import type { AppPackage } from "@exponential-at/ui"
 import { getDeviceIconName } from "@exp/ui"
 import { boardCollection, deviceCollection, issueCollection, teamCollection } from "@/lib/collections"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
@@ -142,6 +142,9 @@ function issuesSource(source: ParsedSource, emit: SourceEmit): () => void {
     emit({ rows, count: rows.length })
   }
   const sub = issueCollection.subscribeChanges(push, { includeInitialState: true })
+  // A change subscription alone never starts the shape: an app opened
+  // before any board would bind an empty list for good (VAPP-110).
+  void issueCollection.preload().then(push)
   push()
   return () => sub.unsubscribe()
 }
@@ -199,7 +202,7 @@ export interface AppHostOptions {
   /** harness.openDevice; defaults to a toast with the device's name. */
   openDevice?: (id: string) => void
   transport?: Transport
-  packages?: readonly VappPackage[]
+  packages?: readonly AppPackage[]
 }
 
 /** VAPP-107: the private hosts the app's policy opts back in: its OWN
@@ -220,7 +223,7 @@ export function createAppHost(options: AppHostOptions): ExponentialHost {
   return new ExponentialHost({
     transport: options.transport,
     extensions: [appExtensionCatalog],
-    packages: [devicesPackage as unknown as VappPackage, ...(options.packages ?? [])],
+    packages: [devicesPackage as unknown as AppPackage, ...(options.packages ?? [])],
     sources: {
       exp: (source, emit) => {
         if (source.name === `devices`) return devicesSource(source, emit)

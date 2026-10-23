@@ -475,6 +475,34 @@ public extension GlassAlertAction.Role {
     }
 }
 
+public extension GlassAlert {
+    /// The prompt init with a content slot under the body (VAPP-107: the
+    /// consent card's arguments block).
+    init(
+        prompt: PromptCopy,
+        enabled: [String: Bool] = [:],
+        handlers: [String: () -> Void],
+        @ViewBuilder content: () -> Content
+    ) {
+        self.init(
+            title: prompt.title,
+            message: prompt.body,
+            actions: prompt.actions.map { action in
+                GlassAlertAction(
+                    action.label,
+                    role: GlassAlertAction.Role(action.role),
+                    enabled: enabled[action.id] ?? true,
+                    isDefault: action.id == prompt.focus,
+                    isCancel: action.role == .cancel,
+                    id: action.id,
+                    handler: handlers[action.id] ?? {}
+                )
+            },
+            content: content
+        )
+    }
+}
+
 public extension GlassAlert where Content == EmptyView {
     /// A prompt from `prompts.json`: its title, body, answers (labels,
     /// roles, display order) and focus come from the filled `PromptCopy`;

@@ -116,6 +116,12 @@ android {
         }
     }
 
+    // VAPP-110: the app host's extension catalog (`extension.json`) and the
+    // built-in declarative packages (`templates/devices.json`), byte for byte
+    // what the web and desktop hosts install, read from the shared package
+    // (never copied into src/main/assets).
+    sourceSets["main"].assets.srcDir("../../../packages/ui/exponential-ui")
+
     // Product flavors mirror the iOS Tuist targets (Exponential / Exponential-Staging):
     // `production` ships the public cloud default, `staging` co-installs under a
     // `.staging` applicationId and defaults to next.exponential.at. The default

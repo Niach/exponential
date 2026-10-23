@@ -726,6 +726,9 @@ data class SessionEntity(
     // NEW-2: the agent whose conversation this root is (one per agent and
     // member); NULL = a thread or a child. The kind derives from it.
     @ColumnInfo(name = "agent_id") @SerialName("agent_id") @JsonNames("agentId") val agentId: String? = null,
+    // VAPP-110: the app this root is one member's EDITOR SESSION of (one per
+    // app and member); NULL = anything else. Never a thread.
+    @ColumnInfo(name = "app_id") @SerialName("app_id") @JsonNames("appId") val appId: String? = null,
 ) {
     val isRoot: Boolean get() = parentId == null
     /** NEW-2: an agent's conversation session ([SessionKind.sessionKindOf]). */
@@ -778,6 +781,51 @@ data class EventEntity(
     @ColumnInfo(name = "emitted_by") @SerialName("emitted_by") @JsonNames("emittedBy") val emittedBy: String = "",
     @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
     @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+)
+
+// VAPP-110: a team's APP (fixtures/apps.json): a declarative Exponential UI
+// package, the HEAD version's `package` riding along as raw jsonb TEXT (the
+// editor's preview repaints from it); `head_version` 0 = no version yet;
+// `deleted_at` = the trash mirror (hidden).
+@Entity(
+    tableName = "apps",
+    indices = [Index("team_id")],
+)
+@Serializable
+data class AppEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    val slug: String = "",
+    val name: String = "",
+    val icon: String? = null,
+    val color: String? = null,
+    val description: String = "",
+    @ColumnInfo(name = "package") @SerialName("package")
+    @Serializable(with = JsonAsStringSerializer::class) val packageJson: String? = null,
+    @ColumnInfo(name = "head_version") @SerialName("head_version") @JsonNames("headVersion")
+    @Serializable(with = PgIntSerializer::class) val headVersion: Int? = 0,
+    @ColumnInfo(name = "created_by") @SerialName("created_by") @JsonNames("createdBy") val createdBy: String = "",
+    @ColumnInfo(name = "deleted_at") @SerialName("deleted_at") @JsonNames("deletedAt") val deletedAt: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// VAPP-110: one version of an app (the Versions list); its `package` stays
+// behind the shape (tRPC `apps.get {version}` on demand).
+@Entity(
+    tableName = "app_versions",
+    indices = [Index("app_id"), Index("team_id")],
+)
+@Serializable
+data class AppVersionEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "app_id") @SerialName("app_id") @JsonNames("appId") val appId: String = "",
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    @Serializable(with = PgIntSerializer::class) val number: Int? = 0,
+    val note: String? = null,
+    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
+    @ColumnInfo(name = "created_by") @SerialName("created_by") @JsonNames("createdBy") val createdBy: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
 )
 

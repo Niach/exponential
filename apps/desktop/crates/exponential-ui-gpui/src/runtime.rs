@@ -137,7 +137,7 @@ pub struct HostOptions {
     pub extensions: Vec<ExtensionDef>,
     /// Their native painters, keyed on the extension kind.
     pub painters: Vec<(String, Rc<dyn ExtensionPainter>)>,
-    /// Declarative vapp packages to install.
+    /// Declarative app packages to install.
     pub packages: Vec<Value>,
     pub policy: HostPolicy,
     /// Every surface's theme (`None` = geometry mode) and mode.

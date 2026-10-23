@@ -1,11 +1,11 @@
 // VAPP-91: the connector against a fake Exponential instance (discovery,
 // registration, PKCE, the token exchange, MCP tool calls, polled `exp:`
-// sources) and a declarative vapp run on it.
+// sources) and a declarative app run on it.
 
 import { describe, expect, test } from "bun:test"
-import { ExponentialConnector, createVappHost, pkcePair } from "."
+import { ExponentialConnector, createAppHost, pkcePair } from "."
 import { CORE_CATALOG_ID } from "../catalog"
-import type { VappPackage } from "../host"
+import type { AppPackage } from "../host"
 
 const BASE = `https://exp.example`
 
@@ -75,10 +75,10 @@ describe(`ExponentialConnector`, () => {
     expect(instance.calls.filter((x) => x.url.endsWith(`/register`))).toHaveLength(1)
   })
 
-  test(`a declarative vapp runs on the connector's exp: sources`, async () => {
+  test(`a declarative app runs on the connector's exp: sources`, async () => {
     const instance = fakeInstance()
     const connector = new ExponentialConnector({ baseUrl: BASE, redirectUri: `x`, fetch: instance.fetchFn, tokens: { accessToken: `at-1` }, pollSeconds: 0 })
-    const pkg: VappPackage = {
+    const pkg: AppPackage = {
       id: `acme.triage`,
       name: `Triage`,
       version: `1.0.0`,
@@ -94,14 +94,14 @@ describe(`ExponentialConnector`, () => {
         },
       },
     }
-    const vapp = createVappHost({ package: pkg, sources: connector.sources(), functions: connector.functions() })
-    expect(vapp.issues).toEqual([])
-    vapp.open(`triage`)
+    const app = createAppHost({ package: pkg, sources: connector.sources(), functions: connector.functions() })
+    expect(app.issues).toEqual([])
+    app.open(`triage`)
     await new Promise((r) => setTimeout(r, 10))
-    expect(vapp.host.surface(`triage`)!.data).toEqual({ issues: { rows: [{ id: `i1`, identifier: `ACME-1`, title: `First` }], count: 1 } })
+    expect(app.host.surface(`triage`)!.data).toEqual({ issues: { rows: [{ id: `i1`, identifier: `ACME-1`, title: `First` }], count: 1 } })
     const rpc = JSON.parse(instance.calls.find((x) => x.url.endsWith(`/api/mcp`))!.body!)
     expect(rpc.params).toEqual({ name: `exponential_issues_list`, arguments: { limit: 10, boardId: `b1` } })
     // the package lists exponential.mcp, nothing else
-    expect(vapp.host.decide(`triage`, `exponential.mcp`)).toBe(`allow`)
+    expect(app.host.decide(`triage`, `exponential.mcp`)).toBe(`allow`)
   })
 })

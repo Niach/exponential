@@ -107,6 +107,25 @@ pub(crate) fn my_conversation(agent_id: &str, cx: &App) -> Option<SessionRow> {
         .cloned()
 }
 
+/// VAPP-110: the viewer's own EDITOR SESSION root for an app (a root with
+/// `app_id` and `user_id == me`), `None` until the first message creates it
+/// (`sessions.send({appId})`).
+pub(crate) fn my_editor_session(app_id: &str, cx: &App) -> Option<SessionRow> {
+    let store = Store::try_global(cx)?;
+    let me = crate::queries::active_account(cx)?.user_id;
+    store
+        .collections()
+        .sessions
+        .read(cx)
+        .iter()
+        .find(|row| {
+            row.is_root()
+                && row.app_id.as_deref() == Some(app_id)
+                && row.user_id.as_deref() == Some(me.as_str())
+        })
+        .cloned()
+}
+
 /// The root of `session_id`'s tree (the row itself for a root); `None` while
 /// either row has not synced.
 pub(crate) fn root_of(session_id: &str, cx: &App) -> Option<SessionRow> {
@@ -285,6 +304,31 @@ pub(crate) fn messages_of_session(session_id: &str, cx: &App) -> Vec<MessageRow>
     out
 }
 
+/// VAPP-110: the messages of a whole TREE (every session whose root is
+/// `root_id`), oldest first (web `useTreeMessages`).
+pub(crate) fn tree_messages(root_id: &str, cx: &App) -> Vec<MessageRow> {
+    let Some(store) = Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let collections = store.collections();
+    let tree: HashSet<String> = collections
+        .sessions
+        .read(cx)
+        .iter()
+        .filter(|session| session.id == root_id || session.root_id_or_self() == root_id)
+        .map(|session| session.id.clone())
+        .collect();
+    let mut out: Vec<MessageRow> = collections
+        .messages
+        .read(cx)
+        .iter()
+        .filter(|message| tree.contains(&message.session_id))
+        .cloned()
+        .collect();
+    sort_messages(&mut out);
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Pull requests
 // ---------------------------------------------------------------------------
@@ -429,6 +473,23 @@ pub(crate) fn session_thread_view(
     now_ms: i64,
     cx: &App,
 ) -> Option<SessionThreadView> {
+    thread_view(root_id, focus, now_ms, false, cx)
+}
+
+/// VAPP-110: an app EDITOR's channel: [`session_thread_view`] over the
+/// WHOLE tree's messages (web `useTreeMessages`): the editor session's
+/// children (and a pre-FEED-134 continuation child) post there too.
+pub(crate) fn editor_thread_view(root_id: &str, now_ms: i64, cx: &App) -> Option<SessionThreadView> {
+    thread_view(root_id, None, now_ms, true, cx)
+}
+
+fn thread_view(
+    root_id: &str,
+    focus: Option<&str>,
+    now_ms: i64,
+    whole_tree: bool,
+    cx: &App,
+) -> Option<SessionThreadView> {
     let store = Store::try_global(cx)?;
     let collections = store.collections();
     let sessions = collections.sessions.read(cx);
@@ -475,6 +536,22 @@ pub(crate) fn session_thread_view(
                     }))
         })
         .collect();
+    // VAPP-110: the tree's plain messages re-homed onto the root (cards stay
+    // where they are: a continuation's own session card is not a message).
+    let rehomed: Vec<MessageRow> = if whole_tree {
+        messages
+            .iter()
+            .filter(|message| {
+                message.session_id != root_id
+                    && tree_ids.contains(message.session_id.as_str())
+                    && message.card.is_none()
+            })
+            .map(|message| MessageRow { session_id: root_id.to_string(), ..(*message).clone() })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let messages: Vec<&MessageRow> = messages.into_iter().chain(rehomed.iter()).collect();
     // EXP-1334: each issue's parent (`issue_relations` kind parent, the
     // lowest parent id when several) so linked sub-issues fold under their
     // nearest LINKED ancestor; the unlinked ancestors ride along so the

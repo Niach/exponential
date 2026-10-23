@@ -36,7 +36,7 @@ client entry loads each page type as its own chunk through `src/lib/pages.ts`
 | path | page | what |
 |---|---|---|
 | `/` | `Home.tsx` | the live demo (`src/sdk/HomeDemo.tsx`), the six renderers, entry points, packages |
-| `/concepts/` | `Concepts.tsx` | A2UI in short, catalog, A2UI basic mapped, themes, extensions, host plugins, vapps, how renderers agree |
+| `/concepts/` | `Concepts.tsx` | A2UI in short, catalog, A2UI basic mapped, themes, extensions, host plugins, apps, how renderers agree |
 | `/components/` | `ComponentsIndex.tsx` | every component as a live mini render, grouped; search (word starts, `/` focuses), group filter (`?q=`, `?group=`), shot dots |
 | `/components/<slug>/` | `Component.tsx` | studio (theme, mode, LTR/RTL, width 390/768/1280; tabs Preview, A2UI JSON, React, Solid, Web component, SwiftUI, Compose, gpui), four shots at equal height, variants gallery, props, events + slots, keyboard (`a11y.json`), recipe parts, app parity, related |
 | `/themes/`, `/themes/builder/` | `Themes.tsx`, `ThemeBuilder.tsx` | the built-in themes; the theme builder |

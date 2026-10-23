@@ -63,6 +63,8 @@ final class AppDependencies: @unchecked Sendable {
     // Team actions (EXP-253) = saved prompts — synced for reads; tRPC for
     // the prompt body and the owner-gated writes.
     let promptsApi: PromptsApi
+    /// VAPP-110: the team's apps (create, rename, delete, restore, a version's package).
+    let appsApi: AppsApi
     let agentsApi: AgentsApi
     // Widget/agent submission metadata (EXP-496) — tRPC-only.
     let widgetsApi: WidgetsApi
@@ -180,6 +182,7 @@ final class AppDependencies: @unchecked Sendable {
         self.steerApi = SteerApi(trpc: trpc)
         self.devicesApi = DevicesApi(trpc: trpc)
         self.promptsApi = PromptsApi(trpc: trpc)
+        self.appsApi = AppsApi(trpc: trpc)
         self.agentsApi = AgentsApi(trpc: trpc)
         self.widgetsApi = WidgetsApi(trpc: trpc)
 

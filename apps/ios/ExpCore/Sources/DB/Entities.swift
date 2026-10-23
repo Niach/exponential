@@ -428,6 +428,10 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// agent and member); the kind derives from it (`sessionKindOf`), never
     /// from the legacy `kind` shim.
     public let agentId: String?
+    /// VAPP-110: set = this root is a member's EDITOR session of that app
+    /// (one per app and member); like an agent's conversation it is no
+    /// thread (`SessionTree.partitionThreads`).
+    public let appId: String?
 
     public init(
         id: String,
@@ -472,9 +476,11 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         caption: String? = nil,
         aside: Bool = false,
         moveToDeviceId: String? = nil,
-        agentId: String? = nil
+        agentId: String? = nil,
+        appId: String? = nil
     ) {
         self.agentId = agentId
+        self.appId = appId
         self.caption = caption
         self.aside = aside
         self.moveToDeviceId = moveToDeviceId
@@ -552,6 +558,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case updatedAt = "updated_at"
         case moveToDeviceId = "move_to_device_id"
         case agentId = "agent_id"
+        case appId = "app_id"
     }
 }
 
@@ -607,6 +614,8 @@ extension SessionEntity: Codable {
         moveToDeviceId = try c.decodeIfPresent(String.self, forKey: .moveToDeviceId)
         // NEW-2: absent on a pre-NEW-2 server = a thread.
         agentId = try c.decodeIfPresent(String.self, forKey: .agentId)
+        // VAPP-110: absent on a pre-apps server = not an editor session.
+        appId = try c.decodeIfPresent(String.self, forKey: .appId)
     }
 }
 
@@ -1332,6 +1341,152 @@ extension PromptEntity: Codable {
 }
 
 // MARK: - Pin
+
+// MARK: - Apps (VAPP-110)
+
+// VAPP-110: a team's APP (fixtures/apps.json) — a declarative Exponential UI
+// package rendered through the client's app host. The `apps` shape allowlist;
+// `package` = the HEAD version's package as its raw jsonb TEXT (nil = no
+// version yet), so the editor's preview repaints on every synced upsert.
+// `deleted_at` is the trash mirror (readers hide trashed rows).
+public struct AppEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "apps"
+
+    public let id: String
+    public let teamId: String
+    public let slug: String
+    public let name: String
+    /// The board icon set (a curated registry name); nil = none.
+    public let icon: String?
+    public let color: String?
+    public let description: String
+    public let package: String?
+    public let headVersion: Int
+    public let createdBy: String
+    public let deletedAt: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        teamId: String,
+        slug: String,
+        name: String,
+        icon: String? = nil,
+        color: String? = nil,
+        description: String = "",
+        package: String? = nil,
+        headVersion: Int = 0,
+        createdBy: String,
+        deletedAt: String? = nil,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.slug = slug
+        self.name = name
+        self.icon = icon
+        self.color = color
+        self.description = description
+        self.package = package
+        self.headVersion = headVersion
+        self.createdBy = createdBy
+        self.deletedAt = deletedAt
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, slug, name, icon, color, description, package
+        case teamId = "team_id"
+        case headVersion = "head_version"
+        case createdBy = "created_by"
+        case deletedAt = "deleted_at"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+extension AppEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        slug = try c.decodeIfPresent(String.self, forKey: .slug) ?? ""
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
+        color = try c.decodeIfPresent(String.self, forKey: .color)
+        description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
+        package = c.decodeWireJsonString(forKey: .package)
+        headVersion = try c.decodeWireInt(forKey: .headVersion) ?? 0
+        createdBy = try c.decodeIfPresent(String.self, forKey: .createdBy) ?? ""
+        deletedAt = try c.decodeIfPresent(String.self, forKey: .deletedAt)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+    }
+}
+
+// VAPP-110: one VERSION of an app's package (the editor's Versions list).
+// The `app_versions` shape allowlist EXCLUDES `package`: an older version's
+// package loads on demand (tRPC `apps.get {version}`).
+public struct AppVersionEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "app_versions"
+
+    public let id: String
+    public let appId: String
+    public let teamId: String
+    public let number: Int
+    public let note: String?
+    /// The editor session that wrote it; nil = a person's restore.
+    public let sessionId: String?
+    /// The person who wrote it; nil = the editor session.
+    public let createdBy: String?
+    public let createdAt: String
+
+    public init(
+        id: String,
+        appId: String,
+        teamId: String,
+        number: Int,
+        note: String? = nil,
+        sessionId: String? = nil,
+        createdBy: String? = nil,
+        createdAt: String
+    ) {
+        self.id = id
+        self.appId = appId
+        self.teamId = teamId
+        self.number = number
+        self.note = note
+        self.sessionId = sessionId
+        self.createdBy = createdBy
+        self.createdAt = createdAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, number, note
+        case appId = "app_id"
+        case teamId = "team_id"
+        case sessionId = "session_id"
+        case createdBy = "created_by"
+        case createdAt = "created_at"
+    }
+}
+
+extension AppVersionEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        appId = try c.decode(String.self, forKey: .appId)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        number = try c.decodeWireInt(forKey: .number) ?? 0
+        note = try c.decodeIfPresent(String.self, forKey: .note)
+        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
+        createdBy = try c.decodeIfPresent(String.self, forKey: .createdBy)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+    }
+}
 
 // EXP-778: personal pins — the 21st Electric shape. ONE row per (user,
 // target): an issue, a coding session or an action the user pinned into the

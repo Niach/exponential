@@ -23,6 +23,7 @@ export const SESSION_COLUMNS = [
   `depth`,
   `kind`,
   `agent_id`,
+  `app_id`,
   `user_id`,
   `device_id`,
   `cli`,

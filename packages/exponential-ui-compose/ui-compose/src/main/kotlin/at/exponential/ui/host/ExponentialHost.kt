@@ -57,7 +57,7 @@ data class HostOptions(
     val sources: Map<String, SourceResolver> = emptyMap(),
     /** Extension catalogs (+ their native painters), negotiated in registration order. */
     val extensions: List<HostExtension> = emptyList(),
-    /** Declarative vapp packages (JSON) installed at start (`applyTemplate`). */
+    /** Declarative app packages (JSON) installed at start (`applyTemplate`). */
     val packages: List<String> = emptyList(),
     val policy: HostPolicy = HostPolicy(),
     /** The theme every surface paints with (null = a `createSurface` theme, else the default built-in). */

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
-// NEW-4: the noun router — 15 tools, `op` routes to the per-operation
+// NEW-4: the noun router — 16 tools, `op` routes to the per-operation
 // definitions, their STRICT schemas validate the flat arguments, an op the
 // caller lacks errors instead of vanishing, the display rows are the
 // contract's. The per-operation handlers themselves are tools.test.ts's.
@@ -91,10 +91,10 @@ function surface(gates = ALL_MCP_TOOL_GATES) {
 const text = (result: { content: { text?: string }[] }) => result.content[0]?.text ?? ``
 
 describe(`registerNounTools`, () => {
-  it(`registers the 15 nouns, every caller alike`, () => {
+  it(`registers the 16 nouns, every caller alike`, () => {
     const names = [...surface().keys()]
     expect(names).toEqual(NOUN_TOOLS.map((spec) => `exponential_${spec.name}`))
-    expect(names).toHaveLength(15)
+    expect(names).toHaveLength(16)
     const headerless = [...surface({ inSession: false, unattended: false, agent: false }).keys()]
     expect(headerless).toEqual(names)
   })

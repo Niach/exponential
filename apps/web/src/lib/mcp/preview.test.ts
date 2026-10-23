@@ -78,6 +78,12 @@ function registeredToolNames(): string[] {
  *  caption alone. Derived by hand from contract `expToolPreview.tools` and
  *  locked against it below. */
 export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
+  // VAPP-110: apps answer plain JSON (no entity chips yet).
+  exponential_apps_catalog: [],
+  exponential_apps_delete: [],
+  exponential_apps_get: [],
+  exponential_apps_list: [],
+  exponential_apps_upsert: [],
   exponential_team_config_agents_list: [`list`, `agent`],
   exponential_events_emit: [],
   exponential_events_list: [`list`, `event`],

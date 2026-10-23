@@ -119,7 +119,7 @@ describe(`SETTINGS_NAV Personal group`, () => {
     expect(SETTINGS_NAV[SETTINGS_NAV.length - 2]).toBe(personal)
     expect(
       SETTINGS_NAV.slice(0, SETTINGS_NAV.indexOf(personal)).map((g) => g.group)
-    ).toEqual([`Team`, `Boards`, `Agents`, `Features`])
+    ).toEqual([`Team`, `Boards`, `Agents`, `Apps`, `Features`])
     expect(personal.items.map((item) => item.label)).toEqual([
       `Account`,
       `Notifications`,

@@ -1,5 +1,5 @@
 // VAPP-91: the Exponential connector. A third-party host runs a declarative
-// vapp against an Exponential instance: OAuth to Exponential (the MCP OAuth
+// app against an Exponential instance: OAuth to Exponential (the MCP OAuth
 // grant, EXP-792 — discovery, dynamic client registration, PKCE S256, the
 // person's consent picks the teams/boards) and `exp:` binding resolvers over
 // that instance's MCP tools (an OAuth token is confined to /api/mcp and to

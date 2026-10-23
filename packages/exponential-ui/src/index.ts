@@ -126,5 +126,5 @@ export { OVERLAY_OFFSET, OVERLAY_PADDING, placeOverlay } from "./overlay"
 export type { OverlaySide, OverlayAlign, OverlayPlacement, Rect, Size } from "./overlay"
 // VAPP-91: the host API (transport, functions, bindings, negotiation, policy, packages).
 export * from "./host"
-// VAPP-91: declarative vapps in any host + the Exponential connector.
+// VAPP-91: declarative apps in any host + the Exponential connector.
 export * from "./connector"

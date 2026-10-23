@@ -1,3 +1,4 @@
+import { APPS_COPY } from "@exp/domain-contract/apps"
 import { useState } from "react"
 import { useMatchRoute, useNavigate, useParams } from "@tanstack/react-router"
 import {
@@ -28,6 +29,7 @@ import {
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
 const NavAboutIcon = conceptIcon(`settings-about`)
+const NavAppsIcon = conceptIcon(`nav-apps`)
 const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
 const NavReportBugIcon = conceptIcon(`nav-report-bug`)
@@ -76,9 +78,14 @@ export function TeamMobileTopbar({
         ? `Agent`
         : matchRoute({ to: `/t/$teamSlug/threads`, fuzzy: true })
           ? `Threads`
-          : matchRoute({ to: `/t/$teamSlug/settings`, fuzzy: true })
-            ? `Settings`
-            : undefined
+          : matchRoute({ to: `/t/$teamSlug/apps`, fuzzy: true })
+            ? APPS_COPY.title
+            : matchRoute({ to: `/t/$teamSlug/settings`, fuzzy: true })
+              ? `Settings`
+              : undefined
+  // VAPP-110: the Threads tab's header carries the Apps button (the phones' way
+  // into the Apps list, fixtures/apps.json).
+  const onThreads = Boolean(matchRoute({ to: `/t/$teamSlug/threads`, fuzzy: true }))
 
   if (!visible) return null
 
@@ -108,6 +115,18 @@ export function TeamMobileTopbar({
       )}
 
       <div className="ml-auto flex items-center gap-2">
+        {onThreads && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9 text-muted-foreground"
+            aria-label={APPS_COPY.title}
+            data-testid="mobile-nav-apps"
+            onClick={() => navigate({ to: `/t/$teamSlug/apps`, params: { teamSlug } })}
+          >
+            <NavAppsIcon className="size-4" />
+          </Button>
+        )}
         {/* EXP-686 → polish: on a board, Search sits in the header cluster
             (the natives' Issues header), not on a row of its own. */}
         {!sectionTitle && boardSlug && (

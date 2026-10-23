@@ -567,7 +567,7 @@
     "exponential-ui-consent": {
       "title": "Allow this surface to run {tool}?",
       "body": "It acts as you, with your access to this team.",
-      "slot": "web + desktop (VAPP-107): the call's ARGUMENTS as a compact JSON code block under the body (the CodeBlock, sm, language json, no header): the MCP tool's `arguments` for a harness.mcp call, else the function's args. Web shows the first 160 characters with a Show all disclosure past them (the whole JSON pretty-printed); desktop shows the first 160 characters. No arguments (an empty object) = no block.",
+      "slot": "×4 (VAPP-107; the iOS and Android app hosts since VAPP-110): the call's ARGUMENTS as a compact JSON code block under the body (the CodeBlock, sm, language json, no header): the MCP tool's `arguments` for a harness.mcp call, else the function's args. Web shows the first 160 characters with a Show all disclosure past them (the whole JSON pretty-printed); desktop, iOS and Android show the first 160 characters. No arguments (an empty object) = no block.",
       "params": [
         {
           "name": "tool",

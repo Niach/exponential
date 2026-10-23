@@ -101,11 +101,11 @@ import {
 
 it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   const defs = serializeToolDefs()
-  // NEW-4: the surface is the 15 noun tools, the same for every caller.
+  // NEW-4: the surface is the 16 noun tools, the same for every caller.
   expect(defs.map((def) => def.name).sort()).toEqual(
     NOUN_TOOLS.map((spec) => `exponential_${spec.name}`).sort()
   )
-  expect(defs).toHaveLength(15)
+  expect(defs).toHaveLength(16)
   // Every listed tool actually registers, and nothing else carries the flag —
   // adding `_meta` to a tool is adding it to EVERY session's context, so it
   // has to be a deliberate edit of always-load.ts.
@@ -126,9 +126,9 @@ it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   expect(flagged).toHaveLength(5)
 })
 
-// NEW-4 (plan 3.11): NO conditional registration — the 15 register for
+// NEW-4 (plan 3.11): NO conditional registration — the 16 register for
 // every caller; an op the caller cannot use errors when called.
-it(`registers the same 15 tools for every caller`, () => {
+it(`registers the same 16 tools for every caller`, () => {
   const headerless = serializeToolDefs({
     inSession: false,
     unattended: false,
@@ -140,7 +140,7 @@ it(`registers the same 15 tools for every caller`, () => {
     agent: false,
   }).map((def) => def.name)
   expect([...headerless].sort()).toEqual([...inSession].sort())
-  expect(headerless).toHaveLength(15)
+  expect(headerless).toHaveLength(16)
   // EXP-1291 / NEW-4: the retired surface is gone.
   for (const name of [
     `exponential_sessions_start`,

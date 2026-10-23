@@ -437,6 +437,20 @@ object Prompts {
         fun prompt(tool: String) = spec.render("title", "body", "tool" to tool)
     }
 
+    /** VAPP-107 (the destructive entry's `variants`): a word of the tool
+     *  name or of its `op` argument, split on anything but letters and
+     *  lower-cased, is one of these. Mirrors web `destructiveTool` and
+     *  desktop `destructive_tool`. */
+    val DESTRUCTIVE_TOOL_WORDS = listOf("delete", "merge", "close", "end", "remove", "trash")
+
+    fun destructiveTool(tool: String, op: String? = null): Boolean =
+        "$tool ${op.orEmpty()}".lowercase().split(Regex("[^a-z]+")).any { it in DESTRUCTIVE_TOOL_WORDS }
+
+    /** The consent card's copy for a call: the destructive entry when it
+     *  sounds destructive, else the plain one. */
+    fun exponentialUiConsent(tool: String, destructive: Boolean): Prompt =
+        if (destructive) ExponentialUiConsentDestructive.prompt(tool) else ExponentialUiConsent.prompt(tool)
+
     /** Every entry, keyed by its fixture id (the lock test walks it). Lazy:
      *  a nested object's first access initialises this one first. */
     val all: Map<String, Spec> by lazy {

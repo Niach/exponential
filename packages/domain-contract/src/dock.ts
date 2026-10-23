@@ -9,7 +9,9 @@ import fixture from "../fixtures/dock.json" with { type: "json" }
 import { askDockLabel, askDockTitle } from "./ask-dock"
 import type { StackConstants } from "./stack"
 
-export type DockKind = `plan` | `question` | `tasks` | `queued` | `suggestions` | `banner`
+// VAPP-129: `chat` = the app editor's floating chat card (apps.json
+// `dockCard`; web and the IDE only, never from `dockRows`).
+export type DockKind = `plan` | `question` | `tasks` | `queued` | `suggestions` | `banner` | `chat`
 export type DockTint = `plan` | `question` | `muted` | `warning`
 
 export type DockSource =
@@ -106,6 +108,8 @@ const ORDER: Record<DockKind, number> = {
   banner: fixture.order.indexOf(`banner`),
   question: fixture.order.indexOf(`ask`),
   plan: fixture.order.indexOf(`ask`),
+  // VAPP-129: never from `dockRows` (the editor builds its one card).
+  chat: fixture.order.length,
 }
 
 function counted(n: number, copy: { one: string; many: string }): string {

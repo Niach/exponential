@@ -149,4 +149,18 @@ final class PromptsTests: XCTestCase {
         )
         XCTAssertEqual(Prompts.DeleteAccount.copy(server: nil).title, "Delete your account?")
     }
+
+    /// VAPP-107: the destructive consent rule (web `destructiveTool`, desktop
+    /// `destructive_tool`): a word of the tool or its op.
+    func testDestructiveTool() {
+        XCTAssertTrue(Prompts.destructiveTool("exponential_issues", op: "delete"))
+        XCTAssertTrue(Prompts.destructiveTool("exponential_pr", op: "merge"))
+        XCTAssertTrue(Prompts.destructiveTool("harness.trash"))
+        XCTAssertFalse(Prompts.destructiveTool("exponential_issues", op: "get"))
+        XCTAssertFalse(Prompts.destructiveTool("exponential_sessions_send", op: "endless"))
+        XCTAssertEqual(
+            Prompts.exponentialUiConsent(tool: "exponential_pr", destructive: true).actions.first { $0.id == "allow" }?.role,
+            .destructive
+        )
+    }
 }

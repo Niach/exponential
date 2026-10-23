@@ -25,7 +25,7 @@ import {
   supportedCatalogIds,
   validatePackage,
 } from "../src/host"
-import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, MediaOptions, UrlPolicy, VappPackage } from "../src/host"
+import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, MediaOptions, UrlPolicy, AppPackage } from "../src/host"
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), `..`)
 const read = (rel: string) => JSON.parse(readFileSync(join(pkgRoot, rel), `utf8`))
@@ -65,7 +65,7 @@ export function renderHost(): Record<string, string> {
   }))
 
   const router = read(`fixtures/host-router.json`)
-  const packages = router.packages as Record<string, VappPackage>
+  const packages = router.packages as Record<string, AppPackage>
   router.validation = Object.entries(packages).map(([id, pkg]) => ({ package: id, expected: validatePackage(pkg) }))
   router.flows = router.flows.map((flow: Case & { steps: { message?: unknown }[] | unknown[] }) => {
     const r = new HostRouter({ extensionIds: (flow.extensionIds as string[]) ?? [] })
