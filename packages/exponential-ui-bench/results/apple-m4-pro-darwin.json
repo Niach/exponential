@@ -302,134 +302,134 @@
       "commit": "ddaca88a6f3"
     },
     "swift-ios-simulator": {
-      "date": "2026-10-22T14:01:10Z",
+      "date": "2026-10-23T06:59:59Z",
       "device": "iPhone 17 Pro Simulator (iPhone18,1, iOS 27.0)",
       "platform": "ios",
       "scenarios": {
         "card-grid": {
-          "measureCallsPerPass": 29,
+          "measureCallsPerPass": 1,
           "upcallsPerPass": 1,
-          "warmPassMs": 0.289
+          "warmPassMs": 0.287
         },
         "cold-start": {
-          "coldStartMs": 75.363,
-          "firstPaintMs": 43.461,
-          "memoryMb": 30.4,
-          "nodes": 591
+          "coldStartMs": 91.063,
+          "firstPaintMs": 33.453,
+          "memoryMb": 30.3,
+          "nodes": 604
         },
         "deep-nesting": {
           "depth": 48,
-          "firstPaintMs": 20.223,
-          "warmPassMs": 0.536
+          "firstPaintMs": 3.867,
+          "warmPassMs": 0.184
         },
         "list-100k": {
-          "ffiBytesPerStep": 33633,
-          "ffiCallsPerStep": 275,
-          "firstPaintMs": 378.987,
-          "measureCallsPerStep": 78,
-          "memoryMb": 84,
+          "ffiBytesPerStep": 24411,
+          "ffiCallsPerStep": 179,
+          "firstPaintMs": 110.388,
+          "measureCallsPerStep": 40,
+          "memoryMb": 84.8,
           "renderedItems": 30,
-          "scrollStepMs": 7.561,
-          "scrollToIndexMs": 10.693
+          "scrollStepMs": 4.883,
+          "scrollToIndexMs": 7.12
         },
         "overlay": {
-          "closeMs": 0.665,
-          "openMs": 1.445
+          "closeMs": 0.16,
+          "openMs": 0.537
         },
         "resize": {
-          "resizeMs": 11.289,
+          "resizeMs": 4.399,
           "upcallsPerResize": 1
         },
         "streaming": {
-          "applyMs": 4.564,
+          "applyMs": 4.558,
           "ffiBytesTotal": 8942883,
           "nodes": 607,
-          "p95ApplyMs": 8.894,
-          "totalMs": 912.803
+          "p95ApplyMs": 8.929,
+          "totalMs": 911.62
         },
         "table-1k": {
-          "firstPaintMs": 62.634,
+          "firstPaintMs": 12.887,
           "renderedRows": 30,
-          "scrollStepMs": 24.289,
-          "sortMs": 48.694
+          "scrollStepMs": 5.938,
+          "sortMs": 11.179
         },
         "template-10k": {
-          "firstPaintMs": 2276.262,
+          "firstPaintMs": 390.551,
           "nodes": 10001,
-          "rebindMs": 2590.008
+          "rebindMs": 537.587
         },
         "theme-switch": {
-          "modeSwitchMs": 24.574,
-          "restyled": 596,
-          "themeSwitchMs": 90.041
+          "modeSwitchMs": 8.947,
+          "restyled": 609,
+          "themeSwitchMs": 25.981
         }
       },
-      "commit": "e66a7cbd608"
+      "commit": "68d9833651a"
     },
     "swift-macos": {
-      "date": "2026-10-22T13:59:50Z",
+      "date": "2026-10-23T06:36:00Z",
       "device": "Mac16,7 (Apple M4 Pro, macOS Version 27.0 (Build 26A5421a))",
       "platform": "macos",
       "scenarios": {
         "card-grid": {
-          "measureCallsPerPass": 29,
+          "measureCallsPerPass": 1,
           "upcallsPerPass": 1,
-          "warmPassMs": 0.289
+          "warmPassMs": 0.301
         },
         "cold-start": {
-          "coldStartMs": 135.155,
-          "firstPaintMs": 41.51,
-          "memoryMb": 34.7,
-          "nodes": 591
+          "coldStartMs": 107.486,
+          "firstPaintMs": 32.712,
+          "memoryMb": 36.7,
+          "nodes": 604
         },
         "deep-nesting": {
           "depth": 48,
-          "firstPaintMs": 5.868,
-          "warmPassMs": 0.156
+          "firstPaintMs": 3.361,
+          "warmPassMs": 0.15
         },
         "list-100k": {
-          "ffiBytesPerStep": 33633,
-          "ffiCallsPerStep": 275,
-          "firstPaintMs": 341.411,
-          "measureCallsPerStep": 78,
-          "memoryMb": 162.5,
+          "ffiBytesPerStep": 24411,
+          "ffiCallsPerStep": 179,
+          "firstPaintMs": 97.535,
+          "measureCallsPerStep": 40,
+          "memoryMb": 102.7,
           "renderedItems": 30,
-          "scrollStepMs": 7.185,
-          "scrollToIndexMs": 10.861
+          "scrollStepMs": 5.098,
+          "scrollToIndexMs": 7.52
         },
         "overlay": {
-          "closeMs": 0.588,
-          "openMs": 1.406
+          "closeMs": 0.112,
+          "openMs": 0.519
         },
         "resize": {
-          "resizeMs": 3.566,
+          "resizeMs": 3.155,
           "upcallsPerResize": 1
         },
         "streaming": {
-          "applyMs": 4.79,
+          "applyMs": 4.864,
           "ffiBytesTotal": 8942883,
           "nodes": 607,
-          "p95ApplyMs": 9.127,
-          "totalMs": 957.95
+          "p95ApplyMs": 9.109,
+          "totalMs": 972.756
         },
         "table-1k": {
-          "firstPaintMs": 60.101,
+          "firstPaintMs": 11.08,
           "renderedRows": 30,
-          "scrollStepMs": 23.222,
-          "sortMs": 47.33
+          "scrollStepMs": 5.824,
+          "sortMs": 10.635
         },
         "template-10k": {
-          "firstPaintMs": 1277.33,
+          "firstPaintMs": 407.706,
           "nodes": 10001,
-          "rebindMs": 2567.331
+          "rebindMs": 575.541
         },
         "theme-switch": {
-          "modeSwitchMs": 9.172,
-          "restyled": 596,
-          "themeSwitchMs": 32.819
+          "modeSwitchMs": 9.822,
+          "restyled": 609,
+          "themeSwitchMs": 24.451
         }
       },
-      "commit": "e66a7cbd608"
+      "commit": "29835d9e695"
     }
   }
 }

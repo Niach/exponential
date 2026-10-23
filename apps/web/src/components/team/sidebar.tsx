@@ -1,3 +1,5 @@
+import { useApps } from "@/hooks/use-apps"
+import { SidebarAppsSection } from "@/components/team/sidebar-apps"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import {
@@ -205,6 +207,10 @@ export function TeamSidebar({
   const activeAgentId = useRouterState({
     select: (s) => /\/agents\/([^/]+)$/.exec(s.location.pathname)?.[1] ?? null,
   })
+  const activeAppSlug = useRouterState({
+    select: (s) => /\/apps\/([^/]+)$/.exec(s.location.pathname)?.[1] ?? null,
+  })
+  const { apps } = useApps(team?.id)
   const occupant = useSidebarOccupant()
   const inSettings = occupant.kind === `settings`
   const listOrigin = occupant.kind === `list` ? occupant.origin : null
@@ -461,6 +467,19 @@ export function TeamSidebar({
                       isOwner={isOwner}
                       activeAgentId={activeAgentId}
                     />
+
+                    {/* VAPP-110: the team's apps, drawn like the agents
+                        (fixtures/apps.json). */}
+                    {team && (
+                      <SidebarAppsSection
+                        teamId={team.id}
+                        teamSlug={teamSlug}
+                        apps={apps}
+                        me={session?.user?.id ?? null}
+                        isOwner={isOwner}
+                        activeAppSlug={activeAppSlug}
+                      />
+                    )}
 
                     <SidebarGroup>
                       <SidebarGroupLabel>Boards</SidebarGroupLabel>

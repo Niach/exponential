@@ -1,3 +1,5 @@
+import { useApps } from "@/hooks/use-apps"
+import { SidebarAppsIcons } from "@/components/team/sidebar-apps"
 import type * as React from "react"
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import {
@@ -264,6 +266,8 @@ export function TeamSidebarRail({
 }) {
   const params = { teamSlug }
   const draftCount = useDraftCount(team?.id)
+  // VAPP-110: the team's apps (the icons after the agents).
+  const { apps } = useApps(team?.id)
   // EXP-862: while a pinned action seeds the composer, its pin owns the
   // highlight — the Agent icon must not claim the page too.
   const composerSeeded = useRouterState({
@@ -316,6 +320,18 @@ export function TeamSidebarRail({
         <SidebarAgentsIcons
           teamSlug={teamSlug}
           agents={agents}
+          separator={<Separator className="my-1 w-6! shrink-0" />}
+          renderItem={(item) => (
+            <RailItem key={item.key} label={item.label} link={item.link}>
+              {item.icon}
+            </RailItem>
+          )}
+        />
+
+        {/* VAPP-110: the team's apps, after the agents. */}
+        <SidebarAppsIcons
+          teamSlug={teamSlug}
+          apps={apps}
           separator={<Separator className="my-1 w-6! shrink-0" />}
           renderItem={(item) => (
             <RailItem key={item.key} label={item.label} link={item.link}>

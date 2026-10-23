@@ -298,6 +298,12 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         "agents" => Some(S::Agents),
         "agent" => Some(S::Agent(String::new())),
         "new-agent" => Some(S::NewAgent),
+        // VAPP-110: the Apps index, New app, and one app's page (`app` =
+        // the team's first app, `app:<slug or id>` that one).
+        "apps" => Some(S::Apps),
+        "new-app" => Some(S::NewApp),
+        "app" => Some(S::App(String::new())),
+        spec if spec.starts_with("app:") => Some(S::App(spec["app:".len()..].to_string())),
         // NEW-6: Settings → Prompts, and its create page.
         "prompts" => Some(S::Prompts),
         "new-prompt" => Some(S::NewPrompt),
@@ -531,6 +537,8 @@ fn yolo_rail(yolo: bool, sc_failing: bool) -> YoloRail {
 const BOARD_ROW_GROUP: &str = "rail-board-row";
 /// EXP-1294: the agent rows' twin of [`BOARD_ROW_GROUP`].
 const AGENT_ROW_GROUP: &str = "rail-agent-row";
+/// VAPP-110: the app rows' twin of [`BOARD_ROW_GROUP`].
+const APP_ROW_GROUP: &str = "rail-app-row";
 /// EXP-863: the Pinned rows' hover group — reveals the trailing Unpin button
 /// (the board rows' gear recipe).
 const PIN_ROW_GROUP: &str = "rail-pin-row";
@@ -1302,6 +1310,63 @@ impl RailView {
         )
     }
 
+    /// VAPP-110: one Apps row (the Agents row's twin): the app's glyph and
+    /// name, lit while its editor is up; click = the editor. The hover gear
+    /// (the creator's and the owners') opens Settings → Apps → the app; the
+    /// built-in Devices app has none.
+    fn rail_app_row(
+        &self,
+        index: usize,
+        entry: &crate::apps_view::AppEntry,
+        manage: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let active = matches!(
+            resolved_screen(&self.nav, cx),
+            Some(Screen::App { app }) if app == entry.id || app == entry.slug
+        );
+        let open = entry.id.clone();
+        let settings_id = entry.id.clone();
+        self.entry(
+            ("rail-app-row", index),
+            entry.rail_icon().with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element(),
+            SharedString::from(entry.name.clone()),
+            active,
+            None,
+            cx,
+        )
+        .group(APP_ROW_GROUP)
+        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+            navigate(window, cx, Screen::App { app: open.clone() })
+        }))
+        .when(manage, |row| {
+            row.child(
+                div()
+                    .invisible()
+                    .group_hover(APP_ROW_GROUP, |style| style.visible())
+                    .flex_shrink_0()
+                    .child(
+                        Button::new(("rail-app-settings", index))
+                            .ghost()
+                            .cursor_pointer()
+                            .xsmall()
+                            .icon(Icon::from(registry::NAV_SETTINGS))
+                            .tooltip("App settings")
+                            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                                cx.stop_propagation();
+                                select_settings_section(
+                                    window,
+                                    cx,
+                                    crate::settings::SettingsSection::App(settings_id.clone()),
+                                );
+                                navigate(window, cx, Screen::Settings);
+                            })),
+                    ),
+            )
+        })
+        .into_any_element()
+    }
+
     /// EXP-1294: one Agents row — the agent root's glyph tinted with its
     /// color (the board rows' recipe), lit while its channel is up, the
     /// Threads entry's dot while it needs you (amber) or works (green).
@@ -2047,6 +2112,41 @@ impl Render for RailView {
                     })
                     .into_any_element()
             });
+        // VAPP-110: the Apps section — the team's apps (the built-in Devices
+        // app first) under an "Apps" label whose `+` opens the New app form
+        // (every member creates apps).
+        let me = crate::queries::active_account(cx).map(|account| account.user_id);
+        let app_owner = active_team.as_deref().is_some_and(|team_id| crate::settings::is_owner(cx, team_id));
+        let app_rows: Vec<gpui::AnyElement> = active_team
+            .as_deref()
+            .map(|team_id| crate::apps_view::app_entries(team_id, cx))
+            .unwrap_or_default()
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                let manage = crate::apps_view::can_manage(entry, me.as_deref(), app_owner);
+                self.rail_app_row(index, entry, manage, cx)
+            })
+            .collect();
+        let apps_header: Option<gpui::AnyElement> = active_team.clone().map(|team_id| {
+            self.section_label(domain::apps::APPS.copy.title.as_str(), cx)
+                .child(
+                    Button::new("rail-new-app")
+                        .ghost()
+                        .cursor_pointer()
+                        .xsmall()
+                        .icon(registry::UI_ADD)
+                        .tooltip(domain::apps::APPS.copy.new_app.clone())
+                        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                            crate::app_form_dialog::open(
+                                window,
+                                cx,
+                                crate::app_form_dialog::AppFormTarget::New { team_id: team_id.clone() },
+                            );
+                        })),
+                )
+                .into_any_element()
+        });
         // EXP-923: MY live threads — under the boards, hidden while nothing
         // is running.
         let running_section = self.render_running_section(cx);
@@ -2244,6 +2344,10 @@ impl Render for RailView {
                     .child(self.section_rule(cx))
                     .children(agents_header)
                     .children(agent_rows)
+                    // VAPP-110: the Apps group, the Agents' twin.
+                    .child(self.section_rule(cx))
+                    .children(apps_header)
+                    .children(app_rows)
                     .child(self.section_rule(cx))
                     .children(boards_header)
                     .children(board_icons)

@@ -86,7 +86,6 @@ export const ROUTED_APP_PREFIXES: readonly string[] = [
   `about`,
   `admin`,
   `auth`,
-  `exponential-ui-devices`,
   `exponential-ui-kitchen-sink`,
   `integrations`,
   `invite`,

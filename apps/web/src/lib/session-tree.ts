@@ -50,6 +50,7 @@ export function toTreeSession(row: SessionRow): TreeSession {
     rootId: row.rootId ?? row.id,
     kind: row.kind,
     agentId: row.agentId ?? null,
+    appId: row.appId ?? null,
     userId: row.userId,
     deviceId: row.deviceId ?? null,
     status: row.status,

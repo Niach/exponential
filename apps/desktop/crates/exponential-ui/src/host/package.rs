@@ -1,4 +1,4 @@
-//! Catalog negotiation and declarative vapp packages (VAPP-82: a manifest +
+//! Catalog negotiation and declarative app packages (VAPP-82: a manifest +
 //! A2UI templates + bindings, data never code).
 
 use std::collections::HashSet;

@@ -561,7 +561,7 @@ cd packages/exponential-ui-compose
       body: (
         <>
           <p>
-            Themes load at runtime, so the file can come from your bundle, a URL or a vapp package. Every loader
+            Themes load at runtime, so the file can come from your bundle, a URL or a app package. Every loader
             flattens the <code>extends</code> chain and reports every problem at once (an unknown token, a key
             outside the whitelist, a misspelled part) without crashing.
           </p>
@@ -721,17 +721,17 @@ cd packages/exponential-ui-compose
     },
   ],
 
-  vapps: [
+  apps: [
     {
       id: `package`,
       label: `The package`,
       body: (
         <>
           <p>
-            A vapp is data, never code: templates (components, initial data, bindings), the functions it may call
+            A app is data, never code: templates (components, initial data, bindings), the functions it may call
             and a theme, in one JSON package. This one shows a greeting that follows a weather source and can toast:
           </p>
-          <GuideFile path="react/src/hello.vapp.json" />
+          <GuideFile path="react/src/hello.app.json" />
           <p>
             Its <code>functions</code> list is the policy for its surfaces: listed names are allowed, everything else
             is denied, whatever the host allows elsewhere. <code>theme</code> is a built-in id or a whole theme JSON.
@@ -745,11 +745,11 @@ cd packages/exponential-ui-compose
       body: (
         <>
           <p>
-            <code>validatePackage</code> lists every problem with a path; <code>createVappHost</code> installs the
+            <code>validatePackage</code> lists every problem with a path; <code>createAppHost</code> installs the
             package in a host that lends it the functions and sources it names. <code>open</code> applies a
             template onto a surface, which you paint like any other:
           </p>
-          <GuideFile path="react/src/vapp.ts" />
+          <GuideFile path="react/src/app-host.ts" />
         </>
       ),
     },
@@ -762,7 +762,7 @@ cd packages/exponential-ui-compose
             Because a package is data, the same file runs in every host: the web, the SwiftUI and Compose hosts, the
             gpui host. Against an Exponential instance, <code>ExponentialConnector</code> does the MCP OAuth grant
             (discovery, dynamic registration, PKCE) and serves the instance's issues, boards, teams and members as{` `}
-            <code>exp:</code> sources, so a vapp can show live data the user has consented to. Hosted vapps, which
+            <code>exp:</code> sources, so a app can show live data the user has consented to. Hosted apps, which
             run elsewhere and stream their UI, embed through the same <code>Transport</code> interface.
           </p>
           <p>
@@ -1002,7 +1002,7 @@ const DEFINE_SECTIONS: Section[] = [
           the renderers use (a literal-only prop given a binding, an unknown icon, a missing required prop), the flat{` `}
           <code>components</code>, the <code>messages</code> (createSurface, updateComponents, one updateDataModel per
           data path) and their <code>jsonl</code>. Hand the messages to any host from the render guides, or embed them in
-          a vapp template. Ids are assigned top-down (<code>root</code>, then <code>row-1</code>, <code>row-2</code>…)
+          a app template. Ids are assigned top-down (<code>root</code>, then <code>row-1</code>, <code>row-2</code>…)
           unless you name a node.
         </p>
         <DocsCode language="ts">{`const surface = defineSurface(tree, { surfaceId: "devices", data: { "/devices": rows } })

@@ -12,6 +12,8 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.SessionInvalidator
 import com.exponential.app.data.db.ActionEntity
 import com.exponential.app.data.db.AgentDefinitionEntity
+import com.exponential.app.data.db.AppEntity
+import com.exponential.app.data.db.AppVersionEntity
 import com.exponential.app.data.db.EventEntity
 import com.exponential.app.data.db.PromptEntity
 import com.exponential.app.data.db.ConversationEntity
@@ -430,6 +432,8 @@ class SyncManager @Inject constructor(
         val eventDao = db.eventDao()
         val promptDao = db.promptDao()
         val conversationDao = db.conversationDao()
+        val appDao = db.appDao()
+        val appVersionDao = db.appVersionDao()
 
         val shapes = listOf(
             launchShape(
@@ -716,6 +720,26 @@ class SyncManager @Inject constructor(
                 onInsert = { conversationDao.upsert(it) },
                 onDelete = { conversationDao.deleteById(it.id) },
                 onRefetch = { conversationDao.clear() },
+            ),
+            // VAPP-110: the team's apps (the head package rides along) and
+            // their versions (package-less).
+            launchShape(
+                shape = "apps", path = "/api/shapes/apps", tableName = "apps",
+                serializer = AppEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("apps"),
+                onInsert = { appDao.upsert(it) },
+                onDelete = { appDao.deleteById(it.id) },
+                onRefetch = { appDao.clear() },
+            ),
+            launchShape(
+                shape = "app_versions", path = "/api/shapes/app-versions", tableName = "app_versions",
+                serializer = AppVersionEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("app_versions"),
+                onInsert = { appVersionDao.upsert(it) },
+                onDelete = { appVersionDao.deleteById(it.id) },
+                onRefetch = { appVersionDao.clear() },
             ),
         )
         return Pipeline(jobs = shapes.map { it.first }, clients = shapes.map { it.second })

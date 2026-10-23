@@ -34,6 +34,7 @@
     "./dock": "./src/dock.ts",
     "./stack": "./src/stack.ts",
     "./plan-card": "./src/plan-card.ts",
+    "./apps": "./src/apps.ts",
     "./fixtures/*": "./fixtures/*"
   }
 }

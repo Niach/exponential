@@ -2,7 +2,7 @@
 // the core, its components (natives a host paints, macros expanded from its
 // own templates) and no name that shadows a core one. The Exponential app's
 // extension (IssueRow, RunRow, …) lives with the app (packages/ui) and is the
-// first user of this; vapps add theirs the same way.
+// first user of this; apps add theirs the same way.
 
 import { CORE_CATALOG_ID, coreCatalog } from "./catalog"
 import type { ExtensionDef } from "./types"

@@ -7240,6 +7240,7 @@ impl SteerSessionView {
         };
         Some(crate::dock::SheetContent {
             meta: None,
+            action: None,
             body: crate::dock::sheet_body(SharedString::from(format!("steer-dock-sheet-{}", row.id)), body),
             footer: None,
         })
@@ -7321,6 +7322,7 @@ impl SteerSessionView {
                 };
                 crate::dock::SheetContent {
                     meta: None,
+                    action: None,
                     body: crate::dock::sheet_body("steer-dock-sheet-relay", card),
                     footer: None,
                 }

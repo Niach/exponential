@@ -164,6 +164,9 @@ pub(crate) fn glass_composer(composer: GlassComposer) -> Div {
         .children(tools)
         .child(div().flex_1())
         .children(submit);
+    // NEW-50: the field ABOVE the tool row, always (N-12's row host had
+    // dropped it: the session composer drew its tools with no field).
+    let card = card.child(field);
     match row_host {
         Some(id) => card.child(crate::picker::InlinePickerRow::new(id, row)),
         None => card.child(row),
@@ -891,9 +894,46 @@ pub(crate) fn composer_replies_row(
 
 #[cfg(test)]
 mod tests {
-    use super::fallback_session_model;
+    use super::{fallback_session_model, glass_composer, GlassComposer};
     use domain::contract as c;
     use domain::rows::SessionRow;
+    use gpui::{div, point, px, size, AppContext as _, ElementId, InteractiveElement as _, IntoElement as _, ParentElement as _, Styled as _};
+
+    /// NEW-50: the card draws its FIELD above the tool row, with and without
+    /// the N-14 row host (the row host had dropped the field: the IDE's
+    /// session composer showed its tools with no text field).
+    #[gpui::test]
+    fn the_card_draws_its_field_above_the_tool_row(cx: &mut gpui::TestAppContext) {
+        struct Probe {
+            hosted: bool,
+        }
+        impl gpui::Render for Probe {
+            fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+                let mut composer = GlassComposer::new(
+                    div().debug_selector(|| "probe-field".into()).h(px(40.)).into_any_element(),
+                )
+                .tool(div().debug_selector(|| "probe-tool".into()).size(px(24.)).into_any_element());
+                if self.hosted {
+                    composer = composer.row_host(ElementId::Name("probe-row".into()));
+                }
+                div().size_full().child(glass_composer(composer))
+            }
+        }
+        let cx = cx.add_empty_window();
+        cx.update(|_, cx| gpui_component::init(cx));
+        for hosted in [false, true] {
+            let probe = cx.update(|_, cx| cx.new(|_| Probe { hosted }));
+            for _ in 0..2 {
+                cx.draw(point(px(0.), px(0.)), size(px(600.), px(300.)), |_, _| div().size_full().child(probe.clone()));
+            }
+            let field = cx
+                .debug_bounds("probe-field")
+                .unwrap_or_else(|| panic!("the field is not drawn (row host: {hosted})"));
+            let tool = cx.debug_bounds("probe-tool").expect("the tool row is drawn");
+            assert!(f32::from(field.size.height) >= 40., "the field keeps its height (row host: {hosted})");
+            assert!(field.origin.y < tool.origin.y, "the field sits above the tool row (row host: {hosted})");
+        }
+    }
 
     /// Web `fallbackModel`: the row's pick, else (a dispatcher) the device's
     /// thread model, else the device's model, else the contract defaults.

@@ -24,6 +24,7 @@ import { commentsRouter } from "@/lib/trpc/comments"
 import { attachmentsRouter } from "@/lib/trpc/attachments"
 import { repositoriesRouter } from "@/lib/trpc/repositories"
 import { promptsRouter } from "@/lib/trpc/prompts"
+import { appsRouter } from "@/lib/trpc/apps"
 import { agentsRouter } from "@/lib/trpc/agents"
 import { steerRouter } from "@/lib/trpc/steer"
 import { devicesRouter } from "@/lib/trpc/devices"
@@ -54,6 +55,7 @@ export const appRouter = router({
   attachments: attachmentsRouter,
   repositories: repositoriesRouter,
   prompts: promptsRouter,
+  apps: appsRouter,
   agents: agentsRouter,
   steer: steerRouter,
   devices: devicesRouter,

@@ -505,7 +505,9 @@ describe(`icon call sites`, () => {
     // EXP-630: + Issues, the parent pane Labels and Statuses nest under on
     // both clients.
     // NEW-6: Settings → Prompts on the desktop too.
-    expect(desktopNav.size).toBe(20)
+    // VAPP-114: + Apps (the per-app rows are injected at render on web, like
+    // Agents).
+    expect(desktopNav.size).toBe(21)
 
     // The sections both clients render, web label → desktop variant.
     const shared: [string, string][] = [

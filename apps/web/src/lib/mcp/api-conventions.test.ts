@@ -123,6 +123,8 @@ function paramSchema(tool: string, param: string): z.ZodType {
 // the MCP Apps issue list (EXP-1183) and an issue's activity log (FEED-87);
 // nothing that writes may claim the hint.
 const READ_ONLY_EXTRA = new Set([
+  // VAPP-110: the app catalog is a read.
+  `exponential_apps_catalog`,
   `exponential_issues_activity`,
   `exponential_pr_files`,
   `exponential_issues_show`,

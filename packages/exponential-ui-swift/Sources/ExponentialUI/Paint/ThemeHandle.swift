@@ -61,7 +61,8 @@ public final class ThemeHandle: @unchecked Sendable {
 
     /// `owner/part` resolved for the OWNER's props and `states` in `mode`.
     public func part(_ owner: String, _ part: String, props: Props, states: [String] = [], mode: Mode) -> PartStyle {
-        let key = "\(owner)/\(part)|\(mode.rawValue)|\(states.sorted().joined(separator: ","))|\(props.json)"
+        let propsJson = props.wireJSON
+        let key = "\(owner)/\(part)|\(mode.rawValue)|\(states.sorted().joined(separator: ","))|\(propsJson)"
         lock.lock()
         if let hit = parts[key] {
             lock.unlock()
@@ -69,7 +70,7 @@ public final class ThemeHandle: @unchecked Sendable {
         }
         lock.unlock()
         let resolved: PartStyle
-        if let p = try? theme.resolvePart(ownerComponent: owner, part: part, ownerPropsJson: props.json, states: states, mode: mode.rawValue) {
+        if let p = try? theme.resolvePart(ownerComponent: owner, part: part, ownerPropsJson: propsJson, states: states, mode: mode.rawValue) {
             resolved = PartStyle(style: PaintStyle(p.visual), props: JSONValue.parse(p.styleJson).object ?? [:])
         } else {
             resolved = .empty

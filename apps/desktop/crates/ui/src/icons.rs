@@ -268,6 +268,21 @@ pub fn agent_row_icon(row: &domain::session_tree::AgentRow) -> Icon {
     agent_icon(Some(&row.icon), Some(&row.color))
 }
 
+/// VAPP-110: an app's glyph (web `BoardGlyph`): its curated `icon` when it
+/// is one of the board set, else the repo-less board's fallback; tinted with
+/// its `#rrggbb` colour, the foreground when it has none.
+pub fn app_icon(icon: Option<&str>, color: Option<&str>) -> Icon {
+    let glyph = icon
+        .filter(|name| registry::PICKABLE_ICONS.contains(name))
+        .and_then(board_icon_glyph)
+        .unwrap_or(ExpIcon::SquareKanban);
+    let icon = Icon::from(glyph);
+    match color.and_then(crate::settings::parse_hex_color) {
+        Some(tint) => icon.text_color(tint),
+        None => icon,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -571,6 +571,20 @@ public final class SyncManager: @unchecked Sendable {
             session: session
         ))
 
+        // VAPP-110: the team's apps (the head package rides along, so the
+        // editor's preview repaints on every upsert) and their versions'
+        // metadata (31st and 32nd shapes).
+        tasks.append(makeShapeTask(
+            name: "apps", path: "/api/shapes/apps", table: "apps",
+            type: AppEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+        tasks.append(makeShapeTask(
+            name: "app-versions", path: "/api/shapes/app-versions", table: "app_versions",
+            type: AppVersionEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+
         lock.withLock { pipelines[accountId] = tasks }
     }
 

@@ -1,5 +1,5 @@
 /* Concepts: A2UI in short, then the epic's vocabulary (catalog, theme,
-   extension, host plugin, vapp) and how the six renderers agree. */
+   extension, host plugin, app) and how the six renderers agree. */
 import basicMap from "@exponential-at/ui/catalog/basic-map.json"
 import { DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { DocsTable } from "../components/Content"
@@ -19,7 +19,7 @@ const SECTIONS: DocsSectionType[] = [
   { id: `themes`, num: `07`, label: `Themes` },
   { id: `extensions`, num: `08`, label: `Extensions` },
   { id: `host-plugins`, num: `09`, label: `Host plugins` },
-  { id: `vapps`, num: `10`, label: `Vapps` },
+  { id: `apps`, num: `10`, label: `Apps` },
   { id: `renderers`, num: `11`, label: `How renderers agree` },
 ]
 
@@ -116,7 +116,7 @@ export default function ConceptsPage({ path }: PageProps) {
               [<strong key="w">Theme</strong>, `A JSON file of tokens and component recipes. Anyone can write one; renderers load it at runtime.`],
               [<strong key="w">Extension</strong>, `Extra components: an extension catalog plus a painter per platform, registered with the renderer.`],
               [<strong key="w">Host plugin</strong>, `What the embedding app lends a surface: transport, functions, data bindings, policy.`],
-              [<strong key="w">Vapp</strong>, `An app built on all of the above: templates, data, bindings and a theme in one declarative package.`],
+              [<strong key="w">App</strong>, `An app built on all of the above: templates, data, bindings and a theme in one declarative package.`],
             ]}
           />
         </DocsSection>
@@ -243,7 +243,7 @@ export default function ConceptsPage({ path }: PageProps) {
             A <strong>theme</strong> is data, never code: one JSON file of <strong>tokens</strong> (colours per
             mode, radius, spacing, type, control heights, shadows, motion) and <strong>recipes</strong> (per
             component part, a style for each combination of variant and state). Every renderer loads it at
-            runtime, so a theme can come from a URL, a vapp or a server.
+            runtime, so a theme can come from a URL, a app or a server.
           </p>
           <DocsCode language="json">{THEME}</DocsCode>
           <p>
@@ -303,19 +303,19 @@ export default function ConceptsPage({ path }: PageProps) {
           </p>
         </DocsSection>
 
-        <DocsSection id="vapps" num="10" label="Vapps">
-          <h2>Vapps</h2>
+        <DocsSection id="apps" num="10" label="Apps">
+          <h2>Apps</h2>
           <p>
-            A <strong>vapp</strong> is an app built on all of the above and shipped as data: a declarative package
+            A <strong>app</strong> is an app built on all of the above and shipped as data: a declarative package
             of templates (components, initial data, bindings), the functions it may call and its theme. Any host
-            runs it with <code>createVappHost</code>, and its <code>functions</code> list becomes the policy for its
+            runs it with <code>createAppHost</code>, and its <code>functions</code> list becomes the policy for its
             surfaces: listed names are allowed, everything else is denied.
           </p>
           <DocsCode language="json">{PACKAGE}</DocsCode>
           <p>
             Against an Exponential instance, a connector does the MCP OAuth grant and serves the instance's issues,
-            boards, teams and members as <code>exp:</code> sources. Vapps run on the vapps platform; to build one,
-            see <a href={guidePath(`vapps`)}>Build and embed a vapp</a>.
+            boards, teams and members as <code>exp:</code> sources. Apps run on the apps platform; to build one,
+            see <a href={guidePath(`apps`)}>Build and embed a app</a>.
           </p>
         </DocsSection>
 

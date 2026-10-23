@@ -2,6 +2,13 @@ import Foundation
 import ProjectDescription
 
 let sharedSources: SourceFilesList = ["Exponential/**"]
+// VAPP-110: the app host's app-extension catalog and built-in Devices
+// package, bundled straight from packages/ui/exponential-ui (the bytes the web
+// and desktop hosts install; `AppHostResources` loads them by name).
+let appHostResources: [ResourceFileElement] = [
+    "../../packages/ui/exponential-ui/extension.json",
+    "../../packages/ui/exponential-ui/templates/devices.json",
+]
 // GoogleService-Info.plist is per-target now (prod and staging are separate
 // Firebase apps: at.exponential vs at.exponential.staging). Each iOS app target
 // bundles exactly one, copied in as `GoogleService-Info.plist` (the name the
@@ -11,18 +18,18 @@ let sharedSources: SourceFilesList = ["Exponential/**"]
 // as a plain flat resource (same treatment as GoogleService-Info.plist). Both app
 // targets share ONE file: prod and staging ship identical code, so their
 // required-reason APIs and collected data are identical too.
-let prodResources: ResourceFileElements = [
+let prodResources: ResourceFileElements = .resources([
     "Exponential/Assets.xcassets",
     "Exponential/Resources/**",
     "Exponential/GoogleService-Info.plist",
     "Exponential/PrivacyInfo.xcprivacy",
-]
-let stagingResources: ResourceFileElements = [
+] + appHostResources)
+let stagingResources: ResourceFileElements = .resources([
     "Exponential/Assets.xcassets",
     "Exponential/Resources/**",
     "Firebase-Staging/GoogleService-Info.plist",
     "Exponential/PrivacyInfo.xcprivacy",
-]
+] + appHostResources)
 // EXP-1280: the Exponential UI painter (`ExponentialUI`, the SDK's SwiftUI
 // renderer over the Rust core) paints an agent's inline surface in the plan /
 // question card. Its UniFFI core ships as `ExponentialUIFFI.xcframework`

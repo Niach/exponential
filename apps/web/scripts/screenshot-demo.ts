@@ -414,6 +414,30 @@ export const DEMO_AGENT_CHANNEL_TIMES = {
 export const DEMO_AGENT_REQUEST = `Label the Android ones too, and check the board every hour.`
 
 /**
+ * VAPP-110: the `apps` / `app` views. The Team dashboard app (three
+ * versions, the demo user's EDITOR SESSION with it holding the chat) and a
+ * second app with no version yet. `$appSlug` resolves to DEMO_APP_SLUG.
+ */
+export const DEMO_APP_ID = `c4b1d7e2-5a90-4f3c-8e6d-2b7a9c0f1d35`
+export const DEMO_APP_SLUG = `team-dashboard`
+export const DEMO_APP_EMPTY_ID = `e8f2a6c1-3d47-4b9e-a1c5-7f0b2d8e4a62`
+export const DEMO_APP_EDITOR_SESSION_ID = `a7d3f9b4-2c61-4e8a-b5f0-9d1c6e3a7b48`
+export const DEMO_APP_VERSION_IDS = [
+  `1f6e2a8c-9b4d-4c7e-8a3f-5d2b7e9c1a04`,
+  `2a7f3b9d-0c5e-4d8f-9b4a-6e3c8f0d2b15`,
+  `3b8a4c0e-1d6f-4e9a-ac5b-7f4d9a1e3c26`,
+] as const
+/** The editor chat prints times of day: pinned like the agent channel's. */
+export const DEMO_APP_CHAT_TIMES = {
+  request: new Date(`2026-10-12T08:05:00Z`),
+  first: new Date(`2026-10-12T08:06:10Z`),
+  change: new Date(`2026-10-12T08:12:00Z`),
+  second: new Date(`2026-10-12T08:13:05Z`),
+  polish: new Date(`2026-10-12T08:20:00Z`),
+  third: new Date(`2026-10-12T08:21:30Z`),
+} as const
+
+/**
  * The comment the steered session's scripted `exponential_comments_create`
  * call posted (EXP-1259, the `comment-call-card` view): the seed stamps this id
  * on an `mcp`-sourced comment by the demo user, and the stand-in desktop's

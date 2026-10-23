@@ -191,7 +191,7 @@ export default function NumbersPage({ path }: PageProps) {
                     {kind === `ms` ? ` ms` : ``} <span className="bench-machine-tag">({f.machine})</span>
                   </span>,
                   f.cause,
-                  <a key="i" href={`https://app.exponential.at/t/feedback/boards/vapps/issues/${f.issue}`}>
+                  <a key="i" href={`https://app.exponential.at/t/feedback/boards/apps/issues/${f.issue}`}>
                     <code>{f.issue}</code>
                   </a>,
                 ]

@@ -149,6 +149,14 @@ public final class SurfaceModel {
     @ObservationIgnored var pendingDay: (owner: String, iso: String)?
     @ObservationIgnored var focusSerial = 0
     @ObservationIgnored var measureGeneration: UInt64 = 0
+    /// The measurer's answers across passes (`MeasureMemo`, VAPP-142).
+    @ObservationIgnored let measureMemo = MeasureMemo()
+    /// Tests: measure every leaf the core asks about (no memo), the reference the memo is held to.
+    @ObservationIgnored var memoizeMeasures = true
+    /// The core's visual records converted (VAPP-142: a template's 10,000
+    /// items share a handful; `PaintStyle.init` parses colours, shadows
+    /// and gradients). Starts over past 4096 distinct records.
+    @ObservationIgnored var paintStyles: [FfiVisual: PaintStyle] = [:]
     @ObservationIgnored var unknownReported: Set<String> = []
     @ObservationIgnored var rank: [Int] = []
     @ObservationIgnored var lastKinds: [String: String] = [:]
@@ -208,7 +216,7 @@ public final class SurfaceModel {
     /// One A2UI server→client message (`updateComponents`, `updateDataModel`…).
     @discardableResult
     public func apply(_ message: JSONValue) throws -> FfiApplyOutcome {
-        try apply(json: message.json)
+        try apply(json: message.wireJSON)
     }
 
     @discardableResult
@@ -241,7 +249,7 @@ public final class SurfaceModel {
 
     /// Write at a JSON pointer (nil removes).
     public func setData(path: String, value: JSONValue?) {
-        let json = value?.json
+        let json = value?.wireJSON
         if var c = Self.benchCounters { c.calls += 1; c.bytesIn += path.utf8.count + (json?.utf8.count ?? 0); Self.benchCounters = c }
         try? surface.setData(path: path, valueJson: json)
         invalidate(structure: false)
@@ -317,7 +325,7 @@ public final class SurfaceModel {
             if fixedMeasure, let fixed = try? surface.layoutFixed(sizesJson: nil, wrap: true) {
                 out = fixed
             } else {
-                let measurer = SurfaceMeasurer(theme: theme, mode: mode, extensions: extensions, kinds: kinds, generation: measureGeneration, mediaAllowed: { [unowned self] src in
+                let measurer = SurfaceMeasurer(theme: theme, mode: mode, extensions: extensions, kinds: kinds, generation: measureGeneration, memo: memoizeMeasures ? measureMemo : nil, mediaAllowed: { [unowned self] src in
                     MainActor.assumeIsolated { self.mediaRequest(src) != nil }
                 })
                 out = surface.layout(measurer: measurer)
@@ -441,11 +449,10 @@ public final class SurfaceModel {
         var fetch = Set(delta.added.map(Int.init))
         fetch.formUnion(delta.changed.map(Int.init))
         let removed = Set(delta.removed.map(Int.init)).subtracting(fetch)
-        if !removed.isEmpty {
-            let gone = surface.nodesAt(indices: removed.sorted().map(UInt32.init))
-            if var c = Self.benchCounters { c.calls += 1; c.bytesOut += gone.reduce(0) { $0 + $1.propsJson.utf8.count + 64 }; Self.benchCounters = c }
-            for n in gone where Int(n.index) < list.count { list[Int(n.index)] = NodeInfo(n) }
-        }
+        // A freed slot becomes a tombstone here: the core's answer for it
+        // carries nothing the live record did not (VAPP-131: one facade
+        // call and every removed row's bytes per scroll step).
+        for i in removed where i < list.count && !list[i].removed { list[i] = NodeInfo(tombstoneOf: list[i]) }
         if !fetch.isEmpty {
             let fresh = surface.nodesAt(indices: fetch.sorted().map(UInt32.init))
             if var c = Self.benchCounters { c.calls += 1; c.bytesOut += fresh.reduce(0) { $0 + $1.propsJson.utf8.count + 64 }; Self.benchCounters = c }
@@ -490,15 +497,30 @@ public final class SurfaceModel {
         var st = styles
         var ts = textStyles
         if let changed {
+            var leaves = 0
+            // Most slots changed (a rebind, a sort): ONE bulk read beats a
+            // call per slot; the unchanged slots read back what they hold.
+            let bulk = changed.count * 2 > st.count ? surface.visuals() : nil
+            if let bulk, var c = Self.benchCounters { c.calls += 1; c.bytesOut += bulk.count * 96; Self.benchCounters = c }
             for i in changed where i < st.count {
-                st[i] = surface.visual(index: UInt32(i)).map(PaintStyle.init) ?? PaintStyle()
-                if nodes[i].isLeaf, let t = surface.textStyle(index: UInt32(i)) { ts[i] = TextStyle(t, defaultFamily: theme?.sansFamily) } else { ts[i] = nil }
+                if let bulk {
+                    st[i] = i < bulk.count ? paintStyle(bulk[i]) : PaintStyle()
+                } else {
+                    st[i] = surface.visual(index: UInt32(i)).map(paintStyle) ?? PaintStyle()
+                }
+                if nodes[i].isLeaf {
+                    leaves += 1
+                    if let t = surface.textStyle(index: UInt32(i)) { ts[i] = TextStyle(t, defaultFamily: theme?.sansFamily) } else { ts[i] = nil }
+                } else {
+                    ts[i] = nil
+                }
             }
-            if var c = Self.benchCounters { c.calls += changed.count * 2; c.bytesOut += changed.count * (96 + 48); Self.benchCounters = c }
+            // A text style is read for the leaves only (VAPP-131: the count charged every changed node).
+            if var c = Self.benchCounters { let read = bulk == nil ? changed.lazy.filter { $0 < st.count }.count : 0; c.calls += read + leaves; c.bytesOut += read * 96 + leaves * 48; Self.benchCounters = c }
         } else {
             let visuals = surface.visuals()
             if var c = Self.benchCounters { c.calls += 1; c.bytesOut += visuals.count * 96; Self.benchCounters = c }
-            st = visuals.map(PaintStyle.init)
+            st = visuals.map(paintStyle)
             if st.count < nodes.count { st += [PaintStyle](repeating: PaintStyle(), count: nodes.count - st.count) }
             ts = [:]
             // The core resolves a leaf's text style DURING the pass (the
@@ -513,6 +535,14 @@ public final class SurfaceModel {
             if ts != textStyles { textStyles = ts }
             computeInks()
         }
+    }
+
+    private func paintStyle(_ v: FfiVisual) -> PaintStyle {
+        if let hit = paintStyles[v] { return hit }
+        if paintStyles.count >= 4096 { paintStyles.removeAll(keepingCapacity: true) }
+        let style = PaintStyle(v)
+        paintStyles[v] = style
+        return style
     }
 
     /// Text colour inheritance in TREE order (slots are not pre-order).

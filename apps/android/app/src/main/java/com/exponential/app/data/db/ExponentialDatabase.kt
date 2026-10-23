@@ -36,6 +36,8 @@ import androidx.room.TypeConverters
         EventEntity::class,
         PromptEntity::class,
         ConversationEntity::class,
+        AppEntity::class,
+        AppVersionEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v2: added attachments.width / attachments.height (parity with iOS).
@@ -436,8 +438,11 @@ import androidx.room.TypeConverters
     //      messages.conversation_id (session_id kept). Explicit
     //      [MIGRATION_92_93] adds the column, creates the table empty and
     //      refetches only the messages shape.
+    // v94 (VAPP-110): the `apps` + `app_versions` tables (two new shapes) +
+    //      sessions.app_id. Explicit [MIGRATION_93_94] adds the column,
+    //      creates the tables empty and refetches only the sessions shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 93,
+    version = 94,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -472,5 +477,7 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun eventDao(): EventDao
     abstract fun promptDao(): PromptDao
     abstract fun conversationDao(): ConversationDao
+    abstract fun appDao(): AppDao
+    abstract fun appVersionDao(): AppVersionDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

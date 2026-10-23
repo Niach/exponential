@@ -69,6 +69,8 @@ object SessionTree {
         /** NEW-2: the agent whose conversation this root is (null = a thread
          *  or a child); the kind derives from it ([SessionKind.sessionKindOf]). */
         val agentId: String? = null,
+        /** VAPP-110: the app this root is a member's editor session of (null = none). */
+        val appId: String? = null,
     )
 
     /** EXP-1323: the viewer's read marks (`session_reads`, already user-scoped). */
@@ -1069,8 +1071,10 @@ object SessionTree {
         fun titleOf(s: Session) = SessionTitle.sessionTitle(titleSession(s), titleLinks, titleIssues, titleMessages)
         val roots = sessions.filter {
             it.parentId == null &&
-                // NEW-2: an agent's conversation (a root with `agentId`) is no thread.
+                // NEW-2: an agent's conversation (a root with `agentId`) is no thread;
+                // VAPP-110: neither is an app's editor session (`appId`).
                 it.agentId.isNullOrEmpty() &&
+                it.appId.isNullOrEmpty() &&
                 (teamId == null || it.teamId == teamId)
         }
         val byRoot = LinkedHashMap<String, MutableList<Session>>()
@@ -1560,6 +1564,7 @@ object SessionTree {
         caption = row.caption,
         aside = row.aside,
         agentId = row.agentId,
+        appId = row.appId,
     )
 
     fun sessionIssue(row: SessionIssueEntity): SessionIssue =

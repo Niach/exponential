@@ -4,7 +4,7 @@
 //! (`packages/exponential-ui/catalog/host.json`): the router turning server
 //! messages into ops, the wire decoders (JSONL, SSE, A2UI-over-MCP), the
 //! function / URL / media policy, binding sources, catalog negotiation and
-//! declarative vapp packages. A line-by-line port of the TypeScript reference
+//! declarative app packages. A line-by-line port of the TypeScript reference
 //! (`packages/exponential-ui/src/host/`) over `serde_json::Value`; every
 //! output is JSON-equal to it, locked by `fixtures/host-*.json`. The I/O
 //! (transports, the runtime host) stays on each platform; the Swift and
