@@ -363,7 +363,7 @@ export function SessionCard({
     </div>
   ) : null
   const shell = cn(
-    `block w-full min-w-0 overflow-clip rounded-lg border border-glass-stroke-card bg-glass-row text-left text-xs`,
+    `block w-full min-w-0 overflow-clip rounded-lg border border-glass-stroke-card bg-glass-card-opaque text-left text-xs`,
     className
   )
   if (!onOpen) {
@@ -431,7 +431,7 @@ export function WorkCard({
       data-testid={TEST_IDS.card}
       data-kind={card.kind}
       className={cn(
-        `min-w-0 overflow-clip rounded-lg border border-glass-stroke-card bg-glass-row text-xs`,
+        `min-w-0 overflow-clip rounded-lg border border-glass-stroke-card bg-glass-card-opaque text-xs`,
         className
       )}
     >

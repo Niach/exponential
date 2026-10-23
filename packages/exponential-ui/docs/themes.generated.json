@@ -2797,6 +2797,28 @@
       ]
     },
     {
+      "name": "DockCard",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "trigger",
+        "icon",
+        "body",
+        "header",
+        "label",
+        "caption",
+        "spacer",
+        "meta",
+        "row",
+        "title",
+        "chevron",
+        "sheet"
+      ],
+      "props": [
+        "tone"
+      ]
+    },
+    {
       "name": "AlertDialog",
       "kind": "macro",
       "parts": [

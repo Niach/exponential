@@ -224,7 +224,8 @@ pub fn flat_row_compact(chrome: &Chrome) -> Div {
 /// The compact row's height (web `h-7`).
 pub const FLAT_ROW_COMPACT_H: f32 = 28.;
 
-/// Card surface: the `radius_xl` (16) corner, `fill_card` under a
+/// Card surface: the `radius_xl` (16) corner, `fill_card_opaque` (N-12: ONE
+/// gray ×4, the opaque card composite, never the translucent wash) under a
 /// `stroke_card` hairline (mobile `GlassCard`). Layout (width/padding/gap) is
 /// the caller's job.
 pub fn glass_card(chrome: &Chrome) -> Div {
@@ -232,7 +233,7 @@ pub fn glass_card(chrome: &Chrome) -> Div {
         .rounded(px(chrome.radius_xl))
         .border_1()
         .border_color(chrome.stroke_card)
-        .bg(chrome.fill_card)
+        .bg(chrome.fill_card_opaque)
 }
 
 /// EXP-642: ONE row of a carded list — the web `GlassRow`

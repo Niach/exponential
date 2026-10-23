@@ -5643,6 +5643,34 @@
           }
         }
       ]
+    },
+    "DockCard": {
+      "trigger": [
+        {
+          "style": {
+            "backgroundColor": "$color.card",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        }
+      ],
+      "chevron": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ]
     }
   }
 }

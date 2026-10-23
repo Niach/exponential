@@ -56,41 +56,73 @@ object ToastStack {
     /** The stack box [height] plus every item's geometry, oldest first. */
     data class Layout(val height: Double, val items: List<ItemGeometry>)
 
+    /** The toast's numbers as [StackConstants] (the Dock pile has its own, `Dock.STACK`). */
+    val TOAST: StackConstants = StackConstants(
+        peek = Constants.PEEK,
+        scaleStep = Constants.SCALE_STEP,
+        visible = Constants.VISIBLE,
+        gap = Constants.GAP,
+    )
+
     /**
      * [heights] = the measured toast heights, OLDEST first (the newest is the
      * last and draws in front). Offsets always measure from the box's top,
      * [anchoredBottom] only decides which edge the front toast hugs.
      */
-    fun geometry(heights: List<Double>, expanded: Boolean, anchoredBottom: Boolean): Layout {
+    fun geometry(heights: List<Double>, expanded: Boolean, anchoredBottom: Boolean): Layout =
+        stackLayout(heights, expanded, anchoredBottom, TOAST)
+
+    /**
+     * N-12: THE stack geometry ×4 (TS `stackLayout`, src/stack.ts), the toast's
+     * shared with the Dock pile (dock.json `stack`): the newest item in front,
+     * the older ones peeking out behind it by `peek` and shrinking by
+     * `scaleStep` per rank, `visible` of them at most; expanded = every item
+     * at full size, `gap` apart.
+     */
+    fun stackLayout(
+        heights: List<Double>,
+        expanded: Boolean,
+        anchoredBottom: Boolean,
+        constants: StackConstants,
+    ): Layout {
         val count = heights.size
-        if (count == 0) return Layout(0.0, emptyList())
-        val c = Constants
         fun rank(index: Int) = count - 1 - index
-        val height = if (expanded) {
-            heights.sum() + c.GAP * (count - 1)
-        } else {
-            val front = heights.last() + c.PEEK * (count - 1)
-            heights.indices.maxOf { heights[it] + c.PEEK * rank(it) }.coerceAtLeast(front)
-        }
-        val items = heights.indices.map { index ->
-            val r = rank(index)
-            val h = heights[index]
+        // Distance of each item's anchor-side edge from the box's anchor edge.
+        val lead = heights.indices.map { i ->
             if (expanded) {
-                val newer = heights.subList(index + 1, count).sum()
-                val top = newer + r * c.GAP
-                ItemGeometry(
-                    offset = if (anchoredBottom) height - top - h else top,
-                    scale = 1.0,
-                    visible = true,
-                )
+                heights.subList(i + 1, count).sumOf { it + constants.gap }
+            } else {
+                constants.peek * rank(i)
+            }
+        }
+        val height = heights.indices.maxOfOrNull { lead[it] + heights[it] } ?: 0.0
+        val items = heights.indices.map { i ->
+            val r = rank(i)
+            val offset = if (anchoredBottom) height - lead[i] - heights[i] else lead[i]
+            if (expanded) {
+                ItemGeometry(round(offset), 1.0, true)
             } else {
                 ItemGeometry(
-                    offset = if (anchoredBottom) height - h - r * c.PEEK else r * c.PEEK,
-                    scale = 1.0 - c.SCALE_STEP * minOf(r, c.VISIBLE - 1),
-                    visible = r < c.VISIBLE,
+                    offset = round(offset),
+                    scale = round(1.0 - constants.scaleStep * minOf(r, constants.visible - 1)),
+                    visible = r < constants.visible,
                 )
             }
         }
-        return Layout(height, items)
+        return Layout(round(height), items)
     }
+
+    private fun round(value: Double): Double = Math.round(value * 1e4) / 1e4
 }
+
+/** N-12: one stack's numbers (TS `StackConstants`): the toast's and the Dock pile's. */
+data class StackConstants(
+    /** How far an older item peeks out behind the one in front of it. */
+    val peek: Double,
+    /** How much smaller each rank behind the front draws. */
+    val scaleStep: Double,
+    /** How many items draw at all while collapsed. */
+    val visible: Int,
+    /** The space between items while expanded. */
+    val gap: Double,
+)

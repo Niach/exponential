@@ -50,13 +50,14 @@ describe(`Composer`, () => {
     expect(row.contains(screen.getByRole(`button`, { name: `Send` }))).toBe(true)
   })
 
-  it(`composites over a solid surface when opaque`, () => {
+  it(`wears ONE gray, floating or not (N-12)`, () => {
     const { container, rerender } = render(<Composer />)
-    expect(card(container).className).toContain(`bg-glass-card`)
-    expect(card(container).className).toContain(`border-glass-stroke-card`)
+    const flat = card(container).className
+    expect(flat).toContain(`bg-glass-card-opaque`)
+    expect(flat).toContain(`border-glass-stroke-card`)
     rerender(<Composer opaque />)
-    expect(card(container).className).toContain(`bg-glass-card-opaque`)
-    expect(card(container).className).toContain(`border-glass-stroke-strong`)
+    expect(card(container).className).toBe(flat)
+    expect(card(container).getAttribute(`data-opaque`)).toBe(`true`)
   })
 })
 

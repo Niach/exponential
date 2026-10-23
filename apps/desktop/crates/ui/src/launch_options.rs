@@ -330,6 +330,21 @@ pub(crate) fn inline_pin_trigger_with(
         .child(div().text_xs().child(SharedString::from(label)))
 }
 
+/// N-12 — the pin as its GLYPH alone (web `PickerTrigger iconOnly`): the
+/// session composer's Device pin inside the card; the name lives in the
+/// picker and the tooltip.
+pub(crate) fn inline_pin_glyph_trigger(id: SharedString, icon: ExpIcon, cx: &App) -> Button {
+    Button::new(id)
+        .ghost()
+        .cursor_pointer()
+        .h_auto()
+        .px_1()
+        .py_0()
+        .text_color(cx.theme().muted_foreground)
+        .dropdown_caret(true)
+        .child(Icon::new(icon).size(gpui::px(12.)))
+}
+
 /// EXP-1030 — the candidate machines as THE device picker
 /// ([`crate::picker::device_picker`]) reads them: one row per machine, its
 /// [`crate::icons::device_icon_name`] glyph (its owner's pick, else its kind

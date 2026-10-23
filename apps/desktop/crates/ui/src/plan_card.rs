@@ -12,14 +12,12 @@
 //!   `chooseAny`, the options as THE option rows (text only) or as picture
 //!   TILES ([`crate::controls::choice_tiles`], `plan-card.json` `tiles`),
 //!   and the `custom` free-text row (`copy.custom`);
-//! - NEW-6 (N-1): a PENDING plan with `stepper.minQuestions`+ questions
-//!   steps through them one at a time (`copy.stepLabel`, Back / Next), the
-//!   LAST step carrying the decision block;
-//! - THE decision block: `copy.decide` over THE option rows of ask-dock
-//!   `planOptions` (single pick, trailing check), the feedback field only
-//!   once the reject row is picked, the small primary button named after
-//!   the pick, disabled while `answer_issue` names a problem (its words
-//!   above it); a question card's Answer button;
+//! - N-12: a PENDING card the viewer may answer opens as THE Dock's sheet
+//!   ([`plan_sheet`] / [`question_sheet`]): the plan's pages (with
+//!   `stepper.minQuestions`+ questions one page per question, "Question n
+//!   of m" in the header), Back / Next in the footer, the last page's
+//!   footer THE decision (No, keep planning · Yes ▾ fresh; the feedback
+//!   field above it once rejecting), a question's footer Answer;
 //! - ANSWERED = closed: the picked options highlighted, the rest inert, the
 //!   decision label + the feedback.
 //!
@@ -38,14 +36,14 @@ use exponential_ui::host::{media_request, MediaOptions, MediaRequest, UrlPolicy}
 use exponential_ui_gpui::host::HostPlugin;
 use exponential_ui_gpui::view::{SurfaceView, SurfaceViewOptions};
 use gpui::{
-    div, img, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Entity, Focusable as _, FontWeight,
+    div, img, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Entity, FontWeight,
     InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, SharedString, Styled as _,
     StyledImage as _, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     input::{InputEvent, InputState, Textarea, TextareaState},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use serde_json::{json, Value};
 
@@ -207,11 +205,10 @@ struct CardDraft {
     /// The surface view was attempted (a surface that does not parse is
     /// never retried).
     surface_tried: bool,
-    /// NEW-6: the stepper's current question (0-based; local, never synced).
+    /// N-12: the plan sheet's page (0 = the plan; local, never synced).
     step: usize,
-    /// NEW-6: the picked decision row's ask-dock `planOptions` key (`None` =
-    /// the first, approve).
-    choice: Option<String>,
+    /// N-12: the reject button was picked: the feedback field shows.
+    rejecting: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -250,7 +247,7 @@ fn custom_text(message_id: &str, key: &str, cx: &App) -> String {
         .unwrap_or_default()
 }
 
-/// NEW-6: the stepper's current question (0-based).
+/// N-12: the plan sheet's page (0 = the plan).
 fn current_step(message_id: &str, cx: &App) -> usize {
     draft(message_id, cx).map(|draft| draft.step).unwrap_or_default()
 }
@@ -258,23 +255,6 @@ fn current_step(message_id: &str, cx: &App) -> usize {
 fn set_step(message_id: &str, step: usize, cx: &mut App) {
     draft_mut(message_id, cx).step = step;
     cx.refresh_windows();
-}
-
-/// NEW-6: open a card on step `step` unless it has a draft already (the
-/// styleguide's last-step specimen).
-pub(crate) fn preset_step(message_id: &str, step: usize, cx: &mut App) {
-    if draft(message_id, cx).is_none() {
-        draft_mut(message_id, cx).step = step;
-    }
-}
-
-/// NEW-6: the picked decision row (default: the first plan option).
-fn decision_choice(message_id: &str, cx: &App) -> &'static domain::ask_dock::PlanOption {
-    let options = domain::ask_dock::plan_options();
-    draft(message_id, cx)
-        .and_then(|draft| draft.choice.as_deref())
-        .and_then(|key| options.iter().find(|option| option.key == key))
-        .unwrap_or(&options[0])
 }
 
 fn feedback_text(message_id: &str, cx: &App) -> String {
@@ -405,9 +385,26 @@ impl CardSurfaceHost {
         MediaOptions {
             base_url: self.instance.clone(),
             schemes: Some(schemes),
+            allow_private: self.own_private_host(),
             ..Default::default()
         }
     }
+
+    /// VAPP-107: private, loopback and link-local hosts are denied by
+    /// default; a self-hosted LAN instance (`http://192.168.1.20:3000`,
+    /// `http://localhost:3000`) still serves the card's surface and its
+    /// pictures, so the card opts EXACTLY its own API host in — never the
+    /// whole LAN (`*`).
+    fn own_private_host(&self) -> Option<Vec<String>> {
+        own_host(self.instance.as_deref()?).map(|host| vec![host])
+    }
+}
+
+/// The instance url's host as the URL policy compares it (the WHATWG host,
+/// lowercased; an IPv6 host keeps its brackets).
+fn own_host(instance: &str) -> Option<String> {
+    let host = url::Url::parse(instance).ok()?.host_str()?.to_lowercase();
+    (!host.is_empty()).then_some(host)
 }
 
 /// Whether a surface media `src` may load: an own attachment (relative) or
@@ -424,6 +421,7 @@ impl HostPlugin for CardSurfaceHost {
     fn url_policy(&self) -> Option<UrlPolicy> {
         Some(UrlPolicy {
             base_url: self.instance.clone(),
+            allow_private: self.own_private_host(),
             ..Default::default()
         })
     }
@@ -782,18 +780,36 @@ pub(crate) struct PlanFacts<'a> {
     pub surface_data: Option<&'a Value>,
 }
 
-/// The plan card's content under its markdown: the surface + the question
-/// blocks (`content`), then the decision row + the feedback field, or the
-/// closed lines (`controls`). Two halves so THE ask dock can scroll the
-/// first and keep the second below it.
+/// The plan card IN THE TRANSCRIPT (N-12): the surface + every question
+/// block (`content`), then the closed lines, the answering line or nothing
+/// (`controls`). A pending card the viewer may decide lives in THE Dock
+/// ([`plan_sheet`]); here it is read-only.
 pub(crate) fn plan_parts(facts: &PlanFacts, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> (Vec<AnyElement>, AnyElement) {
     let message_id = facts.message_id;
-    let closed = facts.decision.is_some();
     let answering = crate::thread_screen::answering(message_id, cx);
-    let interactive = !closed && !answering;
-    if !closed {
+    prepare_plan(facts, window, cx);
+    let mut content: Vec<AnyElement> = Vec::new();
+    if facts.surface.is_some() {
+        content.push(surface_block(message_id, cx));
+    }
+    for question in facts.questions {
+        let picked = plan_picked(facts, question, cx);
+        content.push(question_block(message_id, question, &picked, false, model::card().block_gap, images, window, cx));
+    }
+    let controls = match facts.decision {
+        Some(decision) => closed_decision(facts, decision, cx),
+        None if answering => crate::thread_screen::card_answering(cx),
+        None => div().into_any_element(),
+    };
+    (content, controls)
+}
+
+/// Builds what a plan card's form needs (the free-text fields, the
+/// feedback field, the surface view), or a closed card's surface.
+fn prepare_plan(facts: &PlanFacts, window: &Window, cx: &mut App) {
+    if facts.decision.is_none() {
         ensure(
-            message_id,
+            facts.message_id,
             Needs {
                 custom: facts.questions.iter().filter(|q| q.custom).map(|q| (q.id.clone(), !q.multi)).collect(),
                 feedback: true,
@@ -803,220 +819,283 @@ pub(crate) fn plan_parts(facts: &PlanFacts, images: &Entity<ImageCache>, window:
             cx,
         );
     } else {
-        ensure_closed_surface(message_id, facts.surface, facts.surface_data, window, cx);
+        ensure_closed_surface(facts.message_id, facts.surface, facts.surface_data, window, cx);
     }
-    let mut content: Vec<AnyElement> = Vec::new();
-    if facts.surface.is_some() {
-        content.push(surface_block(message_id, cx));
-    }
-    let picked_of = |question: &PlanQuestion, cx: &App| {
-        if closed {
-            facts.answers.and_then(|answers| answers.get(&question.id).cloned()).unwrap_or_default()
-        } else {
-            question_answer(&picks(message_id, &question.id, cx), "", question.multi)
-        }
-    };
-    // NEW-6 (N-1): a PENDING plan with `stepper.minQuestions`+ questions
-    // shows ONE at a time (the step line, Back / Next); the LAST step
-    // carries the decision block. A closed card lists every question.
-    let count = facts.questions.len();
-    let stepped = !closed && model::stepper().steps(count);
-    let current = current_step(message_id, cx).min(count.saturating_sub(1));
-    let last_step = !stepped || current + 1 == count;
-    if stepped {
-        let question = &facts.questions[current];
-        let picked = picked_of(question, cx);
-        content.push(step_line(message_id, current, count, cx));
-        content.push(question_block(message_id, question, &picked, interactive, STEPPED_BLOCK_TOP, images, window, cx));
-        content.extend(step_buttons(message_id, current, count));
-    } else {
-        for question in facts.questions {
-            let picked = picked_of(question, cx);
-            content.push(question_block(message_id, question, &picked, interactive, model::card().block_gap, images, window, cx));
-        }
-    }
-    let controls = match facts.decision {
-        Some(decision) => {
-            let label = domain::ask_dock::plan_decision_label(decision, facts.fresh);
-            v_flex()
-                .w_full()
-                .min_w_0()
-                .child(crate::steer_viewer::ask_resolved_line(Some(&label), false, cx))
-                .when_some(facts.feedback, |column, feedback| {
-                    column.child(
-                        div()
-                            .id(SharedString::from(format!("{}-{message_id}", model::test_ids().feedback)))
-                            .mt_1()
-                            .w_full()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(SharedString::from(model::copy().feedback_line(feedback))),
-                    )
-                })
-                .into_any_element()
-        }
-        None if answering => crate::thread_screen::card_answering(cx),
-        None if last_step => decision_block(facts, window, cx),
-        None => div().into_any_element(),
-    };
-    (content, controls)
 }
 
-/// A stepped question's top gap under its step line (web `mt-1`).
-const STEPPED_BLOCK_TOP: f32 = 4.;
+fn plan_picked(facts: &PlanFacts, question: &PlanQuestion, cx: &App) -> Vec<String> {
+    if facts.decision.is_some() {
+        facts.answers.and_then(|answers| answers.get(&question.id).cloned()).unwrap_or_default()
+    } else {
+        question_answer(&picks(facts.message_id, &question.id, cx), "", question.multi)
+    }
+}
 
-/// NEW-6: the step line above the current question (`copy.stepLabel`, `xs`
-/// muted). `step` is 0-based.
-fn step_line(message_id: &str, step: usize, count: usize, cx: &App) -> AnyElement {
-    div()
-        .id(SharedString::from(format!("{}-{message_id}", model::test_ids().step)))
-        .mt(px(model::card().block_gap))
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
-        .child(SharedString::from(model::copy().step_label(step + 1, count)))
+/// A decided card's lines: `planDecisionLabel`, then the feedback.
+fn closed_decision(facts: &PlanFacts, decision: &str, cx: &App) -> AnyElement {
+    let label = domain::ask_dock::plan_decision_label(decision, facts.fresh);
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .child(crate::steer_viewer::ask_resolved_line(Some(&label), false, cx))
+        .when_some(facts.feedback, |column, feedback| {
+            column.child(
+                div()
+                    .id(SharedString::from(format!("{}-{}", model::test_ids().feedback, facts.message_id)))
+                    .mt_1()
+                    .w_full()
+                    .min_w_0()
+                    .truncate()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(SharedString::from(model::copy().feedback_line(feedback))),
+            )
+        })
         .into_any_element()
 }
 
-/// NEW-6: Back / Next under the current question: small secondary buttons,
-/// `stepper.buttonGap` apart, right-aligned; Back hidden on the first step,
-/// Next on the last.
-fn step_buttons(message_id: &str, step: usize, count: usize) -> Option<AnyElement> {
-    let back = step > 0;
-    let next = step + 1 < count;
+/// N-12: THE plan sheet (a DockCard opened, plan-card.json `stepper`): page
+/// 0 = the plan, the surface and (below `minQuestions` questions) the
+/// questions; else one page per question, "Question n of m" as the header's
+/// meta; the footer = Back / Next, the last page THE decision
+/// ([`plan_footer`]). The page is local (the draft), never synced.
+pub(crate) fn plan_sheet(
+    facts: &PlanFacts,
+    plan: AnyElement,
+    images: &Entity<ImageCache>,
+    window: &Window,
+    cx: &mut App,
+) -> crate::dock::SheetContent {
+    let message_id = facts.message_id;
+    let decided = facts.decision.is_some();
+    let answering = crate::thread_screen::answering(message_id, cx);
+    let interactive = !decided && !answering;
+    prepare_plan(facts, window, cx);
+    let count = facts.questions.len();
+    let stepped = !decided && model::stepper().steps(count);
+    let pages = if stepped { 1 + count } else { 1 };
+    let page = current_step(message_id, cx).min(pages - 1);
+    let last = page + 1 == pages;
+    let question = (stepped && page > 0).then(|| &facts.questions[page - 1]);
+    let mut body = v_flex()
+        .id(SharedString::from(format!("{}-{message_id}", model::test_ids().card)))
+        .w_full()
+        .min_w_0();
+    match question {
+        Some(question) => {
+            let picked = plan_picked(facts, question, cx);
+            body = body.child(question_block(message_id, question, &picked, interactive, 0., images, window, cx));
+        }
+        None => {
+            body = body.child(plan);
+            if facts.surface.is_some() {
+                body = body.child(surface_block(message_id, cx));
+            }
+            if !stepped {
+                for question in facts.questions {
+                    let picked = plan_picked(facts, question, cx);
+                    body = body.child(question_block(message_id, question, &picked, interactive, model::card().block_gap, images, window, cx));
+                }
+            }
+        }
+    }
+    let mut footer = v_flex().w_full().min_w_0().gap_2();
+    if interactive && last {
+        footer = footer.child(plan_footer(facts, page, window, cx));
+    } else {
+        footer = footer.children(step_buttons(message_id, page, pages));
+    }
+    if answering {
+        footer = footer.child(crate::thread_screen::card_answering(cx));
+    } else if let Some(decision) = facts.decision {
+        footer = footer.child(closed_decision(facts, decision, cx));
+    }
+    crate::dock::SheetContent {
+        meta: question.map(|_| SharedString::from(model::copy().step_label(page, count))),
+        body: crate::dock::sheet_body(SharedString::from(format!("{}-{message_id}", domain::dock::DOCK.test_ids.sheet_body)), body),
+        footer: Some(crate::dock::sheet_footer(footer)),
+    }
+}
+
+/// A footer button (small secondary, or the primary).
+fn footer_button(id: String, label: &str, primary: bool) -> Button {
+    let button = Button::new(SharedString::from(id)).small().cursor_pointer().label(label.to_string());
+    if primary {
+        button.primary()
+    } else {
+        button.with_variant(ButtonVariant::Secondary)
+    }
+}
+
+/// N-12: Back / Next in the sheet's footer: small secondary buttons,
+/// `stepper.buttonGap` apart; Back leads the row, Next trails it; Back
+/// hidden on the first page, Next on the last.
+fn step_buttons(message_id: &str, page: usize, pages: usize) -> Option<AnyElement> {
+    let back = page > 0;
+    let next = page + 1 < pages;
     if !back && !next {
         return None;
     }
     let ids = model::test_ids();
     let copy = model::copy();
-    let button = |test_id: &str, label: &str, to: usize| {
-        let id = message_id.to_string();
-        Button::new(SharedString::from(format!("{test_id}-{message_id}")))
-            .with_variant(ButtonVariant::Secondary)
-            .small()
-            .cursor_pointer()
-            .label(label.to_string())
-            .on_click(move |_, _, cx| {
-                cx.stop_propagation();
-                set_step(&id, to, cx);
-            })
-    };
     Some(
-        gpui_component::h_flex()
-            .mt(px(model::card().block_gap))
+        h_flex()
             .w_full()
-            .justify_end()
+            .items_center()
             .gap(px(model::stepper().button_gap))
-            .when(back, |row| row.child(button(&ids.step_back, &copy.back, step.saturating_sub(1))))
-            .when(next, |row| row.child(button(&ids.step_next, &copy.next, step + 1)))
+            .when(back, |row| row.child(step_button(message_id, &ids.step_back, &copy.back, page - 1)))
+            .child(div().flex_1())
+            .when(next, |row| row.child(step_button(message_id, &ids.step_next, &copy.next, page + 1)))
             .into_any_element(),
     )
 }
 
-/// NEW-6 (N-1): THE decision block ×4: `copy.decide` (`xs` semibold, like
-/// a prompt) over THE option rows of ask-dock `planOptions` (single pick,
-/// the trailing check: the rows a question draws, never pills), the issue
-/// line while approving waits on an answer, the feedback field ONLY once the
-/// reject row is picked, then the small primary button named after the pick.
-fn decision_block(facts: &PlanFacts, window: &Window, cx: &mut App) -> AnyElement {
+fn step_button(message_id: &str, test_id: &str, label: &str, to: usize) -> Button {
+    let id = message_id.to_string();
+    footer_button(format!("{test_id}-{message_id}"), label, false).on_click(move |_, _, cx| {
+        cx.stop_propagation();
+        set_step(&id, to, cx);
+    })
+}
+
+/// N-12 (web `PlanCardFooter`): the LAST page's footer = THE decision:
+/// Back (when there are pages) leading; `reject` ("No, keep planning") as a
+/// small secondary button, then `approve` ("Yes") as the small primary with
+/// a trailing chevron menu holding `approve-fresh`; the primary is disabled
+/// while a required answer is missing (the issue line under the row).
+/// Picking the reject opens the feedback field above the row and the row
+/// reads Cancel + the reject label as the primary.
+fn plan_footer(facts: &PlanFacts, page: usize, window: &Window, cx: &mut App) -> AnyElement {
     let message_id = facts.message_id;
     let ids = model::test_ids();
-    let card = model::card();
-    let choice = decision_choice(message_id, cx);
-    let reject = choice.decision == "rejected";
+    let copy = model::copy();
+    let options = domain::ask_dock::plan_options();
+    let find = |key: &str| options.iter().find(|option| option.key == key);
+    let (Some(approve), Some(reject)) = (find("approve"), find("reject")) else {
+        return div().into_any_element();
+    };
+    let fresh = find("approve-fresh");
+    let rejecting = draft(message_id, cx).is_some_and(|draft| draft.rejecting);
     let answers = plan_answers(message_id, facts.questions, cx);
-    let issue = (!reject).then(|| approve_issue(facts.questions, &answers)).flatten();
-    let mut rows = v_flex().mt(px(card.options_gap)).w_full().min_w_0().gap_1();
-    for option in domain::ask_dock::plan_options() {
-        let (id, key) = (message_id.to_string(), option.key.clone());
-        rows = rows.child(
-            crate::steer_viewer::ask_choice_button(
-                SharedString::from(format!("thread-plan-{message_id}-{}", option.key)),
-                option.label.clone(),
-                option.description.clone(),
-                option.key == choice.key,
-                false,
-                cx,
-            )
-            .on_click(move |_, _, cx| {
-                cx.stop_propagation();
-                // A row stays picked (pressing it again keeps it).
-                draft_mut(&id, cx).choice = Some(key.clone());
-                cx.refresh_windows();
-            }),
+    let blocked = (!rejecting).then(|| approve_issue(facts.questions, &answers)).flatten();
+    let questions: Rc<Vec<PlanQuestion>> = Rc::new(facts.questions.to_vec());
+    let surface = facts.surface.cloned();
+    let decide = {
+        let (id, questions, surface) = (message_id.to_string(), questions.clone(), surface.clone());
+        Rc::new(move |decision: &str, fresh: bool, cx: &mut App| {
+            send_plan(&id, decision, fresh, &questions, surface.as_ref(), cx);
+        })
+    };
+    let set_rejecting = |on: bool| {
+        let id = message_id.to_string();
+        move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut App| {
+            cx.stop_propagation();
+            draft_mut(&id, cx).rejecting = on;
+            cx.refresh_windows();
+        }
+    };
+    let mut trailing = h_flex().items_center().gap(px(model::stepper().button_gap));
+    if rejecting {
+        let decide = decide.clone();
+        trailing = trailing
+            .child(footer_button(format!("thread-plan-{message_id}-cancel"), &copy.cancel, false).on_click(set_rejecting(false)))
+            .child(
+                footer_button(format!("thread-plan-{message_id}-decide"), &reject.label, true).on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    decide("rejected", false, cx);
+                }),
+            );
+    } else {
+        let approve_decide = decide.clone();
+        let mut split = h_flex().id(SharedString::from(format!("{}-{message_id}", ids.decision))).items_center().child(
+            footer_button(format!("thread-plan-{message_id}-decide"), &approve.label, true)
+                .rounded_r_none()
+                .disabled(blocked.is_some())
+                .on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    approve_decide("approved", false, cx);
+                }),
         );
+        if let Some(fresh) = fresh {
+            let (label, fresh_decide) = (fresh.label.clone(), decide.clone());
+            // THE IDE menu (in-window: the Dock sheet is a layer of the
+            // window, a sheet host), opening above the footer.
+            use crate::controls::PointerMenuButtonExt as _;
+            split = split.child(
+                Button::new(SharedString::from(format!("thread-plan-{message_id}-fresh")))
+                    .primary()
+                    .small()
+                    .cursor_pointer()
+                    .rounded_l_none()
+                    .border_l_1()
+                    .border_color(cx.theme().primary_foreground.opacity(0.2))
+                    .icon(Icon::new(registry::UI_CHEVRON_DOWN).with_size(px(14.)))
+                    .tooltip(label.clone())
+                    .disabled(blocked.is_some())
+                    .pointer_menu(move |menu, _, _| {
+                        let fresh_decide = fresh_decide.clone();
+                        menu.item(crate::controls::pointer_label_item(label.clone(), false).on_click(move |_, _, cx| {
+                            fresh_decide("approved", true, cx);
+                        }))
+                    })
+                    .anchor(gpui::Anchor::BottomRight),
+            );
+        }
+        trailing = trailing
+            .child(footer_button(format!("thread-plan-{message_id}-reject"), &reject.label, false).on_click(set_rejecting(true)))
+            .child(split);
     }
-    let mut block = v_flex()
-        .id(SharedString::from(format!("{}-{message_id}", ids.decision)))
-        .mt(px(card.block_gap))
+    let row = h_flex()
         .w_full()
-        .min_w_0()
-        .child(
-            div()
-                .w_full()
-                .min_w_0()
-                .text_xs()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(cx.theme().foreground)
-                .child(SharedString::from(model::copy().decide.clone())),
-        )
-        .child(rows);
-    if let Some(issue) = &issue {
-        block = block.child(
-            div()
-                .id(SharedString::from(format!("{}-{message_id}", ids.issue)))
-                .mt_1p5()
-                .text_2xs()
-                .text_color(theme::tokens::YELLOW.to_hsla())
-                .child(SharedString::from(issue.copy().to_string())),
-        );
-    }
-    if reject {
+        .items_center()
+        .gap(px(model::stepper().button_gap))
+        .when(page > 0, |row| row.child(step_button(message_id, &ids.step_back, &copy.back, page - 1)))
+        .child(div().flex_1())
+        .child(trailing);
+    let mut column = v_flex().w_full().min_w_0().gap_2();
+    if rejecting {
         if let Some(state) = draft(message_id, cx).and_then(|draft| draft.feedback.clone()) {
-            block = block.child(
+            column = column.child(
                 div()
                     .id(SharedString::from(format!("{}-{message_id}", ids.feedback)))
-                    .mt_2()
                     .w_full()
                     .min_w_0()
                     .child(feedback_field(&state, window, cx)),
             );
         }
     }
-    let id = message_id.to_string();
-    let questions: Rc<Vec<PlanQuestion>> = Rc::new(facts.questions.to_vec());
-    let surface = facts.surface.cloned();
-    let (decision, fresh) = (choice.decision.clone(), choice.fresh && !reject);
-    block
-        .child(
-            div().mt_2().child(
-                Button::new(SharedString::from(format!("thread-plan-{message_id}-decide")))
-                    .primary()
-                    .small()
-                    .cursor_pointer()
-                    .label(choice.label.clone())
-                    .disabled(issue.is_some())
-                    .on_click(move |_, _, cx| {
-                        cx.stop_propagation();
-                        send_plan(&id, &decision, fresh, &questions, surface.as_ref(), cx);
-                    }),
-            ),
-        )
-        .into_any_element()
+    column = column.child(row);
+    if let Some(issue) = &blocked {
+        column = column.child(
+            div()
+                .id(SharedString::from(format!("{}-{message_id}", ids.issue)))
+                .text_2xs()
+                .text_color(theme::tokens::YELLOW.to_hsla())
+                .child(SharedString::from(issue.copy().to_string())),
+        );
+    }
+    column.into_any_element()
 }
 
-/// THE feedback field: the multi-line glass field (the theme's input
-/// stroke, the focus ring the glass input wears), `card.fieldMinHeight`
-/// tall, `sm` text, the ask-dock placeholder.
-fn feedback_field(state: &Entity<TextareaState>, window: &Window, cx: &App) -> AnyElement {
-    let focused = state.focus_handle(cx).is_focused(window);
-    Textarea::new(state)
+/// THE feedback field (web `PlanCardFooter`): the multi-line field inside
+/// the composer card (radius xl, the card fill and hairline), borderless,
+/// `card.fieldMinHeight` tall, `sm` text, the ask-dock placeholder.
+fn feedback_field(state: &Entity<TextareaState>, _window: &Window, _cx: &App) -> AnyElement {
+    div()
         .w_full()
-        .min_h(px(model::card().field_min_height))
-        .rounded(px(theme::tokens::radius::LG))
-        .text_sm()
-        .when(focused, |field| field.border_color(theme::tokens::glass::STROKE_ACTIVE.to_hsla()))
+        .min_w_0()
+        .p_2()
+        .rounded(px(theme::tokens::radius::XL))
+        .border_1()
+        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+        .bg(crate::dock::card_fill())
+        .child(
+            Textarea::new(state)
+                .appearance(false)
+                .w_full()
+                .min_h(px(model::card().field_min_height))
+                .text_sm(),
+        )
         .into_any_element()
 }
 
@@ -1056,16 +1135,11 @@ pub(crate) struct QuestionFacts<'a> {
     pub answered: bool,
 }
 
-/// The question card's content under its markdown (the surface, the
-/// options + the free-text row) and its controls (the Answer button, or
-/// the closed line).
-pub(crate) fn question_parts(facts: &QuestionFacts, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> (Vec<AnyElement>, AnyElement) {
-    let message_id = facts.message_id;
-    let answering = crate::thread_screen::answering(message_id, cx);
-    let interactive = !facts.answered && !answering;
+/// Builds what a question card's form needs, or a closed card's surface.
+fn prepare_question(facts: &QuestionFacts, window: &Window, cx: &mut App) {
     if !facts.answered {
         ensure(
-            message_id,
+            facts.message_id,
             Needs {
                 custom: if facts.custom { vec![(QUESTION_KEY.to_string(), !facts.multi)] } else { Vec::new() },
                 feedback: false,
@@ -1075,8 +1149,13 @@ pub(crate) fn question_parts(facts: &QuestionFacts, images: &Entity<ImageCache>,
             cx,
         );
     } else {
-        ensure_closed_surface(message_id, facts.surface, facts.surface_data, window, cx);
+        ensure_closed_surface(facts.message_id, facts.surface, facts.surface_data, window, cx);
     }
+}
+
+/// The question's surface, choose caption, options and free-text row.
+fn question_content(facts: &QuestionFacts, interactive: bool, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> (Vec<AnyElement>, Vec<String>) {
+    let message_id = facts.message_id;
     let mut content: Vec<AnyElement> = Vec::new();
     if facts.surface.is_some() {
         content.push(surface_block(message_id, cx));
@@ -1086,7 +1165,7 @@ pub(crate) fn question_parts(facts: &QuestionFacts, images: &Entity<ImageCache>,
     } else {
         picks(message_id, QUESTION_KEY, cx)
     };
-    if facts.multi && !facts.answered {
+    if facts.multi && !facts.answered && !facts.options.is_empty() {
         content.push(div().mt_2().child(caption(&model::copy().choose_any, cx)).into_any_element());
     }
     if !facts.options.is_empty() {
@@ -1100,27 +1179,78 @@ pub(crate) fn question_parts(facts: &QuestionFacts, images: &Entity<ImageCache>,
     if interactive && facts.custom {
         content.extend(custom_field(message_id, QUESTION_KEY, window, cx));
     }
+    (content, picked)
+}
+
+/// The question card IN THE TRANSCRIPT (N-12): the surface and the options
+/// (`content`), then the closed line, the answering line or nothing
+/// (`controls`). A pending card the viewer may answer lives in THE Dock
+/// ([`question_sheet`]); here it is read-only.
+pub(crate) fn question_parts(facts: &QuestionFacts, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> (Vec<AnyElement>, AnyElement) {
+    let answering = crate::thread_screen::answering(facts.message_id, cx);
+    prepare_question(facts, window, cx);
+    let (content, picked) = question_content(facts, false, images, window, cx);
     let controls = if facts.answered {
-        // The picks are highlighted above; a free-text answer (or a legacy
-        // card's answer naming no option) reads as THE closed line.
-        let free: Vec<&String> = picked
-            .iter()
-            .filter(|pick| !facts.options.iter().any(|option| option.label == **pick))
-            .collect();
-        if picked.is_empty() || facts.options.is_empty() {
-            crate::steer_viewer::ask_resolved_line(facts.answer, false, cx)
-        } else if !free.is_empty() {
-            let text = free.iter().map(|pick| pick.as_str()).collect::<Vec<_>>().join(&model::PLAN_CARD.answer_text.joiner);
-            crate::steer_viewer::ask_resolved_line(Some(&text), false, cx)
-        } else {
-            div().into_any_element()
-        }
+        closed_answer(facts, &picked, cx)
     } else if answering {
         crate::thread_screen::card_answering(cx)
     } else {
-        answer_button(facts, cx)
+        div().into_any_element()
     };
     (content, controls)
+}
+
+/// An answered card's line: the picks are highlighted above; a free-text
+/// answer (or a legacy card's answer naming no option) reads as THE closed
+/// line.
+fn closed_answer(facts: &QuestionFacts, picked: &[String], cx: &App) -> AnyElement {
+    let free: Vec<&String> = picked
+        .iter()
+        .filter(|pick| !facts.options.iter().any(|option| option.label == **pick))
+        .collect();
+    if picked.is_empty() || facts.options.is_empty() {
+        crate::steer_viewer::ask_resolved_line(facts.answer, false, cx)
+    } else if !free.is_empty() {
+        let text = free.iter().map(|pick| pick.as_str()).collect::<Vec<_>>().join(&model::PLAN_CARD.answer_text.joiner);
+        crate::steer_viewer::ask_resolved_line(Some(&text), false, cx)
+    } else {
+        div().into_any_element()
+    }
+}
+
+/// N-12: THE question sheet (a DockCard opened): the question, the inline
+/// surface, the options and the free-text row in the body; the footer =
+/// Answer (the small primary, right-aligned, disabled until an answer).
+pub(crate) fn question_sheet(
+    facts: &QuestionFacts,
+    question: AnyElement,
+    images: &Entity<ImageCache>,
+    window: &Window,
+    cx: &mut App,
+) -> crate::dock::SheetContent {
+    let message_id = facts.message_id;
+    let answering = crate::thread_screen::answering(message_id, cx);
+    let interactive = !facts.answered && !answering;
+    prepare_question(facts, window, cx);
+    let (content, picked) = question_content(facts, interactive, images, window, cx);
+    let body = v_flex()
+        .id(SharedString::from(format!("{}-{message_id}", model::test_ids().card)))
+        .w_full()
+        .min_w_0()
+        .child(question)
+        .children(content);
+    let footer = if answering {
+        crate::thread_screen::card_answering(cx)
+    } else if facts.answered {
+        closed_answer(facts, &picked, cx)
+    } else {
+        h_flex().w_full().justify_end().child(answer_button(facts, cx)).into_any_element()
+    };
+    crate::dock::SheetContent {
+        meta: None,
+        body: crate::dock::sheet_body(SharedString::from(format!("{}-{message_id}", domain::dock::DOCK.test_ids.sheet_body)), body),
+        footer: Some(crate::dock::sheet_footer(footer)),
+    }
 }
 
 /// The question card's labels now: picks + free text.
@@ -1135,31 +1265,27 @@ fn answer_button(facts: &QuestionFacts, cx: &mut App) -> AnyElement {
     let surface = facts.surface.cloned();
     let options = facts.options.to_vec();
     let (multi, custom) = (facts.multi, facts.custom);
-    div()
-        .mt_2()
-        .child(
-            Button::new(SharedString::from(format!("thread-question-{}-answer", facts.message_id)))
-                .primary()
-                .small()
-                .cursor_pointer()
-                .label(model::copy().answer.clone())
-                .disabled(blocked)
-                .on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    let labels = question_answer(&picks(&id, QUESTION_KEY, cx), &custom_text(&id, QUESTION_KEY, cx), multi);
-                    if question_issue(&options, multi, custom, &labels).is_some() {
-                        return;
-                    }
-                    let input = api::sessions::AnswerInput {
-                        message_id: id.clone(),
-                        answer: Some(labels.join(&model::PLAN_CARD.answer_text.joiner)),
-                        answers: Some(json!(labels)),
-                        surface_data: surface_data(&id, surface.as_ref(), cx),
-                        ..Default::default()
-                    };
-                    crate::thread_screen::answer_card(input, cx);
-                }),
-        )
+    Button::new(SharedString::from(format!("thread-question-{}-answer", facts.message_id)))
+        .primary()
+        .small()
+        .cursor_pointer()
+        .label(model::copy().answer.clone())
+        .disabled(blocked)
+        .on_click(move |_, _, cx| {
+            cx.stop_propagation();
+            let labels = question_answer(&picks(&id, QUESTION_KEY, cx), &custom_text(&id, QUESTION_KEY, cx), multi);
+            if question_issue(&options, multi, custom, &labels).is_some() {
+                return;
+            }
+            let input = api::sessions::AnswerInput {
+                message_id: id.clone(),
+                answer: Some(labels.join(&model::PLAN_CARD.answer_text.joiner)),
+                answers: Some(json!(labels)),
+                surface_data: surface_data(&id, surface.as_ref(), cx),
+                ..Default::default()
+            };
+            crate::thread_screen::answer_card(input, cx);
+        })
         .into_any_element()
 }
 
@@ -1270,5 +1396,25 @@ mod tests {
         assert!(!card_media_allowed("http://example.com/x.png"));
         assert!(!card_media_allowed("file:///etc/passwd"));
         assert!(!card_media_allowed("/api/other"));
+    }
+
+    /// VAPP-107: a self-hosted LAN instance still serves the card its own
+    /// attachments and links; the opt-in is exactly its own host, never
+    /// the rest of the LAN.
+    #[test]
+    fn a_lan_instance_opts_exactly_its_own_host_in() {
+        use exponential_ui::host::decide_url;
+        let host = CardSurfaceHost { instance: Some("http://192.168.1.20:3000".into()), token: None };
+        let media = |src: &str| media_request(src, &host.options()).map(|request| request.url);
+        assert_eq!(media("/api/attachments/a1").as_deref(), Some("http://192.168.1.20:3000/api/attachments/a1"));
+        assert_eq!(media("http://192.168.1.21:3000/api/attachments/a1"), None, "a neighbour on the LAN stays denied");
+        assert_eq!(media("http://127.0.0.1/x.png"), None);
+        let policy = host.url_policy();
+        assert!(decide_url(policy.as_ref(), "/api/attachments/a1").allowed);
+        assert!(!decide_url(policy.as_ref(), "http://10.0.0.1/").allowed);
+        let local = CardSurfaceHost { instance: Some("http://localhost:3000".into()), token: None };
+        assert_eq!(local.own_private_host(), Some(vec!["localhost".to_string()]));
+        let cloud = CardSurfaceHost { instance: Some("https://app.exponential.at".into()), token: None };
+        assert!(!decide_url(cloud.url_policy().as_ref(), "http://192.168.1.20/").allowed);
     }
 }

@@ -182,6 +182,11 @@ struct AgentSessionView: View {
     /// through `sessions.answer`, in the ask dock like a thread's.
     @State private var toolAsks: [ThreadRow] = []
     @State private var toolAnsweringId: String?
+    /// N-12: THE Dock's open sheet (a card id).
+    @State private var dockOpenId: String?
+    /// N-12: the Plan switch's pick, shown until the relay's `config_state`
+    /// agrees (`sessions.configure`).
+    @State private var planPick: Bool?
     @Environment(\.motion) private var motion
 
     /// EXP-746: Usage opens on EITHER half — the machine's rate-limit report
@@ -241,25 +246,19 @@ struct AgentSessionView: View {
             }
     }
 
-    /// Everything that sits on the feed's bottom edge: the standing banners,
-    /// the strips and the composer bar. Each row floats over the scrolling
-    /// transcript, so each carries an opaque surface of its own.
+    /// N-12: THE Dock on the feed's bottom edge (fixtures/dock.json): the
+    /// waiting cards (the relay's own ask, the tool-posted ones), THE Queue,
+    /// the queued messages and the status banners as DockCards, then the
+    /// quick replies and THE composer (always: it never yields its slot).
+    /// The cards are opaque; the edge strip sits behind the band.
     private func bottomBand(_ model: AgentSessionModel) -> some View {
-        VStack(spacing: 0) {
-            banners(model)
-            rateLimitBanner(model)
-            compactionStrip(model)
-            // EXP-861: the messages the device holds until the turn ends, each
-            // with an X that revokes it. Absent when nothing is queued or the
-            // session is over.
-            if !model.queued.isEmpty, !model.isOver {
-                AgentQueueStrip(messages: model.queued) { id in
-                    model.unqueue(id)
-                }
-            }
-            // EXP-1321: the background lines, waits and task list moved
-            // into THE Queue at the transcript's end (`TaskQueueView`).
-            askDock(model)
+        let rows = dockRows(model)
+        return DockView(
+            rows: rows,
+            openId: $dockOpenId,
+            renderSheet: { row, close in dockSheet(row, model: model, close: close) },
+            renderAction: { row in dockAction(row, model: model) }
+        ) {
             // EXP-1211: the agent's quick replies, directly above the
             // composer; gone whenever the composer is.
             if !bandRetired(model) {
@@ -268,10 +267,15 @@ struct AgentSessionView: View {
             }
             bottomBar(model)
         }
+        // AUTO-OPEN: a plan or question that arrives while the session is in
+        // front opens its sheet; what already waited (the relay's history
+        // replay, the synced cards) stays collapsed.
+        .dockAutoOpen(rows, ready: model.phase == .live) { dockOpenId = $0 }
+        .onChange(of: model.planModeActive) { _, _ in planPick = nil }
         // EXP-1162: the bottom edge strip behind the band — not behind an
         // open composer card, which is opaque and rides the keyboard.
         // EXP-1256 (D15): in the page's own ground — no tint, no blur.
-        .floatingBarEdge(bandRetired(model) || !composerOpen(model), ground: true)
+        .floatingBarEdge(!rows.isEmpty || bandRetired(model) || !composerOpen(model), ground: true)
     }
 
     // MARK: - Header
@@ -741,9 +745,9 @@ struct AgentSessionView: View {
                                     .frame(maxWidth: .infinity)
                                     .padding(.bottom, 4)
                             }
-                            // THE ask dock: the card waiting on this
-                            // steerer leaves the transcript for the
-                            // composer's slot (`bottomBand`).
+                            // THE Dock: the card waiting on this steerer
+                            // leaves the transcript for a DockCard
+                            // (`bottomBand`).
                             let docked = dockedRow(model)?.id
                             let rows = model.rows.filter { $0.id != docked }
                             // EXP-1280: the tool-posted cards NOT in the dock
@@ -792,17 +796,8 @@ struct AgentSessionView: View {
                                     )))
                             }
                         }
-                        // EXP-1321/1324: THE Queue closes the transcript —
-                        // the task list, background work and open waits —
-                        // right above the queued-messages strip.
-                        if agentTab == nil {
-                            TaskQueueView(
-                                todoOpen: Bindable(model).queueTodoOpen,
-                                completedOpen: Bindable(model).queueCompletedOpen,
-                                build: { model.taskQueue(now: $0) }
-                            )
-                            .padding(.top, DesignTokens.Transcript.gapBlock)
-                        }
+                        // N-12: THE Queue left the transcript for THE Dock
+                        // (`SessionDock`).
                         Color.clear
                             .frame(height: 1)
                             .id(AgentSessionLayout.bottomAnchor)
@@ -1133,12 +1128,11 @@ struct AgentSessionView: View {
         return AskDock.threadPendingAsks(toolAsks) { _ in nil }
     }
 
-    /// EXP-1280: the tool-posted cards THE ask dock holds right now — the
-    /// waiting ones, only while no relay ask is docked (web
-    /// `dockedToolCards`). Every other tool card draws inline.
+    /// EXP-1280: the tool-posted cards THE Dock holds right now — every
+    /// waiting one (web `dockedToolCards`). Every other tool card draws
+    /// inline, closed.
     private func dockedToolCardIds(_ model: AgentSessionModel) -> Set<String> {
-        guard dockedRow(model) == nil else { return [] }
-        return Set(pendingToolAsks(model).map(\.id))
+        Set(pendingToolAsks(model).map(\.id))
     }
 
     /// The feed item ids a transcript row draws (web `rowItemIds`): where a
@@ -1217,57 +1211,73 @@ struct AgentSessionView: View {
         }
     }
 
-    /// THE ask dock in the composer's slot: the session view feeds it its
-    /// one answerable card (no caption), drawn as THE big card with its
-    /// body capped. EXP-1280: with no relay ask docked, the session's own
-    /// tool-posted cards (THE thread card, `ThreadAskCard`).
-    @ViewBuilder
-    private func askDock(_ model: AgentSessionModel) -> some View {
-        if dockedRow(model) == nil, case let toolPending = pendingToolAsks(model), !toolPending.isEmpty {
-            AskDockView(pending: toolPending) { id, onBack, cap in
-                if let row = toolAsks.first(where: { $0.id == id }) {
-                    ThreadAskCard(
-                        row: row,
-                        canAnswer: true,
-                        answeringId: toolAnsweringId,
-                        markdownContext: markdownContext,
-                        onBack: onBack,
-                        bodyMaxHeight: cap,
-                        onSubmit: submitToolAnswer
-                    )
+    /// N-12: the relay's own waiting card (claude's AskUserQuestion or its
+    /// plan) is the front-most ask (web `RELAY_ASK_ORDER`).
+    private static let relayAskOrder = Double(Int64.max)
+
+    /// N-12: THE Dock's rows: the relay's own ask, the tool-posted ones, then
+    /// THE Queue, the queued messages and the banners (`SessionDock`).
+    private func dockRows(_ model: AgentSessionModel) -> [Dock.Row] {
+        var sources: [Dock.Source] = []
+        if let row = dockedRow(model), let question = relayQuestion(row) {
+            let id = "relay:\(row.id)"
+            sources.append(question.planMode
+                ? .plan(id: id, text: question.text, sessionName: nil, questions: 0, createdAt: Self.relayAskOrder)
+                : .question(id: id, text: question.text, sessionName: nil, createdAt: Self.relayAskOrder))
+        }
+        sources += pendingToolAsks(model).map(\.dockSource)
+        sources += SessionDock.sources(model, session: session)
+        return Dock.rows(sources)
+    }
+
+    private func relayQuestion(_ row: AgentFeedRow) -> AgentQuestion? {
+        switch row {
+        case let .ask(group):
+            let active = model?.activeQuestionIds ?? []
+            return group.questions.first { active.contains($0.id) } ?? group.questions.first
+        case let .single(item): return item.question
+        default: return nil
+        }
+    }
+
+    /// A DockCard's sheet: the relay's ask = its card (chromeless), a
+    /// tool-posted one = THE thread sheet, THE Queue / the queued messages
+    /// their lists.
+    private func dockSheet(_ row: Dock.Row, model: AgentSessionModel, close: @escaping () -> Void) -> AnyView? {
+        if row.id.hasPrefix("relay:"), let docked = dockedRow(model) {
+            return AnyView(DockSheetChrome(row: row, onClose: close) {
+                switch docked {
+                case let .ask(group): askCard(group, chromeless: true)
+                case let .single(item): item.question.map { questionCard($0, chromeless: true) }
+                default: EmptyView()
                 }
-            }
-            .padding(.vertical, 8)
-            .transcriptColumn()
-        } else if let row = dockedRow(model) {
-            let question: AgentQuestion? = switch row {
-            case let .ask(group): group.questions.first
-            case let .single(item): item.question
-            default: nil
-            }
-            if let question {
-                AskDockView(pending: [AskDock.Pending(
-                    id: String(row.id),
-                    kind: question.planMode ? .plan : .question,
-                    text: question.text,
-                    sessionName: nil,
-                    createdAt: 0
-                )]) { _, _, cap in
-                    switch row {
-                    case let .ask(group): askCard(group, bodyMaxHeight: cap)
-                    case let .single(item): item.question.map { questionCard($0, bodyMaxHeight: cap) }
-                    default: EmptyView()
-                    }
-                }
-                .padding(.vertical, 8)
-                .transcriptColumn()
-            }
+            })
+        }
+        if let card = toolAsks.first(where: { $0.id == row.id }) {
+            return card.dockSheet(
+                row,
+                canAnswer: model.mayPost && !model.sessionEnded,
+                busy: toolAnsweringId == card.id,
+                markdownContext: markdownContext,
+                onSubmit: submitToolAnswer,
+                onClose: close
+            )
+        }
+        return SessionDock.sheet(row, model: model, close: close)
+    }
+
+    /// A banner's one button: Reconnect, the usage wall's account switch.
+    private func dockAction(_ row: Dock.Row, model: AgentSessionModel) -> AnyView? {
+        switch row.id {
+        case "banner:closed": SessionDock.reconnect(model)
+        case "banner:blocked" where row.action != nil: AnyView(accountSwitchControl(model))
+        default: nil
         }
     }
 
     /// A lone question card: a plan approval or a single-question ask.
     @ViewBuilder
-    private func questionCard(_ raw: AgentQuestion, bodyMaxHeight: CGFloat? = nil) -> some View {
+    private func questionCard(_ raw: AgentQuestion, chromeless: Bool = false) -> some View {
         // EXP-1316: every question card offers the free-text answer.
         let question = raw.withFreeTextRow()
         QuestionCard(
@@ -1281,7 +1291,7 @@ struct AgentSessionView: View {
             onAnswer: { keys, text in sendAnswer(question, keys: keys, text: text) },
             onAnswerThenSend: { keys, text in answerThenSend(question, keys: keys, text: text) },
             markdownContext: markdownContext,
-            bodyMaxHeight: bodyMaxHeight
+            chromeless: chromeless
         )
         .id(question.id)
         // EXP-642: the store slide's pop-out rect is measured off the question
@@ -1301,7 +1311,7 @@ struct AgentSessionView: View {
     /// picking (or "Back to current step") returns to the current step. The
     /// engine re-records the step without moving the stepper.
     @ViewBuilder
-    private func askCard(_ group: AgentAskGroup, bodyMaxHeight: CGFloat? = nil) -> some View {
+    private func askCard(_ group: AgentAskGroup, chromeless: Bool = false) -> some View {
         let stepIndex = AgentFeed.currentStepIndex(
             of: group, done: model?.answeredQuestionIds ?? []
         )
@@ -1353,7 +1363,7 @@ struct AgentSessionView: View {
                         editingSteps[group.askId] = nil
                     },
                     markdownContext: markdownContext,
-                    bodyMaxHeight: bodyMaxHeight
+                    chromeless: chromeless
                 )
                 // Its own identity per edited step — the picked state starts
                 // from the recorded answer, never from the current step's.
@@ -1378,7 +1388,7 @@ struct AgentSessionView: View {
                     onEditStep: editHandler,
                     onAnswer: { keys, text in sendAnswer(current, keys: keys, text: text) },
                     markdownContext: markdownContext,
-                    bodyMaxHeight: bodyMaxHeight
+                    chromeless: chromeless
                 )
                 // A fresh identity per step — the card's local selection state must
                 // never leak from one question into the next.
@@ -1435,70 +1445,6 @@ struct AgentSessionView: View {
 
     // MARK: - Status banners (feed retained above)
 
-    /// EXP-804: the usage wall — the title has no caption line, so it is a
-    /// banner here.
-    private func blockedLabel(_ model: AgentSessionModel) -> String? {
-        AgentUsagePresentation.blockedBadgeLabel(
-            AgentUsagePresentation.parseBlocked((model.session ?? session).blocked),
-            now: model.activityNow
-        )
-    }
-
-    @ViewBuilder
-    private func banners(_ model: AgentSessionModel) -> some View {
-        if blockedLabel(model) != nil {
-            bannerRow {
-                SessionBlockedBadge(blocked: (model.session ?? session).blocked)
-            }
-        }
-        // EXP-1031: the transient items — a failed Stop or send — are toasts
-        // (`withLifecycle`'s `onChange`s); only the standing states stay
-        // banners.
-        // EXP-550: an offline host outranks every reconnect/starting banner —
-        // the redial loops keep running underneath (untouched), they just
-        // stop being what the viewer is told about.
-        if hostPaused, !model.feed.isEmpty {
-            bannerRow {
-                AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.small)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Text("\(hostLabel) is offline. The agent is paused on that machine and continues when it comes back online.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-        } else {
-            phaseBanner(model)
-        }
-    }
-
-    @ViewBuilder
-    private func phaseBanner(_ model: AgentSessionModel) -> some View {
-        switch model.phase {
-        case let .ended(detail):
-            bannerRow {
-                Text(detail ?? "Session ended")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-        case let .closed(detail, reconnecting):
-            bannerRow {
-                if reconnecting {
-                    InlineSpinner()
-                }
-                Text(detail ?? (reconnecting ? "Connection lost. Reconnecting…" : "Disconnected"))
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-        case .starting where !model.feed.isEmpty:
-            bannerRow {
-                InlineSpinner()
-                Text("The agent is starting. Waiting for the live stream…")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-        default:
-            EmptyView()
-        }
-    }
 
     /// EXP-550: the "your machine is asleep" empty state — the same glyph the
     /// machines list draws for an offline device (`ui-device-offline`).
@@ -1510,95 +1456,7 @@ struct AgentSessionView: View {
         )
     }
 
-    // MARK: - Compaction strip (EXP-724)
-
-    /// The indeterminate strip a running compaction puts above the composer:
-    /// the agent goes silent for 10–170s while it folds its context away, and
-    /// without this the viewer reads that as a hang. Indeterminate on purpose
-    /// — no publisher knows how far along a compaction is. It never outlives
-    /// the session (the model clears the state on every end path).
-    @ViewBuilder
-    private func compactionStrip(_ model: AgentSessionModel) -> some View {
-        if model.compacting != nil, !model.isOver {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    AppIcon(AppIcons.codingCompact, size: AppIcon.Size.small)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    Text(AgentFeed.compactingLabel)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    Spacer(minLength: 0)
-                }
-                ProgressView()
-                    .progressViewStyle(.linear)
-                    .tint(.white.opacity(TextOpacity.secondary))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .glassRow(isOpaque: true)
-            // The transcript's reading column (EXP-927 §2c), like the strips.
-            .transcriptColumn()
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(AgentFeed.compactingLabel)
-        }
-    }
-
-    // MARK: - Rate-limit banner (EXP-784)
-
-    /// The agent's rate-limit window, in the compaction strip's slot: its own
-    /// message and how long until the window resets. It stands only while
-    /// the slot holds a WALL (EXP-818: a warning over a working run is not
-    /// one) whose reset has not passed (EXP-831: it re-reads the model's 30s
-    /// activity clock and drops itself a minute past the stamp) — an
-    /// `ok`/empty status, the replay swap and the end of the run all clear it.
-    @ViewBuilder
-    private func rateLimitBanner(_ model: AgentSessionModel) -> some View {
-        if let limit = model.sessionRateLimit, !model.isOver,
-           AgentFeed.rateLimitBannerShows(limit, now: model.activityNow) {
-            let caption = AgentFeed.rateLimitCaption(limit, now: model.activityNow)
-            // Web `RateLimitBanner` is the reference: ONE row, 6pt gaps,
-            // centered — the usage glyph + the message in the semantic
-            // yellow (one truncating line), the relative countdown as a
-            // separate muted caption.
-            HStack(alignment: .center, spacing: 6) {
-                HStack(alignment: .center, spacing: 6) {
-                    AppIcon(AppIcons.uiUsage, size: AppIcon.Size.small)
-                        .foregroundStyle(DesignTokens.Semantic.yellow)
-                    Text(verbatim: caption.message)
-                        .font(.caption)
-                        .foregroundStyle(DesignTokens.Semantic.yellow)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Text(verbatim: AgentFeed.rateLimitDetail(caption.countdown))
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(
-                    AgentFeed.rateLimitAccessibilityLabel(limit, now: model.activityNow)
-                )
-                Spacer(minLength: 0)
-                // EXP-849: the wall's PRIMARY move is another login — only
-                // for whoever may steer the session, and (NEW-1) only for a
-                // USAGE wall: a watchdog flag is not lifted by a login.
-                if model.mayPost,
-                   AgentUsagePresentation.isUsageWall(
-                       AgentUsagePresentation.parseBlocked((model.session ?? session).blocked)
-                   ) {
-                    accountSwitchControl(model)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .glassRow(isOpaque: true)
-            // The transcript's reading column (EXP-927 §2c), like the strips.
-            .transcriptColumn()
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("agent-rate-limit")
-        }
-    }
+    // MARK: - Account switch (EXP-849)
 
     /// EXP-849: "Switch account" — THE account picker the composer uses,
     /// narrowed to the session's agent on its host machine; a pick sends
@@ -1648,32 +1506,15 @@ struct AgentSessionView: View {
         }
     }
 
-    private func bannerRow(@ViewBuilder content: () -> some View) -> some View {
-        HStack(spacing: 8) {
-            content()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        // EXP-1161: the band floats over the feed, so the banner wears the
-        // strips' opaque row instead of sitting bare on the transcript.
-        .glassRow(isOpaque: true)
-        // The same reading column as the transcript above it.
-        .transcriptColumn()
-    }
-
     // MARK: - Bottom bar (steering input)
 
-    /// EXP-820: while a question or plan card is pending on this steerer
-    /// (`cardPending`: live, not ended, an unresolved card in the feed) the
-    /// composer band is GONE — the card's free answer is its own inline
-    /// field, so the composer would only compete with it. The draft stays in
-    /// the model and the band is back once the card resolves. EXP-621: the
-    /// composer is tied to the SESSION, not the socket — it stays up through
-    /// a reconnect and only goes away once the session is over. EXP-1295: a
-    /// viewer who may not post (a private session) never gets one.
+    /// N-12: the composer never yields to a waiting card (session-thread.json
+    /// retires `composerYieldsToCard`). EXP-621: it is tied to the SESSION,
+    /// not the socket — it stays up through a reconnect and only goes away
+    /// once the session is over. EXP-1295: a viewer who may not post (a
+    /// private session) never gets one.
     private func bandRetired(_ model: AgentSessionModel) -> Bool {
-        model.isOver || model.cardPending || !model.mayPost || !pendingToolAsks(model).isEmpty
+        model.isOver || !model.mayPost
     }
 
     @ViewBuilder
@@ -1911,7 +1752,9 @@ struct AgentSessionView: View {
                 ended: model.session?.isLive == false,
                 planModeFallback: model.sessionConfig == nil && model.session?.planMode == true,
                 // EXP-1252: the Device pin before Model.
-                devicePin: model.devicePin
+                devicePin: model.devicePin,
+                // N-12: THE Plan switch in the card's row.
+                plan: planBinding(model)
             ),
             attach: $attach,
             // EXP-1295: a message is a `messages` row, so sending never waits
@@ -1939,6 +1782,33 @@ struct AgentSessionView: View {
         .onChange(of: model.draftText) { _, _ in
             slashHighlight = 0
         }
+    }
+
+    /// N-12: THE Plan switch (`sessions.configure`, live mid-run); none on a
+    /// dispatcher root, an agent without plan mode or an ended row.
+    private func planBinding(_ model: AgentSessionModel) -> Binding<Bool>? {
+        let row = model.session ?? session
+        guard row.dispatch != true, row.isLive, LaunchVocabulary.supportsPlanMode(model.catalogAgent) else { return nil }
+        return Binding(
+            get: { planPick ?? (model.planModeActive || (model.sessionConfig == nil && row.planMode == true)) },
+            set: { on in
+                planPick = on
+                let api = deps.sessionsApi
+                let accountId = accountId
+                let sessionId = session.id
+                Task {
+                    do {
+                        try await api.configure(accountId: accountId, SessionConfigureInput(sessionId: sessionId, planMode: on))
+                    } catch {
+                        planPick = nil
+                        toaster.error(
+                            FeedbackStates.Errors.title(verb: "change", thing: "the session"),
+                            description: error.userFacingMessage
+                        )
+                    }
+                }
+            }
+        )
     }
 
     /// EXP-877: a model switch is a PLAIN MESSAGE — `/model <alias>` — the
@@ -2491,13 +2361,9 @@ struct QuestionCard: View {
     /// THE ask dock (fixtures/ask-dock.json): the asking session's name, a
     /// muted truncating caption beside the label (a thread's card).
     var caption: String? = nil
-    /// THE ask dock: a card focused out of the stack leads its header row
-    /// with the back arrow (`ui-back`) that returns to the stack.
-    var onBack: (() -> Void)? = nil
-    /// THE ask dock: the body's cap (`bodyMaxHeightFraction` of the screen);
-    /// the body scrolls inside it instead of folding. nil = in the
-    /// transcript (the "Show more" fold).
-    var bodyMaxHeight: CGFloat? = nil
+    /// N-12: inside THE Dock's sheet (its header is the card's chrome): no
+    /// glyph column, no card, the body never folds (the sheet scrolls).
+    var chromeless: Bool = false
     /// EXP-1280 (plan-card.json): a rich card's form under the body — the
     /// inline surface and the question blocks (`PlanCardForm.swift`); shown
     /// open and answered alike (answered = inert, the picks highlighted).
@@ -2527,7 +2393,6 @@ struct QuestionCard: View {
     var feedback: Binding<String>? = nil
 
     @State private var expanded = false
-    @State private var dockedBodyHeight: CGFloat = 0
     /// Tap order is the submit order of the semantic answer frame.
     @State private var picked: [String] = []
     /// EXP-820: the option whose inline field is open — a free-text row
@@ -2546,10 +2411,10 @@ struct QuestionCard: View {
     /// are single digits.
     private static let numberedRows = 9
 
-    /// Plans are always fully rendered — never folded (EXP-197); a docked
-    /// body scrolls in its cap instead.
+    /// Plans are always fully rendered — never folded (EXP-197); a sheet's
+    /// body scrolls instead.
     private var clampable: Bool {
-        bodyMaxHeight == nil && !question.planMode
+        !chromeless && !question.planMode
             && (question.text.count > Self.clampChars
                 || question.text.filter { $0 == "\n" }.count >= Self.clampLines)
     }
@@ -2598,15 +2463,19 @@ struct QuestionCard: View {
     private var submitTitle: String { AgentFeed.submitLabel }
 
     var body: some View {
+        if chromeless {
+            cardContent
+                .onAppear(perform: preselectEditingAnswer)
+        } else {
+            card
+        }
+    }
+
+    private var card: some View {
         // EXP-1191 (web `AskCard` parity): ONE top-aligned row — the 14pt
         // glyph beside a column holding the heading, the body and the
         // options, so the options indent under the text, never the glyph.
         HStack(alignment: .top, spacing: 8) {
-            // THE ask dock: the back arrow LEADS the header row (web
-            // `AskCard` `onBack`: ghost icon-xs, `-my-1 -ml-1`).
-            if let onBack {
-                AskDockBackButton(action: onBack)
-            }
             // EXP-820: no blue on the card — a plan's glyph and header are the
             // primary, a question's the semantic yellow.
             AppIcon(question.planMode ? AppIcons.codingPlan : AppIcons.uiHelp, size: 14)
@@ -2646,9 +2515,8 @@ struct QuestionCard: View {
         }
         .padding(12)
         // A bordered card, not a group container: the ask is one free-content
-        // block that has to stand off the transcript behind it. Docked, it
-        // floats over the scrolling transcript, so it is opaque.
-        .glassCard(isOpaque: bodyMaxHeight != nil)
+        // block that has to stand off the transcript behind it.
+        .glassCard()
         .onAppear(perform: preselectEditingAnswer)
     }
 
@@ -2825,23 +2693,10 @@ struct QuestionCard: View {
         .accessibilityIdentifier("agent-question-back-to-current")
     }
 
-    /// The body + (EXP-1280) the rich card's form. THE ask dock: they never
-    /// grow past the cap together, they scroll inside it; the decision rows
-    /// stay below.
+    /// The body + (EXP-1280) the rich card's form.
     @ViewBuilder
     private var prompt: some View {
-        if let bodyMaxHeight {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    markdownBody
-                    formBlock
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { dockedBodyHeight = $0 }
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .frame(height: min(max(dockedBodyHeight, 1), bodyMaxHeight))
-        } else if form != nil {
+        if form != nil {
             VStack(alignment: .leading, spacing: 0) {
                 foldablePrompt
                 formBlock
