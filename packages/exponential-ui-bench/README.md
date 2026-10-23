@@ -82,8 +82,10 @@ in the style of the Compose conformance budgets:
 Record CI budgets from the `bench-*` artifacts of TWO green runs (or a
 local `.bench/`): `ratchet <run-1 fragments> <run-2 fragments> --write` puts
 every timing at its worst of the runs × the machine's headroom and the counts
-exact (the last run's). `headroom` is 1.5; `machineHeadroom` gives the shared
-GitHub-hosted VMs 2.5, since they drift 50–80 % between runs. The CI machines are named by the runner that
+exact (the last run's), at `headroom` 1.5 (`machineHeadroom` can override it
+per machine). Counts and bytes gate everywhere; `machineTimings` makes `mint`'s
+timings warnings only (four runners share one 32-core box without CPU
+isolation), while the GitHub-hosted labels and `macbook` gate them. The CI machines are named by the runner that
 actually ran the job, one id per runner class: `github-ubuntu-latest` (React,
 Solid, the web component, Compose JVM and the emulator always; the core and
 gpui when `pick` falls back to GitHub), `mint` (the core and gpui on the

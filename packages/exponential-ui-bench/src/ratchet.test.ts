@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { budgetsFor, check, failing, headroomOf, worstOf, type Budgets } from "./ratchet"
+import { budgetsFor, check, describe as line, failing, headroomOf, worstOf, type Budgets } from "./ratchet"
 import type { Fragment } from "./results"
 
 const budgets: Budgets = { floor: 0.5, headroom: 1.5, machines: { m: { core: { "list-100k": { firstPaintMs: 100, scrollStepMs: 5, renderedItems: 30 } } } } }
@@ -43,5 +43,20 @@ describe(`ratchet`, () => {
     const b = fragment({ "list-100k": { firstPaintMs: 95, scrollStepMs: 4, renderedItems: 30 } })
     expect(worstOf([a, b]).scenarios[`list-100k`]).toEqual({ firstPaintMs: 95, scrollStepMs: 6, renderedItems: 30 })
     expect(worstOf([b]).scenarios).toEqual(b.scenarios)
+  })
+
+  it(`a warn machine: a timing over budget warns, a count over budget still fails`, () => {
+    const shared: Budgets = { ...budgets, machineTimings: { m: `warn` } }
+    const v = check(fragment({ "list-100k": { firstPaintMs: 300, scrollStepMs: 4, renderedItems: 31 } }), shared)
+    expect(v.map((x) => [x.metric, x.status, x.warnOnly ?? false])).toEqual([
+      [`firstPaintMs`, `worse`, true],
+      [`scrollStepMs`, `ok`, true],
+      [`renderedItems`, `worse`, false],
+    ])
+    expect(failing(v).map((x) => x.metric)).toEqual([`renderedItems`])
+    expect(line(v[0])).toStartWith(`::warning`)
+    expect(line(v[2])).toStartWith(`::error`)
+    // Any other machine still gates its timings.
+    expect(failing(check({ ...fragment({ "list-100k": { firstPaintMs: 300 } }), machine: `other` }, { ...shared, machines: { other: budgets.machines.m } })).map((x) => x.metric)).toEqual([`firstPaintMs`])
   })
 })

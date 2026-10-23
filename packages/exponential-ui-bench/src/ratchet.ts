@@ -7,6 +7,9 @@
 // its budget FAILS, as it must land with its new budget in the same change.
 // A metric with no budget (a new scenario, a new machine) is reported, never
 // gated, so a first run on a new machine passes and writes the numbers.
+// `machineTimings` makes a machine's timings `warn`: recorded and reported,
+// a worse one a warning, never a failure (runners without CPU isolation);
+// its counts and bytes still gate.
 import manifest from "../scenarios/manifest.json"
 import type { Fragment } from "./results"
 
@@ -18,6 +21,8 @@ export type Budgets = {
   headroom: number
   /** A machine's own `headroom` (a shared hosted VM drifts far more than a dedicated box). */
   machineHeadroom?: Record<string, number>
+  /** A machine's timings `gate` (default) or only `warn` (a shared box: a worse timing never fails; counts still gate). */
+  machineTimings?: Record<string, `gate` | `warn`>
   machines: Record<string, Record<string, Record<string, Record<string, number>>>>
 }
 
@@ -30,6 +35,8 @@ export interface Verdict {
   budget?: number
   kind: `ms` | `count` | `bytes` | `mb`
   status: `ok` | `worse` | `better` | `unbudgeted`
+  /** A timing on a `warn` machine: reported, never failing. */
+  warnOnly?: boolean
 }
 
 const KINDS: Record<string, Record<string, Verdict[`kind`]>> = Object.fromEntries(manifest.scenarios.map((s) => [s.id, Object.fromEntries(s.metrics.map((m) => [m.id, m.kind as Verdict[`kind`]]))]))
@@ -38,6 +45,7 @@ const KINDS: Record<string, Record<string, Verdict[`kind`]>> = Object.fromEntrie
 export function check(fragment: Fragment, budgets: Budgets, machine = fragment.machine ?? `unknown`): Verdict[] {
   const out: Verdict[] = []
   const mine = budgets.machines[machine]?.[fragment.renderer] ?? {}
+  const warnTimings = budgets.machineTimings?.[machine] === `warn`
   for (const [scenario, metrics] of Object.entries(fragment.scenarios)) {
     for (const [metric, value] of Object.entries(metrics)) {
       const kind = KINDS[scenario]?.[metric] ?? `ms`
@@ -46,14 +54,14 @@ export function check(fragment: Fragment, budgets: Budgets, machine = fragment.m
       if (budget === undefined) status = `unbudgeted`
       else if (value > budget) status = `worse`
       else if (kind === `ms` || kind === `mb` ? value < budget * budgets.floor : value < budget) status = `better`
-      out.push({ machine, renderer: fragment.renderer, scenario, metric, value, budget, kind, status })
+      out.push({ machine, renderer: fragment.renderer, scenario, metric, value, budget, kind, status, ...(warnTimings && (kind === `ms` || kind === `mb`) ? { warnOnly: true } : {}) })
     }
   }
   return out
 }
 
-/** The verdicts that fail CI: worse, or a deterministic metric that got better. */
-export const failing = (verdicts: Verdict[]) => verdicts.filter((v) => v.status === `worse` || (v.status === `better` && v.kind !== `ms` && v.kind !== `mb`))
+/** The verdicts that fail CI: worse (but a `warn` machine's timing), or a deterministic metric that got better. */
+export const failing = (verdicts: Verdict[]) => verdicts.filter((v) => (v.status === `worse` && !v.warnOnly) || (v.status === `better` && v.kind !== `ms` && v.kind !== `mb`))
 
 const timing = (kind: Verdict[`kind`]) => kind === `ms` || kind === `mb`
 
@@ -104,6 +112,7 @@ export function describe(v: Verdict): string {
   const value = fmt(v.value, v.kind)
   switch (v.status) {
     case `worse`:
+      if (v.warnOnly) return `::warning title=bench worse (timings warn on ${v.machine})::${where} = ${value} > budget ${fmt(v.budget!, v.kind)} (${v.machine})`
       return `::error title=bench worse::${where} = ${value} > budget ${fmt(v.budget!, v.kind)} (${v.machine})`
     case `better`:
       return v.kind === `ms` || v.kind === `mb`
