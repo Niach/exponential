@@ -11,132 +11,132 @@
     "compose-android": {
       "platform": "android",
       "device": "Google sdk_gphone64_x86_64 (API 34) emulator",
-      "date": "2026-10-23T09:26:08.619637Z",
+      "date": "2026-10-23T09:40:54.311652Z",
       "scenarios": {
         "cold-start": {
-          "coldStartMs": 656.601,
-          "firstPaintMs": 144.582,
+          "coldStartMs": 676.217,
+          "firstPaintMs": 140.49,
           "nodes": 604,
-          "memoryMb": 45.137
+          "memoryMb": 46.312
         },
         "card-grid": {
-          "warmPassMs": 0.586,
+          "warmPassMs": 0.579,
           "upcallsPerPass": 1,
           "measureCallsPerPass": 29
         },
         "list-100k": {
-          "firstPaintMs": 1879.462,
-          "scrollStepMs": 11.377,
-          "scrollToIndexMs": 16.521,
+          "firstPaintMs": 1885.866,
+          "scrollStepMs": 11.224,
+          "scrollToIndexMs": 16.455,
           "renderedItems": 30,
           "measureCallsPerStep": 78.04,
           "ffiCallsPerStep": 82.04,
           "ffiBytesPerStep": 47674.64,
-          "memoryMb": 112.224
+          "memoryMb": 115.047
         },
         "streaming": {
-          "applyMs": 4.813,
-          "p95ApplyMs": 9.44,
-          "totalMs": 962.604,
+          "applyMs": 4.807,
+          "p95ApplyMs": 9.506,
+          "totalMs": 961.312,
           "nodes": 607,
           "ffiBytesTotal": 5336991
         },
         "theme-switch": {
-          "themeSwitchMs": 58.18,
-          "modeSwitchMs": 7.536,
+          "themeSwitchMs": 57.642,
+          "modeSwitchMs": 7.585,
           "restyled": 609
         },
         "resize": {
-          "resizeMs": 14.986,
+          "resizeMs": 14.951,
           "upcallsPerResize": 1
         },
         "deep-nesting": {
-          "firstPaintMs": 14.06,
-          "warmPassMs": 0.385,
+          "firstPaintMs": 13.463,
+          "warmPassMs": 0.363,
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 2396.067,
-          "rebindMs": 2296.64,
+          "firstPaintMs": 2358.736,
+          "rebindMs": 2318.251,
           "nodes": 10001
         },
         "overlay": {
-          "openMs": 1.181,
-          "closeMs": 0.902
+          "openMs": 1.217,
+          "closeMs": 0.936
         },
         "table-1k": {
-          "firstPaintMs": 77.88,
-          "scrollStepMs": 19.743,
-          "sortMs": 27.826,
+          "firstPaintMs": 82.916,
+          "scrollStepMs": 19.656,
+          "sortMs": 28.385,
           "renderedRows": 30
         }
       },
-      "commit": "f16ffee67"
+      "commit": "b8ea2c89e"
     },
     "compose-jvm": {
       "platform": "linux",
       "device": "Robolectric API 34, amd64, 32 cpus",
-      "date": "2026-10-23T09:19:49.437961898Z",
+      "date": "2026-10-23T09:39:20.005202208Z",
       "scenarios": {
         "cold-start": {
-          "coldStartMs": 649.261,
-          "firstPaintMs": 25.474,
+          "coldStartMs": 667.367,
+          "firstPaintMs": 26.156,
           "nodes": 604,
-          "memoryMb": 84.342
+          "memoryMb": 91.415
         },
         "card-grid": {
-          "warmPassMs": 0.263,
+          "warmPassMs": 0.319,
           "upcallsPerPass": 1,
           "measureCallsPerPass": 29
         },
         "list-100k": {
-          "firstPaintMs": 110.771,
-          "scrollStepMs": 2.394,
-          "scrollToIndexMs": 2.739,
+          "firstPaintMs": 135.633,
+          "scrollStepMs": 2.728,
+          "scrollToIndexMs": 3.028,
           "renderedItems": 30,
           "measureCallsPerStep": 78.04,
           "ffiCallsPerStep": 82.04,
           "ffiBytesPerStep": 47674.64,
-          "memoryMb": 82.217
+          "memoryMb": 82.42
         },
         "streaming": {
-          "applyMs": 1.845,
-          "p95ApplyMs": 4.084,
-          "totalMs": 369.089,
+          "applyMs": 2.036,
+          "p95ApplyMs": 4.942,
+          "totalMs": 407.271,
           "nodes": 607,
           "ffiBytesTotal": 5336991
         },
         "theme-switch": {
-          "themeSwitchMs": 12.958,
-          "modeSwitchMs": 3.195,
+          "themeSwitchMs": 16.469,
+          "modeSwitchMs": 3.881,
           "restyled": 609
         },
         "resize": {
-          "resizeMs": 4.601,
+          "resizeMs": 6.004,
           "upcallsPerResize": 1
         },
         "deep-nesting": {
-          "firstPaintMs": 1.929,
-          "warmPassMs": 0.097,
+          "firstPaintMs": 2.326,
+          "warmPassMs": 0.103,
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 232.622,
-          "rebindMs": 239.165,
+          "firstPaintMs": 274.773,
+          "rebindMs": 285.906,
           "nodes": 10001
         },
         "overlay": {
-          "openMs": 0.292,
-          "closeMs": 0.126
+          "openMs": 0.363,
+          "closeMs": 0.156
         },
         "table-1k": {
-          "firstPaintMs": 11.267,
-          "scrollStepMs": 4.83,
-          "sortMs": 8.003,
+          "firstPaintMs": 15.764,
+          "scrollStepMs": 6.597,
+          "sortMs": 9.822,
           "renderedRows": 30
         }
       },
-      "commit": "f16ffee67"
+      "commit": "b8ea2c89e"
     }
   }
 }
