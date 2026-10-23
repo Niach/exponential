@@ -424,26 +424,8 @@ public struct SessionCardView: View {
         .accessibilityIdentifier(card.testId)
     }
 
-    /// The header row, then EXP-1323's live caption as the muted second
-    /// line, aligned with the name (12pt padding + the 13pt icon + its 8pt
-    /// gap).
-    private var content: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            row
-            if let caption = card.caption {
-                Text(caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .padding(.leading, 33)
-                    .padding(.trailing, 12)
-                    .padding(.top, -6)
-                    .padding(.bottom, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("session-card-caption")
-            }
-        }
-    }
+    /// The header row.
+    private var content: some View { row }
 
     private var row: some View {
         WorkCardHeaderRow(

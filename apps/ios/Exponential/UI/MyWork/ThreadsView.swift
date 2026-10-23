@@ -278,7 +278,6 @@ struct ThreadRowLabel: View {
                 title: row.title,
                 guide: guide,
                 unread: row.unread,
-                caption: row.caption,
                 // EXP-1339: `merged` has no text, only the violet lead.
                 word: word?.text,
                 wordIcon: word == .stack ? AppIcons.prStack : nil,

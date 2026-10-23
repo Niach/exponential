@@ -52,7 +52,6 @@ final class SessionTreeTests: XCTestCase {
             teamId: try XCTUnwrap(string(row["teamId"])),
             parentId: string(row["parentId"]),
             rootId: try XCTUnwrap(string(row["rootId"])),
-            kind: try XCTUnwrap(string(row["kind"])),
             userId: try XCTUnwrap(string(row["userId"])),
             status: try XCTUnwrap(string(row["status"])),
             busy: try XCTUnwrap(row["busy"] as? Bool),
@@ -61,18 +60,11 @@ final class SessionTreeTests: XCTestCase {
             shared: try XCTUnwrap(row["shared"] as? Bool),
             title: string(row["title"]),
             guide: guide,
-            actionName: string(row["actionName"]),
-            name: string(row["name"]),
-            icon: string(row["icon"]),
-            color: string(row["color"]),
-            sortOrder: try XCTUnwrap(row["sortOrder"] as? Double),
             startedAt: string(row["startedAt"]),
             endedAt: string(row["endedAt"]),
             createdAt: try XCTUnwrap(string(row["createdAt"])),
             updatedAt: try XCTUnwrap(string(row["updatedAt"])),
             deviceId: string(row["deviceId"]),
-            caption: string(row["caption"]),
-            aside: (row["aside"] as? Bool) ?? false,
             agentId: string(row["agentId"])
         )
     }
@@ -97,7 +89,6 @@ final class SessionTreeTests: XCTestCase {
             busy: try XCTUnwrap(row["busy"] as? Bool),
             needsYou: try XCTUnwrap(row["needsYou"] as? Bool),
             unread: (row["unread"] as? Bool) ?? false,
-            caption: string(row["caption"]),
             activityAt: try XCTUnwrap(string(row["activityAt"])),
             deviceId: string(row["deviceId"])
         )
@@ -166,7 +157,6 @@ final class SessionTreeTests: XCTestCase {
             "tone": card.tone,
             "elapsed": json(card.elapsed),
             "running": card.running,
-            "caption": json(card.caption),
             "testId": card.testId,
         ]
     }
@@ -281,7 +271,6 @@ final class SessionTreeTests: XCTestCase {
                     "busy": row.busy,
                     "needsYou": row.needsYou,
                     "unread": row.unread,
-                    "caption": json(row.caption),
                     "activityAt": row.activityAt,
                     "deviceId": json(row.deviceId),
                 ]
@@ -468,10 +457,9 @@ final class SessionTreeTests: XCTestCase {
     /// EXP-1211: a replies card is never a Conversation row.
     func testRepliesCardIsNeverAThreadRow() throws {
         let root = TreeSession(
-            id: "r1", teamId: "team", parentId: nil, rootId: "r1", kind: "thread", userId: "u1",
+            id: "r1", teamId: "team", parentId: nil, rootId: "r1", userId: "u1",
             status: "idle", busy: false, needsInput: false, blocked: nil, shared: true,
-            title: "Thread", guide: nil, actionName: nil, name: nil, icon: nil, color: nil,
-            sortOrder: 0, startedAt: nil, endedAt: nil,
+            title: "Thread", guide: nil, startedAt: nil, endedAt: nil,
             createdAt: "2026-10-17T10:00:00.000Z", updatedAt: "2026-10-17T10:00:00.000Z"
         )
         let card = TreeMessageCard(kind: "replies", items: [TreeSuggestionItem(id: "a", title: "", text: "Open the PR")])
@@ -743,10 +731,9 @@ final class SessionTreeTests: XCTestCase {
     func testCountsOwnWorkingSessionsPerTeam() throws {
         func row(_ id: String, team: String, user: String = "me", status: String, needsInput: Bool = false) -> TreeSession {
             TreeSession(
-                id: id, teamId: team, parentId: nil, rootId: id, kind: "thread", userId: user,
+                id: id, teamId: team, parentId: nil, rootId: id, userId: user,
                 status: status, busy: false, needsInput: needsInput, blocked: nil, shared: true,
-                title: nil, guide: nil, actionName: nil, name: nil, icon: nil, color: nil,
-                sortOrder: 0, startedAt: nil, endedAt: nil,
+                title: nil, guide: nil, startedAt: nil, endedAt: nil,
                 createdAt: "2026-10-13T10:00:00.000Z", updatedAt: "2026-10-13T10:00:00.000Z"
             )
         }
