@@ -17,10 +17,10 @@
           }
         },
         "@exponential-at/ui-react/index": {
-          "bytes": 140285,
-          "gzip": 48725,
+          "bytes": 140489,
+          "gzip": 48797,
           "parts": {
-            "index.js": 137299,
+            "index.js": 137503,
             "chunks/index-38zfg7nq.js": 2986
           }
         },
