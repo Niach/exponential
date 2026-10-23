@@ -2751,6 +2751,8 @@ impl ThreadScreenView {
             subscriptions.push(cx.observe(&collections.sessions, |this, _, cx| this.refresh(cx)));
             subscriptions.push(cx.observe(&collections.session_issues, |this, _, cx| this.refresh(cx)));
             subscriptions.push(cx.observe(&collections.messages, |this, _, cx| this.refresh(cx)));
+            // NEW-8: a message's session is its conversation's.
+            subscriptions.push(cx.observe(&collections.conversations, |this, _, cx| this.refresh(cx)));
             subscriptions.push(cx.observe(&collections.pull_requests, |this, _, cx| this.refresh(cx)));
             subscriptions.push(cx.observe(&collections.issues, |this, _, cx| {
                 this.chip_cache.borrow_mut().clear();

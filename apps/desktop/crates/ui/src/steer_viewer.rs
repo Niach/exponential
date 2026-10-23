@@ -644,6 +644,10 @@ impl SteerSessionView {
             subscriptions.push(cx.observe(&collections.messages, |this, _, cx| {
                 this.refresh_replies(cx);
             }));
+            // NEW-8: a message's session is its conversation's.
+            subscriptions.push(cx.observe(&collections.conversations, |this, _, cx| {
+                this.refresh_replies(cx);
+            }));
             // EXP-776: the chip memo is only as fresh as the issues and
             // statuses it was read from (glyph and tint are part of a chip).
             subscriptions.push(cx.observe(&collections.issues, |this, _, cx| {

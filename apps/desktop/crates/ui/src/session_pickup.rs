@@ -91,6 +91,8 @@ pub(crate) fn install(cx: &mut App) {
     };
     cx.observe(&collections.sessions, |_, cx| schedule(cx)).detach();
     cx.observe(&collections.messages, |_, cx| schedule(cx)).detach();
+    // NEW-8: a message's session is its conversation's.
+    cx.observe(&collections.conversations, |_, cx| schedule(cx)).detach();
     let local = LocalSessions::global(cx);
     cx.observe(&local, |_, cx| schedule(cx)).detach();
     schedule(cx);
@@ -174,13 +176,9 @@ fn run_pass(cx: &mut App) {
         .cloned()
         .collect();
     let hosted: HashSet<&str> = sessions.iter().map(|row| row.id.as_str()).collect();
-    let messages: Vec<MessageRow> = collections
-        .messages
-        .read(cx)
-        .iter()
-        .filter(|row| hosted.contains(row.session_id.as_str()))
-        .cloned()
-        .collect();
+    // NEW-8: keyed through their conversation (`session_id` = resolved).
+    let messages: Vec<MessageRow> =
+        crate::session_data::keyed_messages(cx, |owner, _| hosted.contains(owner));
     for session_id in live.prune() {
         log::debug!("[pickup] session {session_id}'s engine is gone");
     }
@@ -647,10 +645,13 @@ mod tests {
         }))
         .unwrap();
         let before = fingerprint(&row, &[]);
-        let message: MessageRow = serde_json::from_value(serde_json::json!({
-            "id": "m-1", "session_id": "s-1", "root_id": "s-1", "author_kind": "user",
-        }))
-        .unwrap();
+        let message = MessageRow {
+            session_id: "s-1".into(),
+            ..serde_json::from_value(serde_json::json!({
+                "id": "m-1", "conversation_id": "c-1", "root_id": "s-1", "author_kind": "user",
+            }))
+            .unwrap()
+        };
         assert_ne!(before, fingerprint(&row, &[message]));
         let mut later = row.clone();
         later.updated_at = Some("t2".into());
@@ -666,11 +667,14 @@ mod tests {
         }))
         .unwrap();
         let before = fingerprint(&row, &[]);
-        let from_agent: MessageRow = serde_json::from_value(serde_json::json!({
-            "id": "m-2", "session_id": "s-1", "root_id": "s-1", "author_kind": "agent",
-            "author_session_id": "s-9",
-        }))
-        .unwrap();
+        let from_agent = MessageRow {
+            session_id: "s-1".into(),
+            ..serde_json::from_value(serde_json::json!({
+                "id": "m-2", "conversation_id": "c-1", "root_id": "s-1", "author_kind": "agent",
+                "author_session_id": "s-9",
+            }))
+            .unwrap()
+        };
         assert_ne!(before, fingerprint(&row, &[from_agent.clone()]));
         let consumed = MessageRow { consumed_at: Some("t2".into()), ..from_agent };
         assert_eq!(before, fingerprint(&row, &[consumed]));
