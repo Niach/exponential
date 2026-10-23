@@ -55,8 +55,12 @@ describe(`VAPP-107 property: reduce + expand never throw`, () => {
   })
   test(`prototype-named components, calls and functions find nothing (never Object.prototype)`, () => {
     for (const name of [`constructor`, `__proto__`, `valueOf`, `toString`, `hasOwnProperty`, `__defineGetter__`]) {
-      const out = reduceSurface([{ id: `root`, component: name }] as FlatComponent[], { catalogId: CORE_CATALOG_ID })
-      expect(out.root?.component, name).toBe(`Unknown`)
+      // Both catalogs: the basic one maps through its own table (basic-map.ts).
+      for (const catalogId of [CORE_CATALOG_ID, A2UI_BASIC_CATALOG_ID]) {
+        const out = reduceSurface([{ id: `root`, component: name }] as FlatComponent[], { catalogId })
+        expect(out.root?.component, `${catalogId} ${name}`).toBe(`Unknown`)
+        expect(reduceNested({ id: `root`, component: name, children: [] } as unknown as NestedNode, { catalogId }).root?.component, `${catalogId} ${name}`).toBe(`Unknown`)
+      }
       expect(() => resolveDynamic({ call: name, args: { a: 1 } }, {})).not.toThrow()
       expect(resolveDynamic({ call: name, args: { a: 1 } }, {}), name).toBeUndefined()
       const host = new ExponentialHost()
