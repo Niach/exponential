@@ -555,8 +555,11 @@ struct ThreadScreen: View {
                     .floatingBarEdge(!dockRows.isEmpty)
                     // AUTO-OPEN: a plan or question that arrives while the
                     // Conversation is in front opens its sheet; the rows
-                    // already there when it loaded stay collapsed.
-                    .dockAutoOpen(dockRows, ready: !view.rows.isEmpty) { dockOpenId = $0 }
+                    // already there when it loaded stay collapsed. The pager
+                    // keeps this page alive beside the others, so a card
+                    // arriving while an issue, session or Guide page is in
+                    // front stays collapsed (dock.json: the view IN FRONT).
+                    .dockAutoOpen(dockRows, enabled: page == .conversation, ready: !view.rows.isEmpty) { dockOpenId = $0 }
                     // EXP-1316 (Android 247c806b33): the floating composer's
                     // MEASURED height (capsule or open card, + its edge) is
                     // the conversation's bottom inset; a pinned conversation

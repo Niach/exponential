@@ -337,6 +337,10 @@ public struct DockSheetChrome<Body: View, Footer: View>: View {
                     .accessibilityIdentifier(Dock.TestIds.sheetFooter)
             },
             actionDivider: true,
+            // A footer-less sheet (THE Queue, the queued messages, the relay's
+            // ask) draws no footer strip and no divider, as on web (the footer
+            // is only rendered when it holds something).
+            actionVisible: Footer.self != EmptyView.self,
             // ONE gray ×4: the sheet wears the card's fill, not the phone
             // sheet's darker ground.
             background: GlassTokens.opaqueCardFill
