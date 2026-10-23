@@ -8,7 +8,7 @@
         "cold-start": {
           "coldStartMs": 1153.5,
           "firstPaintMs": 36.2,
-          "nodes": 591,
+          "nodes": 604,
           "memoryMb": 260
         },
         "card-grid": {
@@ -36,7 +36,7 @@
         "theme-switch": {
           "themeSwitchMs": 20.8,
           "modeSwitchMs": 8.7,
-          "restyled": 596
+          "restyled": 609
         },
         "resize": {
           "resizeMs": 6.3,
