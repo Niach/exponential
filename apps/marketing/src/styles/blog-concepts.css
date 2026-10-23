@@ -111,250 +111,57 @@
   --freeze: 4s;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px 12px;
-  font-size: 11.5px;
-  line-height: 1.35;
+  gap: 12px;
+  padding: 16px 18px 14px;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .wv-head {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 6px 8px;
-}
-
-.wv-live {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--bc-green);
-  box-shadow: 0 0 0 3px rgb(34 197 94 / 0.2);
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .wv-title {
-  font-size: 12.5px;
+  display: block;
+  font-size: 13.5px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 
-.wv-chip {
-  padding: 2px 7px;
-  border: 1px solid var(--bc-line);
-  border-radius: 999px;
-  background: var(--bc-fill);
-  color: var(--bc-muted);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-.wv-chip--bg {
-  border-color: rgb(34 197 94 / 0.35);
-  color: var(--bc-green);
-}
-
-.wv-chip--you {
-  border-color: rgb(250 250 250 / 0.2);
-  color: var(--bc-ink);
-}
-
-.wv-actions {
-  display: flex;
+.wv-status {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
-  margin-left: auto;
+  margin-top: 3px;
+  color: var(--bc-muted);
+  font-size: 11px;
+}
+
+.wv-live {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--bc-green);
 }
 
 .wv-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 9px;
-  border: 1px solid var(--bc-line);
+  flex-shrink: 0;
+  padding: 5px 11px;
+  border: 1px solid rgb(255 255 255 / 0.16);
   border-radius: 7px;
   background: var(--bc-fill);
   color: var(--bc-ink);
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 500;
   white-space: nowrap;
-}
-
-.wv-btn.is-on {
-  background: var(--bc-fill-2);
-  border-color: rgb(255 255 255 / 0.16);
-}
-
-.wv-btn--danger {
-  color: #ff6467;
-  border-color: rgb(255 100 103 / 0.35);
-}
-
-.wv-btn--icon {
-  padding: 4px 6px;
-}
-
-.wv-body {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 10px;
-}
-
-/* The flow */
-.wv-flow {
-  padding: 10px 10px 8px;
-  border: 1px solid var(--bc-line);
-  border-radius: 10px;
-  background: var(--bc-fill);
-}
-
-.wv-flow-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  margin: 0 0 8px 2px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--bc-muted);
-}
-
-.wv-flow-head span {
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--bc-dim);
-}
-
-.wv-step {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 5px 4px;
-  border-radius: 6px;
-}
-
-.wv-step b {
-  display: block;
-  font-weight: 500;
-}
-
-.wv-step small {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  color: var(--bc-dim);
-}
-
-.wv-step--4,
-.wv-step--5,
-.wv-step--6 {
-  background: transparent;
-}
-
-/* Pending steps sit dim and wake when they run. */
-.wv-step--5 > div {
-  animation: wv-wake-42 var(--wv-t) linear infinite;
-}
-
-.wv-step--6 > div {
-  animation: wv-wake-70 var(--wv-t) linear infinite;
-}
-
-.wv-step--confirm > div {
-  opacity: 0.6;
-}
-
-.wv-step--confirm small {
-  color: var(--bc-amber);
-}
-
-/* The step glyph: a number (pending), a ring (running), a check (done). */
-.wv-ic {
-  position: relative;
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  margin-top: 1px;
-  border-radius: 50%;
-  border: 1px solid var(--bc-line);
-  font-style: normal;
-}
-
-.wv-ic > span {
-  position: absolute;
-  inset: -1px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  opacity: 0;
-}
-
-.wv-ic-num {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--bc-dim);
-}
-
-.wv-ic-run {
-  border: 1.5px solid var(--bc-agent);
-  border-right-color: transparent;
-  animation: wv-spin 0.9s linear infinite;
-}
-
-.wv-ic-done {
-  background: var(--bc-ink);
-  color: #0a0a0a;
-}
-
-.wv-ic--ask {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-color: rgb(250 204 21 / 0.5);
-  color: var(--bc-amber);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-}
-
-.wv-ic--1 .wv-ic-done,
-.wv-ic--2 .wv-ic-done,
-.wv-ic--3 .wv-ic-done {
-  opacity: 1;
-}
-
-.wv-ic--4 .wv-ic-run {
-  animation: wv-spin 0.9s linear infinite, wv-on-until-42 var(--wv-t) linear infinite;
-}
-
-.wv-ic--4 .wv-ic-done {
-  animation: wv-on-after-42 var(--wv-t) linear infinite;
-}
-
-.wv-ic--5 .wv-ic-num {
-  animation: wv-on-until-42 var(--wv-t) linear infinite;
-}
-
-.wv-ic--5 .wv-ic-run {
-  animation: wv-spin 0.9s linear infinite, wv-on-between-42-70 var(--wv-t) linear infinite;
-}
-
-.wv-ic--5 .wv-ic-done {
-  animation: wv-on-after-70 var(--wv-t) linear infinite;
-}
-
-.wv-ic--6 .wv-ic-num {
-  animation: wv-on-until-70 var(--wv-t) linear infinite;
-}
-
-.wv-ic--6 .wv-ic-run {
-  animation: wv-spin 0.9s linear infinite, wv-on-after-70 var(--wv-t) linear infinite;
 }
 
 /* The live window */
 .wv-window {
   position: relative;
-  min-width: 0;
   border: 1px solid var(--bc-line);
   border-radius: 10px;
   overflow: hidden;
@@ -363,38 +170,16 @@
 }
 
 .wv-titlebar {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 10px;
+  padding: 6px 12px;
   background: #e9e9ee;
   color: #4a4a52;
-  font-size: 10px;
-}
-
-.wv-titlebar i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #c9c9d0;
-}
-
-.wv-titlebar span {
-  margin-left: 6px;
   font-family: var(--font-mono);
-}
-
-.wv-titlebar em {
-  margin-left: auto;
-  font-style: normal;
-  font-size: 9.5px;
-  color: #80808a;
+  font-size: 10px;
 }
 
 .wv-page {
   position: relative;
   padding: 12px 14px 14px;
-  min-height: 190px;
 }
 
 .wv-page-head {
@@ -475,13 +260,9 @@
   color: #6b6b75;
 }
 
-.wv-page td:last-child {
-  color: #8a8a94;
-}
-
 .wv-toast {
   position: absolute;
-  left: 14px;
+  right: 14px;
   bottom: 12px;
   display: inline-flex;
   align-items: center;
@@ -502,34 +283,108 @@
   animation: wv-cursor var(--wv-t) ease-in-out infinite;
 }
 
-/* The spoken-caption card: it can sit over a fullscreen game too. */
-.wv-pip {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
-  width: 200px;
-  padding: 7px 9px 8px;
-  border-radius: 8px;
-  background: rgb(23 23 23 / 0.96);
-  border: 1px solid rgb(255 255 255 / 0.12);
-  box-shadow: 0 8px 24px -8px rgb(0 0 0 / 0.6);
-  color: var(--bc-ink);
-  font-size: 10.5px;
+/* The step line: seven marks on one line, the fill up to the current one. */
+.wv-steps {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 14px;
+  align-items: center;
 }
 
-.wv-pip-head {
+.wv-line {
+  position: relative;
+  grid-column: 1 / -1;
+  height: 2px;
+  margin: 6px 4px 4px;
+  background: var(--bc-fill-2);
+}
+
+.wv-line-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  background: var(--bc-ink);
+  animation: wv-fill var(--wv-t) linear infinite;
+}
+
+.wv-node {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--bc-dim);
+  background: #111013;
+  transform: translate(-50%, -50%);
+}
+
+.wv-node--1,
+.wv-node--2,
+.wv-node--3 {
+  border-color: var(--bc-ink);
+  background: var(--bc-ink);
+}
+
+.wv-node--4 {
+  animation: wv-node-4 var(--wv-t) linear infinite;
+}
+
+.wv-node--5 {
+  animation: wv-node-5 var(--wv-t) linear infinite;
+}
+
+.wv-node--6 {
+  animation: wv-node-6 var(--wv-t) linear infinite;
+}
+
+.wv-node--confirm {
+  border-color: var(--bc-amber);
+}
+
+.wv-current {
+  position: relative;
+  height: 1.4em;
+  font-size: 11.5px;
+  color: var(--bc-ink);
+}
+
+.wv-current em {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-style: normal;
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.wv-current--4 {
+  animation: wv-on-until-42 var(--wv-t) linear infinite;
+}
+
+.wv-current--5 {
+  animation: wv-on-between-42-70 var(--wv-t) linear infinite;
+}
+
+.wv-current--6 {
+  animation: wv-on-after-70 var(--wv-t) linear infinite;
+}
+
+.wv-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--bc-dim);
+  white-space: nowrap;
+}
+
+/* The spoken caption: the same card can sit over a fullscreen game. */
+.wv-caption {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 3px;
-  font-size: 10px;
-}
-
-.wv-pip-head em {
-  margin-left: auto;
-  font-style: normal;
-  color: var(--bc-dim);
-  font-size: 9px;
+  gap: 8px;
+  color: var(--bc-muted);
+  font-size: 11.5px;
 }
 
 .wv-wave {
@@ -556,129 +411,6 @@
   animation-duration: 0.7s;
 }
 
-.wv-wave i:nth-child(4) {
-  animation-duration: 0.95s;
-}
-
-.wv-pip p {
-  color: var(--bc-muted);
-  line-height: 1.4;
-}
-
-/* The step graph */
-.wv-graph {
-  position: relative;
-  display: flex;
-  justify-content: space-between;
-  padding: 4px 8px 0;
-}
-
-.wv-graph::before {
-  content: "";
-  position: absolute;
-  left: 8%;
-  right: 8%;
-  top: 9px;
-  height: 1px;
-  background: var(--bc-line);
-}
-
-.wv-node {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  width: 14%;
-  font-size: 10px;
-  color: var(--bc-muted);
-}
-
-.wv-node i {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  border: 1.5px solid var(--bc-dim);
-  background: #111013;
-}
-
-.wv-node b {
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.wv-node--1 i,
-.wv-node--2 i,
-.wv-node--3 i {
-  border-color: var(--bc-ink);
-  background: var(--bc-ink);
-}
-
-.wv-node--4 i {
-  animation: wv-node-4 var(--wv-t) linear infinite;
-}
-
-.wv-node--5 i {
-  animation: wv-node-5 var(--wv-t) linear infinite;
-}
-
-.wv-node--6 i {
-  animation: wv-node-6 var(--wv-t) linear infinite;
-}
-
-.wv-node--confirm i {
-  border-color: var(--bc-amber);
-}
-
-.wv-node--confirm b {
-  color: var(--bc-amber);
-}
-
-/* The replay */
-.wv-replay {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.wv-scrub {
-  position: relative;
-  flex: 1;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--bc-fill-2);
-}
-
-.wv-scrub-fill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 57%;
-  border-radius: 2px;
-  background: linear-gradient(90deg, var(--bc-green) 0 70%, var(--bc-agent) 70% 100%);
-  animation: wv-scrub var(--wv-t) linear infinite;
-}
-
-.wv-scrub-mark {
-  position: absolute;
-  top: -2px;
-  width: 1px;
-  height: 8px;
-  background: var(--bc-dim);
-  transform: translateX(-50%);
-}
-
-.wv-time {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  color: var(--bc-muted);
-  white-space: nowrap;
-}
-
 @keyframes wv-cursor {
   0%,
   10% {
@@ -687,12 +419,12 @@
   }
   28%,
   70% {
-    left: 72%;
+    left: 74%;
     top: 21%;
   }
   82%,
   88% {
-    left: 30%;
+    left: 70%;
     top: 84%;
   }
   100% {
@@ -731,12 +463,6 @@
   }
 }
 
-@keyframes wv-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @keyframes wv-wave {
   0%,
   100% {
@@ -747,45 +473,18 @@
   }
 }
 
-@keyframes wv-scrub {
-  from {
-    width: 57%;
-  }
-  to {
-    width: 66%;
-  }
-}
-
-@keyframes wv-wake-42 {
+@keyframes wv-fill {
   0%,
   41.9% {
-    opacity: 0.5;
+    width: 50%;
   }
   42%,
-  100% {
-    opacity: 1;
-  }
-}
-
-@keyframes wv-wake-70 {
-  0%,
   69.9% {
-    opacity: 0.5;
+    width: 66.7%;
   }
   70%,
   100% {
-    opacity: 1;
-  }
-}
-
-@keyframes wv-on-after-42 {
-  0%,
-  41.9% {
-    opacity: 0;
-  }
-  42%,
-  100% {
-    opacity: 1;
+    width: 83.3%;
   }
 }
 
@@ -823,17 +522,6 @@
   70%,
   100% {
     opacity: 1;
-  }
-}
-
-@keyframes wv-on-until-70 {
-  0%,
-  69.9% {
-    opacity: 1;
-  }
-  70%,
-  100% {
-    opacity: 0;
   }
 }
 
@@ -1817,21 +1505,9 @@
 
 /* ── Narrow columns ── */
 @media (max-width: 640px) {
-  .wv-body {
-    grid-template-columns: 1fr;
-  }
-
-  .wv-actions {
-    width: 100%;
-    margin-left: 0;
-  }
-
-  .wv-pip {
-    width: 160px;
-  }
-
-  .wv-node b {
-    font-size: 9px;
+  .wv-head {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .wv-time {

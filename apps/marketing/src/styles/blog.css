@@ -129,7 +129,7 @@
 
 .blog-lead {
   margin: 0 0 14px;
-  font-size: 17.5px;
+  font-size: 19px;
   line-height: 1.55;
   color: var(--fg-muted);
 }
@@ -146,6 +146,22 @@
 
 .blog-prose > section:first-of-type {
   padding-top: 8px;
+}
+
+/* The article reads at 18px, two sizes above the docs' 14.5px. */
+.blog-prose p,
+.blog-prose ul,
+.blog-prose ol {
+  font-size: 18px;
+  line-height: 1.6;
+}
+
+.blog-prose li {
+  margin-bottom: 10px;
+}
+
+.blog-prose code:not(pre code) {
+  font-size: 15px;
 }
 
 .blog-prose h2 {
@@ -344,7 +360,7 @@
 
 .docs-content a.blog-issue {
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: 14px;
   padding: 1px 6px;
   border: 1px solid var(--border);
   border-radius: 4px;
