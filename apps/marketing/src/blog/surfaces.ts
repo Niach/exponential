@@ -1,4 +1,4 @@
-/* The concept drafts of "One renderer, four layers" (EXP-1368), written as
+/* The concept drafts of "What a personal assistant should be able to do" (EXP-1368), written as
    A2UI trees of the core catalog and painted live by the Exponential UI React
    renderer (components/blog/LiveSurface). They are drafts: the watch view
    does not exist as product UI (EXP-1369), the voice pipeline is a plan
@@ -50,11 +50,11 @@ export const STACK_SURFACE: Nested = {
   component: `Box`,
   style: { display: `flex`, flexDirection: `column`, gap: `$spacing.md` },
   children: [
-    caption(`stack-kicker`, `Where we are going · four layers on one renderer`),
+    caption(`stack-kicker`, `Four abilities of a personal assistant · one renderer underneath`),
     layer(
       `l1`,
-      `1 · A2UI + Exponential UI`,
-      `Agents describe UI as JSON. One Rust core, native painters for React, Solid, SwiftUI, Compose and gpui. Themes are JSON, extensions add components.`,
+      `1 · It shows, instead of telling`,
+      `The assistant describes a screen as JSON and a renderer paints it natively: React, Solid, SwiftUI, Compose and gpui from one core. Themes are JSON, extensions add components.`,
       [
         { label: `shipped`, tone: `success`, detail: `renderers ×6, conformance gate` },
         { label: `in progress`, tone: `warning`, detail: `benchmarks, Apps slice 1 ×4` },
@@ -64,16 +64,16 @@ export const STACK_SURFACE: Nested = {
     between(`b1`, `the same JSON on disk`),
     layer(
       `l2`,
-      `2 · A desktop that is a document`,
-      `Panel, launcher, settings and files as A2UI templates on disk, painted by the gpui renderer. The agent edits the JSON, the desktop changes live. Linux apps keep running beside it.`,
+      `2 · It shapes its environment`,
+      `Panel, launcher, settings and files as templates on disk, painted by the same renderer. The assistant edits the JSON, the desktop changes live. Existing apps keep running beside it.`,
       [{ label: `planned`, tone: `neutral`, detail: `first on Mint, a Nix-based OS as the north star` }],
       `NEW-10 · VAPP-64`
     ),
     between(`b2`, `the agent needs hands`),
     layer(
       `l3`,
-      `3 · Computer use you can watch`,
-      `Today: foreground, your input held, Esc takes it back. Next: background work on another monitor, every run a flow you watch live or replay as A2UI, not video.`,
+      `3 · It has hands you can watch`,
+      `Today: foreground, your input held, Esc takes it back. Next: work on another monitor, every run a flow you watch live or replay as A2UI, not video.`,
       [
         { label: `shipped`, tone: `success`, detail: `foreground on Linux, macOS, Windows` },
         { label: `planned`, tone: `neutral`, detail: `the watch view, A2UI replay` },
@@ -83,8 +83,8 @@ export const STACK_SURFACE: Nested = {
     between(`b3`, `and a voice`),
     layer(
       `l4`,
-      `4 · A speech assistant, local first`,
-      `Push-to-talk or wake word. Whistle transcribes each audio channel on your CPU, Needle routes the request to a tool or to your Assistant agent, the reply is spoken back.`,
+      `4 · You can talk to it`,
+      `Push-to-talk or wake word. Speech-to-text per audio channel on your CPU, a small router that acts, confirms or hands over, the reply spoken back.`,
       [{ label: `planned`, tone: `neutral`, detail: `call mode, per-app audio channels` }],
       `NEW-9`
     ),

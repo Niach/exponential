@@ -1,5 +1,5 @@
 import { SiteFooter, SiteHeader } from "./components/SiteShell"
-import { BlogCard } from "./components/blog/BlogCard"
+import { PostList } from "./components/blog/PostList"
 import { Figure } from "./components/blog/Figure"
 import { BLOG_POSTS, type BlogPost } from "./blog/posts"
 import { BLOG_PATH, formatDate } from "./blog/types"
@@ -35,11 +35,7 @@ export function BlogPostPage({ post }: { post: BlogPost }) {
             {others.length > 0 ? (
               <>
                 <h2>More from the blog</h2>
-                <div className="blog-list blog-list--compact">
-                  {others.map((other) => (
-                    <BlogCard key={other.meta.slug} meta={other.meta} />
-                  ))}
-                </div>
+                <PostList posts={others.map((other) => other.meta)} />
               </>
             ) : null}
             <p className="blog-post-foot-links">

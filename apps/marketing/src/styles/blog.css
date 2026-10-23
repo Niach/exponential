@@ -3,56 +3,72 @@
    (@exp/site-shell/styles/docs.css `.docs-content`), so an article reads
    like a docs page; everything here is the frame around it. ─── */
 
-/* ── Index ── */
+/* ── Index: a heading and the rows ── */
 .blog-index {
-  padding: 8px 0 72px;
+  padding: 56px 0 72px;
 }
 
-.blog-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+.blog-index-inner {
+  max-width: 760px;
 }
 
-.blog-list--compact {
-  grid-template-columns: 1fr;
+.blog-index h1 {
+  margin: 0 0 24px;
+  font-size: clamp(30px, 4.4vw, 44px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
 }
 
-.blog-card {
+.blog-index-rss {
+  margin: 24px 0 0;
+  font-size: 13px;
+  color: var(--fg-dim);
+}
+
+.blog-index-rss a {
+  color: var(--fg-muted);
+}
+
+/* ── Rows (the index, a post's footer, the home strip) ── */
+.blog-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+
+.blog-rows li {
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.blog-row {
   display: flex;
-  flex-direction: column;
-  gap: 0;
-  overflow: hidden;
-  transition:
-    border-color 140ms,
-    background 140ms;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px 0;
+  color: var(--fg);
+  border-bottom: 0 !important;
 }
 
-.blog-card:hover {
-  border-color: var(--glass-stroke-active);
-  background: var(--glass-fill-active);
+.blog-row-title {
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
 }
 
-.blog-card-cover {
-  display: block;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 3 / 2;
-  object-fit: cover;
-  object-position: top left;
-  border-bottom: 1px solid var(--glass-stroke-card);
-  background: var(--bg-elev);
+.blog-row:hover .blog-row-title {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--fg-dim);
 }
 
-.blog-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 18px 20px 20px;
-}
-
-.blog-card-meta,
+.blog-row-meta,
 .blog-eyebrow {
+  flex-shrink: 0;
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.04em;
@@ -61,32 +77,6 @@
 
 .blog-eyebrow a {
   color: var(--fg-muted);
-}
-
-.blog-card-title {
-  margin: 0;
-  font-size: 19px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.25;
-  color: var(--fg);
-}
-
-.blog-card-text {
-  margin: 0;
-  font-size: 13.5px;
-  line-height: 1.6;
-  color: var(--fg-muted);
-}
-
-.blog-card-more {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--fg);
 }
 
 /* ── Post page ── */
@@ -340,35 +330,8 @@
   background: var(--glass-fill-section);
 }
 
-.blog-strip-card {
-  display: grid;
-  grid-template-columns: 3fr 2fr;
-  gap: 0;
-  overflow: hidden;
-  transition:
-    border-color 140ms,
-    background 140ms;
-}
-
-.blog-strip-card:hover {
-  border-color: var(--glass-stroke-active);
-  background: var(--glass-fill-active);
-}
-
-.blog-strip-card .blog-card-cover {
-  height: 100%;
-  aspect-ratio: auto;
-  border-bottom: 0;
-  border-right: 1px solid var(--glass-stroke-card);
-}
-
-.blog-strip-card .blog-card-body {
-  padding: 26px 28px;
-  justify-content: center;
-}
-
-.blog-strip-card .blog-card-title {
-  font-size: 22px;
+.blog-strip-inner {
+  max-width: 760px;
 }
 
 .blog-strip-all {
@@ -381,19 +344,10 @@
   border-bottom: 1px solid var(--input);
 }
 
-@media (max-width: 860px) {
-  .blog-list {
-    grid-template-columns: 1fr;
-  }
-
-  .blog-strip-card {
-    grid-template-columns: 1fr;
-  }
-
-  .blog-strip-card .blog-card-cover {
-    aspect-ratio: 3 / 2;
-    border-right: 0;
-    border-bottom: 1px solid var(--glass-stroke-card);
+@media (max-width: 600px) {
+  .blog-row {
+    flex-direction: column;
+    gap: 4px;
   }
 }
 

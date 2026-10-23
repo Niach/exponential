@@ -1,24 +1,15 @@
-/* "From the blog" on the home page: the newest post as one wide card. */
-import { motion } from "motion/react"
-import { sectionReveal } from "../../lib/animations"
+/* "From the blog" on the home page: the newest posts as rows. */
 import { BLOG_POSTS } from "../../blog/posts"
 import { BLOG_PATH } from "../../blog/types"
-import { BlogCard } from "./BlogCard"
+import { PostList } from "./PostList"
 
 export function BlogStrip() {
-  const newest = BLOG_POSTS[0]
-  if (!newest) return null
+  if (BLOG_POSTS.length === 0) return null
   return (
     <section id="blog" className="home-blog">
-      <div className="shell">
-        <motion.div {...sectionReveal}>
-          <h2 className="section-title">From the blog</h2>
-          <p className="section-sub">
-            Where the product stands and where it goes, with the screenshots
-            and the issue numbers behind every claim.
-          </p>
-        </motion.div>
-        <BlogCard meta={newest.meta} strip />
+      <div className="shell blog-strip-inner">
+        <h2 className="section-title">From the blog</h2>
+        <PostList posts={BLOG_POSTS.slice(0, 3).map((post) => post.meta)} />
         <p className="blog-strip-all">
           <a href={BLOG_PATH}>All posts</a>
         </p>
