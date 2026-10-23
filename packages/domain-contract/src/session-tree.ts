@@ -989,6 +989,16 @@ export function threadRowMarkState(row: {
   return `waiting`
 }
 
+/** NEW-41 ×4: the PR glyph a thread row leads with once threadRowMarkState
+ *  is `waiting`, off the ROOT's PR states (never the word, so a stacked open
+ *  PR still leads emerald): any open → `open`, else any merged → `merged`,
+ *  else none (`threads-list.json` `leadCases`). */
+export function threadRowLeadPr(prStates: readonly string[]): `open` | `merged` | null {
+  if (prStates.includes(`open`)) return `open`
+  if (prStates.includes(`merged`)) return `merged`
+  return null
+}
+
 export interface ThreadsListGroup {
   key: `needs_you` | `running` | `recent`
   title: string

@@ -246,7 +246,9 @@ pub(crate) fn roots_of_issue(issue_id: &str, cx: &App) -> Vec<SessionRow> {
         .iter()
         .filter(|link| link.issue_id == issue_id)
         .filter_map(|link| sessions.get(&link.session_id))
-        .filter(|root| root.is_root() && root.is_thread())
+        // Release train 2026-10-23 (VAPP-110): an app editor's session is the
+        // editor's chat, never a thread on the issue.
+        .filter(|root| root.is_root() && root.is_thread() && !root.is_app_editor())
         .cloned()
         .collect();
     roots.sort_by(|a, b| {
@@ -888,7 +890,9 @@ fn my_live_trees<'a>(sessions: &[&'a SessionRow], me: &str) -> BTreeMap<&'a str,
     let thread_roots: HashMap<&str, &SessionRow> = sessions
         .iter()
         .copied()
-        .filter(|session| session.is_root() && session.is_thread())
+        // Release train 2026-10-23 (VAPP-110): a working app editor is not a
+        // thread, so it stays out of Running and the switcher's dot.
+        .filter(|session| session.is_root() && session.is_thread() && !session.is_app_editor())
         .map(|session| (session.id.as_str(), session))
         .collect();
     let mut trees: BTreeMap<&str, Vec<&SessionRow>> = BTreeMap::new();

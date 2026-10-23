@@ -92,22 +92,37 @@ export function Dock({
   className?: string
 }) {
   const bandRef = useRef<HTMLDivElement | null>(null)
+  const [expanded, setExpanded] = useState(initialExpanded)
+  const view = useMemo(() => dock({ rows, expanded, openId }), [rows, expanded, openId])
+  const openRow = view.openId === null ? null : (rows.find((row) => row.id === view.openId) ?? null)
+  const close = useCallback(() => onOpenChange(null), [onOpenChange])
+  // Release train 2026-10-23 (N-12 F2): the open card vanished (the run
+  // ended, the ask was answered): forget its id, or a later row with the
+  // same fixed id (`tasks`, `queued`, `banner:*`) reopens the sheet unasked.
+  useEffect(() => {
+    if (openId !== null && view.openId === null) onOpenChange(null)
+  }, [openId, view.openId, onOpenChange])
+  // Release train 2026-10-23 (N-12 F1): a phone's band stays mounted with
+  // no cards (it carries the work bar's clearance, the floating capsule
+  // sits over it) and is re-measured whenever it mounts or resizes, so the
+  // transcript's last rows never run under the capsule or a later card.
+  const present = view.mode !== `none` || !!composer || phoneClearance
   useLayoutEffect(() => {
+    if (!onHeight) return
     const node = bandRef.current
-    if (!node || !onHeight) return
+    if (!node) {
+      onHeight(0)
+      return
+    }
     const measure = () => onHeight(node.offsetHeight)
     measure()
     if (typeof ResizeObserver === `undefined`) return
     const observer = new ResizeObserver(measure)
     observer.observe(node)
     return () => observer.disconnect()
-  }, [onHeight])
-  const [expanded, setExpanded] = useState(initialExpanded)
-  const view = useMemo(() => dock({ rows, expanded, openId }), [rows, expanded, openId])
-  const openRow = view.openId === null ? null : (rows.find((row) => row.id === view.openId) ?? null)
-  const close = useCallback(() => onOpenChange(null), [onOpenChange])
+  }, [onHeight, present])
   const sheet = openRow ? renderSheet(openRow, close) : null
-  if (view.mode === `none` && !composer) return null
+  if (!present) return null
   return (
     <>
       <div
@@ -123,7 +138,9 @@ export function Dock({
         />
         <div
           className={cn(
-            `pointer-events-auto relative flex flex-col gap-1.5`,
+            // An empty phone band is clearance only: taps reach the transcript.
+            `relative flex flex-col gap-1.5`,
+            view.mode === `none` && !composer ? `pointer-events-none` : `pointer-events-auto`,
             DOCK_COLUMN_CLASS,
             phoneClearance ? PHONE_CLEARANCE_CLASS : `pb-3 md:pb-4`
           )}

@@ -1,4 +1,7 @@
-- Det nye sessionsystem: en thread er én session, der arbejder selv og vækkes af beskeder, med et plankort, der stiller ét spørgsmål ad gangen
-- Agenter er definitioner med deres egen samtale pr. medlem, servertriggere og en Events-strøm; skriv til en agent fra composeren
-- Prompts erstatter handlinger: find dem i / menu og under Indstillinger → Prompts
-- Visningerne for sessions, kræver dig og kørende følger det nye system på alle skærme
+- Apps: byg små apps med editor-sessionen, med live forhåndsvisning og gemt i versioner; Apps-listen ligger bag knappen i Threads-headeren
+- Dock: transskriptet er én samlet scroll, det der venter på dig, svæver som kort over composeren, og en plan åbner som et bundark med "Ja" og "Nej, bliv ved med at planlægge"
+- Én grå: alle kort, composeren og arkene har den samme uigennemsigtige tone
+- Vælgere i et ark åbner direkte under deres række
+- Threads med én session viser igen deres Conversation-fane, og en thread-række starter med dens åbne pull request
+- Markdown-tabeller strækker ikke længere rækker ud over deres indhold
+- En besked til en afsluttet thread genoptager den samme session i stedet for at starte en kopi

@@ -328,14 +328,15 @@ struct ThreadRowLabel: View {
     @ViewBuilder
     private func threadsLead(_ word: ThreadRowWord?) -> some View {
         let mark = SessionTree.threadRowMarkState(needsYou: row.needsYou, busy: row.busy)
+        let lead = SessionTree.threadRowLeadPr(prStates: prStates)
         if mark == .needsYou {
             needsYouMark
         } else if mark == .working {
             AgentWorkingMark(agent: cli)
-        } else if prStates.contains(DomainContract.prStateOpen) {
+        } else if lead == .open {
             AppIcon(AppIcons.prOpen, size: 13)
                 .foregroundStyle(DesignTokens.Semantic.green)
-        } else if prStates.contains(DomainContract.prStateMerged) {
+        } else if lead == .merged {
             AppIcon(AppIcons.prMerged, size: 13)
                 .foregroundStyle(DesignTokens.Avatar.violet)
         } else {

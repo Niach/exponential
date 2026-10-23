@@ -9,7 +9,7 @@ import { HostOwnedController, parseLocaleNumber } from "./inputs"
 import { linkAt, parseList, parseMarkdown } from "./markdown"
 import { FormRegistry, fieldErrorsVisible, type FormField } from "./form"
 import { nextEnabledIndex, typeaheadStep } from "./listbox"
-import { acquireMedia, clearMediaCache, fetchLimited, mediaCacheStats, releaseMedia } from "./media"
+import { acquireMedia, clearMediaCache, fetchLimited, fetchStream, mediaCacheStats, releaseMedia } from "./media"
 
 describe(`coercions`, () => {
   it(`str / num / checks / files / ids`, () => {
@@ -130,6 +130,24 @@ describe(`listbox`, () => {
 })
 
 describe(`media`, () => {
+  it(`fetchLimited refuses a redirect to a private host`, async () => {
+    const real = globalThis.fetch
+    const res = (url: string) => {
+      const r = new Response(new Uint8Array(10))
+      Object.defineProperty(r, `redirected`, { value: true })
+      Object.defineProperty(r, `url`, { value: url })
+      return r
+    }
+    try {
+      globalThis.fetch = (async () => res(`http://127.0.0.1/x`)) as unknown as typeof fetch
+      await expect(fetchLimited(`https://x.test/a`, {}, { maxBytes: 100, timeoutMs: 1000, maxPixels: 1000 }, false)).rejects.toThrow(/redirect denied/)
+      await expect(fetchStream(`https://x.test/a`, {}, { maxBytes: 100, timeoutMs: 1000 }, () => false)).rejects.toThrow(/redirect denied/)
+      globalThis.fetch = (async () => res(`https://cdn.x.test/x`)) as unknown as typeof fetch
+      expect((await fetchLimited(`https://x.test/a`, {}, { maxBytes: 100, timeoutMs: 1000, maxPixels: 1000 }, false)).size).toBe(10)
+    } finally {
+      globalThis.fetch = real
+    }
+  })
   it(`fetchLimited refuses an oversized body`, async () => {
     const real = globalThis.fetch
     globalThis.fetch = (async () => new Response(new Uint8Array(200), { headers: { "content-length": `200` } })) as unknown as typeof fetch

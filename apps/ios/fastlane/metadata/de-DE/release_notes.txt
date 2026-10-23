@@ -1,4 +1,7 @@
-- Das neue Session-System: ein Thread ist eine Session, die selbst arbeitet und von Nachrichten geweckt wird, mit einer Plan-Karte, die jeweils eine Frage stellt
-- Agents sind Definitionen mit einer eigenen Unterhaltung pro Mitglied, vom Server ausgelösten Triggern und einem Events-Stream; schreib einem Agent direkt aus dem Composer
-- Prompts ersetzen Aktionen: du findest sie im / menu und unter Einstellungen → Prompts
-- Die Ansichten Sessions, Braucht dich und Laufend folgen auf jedem Bildschirm dem neuen System
+- Apps: baue kleine Apps mit der Editor-Session, live in der Vorschau und in Versionen gespeichert; die Apps-Liste liegt hinter dem Button im Threads-Header
+- Das Dock: das Transkript ist ein einziger Scroll, was auf dich wartet, schwebt als Karten über dem Composer, und ein Plan öffnet sich als Bottom Sheet mit „Ja“ und „Nein, weiter planen“
+- Ein Grau: jede Karte, der Composer und die Sheets tragen denselben deckenden Ton
+- Auswahlmenüs in einem Sheet öffnen sich direkt unter ihrer Zeile
+- Threads mit nur einer Session zeigen wieder ihren Conversation-Tab, und eine Thread-Zeile beginnt mit ihrem offenen Pull Request
+- Markdown-Tabellen dehnen Zeilen nicht mehr über ihren Inhalt hinaus
+- Eine Nachricht an einen beendeten Thread setzt dieselbe Session fort, statt eine Kopie zu starten

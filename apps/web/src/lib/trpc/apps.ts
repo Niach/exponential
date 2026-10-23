@@ -12,7 +12,7 @@ import {
   slugify,
 } from "@exp/domain-contract/apps"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { appVersions, apps, type App } from "@/db/schema"
+import { appVersions, apps, sessions, type App } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { validateAppPackage } from "@/lib/apps/package"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
@@ -54,7 +54,8 @@ async function loadApp(tx: Tx | typeof import("@/db/connection").db, ref: AppRef
 async function assertCanManage(userId: string, app: App) {
   const member = await getTeamMember(userId, app.teamId)
   if (!member) throw new TRPCError({ code: `NOT_FOUND`, message: `App not found` })
-  if (member.role !== `owner` && app.createdBy !== userId) {
+  // Release train 2026-10-23: a NULL creator (a deleted account) = owner-only.
+  if (member.role !== `owner` && (app.createdBy == null || app.createdBy !== userId)) {
     throw new TRPCError({ code: `FORBIDDEN`, message: `Only the app's creator or a team owner can do that` })
   }
 }
@@ -91,7 +92,8 @@ export async function writeVersionInTx(
   return { number, versionId: version!.id }
 }
 
-export const appCreateInputSchema = z.strictObject({
+// Release train 2026-10-23: strip mode, so a newer client's extra field never 400s.
+export const appCreateInputSchema = z.object({
   teamId: uuid,
   name: nameSchema,
   slug: slugSchema.optional(),
@@ -103,7 +105,7 @@ export const appCreateInputSchema = z.strictObject({
   note: noteSchema.optional(),
 })
 
-export const appUpdateInputSchema = z.strictObject({
+export const appUpdateInputSchema = z.object({
   id: uuid,
   name: nameSchema.optional(),
   icon: boardIconSchema.nullable().optional(),
@@ -112,7 +114,11 @@ export const appUpdateInputSchema = z.strictObject({
 })
 
 async function takenSlugs(tx: Tx, teamId: string): Promise<string[]> {
-  const rows = await tx.select({ slug: apps.slug }).from(apps).where(eq(apps.teamId, teamId))
+  // Release train 2026-10-23: only live slugs count (the unique index is partial).
+  const rows = await tx
+    .select({ slug: apps.slug })
+    .from(apps)
+    .where(and(eq(apps.teamId, teamId), isNull(apps.deletedAt)))
   return rows.map((r) => r.slug)
 }
 
@@ -184,10 +190,12 @@ export const appsRouter = router({
       const userId = ctx.session.user.id
       await assertTeamMember(userId, input.teamId)
       const pkg = input.package ? validateAppPackage(input.package) : null
+      // Release train 2026-10-23: hoisted so the CONFLICT message names a derived slug too.
+      let slug = input.slug
       try {
         return await ctx.db.transaction(async (tx) => {
           const txId = await generateTxId(tx)
-          const slug = input.slug ?? slugify(input.name, await takenSlugs(tx, input.teamId))
+          slug = input.slug ?? slugify(input.name, await takenSlugs(tx, input.teamId))
           const [app] = await tx
             .insert(apps)
             .values({
@@ -208,7 +216,7 @@ export const appsRouter = router({
         })
       } catch (error) {
         if (isUniqueViolation(error)) {
-          throw new TRPCError({ code: `CONFLICT`, message: `An app with the slug "${input.slug}" already exists in this team` })
+          throw new TRPCError({ code: `CONFLICT`, message: `An app with the slug "${slug ?? input.slug}" already exists in this team` })
         }
         throw error
       }
@@ -240,12 +248,24 @@ export const appsRouter = router({
       const app = await loadApp(ctx.db, input)
       await assertTeamMember(userId, app.teamId)
       const pkg = validateAppPackage(input.package)
+      // Release train 2026-10-23: the version always names its author; the
+      // session is kept only when it is the caller's own editor session for
+      // THIS app (anything else is ignored, never a 400: old callers).
+      let sessionId: string | null = null
+      if (input.sessionId) {
+        const [own] = await ctx.db
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(and(eq(sessions.id, input.sessionId), eq(sessions.appId, app.id), eq(sessions.userId, userId)))
+          .limit(1)
+        sessionId = own?.id ?? null
+      }
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const { number } = await writeVersionInTx(tx, app, pkg as unknown as Record<string, unknown>, {
           note: input.note?.trim() || null,
-          sessionId: input.sessionId ?? null,
-          createdBy: input.sessionId ? null : userId,
+          sessionId,
+          createdBy: userId,
         })
         return { txid: txId, version: number }
       })

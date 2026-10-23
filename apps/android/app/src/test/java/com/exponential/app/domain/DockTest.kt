@@ -161,6 +161,7 @@ class DockTest {
         assertEquals(sheet.getValue("maxHeightFraction").jsonPrimitive.double, Dock.SHEET_MAX_HEIGHT_FRACTION.toDouble(), 1e-6)
         assertEquals(sheet.getValue("radius").jsonPrimitive.int, Dock.SHEET_RADIUS)
         assertEquals(fixture.getValue("order").jsonArray.map { it.jsonPrimitive.content }, Dock.ORDER)
+        assertEquals(fixture.getValue("autoOpenGraceMs").jsonPrimitive.long, Dock.AUTO_OPEN_GRACE_MS)
     }
 
     @Test

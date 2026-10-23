@@ -1,4 +1,7 @@
-- Noul sistem de sesiuni: un thread este o singură sesiune care lucrează singură și este trezită de mesaje, cu un card de plan care pune câte o întrebare pe rând
-- Agenții sunt definiții cu propria conversație pentru fiecare membru, triggere declanșate de server și un flux Events; scrie unui agent direct din composer
-- Prompturile înlocuiesc acțiunile: le găsești în / menu și la Setări → Prompturi
-- Vizualizările de sesiuni, "are nevoie de tine" și în rulare urmează noul sistem pe fiecare ecran
+- Apps: construiește aplicații mici cu sesiunea de editare, cu previzualizare live și păstrate în versiuni; lista Apps se află în spatele butonului din antetul Threads
+- Dock: transcrierea este un singur scroll, ce te așteaptă plutește sub formă de carduri deasupra composerului, iar un plan se deschide ca foaie inferioară cu „Da” și „Nu, continuă planificarea”
+- Un singur gri: fiecare card, composerul și foile au aceeași nuanță opacă
+- Selectoarele dintr-o foaie se deschid direct sub rândul lor
+- Threadurile cu o singură sesiune își afișează din nou fila Conversation, iar un rând de thread începe cu pull requestul său deschis
+- Tabelele Markdown nu mai întind rândurile dincolo de conținutul lor
+- Un mesaj către un thread încheiat reia aceeași sesiune în loc să pornească o copie

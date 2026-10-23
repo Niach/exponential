@@ -1,4 +1,7 @@
-- Az új session rendszer: a thread egyetlen session, amely önállóan dolgozik és üzenetek ébresztik, egy tervkártyával, amely egyszerre egy kérdést tesz fel
-- Az agentek definíciók, tagonként saját beszélgetéssel, a szerver által indított triggerekkel és egy Events folyammal; írj egy agentnek közvetlenül a composerből
-- A promptok váltják a műveleteket: a / menu alatt és a Beállítások → Promptok helyen találod őket
-- A sessions, "rád vár" és futó nézetek minden képernyőn az új rendszert követik
+- Apps: készíts kis appokat a szerkesztő sessionnel, élő előnézettel és verziókban mentve; az Apps lista a Threads fejléc gombja mögött található
+- Dock: az átirat egyetlen görgetés, ami rád vár, kártyákként lebeg a composer fölött, a terv pedig alsó lapként nyílik meg „Igen” és „Nem, tervezés folytatása” gombokkal
+- Egy szürke: minden kártya, a composer és a lapok ugyanazt az átlátszatlan árnyalatot viselik
+- A lapon belüli választók közvetlenül a soruk alatt nyílnak meg
+- Az egy sessionös threadek ismét mutatják a Conversation lapjukat, és egy thread sora a nyitott pull requestjével kezdődik
+- A Markdown táblázatok már nem nyújtják a sorokat a tartalmukon túl
+- Egy befejezett threadnek küldött üzenet ugyanazt a sessiont folytatja ahelyett, hogy másolatot indítana

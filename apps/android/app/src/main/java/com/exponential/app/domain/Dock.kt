@@ -60,6 +60,10 @@ object Dock {
     /** The `order`: queued, tasks, suggestions, banner, then the asks. */
     val ORDER: List<String> = listOf("queued", "tasks", "suggestions", "banner", "ask")
 
+    /** `autoOpenGraceMs`: how long after a host's data loads its cards still
+     *  count as already waiting (auto-open seeds over it). */
+    const val AUTO_OPEN_GRACE_MS = 1500L
+
     sealed interface Source {
         data class Ask(
             val id: String,

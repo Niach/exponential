@@ -603,7 +603,9 @@ class IssueDetailViewModel @AssistedInject constructor(
                 issues: List<IssueEntity>, messages: List<MessageEntity> ->
                 val treeIssues = issues.map(SessionTree::issue)
                 val treeLinks = links.map(SessionTree::sessionIssue)
-                roots.filter { it.parentId == null && !it.isAgent }.map { root ->
+                // Release train 2026-10-23 (VAPP-110): an app editor's session is the
+                // editor's chat, never a thread on the issue (iOS IssueThreadsStrip).
+                roots.filter { it.parentId == null && !it.isAgent && it.appId.isNullOrEmpty() }.map { root ->
                     val tree = all.filter { it.rootId == root.id || it.id == root.id }
                     val treeRoot = SessionTree.session(root)
                     IssueThread(

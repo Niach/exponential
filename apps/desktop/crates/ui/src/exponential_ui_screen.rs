@@ -451,10 +451,20 @@ fn specimens() -> &'static [(String, Value)] {
 /// by [`ExponentialUiSpecimen`] under `EXP_DEV_SCREEN=exponential-ui-eval-<corpus id>`
 /// for the shots pipeline's `eval` lane: a nested tree like a specimen, plus
 /// its data model.
+// Release train 2026-10-23: debug builds only, so release binaries stop
+// embedding the 277 KB corpus for a dev-only screen.
+#[cfg(debug_assertions)]
 const EVAL_SPECIMENS_JSON: &str =
     include_str!("../../../../../packages/exponential-ui/eval/eval-specimens.json");
 
+/// Release builds carry no eval specimens (the corpus is debug-only).
+#[cfg(not(debug_assertions))]
+fn eval_specimens() -> &'static [(String, Value, Value)] {
+    &[]
+}
+
 /// The eval specimens' entries, `(id, node, data)`, parsed once.
+#[cfg(debug_assertions)]
 fn eval_specimens() -> &'static [(String, Value, Value)] {
     static EVAL: std::sync::OnceLock<Vec<(String, Value, Value)>> = std::sync::OnceLock::new();
     EVAL.get_or_init(|| {
@@ -640,6 +650,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     fn every_eval_specimen_parses_as_a_nested_node_with_its_data() {
         // VAPP-127: the recorded eval corpus (eval/eval-specimens.json), one per corpus prompt.
         assert!(eval_specimens().len() >= 28);

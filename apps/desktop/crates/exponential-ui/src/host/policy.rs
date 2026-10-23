@@ -215,16 +215,24 @@ fn ipv6(host: &str) -> Option<[u16; 8]> {
 }
 
 fn private_v4([a, b, _, _]: [u8; 4]) -> bool {
-    // 0.0.0.0/8 ("this" network), 10/8, 127/8 (loopback), 169.254/16
-    // (link-local), 172.16/12, 192.168/16.
-    a == 0 || a == 10 || a == 127 || (a == 169 && b == 254) || (a == 172 && (16..=31).contains(&b)) || (a == 192 && b == 168)
+    // 0.0.0.0/8 ("this" network), 10/8, 100.64/10 (CGNAT, release train
+    // 2026-10-23: a carrier's or a tailnet's internal range), 127/8
+    // (loopback), 169.254/16 (link-local), 172.16/12, 192.168/16.
+    a == 0 || a == 10 || (a == 100 && b & 0xc0 == 64) || a == 127 || (a == 169 && b == 254) || (a == 172 && (16..=31).contains(&b)) || (a == 192 && b == 168)
+}
+
+/// The IPv4 two 16-bit pieces carry.
+fn v4_of(hi: u16, lo: u16) -> [u8; 4] {
+    [(hi >> 8) as u8, (hi & 0xff) as u8, (lo >> 8) as u8, (lo & 0xff) as u8]
 }
 
 /// VAPP-107: is a parsed, lower-cased hostname one the URL and media policy
 /// deny by default (`catalog/host.json` urls.privateHosts)? `localhost` and
 /// `*.localhost`, `*.local` (mDNS), the IPv4 blocks 0/8, 10/8, 127/8,
-/// 169.254/16, 172.16/12, 192.168/16, and IPv6 `::`, `::1`, fe80::/10,
-/// fc00::/7 plus an IPv4-mapped address of a private IPv4. LITERALS only:
+/// 169.254/16, 172.16/12, 192.168/16, 100.64/10, and IPv6 `::`, `::1`,
+/// fe80::/10, fc00::/7 plus a private IPv4 embedded IPv4-mapped
+/// (`::ffff:a.b.c.d`), IPv4-compatible (`::a.b.c.d`), NAT64
+/// (`64:ff9b::a.b.c.d`) or 6to4 (`2002:AABB:CCDD::`). LITERALS only:
 /// the policy never resolves names (a public name that resolves privately
 /// is the host network's job).
 pub fn is_private_host(hostname: &str) -> bool {
@@ -246,8 +254,15 @@ pub fn is_private_host(hostname: &str) -> bool {
     if v6[0] & 0xffc0 == 0xfe80 || v6[0] & 0xfe00 == 0xfc00 {
         return true;
     }
-    if v6[..5].iter().all(|p| *p == 0) && v6[5] == 0xffff {
-        return private_v4([(v6[6] >> 8) as u8, (v6[6] & 0xff) as u8, (v6[7] >> 8) as u8, (v6[7] & 0xff) as u8]);
+    // Release train 2026-10-23: every form that embeds an IPv4 reaches it
+    // (mapped ::ffff:0:0/96, compatible ::/96, NAT64 64:ff9b::/96, 6to4 2002::/16).
+    let mapped = v6[..5].iter().all(|p| *p == 0) && (v6[5] == 0xffff || v6[5] == 0);
+    let nat64 = v6[0] == 0x64 && v6[1] == 0xff9b && v6[2..6].iter().all(|p| *p == 0);
+    if mapped || nat64 {
+        return private_v4(v4_of(v6[6], v6[7]));
+    }
+    if v6[0] == 0x2002 {
+        return private_v4(v4_of(v6[1], v6[2]));
     }
     false
 }
@@ -741,10 +756,10 @@ mod tests {
     /// VAPP-107: the literal forms the WHATWG parser leaves behind.
     #[test]
     fn private_hosts_are_literals_in_every_normalized_form() {
-        for h in ["localhost", "LOCALHOST.", "app.localhost", "printer.local", "127.0.0.1", "127.255.0.9", "10.1.2.3", "172.16.0.1", "172.31.9.9", "192.168.0.1", "169.254.169.254", "0.0.0.0", "[::1]", "[::]", "[fe80::1]", "[febf::1]", "[fc00::1]", "[fdab:1::2]", "[::ffff:7f00:1]", "[::ffff:c0a8:101]"] {
+        for h in ["localhost", "LOCALHOST.", "app.localhost", "printer.local", "127.0.0.1", "127.255.0.9", "10.1.2.3", "172.16.0.1", "172.31.9.9", "192.168.0.1", "169.254.169.254", "0.0.0.0", "[::1]", "[::]", "[fe80::1]", "[febf::1]", "[fc00::1]", "[fdab:1::2]", "[::ffff:7f00:1]", "[::ffff:c0a8:101]", "100.64.0.1", "100.127.255.255", "[::7f00:1]", "[64:ff9b::7f00:1]", "[2002:7f00:1::]", "[2002:a00:1::1]"] {
             assert!(is_private_host(h), "{h} is private");
         }
-        for h in ["exponential.at", "8.8.8.8", "172.32.0.1", "172.15.0.1", "11.0.0.1", "192.169.0.1", "[2001:db8::1]", "[::ffff:808:808]", "[fec0::1]", "localhost.example", "mylocal.example", "256.1.1.1", "1.2.3", "[::1", "[::ffff::1]"] {
+        for h in ["exponential.at", "8.8.8.8", "172.32.0.1", "172.15.0.1", "11.0.0.1", "192.169.0.1", "[2001:db8::1]", "[::ffff:808:808]", "[fec0::1]", "localhost.example", "mylocal.example", "256.1.1.1", "1.2.3", "[::1", "[::ffff::1]", "100.63.255.255", "100.128.0.1", "[::808:808]", "[64:ff9b::808:808]", "[2002:808:808::]"] {
             assert!(!is_private_host(h), "{h} is not private");
         }
         assert_eq!(decide_url(None, "http://[::FFFF:127.0.0.1]/").reason.as_deref(), Some("private"));

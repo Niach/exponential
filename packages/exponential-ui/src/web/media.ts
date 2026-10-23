@@ -133,7 +133,8 @@ export function openMediaSource(host: HostPlugin, src: string, kind: MediaKind =
     open: () => {
       if (!req || !fetched) return { promise: Promise.resolve(req ? req.url : ``), release: () => {} }
       const hosted = kind === `stream` && host.mediaStreamUrl !== undefined
-      const entry = hosted ? streamEntry(host, req) : acquireMedia(k, () => (kind === `stream` ? fetchStream(req.url, headers) : fetchLimited(req.url, headers)).then((b) => URL.createObjectURL(b)))
+      const allowed = (url: string) => mediaUrlAllowed(host, url)
+      const entry = hosted ? streamEntry(host, req) : acquireMedia(k, () => (kind === `stream` ? fetchStream(req.url, headers, MEDIA_LIMITS, allowed) : fetchLimited(req.url, headers, MEDIA_LIMITS, true, allowed)).then((b) => URL.createObjectURL(b)))
       return { promise: entry.promise, release: hosted ? () => {} : () => releaseMedia(k, entry) }
     },
   }
@@ -152,8 +153,13 @@ export function streamEntry(host: HostPlugin, req: { url: string; headers: Recor
 /** A Video/Audio fetch (no `mediaStreamUrl`): the whole body into a blob
  *  under `maxBytes` (Content-Length up front, then as it streams) and
  *  `timeoutMs` for the WHOLE download (VAPP-107); no pixel check. */
-export function fetchStream(url: string, headers: Record<string, string>, limits: { maxBytes: number; timeoutMs: number } = MEDIA_LIMITS): Promise<Blob> {
-  return fetchLimited(url, headers, { ...limits, maxPixels: Infinity }, false)
+export function fetchStream(url: string, headers: Record<string, string>, limits: { maxBytes: number; timeoutMs: number } = MEDIA_LIMITS, allowed: (url: string) => boolean = defaultAllowed): Promise<Blob> {
+  return fetchLimited(url, headers, { ...limits, maxPixels: Infinity }, false, allowed)
+}
+
+/** The plain media policy (default schemes, the page's own private host). */
+function defaultAllowed(url: string): boolean {
+  return mediaUrlAllowed({} as HostPlugin, url)
 }
 
 /** A fetch under `MEDIA_LIMITS`: the whole request within `timeoutMs`, the
@@ -161,13 +167,21 @@ export function fetchStream(url: string, headers: Record<string, string>, limits
  *  image's width × height × frames within `maxPixels` before any decode
  *  (`mediaImageWithinLimits`: SVG sizes count, an unreadable raster is
  *  refused; `image = false` skips that check: a stream's bytes are not
- *  an image). */
-export async function fetchLimited(url: string, headers: Record<string, string>, limits: { maxBytes: number; timeoutMs: number; maxPixels: number } = MEDIA_LIMITS, image = true): Promise<Blob> {
+ *  an image). A redirected response's final url must pass `allowed` (the
+ *  host's media policy) or the load fails before a byte is read. */
+export async function fetchLimited(url: string, headers: Record<string, string>, limits: { maxBytes: number; timeoutMs: number; maxPixels: number } = MEDIA_LIMITS, image = true, allowed: (url: string) => boolean = defaultAllowed): Promise<Blob> {
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(new Error(`media timed out after ${limits.timeoutMs} ms`)), limits.timeoutMs)
   const over = () => new Error(`media is over ${limits.maxBytes} bytes`)
   try {
     const r = await fetch(url, { headers, signal: abort.signal })
+    // Release train 2026-10-23: fetch follows redirects on its own, so a
+    // public url answering 302 → http://127.0.0.1/ must be re-policed
+    // (catalog/host.json media: a redirect hop passes the same rules).
+    if (r.redirected && !allowed(r.url)) {
+      abort.abort()
+      throw new Error(`media redirect denied by the media policy`)
+    }
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
     if (Number(r.headers.get(`content-length`) ?? NaN) > limits.maxBytes) throw over()
     const chunks: Uint8Array[] = []

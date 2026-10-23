@@ -112,6 +112,7 @@ final class DockTests: XCTestCase {
         XCTAssertEqual(try number(sheet["maxHeightFraction"]), Dock.sheetMaxHeightFraction)
         XCTAssertEqual(try number(sheet["radius"]), Dock.sheetRadius)
         XCTAssertEqual(f["order"] as? [String], Dock.order)
+        XCTAssertEqual(try number(f["autoOpenGraceMs"]), Double(Dock.autoOpenGraceMs))
     }
 
     func testRowCases() throws {

@@ -805,7 +805,9 @@ data class AppEntity(
     @Serializable(with = JsonAsStringSerializer::class) val packageJson: String? = null,
     @ColumnInfo(name = "head_version") @SerialName("head_version") @JsonNames("headVersion")
     @Serializable(with = PgIntSerializer::class) val headVersion: Int? = 0,
-    @ColumnInfo(name = "created_by") @SerialName("created_by") @JsonNames("createdBy") val createdBy: String = "",
+    // Release train 2026-10-23: apps.created_by is nullable server-side (migration 0186, ON DELETE SET NULL); Room keeps NOT NULL, "" means no creator.
+    @ColumnInfo(name = "created_by") @SerialName("created_by") @JsonNames("createdBy")
+    @Serializable(with = NullAsEmptyStringSerializer::class) val createdBy: String = "",
     @ColumnInfo(name = "deleted_at") @SerialName("deleted_at") @JsonNames("deletedAt") val deletedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
