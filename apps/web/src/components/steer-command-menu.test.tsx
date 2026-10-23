@@ -175,22 +175,24 @@ describe(`SlashCommandMenu`, () => {
     expect(screen.getByText(`/compact`)).toBeTruthy()
     expect(screen.getByText(`/model`)).toBeTruthy()
     expect(screen.getByText(`/effort`)).toBeTruthy()
+    // Thread 58cb32df: `/new` (a fresh conversation) is a builtin.
+    expect(screen.getByText(`/new`)).toBeTruthy()
     // `/clear` and `/btw` are gone; nothing outside the catalog shows.
     expect(screen.queryByText(`/clear`)).toBeNull()
     expect(screen.queryByText(`/btw`)).toBeNull()
-    expect(screen.queryByText(`/new`)).toBeNull()
   })
 
   it(`lists the team's prompts after the builtins`, () => {
     render(<Harness onSend={vi.fn()} prompts={PROMPTS} onPickPrompt={vi.fn()} />)
     type(field(), `/`)
     const rows = screen.getAllByRole(`option`).map((row) => row.textContent ?? ``)
-    expect(rows.slice(0, 3).map((text) => text.match(/^\/[a-z]+/)?.[0])).toEqual([
+    expect(rows.slice(0, 4).map((text) => text.match(/^\/[a-z]+/)?.[0])).toEqual([
       `/compact`,
+      `/new`,
       `/model`,
       `/effort`,
     ])
-    expect(rows.slice(3)).toEqual([`Fix flaky tests`, `Release train`])
+    expect(rows.slice(4)).toEqual([`Fix flaky tests`, `Release train`])
   })
 
   it(`filters prompts by name prefix, spaces as dashes`, () => {

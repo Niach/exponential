@@ -976,7 +976,8 @@ impl RailView {
                         session_id: row.session_id.clone(),
                     }
                 };
-                crate::run_rows::run_row(
+                let menu_root = (row.depth == 0).then(|| row.root_id.clone());
+                let element = crate::run_rows::run_row(
                     crate::run_rows::RunRowSpec {
                         id_prefix: "rail-running",
                         index,
@@ -998,7 +999,12 @@ impl RailView {
                         unread: row.unread,
                     },
                     cx,
-                )
+                );
+                // Thread 58cb32df: a chat row's right-click = THE chat menu.
+                match menu_root {
+                    Some(root_id) => crate::threads_view::chat_row_menu(&root_id, element.into_any_element(), cx),
+                    None => element.into_any_element(),
+                }
             })
             .collect();
         let rule = self.section_rule(cx);
@@ -1379,6 +1385,12 @@ impl RailView {
                 },
             )
         }))
+        // Thread 58cb32df (chats.json `agentMenuCases`): the right-click =
+        // THE agent menu.
+        .pointer_context_menu({
+            let agent_id = agent.agent_id.clone();
+            move |menu, _, cx| crate::chat_actions::agent_menu_items(menu.min_w(px(220.)), &agent_id, cx)
+        })
         .child(
                 div()
                     .invisible()

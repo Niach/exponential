@@ -1,25 +1,29 @@
 import { Link, useMatchRoute, useParams } from "@tanstack/react-router"
-import { Button, FAB_CHROME_CLASS, conceptIcon } from "@exp/ui"
+import { CHATS_COPY, CHATS_TEST_IDS } from "@exp/domain-contract/chats"
+import {
+  Button,
+  FAB_CHROME_CLASS,
+  PhoneTab,
+  PhoneTabBar,
+  TeamAvatar,
+  conceptIcon,
+} from "@exp/ui"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { readLastVisited } from "@/lib/last-visited"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
-import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
-import { useDraftEntries } from "@/hooks/use-issue-drafts"
-import { inboxDotLit } from "@/lib/issue-draft-page"
 import { useThreadsNav } from "@/hooks/use-nav-counts"
-import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
 const ActionChatIcon = conceptIcon(`action-chat`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
-const NavDevicesIcon = conceptIcon(`nav-devices`)
-const NavInboxIcon = conceptIcon(`nav-inbox`)
-const NavIssuesIcon = conceptIcon(`nav-issues`)
-const NavThreadsIcon = conceptIcon(`nav-threads`)
+// chats.json `shell.tabIcons` (Team = the active team's avatar).
+const BoardTabIcon = conceptIcon(`nav-issues`)
+const DevicesTabIcon = conceptIcon(`nav-devices`)
+const ChatsTabIcon = conceptIcon(`nav-threads`)
 
 // Bottom padding for every scroll container that sits under the floating
 // tab bar, so list ends scroll clear of the glass pill. Detail routes hide
@@ -70,8 +74,12 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/apps/$appSlug`,
     fuzzy: true,
   })
-  // The Agent page (HOME) and the Threads list keep the standard chrome.
+  // chats.json: the Inbox is PUSHED from the Chats header's inbox circle
+  // (its own back header, no segments), so it hides the bar like a detail.
+  const onInbox = matchRoute({ to: `/t/$teamSlug/inbox`, fuzzy: true })
+  // The Agent page (HOME) and the Chats list keep the standard chrome.
   return (
+    !onInbox &&
     !onIssueDetail &&
     !onSessionDetail &&
     !onDraftPage &&
@@ -102,37 +110,13 @@ export function resolveBoardTarget(
   return boards[0]
 }
 
-// Tiny unread-dot components fed by the per-user shapes. Native parity:
-// dots, not counts. EXP-1272: the inbox dot also lights while the caller
-// has a draft in the team — the SAME dot (the phone has no Drafts entry).
-function InboxDot({ teamId }: { teamId: string | undefined }) {
-  const unread = useUnreadNotificationCount()
-  const drafts = useDraftEntries(teamId).length
-  if (!inboxDotLit(unread, drafts)) return null
-  return <TabDot className="bg-primary" />
-}
-
-// EXP-1293: the Threads tab's dot — green while a thread runs, amber while
-// one needs you (green-500/yellow-400 = the natives' semantic tokens,
-// EXP-699). EXP-1186: across every member team, like the inbox. EXP-1323:
-// else the unread dot while a thread holds an unread reply.
-function ThreadsDot({ teamIds }: { teamIds: readonly string[] }) {
-  const { live, needsYou, unread } = useThreadsNav(teamIds)
-  if (!live && !unread) return null
-  return (
-    <TabDot className={needsYou ? `bg-yellow-400` : live ? `bg-green-500` : `bg-primary`} />
-  )
-}
-
-function TabDot({ className }: { className: string }) {
-  return (
-    <span
-      className={cn(
-        `pointer-events-none absolute right-2 top-2 size-2 rounded-full`,
-        className
-      )}
-    />
-  )
+// EXP-1293 → thread 58cb32df: the Chats tab's dot — amber while a chat
+// needs you, green while one runs, else the unread dot while a chat holds
+// an unread reply (green-500/yellow-400 = the natives' semantic tokens,
+// EXP-699). Phones read the ONE active team (chats.json `shell`).
+function chatsDot(nav: { live: boolean; needsYou: boolean; unread: boolean }): string | null {
+  if (!nav.live && !nav.unread) return null
+  return nav.needsYou ? `bg-yellow-400` : nav.live ? `bg-green-500` : `bg-primary`
 }
 
 // The detached FAB beside the nav pill: ONE 52px capsule with two 52px arms
@@ -151,28 +135,22 @@ function TabDot({ className }: { className: string }) {
 const FAB_GROUP_CLASS = `pointer-events-auto flex h-[52px] shrink-0 items-stretch overflow-hidden rounded-full text-foreground ${FAB_CHROME_CLASS}`
 const FAB_ARM_CLASS = `relative flex w-[52px] items-center justify-center text-foreground transition-colors active:bg-glass-active`
 
-function tabClass(active: boolean): string {
-  return cn(
-    `relative flex size-11 items-center justify-center rounded-full transition-colors`,
-    active ? `bg-glass-active text-foreground` : `text-muted-foreground`
-  )
-}
-
 interface MobileTabBarProps {
   teamSlug: string
   team: Team | null | undefined
   boards: Board[] | undefined
 }
 
-// Native-parity mobile navigation (EXP-189): a floating glass pill with the
-// top-level destinations plus a detached compose FAB, replacing the old
+// Native-parity mobile navigation (EXP-189): a floating glass capsule with
+// the top-level destinations plus a detached compose FAB, replacing the old
 // sidebar-as-drawer. Desktop keeps the persistent sidebar (`md:hidden`).
-// EXP-686: Search left the bar for the board header (`use-issue-search.tsx`).
-// EXP-1187 / EXP-1293 / NEW-2: Issues · Inbox · Devices · Threads — no More
-// on the phone and no Actions tab (prompts live in the composer's `/` menu);
-// Settings lives in the topbar's avatar menu (×3 with the iOS and Android
-// bars). The phone OPENS on the
-// Agent page (`routes/index.tsx`), whose entry is the FAB's chat arm.
+// Thread 58cb32df (chats.json `shell.tabs`, ×3 with iOS and Android): Board ·
+// Devices · Chats · Team, each an icon over its label on `PhoneTabBar` (the
+// iOS Liquid Glass look-alike on the FAB chrome recipe); the Team tab is the
+// active team's avatar + name and holds settings + the account (the old
+// topbar avatar menu); the Inbox moved into the Chats header. The phone
+// OPENS on the Agent page (`routes/index.tsx`), whose entry is the FAB's chat
+// arm.
 export function MobileTabBar({
   teamSlug,
   team,
@@ -190,10 +168,8 @@ export function MobileTabBar({
   const publishTabBarHeight = useChromeHeightVar(`--tabbar-h`)
 
   const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
-  // EXP-1186: only Issues is team-scoped on the phone; the Threads dot
-  // reads every member team (md+ = the active team, the bar is
-  // hidden there anyway).
-  const scope = useCrossTeamScope(team)
+  // chats.json: ONE active team drives every phone screen, the dot too.
+  const nav = useThreadsNav(team?.id)
   const openNewDraft = useOpenNewDraft(teamSlug)
 
   const onBoard = Boolean(
@@ -201,13 +177,17 @@ export function MobileTabBar({
   )
   const onTeamIndex = Boolean(matchRoute({ to: `/t/$teamSlug` }))
   const onAgent = Boolean(matchRoute({ to: `/t/$teamSlug/agent`, fuzzy: true }))
-  const onInbox = Boolean(matchRoute({ to: `/t/$teamSlug/inbox`, fuzzy: true }))
   const onDevices = Boolean(
     matchRoute({ to: `/t/$teamSlug/devices`, fuzzy: true })
   )
-  const onThreads = Boolean(
+  const onChats = Boolean(
     matchRoute({ to: `/t/$teamSlug/threads`, fuzzy: true })
   )
+  // The Team tab holds the settings rows: their pages keep it lit.
+  const onTeam =
+    Boolean(matchRoute({ to: `/t/$teamSlug/team`, fuzzy: true })) ||
+    Boolean(matchRoute({ to: `/t/$teamSlug/settings`, fuzzy: true })) ||
+    Boolean(matchRoute({ to: `/t/$teamSlug/apps`, fuzzy: true }))
   // EXP-973: the New-issue arm is always DRAWN; it only goes dead when the
   // team has no board to file into. The arm targets the current board when
   // there is one, else the team's remembered/first board
@@ -216,62 +196,59 @@ export function MobileTabBar({
 
   if (!visible) return null
 
+  const teamName = team?.name ?? teamSlug
+
   return (
     <div
       ref={publishTabBarHeight}
       className="pointer-events-none fixed inset-x-0 bottom-0 z-[35] flex items-center justify-center gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:hidden"
     >
-      <nav
-        aria-label="Primary"
-        className="pointer-events-auto flex items-center rounded-full border border-glass-stroke-strong bg-glass-card-opaque p-1"
-      >
-        {boardTarget ? (
-          <Link
-            to="/t/$teamSlug/boards/$boardSlug"
-            params={{ teamSlug, boardSlug: boardTarget.slug }}
-            aria-label="Issues"
-            className={tabClass(onBoard || onTeamIndex)}
-          >
-            <NavIssuesIcon className="size-5" />
-          </Link>
-        ) : (
-          <Link
-            to="/t/$teamSlug"
-            params={{ teamSlug }}
-            aria-label="Issues"
-            className={tabClass(onBoard || onTeamIndex)}
-          >
-            <NavIssuesIcon className="size-5" />
-          </Link>
-        )}
-        <Link
-          to="/t/$teamSlug/inbox"
-          params={{ teamSlug }}
-          aria-label="Inbox"
-          className={tabClass(onInbox)}
+      <PhoneTabBar>
+        <PhoneTab
+          asChild
+          label={CHATS_COPY.tabs.board}
+          icon={<BoardTabIcon className="size-5" />}
+          selected={onBoard || onTeamIndex}
+          data-testid="tab-board"
         >
-          <NavInboxIcon className="size-5" />
-          <InboxDot teamId={team?.id} />
-        </Link>
-        <Link
-          to="/t/$teamSlug/devices"
-          params={{ teamSlug }}
-          aria-label="Devices"
-          className={tabClass(onDevices)}
+          {boardTarget ? (
+            <Link
+              to="/t/$teamSlug/boards/$boardSlug"
+              params={{ teamSlug, boardSlug: boardTarget.slug }}
+            />
+          ) : (
+            <Link to="/t/$teamSlug" params={{ teamSlug }} />
+          )}
+        </PhoneTab>
+        <PhoneTab
+          asChild
+          label={CHATS_COPY.tabs.devices}
+          icon={<DevicesTabIcon className="size-5" />}
+          selected={onDevices}
+          data-testid="tab-devices"
         >
-          <NavDevicesIcon className="size-5" />
-        </Link>
-        <Link
-          to="/t/$teamSlug/threads"
-          params={{ teamSlug }}
-          aria-label="Threads"
+          <Link to="/t/$teamSlug/devices" params={{ teamSlug }} />
+        </PhoneTab>
+        <PhoneTab
+          asChild
+          label={CHATS_COPY.tabs.chats}
+          icon={<ChatsTabIcon className="size-5" />}
+          selected={onChats}
+          dot={chatsDot(nav)}
           data-testid="tab-threads"
-          className={tabClass(onThreads)}
         >
-          <NavThreadsIcon className="size-5" />
-          <ThreadsDot teamIds={scope.teamIds} />
-        </Link>
-      </nav>
+          <Link to="/t/$teamSlug/threads" params={{ teamSlug }} />
+        </PhoneTab>
+        <PhoneTab
+          asChild
+          label={teamName}
+          icon={<TeamAvatar name={teamName} size={20} />}
+          selected={onTeam}
+          data-testid={CHATS_TEST_IDS.tabTeam}
+        >
+          <Link to="/t/$teamSlug/team" params={{ teamSlug }} />
+        </PhoneTab>
+      </PhoneTabBar>
       {/* EXP-631/694: the chat launcher started on Devices and Actions,
           EXP-739 made it a LINK to the team's Agent page, EXP-827 merged it
           with New issue on a board (×3 mobile), and EXP-973 made that one

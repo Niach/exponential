@@ -105,7 +105,11 @@ export function InboxView({
   activeIssueIdentifier = null,
   activeSessionId = null,
   from,
+  teamId,
 }: {
+  /** Thread 58cb32df (chats.json `shell`): phones filter the stream to the
+   *  ONE active team; absent = every team (md+). */
+  teamId?: string
   /** EXP-851: the SIDEBAR's list nav — the same rows in the 17rem slot, no
    *  reading column, no empty-state illustration. */
   compact?: boolean
@@ -177,6 +181,7 @@ export function InboxView({
     for (const n of (notifications ?? []) as Notification[]) {
       if (!n.issueId) {
         if (n.type === `agent_message` || n.type === `session_blocked`) {
+          if (teamId && n.teamId !== teamId) continue
           const team = n.teamId ? teamMap.get(n.teamId) : undefined
           messages.push({
             kind: `message`,
@@ -196,6 +201,7 @@ export function InboxView({
       if (!issue) continue
       const board = boardMap.get(issue.boardId)
       if (!board) continue
+      if (teamId && board.teamId !== teamId) continue
       const slug = teamMap.get(board.teamId)?.slug
       if (!slug) continue
       let g = byIssue.get(n.issueId)
@@ -219,7 +225,7 @@ export function InboxView({
         new Date(b.items[0].createdAt).getTime() -
         new Date(a.items[0].createdAt).getTime()
     )
-  }, [notifications, issueMap, boardMap, teamMap])
+  }, [notifications, issueMap, boardMap, teamMap, teamId])
 
   const [visibleCount, setVisibleCount] = useState(GROUP_CAP)
   const visibleGroups =

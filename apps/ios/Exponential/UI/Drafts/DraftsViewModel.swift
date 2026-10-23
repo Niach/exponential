@@ -11,7 +11,15 @@ import GRDB
 /// outlive the board it names.
 @MainActor @Observable
 final class DraftsViewModel {
-    var rows: [IssueDraftRow] = []
+    /// Every resolvable draft of the account.
+    var allRows: [IssueDraftRow] = []
+    /// EXP-1373: the phone's ONE active team — nil = every team.
+    var teamId: String?
+    /// The rows the list shows: the active team's (or all).
+    var rows: [IssueDraftRow] {
+        guard let teamId else { return allRows }
+        return allRows.filter { $0.draft.teamId == teamId }
+    }
 
     private let accountId: String
     private let db: DatabaseManager
@@ -37,7 +45,7 @@ final class DraftsViewModel {
         task = Task { [weak self] in
             do {
                 for try await rows in observation.values(in: pool) {
-                    self?.rows = rows
+                    self?.allRows = rows
                 }
             } catch {}
         }

@@ -2,6 +2,8 @@ import type * as React from "react"
 import { useNavigate, useRouterState } from "@tanstack/react-router"
 import {
   AgentRunMark,
+  CHAT_ROW_MENU_KIND,
+  menuProps,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -39,7 +41,8 @@ import { useEnteringRows } from "@/hooks/use-entering-rows"
 // (`lib/work-tabs.ts` `TABLESS_ORIGIN`). EXP-1323: a live tree nests its
 // children under the root (TreeGuides, 14px a level; a child opens that
 // session in its thread), a bold title = unread; a row that changes band
-// enters on the motion tokens.
+// enters on the motion tokens. Thread 58cb32df: a root row opens THE chat
+// menu (chats.json MENUS) through the team layout's menu host.
 
 /** The words a row shows while its title is held (EXP-1316: an
  *  issue-linked row waits for the issue shapes). */
@@ -196,6 +199,9 @@ export function SidebarRunningSection({
                     child ? openThread(row.rootId, row.sessionId) : openThread(row.sessionId)
                   }
                   data-testid={`sidebar-running-${row.sessionId}`}
+                  // Thread 58cb32df: a chat row's menu (Stop · Stop and
+                  // delete | Delete) on right-click / long-press.
+                  {...(child ? {} : menuProps(CHAT_ROW_MENU_KIND, row.sessionId))}
                   className={cn(child && `relative`)}
                   style={
                     child

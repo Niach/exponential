@@ -1,12 +1,7 @@
 package com.exponential.app.ui.threads
 
-import com.exponential.app.domain.Apps
-
-import com.exponential.app.ui.components.CircleIconButton
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,18 +13,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,240 +36,211 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.data.db.TeamEntity
+import com.exponential.app.domain.Chats
 import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.domain.SessionTree
-import com.exponential.app.domain.TreeGuides
+import com.exponential.app.ui.components.AgentBubbles
 import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.ui.components.AgentWorkingMark
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.ChatDeleteConfirm
+import com.exponential.app.ui.components.ChatFilterChips
+import com.exponential.app.ui.components.ChatMenuSheet
+import com.exponential.app.ui.components.ChatRow
+import com.exponential.app.ui.components.ChatsHeader
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.FailedActionToast
+import com.exponential.app.ui.components.GlassSheetSearchField
 import com.exponential.app.ui.components.InlineSpinner
-import com.exponential.app.ui.components.SectionHeader
-import com.exponential.app.ui.components.TeamSectionHeader
-import com.exponential.app.ui.components.TreeGuidesRow
+import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.agentMenuItems
+import com.exponential.app.ui.components.chatMenuItems
 import com.exponential.app.ui.components.deviceIcon
-import com.exponential.app.ui.components.teamBands
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.NeedsInputAmber
-import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 
 /**
- * EXP-1296 Threads v2: the Threads TAB (it replaced Reviews,
- * `threads-list.json`). ONE list in the list language: the Agents band first
- * (an agent row opens its channel, the same conversation screen), then
- * [SessionTree.partitionThreads]' Needs you · Running · Recent. Phones list
- * EVERY team; with several teams the thread groups sit under one team band
- * each. A row opens its thread ([onOpenThread] = `thread/{rootId}`).
+ * Thread 58cb32df: the CHATS tab (chats.json LIST, phones). The large
+ * in-content headline `copy.title` with its search + inbox circles, the
+ * agent BUBBLES row, the filter chips, then ONE flat list of the active
+ * team's chats ([Chats.chatList]: the roots of partitionThreads by
+ * activity, no bands, no nesting). A row opens its chat; a long-press opens
+ * THE chat menu sheet (Stop · Stop and delete live, Delete ended; Delete asks
+ * first). A bubble opens the agent's chat; its long-press the agent menu.
  */
 @Composable
 fun ThreadsScreen(
     onOpenThread: (rootSessionId: String) -> Unit,
-    /** EXP-1323: a nested child row opens that session's view. */
+    /** EXP-1323: kept for the route's signature (the phone list has no child rows). */
     onOpenSession: (sessionId: String) -> Unit = onOpenThread,
     /** NEW-7: an agent with no conversation of mine yet = its empty DM. */
     onOpenAgent: (agentId: String) -> Unit = {},
-    /** VAPP-110: the team's Apps (the header's `nav-apps` entry). */
-    onOpenApps: (() -> Unit)? = null,
+    /** chats.json: the header's inbox circle pushes the inbox-only page. */
+    onOpenInbox: () -> Unit = {},
+    /** The agent menu's Agent settings (owners). */
+    onOpenAgentSettings: (agentId: String) -> Unit = {},
+    /** The inbox circle's dot: any notification unread. */
+    inboxUnread: Boolean = false,
     viewModel: ThreadsViewModel = hiltViewModel(),
 ) {
-    val groups by viewModel.groups.collectAsStateWithLifecycle()
-    val agents by viewModel.agents.collectAsStateWithLifecycle()
+    val list by viewModel.chatList.collectAsStateWithLifecycle()
+    val filter by viewModel.filter.collectAsStateWithLifecycle()
+    val bubbles by viewModel.bubbles.collectAsStateWithLifecycle()
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
-    val teams by viewModel.teams.collectAsStateWithLifecycle()
-    val meta by viewModel.rowMeta.collectAsStateWithLifecycle()
-    val words by viewModel.words.collectAsStateWithLifecycle()
-    val prLeads by viewModel.prLeads.collectAsStateWithLifecycle()
+    val facts by viewModel.rootFacts.collectAsStateWithLifecycle()
+    val isOwner by viewModel.isOwner.collectAsStateWithLifecycle()
+    val failure by viewModel.failure.collectAsStateWithLifecycle()
+    val notice by viewModel.notice.collectAsStateWithLifecycle()
+    FailedActionToast(failure, onShown = viewModel::clearFailure)
+    val toaster = LocalToaster.current
+    LaunchedEffect(notice) {
+        val text = notice ?: return@LaunchedEffect
+        toaster.warning(text)
+        viewModel.clearNotice()
+    }
+
+    var menuFor by remember { mutableStateOf<Chats.ChatRow?>(null) }
+    var agentMenuFor by remember { mutableStateOf<SessionTree.AgentRow?>(null) }
+    var deleteFor by remember { mutableStateOf<String?>(null) }
+
     Scaffold(containerColor = Color.Transparent) { padding ->
-        ThreadsContent(
-            groups = groups,
-            agents = agents,
-            conversations = conversations,
-            teams = teams,
-            rowMeta = meta,
-            words = words,
-            prLeads = prLeads,
-            onOpenThread = onOpenThread,
-            onOpenSession = onOpenSession,
-            onOpenAgent = onOpenAgent,
-            onOpenApps = onOpenApps,
+        ChatsContent(
+            list = list,
+            filter = filter,
+            bubbles = bubbles,
+            agentOf = { facts[it]?.agent },
+            onSelectFilter = viewModel::selectFilter,
+            onOpenChat = onOpenThread,
+            onLongPressChat = { row ->
+                // A viewer who cannot steer the chat gets no menu.
+                val root = facts[row.sessionId]
+                if (root != null && Chats.threadMenuEntries(root.status, root.canSteer).isNotEmpty()) menuFor = row
+            },
+            onOpenAgent = { agent -> conversations[agent.agentId]?.let(onOpenThread) ?: onOpenAgent(agent.agentId) },
+            onLongPressAgent = { agentMenuFor = it },
+            onOpenInbox = onOpenInbox,
+            inboxUnread = inboxUnread,
             modifier = Modifier.padding(padding),
         )
     }
+
+    menuFor?.let { row ->
+        val root = facts[row.sessionId]
+        val entries = root?.let { Chats.threadMenuEntries(it.status, it.canSteer) }.orEmpty()
+        ChatMenuSheet(
+            title = row.title,
+            items = chatMenuItems(
+                entries,
+                onStop = {
+                    menuFor = null
+                    viewModel.stopChat(row.sessionId)
+                },
+                onDelete = {
+                    menuFor = null
+                    deleteFor = row.sessionId
+                },
+            ),
+            onDismiss = { menuFor = null },
+        )
+    }
+    agentMenuFor?.let { agent ->
+        val conversation = conversations[agent.agentId]
+        ChatMenuSheet(
+            title = agent.name,
+            items = agentMenuItems(Chats.agentMenuEntries(busy = agent.busy, isOwner = isOwner)) { entry ->
+                agentMenuFor = null
+                when (entry) {
+                    Chats.AgentMenuEntry.Compact, Chats.AgentMenuEntry.NewConversation ->
+                        Chats.agentMenuSend(entry)?.let { viewModel.sendToAgent(agent.agentId, it) }
+                    Chats.AgentMenuEntry.Stop -> conversation?.let(viewModel::stopTurn)
+                    Chats.AgentMenuEntry.Settings -> onOpenAgentSettings(agent.agentId)
+                }
+            },
+            onDismiss = { agentMenuFor = null },
+        )
+    }
+    deleteFor?.let { rootId ->
+        ChatDeleteConfirm(
+            onConfirm = {
+                deleteFor = null
+                viewModel.deleteChat(rootId)
+            },
+            onDismiss = { deleteFor = null },
+        )
+    }
 }
 
-/** The tab's stateless body. */
+/** The Chats tab's stateless body (the styleguide's `chat-list` draws it). */
 @Composable
-fun ThreadsContent(
-    groups: List<SessionTree.ThreadsListGroup>,
-    agents: List<SessionTree.AgentRow>,
-    /** NEW-2: the viewer's conversation session per agent id (absent = none yet). */
-    conversations: Map<String, String>,
-    teams: List<TeamEntity>,
-    rowMeta: Map<String, ThreadRowMeta>,
-    /** EXP-1309: each row's quiet word (web `threadRowWord`), by root id. */
-    words: Map<String, SessionTree.ThreadRowWord>,
-    onOpenThread: (rootSessionId: String) -> Unit,
+fun ChatsContent(
+    list: Chats.ChatList,
+    filter: Chats.ChatFilter,
+    bubbles: List<Chats.AgentBubble>,
+    agentOf: (rootId: String) -> String?,
+    onSelectFilter: (Chats.ChatFilter) -> Unit,
+    onOpenChat: (rootSessionId: String) -> Unit,
+    onLongPressChat: (Chats.ChatRow) -> Unit,
+    onOpenAgent: (SessionTree.AgentRow) -> Unit,
+    onLongPressAgent: (SessionTree.AgentRow) -> Unit,
+    onOpenInbox: () -> Unit,
+    inboxUnread: Boolean,
     modifier: Modifier = Modifier,
-    /** EXP-1323: a nested child row (depth > 0) opens that session. */
-    onOpenSession: (sessionId: String) -> Unit = onOpenThread,
-    /** NEW-7: an agent row with no conversation yet opens the empty DM. */
-    onOpenAgent: (agentId: String) -> Unit = {},
-    /** NEW-41: each root's PR glyph (web `rowLead`), by root id. */
-    prLeads: Map<String, ThreadRowPrLead> = emptyMap(),
-    /** VAPP-110: the team's Apps; null hides the entry. */
-    onOpenApps: (() -> Unit)? = null,
 ) {
-    Column(modifier = modifier.fillMaxSize()) {
-        // The root screens' header (Actions parity): a plain large title.
-        // VAPP-110: the phone's Apps entry (web's nav row after Threads)
-        // rides its trailing edge.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 12.dp),
-        ) {
-            Text(
-                SessionTree.ListCopy.TITLE,
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
+    var searching by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val rows = remember(list.rows, query) {
+        val q = query.trim()
+        if (q.isEmpty()) list.rows else list.rows.filter { it.title.contains(q, ignoreCase = true) || it.preview.text.contains(q, ignoreCase = true) }
+    }
+    LazyColumn(
+        modifier = modifier.fillMaxSize().testTag(SessionTree.ListCopy.TEST_ID_LIST),
+        contentPadding = PaddingValues(top = 4.dp, bottom = BottomBarInset),
+    ) {
+        item(key = "__header__") {
+            ChatsHeader(
+                onSearch = {
+                    searching = !searching
+                    if (!searching) query = ""
+                },
+                onInbox = onOpenInbox,
+                inboxUnread = inboxUnread,
             )
-            if (onOpenApps != null) {
-                CircleIconButton(
-                    ExpIcons.navApps,
-                    contentDescription = Apps.Copy.NAV,
-                    onClick = onOpenApps,
-                    borderless = true,
-                    modifier = Modifier.testTag("nav-apps"),
+        }
+        if (searching) {
+            item(key = "__search__") {
+                GlassSheetSearchField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = "Search chats",
+                    modifier = Modifier.padding(vertical = 6.dp).testTag("chats-search-field"),
                 )
             }
         }
-        if (groups.isEmpty() && agents.isEmpty()) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth().testTag(SessionTree.ListCopy.TEST_ID_LIST)) {
-                EmptyState(EmptyStateCopy.threads)
+        if (bubbles.isNotEmpty()) {
+            item(key = "__bubbles__") {
+                AgentBubbles(bubbles = bubbles, onOpen = onOpenAgent, onLongPress = onLongPressAgent)
             }
-            return@Column
         }
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth().testTag(SessionTree.ListCopy.TEST_ID_LIST),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
-        ) {
-            if (agents.isNotEmpty()) {
-                item(key = "__agents__") {
-                    SectionHeader(SessionTree.ListCopy.AGENTS, leading = { BandGlyph(ExpIcons.settingsAgents, Muted) })
-                }
-                items(agents, key = { "agent_${it.agentId}" }) { agent ->
-                    AgentListRow(
-                        agent,
-                        onClick = { conversations[agent.agentId]?.let(onOpenThread) ?: onOpenAgent(agent.agentId) },
-                    )
-                }
-                item(key = "__agents_gap__") { Spacer(Modifier.height(12.dp)) }
+        item(key = "__filters__") {
+            ChatFilterChips(selected = filter, counts = list.counts, onSelect = onSelectFilter)
+        }
+        if (rows.isEmpty()) {
+            item(key = "__empty__") {
+                Box(Modifier.fillMaxWidth().height(320.dp)) { EmptyState(EmptyStateCopy.threads) }
             }
-            threadGroups(groups, teams, rowMeta, words, prLeads, onOpenThread, onOpenSession)
         }
-    }
-}
-
-/** One row of a team band: the group it sits in + the row. */
-private data class GroupedRow(val key: SessionTree.ThreadsGroupKey, val row: SessionTree.ThreadsListRow)
-
-private fun LazyListScope.threadGroups(
-    groups: List<SessionTree.ThreadsListGroup>,
-    teams: List<TeamEntity>,
-    rowMeta: Map<String, ThreadRowMeta>,
-    words: Map<String, SessionTree.ThreadRowWord>,
-    prLeads: Map<String, ThreadRowPrLead>,
-    onOpenThread: (String) -> Unit,
-    onOpenSession: (String) -> Unit,
-) {
-    val flat = groups.flatMap { group -> group.rows.map { GroupedRow(group.key, it) } }
-    teamBands(flat, teams) { it.row.teamId }.forEach { band ->
-        val bandId = band.team?.id.orEmpty()
-        band.team?.let { team ->
-            item(key = "__team_${team.id}__") { TeamSectionHeader(team) }
+        itemsIndexed(rows, key = { _, row -> "chat_${row.sessionId}" }) { index, row ->
+            ChatRow(
+                row = row,
+                agent = agentOf(row.sessionId),
+                onClick = { onOpenChat(row.sessionId) },
+                onLongClick = { onLongPressChat(row) },
+                divider = index < rows.lastIndex,
+            )
         }
-        band.items.groupBy { it.key }.forEach { (key, rows) ->
-            item(key = "__group_${bandId}_${key.wire}__") {
-                SectionHeader(SessionTree.ListCopy.GROUPS.getValue(key), leading = { GroupGlyph(key) })
-            }
-            // EXP-1323: a live tree's children hang off their root with THE
-            // tree connector (SessionRow depth + TreeGuides, ×4).
-            val guides = TreeGuides.compute(rows.map { it.row.depth })
-            itemsIndexed(rows, key = { _, it -> "row_${it.row.sessionId}" }) { index, entry ->
-                TreeGuidesRow(depth = entry.row.depth, guide = guides.getOrNull(index)) {
-                    ThreadListRow(
-                        row = entry.row,
-                        meta = rowMeta[entry.row.sessionId],
-                        onClick = {
-                            if (entry.row.depth == 0) onOpenThread(entry.row.sessionId) else onOpenSession(entry.row.sessionId)
-                        },
-                        threadsTab = true,
-                        word = words[entry.row.sessionId],
-                        prLead = prLeads[entry.row.sessionId],
-                    )
-                }
-            }
-            item(key = "__group_gap_${bandId}_${key.wire}__") { Spacer(Modifier.height(12.dp)) }
-        }
-    }
-}
-
-private val Muted: Color @Composable get() = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-
-@Composable
-private fun BandGlyph(icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color) {
-    Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(14.dp))
-}
-
-/** EXP-1318 ×4: a group band's glyph — Needs you amber, Running the working
- *  mark, Recent the check (web `GROUP_GLYPH`). */
-@Composable
-private fun GroupGlyph(key: SessionTree.ThreadsGroupKey) {
-    when (key) {
-        SessionTree.ThreadsGroupKey.NeedsYou -> BandGlyph(ExpIcons.codingNeedsInput, NeedsInputAmber)
-        SessionTree.ThreadsGroupKey.Running -> AgentWorkingMark(agent = null, size = 14.dp)
-        SessionTree.ThreadsGroupKey.Recent -> BandGlyph(ExpIcons.uiCheck, Muted)
-    }
-}
-
-/** An agent: its icon in its color (the working mark while it works), its
- *  name, `needs input` while it waits on a person (EXP-1309, web
- *  `ThreadsListItem`). */
-@Composable
-private fun AgentListRow(agent: SessionTree.AgentRow, onClick: () -> Unit) {
-    val tint = remember(agent.color) { parseColor(agent.color) }
-    val icon = ExpIcons.byName(agent.icon)
-        ?: ExpIcons.byName(SessionTree.ListCopy.AGENT_DEFAULT_ICON)
-        ?: ExpIcons.navThreads
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .flatRow()
-            .clickable(onClick = onClick)
-            .testTag(SessionTree.ListCopy.TEST_ID_AGENT_ROW)
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (agent.busy) {
-            AgentWorkingMark(agent = null, size = 16.dp)
-        } else {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
-        }
-        Spacer(Modifier.width(10.dp))
-        Text(
-            agent.name,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (agent.needsYou) QuietWord(SessionTree.ThreadRowWord.NeedsInput)
     }
 }
 

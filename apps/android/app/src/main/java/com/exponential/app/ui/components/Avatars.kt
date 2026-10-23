@@ -176,10 +176,15 @@ fun TeamAvatar(
         size = size,
         fill = MaterialTheme.colorScheme.primary,
         ink = MaterialTheme.colorScheme.onPrimary,
-        fontSize = MaterialTheme.typography.labelMedium.fontSize,
+        // Thread 58cb32df: the Team tab's 84 avatar scales its initial.
+        fontSize = if (size > 32.dp) (size.value * 0.42f).sp else MaterialTheme.typography.labelMedium.fontSize,
         initials = initial,
         cornerRadius = size / 4,
-        textStyle = MaterialTheme.typography.labelMedium,
+        textStyle = if (size > 32.dp) {
+            MaterialTheme.typography.labelMedium.copy(fontSize = (size.value * 0.42f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        } else {
+            MaterialTheme.typography.labelMedium
+        },
         contentDescription = null,
         picture = url?.let {
             {

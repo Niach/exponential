@@ -145,7 +145,7 @@ import { endSession, stopSession } from "@/lib/sessions/lifecycle"
 import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
 import { writeGuide } from "@/lib/sessions/guide"
 import { postReplies, postSuggestions } from "@/lib/sessions/suggestions"
-import { buildPlanCard, buildQuestionCard, postAskCard } from "@/lib/sessions/plan"
+import { buildPlanCard, buildQuestionCard, buildSurfaceCard, postAskCard, postSurfaceCard } from "@/lib/sessions/plan"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import { loadAgentForUser } from "@/lib/agents/conversation"
 import { loadAppForUser } from "@/lib/apps/editor-session"
@@ -2234,7 +2234,16 @@ export function registerExponentialTools(
         if (stop) {
           if (!rest.sessionId) throw new Error(`stop needs sessionId.`)
           if (!access.full) await loadGrantedSession(rest.sessionId)
-          await stopSession({ userId: user.id, sessionId: rest.sessionId })
+          const { delivered } = await stopSession({ userId: user.id, sessionId: rest.sessionId })
+          if (!delivered) {
+            return ok({
+              ok: true,
+              id: rest.sessionId,
+              stopped: false,
+              delivered: false,
+              note: `The stop was not delivered: the session's device did not get it (offline or unreachable).`,
+            })
+          }
           return ok({ ok: true, id: rest.sessionId, stopped: true })
         }
         // A confined grant: the target session's team, else the named team,
@@ -2523,6 +2532,33 @@ export function registerExponentialTools(
           if (!access.full) assertTeamFullyGranted(access, own.teamId)
           const card = buildQuestionCard(input)
           return ok(await postAskCard({ userId: user.id, sessionId: own.id, card }))
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+  }
+
+  // Chats: an inline Exponential UI preview in the caller's own chat
+  // (fixtures/chats.json `surfaceCard`); a reply Button's press posts its
+  // text as the person's next message (the clients).
+  if (gates.inSession) {
+    server.registerTool(
+      `exponential_surface_show`,
+      {
+        description: `Draw an inline Exponential UI preview in your chat; a Button whose press event is {name:"reply", context:{text}} sends that text as the person's reply.`,
+        inputSchema: strictInput({
+          surface: cardSurfaceInput.unwrap(),
+          title: z.string().trim().min(1).max(200).optional(),
+        }),
+      },
+      async (input) => {
+        try {
+          const own = await loadCallerSession()
+          if (!own) throw new Error(noSessionMessage(`exponential_surface_show`))
+          if (!access.full) assertTeamFullyGranted(access, own.teamId)
+          const card = buildSurfaceCard(input)
+          return ok(await postSurfaceCard({ sessionId: own.id, card }))
         } catch (e) {
           return err(e)
         }

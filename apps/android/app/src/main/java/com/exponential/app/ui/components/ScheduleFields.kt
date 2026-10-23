@@ -35,8 +35,9 @@ import com.exponential.app.ui.theme.TextEmphasis
 // `OptionGroup` (the trigger editor's card, whose first row is the
 // Schedule · On event strip; the caller lays the hairline above Repeat), the rows
 // separated by `GroupDivider`s:
-// Repeat · Days (weekly) | Day (monthly) · Minute (hourly) | Time ·
-// Time zone · Cron (a custom, MCP-written expression only). CONTROLLED: the
+// Repeat · Days (weekly) | Day (monthly) · Every (minutes, EXP-1363) |
+// Minute (hourly) | Time · Time zone (daily, weekly, monthly, custom) · Cron
+// (a custom, MCP-written expression only). CONTROLLED: the
 // caller holds the [ScheduleDraft].
 
 private val ScheduleCopy = SchedulePicker.Copy
@@ -119,7 +120,22 @@ internal fun ScheduleFields(
         }
     }
 
-    if (schedule?.repeat == SchedulePicker.REPEAT_HOURLY) {
+    if (schedule?.repeat == SchedulePicker.REPEAT_MINUTES) {
+        // EXP-1363: every N minutes — the Every row over `everyValues`; no
+        // Time row (and no Time zone row below).
+        GroupDivider()
+        val everyOptions = remember { SchedulePicker.EVERY_VALUES.map(Int::toString) }
+        Box(Modifier.testTag(SchedulePicker.TEST_ID_EVERY)) {
+            PickerRow(
+                label = ScheduleCopy.ROW_EVERY,
+                value = SchedulePicker.everyLabel(schedule.every),
+                options = everyOptions,
+                selected = schedule.every.toString(),
+                optionLabel = { SchedulePicker.everyLabel(it.toInt()) },
+                onSelect = { setSchedule(schedule.copy(every = it.toInt())) },
+            )
+        }
+    } else if (schedule?.repeat == SchedulePicker.REPEAT_HOURLY) {
         GroupDivider()
         val minutes = remember { (0..59).map(Int::toString) }
         Box(Modifier.testTag(SchedulePicker.TEST_ID_MINUTE)) {
@@ -141,6 +157,9 @@ internal fun ScheduleFields(
         )
     }
 
+    // EXP-1363: a minutes or hourly schedule shows no Time zone row (and
+    // keeps whatever zone is stored).
+    if (SchedulePicker.showsTimeZone(schedule?.repeat)) {
     GroupDivider()
     val zoneItems = remember(draft.tz) {
         if (TIME_ZONE_ITEMS.any { it.value == draft.tz }) {
@@ -164,6 +183,7 @@ internal fun ScheduleFields(
             onClick = open,
             modifier = Modifier.testTag(SchedulePicker.TEST_ID_TIME_ZONE),
         )
+    }
     }
 
     if (schedule == null) {
@@ -242,4 +262,11 @@ private fun ScheduleTimeRow(
             )
         }
     }
+}
+
+/** The rows in their grouped card, for the styleguide's `schedule-picker`
+ *  specimen (thread 58cb32df: the `minutes` repeat). */
+@Composable
+fun ScheduleFieldsSpecimen(draft: ScheduleDraft, onChange: (ScheduleDraft) -> Unit) {
+    OptionGroup { ScheduleFields(draft, onChange) }
 }

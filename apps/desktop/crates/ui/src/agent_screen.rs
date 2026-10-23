@@ -357,6 +357,9 @@ impl AgentScreenView {
             .map(|message| (message.id.clone(), message))
             .collect();
         let _ = name;
+        // Thread 58cb32df: a surface card arriving while the chat is open
+        // plays its entrance once.
+        crate::surface_card::sync_rows(cx.entity_id(), &self.rows, cx);
         if self.has_subject() && self.placeholder_name.as_deref() != Some(placeholder.as_str()) {
             if let Some((_, composer)) = &self.composer {
                 composer.update(cx, |composer, cx| {
@@ -577,6 +580,8 @@ impl AgentScreenView {
     fn render_row(&self, row: &SessionThreadRow, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let team_id = self.subject_team_id();
         let conversation_id = self.conversation.as_ref().map(|row| row.id.clone()).unwrap_or_default();
+        // FEED-140: the inline cards answer while the reader may reply.
+        let answer = self.composer.as_ref().is_some_and(|(_, composer)| composer.read(cx).may_message());
         let SessionThreadRow::Message {
             id,
             author,
@@ -585,7 +590,8 @@ impl AgentScreenView {
             ..
         } = row
         else {
-            return crate::thread_screen::card_row(row, &conversation_id, &crate::thread_screen::ThreadText::team(team_id.as_deref()), &self.images, window, cx)
+            let text = crate::thread_screen::ThreadText::team(team_id.as_deref()).answering(answer);
+            return crate::thread_screen::card_row(row, &conversation_id, &text, &self.images, window, cx)
                 .map(|card| div().w_full().pl(px(CARD_INSET)).child(card).into_any_element())
                 .unwrap_or_else(|| div().into_any_element());
         };
@@ -631,10 +637,31 @@ impl AgentScreenView {
         )
     }
 
+    /// Thread 58cb32df (chats.json `agentMenuCases`): the agent chat
+    /// header's `…` = THE agent menu (Compact conversation, New
+    /// conversation, Stop while busy, Agent settings for owners).
+    fn header_menu(&self, cx: &App) -> Option<AnyElement> {
+        let agent_id = self.agent.as_ref()?.id.clone();
+        if crate::chat_actions::agent_entries(&agent_id, cx).is_empty() {
+            return None;
+        }
+        let trigger = crate::controls::ghost_icon_button("agent-header-more", Icon::new(registry::UI_MORE), cx);
+        Some(
+            div()
+                .flex_shrink_0()
+                .mr(px(-crate::work_header::GHOST_ICON_HANG))
+                .child(crate::controls::PointerMenu::for_button(trigger, move |menu, _, cx| {
+                    crate::chat_actions::agent_menu_items(menu, &agent_id, cx)
+                }))
+                .into_any_element(),
+        )
+    }
+
     fn render_header(&self, cx: &App) -> AnyElement {
         let theme = cx.theme();
         let icon = self.subject_icon();
         let name = self.subject_name();
+        let menu = self.header_menu(cx);
         v_flex()
             .w_full()
             .px(px(HEADER_INSET))
@@ -648,13 +675,15 @@ impl AgentScreenView {
                     .child(icon.with_size(px(HEADER_ICON_PX)))
                     .child(
                         div()
+                            .flex_1()
                             .min_w_0()
                             .truncate()
                             .text_2xl()
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme.foreground)
                             .child(SharedString::from(name)),
-                    ),
+                    )
+                    .children(menu),
             )
             .child(div().w_full().h(px(1.)).bg(theme.border))
             .into_any_element()
@@ -810,7 +839,9 @@ impl Render for AgentScreenView {
         let (band, sheet, docked) = match composer_view.filter(|composer| composer.read(cx).may_message()) {
             Some(composer) => {
                 let pending = domain::ask_dock::thread_pending_asks(&rows_snapshot, |_| None);
-                let docked: HashSet<String> = pending.iter().map(|ask| ask.id.clone()).collect();
+                // FEED-140: a waiting plan / question stays inline (with
+                // its actions) besides THE Dock.
+                let docked: HashSet<String> = HashSet::new();
                 let (band, sheet) = crate::thread_screen::root_dock(
                     "agent",
                     &rows_snapshot,

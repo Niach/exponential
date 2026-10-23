@@ -4,7 +4,9 @@ import {
   AttachmentFileTile,
   AttachmentThumb,
   BoardGlyph,
+  CHAT_BUBBLE_ENTER_CLASS,
   ChannelMessageRow,
+  ChatBubble,
   Composer,
   ComposerFrame,
   ComposerSubmit,
@@ -12,8 +14,12 @@ import {
   Spinner,
   ThreadConversation,
   toast,
+  TranscriptDivider,
   UserAvatar,
+  UserMessageBubble,
+  useLiveArrivals,
   userMessageCaption,
+  userMessageTime,
 } from "@exp/ui"
 import type { User } from "@/db/schema"
 import type { SyncedAgent } from "@/components/team/agents-section"
@@ -116,7 +122,14 @@ export function AgentChannel({
   users,
   canAnswer,
   onOpenSession,
+  layout = `transcript`,
+  onSurfaceReply,
 }: {
+  /** Thread 58cb32df (chats.json TRANSCRIPT): `bubbles` = the phones' chat
+   *  bubbles (the person right, the agent left in bg-card). */
+  layout?: `transcript` | `bubbles`
+  /** A surface card's `reply` press (absent = read-only). */
+  onSurfaceReply?: (text: string) => void
   /** The `agents` definition (name, icon, color). */
   agent: Pick<SyncedAgent, `name` | `icon` | `color`>
   /** The caller's conversation session with it; null = none yet. */
@@ -164,7 +177,35 @@ export function AgentChannel({
     return message ? userMessageCaption({ at: new Date(message.createdAt) }) : null
   }
 
+  const arrived = useLiveArrivals(rows.map((row) => row.id))
+  const bubbles = layout === `bubbles`
+  const clock = (id: string) => {
+    const message = messagesById.get(id)
+    return message ? userMessageTime(new Date(message.createdAt)) : null
+  }
+
   const render = (row: ThreadRow) => {
+    if (row.type === `divider`) {
+      return <TranscriptDivider key={row.id} kind={row.kind} at={row.at} />
+    }
+    if (row.type === `message` && bubbles && row.author !== `system`) {
+      const enter = arrived(row.id) ? CHAT_BUBBLE_ENTER_CLASS : undefined
+      return row.author === `user` ? (
+        <UserMessageBubble
+          key={row.id}
+          variant="chat"
+          text={row.body}
+          renderText={renderThreadText}
+          time={clock(row.id)}
+          caption={row.queued ? `queued` : null}
+          className={enter}
+        />
+      ) : (
+        <ChatBubble key={row.id} time={clock(row.id)} className={enter}>
+          {renderThreadText(row.body)}
+        </ChatBubble>
+      )
+    }
     if (row.type === `message`) {
       const user = row.author === `user` && row.authorId ? usersById.get(row.authorId) : undefined
       const name = row.author === `agent` ? agentName : (user?.name ?? ``)
@@ -182,7 +223,7 @@ export function AgentChannel({
     if (row.type === `session`) {
       const target = sessionsById.get(row.card.sessionId)
       return (
-        <div key={row.id} className="pl-11">
+        <div key={row.id} className={bubbles ? undefined : `pl-11`}>
           <SessionCard
             card={row.card}
             onOpen={target ? () => onOpenSession(target) : undefined}
@@ -191,7 +232,7 @@ export function AgentChannel({
       )
     }
     return (
-      <div key={row.id} className="pl-11">
+      <div key={row.id} className={bubbles ? undefined : `pl-11`}>
         <ThreadConversation
           rows={[row]}
           renderText={renderThreadText}
@@ -199,13 +240,15 @@ export function AgentChannel({
           onAnswer={canAnswer ? (id, input) => void answer(id, input) : undefined}
           onDecide={canAnswer ? (id, input) => void answer(id, input) : undefined}
           pending={pending}
+          onSurfaceReply={onSurfaceReply}
+          arrived={arrived}
         />
       </div>
     )
   }
 
   return (
-    <div data-testid="agent-channel" className="flex flex-col gap-4">
+    <div data-testid="agent-channel" data-layout={layout} className={cn(`flex flex-col`, bubbles ? `gap-2.5` : `gap-4`)}>
       {rows.map(render)}
     </div>
   )

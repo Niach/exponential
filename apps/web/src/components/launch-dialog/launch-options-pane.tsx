@@ -203,7 +203,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
         <ModelPicker
           triggerVariant="row"
           width="md"
-          mobileTitle="Thread model"
+          mobileTitle="Chat model"
           value={threadModel || null}
           onChange={onThreadModelChange}
           models={modelOptions}

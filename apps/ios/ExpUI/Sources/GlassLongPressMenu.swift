@@ -25,6 +25,37 @@ public extension View {
     }
 }
 
+public extension View {
+    /// Thread 58cb32df (chats.json MENUS): THE long-press arm for a host that
+    /// presents the menu as the SHEET look (phones titling it with the
+    /// chat's title): the same tap/hold split and haptic as
+    /// `glassLongPressMenu`, the presentation left to `onHold`.
+    func glassLongPress(enabled: Bool = true, onTap: (() -> Void)?, onHold: @escaping () -> Void) -> some View {
+        modifier(GlassLongPressSheetArm(enabled: enabled, onTap: onTap, onHold: onHold))
+    }
+}
+
+private struct GlassLongPressSheetArm: ViewModifier {
+    let enabled: Bool
+    let onTap: (() -> Void)?
+    let onHold: () -> Void
+    @State private var holds = 0
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .onTapGesture { onTap?() }
+            .onLongPressGesture(minimumDuration: GlassLongPressMenuTokens.minimumDuration) {
+                guard enabled else { return }
+                holds += 1
+                onHold()
+            }
+            .sensoryFeedback(.impact(weight: .medium), trigger: holds)
+            .accessibilityAddTraits(onTap == nil ? [] : .isButton)
+            .accessibilityAction { onTap?() }
+    }
+}
+
 public enum GlassLongPressMenuTokens {
     /// The system context menu's own hold, so the gesture feels the same.
     public static let minimumDuration: Double = 0.45

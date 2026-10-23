@@ -54,7 +54,7 @@ import { Button } from "./button"
 import { cn } from "./cn"
 import { stripTabClass } from "./entity-chip"
 import { ListRow } from "./glass-rows"
-import { Menu, MenuRow, type MenuEntry, type MenuIcon } from "./menu"
+import { Menu, MenuRow, type MenuEntry, type MenuIcon, type MenuTargetProps } from "./menu"
 import { SessionRow, SessionRowDevice } from "./session-row"
 import { StatusGlyph, type StatusGlyphProps } from "./status-glyph"
 import { StripChip, StripOverflowButton } from "./strip-chip"
@@ -63,6 +63,7 @@ import { TreeGuides } from "./tree-guides-view"
 import { conceptIcon } from "./icons.generated"
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
 import { UserMessageBubble } from "./user-message-bubble"
+import { CHAT_BUBBLE_ENTER_CLASS, ChatBubble, SurfaceCard, TranscriptDivider, useLiveArrivals } from "./surface-card"
 import { Spinner } from "./feedback"
 import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 
@@ -784,9 +785,22 @@ export interface ThreadConversationProps {
   onDecide?: (rowId: string, input: ThreadPlanDecision) => void
   /** The rows whose answer is in flight. */
   pending?: ReadonlySet<string>
-  /** The waiting cards THE ask dock holds (`threadPendingAsks`): they
-   *  leave the Conversation and take the composer's slot. */
+  /** The rows THE Dock holds. FEED-140 (chats.json): a waiting plan or
+   *  question card STAYS inline at its place with its actions (the dock
+   *  holds it too); only the other docked rows (suggestions) leave. */
   docked?: ReadonlySet<string>
+  /** Thread 58cb32df (chats.json TRANSCRIPT): `bubbles` = the phones' chat
+   *  bubbles (the person right, the agent's text left in a bg-card bubble
+   *  with its time, new live bubbles rise in); `transcript` = web wide. */
+  layout?: `transcript` | `bubbles`
+  /** A row's `HH:mm` (the bubbles' time). */
+  messageTime?: (row: Extract<ThreadRow, { type: `message` }>) => string | null
+  /** A surface card's `reply` press: send the text as the person's message
+   *  (absent = the presses do nothing). */
+  onSurfaceReply?: (text: string) => void
+  /** The rows that arrived live (the surface enter, the bubbles' rise);
+   *  absent = computed here off the first painted rows. */
+  arrived?: (rowId: string) => boolean
   /** The viewer: their OWN queued rows carry the Remove from queue X. */
   viewerId?: string | null
   /** EXP-1317: revoke a queued row (absent = no X). */
@@ -819,12 +833,25 @@ export function ThreadConversation({
   suggestions,
   renderIssueRef,
   tail,
+  layout = `transcript`,
+  messageTime,
+  onSurfaceReply,
+  arrived,
   className,
 }: ThreadConversationProps) {
+  const ownArrivals = useLiveArrivals(rows.map((row) => row.id))
+  const isLive = arrived ?? ownArrivals
+  const bubbles = layout === `bubbles`
   return (
-    <div data-testid="thread-conversation" className={cn(`flex flex-col gap-4`, className)}>
+    <div
+      data-testid="thread-conversation"
+      data-layout={layout}
+      className={cn(`flex flex-col`, bubbles ? `gap-2.5` : `gap-4`, className)}
+    >
       {rows.map((row) => {
-        if (docked?.has(row.id)) return null
+        // FEED-140: a waiting plan / question never leaves the conversation.
+        if (docked?.has(row.id) && row.type !== `plan` && row.type !== `question`) return null
+        const enter = bubbles && isLive(row.id) ? CHAT_BUBBLE_ENTER_CLASS : undefined
         switch (row.type) {
           case `message`:
             if (row.author === `user`) {
@@ -834,8 +861,11 @@ export function ThreadConversation({
                   key={row.id}
                   text={row.body}
                   renderText={renderText}
-                  caption={messageCaption?.(row) ?? null}
+                  variant={bubbles ? `chat` : `transcript`}
+                  time={bubbles ? (messageTime?.(row) ?? null) : null}
+                  caption={bubbles ? (row.queued ? `queued` : null) : (messageCaption?.(row) ?? null)}
                   action={own ? <UnqueueButton onClick={() => onUnqueue(row.id)} /> : undefined}
+                  className={enter}
                 />
               )
             }
@@ -850,10 +880,31 @@ export function ThreadConversation({
                 </div>
               )
             }
+            if (bubbles) {
+              return (
+                <ChatBubble key={row.id} time={messageTime?.(row) ?? null} className={enter}>
+                  {renderText(row.body)}
+                </ChatBubble>
+              )
+            }
             return (
               <div key={row.id} data-slot="thread-agent" className="text-sm text-foreground">
                 {renderText(row.body)}
               </div>
+            )
+          case `divider`:
+            return <TranscriptDivider key={row.id} kind={row.kind} at={row.at} className={enter} />
+          case `surface`:
+            return (
+              <SurfaceCard
+                key={row.id}
+                surface={row.surface}
+                title={row.title}
+                testKey={row.id}
+                onReply={onSurfaceReply}
+                animate={isLive(row.id)}
+                className={bubbles ? `max-w-[94%]` : undefined}
+              />
             )
           case `session`:
             return (
@@ -1522,7 +1573,8 @@ function usePlanForm(
   busy: boolean,
   onDecide: ((input: ThreadPlanDecision) => void) | undefined
 ) {
-  const decided = row.decision === `approved` || row.decision === `rejected`
+  // FEED-140: `superseded` (a newer plan replaced it) is a decision too.
+  const decided = row.decision !== null
   const [picks, setPicks] = useState<Record<string, string[]>>({})
   const [custom, setCustom] = useState<Record<string, string>>({})
   const [feedback, setFeedback] = useState(``)
@@ -1592,6 +1644,27 @@ function ThreadPlanCard({
   onDecide?: (input: ThreadPlanDecision) => void
 }) {
   const form = usePlanForm(row, busy, onDecide)
+  const [rejecting, setRejecting] = useState(false)
+  // FEED-140: a plan the agent replaced paints closed and collapsed to
+  // `copy.superseded`, never its body.
+  if (row.decision === `superseded`) {
+    return (
+      <AskCard
+        plan
+        label={ASK_DOCK_COPY.planReady}
+        data-slot="thread-plan"
+        data-testid={PLAN_CARD_TEST_IDS.card}
+        data-kind="plan"
+        data-decision="superseded"
+        className="opacity-80"
+      >
+        <div data-slot="ask-answered" className="flex items-start gap-1.5 text-xs text-muted-foreground">
+          <CloseIcon className="mt-0.5 size-3.5 shrink-0" />
+          <span className="min-w-0 truncate">{planDecisionLabel(`superseded`, false)}</span>
+        </div>
+      </AskCard>
+    )
+  }
   return (
     <AskCard
       plan
@@ -1613,6 +1686,23 @@ function ThreadPlanCard({
       )}
       {row.questions.map((question) => form.block(question, attachmentSrc))}
       {busy && !form.decided && <AskPrompt options={[]} answerable={false} locked={{ labels: [] }} onAnswer={noop} />}
+      {/* FEED-140: a waiting card carries its decision inline too (the
+          dock's sheet holds the same). */}
+      {form.interactive && (
+        <div className="mt-3 flex flex-col gap-2" data-slot="thread-plan-decision">
+          <PlanCardFooter
+            decision={{
+              approveIssue: form.approveIssue,
+              rejecting,
+              onRejecting: setRejecting,
+              feedback: form.feedback,
+              onFeedback: form.setFeedback,
+              onDecide: form.decide,
+              busy,
+            }}
+          />
+        </div>
+      )}
       {form.decided && (
         <AskAnsweredLine answer={planDecisionLabel(row.decision as `approved` | `rejected`, row.fresh)} />
       )}
@@ -1838,9 +1928,12 @@ export function ThreadsListItem({
   caption = null,
   active = false,
   onOpen,
+  menu,
   testId = `threads-row`,
   className,
 }: {
+  /** Thread 58cb32df: the row's context menu (`menuProps(kind, id)`). */
+  menu?: MenuTargetProps
   /** The agent mark / state glyph (spinner busy, amber dot needs you). */
   lead: ReactNode
   /** The thread title (it names the issue, EXP-1316: no identifier slot). */
@@ -1867,6 +1960,7 @@ export function ThreadsListItem({
       active={active}
       onClick={onOpen}
       data-testid={testId}
+      {...menu}
       className={cn(
         `gap-2 py-0 pr-3 pl-3`,
         caption ? `h-[52px]` : `h-10 md:h-9`,

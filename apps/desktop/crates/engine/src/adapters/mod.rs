@@ -31,6 +31,16 @@ use crate::session::{EngineError, ResumeHandle};
 pub const PLAN_MODE_ID: &str = "plan";
 pub const BUILD_MODE_ID: &str = "bypassPermissions";
 
+/// The contract's `/new` steer command (`contract.json` `steerCommands`): a
+/// fresh conversation in the SAME session row, between turns — claude via
+/// its own `/clear`, codex via a new thread. Never prompt text.
+pub const NEW_CONVERSATION_COMMAND: &str = "/new";
+
+/// Is this person's message the `/new` command (trimmed, exactly)?
+pub fn is_new_conversation_command(text: &str) -> bool {
+    text.trim() == NEW_CONVERSATION_COMMAND
+}
+
 /// Which adapter drives a run. Distinct from `coding::CodingAgent` only
 /// because `steer::SessionAgent` is the WIRE vocabulary and this is the
 /// engine's.

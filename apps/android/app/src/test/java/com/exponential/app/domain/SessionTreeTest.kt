@@ -288,6 +288,19 @@ class SessionTreeTest {
             put("event", row.event)
             put("text", row.text)
         }
+        is SessionTree.ThreadRow.Divider -> buildJsonObject {
+            put("type", "divider")
+            put("id", row.id)
+            put("kind", row.kind)
+            put("at", row.at)
+        }
+        is SessionTree.ThreadRow.Surface -> buildJsonObject {
+            put("type", "surface")
+            put("id", row.id)
+            put("sessionId", row.sessionId)
+            put("title", nullable(row.title))
+            put("surface", encode(row.surface))
+        }
     }
 
     private fun encode(option: SessionTree.ThreadRow.QuestionChoice): JsonObject = buildJsonObject {

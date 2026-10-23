@@ -573,3 +573,107 @@ struct ThreadHeaderTitle: View {
         }
     }
 }
+
+/// EXP-1373 (chats.json, the chat screen on phones): the header's leading
+/// block — the lead DISC (the agent's icon in its colour, else the run mark:
+/// amber-badged while it needs you, the working mark while busy) and the
+/// title over ONE muted subtitle (the state, the device, the linked issues,
+/// the PR; an agent chat: `Agent · <model>`).
+struct ChatHeaderTitle: View {
+    enum Tone { case muted, live }
+
+    let title: String
+    var subtitle: String?
+    var subtitleTone: Tone = .muted
+    var isPrivate = false
+    var agentIcon: String?
+    var agentColor: String?
+    var cli: String?
+    var mark: SessionState = .waiting
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle().fill(DesignTokens.Palette.muted)
+                if let agentIcon {
+                    AppIcon(agentIcon, size: 18, weight: .medium)
+                        .foregroundStyle(Color(hex: agentColor) ?? .white)
+                } else {
+                    switch mark {
+                    case .working:
+                        AgentWorkingMark(agent: cli).frame(width: 18, height: 18)
+                    case .needsYou:
+                        BeatingAgentMark(agent: cli, beating: false)
+                            .frame(width: 18, height: 18)
+                            .overlay(alignment: .topTrailing) {
+                                Circle().fill(DesignTokens.Semantic.yellow)
+                                    .frame(width: 7, height: 7)
+                                    .offset(x: 3, y: -3)
+                            }
+                    default:
+                        BeatingAgentMark(agent: cli, beating: false).frame(width: 18, height: 18)
+                    }
+                }
+            }
+            .frame(width: 36, height: 36)
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("thread-title")
+                    if isPrivate {
+                        AppIcon(AppIcons.uiPrivate, size: 11)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .accessibilityLabel("Private")
+                            .accessibilityIdentifier("thread-private")
+                    }
+                }
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(subtitleTone == .live
+                            ? DesignTokens.Semantic.yellow
+                            : .white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .accessibilityIdentifier("thread-subtitle")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private static func live(_ rows: ThreadRows) -> [SessionEntity] {
+        rows.sessions.filter { $0.status != DomainContract.sessionStatusEnded }
+    }
+
+    /// The subtitle's parts, ` · `-joined.
+    static func subtitle(rows: ThreadRows) -> String {
+        if rows.isAgent {
+            return ["Agent", rows.root.model].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · ")
+        }
+        let live = live(rows)
+        let state: String? = if live.contains(where: \.needsInput) {
+            ThreadRowWord.needsInput.text
+        } else if live.contains(where: \.busy) {
+            Chats.Copy.Preview.working
+        } else {
+            nil
+        }
+        let issues: String? = rows.issues.first.flatMap { first in
+            first.identifier.map { rows.issues.count > 1 ? "\($0) +\(rows.issues.count - 1)" : $0 }
+        }
+        let pr = rows.pullRequests.last.map { "#\($0.number)" }
+        return [state, rows.rootDevice?.label, issues, pr].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    static func tone(rows: ThreadRows) -> Tone {
+        let live = live(rows)
+        return !rows.isAgent && live.contains(where: { $0.busy || $0.needsInput }) ? .live : .muted
+    }
+}

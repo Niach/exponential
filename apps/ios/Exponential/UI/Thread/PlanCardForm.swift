@@ -502,10 +502,21 @@ struct PlanCardSurfaceView: View {
     /// answered it), applied OVER `surface.data` (web `PlanCardSurface`'s
     /// `data`). nil = the agent's initial values.
     var data: CardJSON? = nil
+    /// Thread 58cb32df (chats.json SURFACE CARD): the inline preview
+    /// answers nothing — a press whose action event is `replyEvent` with a
+    /// non-empty `context.text` hands that text out (`Chats.surfaceReply`);
+    /// nil = actions reach nobody (the plan / question card).
+    var onReply: ((String) -> Void)? = nil
+    /// The surface card draws its own frame (no `copy.surface` label).
+    var bare = false
 
     var body: some View {
         // The `copy.surface` label ABOVE its frame (web `PlanCardSurface`).
         let shape = RoundedRectangle(cornerRadius: PlanCard.Card.surfaceRadius)
+        if bare {
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
         VStack(alignment: .leading, spacing: PlanCard.Card.surfaceLabelGap) {
             Text(PlanCard.Copy.surface)
                 .font(.caption2.weight(.medium))
@@ -520,15 +531,22 @@ struct PlanCardSurfaceView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(PlanCard.TestIds.surface)
+        }
     }
 
     @ViewBuilder
     private var content: some View {
         #if canImport(ExponentialUI)
-        PlanCardLiveSurface(surface: surface, data: data, handle: handle)
-            .allowsHitTesting(editable)
+        PlanCardLiveSurface(surface: surface, data: data, handle: handle, onReply: onReply)
+            .allowsHitTesting(editable || onReply != nil)
         #else
-        EmptyView()
+        // Without the painter linked: a quiet placeholder band.
+        if bare {
+            Text(PlanCard.Copy.surface)
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        }
         #endif
     }
 }
@@ -540,6 +558,7 @@ private struct PlanCardLiveSurface: View {
     let surface: CardSurface
     let data: CardJSON?
     let handle: PlanCardSurfaceHandle
+    var onReply: ((String) -> Void)? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -569,6 +588,7 @@ private struct PlanCardLiveSurface: View {
             accountId: accountId,
             httpClient: deps.httpClient
         )
+        host.onReply = onReply
         do {
             let next = try SurfaceModel(
                 id: "plan-card-\(abs(surface.rootJSON.hashValue))",
@@ -615,6 +635,24 @@ private final class PlanCardSurfaceHost: HostPlugin {
     /// instance = a universal link) to `UIApplication.open` — overriding it
     /// here is what keeps the surface sandboxed.
     func openUrl(_ url: String) {}
+
+    /// The surface card's reply hook (`Chats.surfaceReply`).
+    var onReply: ((String) -> Void)?
+
+    func onAction(_ event: SurfaceActionEvent) {
+        guard let onReply else { return }
+        var context: [String: Any]?
+        if case let .object(fields) = event.context {
+            switch fields["text"] {
+            case let .string(text)?: context = ["text": text]
+            case .some: context = ["text": 0]
+            case nil: context = [:]
+            }
+        }
+        if let text = Chats.surfaceReply(name: event.name, context: context) {
+            onReply(text)
+        }
+    }
 
     private var base: String? {
         baseURL.map { $0.absoluteString.hasSuffix("/") ? String($0.absoluteString.dropLast()) : $0.absoluteString }

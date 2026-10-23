@@ -65,6 +65,8 @@ fun BoardSwitcherSheet(
     onCreateBoard: (teamId: String) -> Unit,
     onCreateTeam: () -> Unit,
     onDismiss: () -> Unit,
+    /** Thread 58cb32df: phones switch team on the Team tab only — no New team row. */
+    showNewTeam: Boolean = true,
 ) {
     GlassSheet(title = "Switch board", onDismiss = onDismiss) {
         if (groups.isEmpty()) {
@@ -107,7 +109,7 @@ fun BoardSwitcherSheet(
                 }
                 // The last row in the sheet, under every server's teams: a
                 // team is the one thing the tree above can't offer to make.
-                item(key = "new-team") {
+                if (showNewTeam) item(key = "new-team") {
                     MutedActionRow(
                         label = "New team",
                         testTag = "board-switcher-new-team",

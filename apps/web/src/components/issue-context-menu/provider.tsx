@@ -4,6 +4,13 @@ import type { Team } from "@/db/schema"
 import { ISSUE_MENU_KIND } from "./attr"
 import { IssueMenuSelectionContext, type IssueMenuSelection } from "./selection"
 import { IssueMenuSession } from "./session"
+import {
+  AGENT_MENU_KIND,
+  AgentMenuSession,
+  CHAT_MENU_KIND,
+  ChatMenuSession,
+  useChatActions,
+} from "@/components/thread/chat-menu"
 
 // EXP-1074 — THE issue context menu: ONE host per team layout.
 //
@@ -15,6 +22,11 @@ import { IssueMenuSession } from "./session"
 // target outlives a close on purpose — the menu's deferred dialogs
 // (duplicate picker, relation picker, move-board confirm, delete prompt)
 // outlive the menu that opened them.
+//
+// Thread 58cb32df (chats.json): the SAME host answers a chat row (kind
+// `thread`: Stop · Stop and delete | Delete) and an agent row (kind
+// `agent`: Compact · New conversation · Stop · Agent settings); the delete
+// confirm lives here so it outlives the menu.
 
 export function IssueContextMenuProvider({
   team,
@@ -24,6 +36,7 @@ export function IssueContextMenuProvider({
   children: ReactNode
 }) {
   const registry = useRef(new Set<IssueMenuSelection>()).current
+  const chatActions = useChatActions(team?.slug)
 
   return (
     <IssueMenuSelectionContext.Provider value={registry}>
@@ -40,10 +53,13 @@ export function IssueContextMenuProvider({
               )}
             />
           ),
+          [CHAT_MENU_KIND]: (session) => <ChatMenuSession {...session} actions={chatActions} />,
+          [AGENT_MENU_KIND]: (session) => <AgentMenuSession {...session} team={team} />,
         }}
       >
         {children}
       </MenuGestureHost>
+      {chatActions.dialog}
     </IssueMenuSelectionContext.Provider>
   )
 }

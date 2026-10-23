@@ -1,9 +1,11 @@
 import type * as React from "react"
 import { Link } from "@tanstack/react-router"
 import {
+  AGENT_ROW_MENU_KIND,
   ClaudeSpinner,
   conceptIcon,
   getActionIcon,
+  menuProps,
   SidebarGroup,
   SidebarGroupAction,
   SidebarGroupContent,
@@ -109,6 +111,8 @@ export function SidebarAgentsSection({
                   to="/t/$teamSlug/agents/$agentId"
                   params={{ teamSlug, agentId: agent.agentId }}
                   data-testid="agents-row"
+                  // Thread 58cb32df: THE agent menu on right-click / long-press.
+                  {...menuProps(AGENT_ROW_MENU_KIND, agent.agentId)}
                 >
                   <AgentIcon agent={agent} />
                   <span className="min-w-0 flex-1 truncate">{agent.name}</span>

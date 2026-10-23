@@ -22,7 +22,6 @@ import { compareBoards, useTeamMemberships } from "@/hooks/use-team-data"
 import { usePinnedEntries } from "@/hooks/use-pins"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { Empty } from "@/components/empty"
-import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { TeamLiveDot } from "@/components/team/sidebar-rail"
 import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
 
@@ -72,18 +71,18 @@ export function BoardSwitcherSheet({
   // out instead of being unmounted mid-transition.
   const [createBoardTeam, setCreateBoardTeam] = useState<Team | null>(null)
   const [createBoardOpen, setCreateBoardOpen] = useState(false)
-  const [createTeamOpen, setCreateTeamOpen] = useState(false)
   // EXP-1075: my live sessions per team — the sheet IS the phone's team
   // list, so a foreign team's header says a session of mine is alive there.
   // The active team is skipped: its sessions are the Threads tab away.
   const teamLive = useTeamLiveRuns(session?.user?.id)
 
-  // The active team leads; the rest keep their membership order.
-  const orderedTeams = useMemo(() => {
-    const rest = myTeams.filter((row) => row.slug !== teamSlug)
-    const active = myTeams.find((row) => row.slug === teamSlug)
-    return active ? [active, ...rest] : myTeams
-  }, [myTeams, teamSlug])
+  // Thread 58cb32df (chats.json `shell`): ONE active team drives every
+  // phone screen and the team is switched ONLY on the Team tab, so the
+  // sheet lists the active team's boards alone (no other teams' bands).
+  const orderedTeams = useMemo(
+    () => myTeams.filter((row) => row.slug === teamSlug),
+    [myTeams, teamSlug]
+  )
 
   const boardsByTeam = useMemo(() => {
     const map = new Map<string, Board[]>()
@@ -200,14 +199,6 @@ export function BoardSwitcherSheet({
                   </div>
                 )
               })}
-              <button
-                type="button"
-                className={PLAIN_ROW}
-                onClick={() => setCreateTeamOpen(true)}
-              >
-                <Plus className="size-4 shrink-0" />
-                New team
-              </button>
             </div>
           </div>
         </SheetContent>
@@ -219,10 +210,6 @@ export function BoardSwitcherSheet({
           team={createBoardTeam}
         />
       )}
-      <CreateTeamDialog
-        open={createTeamOpen}
-        onOpenChange={setCreateTeamOpen}
-      />
     </>
   )
 }

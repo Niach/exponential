@@ -13,7 +13,11 @@ struct MyIssuesListContent: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
-    @State private var viewModel: MyIssuesViewModel?
+    @State private var ownModel: MyIssuesViewModel?
+    /// EXP-1373: a host that already observes (the board's chips count the
+    /// rows) hands its model in; nil = this list owns one.
+    var model: MyIssuesViewModel? = nil
+    private var viewModel: MyIssuesViewModel? { model ?? ownModel }
     // Same identifier column treatment as IssueListView (EXP-24): min width
     // so status icons/titles align across rows despite varying identifier
     // lengths — extra important here where rows span boards with different
@@ -58,15 +62,16 @@ struct MyIssuesListContent: View {
             }
         }
         .onAppear {
-            if viewModel == nil {
-                viewModel = MyIssuesViewModel(accountId: accountId, db: deps.db, auth: deps.auth)
+            if model == nil, ownModel == nil {
+                ownModel = MyIssuesViewModel(accountId: accountId, db: deps.db, auth: deps.auth)
             }
             // Re-arm on every appear: pushing an issue detail stops the
             // observation (onDisappear), popping back must resume it.
             viewModel?.startObserving()
         }
         .onDisappear {
-            viewModel?.stopObserving()
+            // A host's model keeps observing for its chip count.
+            ownModel?.stopObserving()
         }
     }
 

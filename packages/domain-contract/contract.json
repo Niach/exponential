@@ -1304,6 +1304,17 @@
         "result": "none"
       },
       {
+        "name": "session_self_show",
+        "title": "Show a preview",
+        "blurb": "Draws an inline Exponential UI preview in the chat; a reply button sends its text as the person's reply.",
+        "progressive": "Showing a preview",
+        "done": "Showed a preview",
+        "progressiveMany": "Showing {n} previews",
+        "doneMany": "Showed {n} previews",
+        "subjectKey": "title",
+        "result": "none"
+      },
+      {
         "name": "session_self_compact",
         "title": "Compact context",
         "blurb": "Asks the host to compact this session's context at the next turn boundary.",
@@ -1608,6 +1619,7 @@
       { "name": "team_config_repositories_list", "refs": "list:repository@" },
       { "name": "session_self_ask", "refs": "" },
       { "name": "session_self_compact", "refs": "" },
+      { "name": "session_self_show", "refs": "" },
       { "name": "sessions_end", "refs": "" },
       { "name": "sessions_get", "refs": "session@root" },
       { "name": "sessions_link", "refs": "session@ issue@$issueIds[]" },

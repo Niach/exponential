@@ -242,7 +242,7 @@ struct LaunchOptionsSection: View {
             }
             ModelPickerRow("Model", selection: $model, agent: agent)
             if let threadModel {
-                ModelPickerRow("Thread model", selection: threadModel, agent: agent)
+                ModelPickerRow("Chat model", selection: threadModel, agent: agent)
                     .accessibilityIdentifier("device-thread-model")
             }
             // EXP-981: claude-only, like Ultracode below.

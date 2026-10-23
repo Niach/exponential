@@ -122,6 +122,7 @@ describe(`trigger draft (NEW-2)`, () => {
     expect(draft.kind).toBe(`schedule`)
     expect(draft.schedule.schedule).toEqual({
       repeat: `daily`,
+      every: 10,
       minute: 0,
       hour: 9,
       weekdays: [1, 2, 3, 4, 5],

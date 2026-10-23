@@ -12,7 +12,7 @@ import SwiftUI
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "chat-transcript", "chat-menus", "schedule-picker"]
 
     var body: some View {
         ZStack {
@@ -28,6 +28,11 @@ struct ThreadCardsScreen: View {
                     case "ask-dock": AskDockSpecimens()
                     case "dock-card": DockCardSpecimens()
                     case "plan-card": PlanCardSpecimens()
+                    case "chat-list": ChatListSpecimens()
+                    case "phone-tab-bar": PhoneTabBarSpecimens()
+                    case "chat-transcript": ChatTranscriptSpecimens()
+                    case "chat-menus": ChatMenuSpecimens()
+                    case "schedule-picker": SchedulePickerSpecimens()
                     default: workCards
                     }
                 }

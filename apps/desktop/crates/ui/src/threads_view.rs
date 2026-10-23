@@ -1,5 +1,7 @@
-//! EXP-1294 — the THREADS page ([`Screen::Threads`], the rail's `Threads`
-//! entry): the ACTIVE team's threads in the Reviews list language.
+//! EXP-1294 — the CHATS page ([`Screen::Threads`], the rail's `Chats`
+//! entry; thread 58cb32df: the product says chats): the ACTIVE team's
+//! threads in the Reviews list language. A chat row's right-click = THE
+//! chat menu ([`chat_row_menu`], `fixtures/chats.json` `menuCases`).
 //!
 //! A tab-less FULL-PAGE screen like Devices / Actions: one centred column,
 //! no page title. Bands Needs you · Running · Recent
@@ -18,7 +20,7 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    px, App, ClickEvent, Entity, IntoElement, ParentElement, Render, ScrollHandle,
+    px, App, ClickEvent, InteractiveElement as _, Entity, IntoElement, ParentElement, Render, ScrollHandle,
     SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
@@ -226,7 +228,7 @@ fn thread_list_row(
     let device = thread_device_icon(row.device_id.as_deref(), &row.session_id, cx);
     let trailing = thread_row_trailing(word, device, cx);
     let session_id = row.session_id.clone();
-    pr_row(
+    let element = pr_row(
         PrRowSpec {
             lead: Some(lead),
             trailing,
@@ -247,7 +249,28 @@ fn thread_list_row(
             )
         },
         cx,
-    )
+    );
+    if child {
+        return element;
+    }
+    chat_row_menu(&row.session_id, element, cx)
+}
+
+/// Thread 58cb32df (chats.json MENUS): a chat row's right-click = THE chat
+/// menu (`threadMenuEntries`); a viewer who cannot steer it gets none.
+pub(crate) fn chat_row_menu(root_id: &str, element: gpui::AnyElement, cx: &App) -> gpui::AnyElement {
+    use crate::controls::PointerContextMenuExt as _;
+    if crate::chat_actions::chat_entries(root_id, cx).is_empty() {
+        return element;
+    }
+    let menu_root = root_id.to_string();
+    gpui::div()
+        .id(SharedString::from(format!("chat-row-menu-{root_id}")))
+        .w_full()
+        .min_w_0()
+        .child(element)
+        .pointer_context_menu(move |menu, _, cx| crate::chat_actions::chat_menu_items(menu.min_w(px(220.)), &menu_root, false, cx))
+        .into_any_element()
 }
 
 /// The Threads page's bands: per group its glass band (glyph + title, no

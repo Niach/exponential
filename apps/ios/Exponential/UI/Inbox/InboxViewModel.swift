@@ -72,6 +72,11 @@ final class InboxViewModel {
     /// Web parity: an issue-less row shows its team name only when the user
     /// is in more than one team.
     var hasMultipleTeams = false
+    /// EXP-1373: the phone's ONE active team — only its rows (an issue's
+    /// team through its board); nil = every team.
+    var teamId: String? {
+        didSet { if teamId != oldValue { rebuild() } }
+    }
 
     private let accountId: String
     private let db: DatabaseManager
@@ -87,6 +92,7 @@ final class InboxViewModel {
     private var notifications: [NotificationEntity] = []
     private var issues: [IssueEntity] = []
     private var teams: [TeamEntity] = []
+    private var boardTeams: [String: String] = [:]
 
     init(accountId: String, db: DatabaseManager, auth: AuthRepository, notificationsApi: NotificationsApi) {
         self.accountId = accountId
@@ -122,6 +128,19 @@ final class InboxViewModel {
             } catch {}
         })
 
+        let boardObs = ValueObservation.tracking { db in
+            try Row.fetchAll(db, sql: "SELECT \"id\", \"team_id\" FROM \"boards\"")
+                .map { (row: Row) -> (String, String) in (row["id"], row["team_id"]) }
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await pairs in boardObs.values(in: pool) {
+                    guard let self else { return }
+                    self.boardTeams = Dictionary(pairs, uniquingKeysWith: { a, _ in a })
+                    self.rebuild()
+                }
+            } catch {}
+        })
         let issueObs = ValueObservation.tracking { db in try IssueEntity.fetchAll(db) }
         observationTasks.append(Task { [weak self] in
             do {
@@ -184,6 +203,10 @@ final class InboxViewModel {
         var blockedRunsById: [String: NotificationEntity] = [:]
         for n in sorted {
             guard Self.isRenderable(n, issueIds: issueIds) else { continue }
+            if let teamId {
+                let rowTeam = n.teamId ?? n.issueId.flatMap { issuesById[$0] }.flatMap { boardTeams[$0.boardId] }
+                if let rowTeam, rowTeam != teamId { continue }
+            }
             guard let iid = n.issueId else {
                 // Issue-less rows: an agent message (EXP-801) and a blocked
                 // run (EXP-980) are one entry per row (`isRenderable` admits
@@ -203,7 +226,7 @@ final class InboxViewModel {
             }
             byIssue[iid]?.append(n)
         }
-        hasMultipleTeams = teams.count > 1
+        hasMultipleTeams = teamId == nil && teams.count > 1
         entries = order.compactMap { key in
             if key.hasPrefix("message:") {
                 let id = String(key.dropFirst("message:".count))
@@ -247,6 +270,17 @@ final class InboxViewModel {
     }
 
     func markAllRead() {
+        // EXP-1373: one team in view — mark what this inbox shows.
+        guard teamId == nil else {
+            markRead(entries.flatMap { entry -> [NotificationEntity] in
+                switch entry {
+                case let .issue(group): group.notifications
+                case let .message(message): [message.notification]
+                case let .blockedRun(run): [run.notification]
+                }
+            })
+            return
+        }
         Task { try? await notificationsApi.markAllRead(accountId: accountId) }
     }
 }

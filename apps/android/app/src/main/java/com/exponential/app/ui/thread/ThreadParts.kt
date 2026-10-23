@@ -24,6 +24,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import com.exponential.app.ui.components.TranscriptDivider
+import com.exponential.app.ui.theme.liveArrival
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -1023,12 +1026,25 @@ fun ThreadConversation(
     /** EXP-1323: the live tail after the last row (the Tasks card + the
      *  status line), the host's; null = none. */
     tail: (@Composable () -> Unit)? = null,
-    /** THE ask dock (ask-dock.json): the waiting cards' ids, drawn in the
-     *  composer's slot instead of here (answered ones come back CLOSED). */
+    /** THE ask dock: the docked rows' ids. Thread 58cb32df (FEED-140): a
+     *  WAITING plan or question card stays inline at its place WITH its
+     *  actions besides the dock; only the suggestion rows leave. */
     dockedIds: Set<String> = emptySet(),
+    /** Thread 58cb32df: a surface card's `reply` posts its text here (the
+     *  person's next message); null = inert. */
+    onSurfaceReply: ((String) -> Unit)? = null,
 ) {
     // EXP-1334: no root card any more (the conversation IS the dispatcher).
-    val shown = if (dockedIds.isEmpty()) rows else rows.filter { it.id !in dockedIds }
+    val shown = if (dockedIds.isEmpty()) {
+        rows
+    } else {
+        rows.filter {
+            it.id !in dockedIds || it is SessionTree.ThreadRow.Plan || it is SessionTree.ThreadRow.Question
+        }
+    }
+    // chats.json: a row ARRIVES when its id was not in the transcript the
+    // screen first painted (history, a reopen or a scroll never animate).
+    val arrivals = rememberLiveArrivals(rootId, shown)
     // EXP-1316 (1n): the session feed's scroll — the thread opens at the
     // newest row and follows new rows while the reader sits at the bottom
     // (~96dp slack); a drag up stops following and shows THE jump-to-bottom
@@ -1067,32 +1083,32 @@ fun ThreadConversation(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(shown, key = { it.id }) { row ->
+                Box(Modifier.liveArrival(arrivals(row.id))) {
                 when (row) {
+                    // Thread 58cb32df (chats.json TRANSCRIPT): phones paint the
+                    // conversation as CHAT BUBBLES, a thread and an agent's
+                    // chat alike: the person's on the right, the agent's in a
+                    // card-fill bubble on the left, each with its time.
                     is SessionTree.ThreadRow.MessageRow -> {
                         val rowMeta = meta(row)
-                        if (agent != null) {
-                            ThreadCommentRow(
-                                row = row,
-                                meta = rowMeta,
-                                agent = agent,
+                        when (row.author) {
+                            "user", "agent" -> ChatBubble(
+                                text = row.body,
+                                fromPerson = row.author == "user",
+                                time = rowMeta?.time,
+                                queued = row.queued,
                                 onUnqueue = if (row.queued && canUnqueue(row)) ({ onUnqueue(row.id) }) else null,
                             )
-                        } else {
-                            when (row.author) {
-                                "user" -> ThreadMessageBubble(
-                                    text = row.body,
-                                    caption = rowMeta?.let { listOf(it.authorName, it.time).filter(String::isNotEmpty).joinToString(" · ") },
-                                    queued = row.queued,
-                                    onUnqueue = if (row.queued && canUnqueue(row)) ({ onUnqueue(row.id) }) else null,
-                                )
-                                "agent" -> MarkdownView(
-                                    markdown = row.body,
-                                    softBreaksAsNewlines = true,
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp).testTag("thread-agent-message"),
-                                )
-                                else -> ThreadEventLine(row.body)
-                            }
+                            else -> ThreadEventLine(row.body)
                         }
+                    }
+                    is SessionTree.ThreadRow.Divider -> TranscriptDivider(row.kind, clockTime(row.at))
+                    is SessionTree.ThreadRow.Surface -> AgentColumn {
+                        SurfaceCard(
+                            row = row,
+                            animate = arrivals(row.id),
+                            onReply = { text -> onSurfaceReply?.invoke(text) },
+                        )
                     }
                     is SessionTree.ThreadRow.SessionRow -> SessionCard(row.card, onClick = { onOpenCard(row.card) })
                     is SessionTree.ThreadRow.Question -> ThreadAskCard(row, onAnswer, onDecidePlan)
@@ -1111,6 +1127,7 @@ fun ThreadConversation(
                         actions = suggestions,
                         onOpenSession = onOpenSession,
                     )
+                }
                 }
             }
             if (tail != null) {
@@ -1269,9 +1286,120 @@ private fun UnqueueButton(onUnqueue: () -> Unit) {
  */
 @Composable
 fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePlan: ThreadPlanDecision) {
+    // FEED-140: a plan the agent replaced with a newer one paints CLOSED and
+    // collapsed to `copy.superseded` (never in the dock).
+    if (row is SessionTree.ThreadRow.Plan && row.decision == AskDock.DECISION_SUPERSEDED) {
+        SupersededPlanLine()
+        return
+    }
     Column(Modifier.testTag(if (row is SessionTree.ThreadRow.Plan) "thread-plan-card" else "thread-question-card")) {
         PlanAskCard(row, onAnswer, onDecidePlan)
     }
+}
+
+/** FEED-140: a superseded plan card, closed and collapsed to one line. */
+@Composable
+fun SupersededPlanLine(modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(GlassTokens.CardRadius)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(GlassTokens.CardFill, shape)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .testTag("thread-plan-superseded"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(ExpIcons.codingPlan, contentDescription = null, tint = Muted, modifier = Modifier.size(14.dp))
+        Text(
+            AskDock.Copy.SUPERSEDED,
+            style = MaterialTheme.typography.bodySmall,
+            color = Muted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
+ * Thread 58cb32df (chats.json TRANSCRIPT): ONE chat bubble. The person's on
+ * the right (max 80% of the column, the glass fill under the strong
+ * hairline), the agent's on the left in a card-fill bubble (max 94%, its
+ * top-leading corner 6dp); each carries its time bottom-right. A person's
+ * queued message reads `queued` with the revoke ✕ (mine only).
+ */
+@Composable
+fun ChatBubble(
+    text: String,
+    fromPerson: Boolean,
+    time: String?,
+    modifier: Modifier = Modifier,
+    queued: Boolean = false,
+    onUnqueue: (() -> Unit)? = null,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val max = maxWidth * (if (fromPerson) 0.8f else 0.94f)
+        val shape = if (fromPerson) {
+            RoundedCornerShape(18.dp)
+        } else {
+            RoundedCornerShape(topStart = 6.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
+        }
+        Column(
+            modifier = Modifier
+                .align(if (fromPerson) Alignment.CenterEnd else Alignment.CenterStart)
+                .widthIn(max = max)
+                .clip(shape)
+                .background(if (fromPerson) GlassTokens.OpaqueCardFill else DesignTokens.Palette.Card, shape)
+                .then(if (fromPerson) Modifier.border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape) else Modifier)
+                .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 8.dp)
+                .testTag(if (fromPerson) "thread-message-bubble" else "thread-agent-message"),
+        ) {
+            MarkdownView(markdown = text, softBreaksAsNewlines = true)
+            val caption = listOfNotNull(
+                time?.takeIf { it.isNotEmpty() },
+                ThreadUiCopy.QUEUED.takeIf { queued },
+            ).joinToString(" · ")
+            if (caption.isNotEmpty() || onUnqueue != null) {
+                Row(
+                    modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        caption,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Muted,
+                        maxLines = 1,
+                        modifier = Modifier.testTag(if (queued) "thread-message-queued" else "chat-bubble-time"),
+                    )
+                    if (onUnqueue != null) UnqueueButton(onUnqueue)
+                }
+            }
+        }
+    }
+}
+
+/** The agent's column: cards (a surface preview) sit left, as wide as the
+ *  agent's bubble may grow (94%). */
+@Composable
+fun AgentColumn(content: @Composable () -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        Box(Modifier.align(Alignment.CenterStart).widthIn(max = maxWidth * 0.94f)) { content() }
+    }
+}
+
+/**
+ * Thread 58cb32df: which rows ARRIVED while the chat was open — every id not
+ * in the first non-empty transcript painted for [key] (a reopen = a new
+ * composition = nothing animates).
+ */
+@Composable
+fun rememberLiveArrivals(key: String, rows: List<SessionTree.ThreadRow>): (String) -> Boolean {
+    val initial = remember(key) { mutableStateOf<Set<String>?>(null) }
+    if (initial.value == null && rows.isNotEmpty()) initial.value = rows.mapTo(HashSet()) { it.id }
+    val seen = initial.value
+    return { id -> seen != null && id !in seen }
 }
 
 /**

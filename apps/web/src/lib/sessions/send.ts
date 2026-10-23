@@ -326,7 +326,7 @@ async function assertTreeRoom(tx: Tx, rootId: string, depth: number) {
   if (Number(live) >= SESSION_TREE_MAX_SESSIONS) {
     throw new TRPCError({
       code: `BAD_REQUEST`,
-      message: `A thread runs at most ${SESSION_TREE_MAX_SESSIONS} sessions at once`,
+      message: `A chat runs at most ${SESSION_TREE_MAX_SESSIONS} sessions at once`,
     })
   }
 }

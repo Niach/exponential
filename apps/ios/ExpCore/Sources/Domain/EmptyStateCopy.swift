@@ -108,7 +108,7 @@ public extension EmptyStateCopy.State {
     /// EXP-1284: a thread the store does not hold (and `threads.get` refused).
     static let threadNotFound = Self(
         id: "thread-not-found", size: .page, icon: "work-faces",
-        title: "Thread not found", description: "It may still be syncing, or it was deleted.",
+        title: "Chat not found", description: "It may still be syncing, or it was deleted.",
         action: "Go to Agent"
     )
     static let noSelectionIssue = Self(

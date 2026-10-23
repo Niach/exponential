@@ -85,7 +85,13 @@ class MyIssuesViewModel @Inject constructor(
     holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
+    selection: com.exponential.app.data.TeamSelection,
 ) : ViewModel() {
+
+    /** Thread 58cb32df (chats.json): ONE active team drives every phone
+     *  screen — My issues = the viewer's assigned issues of the ACTIVE team
+     *  across its boards (null = every team, before one resolves). */
+    private val activeTeam = selection.selectedId
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
@@ -104,8 +110,8 @@ class MyIssuesViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val state: StateFlow<MyIssuesState> =
-        combine(dbFlow, auth.userId) { db, userId -> db to userId }
-            .flatMapLatest { (db, userId) ->
+        combine(dbFlow, auth.userId, activeTeam) { db, userId, team -> Triple(db, userId, team) }
+            .flatMapLatest { (db, userId, team) ->
                 if (db == null || userId == null) {
                     flowOf(MyIssuesState(loaded = true))
                 } else {
@@ -117,7 +123,7 @@ class MyIssuesViewModel @Inject constructor(
                         combine(relations, allIssues) { rows, synced -> rows to synced },
                     ) { issues, boards, labelJoins, statuses, graph ->
                         buildState(
-                            issues, boards, labelJoins.first, labelJoins.second,
+                            issues, boards.filter { team == null || it.teamId == team }, labelJoins.first, labelJoins.second,
                             statuses, graph.first, graph.second,
                         )
                     }

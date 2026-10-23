@@ -1,3 +1,4 @@
+import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { useApps } from "@/hooks/use-apps"
 import { SidebarAppsIcons } from "@/components/team/sidebar-apps"
 import type * as React from "react"
@@ -299,7 +300,7 @@ export function TeamSidebarRail({
           <NavInboxIcon className="size-4" />
           <InboxUnreadBadge placement="icon" />
         </RailItem>
-        <RailItem label="Threads" link={{ to: `/t/$teamSlug/threads`, params }}>
+        <RailItem label={CHATS_COPY.title} link={{ to: `/t/$teamSlug/threads`, params }}>
           <NavThreadsIcon className="size-4" />
           <ThreadsLiveBadge state={threadsNav} placement="icon" />
         </RailItem>

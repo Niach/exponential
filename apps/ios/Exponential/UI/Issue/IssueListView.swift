@@ -123,9 +123,6 @@ struct IssueListView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 searchToolbarButton
-                if showsSettingsButton {
-                    SettingsToolbarLink()
-                }
             }
         }
         // EXP-1021: every bulk edit is a TYPED picker driven by `open` — the

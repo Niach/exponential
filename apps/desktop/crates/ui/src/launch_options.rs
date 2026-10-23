@@ -44,7 +44,7 @@ use crate::icons::ExpIcon;
 use crate::surface;
 
 /// The defaults row naming the model a dispatcher root runs on.
-pub(crate) const THREAD_MODEL_LABEL: &str = "Thread model";
+pub(crate) const THREAD_MODEL_LABEL: &str = "Chat model";
 
 /// The label the model/effort pickers show while nothing is pinned — the
 /// run then follows the agent CLI's own defaults, same wording as launch.

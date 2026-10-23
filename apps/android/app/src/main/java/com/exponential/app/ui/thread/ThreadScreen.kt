@@ -1,6 +1,8 @@
 package com.exponential.app.ui.thread
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -120,6 +122,8 @@ fun ThreadScreen(
     /** The "+"'s New issue: the New issue page on [boardId], linked to this
      *  root on create. Null hides the row. */
     onNewIssue: ((boardId: String, rootSessionId: String) -> Unit)? = null,
+    /** The agent menu's Agent settings (owners). */
+    onOpenAgentSettings: ((agentId: String) -> Unit)? = null,
     viewModel: ThreadViewModel = hiltViewModel(),
 ) {
     val view by viewModel.view.collectAsStateWithLifecycle()
@@ -143,6 +147,16 @@ fun ThreadScreen(
     val suggestionPending by viewModel.suggestionPending.collectAsStateWithLifecycle()
     val liveActivity by viewModel.liveActivity.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
+    val notice by viewModel.notice.collectAsStateWithLifecycle()
+    val noticeToaster = LocalToaster.current
+    LaunchedEffect(notice) {
+        val text = notice ?: return@LaunchedEffect
+        noticeToaster.warning(text)
+        viewModel.clearNotice()
+    }
+    val isOwner by viewModel.isOwner.collectAsStateWithLifecycle()
+    val deviceLabel by viewModel.rootDeviceLabel.collectAsStateWithLifecycle()
+    var deleteConfirm by remember { mutableStateOf(false) }
 
     // EXP-1323: opening the thread reads it; news landing while it is open
     // is read too (the row never turns bold under the reader).
@@ -200,6 +214,69 @@ fun ThreadScreen(
 
     // EXP-1307: the Guide's ONE PR behind the header `…`.
     val guidePr = SessionTree.guidePullRequest(pullRequests)
+
+    // Thread 58cb32df (chats.json): THE chat header — the lead disc, the
+    // subtitle, the Stop pill (= the menu's Stop: `sessions.end` on the
+    // ROOT, the whole tree; shown while the root is not ended; an agent
+    // chat has none) and the `…` (the chat's / the agent's entries).
+    val canSteer = rootRow != null && (rootRow.shared || rootRow.userId == me)
+    val rootEnded = rootRow?.isEnded == true
+    val chatLead = chatLeadOf(view, pullRequests)
+    val headerLead: @Composable () -> Unit = {
+        if (agent != null) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .androidxClipCircle()
+                    .background(com.exponential.app.ui.theme.DesignTokens.Palette.Muted, androidx.compose.foundation.shape.CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { AgentGlyph(icon = agent.icon, color = agent.color, size = 22.dp) }
+        } else {
+            com.exponential.app.ui.components.ChatLeadDisc(lead = chatLead, agent = rootRow?.cli, size = 44.dp)
+        }
+    }
+    val headerSubtitle = if (agent != null) {
+        listOfNotNull(AGENT_SUBTITLE, rootRow?.model?.takeIf { it.isNotBlank() }?.let(::modelLabel)).joinToString(" · ")
+    } else {
+        listOfNotNull(chatStateWord(view, rootEnded), deviceLabel).joinToString(" · ")
+    }
+    val headerSubtitleColor = if (agent == null && view?.needsYou == true) com.exponential.app.ui.issue.NeedsInputAmber else null
+    val chatMenu: List<com.exponential.app.ui.components.ChatMenuItem> = if (agent != null) {
+        com.exponential.app.ui.components.agentMenuItems(
+            com.exponential.app.domain.Chats.agentMenuEntries(busy = rootRow?.busy == true, isOwner = isOwner)
+                .filter { it != com.exponential.app.domain.Chats.AgentMenuEntry.Settings || onOpenAgentSettings != null },
+        ) { entry ->
+            when (entry) {
+                com.exponential.app.domain.Chats.AgentMenuEntry.Compact,
+                com.exponential.app.domain.Chats.AgentMenuEntry.NewConversation ->
+                    com.exponential.app.domain.Chats.agentMenuSend(entry)?.let { viewModel.send(it) }
+                com.exponential.app.domain.Chats.AgentMenuEntry.Stop -> viewModel.stop(viewModel.rootId)
+                com.exponential.app.domain.Chats.AgentMenuEntry.Settings ->
+                    rootRow?.agentId?.let { id -> onOpenAgentSettings?.invoke(id) }
+            }
+        }
+    } else if (rootRow != null) {
+        com.exponential.app.ui.components.chatMenuItems(
+            com.exponential.app.domain.Chats.threadMenuEntries(rootRow.status, canSteer),
+            onStop = { viewModel.stopChat() },
+            onDelete = { deleteConfirm = true },
+        )
+    } else {
+        emptyList()
+    }
+    val guideMenuItems = guidePr?.let { pr ->
+        SessionTree.guideMenuEntries(state = pr.state, member = isMember).map { entry ->
+            when (entry) {
+                SessionTree.GuideMenuEntry.ClosePr -> com.exponential.app.ui.components.ChatMenuItem(
+                    label = DomainContract.diffUiClosePr,
+                    icon = ExpIcons.prClosed,
+                    onClick = { closePrConfirm = pr },
+                    destructive = true,
+                    testTag = "thread-guide-menu-close-pr",
+                )
+            }
+        }
+    }.orEmpty()
 
     // EXP-760 ×4: a `#IDENTIFIER` (and, in the conversation, a BARE one) of a
     // synced same-team issue is a pill; one linked here opens its tab.
@@ -319,13 +396,18 @@ fun ThreadScreen(
                         onOpenIssue = openIssueHere,
                     )
                 },
-                sessionStop = { sessionId ->
-                    // A shared session lets every member Stop; a private one
-                    // only its starter (the server re-checks).
-                    tree.firstOrNull { it.id == sessionId }
-                        ?.takeIf { !it.isEnded && (it.shared || it.userId == me) }
-                        ?.let { { stopConfirmFor = sessionId } }
+                headerLead = headerLead,
+                headerSubtitle = headerSubtitle,
+                headerSubtitleColor = headerSubtitleColor,
+                // chats.json STOP: the pill ends the chat (the root's tree).
+                onStop = if (agent == null && rootRow != null && !rootEnded && canSteer) {
+                    { stopConfirmFor = viewModel.rootId }
+                } else {
+                    null
                 },
+                menu = chatMenu,
+                menuGroups = listOf(guideMenuItems),
+                onSurfaceReply = { text -> viewModel.send(text) },
                 guidePage = { padding ->
                     ThreadGuidePage(
                         guideRaw = guide,
@@ -338,7 +420,6 @@ fun ThreadScreen(
                         onOpenThread = { id -> if (id != viewModel.rootId) onOpenThread(id) },
                     )
                 },
-                guideMenu = { guidePr?.let { pr -> GuideMenu(pr, isMember) { closePrConfirm = pr } } },
                 onOpenSession = openThreadSession,
                 suggestions = suggestionActions,
                 tail = liveActivity?.let { activity -> { SessionLiveTail(activity, root) } },
@@ -397,9 +478,21 @@ fun ThreadScreen(
             handlers = mapOf(
                 "stop" to {
                     stopConfirmFor = null
-                    viewModel.stop(sessionId)
+                    // chats.json STOP: the header pill = the menu's Stop,
+                    // `sessions.end` on the ROOT (the whole tree ends).
+                    if (sessionId == viewModel.rootId) viewModel.stopChat() else viewModel.stop(sessionId)
                 },
             ),
+        )
+    }
+    if (deleteConfirm) {
+        com.exponential.app.ui.components.ChatDeleteConfirm(
+            onConfirm = {
+                deleteConfirm = false
+                // After a delete the chat's screen closes back to the list.
+                viewModel.deleteChat(onDeleted = onBack)
+            },
+            onDismiss = { deleteConfirm = false },
         )
     }
     // EXP-1307: the Guide `…`'s Close PR asks first (close-pr.json, the
@@ -425,6 +518,33 @@ fun ThreadScreen(
             defaultAction = 0,
         )
     }
+}
+
+/** The agent chat's subtitle lead (chats.json draft: `Agent · <model>`). */
+private const val AGENT_SUBTITLE = "Agent"
+
+private fun Modifier.androidxClipCircle(): Modifier = this.then(Modifier.clip(androidx.compose.foundation.shape.CircleShape))
+
+/** The chat header's lead (chats.json `lead`, the list row's rule): needs
+ *  you, working, else the root's PR glyph, else the bare mark. */
+internal fun chatLeadOf(view: SessionTree.ThreadView?, pullRequests: List<PullRequestEntity>): com.exponential.app.domain.Chats.ChatLead {
+    val mark = SessionTree.threadRowMarkState(view?.needsYou == true, view?.busy == true)
+    return when {
+        mark == SessionTree.SessionState.NeedsYou -> com.exponential.app.domain.Chats.ChatLead.NeedsYou
+        mark == SessionTree.SessionState.Working -> com.exponential.app.domain.Chats.ChatLead.Working
+        pullRequests.any { it.state == DomainContract.prStateOpen } -> com.exponential.app.domain.Chats.ChatLead.Open
+        pullRequests.any { it.state == DomainContract.prStateMerged } -> com.exponential.app.domain.Chats.ChatLead.Merged
+        else -> com.exponential.app.domain.Chats.ChatLead.Waiting
+    }
+}
+
+/** The chat header's state word: needs you, working…, ended, else waiting. */
+internal fun chatStateWord(view: SessionTree.ThreadView?, ended: Boolean): String? = when {
+    view == null -> null
+    ended -> SessionTree.CardCopy.STATES.getValue(SessionTree.SessionState.Ended)
+    view.needsYou -> SessionTree.CardCopy.STATES.getValue(SessionTree.SessionState.NeedsYou)
+    view.busy -> com.exponential.app.domain.Chats.Copy.PREVIEW_WORKING
+    else -> SessionTree.CardCopy.STATES.getValue(SessionTree.SessionState.Waiting)
 }
 
 /** A wire timestamp as the local `HH:mm` a message row shows. */
@@ -471,12 +591,18 @@ fun ThreadContent(
     /** EXP-1343: a session chip's page = that session's raw work + its
      *  composer (the session view's body, no own header). */
     sessionPage: @Composable (sessionId: String, padding: PaddingValues) -> Unit = { _, _ -> },
-    /** EXP-1343: the header's Stop while the shown session page is live and
-     *  the viewer may stop it; null = no Stop for that session. */
-    sessionStop: (sessionId: String) -> (() -> Unit)? = { null },
-    /** EXP-1307: the header `…` (Close PR, EXP-1338) while the Guide tab is
-     *  selected; the slot draws nothing without an entry. */
-    guideMenu: (@Composable () -> Unit)? = null,
+    /** Thread 58cb32df (chats.json): THE chat header — its lead disc, the
+     *  subtitle (state · device; an agent: `Agent` · its model), the Stop
+     *  pill (a thread while the root is not ended; null = none) and the `…`
+     *  entries (the chat's menu, then the Guide's Close PR). */
+    headerLead: @Composable () -> Unit = {},
+    headerSubtitle: String? = null,
+    headerSubtitleColor: Color? = null,
+    onStop: (() -> Unit)? = null,
+    menu: List<com.exponential.app.ui.components.ChatMenuItem> = emptyList(),
+    menuGroups: List<List<com.exponential.app.ui.components.ChatMenuItem>> = emptyList(),
+    /** A surface card's `reply` → the person's next message. */
+    onSurfaceReply: ((String) -> Unit)? = null,
     /** EXP-1323: a report line / a started suggestion opens that session. */
     onOpenSession: ((sessionId: String) -> Unit)? = null,
     /** EXP-1323: the suggested tasks cards' actions (null = read-only). */
@@ -520,56 +646,42 @@ fun ThreadContent(
             false
         }
     }
-    val shownStop = (selected as? SessionTree.ThreadTab.SessionTab)?.let { sessionStop(it.sessionId) }
     var composerExpanded by rememberSaveable { mutableStateOf(false) }
     Scaffold(
         modifier = modifier,
         containerColor = Color.Transparent,
         topBar = {
-            if (agent != null) {
-                HeaderEdgeChrome {
-                    AgentChannelHeader(
-                        name = agent.name,
-                        icon = agent.icon,
-                        color = agent.color,
-                        onBack = onBack,
-                        modifier = Modifier.statusBarsPadding(),
-                    )
-                }
-            } else {
-                WorkTopBar(
-                    title = view?.title.orEmpty(),
-                    titleContent = { ThreadTitle(title = view?.title.orEmpty(), private = view?.private == true) },
-                    onBack = { onBack?.invoke() },
-                    // EXP-1343: ONE header for every page; a live session
-                    // page puts its Stop in the trailing slot.
-                    verb = if (shownStop != null) com.exponential.app.ui.work.WorkBarVerb.Stop else null,
-                    verbEnabled = shownStop != null,
-                    onVerb = { shownStop?.invoke() },
-                    // EXP-1316: the `…` rides every tab ×4 while the Guide has a PR.
-                    menu = guideMenu,
-                    tabs = if (view != null) {
-                        {
-                            ThreadTabStrip(
-                                tabs = view.tabs,
-                                // NEW-46: the main session's page shows the
-                                // Conversation tab selected.
-                                selectedKey = threadTabKey(selected).let {
-                                    if (mainSessionId != null && it == "session:$mainSessionId") "conversation" else it
-                                },
-                                onSelect = onSelectKey,
-                                onAdd = onAdd,
-                                issueStatus = issueStatus,
-                                issueTitle = issueTitle,
-                                onIssueMenu = onIssueMenu,
-                                onOpenSession = { id -> openSessionHere(id) },
-                            )
-                        }
-                    } else {
-                        null
-                    },
-                )
-            }
+            ChatHeader(
+                title = agent?.name ?: view?.title.orEmpty(),
+                subtitle = headerSubtitle,
+                subtitleColor = headerSubtitleColor,
+                lead = headerLead,
+                onBack = onBack,
+                onStop = onStop,
+                menu = menu,
+                menuGroups = menuGroups,
+                // An agent's chat is the conversation only: no strip.
+                tabs = if (agent == null && view != null) {
+                    {
+                        ThreadTabStrip(
+                            tabs = view.tabs,
+                            // NEW-46: the main session's page shows the
+                            // Conversation tab selected.
+                            selectedKey = threadTabKey(selected).let {
+                                if (mainSessionId != null && it == "session:$mainSessionId") "conversation" else it
+                            },
+                            onSelect = onSelectKey,
+                            onAdd = onAdd,
+                            issueStatus = issueStatus,
+                            issueTitle = issueTitle,
+                            onIssueMenu = onIssueMenu,
+                            onOpenSession = { id -> openSessionHere(id) },
+                        )
+                    }
+                } else {
+                    null
+                },
+            )
         },
     ) { padding ->
         if (view == null) {
@@ -627,6 +739,7 @@ fun ThreadContent(
                             suggestions = suggestions,
                             tail = tail,
                             dockedIds = dockedIds,
+                            onSurfaceReply = onSurfaceReply,
                         )
                         FloatingBarEdge(
                             bottomInset = bottomInset,

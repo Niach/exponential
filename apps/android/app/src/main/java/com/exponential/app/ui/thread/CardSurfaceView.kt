@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.compose.ExponentialSurface
 import at.exponential.ui.host.HostPlugin
+import at.exponential.ui.host.SurfaceActionEvent
 import at.exponential.ui.host.MediaOptions
 import at.exponential.ui.host.MediaRule
 import at.exponential.ui.host.UrlPolicy
@@ -80,8 +81,14 @@ internal fun cardAllowPrivate(origin: String?): List<String>? = origin
     ?.takeIf { it.isNotEmpty() }
     ?.let { listOf(it.lowercase()) }
 
-/** The card host plugin (see [CardSurfaceHandle]). */
-private class CardSurfaceHost(base: String?, token: String?) : HostPlugin {
+/** The card host plugin (see [CardSurfaceHandle]). Thread 58cb32df: a
+ *  [SurfaceCard] passes [onAction] (a press's event name + context) so a
+ *  `reply` reaches the chat; a plan / question card passes none. */
+private class CardSurfaceHost(
+    base: String?,
+    token: String?,
+    private val onActionEvent: ((name: String, context: JsonObject?) -> Unit)? = null,
+) : HostPlugin {
     private val origin = base?.trimEnd('/')
 
     private val ownHost: List<String>? = cardAllowPrivate(origin)
@@ -102,15 +109,53 @@ private class CardSurfaceHost(base: String?, token: String?) : HostPlugin {
 
     /** Never opened from a card: links stay inert (no transport). */
     override fun openUrl(url: String) {}
+
+    override fun onAction(event: SurfaceActionEvent) {
+        val forward = onActionEvent ?: return
+        val context = runCatching { Json.parseToJsonElement(event.context.json) as? JsonObject }.getOrNull()
+        forward(event.name, context)
+    }
 }
 
-private fun cardHost(context: Context): HostPlugin {
+private fun cardHost(
+    context: Context,
+    onAction: ((name: String, context: JsonObject?) -> Unit)? = null,
+): HostPlugin {
     val auth = runCatching {
         EntryPointAccessors.fromApplication(context.applicationContext, CardSurfaceEntryPoint::class.java).authRepository()
     }.getOrNull()
     val base = auth?.instanceUrl?.value
     val token = auth?.let { a -> base?.let { resolveAccountForUrl(a.accounts.value, a.activeAccountId.value, it)?.token } }
-    return CardSurfaceHost(base, token)
+    return CardSurfaceHost(base, token, onAction)
+}
+
+/**
+ * The [SurfaceModel] of a card's [surface] (the core catalog, the card host);
+ * null when the core refuses it. [onAction] (thread 58cb32df) receives every
+ * action event the surface raises.
+ */
+@Composable
+internal fun rememberCardSurfaceModel(
+    surface: CardSurface,
+    onAction: ((name: String, context: JsonObject?) -> Unit)? = null,
+): SurfaceModel? {
+    val context = LocalContext.current
+    val latest = androidx.compose.runtime.rememberUpdatedState(onAction)
+    val forward: ((String, JsonObject?) -> Unit)? = if (onAction == null) null else { name, ctx -> latest.value?.invoke(name, ctx) }
+    return remember(surface) {
+        runCatching {
+            SurfaceModel(
+                id = "card-${surface.root.hashCode()}",
+                options = SurfaceOptions(),
+                host = cardHost(context, forward),
+            ) { error("set by ExponentialSurface") }.also { m ->
+                m.setNested(surface.root.toString())
+                surface.data?.forEach { (key, value) ->
+                    m.setData("/" + key.replace("~", "~0").replace("/", "~1"), JsonValue.parse(value.toString()))
+                }
+            }
+        }.getOrNull()
+    }
 }
 
 /**
@@ -126,21 +171,7 @@ fun CardSurfaceView(
     inert: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    val model = remember(surface) {
-        runCatching {
-            SurfaceModel(
-                id = "card-${surface.root.hashCode()}",
-                options = SurfaceOptions(),
-                host = cardHost(context),
-            ) { error("set by ExponentialSurface") }.also { m ->
-                m.setNested(surface.root.toString())
-                surface.data?.forEach { (key, value) ->
-                    m.setData("/" + key.replace("~", "~0").replace("/", "~1"), JsonValue.parse(value.toString()))
-                }
-            }
-        }.getOrNull()
-    }
+    val model = rememberCardSurfaceModel(surface)
     handle.model = model
     // plan-card.json `card` (web `PlanCardSurface`): the "Preview" label
     // ABOVE the frame, `surfaceLabelGap` apart; the frame = the row fill

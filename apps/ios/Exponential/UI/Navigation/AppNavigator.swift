@@ -22,7 +22,8 @@ enum AppRoute: Hashable {
     /// VAPP-110: one app's editor (`appId` = its row id, or the built-in's
     /// `AppListEntry.builtinId`).
     case app(accountId: String, appId: String)
-    /// My Work (EXP-58): Inbox + My Issues merged behind one destination.
+    /// The Inbox page (EXP-1373: pushed from the Chats header's inbox
+    /// circle, notifications only — My issues and Drafts moved to the board).
     case myWork
     /// EXP-1291: the Threads tab (it replaced Reviews) — the agents, then
     /// the thread roots Needs you · Running · Recent.
@@ -61,6 +62,8 @@ enum AppRoute: Hashable {
     case settings
     case serverDetail(accountId: String)
     case teamSettings(accountId: String, teamId: String)
+    /// EXP-1373: a Team tab row → that section of the team's settings.
+    case teamSettingsSection(accountId: String, teamId: String, section: TeamSettingsSection)
     case invite(token: String)
     case syncDebug
     /// About (EXP-262): the app's version surface, pushed from Settings →
@@ -77,8 +80,11 @@ enum AppRoute: Hashable {
 /// screen the app opens on. A tab's pushes are parked while another tab is
 /// up and handed back on return, EXCEPT Home's: it always lands on its root
 /// (Android parity: `popUpTo(agent-tab)` never restores it).
+///
+/// Thread 58cb32df (chats.json `shell`): the bar's tabs are Board · Devices ·
+/// Chats · Team; the agent home stays the chat arm's root.
 enum MainTab: Hashable {
-    case agent, issues, inbox, devices, threads
+    case agent, issues, devices, threads, team
 
     /// Whether this tab's pushes are parked across a switch.
     var keepsPushes: Bool { self != .agent }
@@ -385,7 +391,10 @@ struct MainNavigator: View {
     @State private var boardLoader: MultiAccountBoardLoader?
     @State private var observationTasks: [Task<Void, Never>] = []
     @State private var syncing = false
-    @State private var unreadCount = 0
+    /// EXP-1373: the team of every unread notification the inbox can render
+    /// (nil = a team-less row): the Chats header's inbox dot reads the
+    /// ACTIVE team's, the Team tab's team rows their own amber dots.
+    @State private var unreadTeamIds: [String?] = []
     /// EXP-1272: the Inbox tab's dot also lights while a draft resolves: the
     /// SAME rows the inbox's Drafts segment lists (account-wide, like it).
     /// The team id of every resolvable draft (one entry per draft); the
@@ -520,6 +529,7 @@ struct MainNavigator: View {
                 let accountId = issueAccountId(forUserId: deps.deepLinkBus.pendingSessionUserId)
                 _ = deps.deepLinkBus.consumeSession()
                 navigate {
+                    activateTeam(forSession: sessionId, accountId: accountId)
                     path.append(AppRoute.agentSession(accountId: accountId, sessionId: sessionId))
                 }
             }
@@ -530,6 +540,7 @@ struct MainNavigator: View {
                 // EXP-1288: like `pushRoute` — a thread already on the stack
                 // is popped back to, never a second page of it.
                 navigate {
+                    activateTeam(forSession: target.threadId, accountId: target.accountId)
                     if let index = Self.threadIndex(target.threadId, in: path) {
                         landOnThread(at: index, threadId: target.threadId, page: target.page)
                     } else {
@@ -569,9 +580,11 @@ struct MainNavigator: View {
             let sessionUserId = deps.deepLinkBus.pendingSessionUserId
             if let sessionId = deps.deepLinkBus.consumeSession() {
                 let accountId = issueAccountId(forUserId: sessionUserId)
+                activateTeam(forSession: sessionId, accountId: accountId)
                 path.append(AppRoute.agentSession(accountId: accountId, sessionId: sessionId))
             }
             if let target = deps.deepLinkBus.consumeThread() {
+                activateTeam(forSession: target.threadId, accountId: target.accountId)
                 path.append(AppRoute.thread(
                     accountId: target.accountId, threadId: target.threadId, child: target.page
                 ))
@@ -595,28 +608,25 @@ struct MainNavigator: View {
             if showsTabBar && !tabBarChrome.suppressed {
                 MobileTabBar(
                     agentActive: tab == .agent,
-                    issuesActive: tab == .issues,
+                    boardActive: tab == .issues,
                     devicesActive: tab == .devices,
-                    myWorkActive: tab == .inbox,
-                    threadsActive: tab == .threads,
-                    unreadCount: unreadCount,
-                    hasDrafts: teamState.activeTeamId.map { draftTeamIds.contains($0) } ?? false,
-                    threadsRunning: sessionLists.threadsRunning,
-                    threadsNeedYou: sessionLists.needsYou,
-                    threadsUnread: sessionLists.threadsUnread,
+                    chatsActive: tab == .threads,
+                    teamActive: tab == .team,
+                    team: teamState.activeTeam,
+                    chatsRunning: sessionLists.chatsRunning(teamId: teamState.activeTeamId),
+                    chatsNeedYou: sessionLists.chatsNeedYou(teamId: teamState.activeTeamId),
+                    chatsUnread: sessionLists.chatsUnread(teamId: teamState.activeTeamId),
                     // The launcher capsule (chat | new issue) rides every
                     // bar-visible surface (EXP-827/EXP-973); only a team with
                     // no board leaves the New-issue arm inert.
                     composeEnabled: composeTarget != nil,
                     // EXP-1210: every entry SWITCHES the root (a re-tap pops
                     // back to it); EXP-1212: through the draft hold like
-                    // every other path change. NEW-7: the Actions tab is
-                    // gone (prompts = Settings → Prompts and the `/` menu);
-                    // Settings is the Issues header's gear only.
-                    onIssues: { selectTab(.issues) },
+                    // every other path change.
+                    onBoard: { selectTab(.issues) },
                     onDevices: { selectTab(.devices) },
-                    onMyWork: { selectTab(.inbox) },
-                    onThreads: { selectTab(.threads) },
+                    onChats: { selectTab(.threads) },
+                    onTeam: { selectTab(.team) },
                     onCompose: {
                         // EXP-1170: the draft id is minted HERE, at tap time.
                         guard let target = composeTarget else { return }
@@ -648,6 +658,12 @@ struct MainNavigator: View {
     }
 
     // MARK: - Tab bar
+
+    /// The Chats header's inbox dot: an unread row of the ACTIVE team (or a
+    /// team-less one).
+    private var activeInboxUnread: Bool {
+        unreadTeamIds.contains { $0 == nil || $0 == teamState.activeTeamId }
+    }
 
     /// The bar floats only over the tab ROOTS (EXP-1210) and pushed board
     /// lists; detail and settings screens — Search among them since EXP-686,
@@ -704,8 +720,8 @@ struct MainNavigator: View {
     private static func tab(for route: AppRoute) -> MainTab? {
         switch route {
         case .agents: return .devices
-        case .myWork: return .inbox
         case .threads: return .threads
+        case .settings: return .team
         case let .agent(_, seed) where seed == .empty: return .agent
         default: return nil
         }
@@ -728,14 +744,17 @@ struct MainNavigator: View {
                     selectBoard(accountId: accountId, boardId: boardId)
                 }
             )
-        case .inbox:
-            MyWorkView()
+        case .team:
+            TeamTabView(
+                unreadTeamIds: Set(unreadTeamIds.compactMap { $0 }),
+                onSwitchTeam: { accountId, teamId in switchTeam(accountId: accountId, teamId: teamId) }
+            )
                 .environment(\.accountId, accountId)
         case .devices:
             AgentsView()
                 .environment(\.accountId, accountId)
         case .threads:
-            ThreadsView()
+            ChatsView(inboxUnread: activeInboxUnread)
                 .environment(\.accountId, accountId)
         }
     }
@@ -928,10 +947,10 @@ extension MainNavigator {
                 .id(appId)
                 .environment(\.accountId, accountId)
         case .myWork:
-            MyWorkView()
+            InboxPage()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case .threads:
-            ThreadsView()
+            ChatsView(inboxUnread: activeInboxUnread)
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .board(accountId, id):
             IssueListView(boardId: id)
@@ -987,11 +1006,18 @@ extension MainNavigator {
             AgentPageView(seed: seed)
                 .environment(\.accountId, accountId)
         case .settings:
-            SettingsView()
+            TeamTabView(
+                unreadTeamIds: Set(unreadTeamIds.compactMap { $0 }),
+                onSwitchTeam: { accountId, teamId in switchTeam(accountId: accountId, teamId: teamId) }
+            )
+                .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .serverDetail(accountId):
             ServerDetailView(accountId: accountId)
         case let .teamSettings(accountId, teamId):
             TeamSettingsView(teamId: teamId)
+                .environment(\.accountId, accountId)
+        case let .teamSettingsSection(accountId, teamId, section):
+            TeamSettingsView(teamId: teamId, focus: section)
                 .environment(\.accountId, accountId)
         case let .invite(token):
             InviteAcceptView(token: token)
@@ -1057,17 +1083,26 @@ extension MainNavigator {
         // unread rows keep syncing while their issues drop out of the local
         // store — a raw count would light the dot forever over an inbox that
         // shows "All caught up".
-        let notifObs = ValueObservation.tracking { db -> ([NotificationEntity], Set<String>) in
-            let notifications = try NotificationEntity.fetchAll(db)
-            let issueIds = try Set(String.fetchAll(db, sql: "SELECT \"id\" FROM \"issues\""))
-            return (notifications, issueIds)
+        let notifObs = ValueObservation.tracking { db -> [String?] in
+            // `InboxViewModel.isRenderable` in SQL: an issue row needs its
+            // issue synced; issue-less rows are agent messages and blocked
+            // runs. The team = the row's own, else its issue's board's.
+            try Row.fetchAll(db, sql: """
+                SELECT COALESCE("n"."team_id", "b"."team_id") AS "team_id"
+                FROM "notifications" AS "n"
+                LEFT JOIN "issues" AS "i" ON "i"."id" = "n"."issue_id"
+                LEFT JOIN "boards" AS "b" ON "b"."id" = "i"."board_id"
+                WHERE "n"."read_at" IS NULL
+                  AND (("n"."issue_id" IS NULL AND "n"."type" IN (?, ?)) OR "i"."id" IS NOT NULL)
+                """, arguments: [
+                    DomainContract.notificationTypeAgentMessage,
+                    DomainContract.notificationTypeSessionBlocked,
+                ]).map { $0["team_id"] as String? }
         }
         let notifTask = Task { @MainActor in
             do {
-                for try await (notifications, issueIds) in notifObs.values(in: pool) {
-                    unreadCount = notifications.filter {
-                        $0.readAt == nil && InboxViewModel.isRenderable($0, issueIds: issueIds)
-                    }.count
+                for try await teamIds in notifObs.values(in: pool) {
+                    unreadTeamIds = teamIds
                 }
             } catch {}
         }
@@ -1212,6 +1247,11 @@ extension MainNavigator {
     private func appendIssueRoute(
         accountId: String, issueId: String, replacingTop: Bool = false, commentId: String? = nil
     ) {
+        // EXP-1373: ONE active team: a link into another team switches it
+        // first, silently.
+        activateTeam(accountId: accountId) { db in
+            try String.fetchOne(db, sql: "SELECT \"team_id\" FROM \"issues\" WHERE \"id\" = ?", arguments: [issueId])
+        }
         let route: AppRoute = if let commentId {
             .issueComment(accountId: accountId, id: issueId, commentId: commentId)
         } else {
@@ -1238,9 +1278,9 @@ extension MainNavigator {
         if !accountId.isEmpty, accountId != deps.auth.activeAccountId {
             deps.auth.switchAccount(id: accountId)
         }
-        // MyWorkView persists its segment in AppStorage — point it at Inbox.
-        UserDefaults.standard.set("inbox", forKey: "myWorkSegment")
-        landOnRoot(of: .inbox)
+        // EXP-1373: the Inbox is a page pushed over the Chats tab.
+        landOnRoot(of: .threads)
+        path.append(.myWork)
     }
 
     /// EXP-825: land on Home in the linked team — switch account first when
@@ -1262,6 +1302,66 @@ extension MainNavigator {
             teamState.activeTeamId = team.id
         }
         landOnRoot(of: .agent)
+    }
+
+    /// EXP-1373 (chats.json `shell`): the phone shows ONE active team; a
+    /// push or link naming another team of the active account switches it
+    /// first, silently (no prompt), re-pointing the board too.
+    private func activateTeam(accountId: String, teamOf query: (Database) throws -> String?) {
+        guard accountId == (deps.auth.activeAccountId ?? ""),
+              let pool = try? deps.db.pool(forAccountId: accountId),
+              let teamId = (try? pool.read { try query($0) }) ?? nil,
+              teamId != teamState.activeTeamId,
+              teamState.teams.contains(where: { $0.id == teamId })
+        else { return }
+        applyTeam(teamId)
+    }
+
+    private func activateTeam(forSession sessionId: String, accountId: String) {
+        activateTeam(accountId: accountId) { db in
+            try String.fetchOne(db, sql: "SELECT \"team_id\" FROM \"sessions\" WHERE \"id\" = ?", arguments: [sessionId])
+        }
+    }
+
+    /// The Team tab's pick: another server's team activates that account
+    /// first (its navigator rebuilds on the team's board); this server's
+    /// covers the window while the team lands (EXP-1275 D8).
+    private func switchTeam(accountId: String, teamId: String) {
+        if accountId != (deps.auth.activeAccountId ?? "") {
+            let block = boardLoader?.groups.first { $0.accountId == accountId }?
+                .teamBlocks.first { $0.team.id == teamId }
+            if let board = block?.boards.first {
+                SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: board.id)
+            }
+            let account = deps.auth.accounts.first { $0.id == accountId }
+            BlockingFeedback.shared.show(
+                FeedbackStates.Blocking.switchAccount(account?.userEmail ?? account?.displayName ?? "")
+            ) {
+                deps.auth.switchAccount(id: accountId)
+            }
+            return
+        }
+        guard teamId != teamState.activeTeamId,
+              let team = teamState.teams.first(where: { $0.id == teamId }) else { return }
+        BlockingFeedback.shared.show(FeedbackStates.Blocking.switchTeam(team.name)) {
+            applyTeam(teamId)
+        }
+    }
+
+    /// Points the active team (and the board in view) at `teamId`.
+    private func applyTeam(_ teamId: String) {
+        teamState.activeTeamId = teamId
+        guard let accountId = deps.auth.activeAccountId else { return }
+        if let current = currentBoard,
+           teamState.boards.first(where: { $0.id == current.boardId })?.teamId == teamId {
+            return
+        }
+        let boards = boardLoader?.groups.first { $0.accountId == accountId }?
+            .teamBlocks.first { $0.team.id == teamId }?.boards ?? []
+        if let board = boards.first {
+            currentBoard = CurrentBoardRef(accountId: accountId, boardId: board.id)
+            SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: board.id)
+        }
     }
 
     private func stopObserving() {

@@ -14,7 +14,8 @@ import org.junit.Test
  * asserted byte-for-byte on purpose.
  *
  * NEW-2 (owner 2026-10-21): the catalog = the contract builtins ONLY
- * (compact, model, effort; clear and btw are gone) and commands the agent CLI
+ * (compact, new, model, effort; clear and btw are gone; thread 58cb32df
+ * added `/new`, a fresh conversation in the same session) and commands the agent CLI
  * advertises (`config_state.commands`) are never merged in: the API has no
  * path for them at all.
  */
@@ -23,15 +24,15 @@ class SlashCommandsTest {
     @Test
     fun `the catalog is the generated contract, filtered by the run's agent`() {
         assertEquals(DomainContract.steerCommandNames, SlashCommands.all.map { it.name })
-        assertEquals(listOf("compact", "model", "effort"), SlashCommands.all.map { it.name })
+        assertEquals(listOf("compact", "new", "model", "effort"), SlashCommands.all.map { it.name })
         // A row with no agent recorded ran the default one.
         assertEquals(
             SlashCommands.catalogFor("claude").map { it.name },
             SlashCommands.catalogFor(null).map { it.name },
         )
         assertEquals("claude", DomainContract.codingAgentValues.first())
-        assertEquals(listOf("compact", "model", "effort"), SlashCommands.catalogFor("claude").map { it.name })
-        assertEquals(listOf("compact", "model", "effort"), SlashCommands.catalogFor("codex").map { it.name })
+        assertEquals(listOf("compact", "new", "model", "effort"), SlashCommands.catalogFor("claude").map { it.name })
+        assertEquals(listOf("compact", "new", "model", "effort"), SlashCommands.catalogFor("codex").map { it.name })
         // A retired / unknown agent id's catalog is EMPTY rather than claude's.
         assertTrue(SlashCommands.catalogFor("pi").isEmpty())
         // Nothing the catalog offers discards context any more.
@@ -52,8 +53,10 @@ class SlashCommandsTest {
         assertEquals(listOf("effort"), SlashCommands.matches("/e", "codex").map { it.name })
         // Not a prefix of anything.
         assertTrue(SlashCommands.matches("/zzz", "claude").isEmpty())
+        // Thread 58cb32df: `/new` is a builtin (a fresh conversation).
+        assertEquals(listOf("new"), SlashCommands.matches("/ne", "codex").map { it.name })
+        assertEquals("/new", SlashCommands.all.single { it.name == "new" }.insertion)
         // Outside the catalog, whatever the CLI ships.
-        assertTrue(SlashCommands.matches("/new", "codex").isEmpty())
         assertTrue(SlashCommands.matches("/cl", "claude").isEmpty())
         // The slash must open the draft, and the first whitespace closes the
         // menu — the argument is being typed now.
@@ -84,7 +87,7 @@ class SlashCommandsTest {
         assertEquals("effort", SlashCommands.commandFor("/effort high", null)?.name)
         // Not in the catalog, whatever the CLI ships.
         assertNull(SlashCommands.commandFor("/cost", "claude"))
-        assertNull(SlashCommands.commandFor("/new", "codex"))
+        assertEquals("new", SlashCommands.commandFor("/new", "codex")?.name)
         // A retired agent id names no command at all.
         assertNull(SlashCommands.commandFor("/compact", "pi"))
         // Prose, paths and a bare slash are never commands.

@@ -33,6 +33,7 @@ class SchedulePickerTest {
         hour = json.getValue("hour").jsonPrimitive.int,
         weekdays = json.getValue("weekdays").jsonArray.map { it.jsonPrimitive.int },
         dayOfMonth = json.getValue("dayOfMonth").jsonPrimitive.int,
+        every = json.getValue("every").jsonPrimitive.int,
     )
 
     private fun cases(key: String): List<JsonObject> =
@@ -87,7 +88,8 @@ class SchedulePickerTest {
         assertEquals(rows.str("time"), SchedulePicker.Copy.ROW_TIME)
         assertEquals(rows.str("timeZone"), SchedulePicker.Copy.ROW_TIME_ZONE)
         assertEquals(rows.str("cron"), SchedulePicker.Copy.ROW_CRON)
-        assertEquals(7, rows.size)
+        assertEquals(rows.str("every"), SchedulePicker.Copy.ROW_EVERY)
+        assertEquals(8, rows.size)
         val repeat = copy.getValue("repeat").jsonObject
         assertEquals(repeat.keys - "custom", SchedulePicker.Copy.REPEAT.keys)
         for ((key, label) in SchedulePicker.Copy.REPEAT) assertEquals(repeat.str(key), label)
@@ -105,6 +107,7 @@ class SchedulePickerTest {
         assertEquals(copy.str("timeZonePlaceholder"), SchedulePicker.Copy.TIME_ZONE_PLACEHOLDER)
         assertEquals(copy.str("cronPlaceholder"), SchedulePicker.Copy.CRON_PLACEHOLDER)
         val summary = copy.getValue("summary").jsonObject
+        assertEquals(summary.str("minutes"), SchedulePicker.Copy.SUMMARY_MINUTES)
         assertEquals(summary.str("hourly"), SchedulePicker.Copy.SUMMARY_HOURLY)
         assertEquals(summary.str("daily"), SchedulePicker.Copy.SUMMARY_DAILY)
         assertEquals(summary.str("weekly"), SchedulePicker.Copy.SUMMARY_WEEKLY)
@@ -112,7 +115,8 @@ class SchedulePickerTest {
         assertEquals(summary.str("monthly"), SchedulePicker.Copy.SUMMARY_MONTHLY)
         assertEquals(summary.str("custom"), SchedulePicker.Copy.SUMMARY_CUSTOM)
         assertEquals(summary.str("zoned"), SchedulePicker.Copy.SUMMARY_ZONED)
-        assertEquals(7, summary.size)
+        assertEquals(8, summary.size)
+        assertEquals(copy.str("every"), SchedulePicker.Copy.EVERY)
         val errors = copy.getValue("errors").jsonObject
         assertEquals(errors.str("noDays"), SchedulePicker.Copy.ERROR_NO_DAYS)
         assertEquals(errors.str("cron"), SchedulePicker.Copy.ERROR_CRON)
@@ -121,7 +125,7 @@ class SchedulePickerTest {
         assertEquals(
             setOf(
                 "rows", "repeat", "weekdays", "weekdaysShort", "weekdaysAll", "weekdaysWork", "weekdaysWeekend",
-                "dayOfMonth", "minuteOfHour", "timeZonePlaceholder", "cronPlaceholder", "summary", "errors",
+                "dayOfMonth", "minuteOfHour", "timeZonePlaceholder", "cronPlaceholder", "summary", "errors", "every",
             ),
             copy.keys,
         )
@@ -143,7 +147,12 @@ class SchedulePickerTest {
         assertEquals(ids.str("time"), SchedulePicker.TEST_ID_TIME)
         assertEquals(ids.str("timeZone"), SchedulePicker.TEST_ID_TIME_ZONE)
         assertEquals(ids.str("cron"), SchedulePicker.TEST_ID_CRON)
-        assertEquals(7, ids.size)
+        assertEquals(ids.str("every"), SchedulePicker.TEST_ID_EVERY)
+        assertEquals(8, ids.size)
+        assertEquals(
+            fixture.getValue("everyValues").jsonArray.map { it.jsonPrimitive.int },
+            SchedulePicker.EVERY_VALUES,
+        )
     }
 
     @Test

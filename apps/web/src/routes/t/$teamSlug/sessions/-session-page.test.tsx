@@ -1,10 +1,10 @@
 // EXP-1293 / EXP-1316: `/sessions/$id` — a thread's session REDIRECTS into
 // its thread (`?tab=session&session=<id>`, `from` kept); a session under an
 // agent's conversation (NEW-2: a root with `agentId`) keeps its own screen: back to the agent, the session's name,
-// Stop while live, the feed and the reply box. Lives under a `-` prefix so
+// no header Stop (Chats), the feed and the reply box. Lives under a `-` prefix so
 // the route generator ignores it.
 import type { ComponentType, ReactNode } from "react"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
@@ -151,10 +151,12 @@ describe(`the session page`, () => {
     expect(composer.textContent).toBe(`Reply…`)
   })
 
-  it(`offers Stop while live and stops through sessions.stop`, () => {
+  // Thread 58cb32df (chats.json STOP): an agent's tree has no header Stop
+  // pill; the composer's turn stop and the agent menu's Stop remain.
+  it(`has no header Stop under an agent, even while live`, () => {
     render(<Page />)
-    fireEvent.click(screen.getByTestId(`session-stop`))
-    expect(mocks.stop.mock.calls[0]?.[0]).toEqual({ sessionId: `s2` })
+    expect(screen.queryByTestId(`session-stop`)).toBeNull()
+    expect(mocks.stop).not.toHaveBeenCalled()
   })
 
   it(`has no Stop once the session ended`, () => {

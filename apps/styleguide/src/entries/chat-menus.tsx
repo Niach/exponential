@@ -1,12 +1,74 @@
+import fixture from "@exp/domain-contract/fixtures/chats.json"
+import { agentMenuEntries, threadMenuEntries } from "@exp/domain-contract/chats"
+import { agentMenuRows, chatMenuRows, MenuPanel } from "@exp/ui"
+
+import { PromptSpecimen } from "./dialog-shared.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
-// Thread 58cb32df (fixtures/chats.json): placeholder until its lane fills it.
+// Thread 58cb32df (fixtures/chats.json MENUS ×4): THE chat menu and THE agent
+// menu, the real `@exp/ui` rows (`chatMenuRows` over `threadMenuEntries`,
+// `agentMenuRows` over `agentMenuEntries`) in both looks: the pointer menu a
+// right-click opens and the sheet a phone's long-press opens (titled with the
+// chat's title), plus the delete confirm.
+
+const COPY = fixture.copy
+const noop = (): void => {}
+
+const LIVE = chatMenuRows(threadMenuEntries({ rootStatus: `running`, canSteer: true }), noop)
+const ENDED = chatMenuRows(threadMenuEntries({ rootStatus: `ended`, canSteer: true }), noop)
+const AGENT_BUSY_OWNER = agentMenuRows(agentMenuEntries({ busy: true, isOwner: true }), noop)
+const AGENT_IDLE = agentMenuRows(agentMenuEntries({ busy: false, isOwner: false }), noop)
+
+const caption = (text: string) => <div className="mb-2 text-xs text-muted-foreground">{text}</div>
+
 export const entry: StyleguideEntry = {
   id: `chat-menus`,
   section: `special`,
   owner: `EXP-1373`,
   title: `Chat menus`,
-  blurb: `See packages/domain-contract/fixtures/chats.json.`,
-  placeholder: true,
-  render: () => `<p>Placeholder: EXP-1373 fills this entry.</p>`,
+  blurb: `The menus a chat row and an agent open, identical ×4 through each platform's ONE menu host (a right-click on pointers, a long-press on touch; phones present the sheet with the chat's title as its header). A chat (the phone list, the Chats page rows, the rail's chat rows and the chat header's \`…\`): live = "${COPY.menu.stop}" (sessions.end on the root, the whole tree ends) and "${COPY.menu.stopAndDelete}" (destructive); ended = "${COPY.menu.delete}"; a viewer who cannot steer it gets no menu. A delete asks first ("${COPY.confirmDelete.title}"), then closes the open chat back to the list. The agent menu (the agent chat's \`…\`, a bubble's long-press, the rail's agent row): "${COPY.menu.compact}" and "${COPY.menu.newConversation}" SEND \`${fixture.agentMenu.sends.compact}\` / \`${fixture.agentMenu.sends.newConversation}\` (one path with the typed commands), "${COPY.menu.stop}" while busy (the turn interrupt, sessions.stop), "${COPY.menu.settings}" for team owners. A failure toasts "${COPY.toasts.stopFailed}" / "${COPY.toasts.deleteFailed}"; an undelivered turn stop "${COPY.toasts.stopNotDelivered}".`,
+  status: {
+    web: {
+      state: `ok`,
+      symbol: `chatMenuRows / agentMenuRows`,
+      file: `packages/ui/src/threads-list.tsx`,
+      note: `apps/web/src/components/thread/chat-menu.tsx: kinds \`thread\` + \`agent\` in the team layout's MenuGestureHost, the header \`…\` menus, the Prompt confirm`,
+    },
+    desktop: { state: `ok`, symbol: `chat_menus`, file: `apps/desktop/crates/ui/src/styleguide/entries/chat_menus.rs`, note: `PointerContextMenu` },
+    ios: { state: `ok`, symbol: `GlassLongPressMenu`, file: `apps/ios/ExpUI/Sources` },
+    android: { state: `ok`, symbol: `combinedClickable + the glass menu sheet`, file: `apps/android/app/src/main/java/com/exponential/app/ui/thread` },
+  },
+  island: () => (
+    <div className="flex flex-wrap items-start gap-8">
+      <div>
+        {caption(`A live chat`)}
+        <MenuPanel entries={LIVE} density="pointer" />
+      </div>
+      <div>
+        {caption(`An ended chat`)}
+        <MenuPanel entries={ENDED} density="pointer" />
+      </div>
+      <div>
+        {caption(`The agent menu (busy, owner)`)}
+        <MenuPanel entries={AGENT_BUSY_OWNER} density="pointer" />
+      </div>
+      <div>
+        {caption(`The agent menu (idle, member)`)}
+        <MenuPanel entries={AGENT_IDLE} density="pointer" />
+      </div>
+      <div className="w-[24rem]">
+        {caption(`Phone: the long-press sheet`)}
+        <MenuPanel entries={LIVE} look="sheet" density="touch" title="Spike: offline queue" />
+      </div>
+      <PromptSpecimen
+        caption="The delete confirm"
+        title={COPY.confirmDelete.title}
+        body={COPY.confirmDelete.body}
+        actions={[
+          { label: `Cancel`, role: `cancel` },
+          { label: COPY.menu.delete, role: `destructive` },
+        ]}
+      />
+    </div>
+  ),
 }

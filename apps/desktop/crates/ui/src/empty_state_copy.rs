@@ -34,7 +34,7 @@ pub(crate) const ATTACHMENTS: &str = "No attachments yet";
 pub(crate) const CHANGED_FILES: &str = "No changed files";
 pub(crate) const ACTIVITY: &str = "No activity yet";
 // EXP-1284: the thread page whose thread is not (or no longer) there.
-pub(crate) const THREAD_NOT_FOUND: &str = "Thread not found";
+pub(crate) const THREAD_NOT_FOUND: &str = "Chat not found";
 pub(crate) const THREAD_NOT_FOUND_DESCRIPTION: &str = "It may still be syncing, or it was deleted.";
 pub(crate) const THREAD_NOT_FOUND_ACTION: &str = "Go to Agent";
 

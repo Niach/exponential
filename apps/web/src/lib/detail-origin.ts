@@ -182,7 +182,7 @@ export function originLabel(
     case `inbox`:
       return `Inbox`
     case `threads`:
-      return `Threads`
+      return `Chats`
     case `running`:
       return `Running`
     case `drafts`:

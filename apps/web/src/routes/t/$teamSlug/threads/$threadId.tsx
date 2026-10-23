@@ -25,6 +25,7 @@ import {
   ThreadTabs,
   useIsMobile,
   userMessageCaption,
+  userMessageTime,
   type MenuSessionProps,
   type ThreadIssueTreeRow,
   type ThreadStripItem,
@@ -45,13 +46,13 @@ import {
 import { parseGuideSection, type GuideSectionKey } from "@/components/guide-section-diff"
 import {
   ThreadGuide,
-  ThreadGuideMenu,
   ThreadGuideMerge,
   threadGuidePullRequest,
 } from "@/components/thread/thread-guide"
 import { useAnswerMessage, useUnqueueMessage } from "@/components/thread/agent-channel"
 import { renderThreadText } from "@/components/thread/thread-markdown"
-import { useThreadMenu } from "@/components/thread/thread-menu"
+import { ThreadHeaderMenu, useThreadMenu } from "@/components/thread/thread-menu"
+import { useChatActions } from "@/components/thread/chat-menu"
 import { InPlaceSession, SessionStopPill } from "@/components/thread/session-body"
 import { useMeasuredSize } from "@/hooks/use-detail-chrome"
 import { primeTabEnter, TAB_BODY_TOUCH_CLASS, useFaceSwipe } from "@/hooks/use-face-swipe"
@@ -68,6 +69,8 @@ import { issueCollection } from "@/lib/collections"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { threadPageOf, threadPages, threadPageSearch, type ThreadPage } from "@/lib/thread-pages"
 import { cn } from "@/lib/utils"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { trpc } from "@/lib/trpc-client"
 import {
   sessionCard,
   sessionTabMarkState,
@@ -632,12 +635,19 @@ function ThreadScreen({
   }
 
   // EXP-1307/1316: the header's `…` (Close PR, EXP-1338) on EVERY tab
-  // while the Guide has an open PR (the fixture's header merge; iOS and desktop
-  // already do), not only on the Guide.
-  const guideMenu = (className?: string) =>
-    guidePr ? (
-      <ThreadGuideMenu pr={guidePr} canClose={permissions.isMember} className={className} />
-    ) : null
+  // while the Guide has an open PR. Thread 58cb32df: the same `…` holds
+  // THE chat menu (Stop · Stop and delete | Delete, chats.json MENUS).
+  const chatActions = useChatActions(teamSlug)
+  const headerMenu = (className?: string) => (
+    <ThreadHeaderMenu
+      root={root}
+      title={view.title}
+      pr={guidePr}
+      canClosePr={permissions.isMember}
+      actions={chatActions}
+      className={className}
+    />
+  )
 
   // EXP-1316: the title is derived (`sessionTitle`), never renamed.
   const title = (
@@ -683,13 +693,12 @@ function ThreadScreen({
     },
   }
 
-  const stopPill =
-    sessionInPlace && sessionInPlace.status !== `ended` && tab.kind === `session` ? (
-      <SessionStopPill sessionId={sessionInPlace.id} />
-    ) : null
+  // Chats STOP: the header pill = `sessions.end` on the ROOT, on every tab
+  // while the root is not ended (the composer's stop is the turn's).
+  const stopPill = root.status !== `ended` ? <SessionStopPill rootId={root.id} /> : null
 
   if (isMobile) {
-    const trailing = guideMenu(HEADER_BUTTON_CLASS)
+    const trailing = headerMenu(HEADER_BUTTON_CLASS)
     return (
       <IssueRefOutlet issueIds={issueIds} onOpen={pickIssue}>
       <MenuGestureHost menus={issueMenus}>
@@ -723,14 +732,10 @@ function ThreadScreen({
             }
             onBack={() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } })}
             menu={
-              stopPill ? (
-                <span className="flex shrink-0 items-center gap-1">
-                  {stopPill}
-                  {trailing}
-                </span>
-              ) : (
-                trailing ?? undefined
-              )
+              <span className="flex shrink-0 items-center gap-1">
+                {stopPill}
+                {trailing}
+              </span>
             }
             below={<div className="px-3 pb-2">{tabs}</div>}
           />
@@ -744,6 +749,7 @@ function ThreadScreen({
           </div>
         </div>
       </MenuGestureHost>
+      {chatActions.dialog}
       </IssueRefOutlet>
     )
   }
@@ -757,13 +763,14 @@ function ThreadScreen({
             <div className="min-w-0 flex-1">{title}</div>
             <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} placement="header" />
             {stopPill}
-            {guideMenu(`shrink-0 text-muted-foreground`)}
+            {headerMenu(`shrink-0 text-muted-foreground`)}
           </div>
           <div className="mt-4">{tabs}</div>
         </div>
         {body}
       </div>
     </MenuGestureHost>
+    {chatActions.dialog}
     </IssueRefOutlet>
   )
 }
@@ -824,6 +831,11 @@ function ConversationBody({
   // cards, the root's Queue, queued messages and banners, then the composer
   // (a phone's floats in the work bar); the scroller pads by its height.
   const sessionDock = useSessionDock(root)
+  const sendSurfaceReply = (text: string) => {
+    trpc.sessions.send
+      .mutate({ teamId, sessionId: view.composer.sessionId, text }, SKIP_ERROR_TOAST)
+      .catch((error) => failedAction(`send`, `the message`, error))
+  }
   const [dockHeight, setDockHeight] = useState(0)
   const composer = canReply ? (
     <SessionComposer
@@ -873,6 +885,14 @@ function ConversationBody({
             docked={dockedIds}
             viewerId={session?.user?.id ?? null}
             onUnqueue={(id) => void unqueue(id)}
+            // Thread 58cb32df (chats.json TRANSCRIPT): phones paint chat
+            // bubbles; a surface card's reply posts as the next message.
+            layout={isMobile ? `bubbles` : `transcript`}
+            messageTime={(row) => {
+              const message = messagesById.get(row.id)
+              return message ? userMessageTime(new Date(message.createdAt)) : null
+            }}
+            onSurfaceReply={canReply ? sendSurfaceReply : undefined}
             suggestions={suggestions}
             renderIssueRef={(_issueId, identifier) =>
               identifier ? <FiledIssueRef identifier={identifier} /> : null

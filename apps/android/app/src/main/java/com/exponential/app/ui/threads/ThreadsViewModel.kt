@@ -10,26 +10,53 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.api.SessionsApi
+import com.exponential.app.data.api.SessionsSendInput
+import com.exponential.app.data.api.trpcErrorMessage
+import com.exponential.app.domain.Chats
+import com.exponential.app.ui.components.FailedAction
+import com.exponential.app.ui.steer.SessionSender
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /**
- * EXP-1291 Threads v2: the Threads TAB's model (lane THREADS owns the UI).
- * Phones list EVERY member team (`teamId = null`, banded per team by the
- * screen): [SessionTree.partitionThreads] over the synced session tree —
- * Needs you · Running · Recent, empty groups omitted — plus the team agents
- * ([SessionTree.listAgents]).
+ * EXP-1291 Threads v2 → thread 58cb32df CHATS: the Chats TAB's model.
+ * chats.json: ONE active team drives every phone screen (no team bands), so
+ * [SessionTree.partitionThreads] runs over the ACTIVE team
+ * ([TeamSelection.selectedId]); the phone list = [Chats.chatList] over its
+ * groups, the header's agent bubbles = [Chats.agentBubbles] over
+ * [SessionTree.listAgents]. The menus' calls (Stop = `sessions.end` on the
+ * root, Delete = `sessions.delete`, the agent's turn Stop = `sessions.stop`,
+ * Compact / New conversation = the builtin lines through `sessions.send`)
+ * live here too.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ThreadsViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
+    selection: TeamSelection,
+    private val sessionsApi: SessionsApi,
+    private val sender: SessionSender,
 ) : ViewModel() {
+
+    /** chats.json: the ONE active team every phone list filters to. */
+    private val activeTeam: StateFlow<String?> = selection.selectedId
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
@@ -54,15 +81,16 @@ class ThreadsViewModel @Inject constructor(
         val reads: List<SessionTree.SessionRead>,
     )
 
-    /** The grouped thread list across every member team (`teamId = null`);
-     *  EXP-1323: a live tree's children nest under their root (depth > 0). */
-    val groups: StateFlow<List<SessionTree.ThreadsListGroup>> = inputs.map { input ->
+    /** The grouped thread list of the ACTIVE team (chats.json: one team per
+     *  phone screen); EXP-1323: a live tree's children nest under their root
+     *  (depth > 0; the phone list keeps the roots only). */
+    val groups: StateFlow<List<SessionTree.ThreadsListGroup>> = combine(inputs, activeTeam) { input, team ->
         SessionTree.partitionThreads(
             input.sessions,
             input.links,
             input.issues,
             input.messages,
-            teamId = null,
+            teamId = team,
             reads = input.reads,
             // NEW-1: Recent's 24 h window (read on every input change).
             now = SessionTree.nowIso(),
@@ -149,9 +177,137 @@ class ThreadsViewModel @Inject constructor(
 
     /** NEW-2: every member team's agent DEFINITIONS (rail / Settings order);
      *  busy / needs-you off the viewer's own conversation session. */
-    val agents: StateFlow<List<SessionTree.AgentRow>> = combine(agentDefinitions, sessions, auth.userId) { defs, s, me ->
-        SessionTree.listAgents(defs, s, teamId = null, me = me)
+    val agents: StateFlow<List<SessionTree.AgentRow>> = combine(agentDefinitions, sessions, auth.userId, activeTeam) { defs, s, me, team ->
+        SessionTree.listAgents(defs, s, teamId = team, me = me)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** chats.json `agentBubbles`: the header's bubbles (ring = needs you /
+     *  unread), the active team's agents in list order. */
+    val bubbles: StateFlow<List<Chats.AgentBubble>> = combine(agents, inputs, auth.userId) { rows, input, me ->
+        Chats.agentBubbles(rows, input.sessions, input.messages, input.reads, me)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _filter = MutableStateFlow(Chats.ChatFilter.All)
+    /** The selected filter chip. */
+    val filter: StateFlow<Chats.ChatFilter> = _filter
+
+    fun selectFilter(filter: Chats.ChatFilter) {
+        _filter.value = filter
+    }
+
+    /** The list's clock: the time labels re-read once a minute. */
+    private val minuteClock: Flow<Long> = flow {
+        while (true) {
+            emit(System.currentTimeMillis())
+            delay(60_000)
+        }
+    }
+
+    /** Each root's PR states (the lead's open / merged glyph). */
+    private val prStates: Flow<Map<String, List<String>>> =
+        dbFlow.scopedQuery(emptyList()) { it.pullRequestDao().observeAll() }.map { prs ->
+            prs.filter { it.rootSessionId != null }.groupBy { it.rootSessionId!! }.mapValues { (_, rows) -> rows.map { it.state } }
+        }
+
+    /** chats.json `chatList`: the phone list (flat roots by activity, the
+     *  preview, the time, the unread count) under the selected chip. */
+    val chatList: StateFlow<Chats.ChatList> = combine(
+        combine(groups, inputs) { g, i -> g to i },
+        prStates,
+        words,
+        _filter,
+        minuteClock,
+    ) { (g, input), states, w, filter, now ->
+        Chats.chatList(
+            groups = g,
+            messages = input.messages,
+            reads = input.reads,
+            prStates = states,
+            words = w,
+            filter = filter,
+            now = SessionTree.nowIso(now),
+            utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Chats.ChatList(emptyList(), Chats.ChatCounts(0, 0, 0)))
+
+    /** What a chat row's menu needs per root: its status and whether the
+     *  viewer may steer it (shared, or the starter). */
+    data class RootFacts(val status: String, val canSteer: Boolean, val agent: String?)
+
+    val rootFacts: StateFlow<Map<String, RootFacts>> = combine(sessionRows, auth.userId) { rows, me ->
+        rows.filter { it.isRoot }.associate { row ->
+            row.id to RootFacts(row.status, row.shared || (me != null && row.userId == me), row.cli)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** The viewer owns the active team (the agent menu's Agent settings). */
+    val isOwner: StateFlow<Boolean> = combine(activeTeam, auth.userId) { team, me -> team to me }
+        .flatMapLatest { (team, me) ->
+            if (team == null || me == null) {
+                flowOf(false)
+            } else {
+                dbFlow.scopedQuery(emptyList()) { it.teamMemberDao().observeByTeam(team) }
+                    .map { members -> members.any { it.userId == me && it.role == "owner" } }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    // ── the menus' calls (chats.json MENUS) ─────────────────────────────────
+
+    private val _failure = MutableStateFlow<FailedAction?>(null)
+    /** A refused call, raised once as the fixture's toast (`copy.toasts`). */
+    val failure: StateFlow<FailedAction?> = _failure
+
+    fun clearFailure() {
+        _failure.value = null
+    }
+
+    private val _notice = MutableStateFlow<String?>(null)
+    /** chats.json `copy.toasts.stopNotDelivered` (a stop no device got). */
+    val notice: StateFlow<String?> = _notice
+
+    fun clearNotice() {
+        _notice.value = null
+    }
+
+    private fun call(
+        verb: String,
+        onDone: () -> Unit = {},
+        thing: String = CHAT_THING,
+        block: suspend (accountId: String) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            try {
+                block(accountId)
+                onDone()
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                // `Couldn't stop the chat` / `Couldn't delete the chat`.
+                _failure.value = FailedAction(verb, thing, trpcErrorMessage(t, ""))
+            }
+        }
+    }
+
+    /** Stop = `sessions.end` on the ROOT (the whole tree ends). */
+    fun stopChat(rootId: String) = call("stop") { sessionsApi.end(it, rootId) }
+
+    /** Stop and delete / Delete = `sessions.delete` (the server ends what is
+     *  live, then deletes the tree). */
+    fun deleteChat(rootId: String, onDeleted: () -> Unit = {}) =
+        call("delete", onDeleted) { sessionsApi.delete(it, rootId) }
+
+    /** The agent menu's Stop = `sessions.stop` (the TURN interrupt). */
+    fun stopTurn(sessionId: String) = call("stop") { accountId ->
+        val result = sessionsApi.stop(accountId, sessionId)
+        if (!result.delivered) _notice.value = Chats.Copy.TOAST_STOP_NOT_DELIVERED
+    }
+
+    /** Compact / New conversation = the builtin line, sent like a typed one
+     *  into the viewer's conversation with [agentId]. */
+    fun sendToAgent(agentId: String, text: String) = call("send", thing = "the message") {
+        sender.send(SessionsSendInput.toAgent(agentId, text))
+    }
 
     /** NEW-2: the viewer's conversation session per agent id (a row opens it). */
     val conversations: StateFlow<Map<String, String>> = combine(sessions, auth.userId) { s, me ->
@@ -172,6 +328,9 @@ class ThreadsViewModel @Inject constructor(
         list.any { it.key == SessionTree.ThreadsGroupKey.NeedsYou && it.rows.isNotEmpty() }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 }
+
+/** The thing every chat menu call names (`Couldn't stop the chat`). */
+internal const val CHAT_THING = "the chat"
 
 /** A Threads row's extras: the first linked issue's identifier, the root's
  *  agent (its brand mark) and the root's device (the trailing icon). */

@@ -571,14 +571,22 @@ fn thread_member(model: &ThreadModel, cx: &App) -> bool {
 /// Close PR while it is open (members only, the web's
 /// `canClose={permissions.isMember}`; EXP-1338: no GitHub entry). No
 /// entries = none.
+///
+/// Thread 58cb32df (chats.json): the same `…` leads with the chat's own
+/// entries (`threadMenuEntries`: Stop, Stop and delete | Delete), the Guide
+/// PR's Close after a rule.
 fn guide_menu(model: &ThreadModel, cx: &App) -> Option<AnyElement> {
     use domain::session_tree::{guide_menu_entries, GuideMenuEntry};
-    let pull = model.pull()?;
-    let entries = guide_menu_entries(pull.state.as_deref(), thread_member(model, cx));
-    if entries.is_empty() {
+    let root_id = model.root.id.clone();
+    let chat = !crate::chat_actions::chat_entries(&root_id, cx).is_empty();
+    let pull = model.pull();
+    let entries = pull
+        .map(|pull| guide_menu_entries(pull.state.as_deref(), thread_member(model, cx)))
+        .unwrap_or_default();
+    if entries.is_empty() && !chat {
         return None;
     }
-    let pull_request_id = pull.id.clone();
+    let pull_request_id = pull.map(|pull| pull.id.clone()).unwrap_or_default();
     // The batch line names the issues the PR closes beyond one.
     let others = Store::try_global(cx)
         .map(|store| {
@@ -602,6 +610,10 @@ fn guide_menu(model: &ThreadModel, cx: &App) -> Option<AnyElement> {
             .flex_shrink_0()
             .mr(px(-crate::work_header::GHOST_ICON_HANG))
             .child(crate::controls::PointerMenu::for_button(trigger, move |mut menu, _, cx| {
+                menu = crate::chat_actions::chat_menu_items(menu, &root_id, false, cx);
+                if chat && !entries.is_empty() {
+                    menu = menu.separator();
+                }
                 for entry in &entries {
                     menu = match entry {
                         GuideMenuEntry::ClosePr => {
@@ -675,6 +687,9 @@ pub(crate) fn thread_text_resolver(team_id: &str) -> RefResolver {
 pub(crate) struct ThreadText {
     team_id: Option<String>,
     resolver: Option<RefResolver>,
+    /// FEED-140: the reader may answer the waiting cards, so the inline
+    /// plan / question card carries its actions (besides THE Dock).
+    answer: bool,
 }
 
 impl ThreadText {
@@ -696,11 +711,22 @@ impl ThreadText {
         Self {
             team_id: team_id.map(str::to_string),
             resolver,
+            answer: false,
         }
     }
 
     pub(crate) fn team_id(&self) -> Option<&str> {
         self.team_id.as_deref()
+    }
+
+    /// FEED-140: whether the inline cards answer (the reader may message).
+    pub(crate) fn answering(mut self, answer: bool) -> Self {
+        self.answer = answer;
+        self
+    }
+
+    pub(crate) fn answers(&self) -> bool {
+        self.answer
     }
 }
 
@@ -893,15 +919,17 @@ fn card_column(body: MarkdownView, content: Vec<AnyElement>, controls: AnyElemen
 /// EXP-1316 → EXP-1280 — a question card IN THE CONVERSATION = THE card ×4:
 /// the question, the inline surface, its options; once answered, CLOSED
 /// (the picks highlighted, the answer line). N-12: a pending card the
-/// viewer may answer lives in THE Dock ([`ask_row_sheet`]).
+/// viewer may answer lives in THE Dock ([`ask_row_sheet`]); FEED-140: it
+/// stays inline too, with its Answer when `answer` (the reader may reply).
 pub(crate) fn question_card(
     question: MarkdownView,
     facts: crate::plan_card::QuestionFacts,
+    answer: bool,
     images: &Entity<ImageCache>,
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
-    let (content, controls) = crate::plan_card::question_parts(&facts, images, window, cx);
+    let (content, controls) = crate::plan_card::question_parts(&facts, answer, images, window, cx);
     let column = card_column(question, content, controls, cx);
     crate::steer_viewer::ask_card_chrome(false, None, None, None, column, cx)
         .id(SharedString::from(format!("{}-{}", domain::plan_card::test_ids().card, facts.message_id)))
@@ -912,15 +940,33 @@ pub(crate) fn question_card(
 /// ×4: `Plan ready`, the plan (pictures inline; a pending `upload:` embed
 /// renders nothing), the inline surface, one block per question; once
 /// decided, CLOSED (the picks, `planDecisionLabel`, the feedback). N-12: a
-/// pending card the viewer may decide lives in THE Dock ([`ask_row_sheet`]).
+/// pending card the viewer may decide lives in THE Dock ([`ask_row_sheet`]);
+/// FEED-140: it stays inline too, with its decision when `answer`. A
+/// `superseded` card (the agent replaced it with a newer plan) paints closed
+/// and COLLAPSED to `copy.superseded`.
 pub(crate) fn plan_card(
     plan: MarkdownView,
     facts: crate::plan_card::PlanFacts,
+    answer: bool,
     images: &Entity<ImageCache>,
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
-    let (content, controls) = crate::plan_card::plan_parts(&facts, images, window, cx);
+    if facts.decision == Some("superseded") {
+        let label = domain::ask_dock::plan_decision_label("superseded", false);
+        let line = crate::steer_viewer::ask_resolved_line(Some(&label), false, cx);
+        return crate::steer_viewer::ask_card_chrome(
+            true,
+            Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone())),
+            None,
+            None,
+            v_flex().w_full().min_w_0().child(line),
+            cx,
+        )
+        .id(SharedString::from(format!("{}-{}", domain::plan_card::test_ids().card, facts.message_id)))
+        .into_any_element();
+    }
+    let (content, controls) = crate::plan_card::plan_parts(&facts, answer, images, window, cx);
     let column = card_column(plan, content, controls, cx);
     crate::steer_viewer::ask_card_chrome(true, Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone())), None, None, column, cx)
         .id(SharedString::from(format!("{}-{}", domain::plan_card::test_ids().card, facts.message_id)))
@@ -985,11 +1031,11 @@ pub(crate) fn ask_row_card(
             text,
             images,
         );
-        return Some(plan_card(markdown, facts, images, window, cx));
+        return Some(plan_card(markdown, facts, text.answers(), images, window, cx));
     }
     let (id, question, facts) = question_facts(row)?;
     let markdown = message_markdown(SharedString::from(format!("thread-question-{id}")), question, text, images);
-    Some(question_card(markdown, facts, images, window, cx))
+    Some(question_card(markdown, facts, text.answers(), images, window, cx))
 }
 
 /// N-12: a waiting `question` / `plan` row's sheet (plan-card.json
@@ -1243,6 +1289,12 @@ pub(crate) fn card_row(
         SessionThreadRow::Report { id, session_id, text, .. } => report_line(id, session_id, text, root_id, cx),
         SessionThreadRow::Suggestions { id, header, start_all, items, .. } => {
             suggestions_card(id, header, *start_all, items, root_id, team_id, cx)
+        }
+        // Thread 58cb32df (chats.json): `/new` / `/compact` = the divider
+        // pill; an agent's preview = THE surface card.
+        SessionThreadRow::Divider { id, kind, at } => crate::surface_card::divider_row(id, *kind, at, cx),
+        SessionThreadRow::Surface { id, session_id, title, surface } => {
+            crate::surface_card::surface_row(id, session_id, title.as_deref(), surface, window, cx)
         }
     })
 }
@@ -2843,6 +2895,11 @@ impl ThreadScreenView {
                 )
             })
             .unwrap_or_default();
+        // Thread 58cb32df: a surface card arriving while the chat is open
+        // plays its entrance once.
+        if let Some(model) = &model {
+            crate::surface_card::sync_rows(cx.entity_id(), &model.view.rows, cx);
+        }
         self.model = model.map(Rc::new);
         self.model_gen = self.model_gen.wrapping_add(1);
         cx.notify();
@@ -3029,14 +3086,20 @@ impl ThreadScreenView {
         });
         // EXP-1316 (1b): the open session's Stop while it is live.
         // NEW-6 (N-1): the thread's ONE session's Stop while it is the body.
-        let stop = self.focus.as_ref().or(self.main.as_ref()).filter(|(_, view)| view.read(cx).stoppable(cx)).map(|(session_id, _)| {
-            let session_id = session_id.clone();
+        // Thread 58cb32df (chats.json STOP): the pill = the menu's Stop,
+        // `sessions.end` on the ROOT (the whole tree), shown while the root
+        // is not ended and the viewer may steer the chat.
+        let root_live = crate::chat_actions::chat_entries(&model.root.id, cx)
+            .contains(&domain::chats::ThreadMenuEntry::Stop);
+        let stop = root_live.then(|| {
+            let root_id = model.root.id.clone();
             crate::session_screen::stop_session_pill(
                 "thread-session-stop",
                 crate::surface::PillSize::Md,
                 cx,
             )
-            .on_click(move |_, _, cx| crate::steer_viewer::stop_session(&session_id, cx))
+            .tooltip(SharedString::from(domain::chats::CHATS.copy.menu.stop.clone()))
+            .on_click(move |_, _, cx| crate::chat_actions::stop_chat(&root_id, cx))
         });
         let menu = guide_menu(model, cx);
         v_flex()
@@ -3222,8 +3285,10 @@ impl ThreadScreenView {
             return;
         }
         self.conv.synced = Some(inputs);
+        // FEED-140: a waiting plan / question stays inline (with its
+        // actions) besides THE Dock; only the open suggestions leave.
         let docked = if may_message {
-            docked_ids(&model.view.rows, &self.pending_asks, true)
+            docked_ids(&model.view.rows, &[], true)
         } else {
             HashSet::new()
         };
@@ -3580,7 +3645,8 @@ impl Render for ThreadScreenView {
             self.set_child(ThreadChildSel::Issue(issue_id), window, cx);
         }
         // EXP-1346: ONE memoised chip resolver per frame for every text.
-        self.text = ThreadText::memoized(model.root.team_id.as_deref(), Some(self.chip_cache.clone()));
+        self.text = ThreadText::memoized(model.root.team_id.as_deref(), Some(self.chip_cache.clone()))
+            .answering(self.composer.read(cx).may_message());
         // NEW-6 (N-1): a thread with ONE session = that session's raw work
         // in place of the Conversation (its composer, Stop in the header).
         let on_conversation = self.focus.is_none() && self.child == ThreadChildSel::Conversation;

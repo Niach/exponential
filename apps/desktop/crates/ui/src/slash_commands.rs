@@ -258,12 +258,15 @@ mod tests {
         assert_eq!(slash_query(""), None);
     }
 
-    /// NEW-2: the catalog is the contract's compact/model/effort for both
+    /// NEW-2: the catalog is the contract's compact/new/model/effort for both
     /// agents (`clear` and `btw` are gone).
     #[test]
     fn an_empty_query_lists_the_agents_whole_catalog_in_contract_order() {
-        assert_eq!(names("/", SessionAgent::Claude), vec!["compact", "model", "effort"]);
-        assert_eq!(names("/", SessionAgent::Codex), vec!["compact", "model", "effort"]);
+        assert_eq!(names("/", SessionAgent::Claude), vec!["compact", "new", "model", "effort"]);
+        assert_eq!(names("/", SessionAgent::Codex), vec!["compact", "new", "model", "effort"]);
+        // Thread 58cb32df: `/new` (a fresh conversation) takes no argument.
+        let new = menu_matches("/new", SessionAgent::Claude).remove(0);
+        assert_eq!(insertion(&new), "/new");
         assert!(names("/clear", SessionAgent::Claude).is_empty());
         assert!(names("/btw", SessionAgent::Claude).is_empty());
     }
@@ -335,7 +338,7 @@ mod tests {
         };
         assert_eq!(
             ids("/", Some(SessionAgent::Claude)),
-            vec!["/compact", "/model", "/effort", "p1", "p2", "p3"]
+            vec!["/compact", "/new", "/model", "/effort", "p1", "p2", "p3"]
         );
         assert_eq!(ids("/co", Some(SessionAgent::Claude)), vec!["/compact", "p3"]);
         assert_eq!(ids("/FIX-FL", Some(SessionAgent::Codex)), vec!["p1"]);

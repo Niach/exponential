@@ -345,7 +345,7 @@ export function WebMcpReadTools() {
 
   useWebMCP({
     name: `navigate`,
-    description: `Navigate the app to a board, an issue, the notification inbox, or the Threads list of the current team. Changes what the user sees; modifies no data.`,
+    description: `Navigate the app to a board, an issue, the notification inbox, or the Chats list of the current team. Changes what the user sees; modifies no data.`,
     inputSchema: {
       to: z.enum([`board`, `issue`, `inbox`, `threads`]),
       board: boardRefSchema,

@@ -23,6 +23,7 @@ final class SchedulePickerTests: XCTestCase {
         guard let object = object as? [String: Any] else { return nil }
         return Schedule(
             repeat: try XCTUnwrap(object["repeat"] as? String),
+            every: try XCTUnwrap(object["every"] as? Int),
             minute: try XCTUnwrap(object["minute"] as? Int),
             hour: try XCTUnwrap(object["hour"] as? Int),
             weekdays: try XCTUnwrap(object["weekdays"] as? [Int]),
@@ -79,11 +80,11 @@ final class SchedulePickerTests: XCTestCase {
         typealias C = SchedulePicker.Copy
         XCTAssertEqual(copy["rows"] as? [String: String], [
             "repeat": C.rowRepeat, "days": C.rowDays, "day": C.rowDay, "minute": C.rowMinute,
-            "time": C.rowTime, "timeZone": C.rowTimeZone, "cron": C.rowCron,
+            "time": C.rowTime, "timeZone": C.rowTimeZone, "cron": C.rowCron, "every": C.rowEvery,
         ])
         XCTAssertEqual(copy["repeat"] as? [String: String], C.repeatLabels)
         XCTAssertEqual(copy["repeat"] as? [String: String], [
-            "hourly": C.repeatHourly, "daily": C.repeatDaily, "weekly": C.repeatWeekly,
+            "minutes": C.repeatMinutes, "hourly": C.repeatHourly, "daily": C.repeatDaily, "weekly": C.repeatWeekly,
             "monthly": C.repeatMonthly, "custom": C.repeatCustom,
         ])
         XCTAssertEqual(copy["weekdays"] as? [String], C.weekdays)
@@ -96,7 +97,7 @@ final class SchedulePickerTests: XCTestCase {
         XCTAssertEqual(copy["timeZonePlaceholder"] as? String, C.timeZonePlaceholder)
         XCTAssertEqual(copy["cronPlaceholder"] as? String, C.cronPlaceholder)
         XCTAssertEqual(copy["summary"] as? [String: String], [
-            "hourly": C.summaryHourly, "daily": C.summaryDaily, "weekly": C.summaryWeekly,
+            "minutes": C.summaryMinutes, "hourly": C.summaryHourly, "daily": C.summaryDaily, "weekly": C.summaryWeekly,
             "weeklyOne": C.summaryWeeklyOne, "monthly": C.summaryMonthly,
             "custom": C.summaryCustom, "zoned": C.summaryZoned,
         ])
@@ -105,14 +106,17 @@ final class SchedulePickerTests: XCTestCase {
         XCTAssertEqual(Set(copy.keys), [
             "rows", "repeat", "weekdays", "weekdaysShort", "weekdaysAll", "weekdaysWork",
             "weekdaysWeekend", "dayOfMonth", "minuteOfHour", "timeZonePlaceholder",
-            "cronPlaceholder", "summary", "errors",
+            "cronPlaceholder", "summary", "errors", "every",
         ])
+        XCTAssertEqual(copy["every"] as? String, C.every)
+        XCTAssertEqual(SchedulePicker.everyLabel(15), "15 minutes")
 
         typealias T = SchedulePicker.TestIds
         XCTAssertEqual(fixture["testIds"] as? [String: String], [
             "repeat": T.repeat, "days": T.days, "day": T.day, "minute": T.minute,
-            "time": T.time, "timeZone": T.timeZone, "cron": T.cron,
+            "time": T.time, "timeZone": T.timeZone, "cron": T.cron, "every": T.every,
         ])
+        XCTAssertEqual(fixture["everyValues"] as? [Int], SchedulePicker.everyValues)
         XCTAssertEqual(fixture["repeatValues"] as? [String], SchedulePicker.repeatValues)
         XCTAssertEqual(fixture["dayOfMonthMax"] as? Int, SchedulePicker.dayOfMonthMax)
         XCTAssertEqual(try schedule(fixture["defaults"]), SchedulePicker.defaults())
@@ -155,7 +159,7 @@ final class SchedulePickerTests: XCTestCase {
     }
 
     func testPickRepeatSeedsAndReplacesCustom() {
-        var custom = ScheduleDraft(cron: "*/10 * * * *", tz: "UTC")
+        var custom = ScheduleDraft(cron: "*/10 * * * 1-5", tz: "UTC")
         custom.pick(repeat: "monthly")
         XCTAssertEqual(custom.schedule?.dayOfMonth, 1)
         XCTAssertEqual(custom.cron, "")
@@ -170,5 +174,14 @@ final class SchedulePickerTests: XCTestCase {
         XCTAssertEqual(daily.errors, [SchedulePicker.Copy.errorNoDays])
         daily.pick(repeat: "hourly")
         XCTAssertEqual(daily.wireCron, "30 * * * *")
+        XCTAssertFalse(SchedulePicker.showsTimeZone(daily.schedule))
+        daily.pick(repeat: "minutes")
+        XCTAssertEqual(daily.wireCron, "*/10 * * * *")
+        XCTAssertFalse(SchedulePicker.showsTimeZone(daily.schedule))
+        daily.schedule?.every = 5
+        XCTAssertEqual(daily.wireCron, "*/5 * * * *")
+        daily.pick(repeat: "daily")
+        XCTAssertTrue(SchedulePicker.showsTimeZone(daily.schedule))
+        XCTAssertTrue(SchedulePicker.showsTimeZone(nil))
     }
 }

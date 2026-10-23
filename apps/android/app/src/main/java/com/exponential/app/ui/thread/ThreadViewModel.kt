@@ -56,6 +56,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+/** The thing a chat menu call names (`Couldn't stop the chat`). */
+private const val CHAT_THING = "the chat"
+
 /**
  * EXP-1291 Threads v2: ONE thread (a root session of kind `thread`) or ONE
  * agent channel (a root of kind `agent`) — the same conversation screen
@@ -400,11 +403,54 @@ class ThreadViewModel @Inject constructor(
      *  composer's own Stop does ([SteerConnection.interrupt]); the page's
      *  connection is the store's, shared with the session view. */
     fun stop(sessionId: String = rootId) = run("stop", "the session") { accountId ->
-        stopHandingBackQueue(steerStore.peek(sessionId)) { sessionsApi.stop(accountId, sessionId) }
+        var delivered = true
+        stopHandingBackQueue(steerStore.peek(sessionId)) { delivered = sessionsApi.stop(accountId, sessionId).delivered }
+        // chats.json: a stop no device got toasts `copy.toasts.stopNotDelivered`.
+        if (!delivered) _notice.value = com.exponential.app.domain.Chats.Copy.TOAST_STOP_NOT_DELIVERED
     }
 
     /** End a session (the ROOT ends the whole tree; agents refuse). */
     fun end(sessionId: String = rootId) = run("end", "the session") { sessionsApi.end(it, sessionId) }
+
+    // ── thread 58cb32df: the chat's menu (chats.json MENUS) ─────────────────
+
+    /** Stop (the header pill, the `…` menu) = `sessions.end` on the ROOT:
+     *  the whole tree ends; a later message still resumes the root. */
+    fun stopChat() = run("stop", CHAT_THING) { sessionsApi.end(it, rootId) }
+
+    /** Stop and delete / Delete = `sessions.delete`; [onDeleted] closes the
+     *  chat's screen back to the list. */
+    fun deleteChat(onDeleted: () -> Unit) = run("delete", CHAT_THING, settled = { ok -> if (ok) onDeleted() }) {
+        sessionsApi.delete(it, rootId)
+    }
+
+    private val _notice = MutableStateFlow<String?>(null)
+    /** A non-error notice toast (`copy.toasts.stopNotDelivered`). */
+    val notice: StateFlow<String?> = _notice
+
+    fun clearNotice() {
+        _notice.value = null
+    }
+
+    /** The viewer owns the chat's team (the agent menu's Agent settings). */
+    val isOwner: StateFlow<Boolean> = combine(root.map { it?.teamId }.distinctUntilChanged(), auth.userId) { team, user -> team to user }
+        .flatMapLatest { (team, user) ->
+            if (team.isNullOrEmpty() || user == null) {
+                flowOf(false)
+            } else {
+                dbFlow.scopedQuery(emptyList()) { it.teamMemberDao().observeByTeam(team) }
+                    .map { members -> members.any { it.userId == user && it.role == "owner" } }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** The ROOT's device name (the header subtitle); null = none / unknown. */
+    val rootDeviceLabel: StateFlow<String?> = combine(
+        root.map { it?.deviceId?.takeIf { id -> id.isNotEmpty() } }.distinctUntilChanged(),
+        dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
+    ) { deviceId, devices ->
+        deviceId?.let { id -> devices.firstOrNull { it.deviceId == id }?.label?.takeIf { label -> label.isNotBlank() } }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** The header "+": link issues to the thread. */
     fun linkIssues(issueIds: List<String>) {

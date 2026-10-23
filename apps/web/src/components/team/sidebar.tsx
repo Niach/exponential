@@ -1,3 +1,4 @@
+import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { useApps } from "@/hooks/use-apps"
 import { SidebarAppsSection } from "@/components/team/sidebar-apps"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
@@ -419,7 +420,7 @@ export function TeamSidebar({
                                 data-testid="nav-threads"
                               >
                                 <NavThreadsIcon className="h-4 w-4" />
-                                <span>Threads</span>
+                                <span>{CHATS_COPY.title}</span>
                               </Link>
                             </SidebarMenuButton>
                             <ThreadsLiveBadge state={threadsNav} placement="row" />

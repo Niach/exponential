@@ -2860,7 +2860,7 @@ mod tests {
             assert_eq!(screen_title(&Screen::Drafts, cx), "Drafts");
             // EXP-1170: the New issue page names itself by the contract.
             assert_eq!(screen_title(&draft_screen("d1", ""), cx), "New issue");
-            assert_eq!(screen_title(&Screen::Threads, cx), "Threads");
+            assert_eq!(screen_title(&Screen::Threads, cx), "Chats");
             assert_eq!(screen_title(&Screen::Home, cx), "Home");
         });
     }

@@ -6,7 +6,7 @@ import XCTest
 // Mirrors the web `steer-commands.test.ts`, Android's `SlashCommandsTest` and
 // desktop's `slash_commands.rs` tests: same catalog lock, same query rules,
 // same insertion and send rules. NEW-2 (owner 2026-10-21): the catalog = the
-// contract `steerCommands` (compact, model, effort; `clear` and `btw` gone)
+// contract `steerCommands` (compact, new, model, effort; `clear` and `btw` gone)
 // and the commands an agent CLI injects (`config_state.commands`) are HIDDEN:
 // nothing merges them into the menu or the command lookup.
 final class SlashCommandsTests: XCTestCase {
@@ -24,7 +24,7 @@ final class SlashCommandsTests: XCTestCase {
     }
 
     func testTheCatalogIsCompactModelEffort() {
-        XCTAssertEqual(SlashCommands.all.map(\.name), ["compact", "model", "effort"])
+        XCTAssertEqual(SlashCommands.all.map(\.name), ["compact", "new", "model", "effort"])
         XCTAssertNil(SlashCommands.all.first { $0.name == "clear" })
         XCTAssertNil(SlashCommands.all.first { $0.name == "btw" })
     }
@@ -61,7 +61,7 @@ final class SlashCommandsTests: XCTestCase {
         // contract (EXP-849: a retired agent, an external ACP binary) gets no
         // curated rows.
         for agent in DomainContract.codingAgentValues {
-            XCTAssertEqual(SlashCommands.catalog(for: agent).map(\.name), ["compact", "model", "effort"])
+            XCTAssertEqual(SlashCommands.catalog(for: agent).map(\.name), ["compact", "new", "model", "effort"])
         }
         XCTAssertTrue(SlashCommands.catalog(for: "zed").isEmpty)
     }
@@ -103,7 +103,7 @@ final class SlashCommandsTests: XCTestCase {
     func testABareSlashListsEverythingTheAgentCanRun() {
         XCTAssertEqual(
             SlashCommands.matches(draft: "/", agent: "claude").map(\.name),
-            ["compact", "model", "effort"]
+            ["compact", "new", "model", "effort"]
         )
     }
 
@@ -138,10 +138,12 @@ final class SlashCommandsTests: XCTestCase {
     // MARK: - Insertion
 
     func testInsertionLeavesRoomForTheArgument() {
-        for command in SlashCommands.all {
+        for command in SlashCommands.all where command.name != "new" {
             XCTAssertFalse(command.argHint.isEmpty, command.name)
             XCTAssertEqual(command.insertion, "/\(command.name) ")
         }
+        // `/new` takes no argument: nothing after it.
+        XCTAssertEqual(SlashCommands.all.first { $0.name == "new" }?.insertion, "/new")
         XCTAssertEqual(SlashCommands.all.first { $0.name == "compact" }?.argHint, "instructions")
     }
 
@@ -169,7 +171,7 @@ final class SlashCommandsTests: XCTestCase {
         // rows and any skill / plugin command are prose.
         XCTAssertNil(SlashCommands.command(for: "/clear", agent: "claude"))
         XCTAssertNil(SlashCommands.command(for: "/btw what now", agent: "claude"))
-        XCTAssertNil(SlashCommands.command(for: "/new", agent: "codex"))
+        XCTAssertEqual(SlashCommands.command(for: "/new", agent: "codex")?.name, "new")
         XCTAssertNil(SlashCommands.command(for: "/init", agent: "codex"))
         XCTAssertNil(SlashCommands.command(for: "/review", agent: "claude"))
     }
@@ -230,7 +232,7 @@ final class SlashCommandsTests: XCTestCase {
         )
         XCTAssertEqual(
             SlashCommands.candidates(draft: "/", agent: "claude", prompts: prompts).map(\.id),
-            ["command:compact", "command:model", "command:effort", "prompt:p1", "prompt:p2"]
+            ["command:compact", "command:new", "command:model", "command:effort", "prompt:p1", "prompt:p2"]
         )
     }
 }

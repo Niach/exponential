@@ -119,6 +119,16 @@ struct ThreadScreen: View {
     @State private var sessionStopConfirm = false
     /// EXP-1347: the innermost outlet for issue pills inside this thread.
     @State private var issueOutlet = ThreadIssueOutlet()
+    /// EXP-1373 (chats.json MENUS): the header `…` = the chat's menu sheet
+    /// (Stop · Stop and delete / Delete, the Guide's Close PR; an agent
+    /// chat's Compact · New conversation · Stop · Agent settings), its pick
+    /// run once the sheet has dismissed.
+    @State private var chatMenuOpen = false
+    @State private var pendingChatPick: ChatMenuSheet.Entry?
+    @State private var deleteTarget: String?
+    @State private var isOwner = false
+    @State private var agentSettingsOpen = false
+    @Environment(\.dismiss) private var dismiss
 
     init(rootId: String, initialPage: ThreadPage = .conversation, editor: ThreadEditorSlot? = nil) {
         self.rootId = rootId
@@ -221,22 +231,29 @@ struct ThreadScreen: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
             // EXP-1316: the title, ONE line, not tappable, the lock beside it.
-            ToolbarItem(placement: .principal) {
-                if let editor {
-                    editor.title
-                } else if let rows, let view = model?.view {
-                    if rows.isAgent {
-                        // NEW-2: the agent DEFINITION's icon (coloured) + name.
-                        ThreadHeaderTitle(
-                            title: rows.agentName.isEmpty ? view.title : rows.agentName,
+            if let editor {
+                ToolbarItem(placement: .principal) { editor.title }
+            } else {
+                // EXP-1373: back · the lead disc · title over the subtitle.
+                ToolbarItem(placement: .principal) {
+                    if let rows, let view = model?.view {
+                        ChatHeaderTitle(
+                            title: rows.isAgent && !rows.agentName.isEmpty ? rows.agentName : view.title,
+                            subtitle: ChatHeaderTitle.subtitle(rows: rows),
+                            subtitleTone: ChatHeaderTitle.tone(rows: rows),
                             isPrivate: view.isPrivate,
-                            agentIcon: rows.agentIcon,
-                            agentColor: rows.agentColor
+                            agentIcon: rows.isAgent ? rows.agentIcon : nil,
+                            agentColor: rows.isAgent ? rows.agentColor : nil,
+                            cli: rows.root.cli,
+                            mark: SessionTree.threadRowMarkState(
+                                needsYou: rows.sessions.contains { $0.needsInput && $0.status != DomainContract.sessionStatusEnded },
+                                busy: rows.sessions.contains { $0.busy && $0.status != DomainContract.sessionStatusEnded }
+                            )
                         )
-                    } else {
-                        ThreadHeaderTitle(title: view.title, isPrivate: view.isPrivate)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
+                .ownChrome()
             }
             // EXP-1307/1316: ONE `…` rides the header's action slot on every
             // tab while it has an entry — Close PR (EXP-1338: no GitHub
@@ -246,8 +263,8 @@ struct ThreadScreen: View {
             // EXP-942; draws nothing otherwise).
             ToolbarItem(placement: .topBarTrailing) { sessionStopButton }
             ToolbarItem(placement: .topBarTrailing) {
-                if !guideMenuEntries.isEmpty {
-                    Button { openGuideMenu() } label: {
+                if editor == nil, !chatMenuEntries.isEmpty {
+                    Button { openChatMenu() } label: {
                         AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium, weight: .medium)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
@@ -257,6 +274,15 @@ struct ThreadScreen: View {
             }
         }
         // Each presentation on its OWN node (EXP-240).
+        .background {
+            Color.clear
+                .sheet(isPresented: $chatMenuOpen, onDismiss: runPendingChatPick) {
+                    ChatMenuSheet(title: chatMenuTitle, entries: chatMenuEntries) { entry in
+                        pendingChatPick = entry
+                        chatMenuOpen = false
+                    }
+                }
+        }
         .background {
             Color.clear
                 .sheet(item: $menuTarget, onDismiss: runPendingMenuAction) { target in
@@ -269,17 +295,31 @@ struct ThreadScreen: View {
                     }
                 }
         }
-        // EXP-1343: the session page's Stop confirm (`Prompts.StopRun`).
+        // EXP-1343: the header Stop's confirm (`Prompts.StopRun`); EXP-1373:
+        // it ends the ROOT (the whole tree), the menu's Stop.
         .background {
             Color.clear
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
                 .glassAlert(isPresented: $sessionStopConfirm) {
                     GlassAlert(prompt: Prompts.StopRun.copy(), handlers: [
-                        "stop": { sessionPageModel?.model.stop() },
+                        "stop": { chatActions.stop(rootId: rows?.root.id ?? rootId) },
                     ])
                 }
         }
+        .chatDeleteConfirm(target: $deleteTarget) { id in
+            chatActions.delete(rootId: id) { deleted in
+                // chats.json: after a delete the chat's screen closes.
+                if deleted { dismiss() }
+            }
+        }
+        .navigationDestination(isPresented: $agentSettingsOpen) {
+            if let rows, let agentId = rows.root.agentId {
+                AgentSettingsPage(teamId: rows.root.teamId, agentId: agentId, isOwner: isOwner)
+                    .environment(\.accountId, accountId)
+            }
+        }
+        .task(id: rows?.root.teamId) { await resolveOwner() }
         // EXP-1307: close-pr.json's confirm (the app's own card, EXP-240).
         .background {
             Color.clear
@@ -425,8 +465,11 @@ struct ThreadScreen: View {
     /// viewer may stop it (the session view's own rule).
     @ViewBuilder
     private var sessionStopButton: some View {
-        if case let .session(shown) = page, let held = sessionPageModel, held.id == shown,
-           held.model.canStop, !held.model.isOver {
+        // EXP-1373 (chats.json STOP): a thread's header Stop = the menu's
+        // Stop (ends the tree), shown while the root is not ended; an agent
+        // chat has none (its composer button and the menu's Stop).
+        if editor == nil, let rows, !rows.isAgent,
+           rows.root.status != DomainContract.sessionStatusEnded, canSteer {
             Button(role: .destructive) { sessionStopConfirm = true } label: {
                 Text("Stop").fontWeight(.medium)
             }
@@ -488,7 +531,8 @@ struct ThreadScreen: View {
                                     model: live,
                                     agent: view.liveSessionId.flatMap { rows.session(id: $0)?.cli }
                                 )
-                            }
+                            },
+                            onReply: { text in reply(text, sessionId: view.composer.sessionId) }
                         )
                         .padding(.vertical, 12)
                         .transcriptColumn()
@@ -1066,6 +1110,89 @@ struct ThreadScreen: View {
         let accountId = accountId
         let rootId = rows?.root.id ?? rootId
         Task { try? await api.markRead(accountId: accountId, sessionId: rootId) }
+    }
+
+    // MARK: - The chat's menu (EXP-1373)
+
+    private var chatActions: ChatActions {
+        ChatActions(deps: deps, accountId: accountId, toaster: toaster)
+    }
+
+    /// The starter or a team owner steers the chat.
+    private var canSteer: Bool {
+        guard let rows else { return false }
+        return isOwner || rows.root.userId == deps.auth.userId
+    }
+
+    private var chatMenuTitle: String? {
+        guard let rows, let view = model?.view else { return nil }
+        return rows.isAgent && !rows.agentName.isEmpty ? rows.agentName : view.title
+    }
+
+    /// The header `…`: an agent chat's `agentMenuEntries`; a thread's
+    /// `threadMenuEntries`, then the Guide's Close PR (EXP-1307).
+    private var chatMenuEntries: [ChatMenuSheet.Entry] {
+        guard let rows else { return [] }
+        if rows.isAgent {
+            guard rows.root.appId == nil else { return [] }
+            return Chats.agentMenuEntries(busy: rows.root.busy, isOwner: isOwner).map { .agent($0) }
+        }
+        let own = Chats.threadMenuEntries(rootStatus: rows.root.status, canSteer: canSteer).map { ChatMenuSheet.Entry.thread($0) }
+        return own + guideMenuEntries.map { _ in .closePr }
+    }
+
+    private func openChatMenu() {
+        UIApplication.endEditing()
+        chatMenuOpen = true
+    }
+
+    private func runPendingChatPick() {
+        guard let pick = pendingChatPick, let rows else { return }
+        pendingChatPick = nil
+        switch pick {
+        case .thread(.stop):
+            chatActions.stop(rootId: rows.root.id)
+        case .thread(.stopAndDelete), .thread(.delete):
+            deleteTarget = rows.root.id
+        case let .agent(entry):
+            switch entry {
+            case .compact, .newConversation:
+                if let text = Chats.agentMenuSends[entry] { reply(text, sessionId: rows.root.id) }
+            case .stop:
+                chatActions.interrupt(sessionId: rows.root.id)
+            case .settings:
+                agentSettingsOpen = true
+            }
+        case .closePr:
+            closePrTarget = rows.guidePullRequest.flatMap { $0.isOpen ? $0 : nil }
+        }
+    }
+
+    /// A surface card's reply / an agent menu's builtin line: the person's
+    /// next message, through the one send path.
+    private func reply(_ text: String, sessionId: String) {
+        let api = deps.sessionsApi
+        let accountId = accountId
+        Task {
+            do {
+                _ = try await api.send(accountId: accountId, .message(sessionId: sessionId, text: text))
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "send", thing: "the message"),
+                    description: error.userFacingMessage
+                )
+            }
+        }
+    }
+
+    private func resolveOwner() async {
+        guard let teamId = rows?.root.teamId, let userId = deps.auth.userId,
+              let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        isOwner = (try? await pool.read { db in
+            try TeamMemberEntity
+                .filter(Column("team_id") == teamId && Column("user_id") == userId)
+                .fetchOne(db)?.role == "owner"
+        }) ?? false
     }
 
     // MARK: - THE Menu
@@ -2005,9 +2132,15 @@ struct ThreadComposer: View {
         let ids = busySessionIds
         Task {
             do {
-                for id in ids { try await api.stop(accountId: accountId, sessionId: id) }
+                var undelivered = false
+                for id in ids {
+                    let result = try await api.stop(accountId: accountId, sessionId: id)
+                    if result.delivered == false { undelivered = true }
+                }
+                // chats.json STOP: a stop no device got toasts.
+                if undelivered { toaster.warning(Chats.Copy.Toasts.stopNotDelivered) }
             } catch {
-                toaster.error(FeedbackStates.Errors.title(verb: "stop", thing: "the session"), description: error.userFacingMessage)
+                toaster.error(Chats.Copy.Toasts.stopFailed, description: error.userFacingMessage)
             }
         }
     }

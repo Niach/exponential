@@ -157,9 +157,34 @@ struct PullRequestIdInput<'a> {
     pull_request_id: &'a str,
 }
 
+/// `sessions.stop`'s `{txid, delivered}` (thread 58cb32df): `delivered`
+/// is false when the relay reached no device for a live, non-queued
+/// session; an older server sends none (`None` = delivered).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopOutput {
+    #[serde(default, alias = "txid")]
+    pub tx_id: Option<i64>,
+    #[serde(default)]
+    pub delivered: Option<bool>,
+}
+
+impl StopOutput {
+    /// The stop reached no device (`chats.json` `copy.toasts.stopNotDelivered`).
+    pub fn not_delivered(&self) -> bool {
+        self.delivered == Some(false)
+    }
+}
+
 /// Interrupt the session's current turn (it stays alive).
-pub fn stop(trpc: &TrpcClient, session_id: &str) -> Result<TxOutput, ApiError> {
+pub fn stop(trpc: &TrpcClient, session_id: &str) -> Result<StopOutput, ApiError> {
     trpc.mutation("sessions.stop", &SessionIdInput { session_id })
+}
+
+/// Thread 58cb32df: `sessions.delete` — a ROOT chat only: the server ends
+/// what is live, then deletes the tree and its messages.
+pub fn delete(trpc: &TrpcClient, session_id: &str) -> Result<TxOutput, ApiError> {
+    trpc.mutation("sessions.delete", &SessionIdInput { session_id })
 }
 
 /// End the session (a root ends its whole tree).
@@ -568,9 +593,20 @@ mod tests {
 
     #[test]
     fn stop_and_end_post_the_session_id() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":5,"delivered":false}}}"#);
+        let out = stop(&client(&base), "s-1").unwrap();
+        assert_eq!(out.tx_id, Some(5));
+        assert!(out.not_delivered());
+        let request_text = request(&captured);
+        assert!(request_text.starts_with("POST /api/trpc/sessions.stop HTTP/1.1"), "{request_text}");
+        assert!(request_text.ends_with(r#"{"sessionId":"s-1"}"#), "{request_text}");
+        // An older server sends no `delivered`: delivered.
+        let (base, _captured) = one_shot_server(200, r#"{"result":{"data":{"txid":5}}}"#);
+        assert!(!stop(&client(&base), "s-1").unwrap().not_delivered());
+
         for (path, call) in [
-            ("sessions.stop", stop as fn(&TrpcClient, &str) -> Result<TxOutput, ApiError>),
-            ("sessions.end", end),
+            ("sessions.end", end as fn(&TrpcClient, &str) -> Result<TxOutput, ApiError>),
+            ("sessions.delete", delete),
         ] {
             let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":5}}}"#);
             assert_eq!(call(&client(&base), "s-1").unwrap().tx_id, Some(5));

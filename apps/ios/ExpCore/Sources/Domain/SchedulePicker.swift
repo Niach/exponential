@@ -11,9 +11,12 @@ import Foundation
 
 /// What the rows edit; `SchedulePicker.cronFromSchedule` is its wire form.
 public struct Schedule: Equatable, Sendable {
-    /// hourly | daily | weekly | monthly (`SchedulePicker.repeatValues`).
+    /// minutes | hourly | daily | weekly | monthly (`SchedulePicker.repeatValues`).
     public var `repeat`: String
-    /// 0..59.
+    /// EXP-1363: one of `SchedulePicker.everyValues`; minutes only (a read
+    /// carries `defaults.every` otherwise).
+    public var every: Int
+    /// 0..59; unused by `minutes`.
     public var minute: Int
     /// 0..23; unused by `hourly`.
     public var hour: Int
@@ -22,8 +25,9 @@ public struct Schedule: Equatable, Sendable {
     /// 1..28; monthly only.
     public var dayOfMonth: Int
 
-    public init(repeat: String, minute: Int, hour: Int, weekdays: [Int], dayOfMonth: Int) {
+    public init(repeat: String, every: Int = SchedulePicker.defaultEvery, minute: Int, hour: Int, weekdays: [Int], dayOfMonth: Int) {
         self.repeat = `repeat`
+        self.every = every
         self.minute = minute
         self.hour = hour
         self.weekdays = weekdays
@@ -41,6 +45,9 @@ public enum SchedulePicker {
         public static let rowTime = "Time"
         public static let rowTimeZone = "Time zone"
         public static let rowCron = "Cron"
+        public static let rowEvery = "Every"
+
+        public static let repeatMinutes = "Every few minutes"
 
         public static let repeatHourly = "Every hour"
         public static let repeatDaily = "Every day"
@@ -49,6 +56,7 @@ public enum SchedulePicker {
         public static let repeatCustom = "Custom"
         /// `copy.repeat` by repeat value (incl. `custom`).
         public static let repeatLabels: [String: String] = [
+            "minutes": repeatMinutes,
             "hourly": repeatHourly,
             "daily": repeatDaily,
             "weekly": repeatWeekly,
@@ -66,6 +74,9 @@ public enum SchedulePicker {
         public static let timeZonePlaceholder = "Search time zones"
         public static let cronPlaceholder = "0 9 * * 1-5"
 
+        /// `copy.every` (`{n}`): an Every option's label.
+        public static let every = "{n} minutes"
+        public static let summaryMinutes = "Every {n} minutes"
         public static let summaryHourly = "Every hour at :{minute}"
         public static let summaryDaily = "Every day at {time}"
         public static let summaryWeekly = "{days} at {time}"
@@ -87,16 +98,33 @@ public enum SchedulePicker {
         public static let time = "schedule-time"
         public static let timeZone = "schedule-time-zone"
         public static let cron = "schedule-cron"
+        public static let every = "schedule-every"
     }
 
-    public static let repeatValues = ["hourly", "daily", "weekly", "monthly"]
+    public static let repeatValues = ["minutes", "hourly", "daily", "weekly", "monthly"]
+    /// EXP-1363: the `minutes` repeat's intervals.
+    public static let everyValues = [5, 10, 15, 20, 30]
+    /// Fixture `defaults.every`.
+    public static let defaultEvery = 10
     /// 28 so no month is skipped.
     public static let dayOfMonthMax = 28
 
     /// A new schedule: daily at 09:00 (the fixture's `defaults`; `weekdays`
     /// and `dayOfMonth` = what weekly / monthly seed).
     public static func defaults() -> Schedule {
-        Schedule(repeat: "daily", minute: 0, hour: 9, weekdays: [1, 2, 3, 4, 5], dayOfMonth: 1)
+        Schedule(repeat: "daily", every: defaultEvery, minute: 0, hour: 9, weekdays: [1, 2, 3, 4, 5], dayOfMonth: 1)
+    }
+
+    /// `copy.every` for one interval (an Every option / row value).
+    public static func everyLabel(_ every: Int) -> String {
+        Copy.every.replacingOccurrences(of: "{n}", with: String(every))
+    }
+
+    /// EXP-1363: the Time zone row shows for daily, weekly, monthly and
+    /// custom only (nil = custom).
+    public static func showsTimeZone(_ schedule: Schedule?) -> Bool {
+        guard let schedule else { return true }
+        return schedule.repeat != "minutes" && schedule.repeat != "hourly"
     }
 
     static func pad2(_ value: Int) -> String {
@@ -127,6 +155,8 @@ public enum SchedulePicker {
     public static func cronFromSchedule(_ schedule: Schedule) -> String {
         let minute = String(schedule.minute)
         switch schedule.repeat {
+        case "minutes":
+            return "*/\(schedule.every) * * * *"
         case "hourly":
             return "\(minute) * * * *"
         case "weekly":
@@ -173,7 +203,16 @@ public enum SchedulePicker {
         guard fields.count == 5 else { return nil }
         let (minuteField, hourField, domField, monthField, dowField) =
             (fields[0], fields[1], fields[2], fields[3], fields[4])
-        guard monthField == "*", let minute = plainNumber(minuteField, 0, 59) else { return nil }
+        guard monthField == "*" else { return nil }
+        if minuteField.hasPrefix("*/") {
+            let step = minuteField.dropFirst(2)
+            guard step.count <= 2, isAsciiDigits(step), let every = Int(step) else { return nil }
+            let plain = hourField == "*" && domField == "*" && dowField == "*"
+            return plain && everyValues.contains(every)
+                ? Schedule(repeat: "minutes", every: every, minute: 0, hour: 0, weekdays: [], dayOfMonth: 1)
+                : nil
+        }
+        guard let minute = plainNumber(minuteField, 0, 59) else { return nil }
         // Only the repeat's own fields are populated: `weekdays` [] unless
         // weekly, `dayOfMonth` 1 unless monthly (the rows seed `defaults`).
         if hourField == "*" {
@@ -218,8 +257,12 @@ public enum SchedulePicker {
         if let schedule = scheduleFromCron(cron) {
             let time = timeLabel(hour: schedule.hour, minute: schedule.minute)
             switch schedule.repeat {
+            case "minutes":
+                // EXP-1363: a zone means nothing for a minutes schedule.
+                return Copy.summaryMinutes.replacingOccurrences(of: "{n}", with: String(schedule.every))
             case "hourly":
-                text = Copy.summaryHourly.replacingOccurrences(of: "{minute}", with: pad2(schedule.minute))
+                // EXP-1363: nor for an hourly one.
+                return Copy.summaryHourly.replacingOccurrences(of: "{minute}", with: pad2(schedule.minute))
             case "weekly":
                 text = schedule.weekdays.count == 1
                     ? Copy.summaryWeeklyOne

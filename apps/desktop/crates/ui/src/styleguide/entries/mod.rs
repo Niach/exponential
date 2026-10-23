@@ -56,6 +56,11 @@ pub(crate) mod code_block;
 pub(crate) mod agent_home;
 pub(crate) mod work_tabs_strip;
 pub(crate) mod getting_started;
+// Thread 58cb32df (#EXP-1373): Chats.
+pub(crate) mod chat_list;
+pub(crate) mod phone_tab_bar;
+pub(crate) mod chat_transcript;
+pub(crate) mod chat_menus;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
 /// than a demo. EXP-1268 landed its design draft on the web page first; its
@@ -134,4 +139,8 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: agent_home::ID, owner: agent_home::OWNER, render: agent_home::render },
     Entry { id: work_tabs_strip::ID, owner: work_tabs_strip::OWNER, render: work_tabs_strip::render },
     Entry { id: getting_started::ID, owner: getting_started::OWNER, render: getting_started::render },
+    Entry { id: chat_list::ID, owner: chat_list::OWNER, render: chat_list::render },
+    Entry { id: phone_tab_bar::ID, owner: phone_tab_bar::OWNER, render: phone_tab_bar::render },
+    Entry { id: chat_transcript::ID, owner: chat_transcript::OWNER, render: chat_transcript::render },
+    Entry { id: chat_menus::ID, owner: chat_menus::OWNER, render: chat_menus::render },
 ];

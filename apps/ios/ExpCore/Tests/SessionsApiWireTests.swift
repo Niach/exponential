@@ -122,6 +122,17 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertNil(start.messageId)
     }
 
+    func testStopResultDecodesDeliveredLeniently() throws {
+        func decode(_ text: String) throws -> SessionsStopResult {
+            try JSONDecoder().decode(SessionsStopResult.self, from: Data(text.utf8))
+        }
+        XCTAssertEqual(try decode(#"{"txid":1,"delivered":false}"#).delivered, false)
+        XCTAssertEqual(try decode(#"{"txid":1,"delivered":true}"#).delivered, true)
+        XCTAssertNil(try decode(#"{"txid":1}"#).delivered)
+        XCTAssertNil(try decode(#"{"txid":1,"delivered":"no"}"#).delivered)
+        XCTAssertNil(try decode("null").delivered)
+    }
+
     func testAnswerOmitsTheUnusedHalf() throws {
         let question = try json(AnswerMessageInput(
             messageId: "m-1", answer: "Board A", decision: nil, fresh: nil, feedback: nil

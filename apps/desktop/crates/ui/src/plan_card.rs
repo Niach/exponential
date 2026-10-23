@@ -458,6 +458,22 @@ impl HostPlugin for CardSurfaceHost {
 }
 
 fn surface_view(message_id: &str, surface: &CardSurface, window: &mut Window, cx: &mut App) -> Option<Entity<SurfaceView>> {
+    let host = Rc::new(CardSurfaceHost::new(cx));
+    card_surface_view(&format!("plan-card-{message_id}"), surface, host, window, cx)
+}
+
+/// A card's inline surface (theme exponential, dark, the frame's width)
+/// behind `host`: the plan / question card's [`CardSurfaceHost`], the
+/// surface card's reply host ([`crate::surface_card`]). `None` when the
+/// root does not parse.
+pub(crate) fn card_surface_view(
+    surface_id: &str,
+    surface: &CardSurface,
+    host: Rc<dyn HostPlugin>,
+    window: &mut Window,
+    cx: &mut App,
+) -> Option<Entity<SurfaceView>> {
+    let message_id = surface_id;
     let tree: exponential_ui::NestedNode = match serde_json::from_value(surface.root.clone()) {
         Ok(tree) => tree,
         Err(error) => {
@@ -466,10 +482,10 @@ fn surface_view(message_id: &str, surface: &CardSurface, window: &mut Window, cx
         }
     };
     let options = SurfaceViewOptions {
-        surface_id: format!("plan-card-{message_id}"),
+        surface_id: surface_id.to_string(),
         theme: exponential_ui::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
         mode: exponential_ui::theme::Mode::Dark,
-        host: Rc::new(CardSurfaceHost::new(cx)),
+        host,
         // `None`: the surface follows its frame's width (a fixed width
         // left the surface's equal tile columns short of the frame).
         width: None,
@@ -783,10 +799,13 @@ pub(crate) struct PlanFacts<'a> {
 /// The plan card IN THE TRANSCRIPT (N-12): the surface + every question
 /// block (`content`), then the closed lines, the answering line or nothing
 /// (`controls`). A pending card the viewer may decide lives in THE Dock
-/// ([`plan_sheet`]); here it is read-only.
-pub(crate) fn plan_parts(facts: &PlanFacts, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> (Vec<AnyElement>, AnyElement) {
+/// ([`plan_sheet`]); FEED-140: with `answer` (the reader may reply) the
+/// inline card is live too: its questions pick and its footer decides
+/// (the same draft as the sheet), else it is read-only.
+pub(crate) fn plan_parts(facts: &PlanFacts, answer: bool, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> (Vec<AnyElement>, AnyElement) {
     let message_id = facts.message_id;
     let answering = crate::thread_screen::answering(message_id, cx);
+    let interactive = answer && facts.decision.is_none() && !answering;
     prepare_plan(facts, window, cx);
     let mut content: Vec<AnyElement> = Vec::new();
     if facts.surface.is_some() {
@@ -794,11 +813,12 @@ pub(crate) fn plan_parts(facts: &PlanFacts, images: &Entity<ImageCache>, window:
     }
     for question in facts.questions {
         let picked = plan_picked(facts, question, cx);
-        content.push(question_block(message_id, question, &picked, false, model::card().block_gap, images, window, cx));
+        content.push(question_block(message_id, question, &picked, interactive, model::card().block_gap, images, window, cx));
     }
     let controls = match facts.decision {
         Some(decision) => closed_decision(facts, decision, cx),
         None if answering => crate::thread_screen::card_answering(cx),
+        None if interactive => div().mt_3().w_full().child(plan_footer(facts, 0, window, cx)).into_any_element(),
         None => div().into_any_element(),
     };
     (content, controls)
@@ -1186,15 +1206,19 @@ fn question_content(facts: &QuestionFacts, interactive: bool, images: &Entity<Im
 /// The question card IN THE TRANSCRIPT (N-12): the surface and the options
 /// (`content`), then the closed line, the answering line or nothing
 /// (`controls`). A pending card the viewer may answer lives in THE Dock
-/// ([`question_sheet`]); here it is read-only.
-pub(crate) fn question_parts(facts: &QuestionFacts, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> (Vec<AnyElement>, AnyElement) {
+/// ([`question_sheet`]); FEED-140: with `answer` the inline card answers
+/// too (the same draft), else it is read-only.
+pub(crate) fn question_parts(facts: &QuestionFacts, answer: bool, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> (Vec<AnyElement>, AnyElement) {
     let answering = crate::thread_screen::answering(facts.message_id, cx);
+    let interactive = answer && !facts.answered && !answering;
     prepare_question(facts, window, cx);
-    let (content, picked) = question_content(facts, false, images, window, cx);
+    let (content, picked) = question_content(facts, interactive, images, window, cx);
     let controls = if facts.answered {
         closed_answer(facts, &picked, cx)
     } else if answering {
         crate::thread_screen::card_answering(cx)
+    } else if interactive {
+        h_flex().mt_3().w_full().justify_end().child(answer_button(facts, cx)).into_any_element()
     } else {
         div().into_any_element()
     };

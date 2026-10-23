@@ -1176,7 +1176,9 @@ export const planCardSchema = z
     pictures: z.array(planCardPictureSchema).max(PLAN_CARD_PICTURES_MAX).nullish(),
     questions: z.array(planCardQuestionSchema).max(PLAN_CARD_QUESTIONS_MAX).nullish(),
     surface: cardSurfaceSchema.nullish(),
-    decision: z.enum([`approved`, `rejected`]).nullish(),
+    // FEED-140: `superseded` = the agent replaced the waiting plan with a
+    // newer `plan` call (server-written, never a person's pick).
+    decision: z.enum([`approved`, `rejected`, `superseded`]).nullish(),
     fresh: z.boolean().nullish(),
     feedback: z.string().nullish(),
     answers: planCardAnswersSchema.nullish(),
@@ -1258,7 +1260,8 @@ export type MessageCard =
       pictures?: PlanCardPicture[] | null
       questions?: PlanCardQuestion[] | null
       surface?: CardSurface | null
-      decision?: `approved` | `rejected` | null
+      /** FEED-140: `superseded` = replaced by a newer plan (server-written). */
+      decision?: `approved` | `rejected` | `superseded` | null
       /** An approval that starts the work in a fresh context (ask-dock.json `planOptions`). */
       fresh?: boolean | null
       feedback?: string | null
@@ -1291,6 +1294,9 @@ export type MessageCard =
   | { kind: `ask`; sessionId: string; messageId: string }
   | { kind: `suggestions`; items: SuggestionItem[] }
   | { kind: `replies`; items: ReplyItem[] }
+  /** Chats (fixtures/chats.json `surfaceCard`): an agent's inline Exponential
+   *  UI preview (`exponential_session_self {op: "show"}`); answers nothing. */
+  | { kind: `surface`; surface: CardSurface; title?: string | null }
 
 /** EXP-1323: one item of a `suggestions` card (`sessions_suggest`). Start =
  *  a child (`sessionId` stamped), Do it here = a message to the posting

@@ -40,8 +40,15 @@ export function UserMessageBubble({
   files,
   caption,
   action,
+  time,
+  variant = `transcript`,
   className,
 }: {
+  /** Thread 58cb32df (chats.json TRANSCRIPT): `chat` = the phones' chat
+   *  bubble, at most 80% of the column with its `time` bottom-right inside. */
+  variant?: `transcript` | `chat`
+  /** The `chat` bubble's `HH:mm`. */
+  time?: string | null
   text: string
   /** The app's text renderer (links, pills); plain pre-wrapped prose without. */
   renderText?: (text: string) => ReactNode
@@ -60,7 +67,12 @@ export function UserMessageBubble({
       data-testid="user-message-bubble"
       className={cn(`flex flex-col items-end gap-1`, className)}
     >
-      <div className="max-w-[70%] min-w-0 rounded-xl border border-glass-stroke-strong bg-glass-active px-3 py-2 text-sm text-foreground/90">
+      <div
+        className={cn(
+          `min-w-0 border border-glass-stroke-strong bg-glass-active text-sm text-foreground/90`,
+          variant === `chat` ? `max-w-[80%] rounded-2xl px-3.5 py-2.5` : `max-w-[70%] rounded-xl px-3 py-2`
+        )}
+      >
         {renderText ? renderText(text) : <p className="whitespace-pre-wrap">{text}</p>}
         {imageSrc ? (
           <img
@@ -76,6 +88,11 @@ export function UserMessageBubble({
             {files.map((file) => (
               <AttachmentFileLink key={file.url} href={file.url} name={file.name} />
             ))}
+          </div>
+        ) : null}
+        {variant === `chat` && time ? (
+          <div data-slot="user-message-time" className="mt-1 text-right text-[0.6875rem] text-muted-foreground tabular-nums">
+            {time}
           </div>
         ) : null}
       </div>

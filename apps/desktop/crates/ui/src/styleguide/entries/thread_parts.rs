@@ -661,6 +661,8 @@ mod tests {
                 SessionThreadRow::Event { .. } => "event",
                 SessionThreadRow::Report { .. } => "report",
                 SessionThreadRow::Suggestions { .. } => "suggestions",
+                SessionThreadRow::Divider { .. } => "divider",
+                SessionThreadRow::Surface { .. } => "surface",
             })
             .collect();
         assert_eq!(kinds.len(), 9, "{kinds:?}");

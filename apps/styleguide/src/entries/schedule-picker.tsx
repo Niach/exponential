@@ -17,12 +17,15 @@ import type { StyleguideEntry } from "./types.ts"
 // as the trigger editor draws it — ONE glass group whose first row is the
 // Schedule · On event strip — for a weekly Monday–Friday 09:00 schedule, and
 // below it the custom case: a cron an MCP wrote that the rows cannot
-// express keeps its monospace Cron row until a Repeat is picked.
+// express keeps its monospace Cron row until a Repeat is picked. EXP-1363:
+// the minutes repeat (Every 5/10/15/20/30 minutes) has no Time zone row.
 
 const noop = (): void => {}
 const COPY = fixture.copy
 
 const WEEKLY = scheduleDraftFromCron(`0 9 * * 1-5`, `Europe/Vienna`)
+// EXP-1363: the minutes repeat (Every row, no Time zone row).
+const MINUTES = scheduleDraftFromCron(`*/10 * * * *`, `Europe/Vienna`)
 const CUSTOM = scheduleDraftFromCron(`*/10 * * * 1-5`, `Europe/Vienna`)
 
 export const entry: StyleguideEntry = {
@@ -30,7 +33,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `NEW-2`,
   title: `Schedule picker`,
-  blurb: `The rows a schedule is edited through, identical ×4: ${COPY.rows.repeat} (${COPY.repeat.hourly} · ${COPY.repeat.daily} · ${COPY.repeat.weekly} · ${COPY.repeat.monthly}), then the repeat's own row — ${COPY.rows.days} (weekly: a multi picker whose value reads "${COPY.weekdaysWork}", "${COPY.weekdaysWeekend}", one full name or short names), ${COPY.rows.day} (monthly, 1–${fixture.dayOfMonthMax}) or ${COPY.rows.minute} (hourly) — the 24h ${COPY.rows.time} row (hour and minute each a picker, never the platform's time control) and ${COPY.rows.timeZone} (a searchable picker over the contract's zones, seeded with the device's own). The stored form stays a 5-field cron in an IANA zone (the server fires it); a cron the rows cannot express — one an MCP wrote — reads "${COPY.repeat.custom}" and keeps a monospace ${COPY.rows.cron} row until a repeat is picked. A Triggers row reads \`scheduleSummary\`: "${scheduleSummary(`0 9 * * 1-5`, `Europe/Vienna`)}".`,
+  blurb: `The rows a schedule is edited through, identical ×4: ${COPY.rows.repeat} (${COPY.repeat.minutes} · ${COPY.repeat.hourly} · ${COPY.repeat.daily} · ${COPY.repeat.weekly} · ${COPY.repeat.monthly}), then the repeat's own row — ${COPY.rows.days} (weekly: a multi picker whose value reads "${COPY.weekdaysWork}", "${COPY.weekdaysWeekend}", one full name or short names), ${COPY.rows.day} (monthly, 1–${fixture.dayOfMonthMax}), ${COPY.rows.every} (every few minutes: ${fixture.everyValues.join(`/`)}) or ${COPY.rows.minute} (hourly) — the 24h ${COPY.rows.time} row (hour and minute each a picker, never the platform's time control) and ${COPY.rows.timeZone} (daily, weekly, monthly and custom only; a searchable picker over the contract's zones, seeded with the device's own). Every option list scrolls inside its popover or sheet. The stored form stays a 5-field cron in an IANA zone (the server fires it); a cron the rows cannot express — one an MCP wrote — reads "${COPY.repeat.custom}" and keeps a monospace ${COPY.rows.cron} row until a repeat is picked. A Triggers row reads \`scheduleSummary\`: "${scheduleSummary(`0 9 * * 1-5`, `Europe/Vienna`)}".`,
   status: {
     web: { state: `ok`, symbol: `ScheduleFields`, file: `packages/ui/src/schedule-fields.tsx` },
     desktop: {
@@ -53,6 +56,9 @@ export const entry: StyleguideEntry = {
           <TabsTrigger value="event">On event</TabsTrigger>
         </GlassTabsRow>
         <ScheduleFields value={WEEKLY} onChange={noop} />
+      </GlassGroup>
+      <GlassGroup>
+        <ScheduleFields value={MINUTES} onChange={noop} />
       </GlassGroup>
       <GlassGroup>
         <ScheduleFields value={CUSTOM} onChange={noop} />

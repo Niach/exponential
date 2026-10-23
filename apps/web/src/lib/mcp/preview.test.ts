@@ -137,6 +137,7 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_team_config_repositories_add: [`repository`],
   exponential_team_config_repositories_list: [`list`, `repository`],
   exponential_session_self_compact: [],
+  exponential_session_self_show: [],
   exponential_sessions_end: [],
   exponential_sessions_list: [`list`, `session`],
   exponential_session_self_suggest: [],

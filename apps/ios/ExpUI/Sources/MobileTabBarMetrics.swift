@@ -1,5 +1,10 @@
 import SwiftUI
 
+/// Thread 58cb32df (chats.json `shell`): FOUR labelled tabs now — Board ·
+/// Devices · Chats · Team, each an icon over its label in a 56×52 slot on
+/// the glass capsule — beside the unchanged split launcher, whose arms
+/// stretch to the capsule's height so the two sit on one line.
+///
 /// EXP-973: the phone tab bar's WIDTH budget. The split launcher (chat | new
 /// issue) rides every bar-visible route now, not just a board — so the widest
 /// bar the app can draw is five tabs (Issues · Inbox · Devices · Threads ·
@@ -15,13 +20,17 @@ public enum MobileTabBarMetrics {
     /// SE / mini — the narrowest screen the bar must fit.
     public static let smallestPhoneWidth: CGFloat = 375
 
-    /// The tab SLOT: 44pt on both axes, the HIG minimum.
-    public static let tabHeight: CGFloat = 44
-    public static let tabWidth: CGFloat = 44
-    /// Between the tabs inside the pill.
-    public static let tabSpacing: CGFloat = 2
+    /// The tab SLOT: icon over label, past the 44pt HIG minimum both ways.
+    public static let tabHeight: CGFloat = 52
+    public static let tabWidth: CGFloat = 56
+    /// Between the tabs inside the pill (the selected pill fills a slot).
+    public static let tabSpacing: CGFloat = 0
     /// The pill's own padding around its tabs.
-    public static let pillPadding: CGFloat = 3
+    public static let pillPadding: CGFloat = 4
+    /// The capsule's height — the launcher's arms match it.
+    public static var barHeight: CGFloat { tabHeight + 2 * pillPadding }
+    /// The tab label under its icon.
+    public static let labelSize: CGFloat = 11
     /// Pill → launcher.
     public static let launcherGap: CGFloat = 8
     /// The bar's screen inset.

@@ -43,6 +43,8 @@ mod board_form;
 mod changelog;
 // EXP-772: the Chat page — one centred prompt box, one row of pickers.
 mod chat_launch;
+// Thread 58cb32df: the chat and agent menus (Stop, Delete, Compact, New conversation).
+mod chat_actions;
 mod chat_screen;
 pub mod coding_flow;
 // EXP-1121: the "Ready to code?" checklist behind Start coding.
@@ -134,6 +136,8 @@ mod pickers;
 mod picker;
 mod pins;
 mod plan_card;
+// Thread 58cb32df: the transcript's surface card + command dividers.
+mod surface_card;
 mod pr_diff;
 mod pr_graph;
 mod pr_merge;

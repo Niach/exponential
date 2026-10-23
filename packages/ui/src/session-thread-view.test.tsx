@@ -156,10 +156,52 @@ describe(`ThreadConversation`, () => {
     fireEvent.click(question.querySelectorAll(`[data-testid="plan-card-option"]`)[1]!)
     fireEvent.click(answer)
     expect(onAnswer).toHaveBeenCalledWith(`q1`, { answer: `B`, answers: [`B`] })
-    // N-12: a pending plan decides in its Dock sheet, never inline.
+    // FEED-140 (chats.json): a waiting plan decides INLINE too (the dock's
+    // sheet holds the same decision).
     const plan = document.querySelector(`[data-slot="thread-plan"]`)!
-    expect(plan.querySelector(`[data-slot="plan-card-decide"]`)).toBeNull()
-    expect(onDecide).not.toHaveBeenCalled()
+    const approve = plan.querySelector(`[data-slot="plan-card-decide"][data-decision="approved"]`)!
+    fireEvent.click(approve)
+    expect(onDecide).toHaveBeenCalledWith(`p1`, expect.objectContaining({ decision: `approved` }))
+  })
+
+  it(`FEED-140: a docked waiting card stays inline; a superseded plan collapses`, () => {
+    const plan = ROWS.find((row) => row.type === `plan`)!
+    renderRows(
+      [
+        plan,
+        { ...plan, id: `p-old`, decision: `superseded`, plan: `# Old plan body` } as ThreadRow,
+      ],
+      { docked: new Set([plan.id]) }
+    )
+    const cards = document.querySelectorAll(`[data-slot="thread-plan"]`)
+    expect(cards).toHaveLength(2)
+    const old = document.querySelector(`[data-decision="superseded"]`)!
+    expect(old.textContent).toContain(`Replaced by a newer plan`)
+    expect(old.textContent).not.toContain(`Old plan body`)
+    expect(old.querySelector(`[data-slot="plan-card-decide"]`)).toBeNull()
+  })
+
+  it(`chats.json: dividers, a surface card and the phone bubbles`, () => {
+    const rows: ThreadRow[] = [
+      { type: `message`, id: `u`, author: `user`, authorId: `x`, body: `Hi`, queued: false, authorSessionId: null },
+      { type: `message`, id: `a`, author: `agent`, authorId: null, body: `Hello`, queued: false, authorSessionId: null },
+      { type: `divider`, id: `d`, kind: `compact`, at: `2026-10-23T18:20:00.000Z` },
+      { type: `divider`, id: `n`, kind: `new`, at: `2026-10-23T18:30:00.000Z` },
+      {
+        type: `surface`,
+        id: `s`,
+        sessionId: `r`,
+        title: `Launch path`,
+        surface: { root: { id: `root`, component: `Text`, props: { text: `740 ms` } } },
+      },
+    ]
+    renderRows(rows, { layout: `bubbles`, messageTime: () => `21:02` })
+    const dividers = screen.getAllByTestId(`transcript-divider`)
+    expect(dividers.map((el) => el.getAttribute(`data-kind`))).toEqual([`compact`, `new`])
+    expect(dividers[0]!.textContent).toMatch(/^Conversation compacted · \d\d:\d\d$/)
+    expect(screen.getByTestId(`surface-card`).textContent).toContain(`Launch path`)
+    expect(screen.getByTestId(`chat-bubble`).textContent).toContain(`21:02`)
+    expect(screen.getByTestId(`user-message-bubble`).textContent).toContain(`21:02`)
   })
 
   it(`N-12: the plan's sheet approves from its footer`, () => {

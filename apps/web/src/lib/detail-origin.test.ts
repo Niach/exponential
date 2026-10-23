@@ -190,7 +190,7 @@ describe(`originLabel / originBoardSlug`, () => {
   it(`names the list the back row returns to`, () => {
     expect(originLabel(inbox)).toBe(`Inbox`)
     expect(originLabel({ kind: `inbox`, tab: `my-issues` })).toBe(`Inbox`)
-    expect(originLabel({ kind: `threads` })).toBe(`Threads`)
+    expect(originLabel({ kind: `threads` })).toBe(`Chats`)
     expect(originLabel(board, `Web`)).toBe(`Web`)
     // The board's name has to sync in first — never an empty row.
     expect(originLabel(board)).toBe(`Board`)

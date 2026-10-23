@@ -2,6 +2,7 @@ package com.exponential.app.ui.settings
 
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -61,6 +62,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 
 @HiltViewModel
@@ -248,11 +250,14 @@ private fun SettingsRow(
     subtitle: String? = null,
     trailingIcon: ImageVector = ExpIcons.uiChevronRight,
     showChevron: Boolean = true,
+    /** Thread 58cb32df: the Team tab's counts (Members 8 · Boards 3). */
+    trailingCount: Int? = null,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -279,6 +284,13 @@ private fun SettingsRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+        if (trailingCount != null && trailingCount > 0) {
+            Text(
+                trailingCount.toString(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
         }
         if (showChevron) {
             Spacer(Modifier.width(8.dp))
@@ -411,3 +423,240 @@ private fun TeamGroupBlock(
     }
 }
 
+
+// ── The Team tab (thread 58cb32df, chats.json `shell`) ──────────────────────
+
+/** What the Team tab reads about the ACTIVE team. */
+data class TeamTabState(
+    val team: com.exponential.app.data.db.TeamEntity? = null,
+    val members: Int = 0,
+    val boards: Int = 0,
+    val agents: Int = 0,
+    /** Teams (of the active account) with an unread notification: an amber dot. */
+    val unreadTeamIds: Set<String> = emptySet(),
+)
+
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+@HiltViewModel
+class TeamTabViewModel @Inject constructor(
+    private val auth: AuthRepository,
+    holder: com.exponential.app.data.db.DatabaseHolder,
+    private val selection: TeamSelection,
+) : ViewModel() {
+    private val dbFlow = com.exponential.app.data.db.accountDatabaseFlow(auth, holder)
+
+    val selectedId: StateFlow<String?> = selection.selectedId
+
+    val state: StateFlow<TeamTabState> =
+        kotlinx.coroutines.flow.combine(dbFlow, selection.selectedId, auth.userId) { db, team, me -> Triple(db, team, me) }
+            .flatMapLatest { (db, teamId, me) ->
+                if (db == null) {
+                    kotlinx.coroutines.flow.flowOf(TeamTabState())
+                } else {
+                    val teamFlow = if (teamId == null) kotlinx.coroutines.flow.flowOf(null) else db.teamDao().observeById(teamId)
+                    val members = if (teamId == null) kotlinx.coroutines.flow.flowOf(emptyList()) else db.teamMemberDao().observeByTeam(teamId)
+                    val agents = if (teamId == null) kotlinx.coroutines.flow.flowOf(emptyList()) else db.agentDefinitionDao().observeByTeam(teamId)
+                    val notifications = if (me == null) kotlinx.coroutines.flow.flowOf(emptyList()) else db.notificationDao().observeByUser(me)
+                    kotlinx.coroutines.flow.combine(
+                        teamFlow,
+                        members,
+                        db.boardDao().observeAll(),
+                        agents,
+                        kotlinx.coroutines.flow.combine(notifications, db.issueDao().observeAll()) { n, i -> n to i },
+                    ) { team, memberRows, boards, agentRows, (notes, issues) ->
+                        val boardTeam = boards.associate { it.id to it.teamId }
+                        val issueTeam = issues.associate { it.id to boardTeam[it.boardId] }
+                        TeamTabState(
+                            team = team,
+                            members = memberRows.size,
+                            boards = boards.count { it.teamId == teamId },
+                            agents = agentRows.size,
+                            unreadTeamIds = notes.filter { it.readAt == null }
+                                .mapNotNull { it.teamId ?: it.issueId?.let(issueTeam::get) }
+                                .toSet(),
+                        )
+                    }
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamTabState())
+
+    /** The ONE place a phone switches its team (chats.json): select it and,
+     *  for another server's team, make that account active. */
+    fun switchTeam(accountId: String, teamId: String) {
+        selection.select(teamId)
+        if (accountId != auth.activeAccountId.value) auth.switchAccount(accountId)
+    }
+}
+
+/**
+ * Thread 58cb32df: the TEAM tab (chats.json `shell`): the active team's avatar
+ * (84) + name + `copy.team.meta`, a glass group of the viewer's teams (the
+ * active one checked, a team with an unread notification an amber dot; a tap
+ * SWITCHES — the only place a phone switches its team), then the team's
+ * settings rows (same destinations as before: the team settings page,
+ * Settings → Agents, the team's Apps), then the old settings root: the
+ * servers (the account rows) and General.
+ */
+@Composable
+fun TeamTabScreen(
+    onOpenServerDetail: (accountId: String) -> Unit,
+    onOpenTeamSettings: () -> Unit,
+    onOpenAgents: () -> Unit,
+    onOpenApps: () -> Unit,
+    onOpenSyncDiagnostics: () -> Unit,
+    onOpenAbout: () -> Unit,
+    onAddServer: () -> Unit,
+    onOpenAgentHome: () -> Unit = {},
+    viewModel: SettingsViewModel = hiltViewModel(),
+    teamViewModel: TeamTabViewModel = hiltViewModel(),
+    gettingStartedViewModel: GettingStartedViewModel = hiltViewModel(),
+) {
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val serverGroups by viewModel.serverGroups.collectAsStateWithLifecycle()
+    val state by teamViewModel.state.collectAsStateWithLifecycle()
+    val selectedId by teamViewModel.selectedId.collectAsStateWithLifecycle()
+    val gettingStarted by gettingStartedViewModel.state.collectAsStateWithLifecycle()
+    var gettingStartedOpen by remember { mutableStateOf(false) }
+    // The board switcher's old "New team" lives with the teams now.
+    var teamSetupOpen by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val toaster = LocalToaster.current
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+
+    Scaffold(containerColor = Color.Transparent) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = com.exponential.app.ui.components.BottomBarInset)
+                .testTag("team-tab"),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                TeamAvatar(state.team, size = 84.dp)
+                Spacer(Modifier.size(14.dp))
+                Text(
+                    state.team?.name.orEmpty(),
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    com.exponential.app.domain.Chats.Copy.teamMeta(state.members, state.boards),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = muted,
+                )
+            }
+
+            // The viewer's teams: a tap switches (the active one checked).
+            Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp).testTag("team-switch")) {
+                serverGroups.forEach { group ->
+                    group.teams.forEach { team ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { teamViewModel.switchTeam(group.accountId, team.id) }
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                                .testTag("team-switch-row"),
+                        ) {
+                            TeamAvatar(team, size = 24.dp)
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                team.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            when {
+                                team.id == selectedId -> Icon(
+                                    ExpIcons.uiCheck,
+                                    contentDescription = "Selected",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                )
+                                team.id in state.unreadTeamIds -> Box(
+                                    Modifier
+                                        .size(8.dp)
+                                        .background(com.exponential.app.ui.issue.NeedsInputAmber, androidx.compose.foundation.shape.CircleShape),
+                                )
+                            }
+                        }
+                    }
+                }
+                SettingsRow(
+                    icon = ExpIcons.uiAdd,
+                    title = "New team",
+                    showChevron = false,
+                    onClick = { teamSetupOpen = true },
+                    modifier = Modifier.testTag("team-new"),
+                )
+            }
+
+            // The team's settings rows (same destinations as before).
+            Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
+                SettingsRow(icon = ExpIcons.settingsGeneral, title = "General", onClick = onOpenTeamSettings)
+                SettingsRow(icon = ExpIcons.settingsMembers, title = "Members", trailingCount = state.members, onClick = onOpenTeamSettings)
+                SettingsRow(icon = ExpIcons.settingsBoards, title = "Boards", trailingCount = state.boards, onClick = onOpenTeamSettings)
+                SettingsRow(icon = ExpIcons.settingsAgents, title = "Agents", trailingCount = state.agents, onClick = onOpenAgents)
+                SettingsRow(icon = ExpIcons.navApps, title = com.exponential.app.domain.Apps.Copy.NAV, onClick = onOpenApps)
+                SettingsRow(icon = ExpIcons.settingsRepositories, title = "Repositories", onClick = onOpenTeamSettings)
+            }
+
+            // The old settings root: the servers (the account rows) + General.
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionHeader("Servers")
+                Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
+                    accounts.forEach { account ->
+                        ServerRow(account = account, onClick = { onOpenServerDetail(account.id) })
+                    }
+                    SettingsRow(icon = ExpIcons.uiAdd, title = "Add server", showChevron = false, onClick = onAddServer)
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionHeader("General")
+                Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
+                    if (gettingStarted.visible) {
+                        Box(Modifier.testTag(GettingStartedCopy.ENTRY_TEST_ID)) {
+                            SettingsRow(
+                                icon = ExpIcons.navGettingStarted,
+                                title = GettingStartedCopy.TITLE,
+                                onClick = { gettingStartedOpen = true },
+                            )
+                        }
+                    }
+                    if (AppConstants.IS_STAGING) {
+                        SettingsRow(icon = ExpIcons.settingsSync, title = "Sync diagnostics", onClick = onOpenSyncDiagnostics)
+                    }
+                    SettingsRow(
+                        icon = ExpIcons.settingsRate,
+                        title = "Rate our app",
+                        trailingIcon = ExpIcons.uiExternalLink,
+                        onClick = {
+                            if (!PlayStore.openListing(context)) toaster.error("Couldn't open Google Play")
+                        },
+                    )
+                    SettingsRow(icon = ExpIcons.settingsAbout, title = "About", onClick = onOpenAbout)
+                }
+            }
+        }
+    }
+    if (gettingStartedOpen) {
+        GettingStartedSheet(onOpenAgent = onOpenAgentHome, onDismiss = { gettingStartedOpen = false })
+    }
+    if (teamSetupOpen) {
+        com.exponential.app.ui.onboarding.TeamSetupSheet(
+            onDismiss = { teamSetupOpen = false },
+            onCreated = { teamSetupOpen = false },
+            onJoined = { teamSetupOpen = false },
+        )
+    }
+}

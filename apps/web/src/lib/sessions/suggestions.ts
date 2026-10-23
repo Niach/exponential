@@ -348,7 +348,7 @@ export async function fileSuggestion(
   if (!boardId) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
-      message: `This thread has no board: link an issue first`,
+      message: `This chat has no board: link an issue first`,
     })
   }
   return db.transaction(async (tx) => {

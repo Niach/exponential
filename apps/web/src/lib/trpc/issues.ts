@@ -491,7 +491,7 @@ export const issuesRouter = router({
         if (!linkRootId) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
-            message: `The thread must be in the same team`,
+            message: `The chat must be in the same team`,
           })
         }
       } else if (draftOwned && draftSessionId) {

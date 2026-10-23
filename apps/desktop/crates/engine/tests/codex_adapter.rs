@@ -68,6 +68,10 @@ struct FakeState {
     after_answer: Vec<Value>,
     /// Every method we were sent, in order.
     seen: Vec<String>,
+    /// Every request's params, by method, in order.
+    params: Vec<(String, Value)>,
+    /// `thread/start`s answered so far: the Nth names `thread_N`.
+    thread_starts: u32,
     /// Every result the adapter sent back for a server request.
     answers: Vec<Value>,
     turn: u32,
@@ -96,6 +100,8 @@ impl FakeServer {
                 late,
                 after_answer,
                 seen: Vec::new(),
+                params: Vec::new(),
+                thread_starts: 0,
                 answers: Vec::new(),
                 turn: 0,
                 hold: None,
@@ -151,6 +157,21 @@ impl FakeServer {
             .unwrap_or(false)
     }
 
+    /// The params of every `method` request, in order.
+    fn params_of(&self, method: &str) -> Vec<Value> {
+        self.state
+            .lock()
+            .map(|state| {
+                state
+                    .params
+                    .iter()
+                    .filter(|(seen, _)| seen == method)
+                    .map(|(_, params)| params.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     fn answers(&self) -> Vec<Value> {
         self.state
             .lock()
@@ -203,6 +224,12 @@ impl LineSink for FakeServer {
                 let replay = {
                     let mut state = self.state.lock().expect("state");
                     state.seen.push(method.clone());
+                    state
+                        .params
+                        .push((method.clone(), frame.get("params").cloned().unwrap_or(Value::Null)));
+                    if method == "thread/start" {
+                        state.thread_starts += 1;
+                    }
                     match method.as_str() {
                         "turn/start" => {
                             state.turn += 1;
@@ -216,9 +243,19 @@ impl LineSink for FakeServer {
                     }
                 };
                 let turn = self.state.lock().map(|state| state.turn).unwrap_or(1);
+                let thread = self
+                    .state
+                    .lock()
+                    .map(|state| state.thread_starts.max(1))
+                    .unwrap_or(1);
                 let result = match method.as_str() {
                     "initialize" => json!({ "codexHome": "/tmp/codex", "userAgent": "fake" }),
-                    "thread/start" | "thread/resume" => json!({
+                    "thread/start" => json!({
+                        "thread": { "id": format!("thread_{thread}"), "cwd": "/work/tree" },
+                        "model": "gpt-5.4-codex",
+                        "reasoningEffort": "medium",
+                    }),
+                    "thread/resume" => json!({
                         "thread": { "id": "thread_1", "cwd": "/work/tree" },
                         "model": "gpt-5.4-codex",
                         "reasoningEffort": "medium",
@@ -500,6 +537,73 @@ async fn a_turn_becomes_tool_calls_narration_a_plan_and_usage() {
 /// `thread/resume` codex has no live thread, and without the pumps nothing
 /// drains its notifications — the first prompt then hangs in `turn/start`
 /// forever with no symptom at all.
+/// `/new` (contract `steerCommands`): a fresh conversation in the SAME
+/// session = a new codex thread. No turn carries the `/new` line; the new
+/// thread's id is re-published for the run record (a later resume reopens
+/// it), and the next prompt's `turn/start` names it.
+#[tokio::test]
+async fn a_new_command_starts_a_new_thread_and_the_next_turn_rides_it() {
+    let _session = one_session_at_a_time();
+    let (fake, connection) =
+        FakeServer::new(vec![frames("turn.jsonl")], Vec::new(), Vec::new());
+    let agent = CodexAgent::with_connection(spec(), connection);
+    let natives: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen = natives.clone();
+
+    Client
+        .builder()
+        .on_receive_notification(
+            async move |notification: SessionNotification, _cx| {
+                if let Some(native) = notification
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get(engine::NATIVE_SESSION_META_KEY))
+                    .and_then(Value::as_str)
+                {
+                    seen.lock().expect("natives").push(native.to_string());
+                }
+                Ok(())
+            },
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .connect_with(agent, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(ClientCapabilities::new()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(PathBuf::from("/work/tree")))
+                .block_task()
+                .await?;
+            assert_eq!(session.session_id.0.as_ref(), "thread_1");
+            let cleared = cx
+                .send_request(PromptRequest::new(session.session_id.clone(), vec![text(" /new ")]))
+                .block_task()
+                .await?;
+            assert_eq!(cleared.stop_reason, StopReason::EndTurn);
+            let response = cx
+                .send_request(PromptRequest::new(
+                    session.session_id.clone(),
+                    vec![text("run the tests")],
+                ))
+                .block_task()
+                .await?;
+            assert_eq!(response.stop_reason, StopReason::EndTurn);
+            Ok(())
+        })
+        .await
+        .expect("the session runs");
+
+    assert_eq!(fake.params_of("thread/start").len(), 2, "the session's start, then /new's");
+    let turns = fake.params_of("turn/start");
+    assert_eq!(turns.len(), 1, "the /new line is never a turn: {turns:?}");
+    assert_eq!(turns[0]["threadId"], "thread_2");
+    assert!(!turns[0].to_string().contains("/new"));
+    assert_eq!(natives.lock().expect("natives").clone(), vec!["thread_2".to_string()]);
+}
+
 #[tokio::test]
 async fn a_loaded_thread_resumes_and_its_next_turn_runs() {
     let _session = one_session_at_a_time();

@@ -2,10 +2,11 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import { isPersistent } from "@exp/domain-contract/session-kind"
 import { db } from "@/db/connection"
-import { agents, devices, sessions, type Session } from "@/db/schema"
+import { agents, attachments, devices, messages, sessions, type Session } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { emitEventInTx } from "@/lib/events"
-import { assertCanSteer, loadSessionForUser } from "@/lib/sessions/access"
+import { assertCanSteer, loadSessionForUser, sessionVisibleTo } from "@/lib/sessions/access"
+import { getTeamMember } from "@/lib/auth/membership"
 import { busReport, forgetWatched } from "@/lib/sessions/bus"
 import { postAgentMessage, postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
@@ -137,7 +138,7 @@ export async function sessionDeviceOnline(
 export async function stopSession(args: {
   userId: string
   sessionId: string
-}): Promise<{ txid: number }> {
+}): Promise<{ txid: number; delivered: boolean }> {
   const session = await loadSessionForUser(args.userId, args.sessionId)
   await assertCanSteer(args.userId, session)
   const live = session.status === `running` || session.status === `idle`
@@ -158,11 +159,13 @@ export async function stopSession(args: {
     }
     return txid
   })
-  if (session.status !== `queued` && session.status !== `ended`) {
-    const config = getSteerRelayConfig()
-    if (config) await relayPostInterrupt(config, session.id)
-  }
-  return { txid }
+  // Chats: `delivered` = the device got the interrupt; a queued, ghost or
+  // ended session has nothing to deliver (true).
+  if (session.status === `queued` || session.status === `ended` || ghost) return { txid, delivered: true }
+  const config = getSteerRelayConfig()
+  if (!config) return { txid, delivered: false }
+  const { delivered } = await relayPostInterrupt(config, session.id)
+  return { txid, delivered }
 }
 
 /** End: explicit and final (agents refuse: they idle, or are deleted). A
@@ -195,6 +198,51 @@ export async function endSession(args: {
   })
   await relayKillSessionsBestEffort(result.endedIds)
   return result
+}
+
+/**
+ * Chats (fixtures/chats.json menus): delete a ROOT chat and its whole tree
+ * (not an agent's conversation, not an app session). The starter or a team
+ * owner. What is live ends first (each row's `session_ended` card, its bus
+ * report and the `session.ended` event, like End), then the root goes and
+ * the FK cascades take the children, conversations, messages, links and
+ * reads; pull requests, events, notifications and drafts keep their rows
+ * (SET NULL). Message files fall back to owner-less uploads the orphan
+ * sweep reclaims.
+ */
+export async function deleteSession(args: { userId: string; sessionId: string }): Promise<{ txid: number }> {
+  const [session] = await db.select().from(sessions).where(eq(sessions.id, args.sessionId)).limit(1)
+  const member = session ? await getTeamMember(args.userId, session.teamId) : undefined
+  if (!session || !member) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+  const owner = member.role === `owner`
+  if (!owner && !sessionVisibleTo(session, args.userId)) {
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+  }
+  if (session.parentId !== null || session.agentId !== null || session.appId !== null) {
+    throw new TRPCError({ code: `BAD_REQUEST`, message: `Only a chat's root session can be deleted` })
+  }
+  if (!owner && session.userId !== args.userId) {
+    throw new TRPCError({ code: `FORBIDDEN`, message: `Only the chat's starter or a team owner can delete it` })
+  }
+  const result = await db.transaction(async (tx) => {
+    const txid = await generateTxId(tx)
+    const endedIds = await endRowsInTx(tx, await liveSubtree(tx, session))
+    const tree = await tx.select({ id: sessions.id }).from(sessions).where(eq(sessions.rootId, session.id))
+    await forgetWatched(tx, tree.map((row) => row.id))
+    await tx
+      .update(attachments)
+      .set({ messageId: null })
+      .where(
+        inArray(
+          attachments.messageId,
+          tx.select({ id: messages.id }).from(messages).where(eq(messages.rootId, session.id))
+        )
+      )
+    await tx.delete(sessions).where(eq(sessions.id, session.id))
+    return { txid, endedIds }
+  })
+  await relayKillSessionsBestEffort(result.endedIds)
+  return { txid: result.txid }
 }
 
 /** The device reported its process gone: the row ends like an explicit End
