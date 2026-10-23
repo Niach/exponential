@@ -72,6 +72,8 @@ class MediaInstrumentedTest {
         m.setNested(tree)
         compose.setContent { ExponentialSurface(m) }
         compose.waitForIdle()
+        // The hosted emulator can attach the hierarchy late ("No compose hierarchies found"): wait for the surface's buttons, bounded.
+        compose.waitUntil(10_000) { runCatching { compose.onAllNodes(buttons, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false) }
         return m
     }
 
