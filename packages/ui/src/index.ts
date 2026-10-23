@@ -15,6 +15,7 @@ export * from "./ask-card"
 // N-12: THE Dock (the floating band over the transcript: DockCards, the pile, the sheet).
 export * from "./dock"
 export * from "./ask-dock-specimen"
+export * from "./dock-card-specimen"
 // EXP-1280: THE rich plan / question card's form parts + its specimen.
 export * from "./plan-card"
 export * from "./plan-card-specimen"
