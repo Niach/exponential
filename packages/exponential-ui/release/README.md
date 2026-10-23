@@ -24,7 +24,7 @@ once both have matching crates.io releases).
    refuses a tag that does not match the core crate), and move each package's
    `CHANGELOG.md` `Unreleased` section under the version. The Compose
    artifacts need no bump: the workflow passes the tag's version as
-   `-PuiVersion` (`ORG_GRADLE_PROJECT_uiVersion`); the `0.1.0` in
+   `-PuiVersion` (`ORG_GRADLE_PROJECT_uiVersion`); the `0.1.1` in
    `ui-compose/build.gradle.kts` and `primitives/build.gradle.kts` is only the
    local default. The Swift distribution package is generated per release.
 2. Green: `.github/workflows/exponential-ui.yml` (all six renderers
@@ -33,7 +33,7 @@ once both have matching crates.io releases).
    repo's release notes on tag pushes).
 
 Dry run first: Actions → release-ui → Run workflow with the version and
-`dry_run` ticked (the default; `gh workflow run release-ui.yml -f version=0.1.0 -f dry_run=true`).
+`dry_run` ticked (the default; `gh workflow run release-ui.yml -f version=0.1.1 -f dry_run=true`).
 Every job builds, verifies and uploads its artifact (`npm`, `swift`, `maven`,
 `release-files`), the Maven bundle is signed when `SIGNING_KEY` is set,
 and nothing is published, no release or tag is created, whatever secrets
