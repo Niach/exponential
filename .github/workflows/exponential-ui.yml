@@ -458,9 +458,9 @@ jobs:
           working-directory: packages/exponential-ui-compose
           script: |
             ./gradlew :ui-compose:connectedDebugAndroidTest --no-daemon
-            # VAPP-105: the device bench, not gating yet: the core's stack-growth crate has no Android backend and the
-            # kitchen sink's first facade upcall from a heap stack segment crashes the instrumented run (VAPP-124).
-            bun run ../exponential-ui-bench/runners/compose-android.ts || echo "::warning title=bench compose-android::the device bench runner failed; VAPP-124 (the core stack growth on Android) is still open"
+            # VAPP-105: the device bench, not gating yet (no compose-android budget recorded). VAPP-124 fixed the crash
+            # that kept it red: the core now reads Android's stack limit, so passes no longer run on a heap segment.
+            bun run ../exponential-ui-bench/runners/compose-android.ts || echo "::warning title=bench compose-android::the device bench runner failed"
 
       - uses: actions/upload-artifact@v4
         with:
