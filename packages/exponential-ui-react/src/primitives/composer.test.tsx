@@ -57,7 +57,7 @@ describe(`Composer`, () => {
     expect(flat).toContain(`border-glass-stroke-card`)
     rerender(<Composer opaque />)
     expect(card(container).className).toBe(flat)
-    expect(card(container).dataset.opaque).toBe(`true`)
+    expect(card(container).getAttribute(`data-opaque`)).toBe(`true`)
   })
 })
 
