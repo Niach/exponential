@@ -48,6 +48,15 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
     }
 
     /**
+     * VAPP-135: the line count of a text wrapped at a px width, memoised
+     * like [widthCache] (a Table's typed cells repeat their values row
+     * after row; a shaped layout per cell was a third of a scroll step).
+     */
+    private val linesCache = object : LinkedHashMap<Triple<Any, TextStyle, Int?>, Int>(256, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Triple<Any, TextStyle, Int?>, Int>?): Boolean = size > 4096
+    }
+
+    /**
      * The surface default family NAME (the theme's `sans`, set by
      * `SurfaceModel.textShaper`): a style without a family takes it, as CSS
      * inherits the surface's font and gpui's `Fonts::family(None)`.
@@ -146,7 +155,8 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
     fun wrappedHeight(text: AnnotatedString, style: TextStyle, lineHeight: Float, wrap: Float?, clamp: Int? = null): Float {
         if (text.isEmpty()) return lineHeight
         val px = wrap?.let { ceil(max(it, 1f) * density).toInt() }
-        val lines = layout(text, style, px).lineCount
+        val key = Triple<Any, TextStyle, Int?>(if (text.spanStyles.isEmpty()) text.text else text, style, px)
+        val lines = linesCache[key] ?: layout(text, style, px).lineCount.also { linesCache[key] = it }
         var h = max(lines, 1) * lineHeight
         if (clamp != null && clamp > 0) h = min(h, clamp * lineHeight)
         return max(h, lineHeight)
