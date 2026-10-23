@@ -11,6 +11,7 @@
 //   ?view=primitives&id=<id>&theme=<id>&mode=&width=   (one primitive-specimens.json entry, FEED-131: harness/primitives/)
 //   ?view=mount                                          (__xuiMount / __xuiVList)
 //   ?view=bench / ?view=round2
+//   ?view=bench-suite&scenario=<id>                      (VAPP-105: one scenario of @exponential-at/ui-bench; __xuiBenchSuite drives it)
 // Natives not ported yet paint their `data-xui-pending` placeholder.
 
 import { For, Show, createSignal, onMount, type JSX } from "solid-js"
@@ -31,6 +32,17 @@ import specimens from "@exponential-at/ui/fixtures/specimens.json" with { type: 
 // The kitchen sink's data model is the React package's fixture (one file
 // for both harnesses; a JSON file, not renderer code).
 import sinkData from "../../exponential-ui-react/fixtures/kitchen-sink.data.json" with { type: "json" }
+import benchManifest from "@exponential-at/ui-bench/scenarios/manifest.json" with { type: "json" }
+import benchColdStart from "@exponential-at/ui-bench/scenarios/cold-start.json" with { type: "json" }
+import benchCardGrid from "@exponential-at/ui-bench/scenarios/card-grid.json" with { type: "json" }
+import benchList100k from "@exponential-at/ui-bench/scenarios/list-100k.json" with { type: "json" }
+import benchStreaming from "@exponential-at/ui-bench/scenarios/streaming.json" with { type: "json" }
+import benchThemeSwitch from "@exponential-at/ui-bench/scenarios/theme-switch.json" with { type: "json" }
+import benchResize from "@exponential-at/ui-bench/scenarios/resize.json" with { type: "json" }
+import benchDeepNesting from "@exponential-at/ui-bench/scenarios/deep-nesting.json" with { type: "json" }
+import benchTemplate10k from "@exponential-at/ui-bench/scenarios/template-10k.json" with { type: "json" }
+import benchOverlay from "@exponential-at/ui-bench/scenarios/overlay.json" with { type: "json" }
+import benchTable1k from "@exponential-at/ui-bench/scenarios/table-1k.json" with { type: "json" }
 import { BASE_CSS, ExponentialSurface, WindowedList, createSurface } from "../src/index"
 import type { HostPlugin, SurfaceHandle, SurfaceInputEvent, WindowedListHandle } from "../src/index"
 import { harnessIcons } from "./icons"
@@ -55,6 +67,7 @@ declare global {
     __xuiHandle?: () => SurfaceHandle | null
     __xuiMount?: (tree: NestedNode, options?: MountOptions) => Promise<void>
     __xuiVList?: (c: VListCase) => Promise<VListProbe>
+    __xuiBenchSuite?: BenchSuiteApi
   }
 }
 window.__xuiLog = []
@@ -425,8 +438,150 @@ function Mount(): JSX.Element {
   )
 }
 
+/** VAPP-105: ONE scenario of the benchmark suite
+ *  (packages/exponential-ui-bench/scenarios/<id>.json) mounted through
+ *  `createSurface`, driven from outside by `window.__xuiBenchSuite`
+ *  (runners/solid.ts): the SAME driver surface as the React harness's
+ *  `BenchSuiteApi`, so one page script measures both. Solid applies a
+ *  signal write synchronously (no scheduler), so `flush` just runs the
+ *  mutation; one "pass" = the writes applied + a layout read, as the React
+ *  harness measures it (its flushSync). */
+interface BenchSuiteApi {
+  ready: boolean
+  scenario: string
+  firstPaintMs?: number
+  /** cold-start: from the harness bundle's responseEnd to the first painted frame. */
+  coldStartMs?: number
+  flush: (fn: () => void) => void
+  apply: (message: unknown) => void
+  setData: (path: string, value: unknown) => void
+  setTheme: (id: string) => void
+  setMode: (mode: `light` | `dark`) => void
+  setWidth: (px: number) => void
+  scrollToIndex: (id: string, index: number, align?: `start` | `center` | `end` | `nearest`) => boolean
+  /** Scroll the node's scroller by `by` px (its own box when it scrolls, else its first scrolling descendant) and fire `scroll`. */
+  scroll: (id: string, by: number) => number
+  /** A synchronous layout read on the surface root (ends a pass). */
+  read: () => number
+  nodes: () => number
+  depth: () => number
+  renderedItems: (selector: string) => number
+  has: (selector: string) => boolean
+}
+type BenchScenario = {
+  id: string
+  theme: string
+  mode: `light` | `dark`
+  catalogId: string
+  viewport: { width: number; height: number }
+  surface: { nested: NestedNode } | { components: FlatComponent[] }
+  data?: Record<string, unknown> | { generate: { path: string; count: number; item: Record<string, string> } }
+  steps: Record<string, unknown>
+}
+const BENCH_SCENARIOS: Record<string, BenchScenario> = Object.fromEntries(
+  [benchColdStart, benchCardGrid, benchList100k, benchStreaming, benchThemeSwitch, benchResize, benchDeepNesting, benchTemplate10k, benchOverlay, benchTable1k].map((s) => [s.id, s as unknown as BenchScenario])
+)
+/** src/scenarios.ts generateItems, ported: every field a string. */
+function benchItems(spec: { count: number; item: Record<string, string> }): Record<string, string>[] {
+  const fill = (template: string, i: number) => template.replace(/\{i % (\d+)\}/g, (_, n: string) => String(i % Number(n))).replace(/\{i\}/g, String(i))
+  return Array.from({ length: spec.count }, (_, i) => Object.fromEntries(Object.entries(spec.item).map(([k, t]) => [k, fill(t, i)])))
+}
+function benchData(scenario: BenchScenario): Record<string, unknown> {
+  const data = scenario.data
+  if (!data) return {}
+  if (`generate` in data && typeof data.generate === `object`) {
+    const spec = (data as { generate: { path: string; count: number; item: Record<string, string> } }).generate
+    return { [spec.path.replace(/^\//, ``)]: benchItems(spec) }
+  }
+  return data as Record<string, unknown>
+}
+function BenchSuite(): JSX.Element {
+  const id = params.get(`scenario`) ?? ``
+  const scenario = BENCH_SCENARIOS[id]
+  return (
+    <Show when={scenario} fallback={<div>unknown scenario {id} (one of {benchManifest.scenarios.map((s) => s.id).join(`, `)})</div>}>
+      <BenchSuiteSurface scenario={scenario!} />
+    </Show>
+  )
+}
+function BenchSuiteSurface(props: { scenario: BenchScenario }): JSX.Element {
+  const scenario = props.scenario
+  const t0 = performance.now()
+  let handle: SurfaceHandle | null = null
+  let rootEl: HTMLDivElement | undefined
+  const [theme, setTheme] = createSignal(scenario.theme)
+  const [modeState, setMode] = createSignal<`light` | `dark`>(scenario.mode)
+  const [surfaceWidth, setWidth] = createSignal(scenario.viewport.width)
+  const surface = createSurface({ surfaceId: `bench`, catalogId: scenario.catalogId, initial: `nested` in scenario.surface ? scenario.surface.nested : undefined, data: benchData(scenario) })
+  // A flat surface (list-100k, streaming, template-10k, table-1k) arrives as
+  // the updateComponents it would be streamed in, applied before the mount
+  // (the React harness's layout effect re-renders before its first paint).
+  if (`components` in scenario.surface) surface.apply({ updateComponents: { surfaceId: `bench`, components: scenario.surface.components } })
+  const plugin: HostPlugin = { icons: harnessIcons, onAction: (e) => void window.__xuiLog.push({ action: e.name, componentId: e.componentId }) }
+  onMount(() => {
+    const surfaceEl = () => rootEl ?? null
+    const nodeEl = (id: string) => surfaceEl()?.querySelector<HTMLElement>(`[data-xui-id="${CSS.escape(id)}"]`) ?? null
+    const scrollerOf = (el: HTMLElement): HTMLElement => {
+      if (el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(el).overflowY)) return el
+      for (const d of Array.from(el.querySelectorAll<HTMLElement>(`*`))) {
+        if (d.scrollHeight > d.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(d).overflowY)) return d
+      }
+      return el
+    }
+    const read = () => surfaceEl()?.getBoundingClientRect().height ?? 0
+    const api: BenchSuiteApi = {
+      ready: false,
+      scenario: scenario.id,
+      // Solid applies writes synchronously: `flush` just runs them.
+      flush: (fn) => fn(),
+      apply: (message) => surface.apply(message as Parameters<typeof surface.apply>[0]),
+      setData: (path, value) => surface.setData(path, value),
+      setTheme: (t) => void setTheme(t),
+      setMode: (m) => void setMode(m),
+      setWidth: (w) => void setWidth(w),
+      scrollToIndex: (id, index, align) => handle?.scrollToIndex(id, index, align) ?? false,
+      scroll: (id, by) => {
+        const el = nodeEl(id)
+        if (!el) return -1
+        const scroller = scrollerOf(el)
+        scroller.scrollTop += by
+        scroller.dispatchEvent(new Event(`scroll`))
+        void (scroller.querySelector(`.xui-list-window`) ?? scroller).getBoundingClientRect()
+        return scroller.scrollTop
+      },
+      read,
+      nodes: () => surfaceEl()?.querySelectorAll(`[data-xui-id]`).length ?? 0,
+      depth: () => {
+        let max = 0
+        for (const el of Array.from(surfaceEl()?.querySelectorAll<HTMLElement>(`[data-xui-id]`) ?? [])) {
+          let d = 0
+          for (let p: HTMLElement | null = el; p && p !== surfaceEl(); p = p.parentElement) if (p.hasAttribute(`data-xui-id`)) d++
+          max = Math.max(max, d)
+        }
+        return max
+      },
+      renderedItems: (selector) => surfaceEl()?.querySelectorAll(selector).length ?? 0,
+      has: (selector) => document.querySelector(selector) !== null,
+    }
+    window.__xuiBenchSuite = api
+    requestAnimationFrame(() => {
+      const now = performance.now()
+      api.firstPaintMs = now - t0
+      const bundle = performance.getEntriesByType(`resource`).find((e) => e.name.endsWith(`/dist/main.js`)) as PerformanceResourceTiming | undefined
+      api.coldStartMs = now - (bundle?.responseEnd ?? 0)
+      api.ready = true
+    })
+  })
+  return (
+    <div ref={rootEl} data-testid="bench-suite" data-scenario={scenario.id}>
+      <ExponentialSurface id="bench" surface={surface} host={plugin} theme={theme()} mode={modeState()} width={surfaceWidth()} viewportHeight={scenario.viewport.height} handleRef={(h) => (handle = h)} />
+    </div>
+  )
+}
+
 function App(): JSX.Element {
   if (view === `bench`) return <Bench />
+  if (view === `bench-suite`) return <BenchSuite />
   if (view === `round2`) return <Round2 />
   if (view === `mount`) return <Mount />
   if (view === `conditions`) return <Conditions />

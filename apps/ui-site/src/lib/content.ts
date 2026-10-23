@@ -4,7 +4,7 @@
 import type { DocsNavEntry } from "@exp/site-shell"
 import { GUIDES, guidePath } from "./guides"
 
-/** The docs sidebar of Concepts and Conformance: the site's reading order. */
+/** The docs sidebar of Concepts, Conformance and Numbers: the site's reading order. */
 export const LEARN_NAV: DocsNavEntry[] = [
   { path: `/`, label: `Overview` },
   { path: `/concepts/`, label: `Concepts` },
@@ -14,6 +14,7 @@ export const LEARN_NAV: DocsNavEntry[] = [
   { path: `/playground/`, label: `Playground` },
   { path: `/conformance/`, label: `Conformance` },
   { path: `/eval/`, label: `Ergonomics eval` },
+  { path: `/numbers/`, label: `Numbers` },
 ]
 
 /** The guides sidebar: the index, then every guide in nav order. */

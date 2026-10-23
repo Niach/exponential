@@ -20,7 +20,13 @@ name: exponential-ui
 # React, a standalone-bundle check and its guide. FEED-131: the web jobs
 # compile the primitives' stylesheet first (`build:css`); the parity run
 # covers the primitive specimens too, and the Solid browser suites drive the
-# primitives' interactions against React's.
+# primitives' interactions against React's. VAPP-105: every job also runs its
+# renderer's BENCHMARK runner (packages/exponential-ui-bench: the scenario
+# fixtures × the React, Solid, web-component, core, gpui, SwiftUI macOS +
+# iPhone Simulator, Compose JVM + emulator runners) and uploads the fragment; `bench` ratchets
+# every fragment against budgets.json (worse than the budget fails; a count
+# that got better fails until its budget is lowered; a timing far under its
+# budget warns) and uploads the merged results + the budgets the run suggests.
 #
 # The pull request AND the push to master (path-filtered to the SDK, both).
 
@@ -37,6 +43,7 @@ on:
       - 'apps/desktop/crates/exponential-ui/**'
       - 'apps/desktop/crates/exponential-ui-ffi/**'
       - 'apps/desktop/crates/exponential-ui-gpui/**'
+      - 'packages/exponential-ui-bench/**'
       - 'apps/ui-site/guides/**'
       - '.github/workflows/exponential-ui.yml'
   push:
@@ -51,6 +58,7 @@ on:
       - 'apps/desktop/crates/exponential-ui/**'
       - 'apps/desktop/crates/exponential-ui-ffi/**'
       - 'apps/desktop/crates/exponential-ui-gpui/**'
+      - 'packages/exponential-ui-bench/**'
       - 'apps/ui-site/guides/**'
       - '.github/workflows/exponential-ui.yml'
   workflow_dispatch: {}
@@ -64,6 +72,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # VAPP-105: the bench results' machine ids (budgets.json keys) and where
+  # every runner writes its fragment.
+  EXPONENTIAL_UI_BENCH_DIR: ${{ github.workspace }}/.bench
 
 jobs:
   # EXP-1364: fork PRs never run here; the Rust leg runs on the Mint
@@ -101,11 +112,22 @@ jobs:
           bun apps/ui-site/guides/check.ts agent
           bun apps/ui-site/guides/check.ts define
           bun apps/ui-site/guides/check.ts theme
+      - name: Bench scenarios are generated and the ratchet's tests pass
+        run: bun run --filter @exponential-at/ui-bench test
+      - name: Bench (React, headless Chromium)
+        env:
+          EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
+        run: bun run --filter @exponential-at/ui-bench bench:react
       - uses: actions/upload-artifact@v4
         with:
           name: conformance-react
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-react
+          path: .bench/
+          include-hidden-files: true
 
   solid:
     needs: pick
@@ -138,12 +160,21 @@ jobs:
         run: bunx vitest run --config vitest.browser.config.ts --exclude browser/suites.test.ts --exclude browser/parity.test.ts
       - name: Guide (Solid) from a fresh project
         run: bun apps/ui-site/guides/check.ts solid
+      - name: Bench (Solid, headless Chromium)
+        env:
+          EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
+        run: bun run --filter @exponential-at/ui-bench bench:solid
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: conformance-solid
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-solid
+          path: .bench/
+          include-hidden-files: true
 
   element:
     runs-on: ubuntu-latest
@@ -177,6 +208,15 @@ jobs:
           name: conformance-element
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
+      - name: Bench (the web component, headless Chromium)
+        env:
+          EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
+        run: bun run --filter @exponential-at/ui-bench bench:element
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-element
+          path: .bench/
+          include-hidden-files: true
 
   rust:
     needs: pick
@@ -216,11 +256,24 @@ jobs:
           bun packages/exponential-ui/release/size.ts crate --check
       - name: Guide (gpui) from a fresh project
         run: bun apps/ui-site/guides/check.ts gpui
+      - name: Bench (the Rust core, release)
+        env:
+          EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
+        run: bun run packages/exponential-ui-bench/runners/core.ts
+      - name: Bench (gpui, headless, release)
+        env:
+          EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
+        run: bun run packages/exponential-ui-bench/runners/gpui.ts
       - uses: actions/upload-artifact@v4
         with:
           name: conformance-rust
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-rust
+          path: .bench/
+          include-hidden-files: true
 
   swift:
     # Same image as test-ios.yml / build-ios.yml.
@@ -254,11 +307,20 @@ jobs:
         run: swift test
       - name: Guide (SwiftUI) from a fresh project
         run: bun apps/ui-site/guides/check.ts swift
+      - name: Bench (SwiftUI, macOS, release)
+        env:
+          EXPONENTIAL_UI_BENCH_MACHINE: github-macos-26
+        run: bun run packages/exponential-ui-bench/runners/swift.ts
       - uses: actions/upload-artifact@v4
         with:
           name: conformance-swift
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-swift
+          path: .bench/
+          include-hidden-files: true
 
   swift-ios:
     # The UIKit paths (`#if canImport(UIKit)`) only compile for iOS: build +
@@ -310,6 +372,16 @@ jobs:
           xcodebuild build -project KitchenSink.xcodeproj -scheme KitchenSink \
             -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.id }}" \
             -derivedDataPath "$RUNNER_TEMP/dd-sink" CODE_SIGNING_ALLOWED=NO | tail -20
+      - uses: oven-sh/setup-bun@v2
+      - name: Bench (SwiftUI, iPhone Simulator, release)
+        env:
+          EXPONENTIAL_UI_BENCH_MACHINE: github-macos-26
+        run: bun run packages/exponential-ui-bench/runners/swift-ios.ts --simulator "${{ steps.sim.outputs.id }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-swift-ios
+          path: .bench/
+          include-hidden-files: true
       - name: Shut the simulator down again (self-hosted)
         if: always() && runner.environment == 'self-hosted' && steps.sim.outputs.booted_here == 'true'
         run: xcrun simctl shutdown "${{ steps.sim.outputs.id }}" || true
@@ -368,8 +440,11 @@ jobs:
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           ./gradlew :ui-compose:assembleDebugAndroidTest --no-daemon
-      - name: Instrumented tests (emulator, API 34)
+      - uses: oven-sh/setup-bun@v2
+      - name: Instrumented tests + bench (emulator, API 34)
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
         with:
           api-level: 34
           arch: x86_64
@@ -377,7 +452,17 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           working-directory: packages/exponential-ui-compose
-          script: ./gradlew :ui-compose:connectedDebugAndroidTest --no-daemon
+          script: |
+            ./gradlew :ui-compose:connectedDebugAndroidTest --no-daemon
+            # VAPP-105: the device bench, not gating yet: the core's stack-growth crate has no Android backend and the
+            # kitchen sink's first facade upcall from a heap stack segment crashes the instrumented run (VAPP-124).
+            bun run ../exponential-ui-bench/runners/compose-android.ts || echo "::warning title=bench compose-android::the device bench runner failed; VAPP-124 (the core stack growth on Android) is still open"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-compose-android
+          path: .bench/
+          include-hidden-files: true
 
   compose:
     needs: pick
@@ -414,11 +499,21 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: Guide (Compose) from a fresh project
         run: bun apps/ui-site/guides/check.ts compose
+      - name: Bench (Compose, JVM, Robolectric)
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/apps/desktop/target
+          EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
+        run: bun run packages/exponential-ui-bench/runners/compose-jvm.ts
       - uses: actions/upload-artifact@v4
         with:
           name: conformance-compose
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-compose
+          path: .bench/
+          include-hidden-files: true
 
   conformant:
     needs: [react, solid, element, rust, swift, compose]
@@ -435,3 +530,36 @@ jobs:
       - name: Every renderer is Exponential UI conformant
         # The parity reports (conformance-solid, conformance-element) are checked in their jobs, not here.
         run: bun run --filter @exponential-at/ui conformance:check $(ls "$GITHUB_WORKSPACE"/.conformance/*.json | grep -v '/exponential-ui-parity-')
+
+  bench:
+    # VAPP-105: the ratchet over every renderer's fragment (budgets.json, per
+    # CI machine). The merged results and the budgets this run suggests are
+    # artifacts: after a green run, record them with
+    # `bun run --filter @exponential-at/ui-bench ratchet .bench/*.json --write`
+    # and commit budgets.json (and results/<machine>.json for the record).
+    needs: [react, solid, element, rust, swift, swift-ios, compose, compose-emulator]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bench-*
+          path: .bench
+          merge-multiple: true
+      - name: Every benchmark holds its budget
+        run: bun run --filter @exponential-at/ui-bench ratchet $(ls "$GITHUB_WORKSPACE"/.bench/*.json)
+      - name: The budgets this run suggests (an artifact, never written to the tree here)
+        if: always()
+        run: |
+          cp packages/exponential-ui-bench/budgets.json "$RUNNER_TEMP/budgets.before.json"
+          bun run --filter @exponential-at/ui-bench ratchet $(ls "$GITHUB_WORKSPACE"/.bench/*.json) --write || true
+          mkdir -p .bench/suggested && cp packages/exponential-ui-bench/budgets.json .bench/suggested/budgets.json
+          cp "$RUNNER_TEMP/budgets.before.json" packages/exponential-ui-bench/budgets.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-results
+          path: .bench/
+          include-hidden-files: true

@@ -43,6 +43,7 @@ client entry loads each page type as its own chunk through `src/lib/pages.ts`
 | `/guides/`, `/guides/<slug>/` | `Guides.tsx`, `Guide.tsx` | the guides hub; every guide by slug (`src/lib/guides.ts`) |
 | `/playground/` | `Playground.tsx` | paste A2UI, render it in any theme, read the catalog prompt (prerendered) |
 | `/conformance/` | `Conformance.tsx` | the suites (from the manifest), reports, the real-font harness |
+| `/numbers/` | `Numbers.tsx` | the benchmark suite (VAPP-105): what a pass is per renderer, the scenarios (from `@exponential-at/ui-bench`'s manifest), the numbers per machine, weak points, the ratchet |
 
 The component pages are generated: a catalog component appears with its page,
 specimen, variants and embed code without a change here.

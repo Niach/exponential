@@ -16,6 +16,7 @@ const PAGES: [RegExp, () => Promise<PageModule>][] = [
   [/^\/playground\/$/, () => import("../pages/Playground")],
   [/^\/conformance\/$/, () => import("../pages/Conformance")],
   [/^\/eval\/$/, () => import("../pages/Eval")],
+  [/^\/numbers\/$/, () => import("../pages/Numbers")],
 ]
 
 export function pageLoaderFor(path: string): (() => Promise<PageModule>) | undefined {

@@ -56,3 +56,5 @@ cosmic-text = { version = "0.19", optional = true }
 stacker = "0.1"
 
 [dev-dependencies]
+# VAPP-105: examples/bench_suite.rs reads the process's resident size (macOS).
+libc = "0.2"
