@@ -267,7 +267,6 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
                         user: CL.user.split(" ")[0],
                         mergedAt: B.mergedAt,
                       }}
-                      sessionLive
                     />
                   )}
                 </PhoneChassis>

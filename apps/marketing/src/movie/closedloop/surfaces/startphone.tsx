@@ -162,8 +162,7 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
           labelChip={CL_LABELS.widget}
           description={REPORT.details}
           activity={[
-            { text: "Feedback widget created the issue · 12 min ago" },
-            { text: "Jamie Lee subscribed as reporter · 12 min ago" },
+            { text: "Feedback widget created the issue · 1 hr ago" },
           ]}
           playPressAt={tapAt}
         />

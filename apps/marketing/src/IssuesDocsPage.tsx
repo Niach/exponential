@@ -472,8 +472,8 @@ export function IssuesDocsPage() {
             <p>
               What a PR event does to the issue is a per-team setting:{` `}
               <strong>Settings → Issues → PR automation</strong>, with{` `}
-              <strong>When a PR opens, move issues to</strong> and{` `}
-              <strong>When a PR merges, move issues to</strong>. Out of the
+              <strong>When a PR opens</strong> and{` `}
+              <strong>When a PR merges</strong>. Out of the
               box they read <strong>In Review</strong> and{` `}
               <strong>Done</strong>. Point either event at any of your
               team&apos;s statuses instead, or set it to{` `}

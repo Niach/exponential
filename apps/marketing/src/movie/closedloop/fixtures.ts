@@ -165,7 +165,7 @@ export const CL_ISSUE = {
     {
       actor: CL.reporter,
       initials: "JL",
-      time: "12 min ago",
+      time: "12 min ago · reporter",
       body: "Happens every time on Safari 26.2 — the button just does not respond. Chrome is fine.",
     },
   ],

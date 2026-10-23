@@ -1693,6 +1693,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.ide-threads-reason {
+  font-size: var(--f-xs);
+  flex: none;
+}
 
 /* ─────────────────────────── Files / Source Control ─────────────────── */
 

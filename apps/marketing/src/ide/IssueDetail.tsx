@@ -48,7 +48,7 @@ function Chip({ icon, children, muted }: { icon: ReactNode; children: ReactNode;
 function Description({ issueId }: { issueId: string }) {
   const body = ISSUE_BODY[issueId]
   if (!body) {
-    return <div className="ide-issue-desc is-empty">Add description…</div>
+    return <div className="ide-issue-desc is-empty">Add description...</div>
   }
   return (
     <div className="ide-issue-desc">
@@ -193,7 +193,7 @@ export function IssueDetail({ issueId }: { issueId: string }) {
               {issue.assignee ? issue.assignee.name : `Assignee`}
             </Chip>
             <Chip icon={<IcTag size={12} />} muted={!issue.labels?.length}>
-              {issue.labels?.length ? issue.labels.map((l) => l.name).join(`, `) : `Labels`}
+              {issue.labels?.length ? issue.labels.map((l) => l.name).join(`, `) : `Label`}
             </Chip>
             <Chip icon={<IcCalDays size={12} />} muted={!issue.due}>
               {issue.due ?? `Due date`}

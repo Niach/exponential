@@ -26,7 +26,7 @@ export const DOCS_NAV: DocsNavEntry[] = [
   {
     path: `/docs/actions/`,
     label: `Prompts`,
-    blurb: `Saved team prompts, run from the composer's / menu.`,
+    blurb: `Saved team prompts from the composer's / menu, and team agents with their triggers.`,
   },
   {
     path: `/docs/cli/`,

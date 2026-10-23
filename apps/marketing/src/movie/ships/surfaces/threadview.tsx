@@ -21,8 +21,8 @@ import {
   FileText,
   Folder,
   GitMerge,
-  Ellipsis,
   LoaderCircle,
+  Ellipsis,
   MessageCircle,
   Monitor,
   Pencil,
@@ -119,22 +119,19 @@ export const ThreadHeader: React.FC<ThreadHeaderProps> = ({
               gap: 6,
               padding: `0 12px`,
               borderRadius: 999,
-              backgroundColor: merge.state === `confirm` ? `transparent` : G.primary,
-              border: merge.state === `confirm` ? `1px solid ${G.destructive}` : `1px solid transparent`,
-              color: merge.state === `confirm` ? G.destructive : G.primaryFg,
+              backgroundColor: G.primary,
+              border: `1px solid transparent`,
+              color: G.primaryFg,
+              opacity: merge.state === `merging` ? 0.6 : 1,
               fontSize: T.sm,
               fontWeight: 500,
               whiteSpace: `nowrap`,
               scale: String(0.94 + 0.06 * Math.min(1, morph)),
             }}
           >
-            {merge.state === `merging` ? (
-              <span style={{ display: `flex`, rotate: `${frame * 18}deg` }}>
-                <Ico I={LoaderCircle} size={14} />
-              </span>
-            ) : merge.state === `merge` ? (
+            <span style={{ display: `flex`, color: merge.state === `confirm` ? G.destructive : G.primaryFg }}>
               <Ico I={GitMerge} size={14} />
-            ) : null}
+            </span>
             {merge.state === `merge` ? `Merge PR` : merge.state === `confirm` ? `Confirm merge` : `Merging…`}
           </div>
         ) : null}

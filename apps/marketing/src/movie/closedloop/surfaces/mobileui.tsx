@@ -861,9 +861,6 @@ export type IssueScreenProps = {
   activity?: readonly ActivityRow[]
   /** Press flash on the play circle (the icon-only start button). */
   playPressAt?: number
-  /** Legacy (pre EXP-1295 the Start circle turned into a live dot); the
-   *  Start circle is now ALWAYS the bar's trailing control — ignored. */
-  sessionLive?: boolean
   /** The board chip (last in the chip box). */
   boardName?: string
 }

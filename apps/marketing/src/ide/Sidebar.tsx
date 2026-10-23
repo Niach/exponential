@@ -157,6 +157,7 @@ export function ThreadsScreen() {
       >
         <RunMark needsYou={thread.state === `needs_you`} />
         <span className="ide-threads-title">{`#${issue.id} ${issue.title}`}</span>
+        {thread.state === `needs_you` && <span className="ide-c-muted ide-threads-reason">question</span>}
         <IcMonitor size={10.5} className="ide-c-muted" />
       </button>
     </div>
