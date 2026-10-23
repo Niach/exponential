@@ -81,8 +81,8 @@ export interface PackageRow {
   name: string
   registry: string
   what: string
-  /** Until the first `ui-v*` tag publishes it: how to install from the repo. */
-  fromRepo: string
+  /** The one-line install from its registry (every package publishes together from a `ui-v*` tag). */
+  install: string
 }
 
 export const PACKAGES: readonly PackageRow[] = [
@@ -90,55 +90,55 @@ export const PACKAGES: readonly PackageRow[] = [
     name: `@exponential-at/ui`,
     registry: `npm`,
     what: `The catalog, themes, TypeScript reducer, host API and conformance suite.`,
-    fromRepo: `bun samples/exponential-ui/pack-local.ts packs the tarball`,
+    install: `npm install @exponential-at/ui`,
   },
   {
     name: `@exponential-at/ui-react`,
     registry: `npm`,
     what: `The React renderer and its shadcn primitive set, with a compiled stylesheet.`,
-    fromRepo: `the same tarballs, installed with npm`,
+    install: `npm install @exponential-at/ui-react`,
   },
   {
     name: `@exponential-at/ui-solid`,
     registry: `npm`,
     what: `The SolidJS renderer and the same primitives, with the same DOM and stylesheet as React.`,
-    fromRepo: `the same tarballs, installed with npm`,
+    install: `npm install @exponential-at/ui-solid`,
   },
   {
     name: `@exponential-at/ui-element`,
     registry: `npm`,
     what: `The custom element <exponential-surface>: the Solid painter inside a web component, no framework in the page.`,
-    fromRepo: `the same tarballs, installed with npm`,
+    install: `npm install @exponential-at/ui-element`,
   },
   {
     name: `exponential-ui`,
     registry: `crates.io`,
     what: `The Rust core: reducer, themes, taffy layout, layers, lists.`,
-    fromRepo: `a path or git dependency on the repo`,
+    install: `cargo add exponential-ui`,
   },
   {
     name: `exponential-ui-ffi`,
     registry: `bundled`,
     what: `The UniFFI facade. It ships inside the Swift and Kotlin artifacts, so you never install it on its own.`,
-    fromRepo: `built by build-ios.sh / build-android.sh`,
+    install: `nothing to install`,
   },
   {
     name: `exponential-ui-gpui`,
     registry: `crates.io (later)`,
     what: `The gpui painter. It stays a git dependency until gpui itself is on crates.io.`,
-    fromRepo: `a path or git dependency on the repo`,
+    install: `a git dependency on github.com/Niach/exponential`,
   },
   {
     name: `ExponentialUI`,
     registry: `SwiftPM`,
     what: `The SwiftUI painter (iOS 17, macOS 14), from github.com/Niach/exponential-ui-swift.`,
-    fromRepo: `the package by path, after build-ios.sh`,
+    install: `.package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.1.0")`,
   },
   {
     name: `at.exponential:ui-compose`,
     registry: `Maven Central`,
     what: `The Compose painter (minSdk 26), with ui-compose-primitives.`,
-    fromRepo: `publishToMavenLocal, then mavenLocal()`,
+    install: `implementation("at.exponential:ui-compose:0.1.0")`,
   },
 ]
 
