@@ -18,10 +18,16 @@ x-runner: &runner
     DISABLE_AUTOMATIC_DEREGISTRATION: "true"
     CONFIGURED_ACTIONS_RUNNER_FILES_DIR: /runner/config
     AGENT_TOOLSDIRECTORY: /opt/hostedtoolcache
-  # Per service below (compose cannot merge lists). EXP-1370: bun, cargo and
-  # rustup are PER RUNNER: setup-bun / rustup overwrite binaries the other
-  # runner may be executing (ETXTBSY). sccache, gradle and the tool cache are
-  # safe to share. No host docker socket: no job routed here builds images
+    # EXP-1370: each runner has its own Gradle home (two daemons on one
+    # ~/.gradle journal = "Could not create service of type
+    # FileAccessTimeJournal"); the old shared volume is the read-only warm
+    # dependency cache.
+    GRADLE_RO_DEP_CACHE: /home/runner/.gradle-ro/caches
+  # Per service below (compose cannot merge lists). EXP-1370: bun, cargo,
+  # rustup and gradle are PER RUNNER: setup-bun / rustup overwrite binaries the
+  # other runner may be executing (ETXTBSY), Gradle daemons lock one journal.
+  # sccache and the tool cache are safe to share; `gradle` is mounted
+  # read-only as GRADLE_RO_DEP_CACHE. No host docker socket: no job routed here builds images
   # (build-web pushes from GitHub-hosted runners).
 services:
   runner-1:
@@ -34,7 +40,8 @@ services:
       - sccache:/home/runner/.cache/sccache
       - cargo-1:/home/runner/.cargo
       - rustup-1:/home/runner/.rustup
-      - gradle:/home/runner/.gradle
+      - gradle-1:/home/runner/.gradle
+      - gradle:/home/runner/.gradle-ro:ro
       - bun-1:/home/runner/.bun
       - toolcache:/opt/hostedtoolcache
       - config-1:/runner/config
@@ -48,7 +55,8 @@ services:
       - sccache:/home/runner/.cache/sccache
       - cargo-2:/home/runner/.cargo
       - rustup-2:/home/runner/.rustup
-      - gradle:/home/runner/.gradle
+      - gradle-2:/home/runner/.gradle
+      - gradle:/home/runner/.gradle-ro:ro
       - bun-2:/home/runner/.bun
       - toolcache:/opt/hostedtoolcache
       - config-2:/runner/config
@@ -63,7 +71,8 @@ services:
       - sccache:/home/runner/.cache/sccache
       - cargo-3:/home/runner/.cargo
       - rustup-3:/home/runner/.rustup
-      - gradle:/home/runner/.gradle
+      - gradle-3:/home/runner/.gradle
+      - gradle:/home/runner/.gradle-ro:ro
       - bun-3:/home/runner/.bun
       - toolcache:/opt/hostedtoolcache
       - config-3:/runner/config
@@ -78,7 +87,8 @@ services:
       - sccache:/home/runner/.cache/sccache
       - cargo-4:/home/runner/.cargo
       - rustup-4:/home/runner/.rustup
-      - gradle:/home/runner/.gradle
+      - gradle-4:/home/runner/.gradle
+      - gradle:/home/runner/.gradle-ro:ro
       - bun-4:/home/runner/.bun
       - toolcache:/opt/hostedtoolcache
       - config-4:/runner/config
@@ -94,6 +104,10 @@ volumes:
   rustup-3:
   rustup-4:
   gradle:
+  gradle-1:
+  gradle-2:
+  gradle-3:
+  gradle-4:
   bun-1:
   bun-2:
   bun-3:

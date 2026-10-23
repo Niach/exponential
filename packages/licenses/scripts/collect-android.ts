@@ -86,7 +86,13 @@ const REPORT = join(
 )
 const TEXTS = join(PKG, `texts/spdx`)
 const OUT = join(PKG, `inventory/android.json`)
-const GRADLE_MODULES = join(homedir(), `.gradle/caches/modules-2/files-2.1`)
+// EXP-1370: a self-hosted runner resolves most artifacts from a shared
+// read-only cache (GRADLE_RO_DEP_CACHE) and only what it lacks lands in its own
+// Gradle home, so both are read: the read-only cache first, the home on top.
+const GRADLE_MODULE_ROOTS = [
+  ...(process.env.GRADLE_RO_DEP_CACHE ? [join(process.env.GRADLE_RO_DEP_CACHE, `modules-2/files-2.1`)] : []),
+  join(process.env.GRADLE_USER_HOME ?? join(homedir(), `.gradle`), `caches/modules-2/files-2.1`),
+]
 
 const COLLECTOR = `packages/licenses/scripts/collect-android.ts`
 
@@ -208,7 +214,6 @@ const KMP_SUFFIXES = [``, `-android`, `-jvm`, `-jvm18`, `-desktop`]
 
 const buildArtifactIndex = (): Map<string, string> => {
   const index = new Map<string, string>()
-  if (!existsSync(GRADLE_MODULES)) return index
   const dirs = (path: string): string[] => {
     try {
       return readdirSync(path).filter((entry) => {
@@ -222,26 +227,28 @@ const buildArtifactIndex = (): Map<string, string> => {
       return []
     }
   }
-  for (const group of dirs(GRADLE_MODULES)) {
-    const groupDir = join(GRADLE_MODULES, group)
-    for (const module of dirs(groupDir)) {
-      const moduleDir = join(groupDir, module)
-      for (const version of dirs(moduleDir)) {
-        const versionDir = join(moduleDir, version)
-        for (const sha of dirs(versionDir)) {
-          let files: string[] = []
-          try {
-            files = readdirSync(join(versionDir, sha))
-          } catch {
-            continue
-          }
-          for (const file of files) {
-            if (!file.endsWith(`.jar`) && !file.endsWith(`.aar`)) continue
-            if (file.includes(`-sources`) || file.includes(`-javadoc`)) continue
-            index.set(
-              `${group}:${module}:${version}`,
-              join(versionDir, sha, file)
-            )
+  for (const root of GRADLE_MODULE_ROOTS.filter((path) => existsSync(path))) {
+    for (const group of dirs(root)) {
+      const groupDir = join(root, group)
+      for (const module of dirs(groupDir)) {
+        const moduleDir = join(groupDir, module)
+        for (const version of dirs(moduleDir)) {
+          const versionDir = join(moduleDir, version)
+          for (const sha of dirs(versionDir)) {
+            let files: string[] = []
+            try {
+              files = readdirSync(join(versionDir, sha))
+            } catch {
+              continue
+            }
+            for (const file of files) {
+              if (!file.endsWith(`.jar`) && !file.endsWith(`.aar`)) continue
+              if (file.includes(`-sources`) || file.includes(`-javadoc`)) continue
+              index.set(
+                `${group}:${module}:${version}`,
+                join(versionDir, sha, file)
+              )
+            }
           }
         }
       }
@@ -334,7 +341,7 @@ const main = (): void => {
   const index = buildArtifactIndex()
   if (index.size === 0) {
     fail(
-      `the Gradle module cache at ~/.gradle/caches/modules-2/files-2.1 is empty or absent.\n` +
+      `the Gradle module cache is empty or absent (${GRADLE_MODULE_ROOTS.join(`, `)}).\n` +
         `  Copyright notices are lifted from the resolved artifacts, so a run without it\n` +
         `  would silently drop them. Run the gradle report task first.`
     )
