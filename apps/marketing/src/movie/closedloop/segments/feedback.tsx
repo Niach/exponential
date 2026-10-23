@@ -1,7 +1,12 @@
 // closedloop/segments/feedback.tsx — clip 4 (235f, calmed by EXP-388): a
 // visitor hits the dead Pay-now button on acme.shop and reports it through
-// the embedded feedback widget. ONE framing on the site the whole clip — no
-// whip-pan: after "Thanks — sent!" the phone rises with the REAL mobile board
+// the embedded feedback widget — the REAL flow (packages/widget, SLOP-4): the
+// panel opens plain, Take screenshot lands in the full-screen annotator, a
+// rect goes around the dead button, Done returns the thumbnail, the ONE
+// "What happened?" message becomes the issue (title = first line). The
+// camera eases out to the whole window while the annotator is up (its
+// toolbar sits at the top of the page) and back in for the panel. After
+// "Thanks, your report is in." the phone rises with the REAL mobile board
 // list, the "New feedback: EXP-151" push drops and the issue row pops into
 // Backlog — exactly the state clip 1 opens on, so the loop wraps into the
 // live board. All beats are LOCAL frames.
@@ -50,14 +55,15 @@ const B = {
   fabClick: 58,
   panelAppear: 64,
   fabRest: 72,
-  annotate: 76,
-  titleClick: 88,
-  titleType: 92,
-  detailsClick: 110,
-  detailsType: 114,
-  sendHover: 138,
-  sendClick: 142,
-  success: 154, // "Thanks for the report!" holds
+  captureClick: 78, // Take screenshot → the annotator
+  markFrom: 92, // rect drag around Pay now
+  markTo: 102,
+  doneClick: 112, // annotator Done → the panel with the thumbnail
+  messageClick: 120,
+  messageType: 124, // 70 chars at 3/frame → done by 148
+  sendHover: 150,
+  sendClick: 154,
+  success: 162, // "Thanks, your report is in." holds
   phoneIn: 168, // the phone rises with the mobile board
   pushAt: 176, // "New feedback: EXP-151"
   insert: 190, // the EXP-151 row pops into Backlog
@@ -71,7 +77,14 @@ const CAPTIONS = {
 // ── Camera ────────────────────────────────────────────────────────────────────
 // ONE framing holds checkout + widget + the rising phone (EXP-388: no
 // whip-pan, no camera moves).
-const CAMERA_KEYS: CamKey[] = [{ f: 0, s: 1.45, x: 1050, y: 600 }]
+const CAMERA_KEYS: CamKey[] = [
+  { f: 0, s: 1.45, x: 1050, y: 600 },
+  { f: B.captureClick, s: 1.45, x: 1050, y: 600 },
+  // the annotator fills the page: ease out to the whole window
+  { f: B.captureClick + 10, s: 1.0, x: 784, y: 500 },
+  { f: B.doneClick, s: 1.0, x: 784, y: 500 },
+  { f: B.doneClick + 10, s: 1.45, x: 1050, y: 600 },
+]
 
 // Portrait (EXP-482): three beats, three shots — the checkout card, the
 // WHOLE widget panel, the WHOLE phone; every subject here is a tall card, so
@@ -80,20 +93,25 @@ const CAMERA_KEYS: CamKey[] = [{ f: 0, s: 1.45, x: 1050, y: 600 }]
 // first cut waits for 67 rather than riding panelAppear at 64 — the panel
 // gets a beat in shot A's corner first, which reads fine. The second cut is
 // 2f before phoneIn and long clear of fb2 (in 198). Shot B runs caption-free
-// by design: typing into two fields and a green success state is a
+// by design: the annotator, the typed message and the success state are a
 // show-don't-tell beat. Every shot stays inside the browser chassis — no
 // wallpaper, unlike the wide framing.
 const CAMERA_KEYS_PT: CamKey[] = shotKeys([
   { at: 0, s: 2.2, x: 1114, y: 430 }, // the checkout card + the dead Pay button
   { at: 67, s: 2.3, x: 1330, y: 663 }, // the WHOLE widget panel
+  { at: 80, s: 1.2, x: 900, y: 480 }, // the annotator: toolbar + the marked button
+  { at: 113, s: 2.3, x: 1330, y: 640 }, // the panel, now with its thumbnail
   { at: 166, s: 1.85, x: 930, y: 572 }, // the WHOLE phone: "New feedback"
 ])
 
 // ── Cursor (site side) ────────────────────────────────────────────────────────
 const PAY = SITE_ANCHORS.payButton
 const FAB = SITE_ANCHORS.fab
-const WT = WIDGET_ANCHORS.titleInput
-const WD = WIDGET_ANCHORS.detailsInput
+const WC = WIDGET_ANCHORS.takeScreenshot
+const MF = WIDGET_ANCHORS.markFrom
+const MT = WIDGET_ANCHORS.markTo
+const WDN = WIDGET_ANCHORS.annDone
+const WM = WIDGET_ANCHORS.message
 const WS = WIDGET_ANCHORS.send
 
 const CURSOR_KEYS: CursorKey[] = [
@@ -102,20 +120,26 @@ const CURSOR_KEYS: CursorKey[] = [
   { f: 40, x: PAY.x, y: PAY.y },
   { f: 48, x: FAB.x, y: FAB.y },
   { f: 64, x: FAB.x, y: FAB.y },
-  { f: 70, x: 1440, y: 820 },
-  { f: 84, x: WT.x, y: WT.y },
-  { f: 104, x: WT.x, y: WT.y },
-  { f: 108, x: WD.x, y: WD.y },
-  { f: 132, x: WD.x, y: WD.y },
-  { f: 138, x: WS.x, y: WS.y },
-  { f: 148, x: WS.x, y: WS.y },
-  { f: 164, x: 1430, y: 900 },
+  { f: 74, x: WC.x, y: WC.y },
+  { f: 80, x: WC.x, y: WC.y },
+  { f: 90, x: MF.x, y: MF.y },
+  { f: B.markFrom, x: MF.x, y: MF.y },
+  { f: B.markTo, x: MT.x, y: MT.y },
+  { f: 110, x: WDN.x, y: WDN.y },
+  { f: 113, x: WDN.x, y: WDN.y },
+  { f: 119, x: WM.x, y: WM.y },
+  { f: 146, x: WM.x, y: WM.y },
+  { f: 150, x: WS.x, y: WS.y },
+  { f: 158, x: WS.x, y: WS.y },
+  { f: 168, x: 1430, y: 900 },
 ]
 const CURSOR_CLICKS = [
   B.payClick,
   B.fabClick,
-  B.titleClick,
-  B.detailsClick,
+  B.captureClick,
+  B.markFrom,
+  B.doneClick,
+  B.messageClick,
   B.sendClick,
 ]
 
@@ -159,9 +183,12 @@ export const FeedbackSegment: React.FC<SegmentProps> = ({
               <WidgetPanel
                 frame={frame}
                 appearAt={B.panelAppear}
-                annotateAt={B.annotate}
-                titleTypeAt={B.titleType}
-                detailsTypeAt={B.detailsType}
+                captureAt={B.captureClick}
+                markFrom={B.markFrom}
+                markTo={B.markTo}
+                doneAt={B.doneClick}
+                messageFocusAt={B.messageClick}
+                messageTypeAt={B.messageType}
                 sendHoverAt={B.sendHover}
                 sendingAt={B.sendClick}
                 successAt={B.success}
@@ -197,7 +224,7 @@ export const FeedbackSegment: React.FC<SegmentProps> = ({
                 <PhoneChassis glass={{ x: PHONE_POS.x, y: PHONE_POS.y }}>
                   <BoardScreen
                     frame={frame}
-                    boardName={CL.project}
+                    boardName={CL.board}
                     rows={CL_PHONE_BOARD}
                     insertId={NEW_ISSUE_ID}
                     moveT={insertT}

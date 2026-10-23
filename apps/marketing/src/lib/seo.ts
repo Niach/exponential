@@ -171,7 +171,7 @@ export const PAGES: PageSeo[] = [
       `../../shots/issue-detail`,
     ],
     title: `Coding agents · Exponential docs`,
-    description: `Hand issues to Claude Code or Codex from the desktop IDE or the CLI: setup, the Agent page composer, single and batch sessions, steering live sessions, reviewing and merging.`,
+    description: `Hand issues to Claude Code or Codex from the desktop IDE or the CLI: setup, the Agent page composer, threads and sessions, steering live sessions, reviewing and merging.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },

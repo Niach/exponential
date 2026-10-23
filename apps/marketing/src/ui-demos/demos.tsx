@@ -10,7 +10,7 @@
    CSS must never reach this document. It rides inside the island instead.
 
    Keep every demo a RESTING state: `renderToStaticMarkup` has no portals, no
-   hover and no open menus, and the handlers below exist only so the removable
+   hover and no open menus, and the handler below exists only so the removable
    variant renders its ✕ (see `island.ts` for the full list of limits).
 
    Statuses come from the package's own resolution table rather than literal
@@ -20,11 +20,8 @@
 import type { ReactElement } from "react"
 import {
   BUILTIN_STATUS_COLOR_CLASS,
-  ChipRemoveButton,
   IssueChip,
-  Pill,
   categoryStatusIcon,
-  getActionIcon,
   type StatusGlyphProps,
 } from "@exp/ui"
 
@@ -38,8 +35,9 @@ const IN_REVIEW: StatusGlyphProps = {
   colorClass: BUILTIN_STATUS_COLOR_CLASS.in_review,
 }
 
-/** The "Fix merge conflicts" builtin's curated glyph. */
-const ActionIcon = getActionIcon({ icon: `git-branch` })
+/** contract.json `composerUi.implementHeadline` (×4). Marketing does not
+ *  declare @exp/domain-contract, so the word is copied, not imported. */
+const IMPLEMENT_HEADLINE = `Implement`
 
 /** Static markup: nothing here is ever clicked. */
 const noop = () => {}
@@ -61,36 +59,30 @@ export const UI_DEMOS_SOURCE: Record<string, () => ReactElement> = {
     </div>
   ),
 
-  /* /docs/coding/ — the Agent composer's subject row: issue chips, each with
-     the ✕ that is the only thing that drops one, or the single action chip. */
+  /* /docs/coding/ — the Agent composer's HEADLINE with an issue subject
+     (apps/web launch-dialog/launch-headline.tsx + subject-chips.tsx): the
+     contract's `composerUi.implementHeadline` verb, then one removable
+     IssueChip per issue (`max-w-[20rem]`, the ✕ the only thing that drops
+     one). A prompt or an agent subject REPLACES the issue chips with one
+     chip of its own; the two never share the row, so the demo shows one
+     subject kind only. */
   "subject-chips": () => (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-1 text-lg leading-tight font-semibold">
+      <span className="shrink-0">{IMPLEMENT_HEADLINE}</span>
       <IssueChip
         identifier="EXP-885"
         title="One issue chip, every surface"
         status={IN_REVIEW}
+        className="max-w-[20rem]"
         onRemove={noop}
-        removeLabel="Remove EXP-885"
       />
       <IssueChip
         identifier="EXP-887"
         title="Real components in the docs"
         status={IN_PROGRESS}
+        className="max-w-[20rem]"
         onRemove={noop}
-        removeLabel="Remove EXP-887"
       />
-      <Pill
-        size="sm"
-        mode="readonly"
-        className="max-w-[20rem] pr-1"
-        leading={<ActionIcon className="size-3 shrink-0" />}
-      >
-        <span className="min-w-0 truncate">Fix merge conflicts</span>
-        <ChipRemoveButton
-          label="Remove Fix merge conflicts"
-          onRemove={noop}
-        />
-      </Pill>
     </div>
   ),
 }

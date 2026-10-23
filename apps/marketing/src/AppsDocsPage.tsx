@@ -14,6 +14,7 @@ const SECTIONS: DocsSectionType[] = [
   { id: `mobile`, num: `02`, label: `Mobile` },
   { id: `push`, num: `03`, label: `Push notifications` },
   { id: `steer`, num: `04`, label: `Steer from anywhere` },
+  { id: `team-apps`, num: `05`, label: `Team apps` },
 ]
 
 export function AppsDocsPage() {
@@ -28,7 +29,7 @@ export function AppsDocsPage() {
             <p>
               Native apps on every platform: the desktop IDE that runs coding
               sessions, and iOS / Android companions that keep you in the
-              loop.
+              loop. Plus the apps your team builds inside Exponential.
             </p>
             <div className="docs-hero-cta">
               <a className="btn btn-primary" href={LINKS.downloadPage}>
@@ -81,15 +82,17 @@ export function AppsDocsPage() {
               The sidebar mirrors the web app: the team switcher,{` `}
               <strong>Search</strong> and <strong>New issue</strong> at the
               top, then <strong>Agent</strong>, Inbox,{` `}
-              <strong>Threads</strong>, Devices and Drafts, the team&apos;s{` `}
-              <strong>Agents</strong>, the boards, the{` `}
-              <strong>Active</strong> threads, and under{` `}
-              <strong>This device</strong> the machine&apos;s own{` `}
-              <strong>Files</strong> and <strong>Source Control</strong>. At
-              the bottom sit the <strong>What&apos;s new</strong> card,{` `}
+              <strong>Threads</strong>, Devices and Drafts (while you have
+              any), the team&apos;s <strong>Agents</strong>, its{` `}
+              <strong>Apps</strong>, the <strong>Boards</strong>, and your{` `}
+              <strong>Active</strong> threads. At the bottom sit the{` `}
+              <strong>What&apos;s new</strong> card,{` `}
               <strong>Getting started</strong> and your account, whose menu
-              holds What&apos;s new, About and Sign out, with a new-terminal
-              button and the settings gear on its right.
+              holds What&apos;s new, About and Sign out. On its right, the
+              {` `}<strong>Computer</strong> button opens this machine&apos;s
+              tools (a new <strong>Terminal</strong>, its{` `}
+              <strong>Files</strong> and <strong>Source Control</strong>),
+              then the settings gear.
             </p>
             <p>
               The sidebar never leaves. Open an issue or a session from a list, or
@@ -136,8 +139,10 @@ export function AppsDocsPage() {
                 comment.
               </li>
               <li>
-                <strong>Inbox</strong>: your notifications and the issues
-                assigned to you, in one place.
+                <strong>Inbox</strong>: your notifications,{` `}
+                <strong>My issues</strong> and your{` `}
+                <strong>Drafts</strong>, as three tabs, with{` `}
+                <strong>Mark all read</strong> on top.
               </li>
               <li>
                 <strong>Devices</strong>: your machines, the team&apos;s
@@ -146,15 +151,16 @@ export function AppsDocsPage() {
               <li>
                 <strong>Threads</strong>: the team&apos;s{` `}
                 <a href="/docs/actions/#triggers">agents</a> on top, then
-                every thread under Needs you, Running and Recent.
+                every thread under Needs you, Running and Recent. The button
+                in its header opens the team&apos;s{` `}
+                <a href="#team-apps">Apps</a>.
               </li>
             </ul>
             <p>
               The round chat button beside the tab pill opens the{` `}
               <a href="/docs/coding/#start-coding">Agent page</a>: the one
-              composer. On a board,{` `}
-              <strong>New issue</strong> sits beside it. Search sits in the
-              board header. Select
+              composer, where the app opens. <strong>New issue</strong> sits
+              beside it. Search sits in the board header. Select
               issues and the bulk bar takes the tab bar&apos;s place, with
               status, priority, assignee, labels and delete on it. Full
               onboarding runs on mobile too: create boards, connect GitHub,
@@ -172,7 +178,8 @@ export function AppsDocsPage() {
             <h2>Push notifications</h2>
             <p>
               Everything that lands in your <a href="/docs/issues/#notifications">inbox</a>{` `}
-              (assignments, comments, mentions, PR opened / merged) arrives as
+              (new feedback, assignments, comments, mentions, status changes,
+              PR opened / merged, reporter replies, blocked sessions) arrives as
               a push notification the moment it happens. Tapping one deep-links
               straight to the issue. Notification preferences from{` `}
               <strong>Settings → Notifications</strong> apply to push too.
@@ -194,17 +201,20 @@ export function AppsDocsPage() {
             <h2>Steer from anywhere</h2>
             <p>
               A coding session started on your desktop doesn&apos;t chain you
-              to the desk. The <strong>Agent</strong> page, on the phone and
-              on the web, lists every session of yours with a{` `}
+              to the desk. <strong>Threads</strong>, on the phone and on the
+              web, lists every thread with a{` `}
               <strong>live activity feed</strong> one tap away. Watch the
               agent work in real time, and{` `}
               <strong>send steer messages</strong> mid-session: answer its
-              question, veto an approach, add a constraint you forgot.
+              question, veto an approach, add a constraint you forgot. What
+              needs you (a <strong>Question</strong>, a{` `}
+              <strong>Plan ready</strong>) floats as a card above the
+              composer; tap it and it opens as a sheet from the bottom.
             </p>
             <p>
-              You can also start one from here: the composer&apos;s issue
-              and prompt chips, its <strong>+</strong> menu, its device and
-              agent pickers, and the session composer — <code>/</code> for
+              You can also start one from here: the Agent composer&apos;s{` `}
+              <strong>+</strong> menu, its device, account and model pickers,
+              and the session composer — <code>/</code> for
               the prompts and commands, <code>@</code> for a teammate,{` `}
               <code>#</code> for an issue and <code>:</code> for an emoji —
               are the same on the phone as on the desktop. On the phone,{` `}
@@ -223,6 +233,61 @@ export function AppsDocsPage() {
             <p>
               The full flow (starting sessions, plan mode, several issues at
               once, review) is in <a href="/docs/coding/">Coding agents</a>.
+            </p>
+          </DocsSection>
+
+          {/* ── 05 Team apps ── */}
+          <DocsSection id="team-apps" num="05" label="Team apps">
+            <h2>Team apps</h2>
+            <p>
+              Apps are small screens your team builds inside Exponential: a
+              dashboard over a board, a release checklist. You describe
+              what you want, an agent session builds it, and everyone on the
+              team can open it. An app is a declarative package (data, never
+              code) that every client renders the same way.
+            </p>
+            <p>
+              They live in the sidebar&apos;s <strong>Apps</strong> group,
+              between Agents and Boards; its <strong>+</strong> opens{` `}
+              <strong>New app</strong> (icon, colour, name and an optional
+              description), and <strong>Create app</strong> opens the editor.
+              Every team has the <strong>Built-in</strong>{` `}
+              <strong>Devices</strong> app first. Any member can create an
+              app; the creator or an owner can rename and delete it.
+            </p>
+            <DocShot
+              view="app"
+              caption="The app editor: the live preview, with its chat floating above the composer"
+            />
+            <h3>The editor</h3>
+            <p>
+              The editor shows the app&apos;s <strong>Preview</strong> and
+              your chat with its editor session. Type into{` `}
+              <strong>Ask for a change…</strong>: the session runs on your
+              device (<strong>Start a device to edit this app</strong> while
+              none is online) and publishes each change as a new version, and
+              the preview repaints as it lands. The chat floats as a card over
+              the preview; open it and <strong>Move to the side</strong>{` `}
+              docks it into its own pane (<strong>Minimize</strong> floats it
+              again). On a phone, the editor is three tabs:{` `}
+              <strong>Chat</strong>, <strong>Preview</strong> and{` `}
+              <strong>Versions</strong>.
+            </p>
+            <p>
+              <strong>Versions</strong> lists every version (<code>v1</code>,
+              {` `}<code>v2</code>, …) with its note, when and who; the newest
+              is <strong>Current</strong>. Tap an older one to preview it,
+              then <strong>Restore</strong> to publish it again as a new
+              version.
+            </p>
+            <p>
+              <strong>Settings → Apps</strong> lists them too; each app&apos;s
+              settings page holds its name, icon, colour and description,{` `}
+              <strong>Open in the editor</strong>, and delete. On the phones,
+              {` `}Apps opens from the Threads tab&apos;s header. Agents and MCP
+              clients can build apps too, through the{` `}
+              <a href="/docs/mcp/#tools"><code>exponential_apps</code></a>{` `}
+              tool.
             </p>
           </DocsSection>
         </DocsLayout>

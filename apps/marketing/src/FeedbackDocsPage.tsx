@@ -48,8 +48,9 @@ export function FeedbackDocsPage() {
                 description.
               </li>
               <li>
-                The reporter is <strong>auto-subscribed</strong>. Resolve the
-                issue and the person who reported it is notified.
+                A reporter who left an email is{` `}
+                <strong>auto-subscribed</strong>. Resolve the issue and the
+                person who reported it is notified.
               </li>
               <li>
                 Connect the board to your app&apos;s repository and{` `}
@@ -86,14 +87,17 @@ export function FeedbackDocsPage() {
                 default, so an ordinary comment stays with the team. Switch it
                 on and that comment is emailed to the reporter and marked{` `}
                 <em>to reporter</em> on the issue. A toast tells you whether
-                the mail actually went out.
+                the mail actually went out. The toggle switches back off after
+                each send, so a follow-up note stays inside the team.
               </li>
               <li>
                 When they answer through their link, the answer{` `}
                 <strong>shows up as a comment</strong> on the issue, under
-                their name (or &ldquo;Anonymous visitor&rdquo;), and lands as
-                a <strong>reporter reply</strong> row in the inbox of everyone
-                subscribed to the issue and its assignee.
+                their name (or &ldquo;Anonymous visitor&rdquo;) marked{` `}
+                <em>reporter</em>, and lands as a{` `}
+                <strong>Reporter replied</strong> row in the inbox of everyone
+                subscribed to the issue and its assignee (or of every team
+                member, when nobody follows the issue yet).
               </li>
               <li>
                 An answer on an issue that was already done{` `}
@@ -106,8 +110,10 @@ export function FeedbackDocsPage() {
               toggle. Reporter comments can be removed by any member but
               edited by nobody, and whatever a reporter writes is shown as
               plain text, never rendered as markdown. Agents and scripts do
-              the same over MCP: <code>exponential_comments_create</code> with{` `}
-              <code>audience: &quot;reporter&quot;</code>.
+              the same over MCP: <code>exponential_comments</code> with{` `}
+              <code>op: &quot;create&quot;</code> and{` `}
+              <code>audience: &quot;reporter&quot;</code> (their comment reads{` `}
+              <em>to reporter · via MCP</em>).
             </p>
             <DocsCallout kind="note" title="Email is the only way back">
               The private link is all the reporter has, so replies to them
@@ -126,8 +132,9 @@ export function FeedbackDocsPage() {
               workflow your team already knows: set priority, label it, move
               noise to <strong>Cancelled</strong>, mark repeats as{` `}
               <strong>Duplicate</strong>, and pull real bugs into{` `}
-              <strong>In Progress</strong>. Or bulk-select a batch of them and{` `}
-              <a href="/docs/coding/#batch-runs">hand it to an agent</a>.
+              <strong>In Progress</strong>. Or bulk-select several of them and
+              press <strong>Start coding</strong> to{` `}
+              <a href="/docs/coding/#batch-runs">hand them to an agent</a>.
             </p>
             <p>
               When the fix lands, the <strong>reporter is notified</strong>.

@@ -51,26 +51,30 @@ Two ways in:
        Authorization: Bearer expu_...
        x-api-key: expu_...
 
-   API keys act as the user with their full membership. Guard them
+   An unscoped key acts as the user with their full membership; the mint
+   dialog offers the consent screen's team/board scope picker, and a scoped
+   key is confined to that pick and works for MCP only. Guard keys
    accordingly. The same key signs the CLI in via `EXP_TOKEN` (below).
 
 ## Tools
 
-15 tools, one per noun, all named `exponential_<noun>`. Every call carries an
+16 tools, one per noun, all named `exponential_<noun>`. Every call carries an
 `op` and that op's fields beside it, e.g. `exponential_issues {op: "get", id:
 "ABC-12"}`; each tool's description (from `tools/list`) lists its ops with
 their parameters, so read it instead of a static list.
 
-- **issues**: `list` (filters: boards, `statusId`/`statusCategory`, priority,
-  assignee, labels any/all/unlabeled, `source`, comment activity,
-  created/updated ranges, title search, each with an `exclude*` twin, plus
-  `sort`; OPEN work only unless `includeClosed` or a status filter), `get`
+- **issues**: `list` (filters: boards, `status`/`statusId`/`statusCategory`
+  each with an `exclude*` twin, priority, assignee, labels any/all/unlabeled,
+  `source`, comment activity, created/updated/due ranges, text and
+  identifier `search`, plus `sort`; OPEN work only unless `includeClosed` or
+  a status filter), `get`
   (UUID or identifier "ABC-12"), `show` (the interactive list in MCP Apps
   hosts), `create`, `update`, `delete`, `activity`, `update_status`,
   `subscribe`, `unsubscribe`, `labels_add`, `labels_remove`,
   `relations_add`, `relations_remove` (`blocks`, `parent`, `duplicate`,
   `related`; `inverse: true` states it the other way round). List ops
-  paginate: 50 by default, 200 at most (1000 for issues).
+  paginate: 50 by default, 200 at most (1000 for issues; comments `list`
+  defaults to 100).
 - **comments**: `list`, `create`, `update`, `delete`. `create` takes
   `audience: "reporter"` on a widget-filed issue with a reporter email: the
   comment is emailed, `reporterEmailed` says whether the mail went out.
@@ -86,15 +90,23 @@ their parameters, so read it instead of a static list.
   **people** (`list`, `add`, `invites_list`, `invites_create`,
   `invites_revoke`), **team_config** (`labels_*`, `statuses_*` — builtins
   are locked, deleting one in use needs `reassignToId` —, `prompts_list`,
-  `prompts_get`, `agents_list`, `mcp_servers_*`, `repositories_*`).
+  `prompts_get`, `agents_list`, `mcp_servers_list`/`add`/`remove`,
+  `repositories_list`/`add`).
+- **apps**: a team's Exponential apps (declarative Exponential UI packages
+  rendered in every client): `list`, `get` (the head or a `version`'s
+  package), `upsert` (`slug` + `package` publishes a new version; a new slug
+  creates the app, `name` required), `delete` (to the trash), `catalog` (the
+  components, bindings and functions a package may use; read it before
+  writing one).
 - **sessions_send**: THE session verb, no op. `{teamId, deviceId, issueIds?,
   text}` starts a thread on an ONLINE device (`exponential_devices
   {op: "list"}` first); `{sessionId, text}` messages a running or idle one;
   `{sessionId, stop: true}` interrupts a turn; `{agentId, text}` messages a
   team agent (the caller's own conversation with it); `{parentId, text}`
-  starts a child. Every transition of a session comes back as a message.
+  starts a child; `{appId, text}` messages the caller's editor session of an
+  app. Every transition of a session comes back as a message.
 - **sessions**: `get` (a tree: title, issues, PRs, Guide, children, latest
-  messages), `list`, `link`, `unlink`, `end`.
+  messages; no id = the caller's own), `list`, `link`, `unlink`, `end`.
 - **session_self** (inside a launcher-started session only): `ask`, `plan`,
   `suggest`, `compact`, `report_bug` (cloud).
 - **guide_write**: the thread's one Guide, the body of every PR in it.
@@ -102,8 +114,8 @@ their parameters, so read it instead of a static list.
   **notifications** (`list`, `mark_read`).
 ## Core concepts
 
-- **Teams** hold members, boards, labels, statuses, and actions. Roles are
-  owner and member; owners hold the settings and destructive surface.
+- **Teams** hold members, boards, labels, statuses, prompts, agents, and
+  apps. Roles are owner and member; owners hold the settings and destructive surface.
 - **Boards** hold issues. Each board has an identifier prefix; issues get
   identifiers like `ABC-12`, accepted by most tools wherever an issue id
   is. A board optionally links to one GitHub repository, which is what
@@ -112,26 +124,34 @@ their parameters, so read it instead of a static list.
   `#<IDENTIFIER>` issue refs, image embeds), a priority (`none`, `urgent`,
   `high`, `medium`, `low`), labels, an assignee, a due date, comments, and
   attachments. A `#<IDENTIFIER>` ref in a description or comment auto-links
-  the two issues as related; `issues_create` takes `parentId` to file a
-  sub-issue, and the other relations (blocks, duplicate, related) are set
-  with `issue_relations_add`.
+  the two issues as related; `exponential_issues {op: "create"}` takes
+  `parentId` to file a sub-issue, and the other relations (blocks,
+  duplicate, related) are set with `op: "relations_add"`.
 - **Statuses** are per-team rows in six categories (backlog, unstarted,
   started, completed, cancelled, duplicate). Six builtins always exist
   (backlog, in_progress, in_review, done, cancelled, duplicate) and
   teams add custom named statuses. Enum-taking tools accept the builtin
-  values; `statuses_list` + `statusId` reach the custom rows.
-- **Pull requests**: one PR per issue, on branch `exp/<IDENTIFIER>`. A
-  batch of issues fixed on one pushed branch shares one PR via
-  `exponential_pr {op: "open"}` with `issueIds` + `head`. PR open moves linked
-  issues to the team's configured PR-open status (default In Review);
+  values; `exponential_team_config {op: "statuses_list"}` + `statusId`
+  reach the custom rows.
+- **Pull requests**: one branch per session: `exp/<IDENTIFIER>` when the
+  session holds exactly one issue, else `exp/session-<id>`. Several issues
+  fixed on one pushed branch share one PR via `exponential_pr {op: "open"}`
+  with `issueIds` + `head`. PR open moves linked issues to the team's
+  configured PR-open status (default In Review);
   merging moves them to the PR-merge status (default Done).
-- **Actions** are reusable markdown prompts (up to 10 typed pick inputs:
-  `repo`, `board`, `pr`, `icon`; free text goes in the session's prompt, the
-  composer's "Additional instructions") that members run as local agent
-  sessions from the desktop app, the web, or the CLI. An
-  action's **triggers** each bind it to one device and a schedule or an
-  event; the bound machine starts the session itself, so nothing fires while
-  it is off.
+- **Prompts** are a team's saved prompts: a name, an icon, and a markdown
+  body, nothing else (no inputs, no triggers, no repository). They live
+  under Settings -> Prompts (owners create, edit, and delete; members read)
+  and run from the composer's `/` menu, from the CLI's `exponential run`,
+  or as `exponential_sessions_send {promptId}` (the body becomes the
+  session's first message).
+- **Agents** are team definitions under Settings -> Agents: a name, icon
+  and colour, a Device to run on (required), an Account (the device's agent
+  login; optional), Triggers (each a schedule or an event name; none = the
+  agent only waits for messages), and Instructions. Each member talks to an
+  agent in their own conversation (`exponential_sessions_send {agentId}`);
+  `exponential_events {op: "emit"}` wakes every agent with a trigger on that
+  event name.
 - **Coding agents**: sessions run Claude Code or Codex locally with the
   Exponential MCP server wired in automatically; from the agent's point of
   view the tools look the same on both.
@@ -161,12 +181,17 @@ non-interactive setups, skip the browser with an API key:
 
 Key commands: `whoami`, `status`, `doctor` (checks git and the agent
 CLIs), `code <ISSUE>` (start a coding session for an issue, e.g.
-`exponential code EXP-42 --agent claude`), `run <action>`, `daemon
+`exponential code EXP-42 --agent claude`), `run <prompt>` (run a team's
+saved prompt by id or name), `devices`, `sessions` (list, or
+`show|log|message|stop|end <id>`), `mcp list|connect|set-secret|disconnect`
+(team MCP servers and your connection to each), `daemon
 install` (register a Linux or macOS machine as an always-on agent box,
 visible under Devices -> My devices in the web app), `update`.
 `code` and `run` share `--agent claude|codex`, `--model`, `--effort`,
-`--plan`, and `--detach` (run headless but still steerable from the web);
-`run` also takes `--team <id>` and repeated `--input k=v`. Full
+`--plan`, `--detach` (run headless but still steerable from the web), and
+`--device <label|id>` (start it on another of your devices instead);
+`run` also takes `--team <team-id>` and `--prompt <text>` (appended to the
+prompt's body in the session's first message). Full
 reference: https://exponential.at/docs/cli/
 
 ## Integrating the feedback widget for a user
@@ -174,7 +199,7 @@ reference: https://exponential.at/docs/cli/
 When a user asks to add Exponential feedback collection to their site:
 
 1. Get their widget key (`expw_...`). If they have none, they create a
-   widget in Team settings -> Widget in Exponential (team owners; every
+   widget under Settings -> Widget in Exponential (team owners; every
    plan includes at least one), pick the board its reports land on, and add
    their site's domain to the allowlist (submissions are only accepted from
    allowlisted domains; the key itself is public by design).
@@ -233,7 +258,7 @@ API: https://exponential.at/docs/widget/
 ## More resources
 
 - Docs index: https://exponential.at/docs/ (getting started, issues and
-  boards, coding agents, actions, CLI and daemon, feedback and reporters,
+  boards, coding agents, prompts, CLI and daemon, feedback and reporters,
   widget, MCP, apps, self-host)
 - MCP guide with per-client setup: https://exponential.at/docs/mcp/
 - Self-hosting runbook: https://exponential.at/docs/self-host/

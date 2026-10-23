@@ -95,7 +95,8 @@
   width: 40%;
 }
 
-/* The real launcher FAB (44px accent pill, megaphone icon). */
+/* The real launcher FAB (theme.ts buttonCss: 44px tall, 0 14px padding
+   around the 16px megaphone, accent pill). */
 .co-fab {
   position: absolute;
   right: 16px;
@@ -103,34 +104,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
   height: 44px;
+  padding: 0 14px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: #e5e5e5;
   color: #171717;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-}
-
-.co-stage:not(.is-static) .co-fab::after {
-  content: "";
-  position: absolute;
-  inset: -5px;
-  border-radius: 999px;
-  border: 1.5px solid rgba(229, 229, 229, 0.8);
-  opacity: 0;
-  animation: co-pulse 1s ease-out infinite;
-}
-
-@keyframes co-pulse {
-  0% {
-    opacity: 0.7;
-    transform: scale(0.92);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1.25);
-  }
 }
 
 .co-panel {
@@ -211,24 +191,28 @@
   gap: 12px;
 }
 
-/* Captured-screenshot preview (the real form's post-capture state; the
-   thumbnail is a page silhouette, not a real image). */
+/* .exp-shot: bordered 8px box on the page background, min-height 96px,
+   the capture centred inside; .exp-shot-actions overlay its top-right
+   corner (top/right 6px, gap 6px). The capture is a page silhouette. */
 .cw-shot {
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: #0a0a0a;
+  min-height: 96px;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .cw-shot-img {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 12px;
-  height: 76px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
-  background: #0a0a0a;
-  overflow: hidden;
+  width: 100%;
+  padding: 34px 12px 12px;
+  height: 94px;
 }
 
 .cw-shot-bar {
@@ -248,18 +232,44 @@
 }
 
 .cw-shot-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
   display: flex;
   gap: 6px;
 }
 
+/* .exp-chip: always-dark overlay chip. */
 .cw-chip {
   font-size: 11.5px;
   font-weight: 500;
   color: #fafafa;
-  padding: 3px 9px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 999px;
-  background: #171717;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.65);
+}
+
+/* .exp-images + .exp-add-image (FEED-5): the dashed "Add image" tile. */
+.cw-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cw-add-image {
+  box-sizing: border-box;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #a3a3a3;
+  font-size: 11.5px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
 }
 
 .cw-field {
@@ -528,8 +538,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .co-fab::after,
-  .co-stage:not(.is-static) .co-fab::after,
   .cw-caret,
   .co-conn-dot {
     animation: none;

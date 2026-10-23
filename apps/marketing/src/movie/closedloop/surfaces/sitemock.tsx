@@ -102,10 +102,12 @@ const CardIcon: React.FC<{ size?: number }> = ({ size = 15 }) => (
   </Svg>
 )
 
+// packages/widget/src/theme.ts megaphoneIconSvg (the built-in launcher glyph).
 const MegaphoneIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
   <Svg size={size} sw={2}>
-    <path d="m3 11 18-5v12L3 14v-3z" />
-    <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+    <path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
+    <path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14" />
+    <path d="M8 6v8" />
   </Svg>
 )
 
@@ -432,12 +434,14 @@ export const FeedbackFab: React.FC<{ frame: number; hoverAt?: number; pressAt?: 
   pressAt,
   restAt,
 }) => {
+  // theme.ts buttonCss: a 44px pill, padding 0 14px, gap 0 → 7px on hover,
+  // the `.exp-fab-label` max-width 0 → 180 (opacity 0 → 1), scale 1.08.
   const grow =
     hoverAt === undefined
       ? 0
-      : interpolate(frame, [hoverAt, hoverAt + 8], [0, 1], EASED) *
-        (restAt === undefined ? 1 : 1 - interpolate(frame, [restAt, restAt + 8], [0, 1], EASED))
-  const w = 44 + 78 * grow
+      : interpolate(frame, [hoverAt, hoverAt + 5], [0, 1], EASED) *
+        (restAt === undefined ? 1 : 1 - interpolate(frame, [restAt, restAt + 5], [0, 1], EASED))
+  const LABEL_W = 60 // "Feedback" at 13px/600
   const press = pressAt === undefined ? 1 : interpolate(frame, [pressAt, pressAt + 2, pressAt + 5], [1, 0.9, 1], CLAMP)
   const scale = (1 + 0.08 * grow) * press
   return (
@@ -446,27 +450,38 @@ export const FeedbackFab: React.FC<{ frame: number; hoverAt?: number; pressAt?: 
         position: "absolute",
         right: 20,
         bottom: 20,
-        width: w,
         height: 44,
         boxSizing: "border-box",
+        padding: "0 14px",
         borderRadius: 999,
         border: `1px solid rgba(255,255,255,0.1)`,
         backgroundColor: FAB_ACCENT,
         color: FAB_FG,
-        boxShadow: `0 4px 16px rgba(0,0,0,${0.4 + 0.1 * grow})`,
-        display: "flex",
+        boxShadow: grow > 0 ? `0 6px 22px rgba(0,0,0,0.5)` : `0 4px 16px rgba(0,0,0,0.4)`,
+        display: "inline-flex",
         alignItems: "center",
-        justifyContent: grow > 0.02 ? "flex-start" : "center",
-        paddingLeft: grow > 0.02 ? 13 : 0,
-        gap: 7,
-        overflow: "hidden",
+        justifyContent: "center",
+        gap: 7 * grow,
         scale: String(scale),
-        transformOrigin: "center",
+        transformOrigin: "bottom right",
         fontFamily: UI_FONT,
+        zIndex: 20,
       }}
     >
       <MegaphoneIcon size={16} />
-      <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", opacity: grow }}>Feedback</span>
+      <span
+        style={{
+          fontSize: 13,
+          fontWeight: 600,
+          lineHeight: 1,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          maxWidth: LABEL_W * grow,
+          opacity: grow,
+        }}
+      >
+        Feedback
+      </span>
     </div>
   )
 }

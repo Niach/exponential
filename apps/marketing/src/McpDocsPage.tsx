@@ -17,7 +17,7 @@ const SECTIONS: DocsSectionType[] = [
   { id: `your-own-servers`, num: `06`, label: `Your own servers` },
 ]
 
-/* Tool reference — the 15 noun tools (NEW-4), mirroring apps/web/src/lib/mcp/nouns.ts:
+/* Tool reference — the 16 noun tools (NEW-4), mirroring apps/web/src/lib/mcp/nouns.ts:
    every tool takes `op` plus that op's fields; its description lists every op
    with its parameters. */
 const TOOL_GROUPS: {
@@ -27,7 +27,7 @@ const TOOL_GROUPS: {
   {
     heading: `Work`,
     tools: [
-      { name: `exponential_issues`, desc: `op list (filters by boards, statusId / statusCategory, priority, assignee, labels any/all/unlabeled, source, comment activity, created/updated ranges, title search, each with an exclude twin, sort; open work only unless includeClosed or a status filter), get (by UUID or identifier "EXP-42", with labels, relations, recent comments), show (the interactive list in MCP Apps hosts), create, update, delete, activity, update_status, subscribe, unsubscribe, labels_add, labels_remove, relations_add, relations_remove.` },
+      { name: `exponential_issues`, desc: `op list (filters by boards, status / statusId / statusCategory each with an exclude twin, priority, assignee, labels any/all/unlabeled, source, comment activity, created/updated/due ranges, text and identifier search, sort; open work only unless includeClosed or a status filter), get (by UUID or identifier "EXP-42", with label ids, relations, latest comments), show (the interactive list in MCP Apps hosts), create, update, delete, activity, update_status, subscribe, unsubscribe, labels_add, labels_remove, relations_add, relations_remove.` },
       { name: `exponential_comments`, desc: `op list, create, update, delete. Plain GFM; threads one level deep; audience "reporter" emails a widget reporter.` },
       { name: `exponential_attachments`, desc: `op list, get (metadata plus contents or a signed URL), upload (bytes now, or a signed uploadUrl then a finalize call), delete.` },
       { name: `exponential_pr`, desc: `op open (links the session's issues, infers the base in a stack), merge (squash through the GitHub App; stack: true lands a stack member and everything beneath it), close, retarget, update, unlink, files. Name a PR by pullRequestId, issueId or repositoryId + prNumber; default = the session's newest open PR.` },
@@ -40,6 +40,7 @@ const TOOL_GROUPS: {
       { name: `exponential_boards`, desc: `op list, get, create, update, delete (the 48-hour trash), set_repository.` },
       { name: `exponential_people`, desc: `op list and add members; invites_list, invites_create, invites_revoke.` },
       { name: `exponential_team_config`, desc: `op labels_list/get/create/update/delete, statuses_list/create/update/delete, prompts_list/get, agents_list, mcp_servers_list/add/remove, repositories_list/add.` },
+      { name: `exponential_apps`, desc: `op list, get (the head or a version's package), upsert (publishes a new version; a new slug creates the app), delete, catalog (the components, bindings and functions a package may use).` },
     ],
   },
   {
@@ -113,8 +114,10 @@ export function McpDocsPage() {
             </p>
             <DocsCode language="text">{`Authorization: Bearer expu_...`}</DocsCode>
             <p>
-              API keys act as you, with your full membership. Guard them
-              accordingly.
+              A key acts as you. Minted without a scope it carries your full
+              membership; the mint dialog offers the same team/board scope
+              picker as the consent screen, and a scoped key is confined to
+              that pick and works for MCP only. Guard keys accordingly.
             </p>
           </DocsSection>
 
@@ -221,21 +224,19 @@ openclaw mcp login exponential
             <p>
               Turn on OpenClaw&apos;s MCP Apps bridge (
               <code>openclaw config set mcp.apps.enabled true --strict-json</code>
-              ) and the issue list and a session&apos;s report render as
+              ) and the issue list, your inbox and your devices render as
               Exponential&apos;s own views in the dashboard; the issue list
               also opens straight from the app catalog.
             </p>
 
             <h3>Interactive views (MCP Apps)</h3>
             <p>
-              Clients that render MCP Apps show five tools as Exponential
+              Clients that render MCP Apps show three tools as Exponential
               views instead of JSON: <code>exponential_issues</code> op show (the
               issue list, grouped by status; a row opens the issue),{` `}
-              <code>exponential_sessions</code> op list (your sessions),{` `}
-              <code>exponential_sessions</code> op get (a thread&apos;s
-              report), <code>exponential_notifications</code> op list (your
-              inbox) and <code>exponential_devices</code> op list (your machines
-              and their agent logins). Self-hosted instances serve the same
+              <code>exponential_notifications</code> op list (your inbox) and
+              {` `}<code>exponential_devices</code> op list (your machines and
+              their agent logins). The session tools answer with JSON. Self-hosted instances serve the same
               views; nothing to configure on the server.
             </p>
 
@@ -256,17 +257,17 @@ npx mcp-remote ${LINKS.app.mcp}
           <DocsSection id="tools" num="04" label="Tool reference">
             <h2>Tool reference</h2>
             <p>
-              15 tools, one per noun. Every call carries an <code>op</code>
+              16 tools, one per noun. Every call carries an <code>op</code>
               and that op&apos;s fields beside it, for example{` `}
               <code>exponential_issues {`{op: "get", id: "EXP-42"}`}</code>;
               a tool&apos;s description lists every op with its parameters.
               Every call is confined to the OAuth grant&apos;s scope (or the
-              API key&apos;s membership). List ops paginate (50 by default, 200
-              at most, 1000 for issues), and issue parameters take an
+              API key&apos;s membership or scope). List ops paginate (50 by default, 200
+              at most, 1000 for issues; comments list 100 by default), and issue parameters take an
               identifier (&quot;EXP-42&quot;) wherever they take a UUID.
             </p>
             <DocsCallout kind="note" title="The same tools for every caller">
-              Every client sees all 15. An op that only makes sense inside an
+              Every client sees all 16. An op that only makes sense inside an
               agent session the launcher started (the Guide, the self ops) or
               on the cloud (report_bug) answers with a message saying so
               instead of hiding.
@@ -317,9 +318,9 @@ npx mcp-remote ${LINKS.app.mcp}
               <code>exponential_pr</code> op open with{` `}
               <code>issueIds</code> (the batch) and <code>head</code> (the
               pushed branch). Every listed issue links to the PR and moves to
-              In Review; merging completes them all. This is exactly what a
+              In Review; merging completes them all. This is what a
               {` `}
-              <a href="/docs/coding/#batch-runs">batch coding session</a> does.
+              <a href="/docs/coding/#batch-runs">session on several issues</a> does.
             </p>
 
             <h3>A pull request with no issue behind it</h3>
@@ -363,33 +364,33 @@ npx mcp-remote ${LINKS.app.mcp}
             <p>
               They are a team registry under{` `}
               <strong>Settings → MCP servers</strong>. Every member sees the
-              list; owners add and edit. A row is non-secret configuration
-              only: a name, the transport (a remote URL or a local command),
-              the auth kind, and the <em>names</em> of the headers or
-              environment variables a machine has to supply.
+              list; owners add a server from a catalog or a pasted URL (the
+              technical fields sit behind <strong>Advanced</strong>) and edit
+              or remove it.
             </p>
-            <DocsCallout kind="note" title="Credentials stay on the machine">
-              The server keeps <em>names and readiness</em>, never values. A
-              secret is typed on the machine that will use it — in the desktop
-              app&apos;s own MCP servers pane, or with{` `}
-              <code>exponential mcp set-secret &lt;server&gt; &lt;NAME&gt;</code>
-              {` `}on a daemon — and never travels through a command line.
+            <DocsCallout kind="note" title="Each member connects once">
+              Every member connects their <em>own</em> account to a server
+              once, with the row&apos;s action: <strong>Connect</strong> for an
+              OAuth server, <strong>Set key</strong> for one that takes a key.
+              The server holds that credential for you, so it works on every
+              one of your devices, remote starts and triggers; no machine
+              stores it.
             </DocsCallout>
             <p>
-              Each row carries a <strong>readiness chip per machine</strong>,
-              so you can see at a glance which of your machines can actually
-              reach the server. For an OAuth server, the chip on one of your
-              own machines offers <strong>Sign in</strong>: that machine
-              builds the authorize URL, you consent in the browser you are
-              already in, and the machine finishes the sign-in itself. On a
-              headless box, <code>exponential mcp login &lt;server&gt;</code>
-              {` `}does the same locally, or <code>--paste</code> prints a URL
-              you open anywhere and paste the redirect back.
+              On a headless box,{` `}
+              <code>exponential mcp list</code> shows your connection to each
+              server, <code>exponential mcp connect &lt;server&gt;</code>
+              {` `}opens the web connect page in your signed-in browser,{` `}
+              <code>exponential mcp set-secret &lt;server&gt;</code> reads a
+              key from a no-echo prompt or stdin (never a command line), and
+              {` `}<code>exponential mcp disconnect &lt;server&gt;</code>
+              {` `}deletes your credential.
             </p>
             <p>
-              Pick the servers a session gets in the{` `}
-              <a href="/docs/coding/#start-coding">Agent page composer</a>{` `}
-              and on the <a href="/docs/coding/#watch-steer">session page</a>. Sessions
+              Pick the servers a session gets under{` `}
+              <strong>MCP servers</strong> in the composer&apos;s{` `}
+              <a href="/docs/coding/#start-coding">+ menu</a>; a server you have
+              not connected opens Settings → MCP servers instead. Sessions
               are strict about it: an agent started by Exponential connects to
               the servers Exponential wired in and nothing else, whatever the
               CLI has configured globally.

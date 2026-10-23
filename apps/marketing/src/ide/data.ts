@@ -253,47 +253,6 @@ export const ISSUE_ACTIVITY: Record<string, ActivityItem[]> = {
 
 /* ─── Git fixtures ─── */
 
-/* Branch-flow lanes: default branch → exp/… lanes joined to issues by
-   branch name, with a status indicator, ↑↓ counts and worktree tags —
-   matches the real Source Control panel's semantic lanes. */
-export type LaneIndicator = `none` | `progress` | `open` | `merged`
-
-export type Lane = {
-  branch: string
-  label?: string
-  indent: 0 | 1
-  indicator: LaneIndicator
-  ahead?: number
-  behind?: number
-  current?: boolean
-  worktree?: boolean
-}
-
-export const LANES: Lane[] = [
-  { branch: `master`, indent: 0, indicator: `none`, current: true },
-  {
-    branch: `exp/EXP-8`,
-    label: `EXP-8 · Live-steer terminal reconnect`,
-    indent: 1,
-    indicator: `progress`,
-    ahead: 2,
-    worktree: true,
-  },
-  {
-    branch: `exp/EXP-11`,
-    label: `EXP-11 · Issue board keyboard navigation`,
-    indent: 1,
-    indicator: `open`,
-    ahead: 1,
-  },
-  {
-    branch: `exp/EXP-5`,
-    label: `EXP-5 · Side-by-side diff view`,
-    indent: 1,
-    indicator: `merged`,
-  },
-]
-
 export type Commit = { subject: string; meta: string }
 
 export const COMMITS: Commit[] = [
@@ -383,6 +342,24 @@ const buildDiffRows = (): DiffRow[] => {
 
 export const DIFF_ROWS: DiffRow[] = buildDiffRows()
 
+/* EXP-895: the ONE diff view is UNIFIED — `old gutter · new gutter · sign ·
+   text` rows. The same hunk, as the desktop's per-file card lists it. */
+export type UnifiedRow = { old: number | null; new: number | null; kind: `ctx` | `add` | `del`; text: string }
+
+const buildUnifiedRows = (): UnifiedRow[] => {
+  const rows: UnifiedRow[] = [
+    { old: 42, new: 42, kind: `ctx`, text: `  const socket = useRef<WebSocket | null>(null)` },
+    { old: 43, new: 43, kind: `ctx`, text: `` },
+  ]
+  OLD_REMOVED.forEach((text, i) => rows.push({ old: 44 + i, new: null, kind: `del`, text }))
+  NEW_ADDED.forEach((text, i) => rows.push({ old: null, new: 44 + i, kind: `add`, text }))
+  rows.push({ old: 50, new: 68, kind: `ctx`, text: `` })
+  rows.push({ old: 51, new: 69, kind: `ctx`, text: `  return <TerminalView ref={mount} onData={handleInput} />` })
+  return rows
+}
+
+export const DIFF_UNIFIED: UnifiedRow[] = buildUnifiedRows()
+
 /* ─── File tree ─── */
 
 export type FileNode = {
@@ -464,188 +441,79 @@ export const PACKAGE_JSON = `{
   "packageManager": "bun@1.2.19"
 }`
 
-/* ─── "Start coding" scripted agent session — the ACP TRANSCRIPT the
-   session screen renders (EXP-746/773/787), not a terminal log: prose
-   narration rows, tool rows and collapsed tool groups, ending in the
-   agent's answerable question. Row copy follows steer::feed / web
-   agent-feed.ts: a tool row is "<Verb> <target> · <detail>", a collapsed
-   run of calls wears the contract `toolGroupSummary` caption. ─── */
+/* ─── The coding session a Start launches — the TRANSCRIPT the thread's
+   Conversation shows while the thread has ONE session (NEW-6/NEW-46): the
+   agent's prose beside its sparkle mark, and THE Trace lines between
+   (fixtures/trace.json: `Thought for 5s`, `Read <path>`, `Edited <path>`,
+   `Ran <command>`, `Failed: 1 of 12 tests in <suite>`). The turn ends on a
+   question, which floats over the composer as a Dock card (dock.json). ─── */
+
+export type TraceIcon = `reasoning` | `read` | `edit` | `terminal` | `subagent` | `failed`
 
 export type FeedRow =
   /* Agent prose (14/22, the transcript's body type). */
   | { kind: `narration`; text: string }
-  /* One settled tool call: the verb, its target, an optional detail. */
-  | { kind: `tool`; verb: string; target: string; detail?: string }
-  /* A collapsed run of tool calls — `toolGroupSummary`'s caption. */
-  | { kind: `group`; caption: string }
-  /* The agent's question, answered IN its card (EXP-820). */
-  | { kind: `question`; text: string; options: { title: string; sub: string }[] }
-  /* A message you sent the run (the picked answer, or a steer). */
+  /* ONE Trace line (sm geometry); `chevron` = a collapsible line. */
+  | {
+      kind: `trace`
+      icon: TraceIcon
+      title: string
+      description?: string
+      chevron?: boolean
+      error?: boolean
+    }
+  /* A person's message: the right-aligned bubble over `author · HH:MM`. */
   | { kind: `user`; text: string }
 
-/* Issues with an open PR fixture keep their number; anyone else gets a
-   plausible one derived from the issue number. */
-const prNumberFor = (issue: Issue): number =>
-  REVIEWS.find((r) => r.issueId === issue.id)?.prNumber ??
-  200 + Number(issue.id.split(`-`)[1] ?? `0`)
-
-/* EXP-8 keeps its bespoke plan line (it matches the diff fixture); every
-   other issue plays the same canned change so the transcript and the
-   Changes-tab diff stay consistent. */
-const PLAN_LINES: Record<string, string> = {
-  [`EXP-8`]: `Plan: reconnect with exponential backoff and resume the stream from the last event the client saw.`,
+/* The agent's question: a Dock card while it waits, its sheet on a click. */
+export type Question = {
+  text: string
+  options: { label: string; description: string }[]
 }
 
 export const codingScriptFor = (issue: Issue): FeedRow[] => [
+  { kind: `trace`, icon: `reasoning`, title: `Thought for 4s` },
+  { kind: `trace`, icon: `read`, title: `Read ${DIFF_FILE.path}` },
   {
     kind: `narration`,
-    text: `Reading ${issue.id} and the code around it. ${issue.title}.`,
+    text: `${issue.title}: the socket is opened once and never reopened. I'll reconnect with exponential backoff and resume from the last event the viewer acked.`,
   },
-  { kind: `tool`, verb: `Read`, target: DIFF_FILE.path },
-  { kind: `group`, caption: `Used 3 tools` },
+  { kind: `trace`, icon: `edit`, title: `Edited ${DIFF_FILE.path}` },
+  { kind: `trace`, icon: `terminal`, title: `Ran bun test steer`, chevron: true },
+  {
+    kind: `trace`,
+    icon: `failed`,
+    title: `Failed: 1 of 12 tests in steer-terminal`,
+    chevron: true,
+    error: true,
+  },
+  { kind: `trace`, icon: `edit`, title: `Edited ${DIFF_FILE.path}` },
+  { kind: `trace`, icon: `terminal`, title: `Ran bun test steer`, chevron: true },
   {
     kind: `narration`,
-    text: PLAN_LINES[issue.id] ?? `Plan: implement the change, verify it, and open a PR.`,
-  },
-  {
-    kind: `tool`,
-    verb: `Edit`,
-    target: DIFF_FILE.path,
-    detail: `reconnect with backoff`,
-  },
-  { kind: `group`, caption: `Ran 2 commands · edited 1 file` },
-  {
-    kind: `narration`,
-    text: `Typecheck and the steering tests are clean. Pushed exp/${issue.id} and opened PR #${prNumberFor(issue)}.`,
-  },
-  {
-    kind: `question`,
-    text: `The backoff caps at 15s. Keep that, or make the cap a team setting?`,
-    options: [
-      {
-        title: `Keep the 15s cap`,
-        sub: `One less setting, and it matches the relay's own backoff`,
-      },
-      {
-        title: `Make it a team setting`,
-        sub: `A settings row and a migration on top of this PR`,
-      },
-    ],
+    text: `All 12 steer tests pass. The backoff doubles from 1s and caps at 15s, and a reconnect resumes the stream where it stopped.`,
   },
 ]
 
-/* ─── Batch coding run (EXP-106) — ONE agent session on ONE pushed
-   exp/batch-<id8> branch implementing every checked issue, ending in ONE
-   combined PR that links them all. Deliberately loose: no waves, no
-   per-issue worktrees — the agent organizes the work itself. ─── */
+export const questionFor = (): Question => ({
+  text: `The backoff caps at 15s. Keep that, or make the cap a team setting?`,
+  options: [
+    { label: `Keep the 15s cap`, description: `Matches the relay's own backoff` },
+    { label: `Make it a team setting`, description: `A settings row and a migration on top` },
+  ],
+})
 
-const BATCH_BRANCH = `exp/batch-3f9a1c2e`
-
-export const batchCodingScriptFor = (issues: Issue[]): FeedRow[] => [
-  {
-    kind: `narration`,
-    text: `One pass across ${issues.map((i) => i.id).join(`, `)} on ${BATCH_BRANCH}, ending in one combined PR.`,
-  },
-  ...issues.slice(0, 3).map(
-    (issue): FeedRow => ({
-      kind: `narration`,
-      text: `${issue.id}: ${issue.title}. Implemented and covered by a test.`,
-    }),
-  ),
-  { kind: `group`, caption: `Ran 6 commands · edited 4 files` },
-  {
-    kind: `narration`,
-    text: `Typecheck and tests are clean across the combined change. Pushed ${BATCH_BRANCH} and opened PR #221 for all ${issues.length} issues.`,
-  },
-  {
-    kind: `question`,
-    text: `The batch touches one screen twice. Land it as one PR, or split the risky change out?`,
-    options: [
-      {
-        title: `Land it as one PR`,
-        sub: `Merging completes every issue in the batch`,
-      },
-      {
-        title: `Split the risky change out`,
-        sub: `A second branch and a second PR from this session`,
-      },
-    ],
-  },
-]
-
-/* The demo's batch run, titled generically. The PRODUCT names a batch after
-   the issues it covers since EXP-876 (`EXP-874 +2`, web `lib/batch-run.ts`);
-   this scripted tour has no covered set to name one from, so it keeps the
-   fallback every client still shows for a batch whose issues are unknown. */
-export const BATCH_RUN_TITLE = `Batch session`
-
-/* ─── Runs beside the scripted one (EXP-870/874/877) ───
-   The coding agents a session can ride; the tab strip clusters live sessions by
-   agent, led by the agent's brand mark. */
-export type AgentKind = `claude` | `codex`
-
-export const AGENT_LABEL: Record<AgentKind, string> = {
-  claude: `Claude Code`,
-  codex: `Codex`,
-}
-
-/* The machine every fixture run is hosted on. */
+/* The machine and login the Agent page's options line names. */
 export const RUN_DEVICE = `Danny's MacBook Pro`
+export const RUN_ACCOUNT = `danny@exponential.at`
+export const RUN_MODEL = `Fable`
 
-/* The OTHER live run of mine: a Codex run on EXP-11 whose PR is open
-   (status `in_review`, "Ready for review"). It owns a live tab from the
-   first frame, which is what makes the strip read like the real one. */
-export const REVIEW_RUN = {
-  issueId: `EXP-11`,
-  agent: `codex` as AgentKind,
-  started: `2 hours ago`,
-}
+/* ─── The rail's team sections (sidebar.rs): the team's AGENTS (each its
+   own glyph in its colour), its APPS (the built-in Devices app first) and
+   its boards. ─── */
+export type RailAgent = { name: string; color: string; icon: `bug` | `palette` | `package` }
 
-/* A run's changed files, as the Diff face lists them. Only the fixture hunk
-   (DIFF_FILE) carries rows to expand; the others are collapsed cards. */
-export type RunFile = { path: string; add: number; del: number; rows?: boolean }
-
-export const SCRIPTED_RUN_FILES: RunFile[] = [
-  { path: DIFF_FILE.path, add: DIFF_FILE.add, del: DIFF_FILE.del, rows: true },
+export const RAIL_AGENTS: RailAgent[] = [
+  { name: `Triage`, color: `#a855f7`, icon: `bug` },
+  { name: `Release`, color: `#22c55e`, icon: `package` },
 ]
-
-export const REVIEW_RUN_FILES: RunFile[] = [
-  { path: `apps/web/src/components/issue-list.tsx`, add: 34, del: 7 },
-  { path: `apps/web/src/hooks/use-roving-focus.ts`, add: 29, del: 0 },
-  { path: `apps/web/src/components/issue-list.test.tsx`, add: 18, del: 2 },
-]
-
-export const reviewRunScript = (issue: Issue): FeedRow[] => [
-  {
-    kind: `narration`,
-    text: `Reading ${issue.id} and the board list's focus handling. ${issue.title}.`,
-  },
-  { kind: `group`, caption: `Read 4 files · searched 2 times` },
-  {
-    kind: `narration`,
-    text: `j/k move the selection, Enter opens the issue beside the list, and Escape hands focus back to the board.`,
-  },
-  {
-    kind: `tool`,
-    verb: `Edit`,
-    target: `apps/web/src/components/issue-list.tsx`,
-    detail: `roving focus`,
-  },
-  { kind: `group`, caption: `Ran 3 commands · edited 2 files` },
-  {
-    kind: `narration`,
-    text: `Tests and typecheck pass. Pushed exp/${issue.id} and opened PR #209. It is ready for review.`,
-  },
-]
-
-/* The Agent page's Recent band (EXP-874; EXP-886: was "Past"): identifier + title over a
-   device · time byline, a chevron, and no agent brand mark. */
-export type PastRun = { issueId: string; ended: string }
-
-export const PAST_RUNS: PastRun[] = [
-  { issueId: `EXP-5`, ended: `yesterday` },
-  { issueId: `EXP-7`, ended: `3 days ago` },
-]
-
-/* What the scripted run's context ring reads once the transcript is in. */
-export const CONTEXT_PERCENT = 38

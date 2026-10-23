@@ -8,8 +8,35 @@
 // the old C.bg/C.panel/C.border/C.accentBg tokens are gone.
 
 import React from "react"
+import {
+  Bug,
+  ChartLine,
+  ChevronDown,
+  ChevronsUpDown,
+  Code,
+  Inbox,
+  ListTree,
+  Megaphone,
+  MessageCircle,
+  Monitor,
+  Package,
+  Palette,
+  Plus,
+  Rocket,
+  Search,
+  Settings,
+  Sparkles,
+  SquareKanban,
+  SquarePen,
+  CalendarDays,
+} from "lucide-react"
 import { C, MONO_FONT, UI_FONT } from "../../ships/theme"
-import { CL, CL_BOARD, NEW_ISSUE_ID } from "../fixtures"
+import {
+  Avatar,
+  PriorityIcon,
+  StatusIcon,
+} from "../../ships/surfaces/board"
+import { CL, CL_BOARD, CL_BOARDS, NEW_ISSUE_ID } from "../fixtures"
 import { ClaudeMark } from "./agentmarks"
 
 // ── Platform icons (marketing DownloadSection.tsx twins) ─────────────────────
@@ -115,359 +142,344 @@ export const MacBook: React.FC<{ screenW: number; children: React.ReactNode }> =
   )
 }
 
-// ── Shared board fixture slices (post-story: EXP-151 shipped, EXP-149 live) ──
-type LineupRow = {
-  id: string
-  title: string
-  priority: string
-  assignee?: string
-  label?: { name: string; dot: string }
-  due?: string
-}
-const boardRow = (id: string): LineupRow => {
-  const row = CL_BOARD.find((r) => r.id === id)
-  if (!row) throw new Error(`platforms: no board row ${id}`)
-  return {
-    id: row.id,
-    title: row.title,
-    priority: row.priority,
-    assignee: row.assignee,
-    label: row.label,
-    due: row.due,
-  }
-}
-type LineupSection = {
-  name: string
-  status: "backlog" | "in_progress" | "done"
-  tint: string
-  count: number
-  rows: LineupRow[]
-}
-// Contract displayOrder — the same grouping the desktop and mobile lists use.
-export const LINEUP_SECTIONS: LineupSection[] = [
-  {
-    name: "Backlog",
-    status: "backlog",
-    tint: C.tintBacklog,
-    count: 3,
-    rows: [boardRow("EXP-150"), boardRow("EXP-146")],
-  },
-  {
-    name: "In Progress",
-    status: "in_progress",
-    tint: C.tintInProgress,
-    count: 2,
-    rows: [boardRow("EXP-148"), boardRow("EXP-149")],
-  },
-  {
-    name: "Done",
-    status: "done",
-    tint: C.tintDone,
-    count: 3,
-    rows: [boardRow(NEW_ISSUE_ID), boardRow("EXP-144")],
-  },
-]
-
-// ── Tiny UI glyphs shared by the web + phone mocks ───────────────────────────
-const Glyph: React.FC<{ size: number; sw?: number; children: React.ReactNode }> = ({ size, sw = 1.9, children }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0 }}>
-    {children}
-  </svg>
-)
-
-// Status icon per group — icons.json status-*: circle-dashed / circle /
-// progress-2-4 (the pie clock) / circle-check.
-const StatusGlyph: React.FC<{
-  status: LineupSection["status"]
-  size: number
-}> = ({ status, size }) => {
-  if (status === "backlog")
-    return (
-      <span style={{ color: C.statusBacklog, display: "flex" }}>
-        <Glyph size={size} sw={2}>
-          <circle cx="12" cy="12" r="9" strokeDasharray="3.6 3.4" />
-        </Glyph>
-      </span>
-    )
-  if (status === "in_progress")
-    return (
-      <span style={{ color: C.statusInProgress, display: "flex" }}>
-        <svg
-          width={size}
-          height={size}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          style={{ display: "block", flexShrink: 0 }}
-        >
-          <circle cx="12" cy="12" r="10" />
-          <path
-            d="M12 12 L12 6 A6 6 0 0 1 12 18 Z"
-            fill="currentColor"
-            stroke="none"
-          />
-        </svg>
-      </span>
-    )
-  return (
-    <span style={{ color: C.statusDone, display: "flex" }}>
-      <Glyph size={size} sw={2}>
-        <circle cx="12" cy="12" r="9" />
-        <path d="m8.5 12 2.5 2.5 5-5" />
-      </Glyph>
-    </span>
-  )
-}
-
-// Priority signal bars (high 3 · medium 2 · low 1 · none —).
-const PriorityGlyph: React.FC<{ priority: string; size: number }> = ({ priority, size }) => {
-  if (priority === "none" || priority === "")
-    return (
-      <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "block", flexShrink: 0 }}>
-        <rect x="5" y="11" width="14" height="2.6" rx="1.3" fill={C.dim} />
-      </svg>
-    )
-  const lit = priority === "high" ? 3 : priority === "medium" ? 2 : 1
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "block", flexShrink: 0 }}>
-      {[0, 1, 2].map((i) => (
-        <rect
-          key={i}
-          x={5 + i * 5.4}
-          y={15 - i * 4.5}
-          width={3.4}
-          height={5 + i * 4.5}
-          rx={1.4}
-          fill={i < lit ? C.muted : "rgba(255,255,255,0.16)"}
-        />
-      ))}
-    </svg>
-  )
-}
-
-const Avatar: React.FC<{ size: number; text: string }> = ({ size, text }) => (
-  <span
-    style={{
-      width: size,
-      height: size,
-      borderRadius: 999,
-      backgroundColor: C.fillActive,
-      color: C.text,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      fontSize: size * 0.44,
-      fontWeight: 600,
-      flexShrink: 0,
-    }}
-  >
-    {text}
-  </span>
-)
-
 // ── The web app inside a browser window ──────────────────────────────────────
-// EXP-471: matched to shots/board/web.webp — the sidebar opens with the team
-// switcher plus the round search + compose buttons, the nav is the EXP-699
-// order Inbox / Support / Devices / Actions / Reviews with DOT
-// badges (unread white, live green — never counts), a "Boards" group carries
-// the colored board glyphs, and Getting started + the user row are pinned at
-// the bottom. EXP-723: the sidebar sits bare on the ground (no right
-// hairline) and the content column is the CUTOUT — a rounded card inset 10px
-// with the card hairline and the panel wash (app-shell.ts MAIN_PANEL_CLASS),
-// here at the mock's ~0.53 scale: inset 5, radius 8.
-// EXP-870: the nav ends in Agent, whose badge is a COUNT of my live runs,
-// and browser-like WORK TABS sit in a band above the panel — every live run
-// of mine in its agent group (Claude's orange mark, the chip's steady
-// liveness dot, the group's collapse chevron). The retired bottom session
-// strip is gone. EXP-862 removed issue filtering, and with it the Filter
-// button: the list's control row is a fixed band that only fills when rows
-// are selected (the bulk action bar), so the mock keeps the empty band.
+// Copied from shots/board/web.webp (2026-10-23) and the code that draws it:
+// apps/web components/team/sidebar.tsx (+ sidebar-agents / sidebar-running),
+// packages/ui sidebar.tsx (compact rows h-7 text-sm), issue-list.tsx (the
+// md grid: 1.25rem checkbox · 1.5rem priority · 4.5rem ID · 1.5rem status ·
+// title · labels · 1.75rem assignee · 4.5rem due · 2rem), issue-group-band
+// (py-1.5 pl-3 band, status wash /10) and the Pill primitive. The app is
+// laid out at its REAL CSS metrics — the root font-size is 1.15625rem
+// (18.5px) on desktop widths, packages/ui styles.css — in a 1600px-wide
+// viewport, then scaled into the mock (EXP-1293 nav: Agent, Inbox, Threads,
+// Devices; Agents; Apps; Boards; Active; Getting started + the user row).
+// The nav's conditional Drafts row (while any) and the cloud-only Feedback
+// row are absent. Post-story state: EXP-151 Done (merging never ends a
+// session, so its thread stays live under Active), EXP-149 In Progress.
 export const WEB = { w: 560, chrome: 34, viewport: 348, sidebar: 156 } as const
 
-const WEB_NAV: {
-  label: string
-  dot?: string
-  count?: number
-  icon: React.ReactNode
-}[] = [
-  {
-    label: "Inbox",
-    dot: C.text,
-    icon: (
-      <Glyph size={13}>
-        <path d="M22 12h-6l-2 3h-4l-2-3H2" />
-        <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
-      </Glyph>
-    ),
-  },
-  {
-    label: "Support",
-    icon: (
-      <Glyph size={13}>
-        <circle cx="12" cy="12" r="10" />
-        <circle cx="12" cy="12" r="4" />
-        <path d="m4.9 4.9 4.2 4.2" />
-        <path d="m14.9 14.9 4.2 4.2" />
-        <path d="m14.9 9.1 4.2-4.2" />
-        <path d="m4.9 19.1 4.2-4.2" />
-      </Glyph>
-    ),
-  },
-  {
-    label: "Devices",
-    dot: C.green,
-    icon: (
-      <Glyph size={13} sw={1.7}>
-        <rect x="2" y="3" width="20" height="14" rx="2" />
-        <path d="M8 21h8" />
-        <path d="M12 17v4" />
-      </Glyph>
-    ),
-  },
-  {
-    label: "Actions",
-    icon: (
-      <Glyph size={13} sw={1.7}>
-        <path d="M12 8V4H8" />
-        <rect x="4" y="8" width="16" height="12" rx="2" />
-        <path d="M2 14h2" />
-        <path d="M20 14h2" />
-        <path d="M15 13v2" />
-        <path d="M9 13v2" />
-      </Glyph>
-    ),
-  },
-  {
-    label: "Reviews",
-    dot: C.green,
-    icon: (
-      <Glyph size={13}>
-        <circle cx="18" cy="18" r="3" />
-        <circle cx="6" cy="6" r="3" />
-        <path d="M13 6h3a2 2 0 0 1 2 2v7" />
-        <path d="M6 9v12" />
-      </Glyph>
-    ),
-  },
-  {
-    label: "Agent",
-    count: 1,
-    icon: (
-      <Glyph size={13}>
-        <path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.412-.961a2 2 0 0 1 1.099.092 10 10 0 1 0-4.776-4.756" />
-      </Glyph>
-    ),
-  },
-]
+const CSS_W = 1600
+const CSS_S = WEB.w / CSS_W
+const CSS_H = WEB.viewport / CSS_S
+const REM = 18.5
+const rem = (n: number) => n * REM
 
-const WebNavRow: React.FC<{
+// Sampled from the shot.
+const WEBC = {
+  ground: "#0c0b0e",
+  panel: "#131215",
+  panelStroke: "rgba(255,255,255,0.08)",
+  fg: "#fafafa",
+  muted: "#a1a1a1",
+  groupLabel: "rgba(250,250,250,0.5)",
+  active: "rgba(255,255,255,0.10)",
+  primary: "#e5e5e5",
+  primaryFg: "#171717",
+  inboxDot: "#fafafa",
+  live: "#22c55e",
+  pillBg: "rgba(255,255,255,0.06)",
+  pillStroke: "rgba(255,255,255,0.10)",
+  bandRule: "rgba(255,255,255,0.04)",
+} as const
+
+const WASH: Record<"backlog" | "in_progress" | "done", string> = {
+  backlog: "rgba(113,113,122,0.10)", // bg-zinc-500/10
+  in_progress: "rgba(234,179,8,0.10)", // bg-yellow-500/10
+  done: "rgba(59,130,246,0.10)", // bg-blue-500/10
+}
+
+const SIDEBAR_W = 316
+const ICON = rem(1) // h-4 w-4
+
+type WebStatus = "backlog" | "in_progress" | "done"
+const WEB_GROUPS: { status: WebStatus; name: string; ids: string[] }[] = [
+  { status: "backlog", name: "Backlog", ids: ["EXP-150", "EXP-145", "EXP-146"] },
+  { status: "in_progress", name: "In Progress", ids: ["EXP-148", "EXP-149"] },
+  { status: "done", name: "Done", ids: [NEW_ISSUE_ID, "EXP-144", "EXP-147"] },
+]
+const boardRow = (id: string) => {
+  const row = CL_BOARD.find((r) => r.id === id)
+  if (!row) throw new Error(`platforms: no board row ${id}`)
+  return row
+}
+
+// The team's agents and apps (the shot's seed), drawn like the boards.
+const WEB_AGENTS = [
+  { name: "Triage", color: "#a855f7", Icon: Bug },
+  { name: "Designer", color: "#ec4899", Icon: Palette },
+  { name: "Release", color: "#22c55e", Icon: Package },
+] as const
+const WEB_APPS = [
+  { name: "Devices", color: WEBC.fg, Icon: Monitor },
+  { name: "Release checklist", color: "#f97316", Icon: Rocket },
+  { name: "Team dashboard", color: "#0ea5e9", Icon: ChartLine },
+] as const
+const BOARD_ICON = { code: Code, kanban: SquareKanban, megaphone: Megaphone } as const
+
+const Dot: React.FC<{ color: string }> = ({ color }) => (
+  <span style={{ width: rem(0.5), height: rem(0.5), borderRadius: 999, backgroundColor: color, flexShrink: 0 }} />
+)
+
+// SidebarMenuButton density="compact": h-7, px-2, gap-2, text-sm, rounded-md.
+const NavRow: React.FC<{
   icon: React.ReactNode
   label: string
-  dot?: string
-  count?: number
-}> = ({ icon, label, dot, count }) => (
+  active?: boolean
+  muted?: boolean
+  trailing?: React.ReactNode
+}> = ({ icon, label, active, muted, trailing }) => (
   <div
     style={{
+      height: rem(1.75),
       display: "flex",
       alignItems: "center",
-      gap: 9,
-      height: 23,
-      padding: "0 9px",
-      borderRadius: 7,
-      color: C.muted,
+      gap: rem(0.5),
+      padding: `0 ${rem(0.5)}px`,
+      borderRadius: active ? 999 : rem(0.375),
+      backgroundColor: active ? WEBC.active : "transparent",
+      fontSize: rem(0.875),
+      color: muted ? WEBC.muted : WEBC.fg,
     }}
   >
-    {icon}
-    <span style={{ flex: 1, fontSize: 12 }}>{label}</span>
-    {dot ? (
+    <span style={{ display: "flex", flexShrink: 0 }}>{icon}</span>
+    <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+    {trailing}
+  </div>
+)
+
+// SidebarGroup (p-2) with its label (h-8 text-xs /50) and the "+" action.
+const Group: React.FC<{ label: string; action?: boolean; children: React.ReactNode }> = ({ label, action, children }) => (
+  <div style={{ padding: rem(0.5) }}>
+    <div
+      style={{
+        height: rem(2),
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: `0 ${rem(0.5)}px`,
+        fontSize: rem(0.75),
+        fontWeight: 500,
+        letterSpacing: "0.025em",
+        color: WEBC.groupLabel,
+      }}
+    >
+      {label}
+      {action ? <Plus size={ICON} color={WEBC.fg} strokeWidth={2} /> : null}
+    </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: rem(0.25) }}>{children}</div>
+  </div>
+)
+
+const WebSidebar: React.FC = () => (
+  <div style={{ width: SIDEBAR_W, height: CSS_H, flexShrink: 0, display: "flex", flexDirection: "column" }}>
+    {/* SidebarHeader p-2: team switcher · search · new issue */}
+    <div style={{ padding: rem(0.5), display: "flex", alignItems: "center", gap: rem(0.25) }}>
+      <div style={{ flex: 1, minWidth: 0, height: rem(2.5), display: "flex", alignItems: "center", gap: rem(0.5), padding: `0 ${rem(0.5)}px` }}>
+        <span
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 6,
+            backgroundColor: "#e4e4e4",
+            color: "#171717",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 13,
+            fontWeight: 600,
+            flexShrink: 0,
+          }}
+        >
+          A
+        </span>
+        <span style={{ flex: 1, fontSize: rem(0.875), fontWeight: 600, color: WEBC.fg }}>{CL.team}</span>
+        <ChevronsUpDown size={ICON} color={WEBC.fg} strokeWidth={2} />
+      </div>
+      <span style={{ width: rem(2), height: rem(2), display: "flex", alignItems: "center", justifyContent: "center", color: WEBC.muted }}>
+        <Search size={ICON} strokeWidth={2} />
+      </span>
       <span
         style={{
-          width: 5,
-          height: 5,
-          flexShrink: 0,
+          width: rem(2),
+          height: rem(2),
           borderRadius: 999,
-          backgroundColor: dot,
-        }}
-      />
-    ) : null}
-    {count ? (
-      <span
-        style={{
-          minWidth: 11,
-          height: 11,
-          flexShrink: 0,
-          borderRadius: 999,
-          backgroundColor: C.green,
-          color: C.canvas,
-          fontSize: 8,
-          fontWeight: 600,
+          backgroundColor: WEBC.primary,
+          color: WEBC.primaryFg,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        {count}
+        <SquarePen size={ICON} strokeWidth={2} />
       </span>
-    ) : null}
+    </div>
+    <div style={{ height: 1, backgroundColor: "rgba(255,255,255,0.08)" }} />
+
+    {/* SidebarContent: the groups, gap-2 */}
+    <div style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: rem(0.5) }}>
+      <div style={{ padding: rem(0.5), display: "flex", flexDirection: "column", gap: rem(0.25) }}>
+        <NavRow icon={<MessageCircle size={ICON} strokeWidth={2} />} label="Agent" />
+        <NavRow icon={<Inbox size={ICON} strokeWidth={2} />} label="Inbox" trailing={<Dot color={WEBC.inboxDot} />} />
+        <NavRow icon={<ListTree size={ICON} strokeWidth={2} />} label="Threads" trailing={<Dot color={WEBC.live} />} />
+        <NavRow icon={<Monitor size={ICON} strokeWidth={2} />} label="Devices" />
+      </div>
+      <Group label="Agents" action>
+        {WEB_AGENTS.map(({ name, color, Icon }) => (
+          <NavRow key={name} icon={<Icon size={ICON} color={color} strokeWidth={2} />} label={name} />
+        ))}
+      </Group>
+      <Group label="Apps" action>
+        {WEB_APPS.map(({ name, color, Icon }) => (
+          <NavRow key={name} icon={<Icon size={ICON} color={color} strokeWidth={2} />} label={name} />
+        ))}
+      </Group>
+      <Group label="Boards" action>
+        {CL_BOARDS.map((b, i) => {
+          const Icon = BOARD_ICON[b.glyph]
+          return <NavRow key={b.name} active={i === 0} icon={<Icon size={ICON} color={b.color} strokeWidth={2} />} label={b.name} />
+        })}
+      </Group>
+      <Group label="Active">
+        <NavRow
+          icon={<ClaudeMark size={rem(0.875)} />}
+          label={`#${NEW_ISSUE_ID} ${boardRow(NEW_ISSUE_ID).title}`}
+          trailing={<Monitor size={rem(0.875)} color={WEBC.muted} strokeWidth={2} />}
+        />
+      </Group>
+    </div>
+
+    {/* SidebarFooter p-2: Getting started, then the user row + settings */}
+    <div style={{ padding: rem(0.5), display: "flex", flexDirection: "column", gap: rem(0.5) }}>
+      <NavRow icon={<Sparkles size={ICON} strokeWidth={2} />} label="Getting started" muted />
+      <div style={{ display: "flex", alignItems: "center", gap: rem(0.25) }}>
+        <div style={{ flex: 1, height: rem(2), display: "flex", alignItems: "center", gap: rem(0.5), padding: `0 ${rem(0.5)}px` }}>
+          <Avatar initials={CL.initials} size={28} />
+          <span style={{ flex: 1, fontSize: rem(0.875), color: WEBC.fg }}>{CL.user.split(" ")[0]}</span>
+          <ChevronsUpDown size={ICON} color={WEBC.fg} strokeWidth={2} />
+        </div>
+        <span style={{ width: rem(2), height: rem(2), display: "flex", alignItems: "center", justifyContent: "center", color: WEBC.fg }}>
+          <Settings size={ICON} strokeWidth={2} />
+        </span>
+      </div>
+    </div>
   </div>
 )
 
-const WEB_BOARDS: { name: string; color: string; glyph: React.ReactNode }[] = [
-  {
-    name: CL.project,
-    color: "#818cf8",
-    glyph: (
-      <Glyph size={12} sw={2.2}>
-        <path d="m16 18 6-6-6-6" />
-        <path d="m8 6-6 6 6 6" />
-      </Glyph>
-    ),
-  },
-  {
-    name: "Launch Marketing",
-    color: "#f59e0b",
-    glyph: (
-      <Glyph size={12} sw={2}>
-        <rect x="3" y="3" width="18" height="18" rx="2" />
-        <path d="M8 7v7" />
-        <path d="M12 7v4" />
-        <path d="M16 7v9" />
-      </Glyph>
-    ),
-  },
-  {
-    name: "Product Feedback",
-    color: "#22c55e",
-    glyph: (
-      <Glyph size={12} sw={2}>
-        <path d="m3 11 18-5v12L3 14v-3z" />
-        <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
-      </Glyph>
-    ),
-  },
-]
+// The board list (md grid) inside the cutout panel.
+const GRID_RIGHT = rem(1.5) + rem(2) + rem(4.5) + rem(1.75)
 
-const RoundButton: React.FC<{ children: React.ReactNode; solid?: boolean }> = ({
-  children,
-  solid,
-}) => (
-  <span
-    style={{
-      width: 20,
-      height: 20,
-      flexShrink: 0,
-      borderRadius: 999,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: solid ? "rgba(255,255,255,0.14)" : "transparent",
-      border: solid ? "1px solid rgba(255,255,255,0.14)" : "none",
-      color: solid ? C.text : C.muted,
-    }}
-  >
-    {children}
-  </span>
+const WebBoard: React.FC = () => (
+  <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+    {WEB_GROUPS.map((g) => (
+      <div key={g.status}>
+        {/* IssueGroupBand: py-1.5 pl-3 pr-6, border-b border/40, wash */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: rem(0.375),
+            height: 51,
+            boxSizing: "border-box",
+            padding: `0 ${rem(1.5)}px 0 ${rem(0.75)}px`,
+            backgroundColor: WASH[g.status],
+            borderBottom: `1px solid ${WEBC.bandRule}`,
+          }}
+        >
+          <ChevronDown size={rem(0.75)} color={WEBC.muted} strokeWidth={2} />
+          <StatusIcon status={g.status} size={rem(0.875)} />
+          <span style={{ fontSize: rem(0.875), fontWeight: 500, color: WEBC.fg }}>{g.name}</span>
+          <span style={{ fontSize: rem(0.75), color: WEBC.muted }}>{g.ids.length}</span>
+        </div>
+        {g.ids.map((id) => {
+          const row = boardRow(id)
+          return (
+            <div
+              key={id}
+              style={{
+                position: "relative",
+                height: rem(2.5),
+                display: "flex",
+                alignItems: "center",
+                padding: `0 ${rem(1.5)}px`,
+              }}
+            >
+              <span style={{ width: rem(1.25), flexShrink: 0 }} />
+              <span style={{ width: rem(1.5), flexShrink: 0, display: "flex", justifyContent: "center" }}>
+                <PriorityIcon p={row.priority} size={rem(0.875)} />
+              </span>
+              <span style={{ width: rem(4.5), flexShrink: 0, fontFamily: MONO_FONT, fontSize: rem(0.75), color: WEBC.muted, paddingLeft: 6 }}>
+                {row.id}
+              </span>
+              <span style={{ width: rem(1.5), flexShrink: 0, display: "flex", justifyContent: "center" }}>
+                <StatusIcon status={g.status} size={rem(0.875)} />
+              </span>
+              <span
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  marginLeft: rem(0.5),
+                  fontSize: rem(0.875),
+                  color: WEBC.fg,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {row.title}
+              </span>
+              {row.label ? (
+                <span
+                  style={{
+                    marginLeft: rem(1),
+                    height: rem(1.5),
+                    boxSizing: "border-box",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: rem(0.25),
+                    padding: `0 ${rem(0.5)}px`,
+                    borderRadius: 999,
+                    border: `1px solid ${WEBC.pillStroke}`,
+                    backgroundColor: WEBC.pillBg,
+                    fontSize: rem(0.75),
+                    fontWeight: 500,
+                    color: "rgba(250,250,250,0.7)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <span style={{ width: rem(0.375), height: rem(0.375), borderRadius: 999, backgroundColor: row.label.dot }} />
+                  {row.label.name}
+                </span>
+              ) : null}
+              <span style={{ width: GRID_RIGHT - rem(1.5), flexShrink: 0, display: "flex", alignItems: "center" }}>
+                <span style={{ width: rem(1.75), display: "flex", justifyContent: "center" }}>
+                  <Avatar initials={row.assignee} size={rem(1.25)} />
+                </span>
+                <span
+                  style={{
+                    width: rem(4.5),
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    alignItems: "center",
+                    gap: rem(0.25),
+                    fontSize: rem(0.75),
+                    color: WEBC.muted,
+                  }}
+                >
+                  {row.due ? (
+                    <>
+                      <CalendarDays size={rem(0.75)} strokeWidth={2} />
+                      {row.due}
+                    </>
+                  ) : null}
+                </span>
+                <span style={{ width: rem(2) }} />
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    ))}
+  </div>
 )
 
 export const WebBrowserMock: React.FC = () => (
@@ -477,12 +489,12 @@ export const WebBrowserMock: React.FC = () => (
       borderRadius: 12,
       overflow: "hidden",
       border: "1px solid rgba(255,255,255,0.13)",
-      backgroundColor: C.canvas,
+      backgroundColor: WEBC.ground,
       boxShadow: "0 30px 80px rgba(0,0,0,0.55), 0 6px 20px rgba(0,0,0,0.4)",
       fontFamily: UI_FONT,
     }}
   >
-    {/* browser chrome */}
+    {/* browser chrome (not product UI) */}
     <div
       style={{
         position: "relative",
@@ -495,15 +507,7 @@ export const WebBrowserMock: React.FC = () => (
     >
       <span style={{ display: "flex", gap: 6, paddingLeft: 12 }}>
         {["#f65f57", "#fbbc2e", "#28c840"].map((tone) => (
-          <span
-            key={tone}
-            style={{
-              width: 10,
-              height: 10,
-              borderRadius: 999,
-              backgroundColor: tone,
-            }}
-          />
+          <span key={tone} style={{ width: 10, height: 10, borderRadius: 999, backgroundColor: tone }} />
         ))}
       </span>
       <span
@@ -522,338 +526,53 @@ export const WebBrowserMock: React.FC = () => (
           gap: 5,
         }}
       >
-        <Glyph size={9} sw={2.2}>
+        <svg width={9} height={9} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
           <rect x="4" y="10" width="16" height="11" rx="2" />
           <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-        </Glyph>
+        </svg>
         app.exponential.at
       </span>
     </div>
 
-    {/* the web app */}
-    <div style={{ display: "flex", height: WEB.viewport }}>
-      {/* sidebar — bare on the ground since EXP-723 */}
+    {/* the web app at its real CSS metrics, scaled into the mock */}
+    <div style={{ position: "relative", height: WEB.viewport, overflow: "hidden" }}>
       <div
         style={{
-          width: WEB.sidebar,
-          flexShrink: 0,
-          padding: "9px 6px 5px",
-          boxSizing: "border-box",
+          position: "absolute",
+          left: 0,
+          top: 0,
+          width: CSS_W,
+          height: CSS_H,
+          scale: String(CSS_S),
+          transformOrigin: "0 0",
           display: "flex",
-          flexDirection: "column",
+          backgroundColor: WEBC.ground,
+          WebkitFontSmoothing: "antialiased",
         }}
       >
-        {/* team switcher + search + compose */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "0 6px",
-            marginBottom: 9,
-          }}
-        >
-          <span
-            style={{
-              width: 18,
-              height: 18,
-              flexShrink: 0,
-              borderRadius: 6,
-              backgroundColor: "#ededed",
-              color: "#18181b",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 10.5,
-              fontWeight: 700,
-            }}
-          >
-            A
-          </span>
-          <span
+        <WebSidebar />
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          {/* the work-tabs band: no tab open on a board page, just "+" */}
+          <div style={{ height: 44, flexShrink: 0, display: "flex", alignItems: "center", paddingLeft: 15, color: WEBC.muted }}>
+            <Plus size={14} strokeWidth={2} />
+          </div>
+          {/* the cutout panel */}
+          <div
             style={{
               flex: 1,
-              minWidth: 0,
-              fontSize: 12,
-              fontWeight: 600,
-              color: C.text,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            Acme
-          </span>
-          <span style={{ color: C.dim, display: "flex", flexShrink: 0 }}>
-            <Glyph size={9} sw={2.4}>
-              <path d="m7 15 5 5 5-5" />
-              <path d="m7 9 5-5 5 5" />
-            </Glyph>
-          </span>
-          <RoundButton>
-            <Glyph size={12}>
-              <circle cx="11" cy="11" r="8" />
-              <path d="m21 21-4.3-4.3" />
-            </Glyph>
-          </RoundButton>
-          <RoundButton solid>
-            <Glyph size={11} sw={2}>
-              <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-              <path d="M18.4 2.6a2 2 0 0 1 3 3L12 15l-4 1 1-4Z" />
-            </Glyph>
-          </RoundButton>
-        </div>
-        {WEB_NAV.map((row) => (
-          <WebNavRow
-            key={row.label}
-            icon={row.icon}
-            label={row.label}
-            dot={row.dot}
-            count={row.count}
-          />
-        ))}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            margin: "8px 9px 3px",
-            color: C.dim,
-          }}
-        >
-          <span style={{ flex: 1, fontSize: 10.5, fontWeight: 500 }}>
-            Boards
-          </span>
-          <Glyph size={10} sw={2.2}>
-            <path d="M5 12h14" />
-            <path d="M12 5v14" />
-          </Glyph>
-        </div>
-        {WEB_BOARDS.map((b, i) => (
-          <div
-            key={b.name}
-            style={{
+              minHeight: 0,
               display: "flex",
-              alignItems: "center",
-              gap: 9,
-              height: 23,
-              padding: "0 9px",
-              borderRadius: 7,
-              backgroundColor: i === 0 ? C.fillActive : "transparent",
+              flexDirection: "column",
+              margin: "0 10px 10px 10px",
+              borderRadius: 16,
+              border: `1px solid ${WEBC.panelStroke}`,
+              backgroundColor: WEBC.panel,
+              overflow: "hidden",
             }}
           >
-            <span style={{ color: b.color, display: "flex" }}>{b.glyph}</span>
-            <span
-              style={{
-                fontSize: 12,
-                color: i === 0 ? C.text : C.muted,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {b.name}
-            </span>
+            <WebBoard />
           </div>
-        ))}
-        <div style={{ flex: 1 }} />
-        <WebNavRow
-          icon={
-            <Glyph size={13} sw={1.7}>
-              <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
-              <path d="M20 3v4" />
-              <path d="M22 5h-4" />
-            </Glyph>
-          }
-          label="Getting started"
-        />
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            height: 25,
-            padding: "0 9px",
-            color: C.muted,
-          }}
-        >
-          <Avatar size={17} text={CL.initials} />
-          <span
-            style={{ flex: 1, fontSize: 12, fontWeight: 500, color: C.text }}
-          >
-            {CL.user.split(" ")[0]}
-          </span>
-          <Glyph size={11} sw={1.7}>
-            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-            <circle cx="12" cy="12" r="3" />
-          </Glyph>
         </div>
-      </div>
-
-      {/* main — the work-tabs band over the cutout panel (EXP-870/877) */}
-      <div
-        style={{
-          flex: 1,
-          minWidth: 0,
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-      <div
-        style={{
-          flex: "none",
-          height: 24,
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-          padding: "0 9px",
-        }}
-      >
-        <ClaudeMark size={9} />
-        <span
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            height: 17,
-            padding: "0 7px",
-            borderRadius: 6,
-            backgroundColor: C.fillActive,
-            fontSize: 9.5,
-            color: C.text,
-            whiteSpace: "nowrap",
-          }}
-        >
-          <span
-            style={{
-              width: 4,
-              height: 4,
-              borderRadius: 999,
-              backgroundColor: C.green,
-            }}
-          />
-          <span style={{ fontFamily: MONO_FONT, fontSize: 8.5, color: C.muted }}>
-            EXP-149
-          </span>
-          {CL_BOARD.find((r) => r.id === "EXP-149")?.title}
-        </span>
-        <Glyph size={9} sw={2}>
-          <path d="m15 18-6-6 6-6" />
-        </Glyph>
-      </div>
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          display: "flex",
-          flexDirection: "column",
-          margin: "0 5px 5px",
-          boxSizing: "border-box",
-          borderRadius: 8,
-          border: `1px solid ${C.strokeCard}`,
-          backgroundColor: C.fillPanel,
-          overflow: "hidden",
-        }}
-      >
-        {/* The board page's control row: a fixed band that only fills with
-            the bulk action bar once rows are selected (EXP-862 took the
-            Filter trigger with issue filtering). */}
-        <div style={{ flex: "none", height: 34 }} />
-        <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-          {LINEUP_SECTIONS.map((section) => (
-            <div key={section.name}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  height: 24,
-                  padding: "0 11px",
-                  backgroundColor: section.tint,
-                }}
-              >
-                <span style={{ color: C.dim, display: "flex" }}>
-                  <Glyph size={9} sw={2.4}>
-                    <path d="m6 9 6 6 6-6" />
-                  </Glyph>
-                </span>
-                <StatusGlyph status={section.status} size={11} />
-                <span
-                  style={{ fontSize: 11.5, fontWeight: 600, color: C.text }}
-                >
-                  {section.name}
-                </span>
-                <span style={{ fontSize: 10.5, color: C.muted }}>
-                  {section.count}
-                </span>
-              </div>
-              {section.rows.map((row) => (
-                <div
-                  key={row.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 7,
-                    height: 28,
-                    padding: "0 11px 0 20px",
-                    borderBottom: `1px solid ${C.strokeRow}`,
-                  }}
-                >
-                  <PriorityGlyph priority={row.priority} size={11} />
-                  <span
-                    style={{
-                      fontFamily: MONO_FONT,
-                      fontSize: 9.5,
-                      color: C.dim,
-                      width: 46,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {row.id}
-                  </span>
-                  <StatusGlyph status={section.status} size={11} />
-                  <span
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      fontSize: 11.5,
-                      color: C.text,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {row.title}
-                  </span>
-                  {row.label ? (
-                    <span
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 4,
-                        flexShrink: 0,
-                        fontSize: 10.5,
-                        color: C.muted,
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 5,
-                          height: 5,
-                          borderRadius: 999,
-                          backgroundColor: row.label.dot,
-                        }}
-                      />
-                      {row.label.name.charAt(0).toUpperCase() +
-                        row.label.name.slice(1)}
-                    </span>
-                  ) : null}
-                  {row.assignee ? <Avatar size={15} text={row.assignee} /> : null}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
       </div>
     </div>
   </div>

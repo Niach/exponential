@@ -17,13 +17,9 @@ import {
   type WebView,
   type WorkFace,
 } from "./state"
-import { sessionFor, type DemoAgent } from "./data"
 import { WebSidebar } from "./Sidebar"
 import { WebBoard } from "./Board"
 import { WebWorkTabs } from "./WorkTabs"
-import { WebAgentPage } from "./AgentPage"
-import { WebIssueDetail } from "./IssueDetail"
-import { WebInbox } from "./Inbox"
 
 const BASE_W = 1100
 const WEB_H = 680
@@ -71,7 +67,6 @@ export function WebDemo({
   const [openIssueId, setOpenIssueId] = useState<string | null>(init.openIssueId)
   const [face, setFace] = useState<WorkFace>(init.face)
   const [tabIds, setTabIds] = useState<string[]>([])
-  const [foldedAgents, setFoldedAgents] = useState<Set<DemoAgent>>(new Set())
   const [agentSeedId, setAgentSeedId] = useState<string | null>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [inboxRead, setInboxRead] = useState<Set<string>>(new Set())
@@ -89,19 +84,9 @@ export function WebDemo({
     openIssue: (id, nextFace = `issue`) => {
       setOpenIssueId(id)
       setFace(nextFace)
-      /* A live run already owns its (permanent) tab; anything else opens an
-         ordinary one at the end of the strip. */
-      if (!sessionFor(id)) {
-        setTabIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
-      }
-      /* Navigating to a chip in a folded group unfolds it. */
-      const agent = sessionFor(id)?.agent
-      if (agent) setFoldedAgents((prev) => {
-        if (!prev.has(agent)) return prev
-        const next = new Set(prev)
-        next.delete(agent)
-        return next
-      })
+      /* EXP-1293: every opened issue appends a closable chip to the flat
+         strip. */
+      setTabIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
     },
     closeIssue: () => setOpenIssueId(null),
     startCoding: (id) => {
@@ -115,15 +100,6 @@ export function WebDemo({
       setTabIds((prev) => prev.filter((t) => t !== id))
       if (openIssueId === id) setOpenIssueId(null)
     },
-    foldedAgents,
-    toggleAgentFold: (agent, folded) =>
-      setFoldedAgents((prev) => {
-        const next = new Set(prev)
-        const fold = folded ?? !prev.has(agent)
-        if (fold) next.add(agent)
-        else next.delete(agent)
-        return next
-      }),
     collapsedGroups,
     toggleGroup: (status) => setCollapsedGroups((prev) => toggledSet(prev, status)),
     inboxRead,
@@ -136,15 +112,10 @@ export function WebDemo({
       }),
   }
 
-  const main = openIssueId ? (
-    <WebIssueDetail issueId={openIssueId} />
-  ) : nav === `board` ? (
-    <WebBoard />
-  ) : nav === `agent` ? (
-    <WebAgentPage key={agentSeedId ?? `chat`} />
-  ) : (
-    <WebInbox />
-  )
+  /* Only the board is recreated: the frontpage mounts the demo static on
+     the board (CollabSection); the issue, inbox and Agent recreations were
+     unreachable and fell behind the product (N-12), so they are gone. */
+  const main = <WebBoard />
 
   const { ref, scale } = useDemoScale(BASE_W)
 

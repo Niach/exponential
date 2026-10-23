@@ -35,6 +35,16 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Session cards**: the old caption line under a session's name is gone.`,
   },
   {
+    id: `2026-10-23-threads-follow-ups`,
+    date: `2026-10-23`,
+    title: `Threads: the Conversation tab on every thread, filed issues stay where they are, and pickup after an update`,
+    summary: `Every thread's strip shows Conversation again, which on a one-session thread is that session's own work; an issue a session files keeps its status until a session takes it up; a session whose device updated itself under it picks up its waiting message; and the pull request tools find an issue's own pull request.`,
+    body: `- **Conversation tab**: every thread's strip starts with Conversation. On a thread with one session it is that session's work with its composer; the first child session turns it into the thread's conversation as before. On web, the IDE and Android; on iPhone in the TestFlight build.
+- **Filed issues**: an issue a session files is linked to its thread but keeps its status. It moves to In Progress only when a session takes it up: a start, a forward, a link or your message into the session that holds it.
+- **Pickup after an update**: a thread whose desktop app or daemon updated itself mid-turn picks up its waiting message instead of sitting idle with it.
+- **Pull request tools**: an issue's pull request resolves to the one opened by the session that holds the issue, so the MCP pr tools no longer refuse a choice they can make.`,
+  },
+  {
     id: `2026-10-23-release-train`,
     date: `2026-10-23`,
     title: `Release 2026-10-23: the Dock, Apps and the inline pickers on every platform, with the train's fixes`,

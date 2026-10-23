@@ -1,6 +1,6 @@
-/* ─── Board — control row + grouped issue list ───
-   Mirrors apps/web boards/$boardSlug/index.tsx (the empty h-14 control row)
-   and issue-list.tsx (the md grid
+/* ─── Board — the grouped issue list ───
+   Mirrors apps/web boards/$boardSlug/index.tsx (no control row: the list
+   starts at the card's top edge) and issue-list.tsx (the md grid
    [checkbox | priority | id | status | title | labels | assignee | due],
    sticky status-washed group headers). */
 import {
@@ -102,20 +102,12 @@ export function WebGroupedList({ issues }: { issues: Issue[] }) {
   )
 }
 
-/* The board page's control row (boards/$boardSlug/index.tsx): a fixed h-14
-   band that only fills when rows are selected (the bulk action bar). Issue
-   filtering is gone (EXP-862), and with it the Filter trigger. */
-export function WebFilterBar() {
-  return <div className="web-filterbar" />
-}
-
 export function WebBoard() {
   const { injectedIssue } = useWeb()
   /* The injected row leads the list, so it lands FIRST in its status group. */
   const source = injectedIssue ? [injectedIssue, ...ISSUES] : ISSUES
   return (
     <div className="web-page">
-      <WebFilterBar />
       <WebGroupedList issues={source} />
     </div>
   )

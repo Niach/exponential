@@ -13,6 +13,7 @@ import React from "react"
 import { interpolate, spring } from "remotion"
 import { C, MONO_FONT, POP, UI_FONT } from "../../ships/theme"
 import { ExpLogo } from "../../ships/rig"
+import { ClaudeMark } from "./agentmarks"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 
@@ -38,14 +39,16 @@ export const Glyph: React.FC<{
 )
 
 // ── Status + priority glyphs (contract vocabulary, theme tokens) ─────────────
-export type MobileStatus = "backlog" | "in_progress" | "done"
+export type MobileStatus = "backlog" | "in_progress" | "in_review" | "done"
 
 export const statusColor = (s: MobileStatus): string =>
   s === "backlog"
     ? C.statusBacklog
     : s === "in_progress"
       ? C.statusInProgress
-      : C.statusDone
+      : s === "in_review"
+        ? C.statusInReview
+        : C.statusDone
 
 export const MStatusIcon: React.FC<{ status: MobileStatus; size: number }> = ({
   status,
@@ -61,6 +64,16 @@ export const MStatusIcon: React.FC<{ status: MobileStatus; size: number }> = ({
         <circle cx="12" cy="12" r="10" />
         <path
           d="M12 12 L12 6 A6 6 0 0 1 12 18 Z"
+          fill="currentColor"
+          stroke="none"
+        />
+      </Glyph>
+    ) : status === "in_review" ? (
+      // In Review: progress-3-4 — three quarters filled.
+      <Glyph size={size} sw={2}>
+        <circle cx="12" cy="12" r="10" />
+        <path
+          d="M12 12 L12 6 A6 6 0 1 1 6 12 Z"
           fill="currentColor"
           stroke="none"
         />
@@ -121,38 +134,125 @@ export const MPriorityIcon: React.FC<{
   </span>
 )
 
-// ── The floating glass tab bar (icon-only) + detached compose circle ─────────
-// Real MobileTabBar (EXP-686/699 order): Issues (list) · My Work (inbox) ·
-// Devices (monitor) · Actions (bot) · Reviews (git-pull-request). Search is NOT a tab (EXP-686 moved it into the
-// board nav bar). No text labels; active = white glyph on a white-12% circle;
-// the square-pen compose circle floats detached right.
-const TAB_ICONS: { id: string; node: React.ReactNode }[] = [
+// ── iOS glass tokens (apps/ios/ExpUI DesignTokens.generated.swift) ──────────
+// The phone speaks its OWN token values, not the desktop ladder in ships/theme:
+// white 0.0588 row/card fills, 0.0392 section bands, the 0.5pt hairline and the
+// OPAQUE card composite (`GlassTokens.opaqueCardFill` = fillCard over #171717)
+// every floating bar wears.
+export const IOS = {
+  fillSection: "rgba(255,255,255,0.0392)",
+  fillRow: "rgba(255,255,255,0.0588)",
+  fillCard: "rgba(255,255,255,0.0588)",
+  fillActive: "rgba(255,255,255,0.1098)",
+  strokeRow: "rgba(255,255,255,0.0588)",
+  strokeSection: "rgba(255,255,255,0.0784)",
+  strokeCard: "rgba(255,255,255,0.1020)",
+  strokeStrong: "rgba(255,255,255,0.1216)",
+  strokeActive: "rgba(255,255,255,0.14)",
+  opaqueCard: "#252525", // fillCard (5.88% white) over Palette.card #171717
+  card: "#171717",
+  backgroundBottom: "#111114",
+  // TextOpacity ladder (Typography.Emphasis)
+  secondary: "rgba(255,255,255,0.7)",
+  tertiary: "rgba(255,255,255,0.5)",
+  quaternary: "rgba(255,255,255,0.3)",
+  band: "rgba(255,255,255,0.85)", // GlassSectionBand label rung
+  primary: "#e5e5e5", // Palette.primary
+  primaryFg: "#171717",
+  muted: "#a1a1a1", // Palette.mutedForeground
+  green: "#22c55e", // Semantic.green
+  yellow: "#facc15", // Semantic.yellow
+  blue: "#3b82f6", // Semantic.blue
+  red: "#ef4444", // Semantic.red
+  destructive: "#ff6467",
+} as const
+
+// iOS points → phone px: the chassis screen is 312 px for the 414 pt device.
+export const PT_SCALE = 312 / 414
+export const pt = (v: number): number => Math.round(v * PT_SCALE * 100) / 100
+// The hairline (0.5 pt) never drops below one device pixel in the film.
+export const HAIRLINE = 0.75
+
+// UserAvatar's fallback chip: the hue picked off the member key (Avatar.hues),
+// the initials in it at 0.42 of the diameter over the hue at 20 %.
+const AVATAR_HUES = [
+  "#f87171",
+  "#fb923c",
+  "#facc15",
+  "#4ade80",
+  "#2dd4bf",
+  "#60a5fa",
+  "#a78bfa",
+  "#f472b6",
+] as const
+export const avatarHue = (key: string): string => {
+  let h = 0
+  for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  return AVATAR_HUES[h % AVATAR_HUES.length]
+}
+export const MAvatar: React.FC<{ initials: string; size: number }> = ({
+  initials,
+  size,
+}) => {
+  const hue = avatarHue(initials)
+  return (
+    <span
+      style={{
+        width: size,
+        height: size,
+        flexShrink: 0,
+        borderRadius: 999,
+        backgroundColor: `${hue}33`,
+        color: hue,
+        fontSize: size * 0.42,
+        fontWeight: 500,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {initials}
+    </span>
+  )
+}
+
+// ── The floating tab bar (MobileTabBar.swift) ────────────────────────────────
+// NEW-7/EXP-1291: four tabs in ONE pill — Issues (`list`) · Inbox (`inbox`,
+// the primary unread dot) · Devices (`monitor`) · Threads (`list-tree`, green
+// while a thread runs, amber while one needs you) — 44pt slots, 2pt apart,
+// 3pt pill padding, opaqueCardFill under the strokeStrong hairline; the active
+// tab wears the fillActive CIRCLE. Right: the SPLIT launcher capsule (EXP-973/
+// 827) — chat (`message-circle`) | New issue (`square-pen`), two 52pt arms
+// split by a 28pt hairline. Bar inset 12pt, 4pt off the bottom safe area.
+// Legacy dot ids the segments still pass ("actions", "reviews") have no tab
+// any more and are dropped.
+const TAB_ICONS: { id: string; node: (s: number) => React.ReactNode }[] = [
   {
     id: "issues",
-    node: (
-      <Glyph size={15}>
-        <path d="M8 6h13" />
-        <path d="M8 12h13" />
-        <path d="M8 18h13" />
-        <path d="M3 6h.01" />
+    node: (s) => (
+      <Glyph size={s} sw={2}>
         <path d="M3 12h.01" />
         <path d="M3 18h.01" />
+        <path d="M3 6h.01" />
+        <path d="M8 12h13" />
+        <path d="M8 18h13" />
+        <path d="M8 6h13" />
       </Glyph>
     ),
   },
   {
     id: "mywork",
-    node: (
-      <Glyph size={15}>
-        <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+    node: (s) => (
+      <Glyph size={s} sw={2}>
+        <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
         <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
       </Glyph>
     ),
   },
   {
     id: "devices",
-    node: (
-      <Glyph size={15}>
+    node: (s) => (
+      <Glyph size={s} sw={2}>
         <rect x="2" y="3" width="20" height="14" rx="2" />
         <path d="M8 21h8" />
         <path d="M12 17v4" />
@@ -160,26 +260,14 @@ const TAB_ICONS: { id: string; node: React.ReactNode }[] = [
     ),
   },
   {
-    id: "actions",
-    node: (
-      <Glyph size={15}>
-        <path d="M12 8V4H8" />
-        <rect x="4" y="8" width="16" height="12" rx="2" />
-        <path d="M2 14h2" />
-        <path d="M20 14h2" />
-        <path d="M15 13v2" />
-        <path d="M9 13v2" />
-      </Glyph>
-    ),
-  },
-  {
-    id: "reviews",
-    node: (
-      <Glyph size={15}>
-        <circle cx="6" cy="6" r="3" />
-        <circle cx="18" cy="18" r="3" />
-        <path d="M13 6h3a2 2 0 0 1 2 2v7" />
-        <path d="M6 9v12" />
+    id: "threads",
+    node: (s) => (
+      <Glyph size={s} sw={2}>
+        <path d="M21 12h-8" />
+        <path d="M21 6H8" />
+        <path d="M21 18h-8" />
+        <path d="M3 6v4c0 1.1.9 2 2 2h3" />
+        <path d="M3 10v6c0 1.1.9 2 2 2h3" />
       </Glyph>
     ),
   },
@@ -187,83 +275,122 @@ const TAB_ICONS: { id: string; node: React.ReactNode }[] = [
 
 export const MobileTabBar: React.FC<{
   active?: string
-  dots?: readonly string[] // tab ids carrying an unread/running dot
-}> = ({ active = "issues", dots = [] }) => (
-  <>
+  dots?: readonly string[] // tab ids carrying a dot
+  /** Threads dot tone: green = a thread runs, amber = one needs you. */
+  threadsDot?: "green" | "amber"
+}> = ({ active = "issues", dots = [], threadsDot = "green" }) => {
+  const slot = pt(44)
+  const glyph = pt(20)
+  const dotColor = (id: string) =>
+    id === "threads"
+      ? threadsDot === "amber"
+        ? IOS.yellow
+        : IOS.green
+      : IOS.primary
+  return (
     <div
       style={{
         position: "absolute",
-        left: 12,
-        bottom: 14,
-        height: 46,
-        padding: "0 5px",
-        borderRadius: 999,
-        backgroundColor: "rgba(23,23,23,0.94)",
-        border: `1px solid ${C.strokeCard}`,
-        boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
+        left: pt(12),
+        right: pt(12),
+        bottom: pt(4) + pt(34),
         display: "flex",
         alignItems: "center",
-        gap: 1,
+        justifyContent: "space-between",
       }}
     >
-      {TAB_ICONS.map(({ id, node }) => (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: pt(2),
+          padding: pt(3),
+          borderRadius: 999,
+          backgroundColor: IOS.opaqueCard,
+          boxShadow: `inset 0 0 0 ${HAIRLINE}px ${IOS.strokeStrong}`,
+        }}
+      >
+        {TAB_ICONS.map(({ id, node }) => (
+          <span
+            key={id}
+            style={{
+              position: "relative",
+              width: slot,
+              height: slot,
+              borderRadius: 999,
+              backgroundColor: id === active ? IOS.fillActive : "transparent",
+              color: id === active ? "#ffffff" : IOS.secondary,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {node(glyph)}
+            {dots.includes(id) ? (
+              <span
+                style={{
+                  position: "absolute",
+                  top: pt(8) - pt(4),
+                  right: pt(8) - pt(4),
+                  width: pt(8),
+                  height: pt(8),
+                  borderRadius: 999,
+                  backgroundColor: dotColor(id),
+                }}
+              />
+            ) : null}
+          </span>
+        ))}
+      </div>
+      {/* the split launcher: chat | New issue */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          borderRadius: 999,
+          backgroundColor: IOS.opaqueCard,
+          boxShadow: `inset 0 0 0 ${HAIRLINE}px ${IOS.strokeStrong}`,
+          color: "#ffffff",
+        }}
+      >
         <span
-          key={id}
           style={{
-            position: "relative",
-            width: 34,
-            height: 34,
-            borderRadius: 999,
-            backgroundColor: id === active ? C.fillActive : "transparent",
-            color: id === active ? C.text : C.muted,
+            width: pt(52),
+            height: pt(52),
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          {node}
-          {dots.includes(id) ? (
-            <span
-              style={{
-                position: "absolute",
-                top: 5,
-                right: 6,
-                width: 6,
-                height: 6,
-                borderRadius: 999,
-                backgroundColor:
-                  id === "devices" || id === "reviews" ? C.green : C.primary,
-              }}
-            />
-          ) : null}
+          <Glyph size={glyph} sw={2.2}>
+            <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+          </Glyph>
         </span>
-      ))}
+        <span
+          style={{
+            width: HAIRLINE,
+            height: pt(28),
+            backgroundColor: IOS.strokeStrong,
+          }}
+        />
+        <span
+          style={{
+            width: pt(52),
+            height: pt(52),
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Glyph size={glyph} sw={2.2}>
+            <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" />
+          </Glyph>
+        </span>
+      </div>
     </div>
-    {/* detached compose circle (square-pen) */}
-    <span
-      style={{
-        position: "absolute",
-        right: 12,
-        bottom: 14,
-        width: 46,
-        height: 46,
-        borderRadius: 999,
-        backgroundColor: C.fillActive,
-        border: `1px solid ${C.strokeCard}`,
-        color: C.text,
-        boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <Glyph size={16} sw={1.9}>
-        <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-        <path d="M18.375 2.625a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4Z" />
-      </Glyph>
-    </span>
-  </>
-)
+  )
+}
 
 // ── Push banner (real notification copy rides in via props) ──────────────────
 export const MobilePushBanner: React.FC<{
@@ -356,13 +483,19 @@ export type PhoneBoardRow = {
 const SECTION_ORDER: { status: MobileStatus; name: string }[] = [
   { status: "backlog", name: "Backlog" },
   { status: "in_progress", name: "In Progress" },
+  { status: "in_review", name: "In Review" },
   { status: "done", name: "Done" },
 ]
 
-const LIST_TOP = 84
-const HEADER_H = 26
-const ROW_H = 40
-const ROW_GAP = 4
+// IssueListView metrics (pt): the first status band 115pt down (under the
+// 44pt nav bar), bands 28pt tall + 4pt under them, rows ~39.5pt on a 42.5pt
+// pitch (listRowInsets 1.5 top/bottom), 6pt above every following band.
+const LIST_TOP = pt(115)
+const HEADER_H = pt(28)
+const HEADER_GAP = pt(5.5)
+const ROW_H = pt(39.5)
+const ROW_GAP = pt(3)
+const GROUP_GAP = pt(4.5)
 
 type LaidOut = { key: string; y: number }
 
@@ -379,12 +512,12 @@ const layout = (
     if (inSection.length === 0) continue
     counts[section.status] = inSection.length
     els.push({ key: `h:${section.status}`, y })
-    y += HEADER_H
+    y += HEADER_H + HEADER_GAP
     for (const row of inSection) {
       els.push({ key: row.id, y })
       y += ROW_H + ROW_GAP
     }
-    y += 4
+    y += GROUP_GAP
   }
   return { els, counts }
 }
@@ -436,75 +569,88 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
   }
 
   const rowById = new Map(rows.map((row) => [row.id, row]))
+  const NAV_Y = pt(79) // the nav bar's centre line (status bar + 44pt bar)
 
   return (
     <div style={{ position: "absolute", inset: 0, fontFamily: UI_FONT }}>
-      {/* nav bar (shots/board/ios.webp + IssuesHomeView `switcherControl`):
-          the board switcher is a LEADING Md glass pill — board glyph tinted
-          with the board color, the name, then the chevrons-up-down expander —
+      {/* nav bar (IssuesHomeView + shots/board/ios.webp): the board
+          switcher is the PRINCIPAL item — a CENTERED md GlassPill: the board
+          glyph in the board colour, the name, the chevrons-up-down expander —
           and search · settings share ONE trailing glass capsule (EXP-686
-          moved Search out of the tab bar into this row; EXP-862 removed
-          issue filtering and its funnel). */}
+          moved Search out of the tab bar; EXP-862 removed filtering). */}
       <div
         style={{
           position: "absolute",
-          top: 42,
-          left: 12,
-          height: 34,
-          boxSizing: "border-box",
+          top: NAV_Y - pt(16),
+          left: 0,
+          right: 0,
           display: "flex",
-          alignItems: "center",
-          gap: 7,
-          padding: "0 12px",
-          borderRadius: 999,
-          backgroundColor: C.fillCard,
-          border: `1px solid rgba(255,255,255,0.06)`,
+          justifyContent: "center",
         }}
       >
-        <span style={{ color: "#818cf8", display: "flex" }}>
-          <Glyph size={15} sw={2}>
-            <path d="m16 18 6-6-6-6" />
-            <path d="m8 6-6 6 6 6" />
-          </Glyph>
-        </span>
-        <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>
-          {boardName}
-        </span>
-        <span style={{ color: C.muted, display: "flex" }}>
-          <Glyph size={12} sw={2.2}>
-            <path d="m7 15 5 5 5-5" />
-            <path d="m7 9 5-5 5 5" />
-          </Glyph>
-        </span>
+        <div
+          style={{
+            height: pt(32),
+            boxSizing: "border-box",
+            display: "flex",
+            alignItems: "center",
+            gap: pt(6),
+            padding: `0 ${pt(12)}px`,
+            borderRadius: 999,
+            backgroundColor: IOS.fillCard,
+            boxShadow: `inset 0 0 0 ${HAIRLINE}px ${IOS.strokeCard}`,
+          }}
+        >
+          <span style={{ color: "#818cf8", display: "flex" }}>
+            <Glyph size={pt(16)} sw={2}>
+              <path d="m16 18 6-6-6-6" />
+              <path d="m8 6-6 6 6 6" />
+            </Glyph>
+          </span>
+          <span style={{ fontSize: pt(15), fontWeight: 500, color: "#ffffff" }}>
+            {boardName}
+          </span>
+          <span style={{ color: IOS.secondary, display: "flex" }}>
+            <Glyph size={pt(16)} sw={2}>
+              <path d="m7 15 5 5 5-5" />
+              <path d="m7 9 5-5 5 5" />
+            </Glyph>
+          </span>
+        </div>
       </div>
       <div
         style={{
           position: "absolute",
-          top: 42,
-          right: 12,
-          height: 34,
+          top: NAV_Y - pt(22),
+          right: pt(16),
+          height: pt(44),
           boxSizing: "border-box",
           display: "flex",
           alignItems: "center",
-          gap: 13,
-          padding: "0 13px",
+          gap: pt(12),
+          padding: `0 ${pt(14)}px`,
           borderRadius: 999,
-          backgroundColor: C.fillCard,
-          border: `1px solid rgba(255,255,255,0.06)`,
-          color: C.muted,
+          backgroundColor: IOS.opaqueCard,
+          boxShadow: `inset 0 0 0 ${HAIRLINE}px ${IOS.strokeStrong}`,
+          color: IOS.secondary,
         }}
       >
-        <Glyph size={15} sw={2}>
-          <circle cx="11" cy="11" r="8" />
-          <path d="m21 21-4.3-4.3" />
-        </Glyph>
-        <Glyph size={15} sw={1.7}>
-          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-          <circle cx="12" cy="12" r="3" />
-        </Glyph>
+        <span style={{ width: pt(32), display: "flex", justifyContent: "center" }}>
+          <Glyph size={pt(17)} sw={2}>
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.3-4.3" />
+          </Glyph>
+        </span>
+        <span style={{ width: pt(32), display: "flex", justifyContent: "center" }}>
+          <Glyph size={pt(17)} sw={2}>
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+            <circle cx="12" cy="12" r="3" />
+          </Glyph>
+        </span>
       </div>
 
-      {/* grouped list */}
+      {/* grouped list: GlassSectionBand per status (the ONE band that keeps
+          a count) over glass rows */}
       {SECTION_ORDER.map((section) => {
         const pos = posOf(`h:${section.status}`)
         if (pos.o <= 0.01) return null
@@ -514,32 +660,45 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
             key={section.status}
             style={{
               position: "absolute",
-              left: 16,
-              right: 16,
+              left: pt(16),
+              right: pt(16),
               top: pos.y,
               height: HEADER_H,
+              boxSizing: "border-box",
               display: "flex",
               alignItems: "center",
-              gap: 7,
+              gap: pt(6),
+              padding: `0 ${pt(12)}px`,
+              borderRadius: pt(10),
+              backgroundColor: IOS.fillSection,
               opacity: pos.o,
             }}
           >
-            <span style={{ color: C.dim, display: "flex" }}>
-              <Glyph size={10} sw={2.4}>
+            <span
+              style={{
+                width: pt(12),
+                color: IOS.tertiary,
+                display: "flex",
+                justifyContent: "center",
+              }}
+            >
+              <Glyph size={pt(11)} sw={2.2}>
                 <path d="m6 9 6 6 6-6" />
               </Glyph>
             </span>
-            <MStatusIcon status={section.status} size={13} />
+            <MStatusIcon status={section.status} size={pt(13)} />
             <span
               style={{
-                fontSize: 13,
-                fontWeight: 600,
-                color: "rgba(255,255,255,0.85)",
+                fontSize: pt(15),
+                fontWeight: 500,
+                color: IOS.band,
               }}
             >
               {section.name}
             </span>
-            <span style={{ fontSize: 11.5, color: C.dim }}>{count}</span>
+            <span style={{ fontSize: pt(12), color: IOS.tertiary }}>
+              {count}
+            </span>
           </div>
         )
       })}
@@ -553,37 +712,43 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
             key={row.id}
             style={{
               position: "absolute",
-              left: 12,
-              right: 34,
+              left: pt(16),
+              right: pt(16),
               top: pos.y,
               height: ROW_H,
               boxSizing: "border-box",
               display: "flex",
               alignItems: "center",
-              gap: 7,
-              padding: "0 10px",
-              borderRadius: 10,
-              backgroundColor: C.fillCard,
-              border: `1px solid rgba(255,255,255,0.06)`,
+              gap: pt(10),
+              padding: `0 ${pt(12)}px`,
+              borderRadius: pt(10),
+              backgroundColor: IOS.fillRow,
+              boxShadow: `inset 0 0 0 ${HAIRLINE}px ${IOS.strokeRow}`,
               opacity: pos.o,
             }}
           >
-            <MPriorityIcon priority={data.priority} size={12} />
+            <span style={{ width: pt(16), display: "flex", justifyContent: "center" }}>
+              <MPriorityIcon priority={data.priority} size={pt(13)} />
+            </span>
             <span
               style={{
+                width: pt(52),
                 fontFamily: MONO_FONT,
-                fontSize: 10,
-                color: C.dim,
+                fontSize: pt(12),
+                color: IOS.tertiary,
                 flexShrink: 0,
+                whiteSpace: "nowrap",
               }}
             >
               {data.id}
             </span>
-            <MStatusIcon status={status} size={12} />
+            <span style={{ width: pt(16), display: "flex", justifyContent: "center" }}>
+              <MStatusIcon status={status} size={pt(16)} />
+            </span>
             <span
               style={{
-                fontSize: 12.5,
-                color: C.text,
+                fontSize: pt(15),
+                color: "#ffffff",
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -593,69 +758,60 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
             >
               {data.title}
             </span>
-            {data.labelDot ? (
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 999,
-                  backgroundColor: data.labelDot,
-                  flexShrink: 0,
-                }}
-              />
-            ) : null}
-            {data.due ? (
-              <span
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 3,
-                  flexShrink: 0,
-                  fontSize: 10.5,
-                  color: C.muted,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                <Glyph size={11} sw={1.7}>
-                  <path d="M8 2v4" />
-                  <path d="M16 2v4" />
-                  <rect x="3" y="4" width="18" height="18" rx="2" />
-                  <path d="M3 10h18" />
-                </Glyph>
-                {data.due}
-              </span>
-            ) : null}
-            {data.assignee ? (
-              <span
-                style={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: 999,
-                  backgroundColor: C.fillActive,
-                  color: C.text,
-                  fontSize: 9.5,
-                  fontWeight: 600,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                }}
-              >
-                {data.assignee.slice(0, 1)}
-              </span>
-            ) : null}
-            {/* the disclosure chevron rides the GUTTER, outside the row card */}
+            {/* trailing meta: labels · due · assignee · the chevron INSIDE
+                the card (EXP-698 r7) — one fixed-size group */}
             <span
               style={{
-                position: "absolute",
-                right: -22,
-                color: C.dim,
                 display: "flex",
+                alignItems: "center",
+                gap: pt(10),
+                flexShrink: 0,
               }}
             >
-              <Glyph size={13} sw={2.2}>
-                <path d="m9 18 6-6-6-6" />
-              </Glyph>
+              {data.labelDot ? (
+                <span
+                  style={{
+                    width: pt(8),
+                    height: pt(8),
+                    borderRadius: 999,
+                    backgroundColor: data.labelDot,
+                  }}
+                />
+              ) : null}
+              {data.due ? (
+                <span
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: pt(3),
+                    fontSize: pt(12),
+                    color: IOS.secondary,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <Glyph size={pt(11)} sw={2}>
+                    <path d="M8 2v4" />
+                    <path d="M16 2v4" />
+                    <rect x="3" y="4" width="18" height="18" rx="2" />
+                    <path d="M3 10h18" />
+                    <path d="M8 14h.01" />
+                    <path d="M12 14h.01" />
+                    <path d="M16 14h.01" />
+                    <path d="M8 18h.01" />
+                    <path d="M12 18h.01" />
+                    <path d="M16 18h.01" />
+                  </Glyph>
+                  {data.due}
+                </span>
+              ) : null}
+              {data.assignee ? (
+                <MAvatar initials={data.assignee} size={pt(22)} />
+              ) : null}
+              <span style={{ color: IOS.tertiary, display: "flex" }}>
+                <Glyph size={pt(16)} sw={2}>
+                  <path d="m9 18 6-6-6-6" />
+                </Glyph>
+              </span>
             </span>
           </div>
         )
@@ -694,14 +850,101 @@ export type IssueScreenProps = {
   labelChip?: { name: string; dot: string }
   description: string
   /** Coding/PR status rows (hairline rows, not a box); ready → merged at mergedAt. */
-  pr?: { number: number; device: string; user: string; mergedAt?: number }
+  pr?: {
+    number: number
+    device: string
+    user: string
+    mergedAt?: number
+    title?: string
+  }
   /** Activity timeline rows on the gutter rail (e.g. "… created the issue · 1 hr ago"). */
   activity?: readonly ActivityRow[]
   /** Press flash on the play circle (the icon-only start button). */
   playPressAt?: number
-  /** Replaces the play glyph with a pulsing green dot (session live). */
-  sessionLive?: boolean
+  /** The board chip (last in the chip box). */
+  boardName?: string
 }
+
+// ── Shared iOS chrome atoms ─────────────────────────────────────────────────
+/** A nav-bar glass circle (back / `…`): 41pt, opaque card fill, hairline. */
+export const NavCircle: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => (
+  <span
+    style={{
+      width: pt(41),
+      height: pt(41),
+      flexShrink: 0,
+      borderRadius: 999,
+      backgroundColor: IOS.opaqueCard,
+      boxShadow: `inset 0 0 0 ${HAIRLINE}px ${IOS.strokeStrong}`,
+      color: "#ffffff",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+    }}
+  >
+    {children}
+  </span>
+)
+export const BackGlyph: React.FC = () => (
+  <Glyph size={pt(20)} sw={2.4}>
+    <path d="m15 18-6-6 6-6" />
+  </Glyph>
+)
+export const MoreGlyph: React.FC = () => (
+  <Glyph size={pt(18)} sw={2.6}>
+    <circle cx="5" cy="12" r="0.8" fill="currentColor" />
+    <circle cx="12" cy="12" r="0.8" fill="currentColor" />
+    <circle cx="19" cy="12" r="0.8" fill="currentColor" />
+  </Glyph>
+)
+/** FloatingBottomBar's 52pt glass circle. */
+export const BarCircle: React.FC<{
+  children: React.ReactNode
+  style?: React.CSSProperties
+}> = ({ children, style }) => (
+  <span
+    style={{
+      width: pt(52),
+      height: pt(52),
+      flexShrink: 0,
+      borderRadius: 999,
+      backgroundColor: IOS.opaqueCard,
+      boxShadow: `inset 0 0 0 ${HAIRLINE}px ${IOS.strokeStrong}`,
+      color: "#ffffff",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      ...style,
+    }}
+  >
+    {children}
+  </span>
+)
+/** The thread chip's lead (IssueThreadsStrip): Claude's mark, amber-dotted
+ *  when the thread needs you. */
+export const ThreadMark: React.FC<{ size: number; dot?: boolean }> = ({
+  size,
+  dot,
+}) => (
+  <span style={{ position: "relative", display: "flex" }}>
+    <ClaudeMark size={size} />
+    {dot ? (
+      <span
+        style={{
+          position: "absolute",
+          top: -size * 0.12,
+          right: -size * 0.12,
+          width: size * 0.42,
+          height: size * 0.42,
+          borderRadius: 999,
+          backgroundColor: IOS.yellow,
+        }}
+      />
+    ) : null}
+  </span>
+)
 
 export const IssueScreen: React.FC<IssueScreenProps> = ({
   frame,
@@ -718,7 +961,7 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
   pr,
   activity,
   playPressAt,
-  sessionLive,
+  boardName = "Acme Shop",
 }) => {
   const pressT =
     playPressAt === undefined
@@ -730,163 +973,160 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
           CLAMP
         )
   const merged = pr?.mergedAt !== undefined && frame >= pr.mergedAt
-  const shownStatus: MobileStatus = merged ? "done" : status
-  const shownStatusLabel = merged ? "Done" : statusLabel
+  // issue-lifecycle.json (NEW-1): `pr_opened` moves a linked issue from
+  // Backlog/In Progress to In Review and `pr_merged` to Done — so with a PR
+  // row on the page the chip can only read In Review (open) or Done.
+  const shownStatus: MobileStatus = merged
+    ? "done"
+    : pr && (status === "backlog" || status === "in_progress")
+      ? "in_review"
+      : status
+  const shownStatusLabel = merged
+    ? "Done"
+    : shownStatus === "in_review" && status !== "in_review"
+      ? "In Review"
+      : statusLabel
+  // EXP-1295: once a session holds the issue, the page names its THREAD.
+  const threadTitle = pr ? `#${identifier} ${title}` : undefined
 
+  // GlassPill .sm in the chip box: 22pt tall (as drawn), caption-medium.
   const chip = (children: React.ReactNode, key?: string) => (
     <span
       key={key}
       style={{
-        height: 26,
+        height: pt(22),
         boxSizing: "border-box",
         display: "inline-flex",
         alignItems: "center",
-        gap: 6,
-        padding: "0 10px",
+        gap: pt(4),
+        padding: `0 ${pt(8)}px`,
         borderRadius: 999,
-        backgroundColor: C.fillCard,
-        border: `1px solid rgba(255,255,255,0.08)`,
-        fontSize: 11.5,
+        backgroundColor: IOS.fillCard,
+        boxShadow: `inset 0 0 0 ${HAIRLINE}px ${IOS.strokeCard}`,
+        fontSize: pt(12),
         fontWeight: 500,
-        color: C.text,
+        color: "rgba(255,255,255,0.85)",
+        whiteSpace: "nowrap",
       }}
     >
       {children}
     </span>
   )
 
+  const NAV_Y = pt(79)
+
   return (
     <div style={{ position: "absolute", inset: 0, fontFamily: UI_FONT }}>
-      {/* nav bar: circular glass back button · the IDENTIFIER · circular … menu
-          (EXP-568 made the identifier the title and dropped the old chip) */}
+      {/* nav bar (IssueScreen.swift): back circle · the IDENTIFIER · the
+          `…` circle (Share, Move to board, Delete) */}
       <div
         style={{
           position: "absolute",
-          top: 40,
-          left: 12,
-          right: 12,
-          height: 34,
+          top: NAV_Y - pt(20.5),
+          left: pt(19),
+          right: pt(19),
+          height: pt(41),
           display: "flex",
           alignItems: "center",
-          color: C.muted,
         }}
       >
-        <span
-          style={{
-            width: 34,
-            height: 34,
-            borderRadius: 999,
-            backgroundColor: C.fillCard,
-            border: `1px solid rgba(255,255,255,0.06)`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Glyph size={15} sw={2.2}>
-            <path d="m15 18-6-6 6-6" />
-          </Glyph>
-        </span>
+        <NavCircle>
+          <BackGlyph />
+        </NavCircle>
         <span
           style={{
             position: "absolute",
             left: 0,
             right: 0,
             textAlign: "center",
-            fontSize: 15,
+            fontSize: pt(17),
             fontWeight: 600,
-            color: C.text,
+            color: "#ffffff",
           }}
         >
           {identifier}
         </span>
-        <span
-          style={{
-            marginLeft: "auto",
-            width: 34,
-            height: 34,
-            borderRadius: 999,
-            backgroundColor: C.fillCard,
-            border: `1px solid rgba(255,255,255,0.06)`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Glyph size={15} sw={2}>
-            <circle cx="5" cy="12" r="0.9" fill="currentColor" />
-            <circle cx="12" cy="12" r="0.9" fill="currentColor" />
-            <circle cx="19" cy="12" r="0.9" fill="currentColor" />
-          </Glyph>
+        <span style={{ marginLeft: "auto" }}>
+          <NavCircle>
+            <MoreGlyph />
+          </NavCircle>
         </span>
       </div>
 
-      {/* scrolling column: origin chip → title → chip box → description
-          → coding/PR card (flow layout — chips may wrap like the real app) */}
+      {/* the issue page (IssueFaceView): 20pt padding, 20pt between blocks —
+          origin pill → title → chip box → Threads row → description →
+          sub-issues → PR rows → activity */}
       <div
         style={{
           position: "absolute",
-          top: 86,
-          left: 16,
-          right: 16,
+          top: pt(108) + pt(20),
+          left: pt(20),
+          right: pt(20),
           display: "flex",
           flexDirection: "column",
-          gap: 14,
+          gap: pt(20),
           alignItems: "flex-start",
         }}
       >
         {origin ? (
           <span
             style={{
-              height: 22,
+              height: pt(24),
+              boxSizing: "border-box",
               display: "inline-flex",
               alignItems: "center",
-              gap: 5,
-              padding: "0 9px",
+              gap: pt(4),
+              padding: `0 ${pt(8)}px`,
               borderRadius: 999,
-              backgroundColor: C.fillCard,
-              border: `1px solid rgba(255,255,255,0.08)`,
-              fontSize: 10.5,
-              color: C.muted,
+              backgroundColor: IOS.fillCard,
+              boxShadow: `inset 0 0 0 ${HAIRLINE}px ${IOS.strokeCard}`,
+              fontSize: pt(12),
+              fontWeight: 500,
+              color: "rgba(255,255,255,0.85)",
             }}
           >
-            <Glyph size={10} sw={2}>
-              <path d="m3 11 18-5v12L3 14v-3z" />
-              <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
-            </Glyph>
+            <span style={{ color: IOS.secondary, display: "flex" }}>
+              {/* ui-widget = megaphone */}
+              <Glyph size={pt(12)} sw={2}>
+                <path d="m3 11 18-5v12L3 14v-3z" />
+                <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+              </Glyph>
+            </span>
             {origin}
           </span>
         ) : null}
 
-        {/* title */}
+        {/* title — title2 semibold */}
         <div
           style={{
-            fontSize: 19,
+            fontSize: pt(22),
             fontWeight: 600,
-            lineHeight: 1.3,
-            color: C.text,
+            lineHeight: 1.27,
+            color: "#ffffff",
+            marginTop: origin ? -pt(8) : 0,
           }}
         >
           {title}
         </div>
 
-        {/* property chip box */}
+        {/* property chip box: status · priority · assignee · labels · + ·
+            due · board (P46 order) in ONE glass card */}
         <div
           style={{
             alignSelf: "stretch",
             boxSizing: "border-box",
-            borderRadius: 12,
-            backgroundColor: C.fillCard,
-            border: `1px solid rgba(255,255,255,0.06)`,
-            padding: 10,
+            borderRadius: pt(16),
+            backgroundColor: IOS.fillCard,
+            boxShadow: `inset 0 0 0 ${HAIRLINE}px ${IOS.strokeCard}`,
+            padding: pt(10),
             display: "flex",
             flexWrap: "wrap",
-            gap: 6,
+            gap: pt(6),
           }}
         >
           {chip(
             <>
-              <MStatusIcon status={shownStatus} size={12} />
+              <MStatusIcon status={shownStatus} size={pt(12)} />
               {shownStatusLabel}
             </>,
             "status"
@@ -895,7 +1135,7 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
             <>
               <MPriorityIcon
                 priority={priorityLabel === "No priority" ? "none" : "high"}
-                size={12}
+                size={pt(12)}
               />
               {priorityLabel}
             </>,
@@ -904,42 +1144,10 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
           {assignee
             ? chip(
                 <>
-                  <span
-                    style={{
-                      width: 16,
-                      height: 16,
-                      borderRadius: 999,
-                      backgroundColor: C.fillActive,
-                      color: C.muted,
-                      fontSize: 7.5,
-                      fontWeight: 600,
-                      letterSpacing: 0.2,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    {assignee.initials}
-                  </span>
+                  <MAvatar initials={assignee.initials} size={pt(16)} />
                   {assignee.name}
                 </>,
                 "assignee"
-              )
-            : null}
-          {due
-            ? chip(
-                <>
-                  <span style={{ color: C.muted, display: "flex" }}>
-                    <Glyph size={12} sw={1.9}>
-                      <path d="M8 2v4" />
-                      <path d="M16 2v4" />
-                      <rect x="3" y="4" width="18" height="18" rx="2" />
-                      <path d="M3 10h18" />
-                    </Glyph>
-                  </span>
-                  <span style={{ color: C.muted }}>{due}</span>
-                </>,
-                "due"
               )
             : null}
           {labelChip
@@ -947,8 +1155,8 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
                 <>
                   <span
                     style={{
-                      width: 8,
-                      height: 8,
+                      width: pt(6),
+                      height: pt(6),
                       borderRadius: 999,
                       backgroundColor: labelChip.dot,
                     }}
@@ -958,142 +1166,203 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
                 "label"
               )
             : null}
-          {chip(<span style={{ color: C.muted }}>+</span>, "add")}
+          {chip(
+            <span style={{ color: IOS.secondary, display: "flex" }}>
+              <Glyph size={pt(12)} sw={2}>
+                <path d="M5 12h14" />
+                <path d="M12 5v14" />
+              </Glyph>
+            </span>,
+            "add"
+          )}
+          {due
+            ? chip(
+                <>
+                  <span style={{ color: IOS.secondary, display: "flex" }}>
+                    <Glyph size={pt(12)} sw={2}>
+                      <path d="M8 2v4" />
+                      <path d="M16 2v4" />
+                      <rect x="3" y="4" width="18" height="18" rx="2" />
+                      <path d="M3 10h18" />
+                    </Glyph>
+                  </span>
+                  {due}
+                </>,
+                "due"
+              )
+            : null}
+          {chip(
+            <>
+              <span style={{ color: "#818cf8", display: "flex" }}>
+                <Glyph size={pt(12)} sw={2}>
+                  <path d="m16 18 6-6-6-6" />
+                  <path d="m8 6-6 6 6 6" />
+                </Glyph>
+              </span>
+              {boardName}
+            </>,
+            "board"
+          )}
         </div>
 
-        {/* description — near-white body text like the app */}
+        {/* EXP-1295: the Threads row — one chip per thread holding it */}
+        {threadTitle ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: pt(10),
+              maxWidth: "100%",
+            }}
+          >
+            <span style={{ fontSize: pt(13), color: IOS.tertiary }}>Threads</span>
+            <span
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: pt(6),
+                minWidth: 0,
+                padding: `${pt(4)}px ${pt(8)}px`,
+                borderRadius: pt(5),
+                backgroundColor: "rgba(255,255,255,0.08)",
+                boxShadow: `inset 0 0 0 ${HAIRLINE}px rgba(255,255,255,0.16)`,
+              }}
+            >
+              <ThreadMark size={pt(12)} />
+              <span
+                style={{
+                  fontSize: pt(13),
+                  color: "#ffffff",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  maxWidth: pt(220),
+                }}
+              >
+                {threadTitle}
+              </span>
+            </span>
+          </div>
+        ) : null}
+
+        {/* description — the markdown editor (body text, 200pt floor) */}
         <div
           style={{
-            fontSize: 13,
-            lineHeight: 1.6,
-            color: "#d4d4d4",
+            alignSelf: "stretch",
+            minHeight: pt(threadTitle ? 120 : 200),
+            fontSize: pt(17),
+            lineHeight: 1.3,
+            color: "#ffffff",
+            paddingLeft: pt(7),
           }}
         >
           {description}
         </div>
 
-        {/* coding session status — a bare row, no box (AgentPrCard) */}
-        {pr ? (
-          <div style={{ alignSelf: "stretch" }}>
-            <div
-              style={{
-                height: 24,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: 999,
-                  backgroundColor: merged ? C.statusDone : C.green,
-                }}
-              />
-              <span
-                style={{
-                  fontSize: 11.5,
-                  fontWeight: 600,
-                  color: merged ? C.statusDone : C.green,
-                }}
-              >
-                {merged ? "Merged" : "Ready for review"}
-              </span>
-              <span
-                style={{
-                  fontSize: 11.5,
-                  color: C.muted,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {`· ${pr.user} · ${pr.device}`}
-              </span>
-              <span
-                style={{ marginLeft: "auto", color: C.dim, display: "flex" }}
-              >
-                <Glyph size={11} sw={2.2}>
-                  <path d="m9 18 6-6-6-6" />
-                </Glyph>
-              </span>
-            </div>
-          </div>
-        ) : null}
+        {/* EXP-1097: the lone "Add sub-issues" row */}
+        <div
+          style={{
+            alignSelf: "stretch",
+            height: pt(40),
+            boxSizing: "border-box",
+            display: "flex",
+            alignItems: "center",
+            gap: pt(8),
+            padding: `0 ${pt(12)}px`,
+            borderRadius: pt(10),
+            backgroundColor: IOS.fillRow,
+            fontSize: pt(15),
+            color: IOS.tertiary,
+          }}
+        >
+          <Glyph size={pt(14)} sw={2}>
+            <path d="M5 12h14" />
+            <path d="M12 5v14" />
+          </Glyph>
+          Add sub-issues
+        </div>
 
-        {/* the PR — a rounded glass CARD with the state right-aligned */}
+        {/* PR rows (AgentPrCard): the PR glyph in the state tint · "PR #n"
+            · title · state · external link, on a glass row */}
         {pr ? (
           <div
             style={{
               alignSelf: "stretch",
-              height: 44,
               boxSizing: "border-box",
               display: "flex",
               alignItems: "center",
-              gap: 9,
-              padding: "0 13px",
-              borderRadius: 12,
-              backgroundColor: C.fillCard,
-              border: `1px solid rgba(255,255,255,0.06)`,
+              gap: pt(8),
+              padding: `${pt(10)}px ${pt(12)}px`,
+              borderRadius: pt(10),
+              backgroundColor: IOS.fillRow,
+              boxShadow: `inset 0 0 0 ${HAIRLINE}px ${IOS.strokeRow}`,
             }}
           >
             <span
-              style={{
-                color: merged ? C.statusDone : C.green,
-                display: "flex",
-              }}
+              style={{ color: merged ? IOS.blue : IOS.green, display: "flex" }}
             >
-              <Glyph size={14} sw={2}>
-                <circle cx="6" cy="6" r="3" />
+              <Glyph size={pt(13)} sw={2.4}>
                 <circle cx="18" cy="18" r="3" />
+                <circle cx="6" cy="6" r="3" />
                 <path d="M13 6h3a2 2 0 0 1 2 2v7" />
                 <path d="M6 9v12" />
               </Glyph>
             </span>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: C.text }}>
+            <span
+              style={{
+                fontSize: pt(12),
+                fontWeight: 500,
+                color: "#ffffff",
+                flexShrink: 0,
+              }}
+            >
               {`PR #${pr.number}`}
             </span>
             <span
               style={{
-                marginLeft: "auto",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                fontSize: 12,
-                color: C.muted,
+                fontSize: pt(12),
+                color: IOS.secondary,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                flex: 1,
+                minWidth: 0,
               }}
             >
+              {pr.title ?? title}
+            </span>
+            <span style={{ fontSize: pt(11), color: IOS.secondary, flexShrink: 0 }}>
               {merged ? "Merged" : "Open"}
-              <Glyph size={11} sw={2.2}>
-                <path d="m9 18 6-6-6-6" />
+            </span>
+            <span style={{ color: IOS.tertiary, display: "flex" }}>
+              <Glyph size={pt(13)} sw={2}>
+                <path d="M15 3h6v6" />
+                <path d="M10 14 21 3" />
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
               </Glyph>
             </span>
           </div>
         ) : null}
 
-        {/* activity timeline — CommentThreadView's gutter rail: a hairline
-            running through the markers, a status glyph where a row IS a status
-            change, a plain dot otherwise. The full-bleed rule above it is the
-            section split the app draws under the description block. */}
+        {/* activity timeline (CommentThreadView) */}
         {activity && activity.length > 0 ? (
           <>
             <div
               style={{
                 alignSelf: "stretch",
-                height: 1,
-                marginLeft: -16,
-                marginRight: -16,
-                backgroundColor: "rgba(255,255,255,0.08)",
+                height: HAIRLINE,
+                marginLeft: -pt(20),
+                marginRight: -pt(20),
+                backgroundColor: IOS.strokeCard,
               }}
             />
-            <div style={{ alignSelf: "stretch" }}>
+            <div style={{ alignSelf: "stretch", marginTop: -pt(4) }}>
               <div
                 style={{
-                  fontSize: 14,
+                  fontSize: pt(17),
                   fontWeight: 600,
-                  color: C.text,
-                  marginBottom: 10,
+                  color: "#ffffff",
+                  marginBottom: pt(10),
                 }}
               >
                 Activity
@@ -1106,28 +1375,26 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
                       position: "relative",
                       display: "flex",
                       alignItems: "flex-start",
-                      gap: 9,
-                      paddingBottom: 8,
+                      gap: pt(12),
+                      paddingBottom: pt(8),
                     }}
                   >
-                    {/* the rail segment: this row's marker centre down to the
-                        NEXT one, so it never dangles past the last marker */}
                     {i < activity.length - 1 ? (
                       <span
                         style={{
                           position: "absolute",
-                          left: 6.5,
-                          top: 9,
-                          bottom: -9,
-                          width: 1,
-                          backgroundColor: "rgba(255,255,255,0.12)",
+                          left: pt(7.5),
+                          top: pt(12),
+                          bottom: -pt(12),
+                          width: HAIRLINE,
+                          backgroundColor: IOS.strokeStrong,
                         }}
                       />
                     ) : null}
                     <span
                       style={{
-                        width: 14,
-                        height: 18,
+                        width: pt(16),
+                        height: pt(20),
                         flexShrink: 0,
                         display: "flex",
                         alignItems: "center",
@@ -1135,23 +1402,23 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
                       }}
                     >
                       {row.status ? (
-                        <MStatusIcon status={row.status} size={12} />
+                        <MStatusIcon status={row.status} size={pt(13)} />
                       ) : (
                         <span
                           style={{
-                            width: 6,
-                            height: 6,
+                            width: pt(6),
+                            height: pt(6),
                             borderRadius: 999,
-                            backgroundColor: "rgba(255,255,255,0.32)",
+                            backgroundColor: IOS.quaternary,
                           }}
                         />
                       )}
                     </span>
                     <span
                       style={{
-                        fontSize: 11.5,
-                        lineHeight: "18px",
-                        color: C.muted,
+                        fontSize: pt(14),
+                        lineHeight: `${pt(20)}px`,
+                        color: IOS.tertiary,
                       }}
                     >
                       {row.text}
@@ -1164,34 +1431,21 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
         ) : null}
       </div>
 
-      {/* floating bottom bar: properties circle · "+ Comment" capsule · start circle */}
+      {/* the floating bottom bar (IssueDetailBottomBar on FloatingBottomBar):
+          properties circle · "+ Comment" capsule · the Start circle */}
       <div
         style={{
           position: "absolute",
-          left: 12,
-          right: 12,
-          bottom: 14,
+          left: pt(20),
+          right: pt(20),
+          bottom: pt(4) + pt(34),
           display: "flex",
           alignItems: "center",
-          gap: 8,
+          gap: pt(10),
         }}
       >
-        <span
-          style={{
-            width: 44,
-            height: 44,
-            flexShrink: 0,
-            borderRadius: 999,
-            backgroundColor: "rgba(23,23,23,0.94)",
-            border: `1px solid ${C.strokeCard}`,
-            boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
-            color: C.muted,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Glyph size={15} sw={2}>
+        <BarCircle>
+          <Glyph size={pt(20)} sw={2}>
             <path d="M21 4h-7" />
             <path d="M10 4H3" />
             <path d="M21 12h-9" />
@@ -1202,63 +1456,264 @@ export const IssueScreen: React.FC<IssueScreenProps> = ({
             <path d="M8 10v4" />
             <path d="M16 18v4" />
           </Glyph>
-        </span>
+        </BarCircle>
         <span
           style={{
             flex: 1,
-            height: 40,
+            height: pt(52),
             boxSizing: "border-box",
             borderRadius: 999,
-            backgroundColor: "rgba(23,23,23,0.94)",
-            border: `1px solid ${C.strokeCard}`,
-            boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
-            color: C.dim,
+            backgroundColor: IOS.opaqueCard,
+            boxShadow: `inset 0 0 0 ${HAIRLINE}px ${IOS.strokeStrong}`,
+            color: IOS.tertiary,
             display: "flex",
             alignItems: "center",
-            gap: 7,
-            padding: "0 14px",
-            fontSize: 12.5,
+            gap: pt(8),
+            padding: `0 ${pt(18)}px`,
+            fontSize: pt(17),
           }}
         >
-          <Glyph size={13} sw={2.2}>
+          <Glyph size={pt(17)} sw={2}>
             <path d="M5 12h14" />
             <path d="M12 5v14" />
           </Glyph>
           Comment
         </span>
-        <span
+        <BarCircle
           style={{
-            width: 44,
-            height: 44,
-            flexShrink: 0,
-            borderRadius: 999,
-            backgroundColor: "rgba(23,23,23,0.94)",
-            border: `1px solid ${C.strokeCard}`,
-            boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
-            color: C.text,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
             scale: String(1 - 0.06 * pressT),
-            filter: pressT > 0 ? `brightness(${1 + 0.2 * pressT})` : undefined,
+            filter: pressT > 0 ? `brightness(${1 + 0.4 * pressT})` : undefined,
           }}
         >
-          {sessionLive ? (
-            <span
-              style={{
-                width: 9,
-                height: 9,
-                borderRadius: 999,
-                backgroundColor: C.green,
-              }}
-            />
-          ) : (
-            <Glyph size={15} sw={2}>
-              <path d="M7 5.5 18.5 12 7 18.5Z" />
-            </Glyph>
-          )}
+          <Glyph size={pt(20)} sw={2}>
+            <path d="M6 4.5v15a1 1 0 0 0 1.5.86l12.4-7.5a1 1 0 0 0 0-1.72L7.5 3.64A1 1 0 0 0 6 4.5z" />
+          </Glyph>
+        </BarCircle>
+      </div>
+    </div>
+  )
+}
+
+// ── DiffFileCard (Issue/DiffFileCard.swift + DiffRendering.swift) ────────────
+// The ONE per-file diff unit ×4 (EXP-895/916): a header band on the SECTION
+// fill — status letter · path (directory dimmed, the file name bright) ·
+// +n −n · chevron — over the unified patch in caption2 monospace (11pt, rows
+// lineHeight + 2): two right-aligned line-number gutters (4 digits + 8pt), the
+// sign column, the hunk header on the hunk wash, add/del rows on the 10 %
+// green/red washes with their own ink.
+export const DIFF_IOS = {
+  addFg: "#34d399",
+  addBg: "rgba(16,185,129,0.102)",
+  delFg: "#fb7185",
+  delBg: "rgba(244,63,94,0.102)",
+  hunkFg: "#a1a1a1",
+  hunkBg: "rgba(255,255,255,0.0392)",
+  gutterFg: "rgba(161,161,161,0.502)",
+} as const
+
+export type MDiffRow = {
+  t: "ctx" | "del" | "add" | "hunk"
+  text: string
+  old?: number
+  new?: number
+}
+
+const middleTruncate = (path: string, max: number): string => {
+  if (path.length <= max) return path
+  const keep = Math.floor((max - 1) / 2)
+  return `${path.slice(0, keep)}…${path.slice(path.length - (max - 1 - keep))}`
+}
+
+export const DiffFileCard: React.FC<{
+  status: string
+  path: string
+  add: number
+  del: number
+  rows?: readonly MDiffRow[]
+  open?: boolean
+  /** A transcript card sits one point below the page's own diff. */
+  compact?: boolean
+  /** Per-row reveal opacity (index → 0…1); undefined = all painted. */
+  rowOpacity?: (i: number) => number
+  /** Stand-alone list item: the glassRow card around it. */
+  carded?: boolean
+  /** "N unchanged lines" fold above the first hunk. */
+  unchanged?: number
+  maxPathChars?: number
+}> = ({
+  status,
+  path,
+  add,
+  del,
+  rows = [],
+  open = true,
+  compact = false,
+  rowOpacity,
+  carded = true,
+  unchanged,
+  maxPathChars = 34,
+}) => {
+  const font = pt(compact ? 10 : 11)
+  const rowH = pt(compact ? 13 : 15)
+  const adv = font * 0.6
+  const gutter = adv * 4 + pt(8)
+  const sign = adv * 1.5
+  const shown = middleTruncate(path, maxPathChars)
+  const cut = shown.lastIndexOf("/") + 1
+  return (
+    <div
+      style={{
+        boxSizing: "border-box",
+        borderRadius: pt(10),
+        overflow: "hidden",
+        backgroundColor: carded ? IOS.fillRow : "transparent",
+        boxShadow: carded ? `inset 0 0 0 ${HAIRLINE}px ${IOS.strokeRow}` : undefined,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: pt(8),
+          padding: `${pt(compact ? 7 : 10)}px ${pt(12)}px`,
+          backgroundColor: IOS.fillSection,
+          fontFamily: MONO_FONT,
+          fontSize: pt(compact ? 11 : 12),
+        }}
+      >
+        <span style={{ color: IOS.tertiary }}>{status}</span>
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          <span style={{ color: IOS.tertiary }}>{shown.slice(0, cut)}</span>
+          <span style={{ color: "#ffffff" }}>{shown.slice(cut)}</span>
+        </span>
+        <span style={{ fontFamily: UI_FONT, fontSize: pt(compact ? 11 : 12), color: DIFF_IOS.addFg }}>
+          {`+${add}`}
+        </span>
+        <span style={{ fontFamily: UI_FONT, fontSize: pt(compact ? 11 : 12), color: DIFF_IOS.delFg, marginLeft: -pt(4) }}>
+          {`−${del}`}
+        </span>
+        <span style={{ color: IOS.tertiary, display: "flex" }}>
+          <Glyph size={pt(12)} sw={2.2}>
+            <path d={open ? "m18 15-6-6-6 6" : "m6 9 6 6 6-6"} />
+          </Glyph>
         </span>
       </div>
+      {open && rows.length > 0 ? (
+        <div style={{ paddingBottom: pt(6) }}>
+          {unchanged !== undefined ? (
+            <div
+              style={{
+                height: rowH,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontFamily: MONO_FONT,
+                fontSize: font,
+                color: DIFF_IOS.gutterFg,
+                backgroundColor: "rgba(255,255,255,0.0235)",
+              }}
+            >
+              {`${unchanged} unchanged lines`}
+            </div>
+          ) : null}
+          {rows.map((row, i) => {
+            const o = rowOpacity ? rowOpacity(i) : 1
+            if (row.t === "hunk") {
+              const head = row.text.match(/^@@[^@]*@@/)?.[0] ?? row.text
+              return (
+                <div
+                  key={`h-${i}`}
+                  style={{
+                    height: rowH,
+                    display: "flex",
+                    alignItems: "center",
+                    padding: `0 ${pt(8)}px`,
+                    fontFamily: MONO_FONT,
+                    fontSize: font,
+                    color: DIFF_IOS.hunkFg,
+                    backgroundColor: DIFF_IOS.hunkBg,
+                    whiteSpace: "pre",
+                    overflow: "hidden",
+                    opacity: o,
+                  }}
+                >
+                  {`${head}${row.text.slice(head.length)}`}
+                </div>
+              )
+            }
+            const fg =
+              row.t === "add"
+                ? DIFF_IOS.addFg
+                : row.t === "del"
+                  ? DIFF_IOS.delFg
+                  : IOS.secondary
+            const bg =
+              row.t === "add"
+                ? DIFF_IOS.addBg
+                : row.t === "del"
+                  ? DIFF_IOS.delBg
+                  : "transparent"
+            return (
+              <div
+                key={`${row.t}-${i}`}
+                style={{
+                  height: rowH,
+                  display: "flex",
+                  alignItems: "center",
+                  fontFamily: MONO_FONT,
+                  fontSize: font,
+                  backgroundColor: bg,
+                  whiteSpace: "pre",
+                  overflow: "hidden",
+                  opacity: o,
+                }}
+              >
+                <span
+                  style={{
+                    width: gutter - pt(4),
+                    paddingRight: pt(4),
+                    textAlign: "right",
+                    flexShrink: 0,
+                    color: DIFF_IOS.gutterFg,
+                  }}
+                >
+                  {row.old ?? ""}
+                </span>
+                <span
+                  style={{
+                    width: gutter - pt(4),
+                    paddingRight: pt(4),
+                    textAlign: "right",
+                    flexShrink: 0,
+                    color: DIFF_IOS.gutterFg,
+                  }}
+                >
+                  {row.new ?? ""}
+                </span>
+                <span
+                  style={{
+                    width: sign,
+                    flexShrink: 0,
+                    textAlign: "center",
+                    color: fg,
+                  }}
+                >
+                  {row.t === "add" ? "+" : row.t === "del" ? "−" : " "}
+                </span>
+                <span style={{ color: fg }}>{row.text}</span>
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
     </div>
   )
 }

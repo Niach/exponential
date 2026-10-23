@@ -2,20 +2,20 @@
 
 [Exponential](https://exponential.at) is an open-source realtime issue tracker
 with local coding agents. This plugin connects OpenClaw to Exponential's MCP
-server: issues, boards, labels, statuses, comments, pull requests and coding
-runs, plus a skill that tells the agent how to use them.
+server: issues, boards, labels, statuses, comments, pull requests, sessions
+and team agents, plus a skill that tells the agent how to use them.
 
-With OpenClaw's MCP Apps bridge on, five tools render Exponential's own views
-in the dashboard instead of JSON:
+With OpenClaw's MCP Apps bridge on, three of the server's 16 tools render
+Exponential's own views in the dashboard instead of JSON:
 
-- `exponential_issues_show`: the issue list, grouped by status like the board
-  in Exponential. A row opens the issue (pills, description, comments). It is
-  also an app entrypoint, so it opens without asking the model.
-- `exponential_sessions_get`: a coding run's report, the same report its pull
-  request carries, with its changes and a steer composer.
-- `exponential_sessions_list`: the runs list; a row opens the run.
-- `exponential_notifications_list`: the inbox.
-- `exponential_devices_list`: the devices and their agent accounts.
+- `exponential_issues` op `show`: the issue list, grouped by status like the
+  board in Exponential. A row opens the issue (pills, description, comments).
+  It is also an app entrypoint, so it opens without asking the model.
+- `exponential_notifications` op `list`: the inbox.
+- `exponential_devices` op `list`: the devices and their agent accounts.
+
+The session tools (`exponential_sessions`, `exponential_sessions_send`)
+answer with JSON.
 
 A view lives as long as OpenClaw's view lease (ten minutes in memory); an
 older card in the transcript is read-only until you relaunch it.

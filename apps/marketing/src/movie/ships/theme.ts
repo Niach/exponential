@@ -121,51 +121,32 @@ export const R = {
   sheet: 24,
 } as const
 
-// Desktop window metrics (window-local px) — the POST-EXP-870/877 shell:
-// no top bar (tabs are glass chips in the 44px work-tabs band,
-// app_title_bar.rs WORK_TABS_BAND_H), a LEFT COLUMN that owns the window's
-// left edge (shell.rs) and the working surface as EXP-723's CUTOUT PANEL (a
-// rounded card flush under the band — PANEL_MARGIN_TOP 0 since EXP-877 —
-// and 10px in from the other three sides). Beside an open detail the left
-// column is the rail FOLDED to its 48px icon column (COMPACT_RAIL_WIDTH)
-// plus the 272px ListNav (LEFT_COLUMN_WIDTH) the detail was picked from,
-// under the column's fixed header (team switcher · Search · New issue). The
-// panel holds the ONE main view — the retired 520px issue-list tool window
-// lived inside it until EXP-851.
+// Desktop window metrics (window-local px). The film's window is the app's
+// 1440×900 logical window at K = 1568/1440 (surfaces/shell.tsx authors the
+// shell in logical px and scales by K). EXP-1192/1294 shell: the 44px
+// work-tabs band, ONE labelled 272px sidebar (no icon rail, no list column)
+// and the cutout panel 10px in from the band, the sidebar and the edges.
 const WIN_W = 1568
 const WIN_H = 980
-const TITLE_BAR = 44
-const LEFT_STRIP = 34 // the traffic-light strip atop the left column
-const LEFT_HEADER = 40 // render_left_column_header, h40
-const RAIL_W = 48
-const LIST_NAV_W = 272
-const LEFT_COLUMN = RAIL_W + LIST_NAV_W
-const PANEL_MARGIN = 10
-const PANEL_MARGIN_TOP = 0
+const KW = WIN_W / 1440
 export const WIN = {
   w: WIN_W,
   h: WIN_H,
   x: 176, // comp position
   y: 50,
   radius: 10,
-  titleBar: TITLE_BAR,
-  leftStrip: LEFT_STRIP,
-  leftHeader: LEFT_HEADER,
-  rail: RAIL_W, // the compact icon rail
-  listNav: LIST_NAV_W, // the ListNav beside it
-  leftColumn: LEFT_COLUMN,
-  row: 28, // list row height
-  // The cutout panel rect, window-local. `right`/`bottom` are the panel's
-  // far edges, so a surface pinned inside it uses `WIN.w - WIN.panel.right`
-  // as its CSS `right` inset.
+  titleBar: 44 * KW,
+  leftColumn: 282 * KW, // the sidebar + the panel's left margin
+  row: 28 * KW,
+  // The cutout panel rect, window-local film px.
   panel: {
-    x: LEFT_COLUMN + PANEL_MARGIN,
-    y: TITLE_BAR + PANEL_MARGIN_TOP,
-    w: WIN_W - LEFT_COLUMN - 2 * PANEL_MARGIN,
-    h: WIN_H - TITLE_BAR - PANEL_MARGIN_TOP - PANEL_MARGIN,
-    right: WIN_W - PANEL_MARGIN,
-    bottom: WIN_H - PANEL_MARGIN,
-    radius: 12, // radius::LG
+    x: 282 * KW,
+    y: 44 * KW,
+    w: 1148 * KW,
+    h: 846 * KW,
+    right: 1430 * KW,
+    bottom: 890 * KW,
+    radius: 12 * KW,
   },
 } as const
 
