@@ -1,12 +1,12 @@
 import { TRPCError } from "@trpc/server"
 import {
-  catalogPrompt,
   defineExtension,
   supportedCatalogIds,
   validatePackage,
   type AppPackage,
   type ExtensionDef,
 } from "@exponential-at/ui"
+import { catalogPrompt } from "@exponential-at/ui/prompt"
 import extensionJson from "@exp/ui/exponential-ui/extension.json"
 import { APP_PACKAGE_MAX_BYTES, APP_TEMPLATE_MAX_COMPONENTS } from "@exp/domain-contract/apps"
 

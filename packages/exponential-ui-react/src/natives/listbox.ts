@@ -5,6 +5,7 @@
 // keys type-ahead by label when the list owns focus.
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react"
+import { nextEnabledIndex, typeaheadStep } from "@exponential-at/ui/web"
 
 export interface ListNavOptions {
   count: number
@@ -22,18 +23,7 @@ export function useListNavigation({ count, isDisabled = () => false, labelOf = (
   useEffect(() => {
     if (active >= count) setActive(count - 1)
   }, [count, active])
-  const move = useCallback(
-    (from: number, delta: number) => {
-      if (count === 0) return -1
-      let i = from
-      for (let n = 0; n < count; n++) {
-        i = (((i + delta) % count) + count) % count
-        if (!isDisabled(i)) return i
-      }
-      return -1
-    },
-    [count, isDisabled]
-  )
+  const move = useCallback((from: number, delta: number) => nextEnabledIndex(count, from, delta, isDisabled), [count, isDisabled])
   const onKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === `ArrowDown`) {
@@ -54,15 +44,9 @@ export function useListNavigation({ count, isDisabled = () => false, labelOf = (
           onPick(active)
         }
       } else if (typeahead && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        const now = Date.now()
-        buffer.current = { text: now - buffer.current.at > 700 ? e.key.toLowerCase() : buffer.current.text + e.key.toLowerCase(), at: now }
-        for (let n = 1; n <= count; n++) {
-          const i = (Math.max(0, active) + (buffer.current.text.length > 1 ? n - 1 : n)) % count
-          if (!isDisabled(i) && labelOf(i).toLowerCase().startsWith(buffer.current.text)) {
-            setActive(i)
-            break
-          }
-        }
+        const step = typeaheadStep(buffer.current, e.key, Date.now(), active, count, isDisabled, labelOf)
+        buffer.current = step.buffer
+        if (step.index >= 0) setActive(step.index)
       }
     },
     [move, active, count, isDisabled, onPick, typeahead, labelOf]

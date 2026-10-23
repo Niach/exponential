@@ -72,9 +72,10 @@ import { fireAndForgetSessionMessageNotify } from "@/lib/integrations/notificati
 //     DB is the bus: a `messages` row the device delivers, resuming an
 //     idle session in place). `answer` answers its open card; `issueIds`
 //     forward issues to it; `deviceId` moves it (a queued row re-targets,
-//     a live one ends here and continues there). An ENDED session continues
-//     in a NEW session carrying the message: a root as a child of itself,
-//     a child as its sibling, on the same branch.
+//     a live one ends here and continues there). An ENDED thread ROOT
+//     revives (FEED-134): the SAME row goes idle with the message pending;
+//     an ENDED child continues in a NEW session carrying the message, as
+//     its sibling, on the same branch.
 //   - `agentId`: a message to a team AGENT = into the caller's own
 //     conversation session with it (one per agent and member, created on
 //     first use on the agent's device, never ending).
@@ -607,7 +608,38 @@ async function messageSession(
     throw new TRPCError({ code: `BAD_REQUEST`, message: `This session has ended: nothing to answer` })
   }
 
-  // An ended session continues: a new session on its device (or the named
+  if (target.parentId === null) {
+    // FEED-134: an ended thread ROOT revives in place (the conversation IS
+    // the thread, so it never forks into a child). A named device is where
+    // it resumes: nothing runs the row, so it simply re-targets.
+    const moveTarget =
+      input.deviceId !== undefined && input.deviceId !== target.deviceId
+        ? await resolveMoveTarget(target, input.deviceId, {
+            account: input.account ?? null,
+            requireOnline: true,
+          })
+        : null
+    const deviceId = moveTarget?.deviceId ?? target.deviceId
+    const device = await resolveSessionDevice(userId, target.teamId, deviceId)
+    return db.transaction(async (tx) => {
+      const txid = await generateTxId(tx)
+      const result = await reviveRoot(tx, {
+        root: target,
+        userId,
+        uploaderIds,
+        input,
+        caller,
+        from,
+        extras,
+        device: { deviceId, ownerId: device.ownerId },
+        moveTarget,
+      })
+      await applyWakeOn(tx, caller, input)
+      return { ...result, txid }
+    })
+  }
+
+  // An ended CHILD continues: a new session on its device (or the named
   // one), same pickers and branch, its first message = this one.
   const deviceId = input.deviceId ?? target.deviceId
   const device = await resolveSessionDevice(userId, target.teamId, deviceId)
@@ -674,9 +706,9 @@ async function messageAgent(
  * VAPP-110: a message to an APP = into the caller's own EDITOR SESSION with
  * it. None yet: a fresh root `queued` on `deviceId` (else the caller's
  * default device), its first message the app brief + the text. Live or
- * idle: the message resumes it. ENDED (the editor was left): the root
- * continues as a child of itself (`messageSession` → `continueSession`),
- * briefed again.
+ * idle: the message resumes it. ENDED (the editor was left): the SAME root
+ * revives (`messageSession` → `reviveRoot`, FEED-134), keeping its context;
+ * the brief rides again so it sees the current head version.
  */
 async function messageApp(
   userId: string,
@@ -717,6 +749,82 @@ async function messageApp(
  * an ended CHILD (#FEED-84) as its SIBLING: same parent and depth. `adopt`
  * (a move): the ended row's live children re-parent onto it and its
  * watchers follow.
+ * FEED-134: an ended thread ROOT revives: the SAME row goes `idle` again
+ * (`endedAt` cleared, not busy, nothing flagged), keeping its `startedAt`,
+ * title, branch, pickers and issue rows, with this message pending on it,
+ * so its device resumes it from its run record (the agent keeps its context)
+ * and the thread keeps ONE worker (`liveSessionId` stays the root). A
+ * `moveTarget` re-targets the row first (the queued-row rule: no engine
+ * runs it, so it moves and says so); a bare `account` switches its login.
+ * A concurrent revive wins the row: the loser is CONFLICT (`moveRaced`).
+ */
+async function reviveRoot(
+  tx: Tx,
+  args: {
+    root: Session
+    userId: string
+    uploaderIds: string[]
+    input: SessionsSendInput
+    caller: Session | null
+    from: { sessionId: string; asSession: boolean } | null
+    extras: SendExtras
+    device: { deviceId: string; ownerId: string }
+    moveTarget: MoveTarget | null
+  }
+): Promise<Omit<SendOutcome, `txid`>> {
+  const { root, userId, input, caller, moveTarget } = args
+  const now = new Date()
+  const [revived] = await tx
+    .update(sessions)
+    .set({
+      status: `idle`,
+      endedAt: null,
+      busy: false,
+      needsInput: false,
+      blocked: null,
+      deviceId: args.device.deviceId,
+      account: moveTarget ? moveTarget.account : (input.account ?? root.account),
+      updatedAt: now,
+    })
+    .where(and(eq(sessions.id, root.id), eq(sessions.status, `ended`)))
+    .returning()
+  if (!revived) moveRaced()
+  if (moveTarget) {
+    const fromName = deviceName(
+      await loadDeviceRow(root.deviceId, await sessionDeviceOwner(root)),
+      root.deviceId
+    )
+    await postMovedMessage(tx, revived, movedText(fromName, moveTarget.name))
+  }
+  if (input.issueIds?.length) {
+    await forwardIssues(tx, {
+      sessionId: revived.id,
+      issueIds: input.issueIds,
+      source: caller ? `agent` : `user`,
+      addedBy: userId,
+      addedBySessionId: caller?.id ?? null,
+    })
+  }
+  const messageId = await postSendMessage(tx, revived, input, userId, args.uploaderIds, args.from)
+  // A PERSON's message into a worker = it takes its issues again.
+  if (messageId && !args.from?.asSession) await retakeHeldIssues(tx, revived, userId)
+  await args.extras.within?.(tx, { sessionId: revived.id, messageId, rootId: revived.id })
+  return {
+    sessionId: revived.id,
+    messageId,
+    status: `idle`,
+    queued: { ownerId: args.device.ownerId, deviceId: revived.deviceId },
+  }
+}
+
+/**
+ * The continuation of an ENDED CHILD (#FEED-84): a new session on `device`
+ * with the ended row's pickers, branch (the device reuses its worktree) and
+ * title, taking over its issue rows, as its SIBLING: same parent and depth.
+ * A ROOT gets here only through a MOVE (`adopt`): a live root ends here and
+ * continues on the target as a child of itself, its live children
+ * re-parenting onto it and its watchers following. (An ended root's
+ * message revives it instead, `reviveRoot`.)
  */
 async function continueSession(
   tx: Tx,

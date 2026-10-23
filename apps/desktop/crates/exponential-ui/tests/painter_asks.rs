@@ -60,7 +60,7 @@ fn every_theme_pairs_the_step_number_with_its_marker() {
     // marker's primary fill (white on white in dark): it now keys on the
     // step `status` like the marker, and an upcoming label is muted.
     let tree = json!({"id": "s", "component": "Stepper", "props": {"steps": [{"label": "Account"}, {"label": "Team"}, {"label": "Done"}], "current": 1}});
-    for theme in ["neutral", "exponential", "playful"] {
+    for theme in ["neutral", "exponential", "playful", "orange"] {
         for mode in [Mode::Light, Mode::Dark] {
             let mut s = themed(tree.clone(), theme, mode);
             s.set_viewport(600.0, 0.0, None);

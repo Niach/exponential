@@ -1,0 +1,64 @@
+{
+  "name": "@exponential-at/ui-solid",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Exponential UI for SolidJS: the core A2UI catalog painted on plain elements (floating-ui, aria-hidden) with the same DOM, the same compiled stylesheet and the same runtime themes as the React renderer, run through the conformance suite and the web-parity check.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./primitives": "./src/primitives/index.ts",
+    "./primitives/*": "./src/primitives/*.tsx",
+    "./styles.css": "./dist/exponential-ui-solid.css"
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build:css": "bun run ./scripts/build-css.ts",
+    "test": "vitest run",
+    "test:browser": "vitest run --config vitest.browser.config.ts",
+    "test:conformance": "vitest run --config vitest.browser.config.ts browser/suites.test.ts",
+    "typecheck": "tsc --noEmit",
+    "dev:harness": "bun ./harness/serve.ts",
+    "shots": "bun run ./scripts/shots.ts",
+    "shots:primitives": "bun run ./scripts/primitive-shots.ts",
+    "test:parity": "vitest run --config vitest.browser.config.ts browser/parity.test.ts",
+    "test:parity:primitives": "EXPONENTIAL_UI_PARITY_GROUP=primitive vitest run --config vitest.browser.config.ts browser/parity.test.ts"
+  },
+  "peerDependencies": {
+    "solid-js": "^1.9.0"
+  },
+  "dependencies": {
+    "@exponential-at/ui": "workspace:*",
+    "@floating-ui/dom": "^1.7.0",
+    "aria-hidden": "^1.2.6",
+    "lucide-solid": "0.544.0"
+  },
+  "devDependencies": {
+    "@exp/tsconfig": "workspace:*",
+    "@exponential-at/ui-react": "workspace:*",
+    "@solidjs/testing-library": "^0.8.10",
+    "@tailwindcss/node": "^4.3.0",
+    "@tailwindcss/oxide": "^4.3.0",
+    "@testing-library/dom": "^10.4.1",
+    "@types/bun": "latest",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "jsdom": "^27.0.0",
+    "playwright": "^1.54.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "solid-js": "^1.9.17",
+    "tailwindcss": "^4.1.13",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "^5.7.2",
+    "vite": "7.3.3",
+    "vite-plugin-solid": "^2.11.14",
+    "vitest": "4.1.5"
+  }
+}

@@ -122,6 +122,7 @@ pub mod macos_blur;
 mod macos_window;
 pub mod markdown;
 mod mention_input;
+mod menu_window;
 mod wysiwyg;
 mod native_dialog;
 mod navigation;

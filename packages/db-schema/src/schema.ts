@@ -1756,7 +1756,7 @@ export const sessions = pgTable(
     }),
     // VAPP-110: the APP this is a member's EDITOR session OF (a root; one
     // per (app, user_id), live only while that member has the editor open:
-    // leaving ends the tree, the next message continues it). NULL = not an
+    // leaving ends the tree, the next message revives the same root). NULL = not an
     // editor session.
     appId: uuid(`app_id`).references((): AnyPgColumn => apps.id, {
       onDelete: `cascade`,

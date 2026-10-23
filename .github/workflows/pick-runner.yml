@@ -1,0 +1,67 @@
+name: pick-runner
+
+# EXP-1364: where the heavy jobs run. Two self-hosted runners take them when
+# they are up (.github/runners/README.md): the Mint (label `exp-linux`, Docker)
+# and the MacBook (label `exp-mac`, native). Either one off or asleep = the
+# GitHub-hosted fallback, so nothing ever waits in the queue for a laptop.
+#
+# The repo is public and strangers never run Actions here: a pull request
+# from a fork skips this job, and every job of the caller `needs` it, so the
+# whole run is skipped (nothing ever reaches the two machines either).
+#
+# Listing a repo's runners needs Administration: read, which GITHUB_TOKEN
+# never has: RUNNER_STATUS_TOKEN is a fine-grained token with exactly that.
+# Without the secret every job takes the fallback.
+#
+# Outputs are JSON for `runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}`.
+
+on:
+  workflow_call:
+    inputs:
+      linux-fallback:
+        type: string
+        default: ubuntu-latest
+      mac-fallback:
+        type: string
+        default: macos-26
+    secrets:
+      RUNNER_STATUS_TOKEN:
+        required: false
+    outputs:
+      linux:
+        value: ${{ jobs.pick.outputs.linux }}
+      mac:
+        value: ${{ jobs.pick.outputs.mac }}
+
+jobs:
+  pick:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      linux: ${{ steps.pick.outputs.linux }}
+      mac: ${{ steps.pick.outputs.mac }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+          LINUX_FALLBACK: ${{ inputs.linux-fallback }}
+          MAC_FALLBACK: ${{ inputs.mac-fallback }}
+        run: |
+          runners='{"runners":[]}'
+          if [ -n "$GH_TOKEN" ]; then
+            runners="$(gh api "repos/$GITHUB_REPOSITORY/actions/runners?per_page=100" 2>/dev/null)" \
+              || { echo "::warning::RUNNER_STATUS_TOKEN cannot list runners: GitHub-hosted fallback"; runners='{"runners":[]}'; }
+          fi
+          pick() {
+            local label="$1" fallback="$2"
+            if jq -e --arg l "$label" '[.runners[] | select(.status == "online" and any(.labels[]; .name == $l))] | length > 0' <<<"$runners" >/dev/null; then
+              jq -nc --arg l "$label" '["self-hosted", $l]'
+            else
+              jq -nc --arg f "$fallback" '$f'
+            fi
+          }
+          linux="$(pick exp-linux "$LINUX_FALLBACK")"
+          mac="$(pick exp-mac "$MAC_FALLBACK")"
+          echo "linux=$linux" | tee -a "$GITHUB_OUTPUT"
+          echo "mac=$mac" | tee -a "$GITHUB_OUTPUT"

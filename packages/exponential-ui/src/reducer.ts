@@ -292,10 +292,17 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
   const view = catalogView(extensions)
   const issues: ReduceIssue[] = []
   const byId = new Map<string, FlatComponent>()
-  for (const flat of components) {
+  components.forEach((flat, i) => {
+    // VAPP-107 (property-tested): an entry that is not a component object
+    // (null, a string, no string id) is an issue, never a throw (the Rust
+    // core refuses the message at parse time).
+    if (!flat || typeof flat !== `object` || typeof flat.id !== `string` || typeof flat.component !== `string`) {
+      issues.push({ id: options.rootId ?? `root`, message: `components[${i}] is not a component (an object with a string id and component)` })
+      return
+    }
     if (byId.has(flat.id)) issues.push({ id: flat.id, message: `duplicate id; the last definition wins` })
     byId.set(flat.id, flat)
-  }
+  })
   const lookup = (id: string) => byId.get(id)
   const basic = options.catalogId === A2UI_BASIC_CATALOG_ID
   if (!knownCatalog(options.catalogId, extensions))

@@ -197,7 +197,7 @@ section.home-section {
 
 .home-renderers {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -444,6 +444,34 @@ section.home-dogfood {
 
 .conf-runners .content-table td:nth-child(2),
 .conf-runners .content-table td:last-child code {
+  white-space: nowrap;
+}
+
+/* Numbers (VAPP-105): the per-scenario tables, metric rows × renderer columns. */
+.bench-table .content-table td:not(:first-child),
+.bench-table .content-table th:not(:first-child) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.bench-table .content-table th:first-child {
+  white-space: nowrap;
+}
+
+.bench-machine h3 {
+  margin-top: 32px;
+}
+
+.bench-machine-tag {
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+
+.bench-scenarios .content-table td:nth-child(2) {
+  font-size: 13px;
+}
+
+.bench-findings .content-table td:nth-child(3) {
   white-space: nowrap;
 }
 

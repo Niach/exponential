@@ -1,0 +1,16 @@
+{
+  "$comment": "VAPP-108 eval fixture: the reply to corpus prompt `calendar-event` given catalogPrompt() as the system prompt. Recorded by the session's own model from the same prompt (no API key in the recording environment); `bun eval/record.ts --force --only calendar-event` replaces it with an API recording (recordedBy: api).",
+  "id": "calendar-event",
+  "prompt": "A form to create a calendar event: title, a date range, start and end time, attendees as chips, a description, and a switch for a reminder. Save and Cancel.",
+  "model": "claude-fable-5-1",
+  "promptVariant": "full",
+  "recordedAt": "2026-10-22T10:00:00.000Z",
+  "recordedBy": "session",
+  "usage": {
+    "inputTokens": 7038,
+    "outputTokens": 523,
+    "cacheReadInputTokens": 0,
+    "estimated": true
+  },
+  "text": "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"event\",\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\":\"v0.9\",\"updateComponents\":{\"surfaceId\":\"event\",\"components\":[{\"id\":\"root\",\"component\":\"Card\",\"title\":\"New event\",\"children\":[\"form\"]},{\"id\":\"form\",\"component\":\"Form\",\"name\":\"event\",\"children\":[\"title\",\"dates\",\"times\",\"attendees\",\"description\",\"reminder\",\"actions\"],\"on\":{\"submit\":{\"event\":{\"name\":\"createEvent\"}}}},{\"id\":\"title\",\"component\":\"Input\",\"label\":\"Title\",\"name\":\"title\",\"value\":{\"path\":\"/event/title\"},\"checks\":[{\"condition\":{\"call\":\"required\",\"args\":{\"value\":{\"path\":\"/event/title\"}}},\"message\":\"Give the event a title\"}]},{\"id\":\"dates\",\"component\":\"DateRangePicker\",\"label\":\"Dates\",\"name\":\"dates\",\"start\":{\"path\":\"/event/start\"},\"end\":{\"path\":\"/event/end\"}},{\"id\":\"times\",\"component\":\"Grid\",\"columns\":2,\"gap\":\"sm\",\"children\":[\"startTime\",\"endTime\"]},{\"id\":\"startTime\",\"component\":\"TimePicker\",\"label\":\"Starts\",\"name\":\"startTime\",\"value\":{\"path\":\"/event/startTime\"}},{\"id\":\"endTime\",\"component\":\"TimePicker\",\"label\":\"Ends\",\"name\":\"endTime\",\"value\":{\"path\":\"/event/endTime\"}},{\"id\":\"attendees\",\"component\":\"ChipInput\",\"label\":\"Attendees\",\"name\":\"attendees\",\"values\":{\"path\":\"/event/attendees\"},\"placeholder\":\"Add by email\"},{\"id\":\"description\",\"component\":\"Textarea\",\"label\":\"Description\",\"name\":\"description\",\"value\":{\"path\":\"/event/description\"},\"autosize\":true,\"maxRows\":8},{\"id\":\"reminder\",\"component\":\"Switch\",\"label\":\"Remind me\",\"name\":\"reminder\",\"description\":\"10 minutes before it starts.\",\"checked\":{\"path\":\"/event/reminder\"}},{\"id\":\"actions\",\"component\":\"Stack\",\"direction\":\"horizontal\",\"gap\":\"sm\",\"justify\":\"end\",\"children\":[\"cancel\",\"save\"]},{\"id\":\"cancel\",\"component\":\"Button\",\"label\":\"Cancel\",\"variant\":\"ghost\",\"on\":{\"press\":{\"event\":{\"name\":\"cancel\"}}}},{\"id\":\"save\",\"component\":\"Button\",\"label\":\"Save\",\"submit\":true}]}}\n{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"event\",\"path\":\"/event\",\"value\":{\"title\":\"\",\"start\":\"2026-10-23\",\"end\":\"2026-10-23\",\"startTime\":\"10:00\",\"endTime\":\"11:00\",\"attendees\":[],\"description\":\"\",\"reminder\":true}}}"
+}

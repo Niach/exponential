@@ -17,6 +17,7 @@
   "dependencies": {
     "@exp/site-shell": "workspace:*",
     "@exponential-at/ui": "workspace:*",
+    "@exponential-at/ui-bench": "workspace:*",
     "@exponential-at/ui-react": "workspace:*",
     "lucide-react": "^0.544.0",
     "react": "^19.2.0",

@@ -17,11 +17,21 @@ categories = ["gui", "rendering::engine"]
 exclude = ["tests/", "benches/", "examples/"]
 
 [features]
-default = []
+default = ["builtin-themes"]
 # Rust-side text shaping on the system fonts (cosmic-text + fontdb): the
 # prototype of the "no measure upcalls at all" path. Off by default — hosts
 # measure through the batched protocol; the desktop painter measures in-process.
 shaping = ["dep:cosmic-text"]
+# VAPP-106: the non-default built-in themes (`neutral`, `playful`), resolved
+# and embedded (~140 KB of .rodata). On by default: the conformance suite
+# paints `playful` on every renderer. Off = only the default theme
+# `exponential` is built in; a host theme that `extends` another built-in
+# falls back to the default with an issue (`themes::theme_or_default`).
+builtin-themes = []
+# VAPP-106: the catalog's model-facing descriptions and examples
+# (`catalog::descriptions()`, ~45 KB) for a host that builds its own prompt.
+# Off by default: nothing in the core reads them.
+descriptions = []
 
 [dependencies]
 # The exact version gpui pins (apps/desktop/Cargo.lock) — ONE taffy in the tree.
@@ -46,3 +56,5 @@ cosmic-text = { version = "0.19", optional = true }
 stacker = "0.1"
 
 [dev-dependencies]
+# VAPP-105: examples/bench_suite.rs reads the process's resident size (macOS).
+libc = "0.2"

@@ -5,6 +5,7 @@ import { A2UI_BASIC_CATALOG_ID, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID } from "..
 import { A2UI_VERSION } from "../catalog"
 import type { FlatComponent } from "../types"
 import type { ServerMessage } from "./contract"
+import { matchesPattern } from "./policy"
 import { parseSource } from "./sources"
 
 /** The core, the core lite, the A2UI basic catalog, then every registered
@@ -39,6 +40,11 @@ export interface AppPackage {
   templates: Record<string, AppTemplate>
   /** Function patterns the package's surfaces may call (allowlist). */
   functions?: string[]
+  /** VAPP-107: the binding sources the package's surfaces may follow
+   *  (`exp:devices`, or a prefix `exp:*`); unset = any registered scheme.
+   *  Set, a template binding or a later `bindDataModel` outside it is
+   *  refused (`sourceAllowed`). */
+  sources?: string[]
   /** A built-in theme id or a theme JSON. */
   theme?: unknown
   icon?: { glyph?: string; color?: string }
@@ -92,7 +98,29 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
     }
   if (pkg.functions !== undefined && (!Array.isArray(pkg.functions) || pkg.functions.some((f) => typeof f !== `string` || !f)))
     issues.push({ path: `/functions`, message: `functions is a list of names or prefix* patterns` })
+  if (pkg.sources !== undefined && (!Array.isArray(pkg.sources) || pkg.sources.some((f) => typeof f !== `string` || !f)))
+    issues.push({ path: `/sources`, message: `sources is a list of scheme:name sources or prefix* patterns` })
+  else if (Array.isArray(pkg.sources) && isObject(pkg.templates))
+    for (const [id, template] of Object.entries(pkg.templates)) {
+      if (!isObject(template) || !Array.isArray(template.bindings)) continue
+      template.bindings.forEach((b, i) => {
+        if (isObject(b) && typeof b.source === `string` && parseSource(b.source) && !sourceAllowed(pkg.sources as string[], b.source))
+          issues.push({ path: `/templates/${id}/bindings/${i}/source`, message: `source ${b.source} is not in the package's sources` })
+      })
+    }
   return issues
+}
+
+/** VAPP-107: may a package whose `sources` list is `allowed` follow this
+ *  source URI? Unset = yes; else the URI's `scheme:name` (scheme
+ *  lower-cased, the query dropped) must match a listed source exactly or a
+ *  `prefix*` pattern. */
+export function sourceAllowed(allowed: readonly string[] | undefined, source: string): boolean {
+  if (allowed === undefined) return true
+  const parsed = parseSource(source)
+  if (!parsed) return false
+  const name = `${parsed.scheme}:${parsed.name}`
+  return allowed.some((p) => matchesPattern(p, name) || matchesPattern(p, source))
 }
 
 /** A template as the messages that create it: createSurface, the

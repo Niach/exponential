@@ -7,7 +7,7 @@
 import { A2UI_VERSION } from "../catalog"
 import { errorMessage, MESSAGE_KINDS } from "./contract"
 import type { HostOp, ServerMessage } from "./contract"
-import { supportedCatalogIds, templateMessages, validatePackage } from "./package"
+import { sourceAllowed, supportedCatalogIds, templateMessages, validatePackage } from "./package"
 import type { PackageIssue, AppPackage } from "./package"
 import { parseSource } from "./sources"
 import { LIMIT_ISSUES, MAX_MESSAGE_BYTES } from "../limits"
@@ -103,9 +103,14 @@ export class HostRouter {
         return [{ op: `delete`, surfaceId }]
       }
       case `bindDataModel`: {
-        if (!this.surfaces.has(surfaceId)) return [this.missing(surfaceId)]
+        const info = this.surfaces.get(surfaceId)
+        if (!info) return [this.missing(surfaceId)]
         if (typeof body.path !== `string` || typeof body.source !== `string` || !parseSource(body.source))
           return [this.invalid(surfaceId, `bindDataModel needs a path and a scheme:name source`)]
+        // VAPP-107: a package surface follows only the sources its package lists.
+        const pkg = info.packageId ? this.packages.get(info.packageId) : undefined
+        if (pkg && !sourceAllowed(pkg.sources, body.source))
+          return [{ op: `send`, message: errorMessage(`SOURCE_DENIED`, surfaceId, `source ${body.source} is not in package ${pkg.id}'s sources`, normalizePath(body.path) || `/`) }]
         return [{ op: `bind`, surfaceId, path: normalizePath(body.path), source: body.source }]
       }
       case `applyTemplate`: {
@@ -113,9 +118,13 @@ export class HostRouter {
         const pkg = this.findPackage(body.templateId, typeof body.packageId === `string` ? body.packageId : undefined)
         if (!pkg) return [{ op: `send`, message: errorMessage(`TEMPLATE_NOT_FOUND`, surfaceId, `no installed package has the template ${body.templateId}`) }]
         const ops: HostOp[] = []
-        for (const m of templateMessages(pkg, body.templateId, surfaceId, body.data) ?? []) ops.push(...this.route(m))
-        const info = this.surfaces.get(surfaceId)
-        if (info) info.packageId = pkg.id
+        for (const m of templateMessages(pkg, body.templateId, surfaceId, body.data) ?? []) {
+          ops.push(...this.route(m))
+          // The surface belongs to the package from its creation on (its
+          // function policy and source allowlist apply to the template's own binds).
+          const info = this.surfaces.get(surfaceId)
+          if (info) info.packageId = pkg.id
+        }
         return ops
       }
     }

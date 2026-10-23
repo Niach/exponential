@@ -968,11 +968,15 @@ pub struct ScreensPanel {
 /// EXP-1259 — `EXP_DEV_COMPOSER_MENU=implement-issue` opens Home's "+"
 /// menu with its Implement issue submenu open, once
 /// ([`crate::controls::PointerMenu::dev_open`]): true for the FIRST caller
-/// only, so the menu still closes like any other after.
-pub(crate) fn take_dev_composer_menu() -> bool {
+/// only, so the menu still closes like any other after. N-6:
+/// `dialog-implement-issue` is the same for the composer DIALOG's "+"
+/// (`dialog` = the caller is the dialog presentation), whose menu opens in
+/// a menu window over the dialog (`composer-dialog-menu`).
+pub(crate) fn take_dev_composer_menu(dialog: bool) -> bool {
     use std::sync::atomic::{AtomicBool, Ordering};
     static TAKEN: AtomicBool = AtomicBool::new(false);
-    std::env::var("EXP_DEV_COMPOSER_MENU").ok().as_deref() == Some("implement-issue")
+    let wanted = if dialog { "dialog-implement-issue" } else { "implement-issue" };
+    std::env::var("EXP_DEV_COMPOSER_MENU").ok().as_deref() == Some(wanted)
         && !TAKEN.swap(true, Ordering::SeqCst)
 }
 

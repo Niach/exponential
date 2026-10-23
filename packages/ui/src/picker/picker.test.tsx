@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { Picker, pickerItemKeywords, type PickerItem } from "./picker"
+import { Dialog, DialogContent } from "../dialog"
 
 // EXP-1029 contract, EXP-1021 implementation — the picker primitive. The
 // presentation table below IS the contract; the IDE, iOS and Android
@@ -78,6 +79,59 @@ describe(`Picker presentation (EXP-1029 → EXP-1021)`, () => {
     open()
     expect(document.querySelector(`[data-slot=popover-content]`)).not.toBeNull()
     expect(document.querySelector(`[data-slot=sheet-content]`)).toBeNull()
+    expect(rows()).toHaveLength(3)
+  })
+
+  it(`presentation="inline" opens the rows in the flow under the trigger, on a pointer and on a phone`, () => {
+    for (const viewport of [1280, 390]) {
+      setViewport(viewport)
+      const onChange = vi.fn()
+      const { unmount } = render(
+        <Picker
+          mode="single"
+          items={items}
+          value={null}
+          onChange={onChange}
+          trigger={trigger}
+          presentation="inline"
+        />
+      )
+      expect(document.querySelector(`[data-picker-presentation=inline]`)).not.toBeNull()
+      expect(document.querySelector(`[data-slot=combobox-inline-body]`)).toBeNull()
+      open()
+      // No surface of its own: the rows sit in the document flow.
+      expect(document.querySelector(`[data-slot=popover-content]`)).toBeNull()
+      expect(document.querySelector(`[data-slot=sheet-content]`)).toBeNull()
+      const body = document.querySelector(`[data-slot=combobox-inline-body]`)
+      expect(body).not.toBeNull()
+      expect(rows()).toHaveLength(3)
+      // The trigger is the disclosure: it says so, and folds the rows away.
+      const button = screen.getByRole(`button`, { name: `Pick one` })
+      expect(button.getAttribute(`aria-expanded`)).toBe(`true`)
+      // A single pick reports and folds the rows away, like the popover.
+      act(() => {
+        fireEvent.click(screen.getByText(`Alpha`))
+      })
+      expect(onChange).toHaveBeenCalledWith(`a`)
+      expect(document.querySelector(`[data-slot=combobox-inline-body]`)).toBeNull()
+      unmount()
+    }
+    setViewport(1280)
+  })
+
+  it(`inside a dialog the host decides: the picker opens inline`, () => {
+    setViewport(1280)
+    render(
+      <Dialog open>
+        <DialogContent>
+          <Picker mode="single" items={items} value={null} onChange={vi.fn()} trigger={trigger} />
+        </DialogContent>
+      </Dialog>
+    )
+    expect(document.querySelector(`[data-picker-presentation=inline]`)).not.toBeNull()
+    open()
+    expect(document.querySelector(`[data-slot=popover-content]`)).toBeNull()
+    expect(document.querySelector(`[data-slot=combobox-inline-body]`)).not.toBeNull()
     expect(rows()).toHaveLength(3)
   })
 

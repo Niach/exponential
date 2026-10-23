@@ -6,7 +6,7 @@ import type { Nested } from "../sdk/a2ui"
 import { themeBackgrounds } from "../sdk/backgrounds"
 import { ThemeGallery } from "../sdk/ThemeGallery"
 
-/* Themes: the three built-ins painting the same live surface, then the
+/* Themes: the four built-ins painting the same live surface, then the
    token vocabulary every theme must define with each built-in's values
    (docs/themes.generated.json), then the way on: the builder and the guide.
    The two JSON files are imported directly (not through lib/catalog) so

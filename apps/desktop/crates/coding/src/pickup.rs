@@ -329,9 +329,12 @@ pub enum PickupAction {
     /// A `running`/`idle` row on this device with NO engine here (the host
     /// restarted, or an agent's process exited idle) that has pending person
     /// messages: re-spawn the SAME row's agent CLI from its run record
-    /// (native resume) with `message` as the first prompt; consume it once
-    /// sent. Later pending messages are delivered once it is live.
-    Resume { session: SessionRow, message: MessageRow },
+    /// (native resume) with the first of `messages` as the seed prompt
+    /// (consumed once sent); the rest are handed once it is live. FEED-129:
+    /// EVERY pending message rides along (oldest first) — a wake refused
+    /// for an older set is retried the moment a NEW message arrives, which
+    /// the oldest alone could never show ([`LiveRegistry::refused_before`]).
+    Resume { session: SessionRow, messages: Vec<MessageRow> },
     /// EXP-1341: a PERSISTENT root (`domain::session_kind`, an agent) on
     /// this device reading `running`/`idle` with NO engine here and nothing
     /// pending (its device came back, its process is gone): [`revive_session`]
@@ -407,7 +410,8 @@ impl PickupAction {
 ///   a deletion, never a cold store).
 /// - **Launch**: a `queued` row naming this device with no engine here.
 /// - **Resume**: a `running`/`idle` row naming this device with no engine
-///   here and a pending person message (the oldest rides along).
+///   here and a pending person message (every pending message rides along,
+///   oldest first).
 /// - **Revive** (EXP-1341): the same without a pending message, for a
 ///   PERSISTENT root only (an agent never ends: its device revives it when
 ///   it comes back), unless [`PickupInput::revive_held`] names it.
@@ -500,16 +504,15 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
             starts.push((row, PickupAction::Launch { session: row.clone() }));
         } else if row.status_is(SESSION_STATUS_RUNNING) || row.status_is(SESSION_STATUS_IDLE) {
             // EXP-1280: an answered tool card wakes its session too (its
-            // engine went away while the card waited).
-            let first = pending
+            // engine went away while the card waited). FEED-129: the whole
+            // pending set rides the Resume, inputs first, then cards.
+            let mut queue: Vec<MessageRow> = pending
                 .get(row.id.as_str())
-                .and_then(|queue| queue.first())
-                .or_else(|| answered.get(row.id.as_str()).and_then(|queue| queue.first()));
-            if let Some(first) = first {
-                starts.push((
-                    row,
-                    PickupAction::Resume { session: row.clone(), message: (*first).clone() },
-                ));
+                .map(|queue| queue.iter().map(|m| (*m).clone()).collect())
+                .unwrap_or_default();
+            queue.extend(answered.get(row.id.as_str()).into_iter().flatten().map(|m| (*m).clone()));
+            if !queue.is_empty() {
+                starts.push((row, PickupAction::Resume { session: row.clone(), messages: queue }));
             } else if row.is_root() && row.is_persistent() && !input.revive_held.contains(&row.id) {
                 starts.push((row, PickupAction::Revive { session: row.clone() }));
             }
@@ -1970,7 +1973,7 @@ pub fn continue_after_restart(row: &SessionRow, deps: &PickupDeps) -> Result<boo
 pub fn execute(action: &PickupAction, deps: &PickupDeps) -> Result<(), String> {
     match action {
         PickupAction::Launch { session } => launch_queued(session, deps).map(|_| ()),
-        PickupAction::Resume { session, message } => resume_session(session, std::slice::from_ref(message), deps)
+        PickupAction::Resume { session, messages } => resume_session(session, messages, deps)
             .map(|_| ())
             .map_err(|err| err.to_string()),
         PickupAction::Revive { session } => revive_session(session, deps),
@@ -2971,7 +2974,7 @@ mod tests {
         };
         assert_eq!(
             Pass::new(vec![parent.clone(), child.clone()], rows.clone()).run(),
-            vec![PickupAction::Resume { session: parent.clone(), message: expected.clone() }]
+            vec![PickupAction::Resume { session: parent.clone(), messages: vec![expected.clone()] }]
         );
         let running = session("s1", "running", DEV, "2026-10-01T00:00:00Z");
         assert_eq!(
@@ -3051,15 +3054,19 @@ mod tests {
             vec![
                 PickupAction::Resume {
                     session: sleeping,
-                    message: message("m4", "a1", "2026-10-02T00:00:00Z"),
+                    messages: vec![message("m4", "a1", "2026-10-02T00:00:00Z")],
                 },
+                // FEED-129: every pending message, oldest first.
                 PickupAction::Resume {
                     session: thread,
-                    message: message("m1", "s1", "2026-10-02T00:00:01Z"),
+                    messages: vec![
+                        message("m1", "s1", "2026-10-02T00:00:01Z"),
+                        message("m2", "s1", "2026-10-02T00:00:02Z"),
+                    ],
                 },
                 PickupAction::Resume {
                     session: restarted,
-                    message: message("m3", "s2", "2026-10-02T00:00:00Z"),
+                    messages: vec![message("m3", "s2", "2026-10-02T00:00:00Z")],
                 },
             ]
         );
@@ -3225,7 +3232,7 @@ mod tests {
                 PickupAction::Launch { session: early },
                 PickupAction::Resume {
                     session: idle,
-                    message: message("m-i1", "i1", "2026-10-02T00:00:00Z"),
+                    messages: vec![message("m-i1", "i1", "2026-10-02T00:00:00Z")],
                 },
                 PickupAction::Launch { session: late },
                 PickupAction::Revoke { session_id: "l1".to_string(), message_id: "revoked".to_string() },
@@ -4865,13 +4872,42 @@ mod tests {
         )
         .run();
         match actions.as_slice() {
-            [PickupAction::Resume { session, message }] => {
+            [PickupAction::Resume { session, messages }] => {
                 assert_eq!(session.id, "s1");
-                assert_eq!(message.id, "p1");
-                assert_eq!(message.body.as_deref(), Some("Plan approved. Go ahead."));
+                assert_eq!(messages.len(), 1);
+                assert_eq!(messages[0].id, "p1");
+                assert_eq!(messages[0].body.as_deref(), Some("Plan approved. Go ahead."));
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// FEED-129: a Resume carries EVERY pending message (inputs oldest
+    /// first, then answered cards), so a wake the host refused for an older
+    /// set (`refused_before` memo) is tried again on the next message — the
+    /// oldest alone matched the memo forever, and the session never resumed.
+    #[test]
+    fn a_resume_carries_every_pending_message_so_a_new_one_retries_a_refused_wake() {
+        let rows = vec![
+            message("m2", "s1", "2026-10-02T00:00:02Z"),
+            tool_card("p1", "s1", approved_plan()),
+            message("m1", "s1", "2026-10-02T00:00:01Z"),
+        ];
+        let actions = Pass::new(vec![session("s1", "idle", DEV, "t")], rows.clone()).run();
+        let ids: Vec<&str> = match actions.as_slice() {
+            [PickupAction::Resume { session, messages }] if session.id == "s1" => {
+                messages.iter().map(|m| m.id.as_str()).collect()
+            }
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(ids, vec!["m1", "m2", "p1"]);
+
+        // The memo the host keeps: refused for {m1}, a wake for {m1, m2} is
+        // not "refused before" — the new message gets its attempt.
+        let live = LiveRegistry::default();
+        live.note_refused("s1", &[&rows[2]]);
+        assert!(live.refused_before("s1", &[&rows[2]]));
+        assert!(!live.refused_before("s1", &[&rows[2], &rows[0]]));
     }
 
     /// A reported value keeps the OLD value stale only until it is echoed

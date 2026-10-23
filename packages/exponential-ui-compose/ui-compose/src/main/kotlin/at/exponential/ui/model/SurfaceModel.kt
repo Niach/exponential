@@ -468,6 +468,7 @@ class SurfaceModel(
 
     /** One A2UI message as JSON. Throws `UiException`. */
     fun apply(json: String): FfiApplyOutcome {
+        benchCounters?.sent(json.length)
         val out = surface.apply(json)
         invalidate(out.structureChanged)
         return out
@@ -475,6 +476,7 @@ class SurfaceModel(
 
     /** The nested authoring form (fixtures, MCP templates). Throws `UiException`. */
     fun setNested(json: String): FfiApplyOutcome {
+        benchCounters?.sent(json.length)
         val out = surface.setNested(json)
         invalidate(true)
         return out
@@ -482,6 +484,7 @@ class SurfaceModel(
 
     /** A flat component list. Throws `UiException`. */
     fun setComponents(json: String): FfiApplyOutcome {
+        benchCounters?.sent(json.length)
         val out = surface.setComponents(json)
         invalidate(true)
         return out
@@ -541,7 +544,9 @@ class SurfaceModel(
 
     /** Write at a JSON pointer (null removes). */
     fun setData(path: String, value: JsonValue?) {
-        runCatching { surface.setData(path, value?.json) }
+        val json = value?.json
+        benchCounters?.sent(path.length + (json?.length ?: 0))
+        runCatching { surface.setData(path, json) }
         invalidate(true)
     }
 
@@ -554,6 +559,7 @@ class SurfaceModel(
     /** Switch the theme. */
     fun setTheme(theme: ThemeHandle) {
         themeState = theme
+        benchCounters?.sent(0)
         surface.setTheme(theme.theme)
         refreshEffectiveTheme()
         primitiveTokens = effectiveTheme?.primitiveTokens(mode) ?: PrimitiveTokens.SYSTEM
@@ -567,6 +573,7 @@ class SurfaceModel(
         if (settings.followSystemMode) {
             applySettings()
         } else {
+            benchCounters?.sent(0)
             runCatching { surface.setMode(mode.wire) }
             appliedSettings = appliedSettings?.copy(mode = mode.wire)
         }
@@ -662,6 +669,7 @@ class SurfaceModel(
     fun pass() {
         if (width <= 0f) return
         val t0 = System.nanoTime()
+        benchCounters?.sent(0)
         surface.setViewport(width, viewportHeight, maxHeight)
         if (nodesDirty) readNodes()
         var measurer: SurfaceMeasurer? = null
@@ -670,6 +678,7 @@ class SurfaceModel(
                 measurer = it
                 surface.layout(it)
             }
+        benchCounters?.layout(out, measurer?.calls ?: 0)
         if (out.structureVersion.toLong() != structureVersion || nodesDirty) readNodes()
         val count = nodes.size
         val f = ArrayList<Rect>(count)
@@ -708,7 +717,7 @@ class SurfaceModel(
         }
         val size = Size(out.surfaceWidth, out.surfaceHeight)
         if (size != surfaceSize) surfaceSize = size
-        stats = PassStats(out.layoutNs.toLong(), System.nanoTime() - t0, out.upcalls.toInt(), out.measureRounds.toInt(), measurer?.calls ?: 0, nodes.size)
+        stats = PassStats(out.layoutNs.toLong(), System.nanoTime() - t0, out.upcalls.toInt(), out.measureRounds.toInt(), measurer?.calls ?: 0, nodes.size, out.restyled.toInt())
         if (pinnedDirty) {
             pinnedDirty = false
             scrollPinned = nodes.filter { n -> styles.getOrNull(n.index)?.sticky == true || n.props["stickyHeaders"]?.bool == true || n.props["stickyHeader"]?.bool == true }.map { it.index }
@@ -753,6 +762,7 @@ class SurfaceModel(
 
     private fun readNodes() {
         val raw = surface.nodes()
+        benchCounters?.received(raw.sumOf { 64 + it.id.length + it.propsJson.length })
         val list = ArrayList<NodeInfo>(raw.size)
         val ch = ArrayList<MutableList<Int>>(raw.size)
         repeat(raw.size) { ch.add(ArrayList(2)) }
@@ -777,6 +787,7 @@ class SurfaceModel(
         val ts = HashMap<Int, ResolvedTextStyle>()
         for (n in nodes) {
             if (!n.isLeaf) continue
+            benchCounters?.received(48)
             surface.textStyle(n.index.toUInt())?.let { ts[n.index] = ResolvedTextStyle(it) }
         }
         if (ts != textStyles) textStyles = ts
@@ -784,6 +795,7 @@ class SurfaceModel(
 
     private fun readVisuals() {
         val raw = surface.visuals()
+        benchCounters?.received(raw.size * 96)
         val st = ArrayList<PaintStyle>(kotlin.math.max(raw.size, nodes.size))
         for (v in raw) st.add(PaintStyle(v))
         while (st.size < nodes.size) st.add(PaintStyle.EMPTY)
@@ -982,6 +994,15 @@ class SurfaceModel(
     fun textShaper(): TextShaper = shaper().also { it.defaultFamily = effectiveTheme?.sansFamily }
 
     companion object {
+        /**
+         * VAPP-105 (the benchmark suite): DEBUG counters of the facade
+         * traffic, null = off (the only cost then is a null check per call).
+         * A runner sets one, drives the model, reads it back. Never set in
+         * an app.
+         */
+        @JvmStatic
+        var benchCounters: BenchCounters? = null
+
         /** Viewport growth (dp) that applies at once ([autoViewportHeight]). */
         const val VIEWPORT_STEP = 48f
 

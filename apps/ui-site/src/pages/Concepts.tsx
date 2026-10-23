@@ -1,5 +1,5 @@
 /* Concepts: A2UI in short, then the epic's vocabulary (catalog, theme,
-   extension, host plugin, app) and how the four renderers agree. */
+   extension, host plugin, app) and how the six renderers agree. */
 import basicMap from "@exponential-at/ui/catalog/basic-map.json"
 import { DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { DocsTable } from "../components/Content"
@@ -247,9 +247,10 @@ export default function ConceptsPage({ path }: PageProps) {
           </p>
           <DocsCode language="json">{THEME}</DocsCode>
           <p>
-            <code>extends</code> overrides only what changes. Three themes are built in: <code>neutral</code>{` `}
-            (stock shadcn, the root), <code>exponential</code> (the zinc glass of the Exponential apps) and{` `}
-            <code>playful</code> (deliberately different, the one conformance renders everywhere). See them side by
+            <code>extends</code> overrides only what changes. Four themes are built in: <code>neutral</code>{` `}
+            (stock shadcn, the root), <code>exponential</code> (the zinc glass of the Exponential apps),{` `}
+            <code>playful</code> (deliberately different, the one conformance renders everywhere) and{` `}
+            <code>orange</code> (the exponential look with an orange primary, colours only). See them side by
             side on <a href="/themes/">Themes</a>, build one in the <a href="/themes/builder/">theme builder</a>, or
             follow <a href={guidePath(`themes`)}>Write your own theme</a>.
           </p>
@@ -322,8 +323,9 @@ export default function ConceptsPage({ path }: PageProps) {
           <h2>How the renderers agree</h2>
           <p>
             Two implementations hold the rules: the TypeScript reference in <code>@exponential-at/ui</code> and the
-            Rust core <code>exponential-ui</code>, which replays the same fixtures byte for byte. The React renderer
-            runs on the TypeScript side. SwiftUI and Compose reach the Rust core through a UniFFI facade, and gpui
+            Rust core <code>exponential-ui</code>, which replays the same fixtures byte for byte. The web renderers run
+            on the TypeScript side: React, Solid, and the web component <code>{`<exponential-surface>`}</code>{` `}
+            (the Solid painter inside a custom element). SwiftUI and Compose reach the Rust core through a UniFFI facade, and gpui
             links it directly.
           </p>
           <DocsCode language="text">{`A2UI messages ─▶ reducer ─▶ UiNode tree ─▶ layout (taffy) ─▶ frames + resolved visuals ─▶ painter

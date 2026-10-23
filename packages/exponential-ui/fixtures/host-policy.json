@@ -367,6 +367,320 @@
         "allowed": true,
         "url": "https://en.wikipedia.org/wiki/A_(b)"
       }
+    },
+    {
+      "name": "VAPP-107: loopback is private by default",
+      "url": "http://127.0.0.1:3000/api/attachments/a1",
+      "expected": {
+        "allowed": false,
+        "url": "http://127.0.0.1:3000/api/attachments/a1",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "localhost is private",
+      "url": "http://localhost:5173/",
+      "expected": {
+        "allowed": false,
+        "url": "http://localhost:5173/",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "a localhost subdomain is private",
+      "url": "https://app.localhost/",
+      "expected": {
+        "allowed": false,
+        "url": "https://app.localhost/",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "an IPv6 loopback is private",
+      "url": "http://[::1]:8080/",
+      "expected": {
+        "allowed": false,
+        "url": "http://[::1]:8080/",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "the unspecified addresses are private",
+      "url": "http://0.0.0.0/",
+      "expected": {
+        "allowed": false,
+        "url": "http://0.0.0.0/",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "the 10/8 block is private",
+      "url": "http://10.0.0.5/x.png",
+      "expected": {
+        "allowed": false,
+        "url": "http://10.0.0.5/x.png",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "the 172.16/12 block is private",
+      "url": "http://172.31.255.254/",
+      "expected": {
+        "allowed": false,
+        "url": "http://172.31.255.254/",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "172.32 is public",
+      "url": "http://172.32.0.1/",
+      "expected": {
+        "allowed": true,
+        "url": "http://172.32.0.1/"
+      }
+    },
+    {
+      "name": "the 192.168/16 block is private",
+      "url": "https://192.168.1.10/cam.jpg",
+      "expected": {
+        "allowed": false,
+        "url": "https://192.168.1.10/cam.jpg",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "link-local is private (the cloud metadata endpoint)",
+      "url": "http://169.254.169.254/latest/meta-data/",
+      "expected": {
+        "allowed": false,
+        "url": "http://169.254.169.254/latest/meta-data/",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "IPv6 link-local is private",
+      "url": "http://[fe80::1]/",
+      "expected": {
+        "allowed": false,
+        "url": "http://[fe80::1]/",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "IPv6 unique-local is private",
+      "url": "http://[fd12:3456::1]/",
+      "expected": {
+        "allowed": false,
+        "url": "http://[fd12:3456::1]/",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "an IPv4-mapped IPv6 address of a private IPv4 is private",
+      "url": "http://[::ffff:127.0.0.1]/",
+      "expected": {
+        "allowed": false,
+        "url": "http://[::ffff:7f00:1]/",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "a decimal IPv4 form normalizes before the check",
+      "url": "http://2130706433/",
+      "expected": {
+        "allowed": false,
+        "url": "http://127.0.0.1/",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "a hex IPv4 form normalizes before the check",
+      "url": "http://0xc0.0xa8.1.1/",
+      "expected": {
+        "allowed": false,
+        "url": "http://192.168.1.1/",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "a .local name is private",
+      "url": "http://printer.local/status.png",
+      "expected": {
+        "allowed": false,
+        "url": "http://printer.local/status.png",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "a public address is not private",
+      "url": "http://8.8.8.8/",
+      "expected": {
+        "allowed": true,
+        "url": "http://8.8.8.8/"
+      }
+    },
+    {
+      "name": "a public name is not resolved",
+      "url": "https://intranet.corp.example/",
+      "expected": {
+        "allowed": true,
+        "url": "https://intranet.corp.example/"
+      }
+    },
+    {
+      "name": "a relative url against a private base is private",
+      "policy": {
+        "baseUrl": "http://localhost:3000"
+      },
+      "url": "/api/attachments/a1",
+      "expected": {
+        "allowed": false,
+        "url": "http://localhost:3000/api/attachments/a1",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "the host opts localhost back in",
+      "policy": {
+        "allowPrivate": [
+          "localhost"
+        ]
+      },
+      "url": "http://localhost:3000/api/attachments/a1",
+      "expected": {
+        "allowed": true,
+        "url": "http://localhost:3000/api/attachments/a1"
+      }
+    },
+    {
+      "name": "an opt-in for one host does not cover another",
+      "policy": {
+        "allowPrivate": [
+          "localhost"
+        ]
+      },
+      "url": "http://127.0.0.1:3000/",
+      "expected": {
+        "allowed": false,
+        "url": "http://127.0.0.1:3000/",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "an opt-in by suffix",
+      "policy": {
+        "allowPrivate": [
+          "*.local"
+        ]
+      },
+      "url": "http://printer.local/",
+      "expected": {
+        "allowed": true,
+        "url": "http://printer.local/"
+      }
+    },
+    {
+      "name": "a star opts every private address in",
+      "policy": {
+        "allowPrivate": [
+          "*"
+        ]
+      },
+      "url": "http://10.0.0.5/",
+      "expected": {
+        "allowed": true,
+        "url": "http://10.0.0.5/"
+      }
+    },
+    {
+      "name": "a hosts allowlist does not opt a private host in",
+      "policy": {
+        "hosts": [
+          "localhost"
+        ]
+      },
+      "url": "http://localhost/",
+      "expected": {
+        "allowed": false,
+        "url": "http://localhost/",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "outside the allowlist reads host before private",
+      "policy": {
+        "hosts": [
+          "exponential.at"
+        ]
+      },
+      "url": "http://localhost/",
+      "expected": {
+        "allowed": false,
+        "url": "http://localhost/",
+        "reason": "host"
+      }
+    },
+    {
+      "name": "mailto is never private",
+      "url": "mailto:root@localhost",
+      "expected": {
+        "allowed": true,
+        "url": "mailto:root@localhost"
+      }
+    },
+    {
+      "name": "a custom scheme is never private",
+      "policy": {
+        "schemes": [
+          "exponential"
+        ]
+      },
+      "url": "exponential://localhost/issue/EXP-1",
+      "expected": {
+        "allowed": true,
+        "url": "exponential://localhost/issue/EXP-1"
+      }
+    },
+    {
+      "name": "https only",
+      "policy": {
+        "schemes": [
+          "https"
+        ]
+      },
+      "url": "http://exponential.at/",
+      "expected": {
+        "allowed": false,
+        "url": "http://exponential.at/",
+        "reason": "scheme"
+      }
+    },
+    {
+      "name": "https only keeps https",
+      "policy": {
+        "schemes": [
+          "https"
+        ]
+      },
+      "url": "https://exponential.at/",
+      "expected": {
+        "allowed": true,
+        "url": "https://exponential.at/"
+      }
+    },
+    {
+      "name": "https only drops mailto and tel",
+      "policy": {
+        "schemes": [
+          "https"
+        ]
+      },
+      "url": "tel:+4312345",
+      "expected": {
+        "allowed": false,
+        "url": "tel:+4312345",
+        "reason": "scheme"
+      }
     }
   ],
   "media": [
@@ -518,6 +832,74 @@
           "authorization": "Bearer t"
         }
       }
+    },
+    {
+      "name": "VAPP-107: a camera on the LAN is denied",
+      "options": {},
+      "url": "http://192.168.1.10/cam.jpg",
+      "expected": null
+    },
+    {
+      "name": "a loopback poster is denied",
+      "options": {
+        "baseUrl": "http://127.0.0.1:3000"
+      },
+      "url": "/api/attachments/a1?poster=1",
+      "expected": null
+    },
+    {
+      "name": "the dev app opts its own origin in",
+      "options": {
+        "baseUrl": "http://localhost:3000",
+        "allowPrivate": [
+          "localhost"
+        ],
+        "rules": [
+          {
+            "prefix": "http://localhost:3000/api/attachments/",
+            "headers": {
+              "authorization": "Bearer expu_dev"
+            }
+          }
+        ]
+      },
+      "url": "/api/attachments/a1",
+      "expected": {
+        "url": "http://localhost:3000/api/attachments/a1",
+        "headers": {
+          "authorization": "Bearer expu_dev"
+        }
+      }
+    },
+    {
+      "name": "the opt-in does not widen to the LAN",
+      "options": {
+        "baseUrl": "http://localhost:3000",
+        "allowPrivate": [
+          "localhost"
+        ]
+      },
+      "url": "http://192.168.1.10/cam.jpg",
+      "expected": null
+    },
+    {
+      "name": "a data image is never private",
+      "options": {},
+      "url": "data:image/png;base64,iVBORw0KGgo=",
+      "expected": {
+        "url": "data:image/png;base64,iVBORw0KGgo=",
+        "headers": {}
+      }
+    },
+    {
+      "name": "https-only media",
+      "options": {
+        "schemes": [
+          "https"
+        ]
+      },
+      "url": "http://cdn.example/x.png",
+      "expected": null
     }
   ],
   "sources": [

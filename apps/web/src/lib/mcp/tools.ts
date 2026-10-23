@@ -1219,7 +1219,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_create`,
     {
-      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list. parentId files it as a sub-issue of that issue. sessionId links it to that session's thread (default: your own session's thread).`,
+      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list. parentId files it as a sub-issue of that issue. sessionId makes that session hold it (default: your own); filing never moves its status, a later link or start does.`,
       inputSchema: strictInput({
         boardId: uuidString,
         title: z.string().min(1).max(500),
@@ -2221,7 +2221,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_send`,
     {
-      description: `THE one call for sessions. sessionId = message it (idle resumes; ended = continues on its branch; answer = answer its open question/plan {answer|answers|decision}, first wins; issueIds = forward; account = switch login; deviceId = move; stop = interrupt its turn). agentId = message a team agent (your conversation with it); appId = message an app's editor session (yours). parentId = start a child. Neither = a new thread (text, issueIds, promptId = a saved prompt's body first, repositoryId); its transitions wake you, as do wakeOn sessions. New threads need deviceId; teamId defaults to yours. Never resend, never wait.`,
+      description: `THE one call for sessions. sessionId = message it (idle resumes; an ended thread resumes the same row, an ended child continues as a sibling; answer = answer its open question/plan {answer|answers|decision}, first wins; issueIds = forward; account = switch login; deviceId = move; stop = interrupt its turn). agentId = message a team agent (your conversation with it); appId = your app editor session. parentId = start a child. Neither = a new thread (text, issueIds, promptId = a saved prompt's body first, repositoryId); its transitions wake you, as do wakeOn sessions. New threads need deviceId; teamId defaults to yours. Never resend, never wait.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString.optional(),

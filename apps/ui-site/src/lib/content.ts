@@ -1,10 +1,10 @@
 /* The content pages' shared data: the packages and their honest release
-   status (packages/exponential-ui/release/README.md), the four renderers,
+   status (packages/exponential-ui/release/README.md), the six renderers,
    the docs-style navs, and which guides/check.ts check compiles each guide. */
 import type { DocsNavEntry } from "@exp/site-shell"
 import { GUIDES, guidePath } from "./guides"
 
-/** The docs sidebar of Concepts and Conformance: the site's reading order. */
+/** The docs sidebar of Concepts, Conformance and Numbers: the site's reading order. */
 export const LEARN_NAV: DocsNavEntry[] = [
   { path: `/`, label: `Overview` },
   { path: `/concepts/`, label: `Concepts` },
@@ -13,6 +13,8 @@ export const LEARN_NAV: DocsNavEntry[] = [
   { path: `/guides/`, label: `Guides` },
   { path: `/playground/`, label: `Playground` },
   { path: `/conformance/`, label: `Conformance` },
+  { path: `/eval/`, label: `Ergonomics eval` },
+  { path: `/numbers/`, label: `Numbers` },
 ]
 
 /** The guides sidebar: the index, then every guide in nav order. */
@@ -37,6 +39,20 @@ export const RENDERERS: readonly Renderer[] = [
     pkg: `@exponential-at/ui-react`,
     source: `packages/exponential-ui-react`,
     guide: `react`,
+  },
+  {
+    platform: `Web`,
+    framework: `SolidJS`,
+    pkg: `@exponential-at/ui-solid`,
+    source: `packages/exponential-ui-solid`,
+    guide: `solid`,
+  },
+  {
+    platform: `Web`,
+    framework: `Web Components`,
+    pkg: `@exponential-at/ui-element`,
+    source: `packages/exponential-ui-element`,
+    guide: `element`,
   },
   {
     platform: `iOS + macOS`,
@@ -79,7 +95,19 @@ export const PACKAGES: readonly PackageRow[] = [
   {
     name: `@exponential-at/ui-react`,
     registry: `npm`,
-    what: `The React renderer.`,
+    what: `The React renderer and its shadcn primitive set, with a compiled stylesheet.`,
+    fromRepo: `the same tarballs, installed with npm`,
+  },
+  {
+    name: `@exponential-at/ui-solid`,
+    registry: `npm`,
+    what: `The SolidJS renderer and the same primitives, with the same DOM and stylesheet as React.`,
+    fromRepo: `the same tarballs, installed with npm`,
+  },
+  {
+    name: `@exponential-at/ui-element`,
+    registry: `npm`,
+    what: `The custom element <exponential-surface>: the Solid painter inside a web component, no framework in the page.`,
     fromRepo: `the same tarballs, installed with npm`,
   },
   {
@@ -117,6 +145,8 @@ export const PACKAGES: readonly PackageRow[] = [
 /** The guides/check.ts check that compiles a guide's example from a fresh project. */
 export const GUIDE_CHECK: Record<string, string> = {
   react: `react`,
+  solid: `solid`,
+  element: `element`,
   swiftui: `swift`,
   compose: `compose`,
   gpui: `gpui`,
@@ -125,14 +155,19 @@ export const GUIDE_CHECK: Record<string, string> = {
   "host-plugins": `react`,
   apps: `react`,
   agents: `agent`,
+  define: `define`,
+  security: `react`,
 }
 
 /** The directory under apps/ui-site/guides/ a check builds. */
 export const CHECK_DIR: Record<string, string> = {
   react: `react`,
+  solid: `solid`,
+  element: `element`,
   swift: `swift`,
   compose: `compose`,
   gpui: `gpui`,
   theme: `theme`,
   agent: `agent`,
+  define: `define`,
 }

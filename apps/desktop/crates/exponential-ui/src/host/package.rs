@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
+use super::policy::matches_pattern;
 use super::sources::parse_source;
 use crate::catalog::{A2UI_BASIC_CATALOG_ID, A2UI_VERSION, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID};
 
@@ -123,7 +124,42 @@ pub fn validate_package<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S]) -> Vec<Pa
             issues.push(issue("/functions", "functions is a list of names or prefix* patterns"));
         }
     }
+    // VAPP-107: `sources` = the binding sources the package's surfaces may
+    // follow; a template binding outside it is an issue.
+    if let Some(sources) = p.get("sources") {
+        match sources.as_array().filter(|list| list.iter().all(|f| f.as_str().is_some_and(|s| !s.is_empty()))) {
+            None => issues.push(issue("/sources", "sources is a list of scheme:name sources or prefix* patterns")),
+            Some(list) => {
+                let allowed: Vec<String> = list.iter().filter_map(Value::as_str).map(str::to_string).collect();
+                for (id, template) in p.get("templates").and_then(Value::as_object).into_iter().flatten() {
+                    for (i, b) in template.get("bindings").and_then(Value::as_array).into_iter().flatten().enumerate() {
+                        if let Some(source) = b.get("source").and_then(Value::as_str).filter(|s| parse_source(s).is_some()) {
+                            if !source_allowed(Some(&allowed), source) {
+                                issues.push(issue(format!("/templates/{id}/bindings/{i}/source"), format!("source {source} is not in the package's sources")));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     issues
+}
+
+/// VAPP-107: may a package whose `sources` list is `allowed` follow this
+/// source URI? `None` = yes; else the URI's `scheme:name` (scheme
+/// lower-cased, the query dropped) must match a listed source exactly or a
+/// `prefix*` pattern.
+pub fn source_allowed(allowed: Option<&[String]>, source: &str) -> bool {
+    let Some(allowed) = allowed else { return true };
+    let Some(parsed) = parse_source(source) else { return false };
+    let name = format!("{}:{}", parsed.scheme, parsed.name);
+    allowed.iter().any(|p| matches_pattern(p, &name) || matches_pattern(p, source))
+}
+
+/// A package's `sources` allowlist (`None` = unset: any source).
+pub fn package_sources(pkg: &Value) -> Option<Vec<String>> {
+    pkg.get("sources").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect())
 }
 
 /// A template as the messages that create it: createSurface, the components,

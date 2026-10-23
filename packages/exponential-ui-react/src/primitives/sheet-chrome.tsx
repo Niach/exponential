@@ -1,13 +1,9 @@
 import * as React from "react"
+import { SHEET_CHROME_CLASSES } from "@exponential-at/ui/web/primitives"
 
 import { cn } from "./cn"
 import type { SheetDragHandleProps } from "./use-sheet-drag"
 
-// EXP-687 — the shared chrome of every mobile bottom sheet, whether it was
-// painted by ui/dialog.tsx's `sheet` arm or by ui/sheet.tsx's `bottom` side.
-// One grabber, one drag gesture, no ✕: the sheet closes by tapping outside or
-// by dragging it down (native parity across iOS/Android/web).
-//
 // Lives in its own module so both primitives can import it without a cycle.
 
 const SheetDragContext = React.createContext<SheetDragHandleProps | null>(null)
@@ -35,7 +31,6 @@ export function useSheetDragHandleProps(): SheetDragHandleProps | null {
   return React.useContext(SheetDragContext)
 }
 
-/** The pill at the top edge of a sheet. Purely decorative, but it drags. */
 export function SheetGrabber({
   className,
   ...props
@@ -47,10 +42,7 @@ export function SheetGrabber({
       aria-hidden
       {...drag}
       {...props}
-      className={cn(
-        `mx-auto mt-2 -mb-1 h-1 w-9 shrink-0 rounded-full bg-foreground/30`,
-        className
-      )}
+      className={cn(SHEET_CHROME_CLASSES.grabber, className)}
     />
   )
 }

@@ -37,6 +37,11 @@ struct BlockTableView: View {
                     }
                 }
             }
+            // EXP-1362: every cell stretches to its row (`maxHeight:
+            // .infinity`), so a Grid PROPOSED more height than it needs
+            // spreads the surplus over every row — a one-line header row
+            // came out three lines tall. Pin the grid to its ideal height.
+            .fixedSize(horizontal: false, vertical: true)
             .overlay {
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(Color(MarkdownStyle.tableBorder), lineWidth: 1)

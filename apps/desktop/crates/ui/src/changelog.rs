@@ -59,17 +59,14 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_67: ChangelogEntry = ChangelogEntry {
-    id: "2026-10-22-new-session-system",
+const PREVIOUS_68: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-22-threads-survive-a-quit",
     date: "2026-10-22",
-    title: "Release 2026-10-22: the new session system, agents with their own conversations, prompts instead of actions, and 15 MCP tools",
-    summary: "Every thread is one session that works itself and is woken by messages; agents are definitions that run as a conversation per member with server-fired triggers and an events stream; prompts replace actions in the / menu and Settings; the MCP surface is 15 noun tools with one runbook; devices re-claim their sessions after a restart and clean up their worktrees.",
-    body: r#"- **A thread is its session**: the root works the task itself, no dispatcher; children are started only when the work calls for them, every child transition lands in the parent as a waking message, and a one-minute watchdog flags a session that stalls. The plan card asks one question at a time, with a stepper.
-- **Agents**: an agent is a definition (name, icon, instructions, device, model) and runs as its own conversation per member; triggers fire from the server on a schedule or on team events, and the Agents page shows the Events stream. Message an agent from the Home composer's + menu; the reply opens in your DM with it.
-- **Prompts replace actions**: a prompt is a name, an icon and a body; it lives in the / menu of every composer and under Settings → Prompts. Inputs, picks and per-action triggers are gone (triggers belong to agents). Existing actions were converted.
-- **15 MCP tools**: one tool per noun (issues, comments, sessions, pr, ...) taking an op, plus sessions_send and guide_write; one runbook under 6 KB written around the bus (end your turn, you are woken by messages). An op you lack errors instead of vanishing.
-- **Devices**: a restarted daemon or IDE re-claims every session its dead process left behind and continues a turn that was cut mid-way; a session's worktree is removed when it ends (uncommitted work becomes a WIP commit on an exp/leftover branch); repo-less runs are confined to their scratch folder; the dispatcher checkout and the handoff package are gone.
-- **Phones**: Android and iPhone follow with the same screens (threads, agents with DMs, Events, Settings → Prompts, prompts in the / menus). The iPhone build you have keeps working until the new one is live; the Android update is required."#,
+    title: "A thread survives an app quit, and a message to an ended thread resumes it",
+    summary: "Quitting the desktop app or losing a thread's process no longer ends the thread: it waits, and your next message resumes the same session with its context. A thread you ended on purpose resumes the same way instead of starting a copy.",
+    body: r#"- **Threads survive their process**: a thread's own session goes idle when the app quits, the daemon stops or the agent crashes, exactly like an agent's conversation; only End or the agent's own close ends it. Sub-sessions still end with their process and report to their parent.
+- **Resume, not copy**: a message to an ended thread resumes that same session (its branch, title, issues and context) instead of starting a one-turn copy that ended after its reply, left your answer unread and showed an identically named session waiting forever.
+- **Desktop quit**: ⌘Q suspends the sessions it hosts the way the daemon already did on stop; their worktrees stay where the agent left them for the resume."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

@@ -538,52 +538,9 @@ fn holds_branch(session_branch: &str, branch: &str) -> bool {
     !session_branch.is_empty() && session_branch == branch
 }
 
-/// In-flight best-effort `codingSessions.end` calls (count + wakeup). The
-/// watcher threads are fire-and-forget in steady state, but on a non-macOS
-/// last-window-close quit the release CASCADE runs before the quit
-/// observers — the release watchers have already emptied [`LocalSessions`]
-/// and spawned their end threads by the time the quit hook fires, and those
-/// threads would race process exit. The hook drains this counter instead of
-/// (only) sweeping the registry.
-static PENDING_ENDS: (std::sync::Mutex<usize>, std::sync::Condvar) =
-    (std::sync::Mutex::new(0), std::sync::Condvar::new());
-
-/// Fire `codingSessions.end` for `session_id` on a plain thread, tracked in
-/// [`PENDING_ENDS`] so the quit hook can wait for it (idempotent
-/// server-side; errors are swallowed — the server sweep is the backstop).
-fn spawn_tracked_end(trpc: Arc<api::TrpcClient>, session_id: String) {
-    {
-        let (count, _) = &PENDING_ENDS;
-        *count.lock().unwrap_or_else(|poison| poison.into_inner()) += 1;
-    }
-    std::thread::spawn(move || {
-        if let Err(err) = api::sessions::end(&trpc, &session_id) {
-            log::debug!("[ui] quit: sessions.end for {session_id} failed: {err}");
-        }
-        let (count, wake) = &PENDING_ENDS;
-        *count.lock().unwrap_or_else(|poison| poison.into_inner()) -= 1;
-        wake.notify_all();
-    });
-}
-
-/// Block until every tracked end resolved or `deadline` passed.
-fn drain_pending_ends(deadline: std::time::Instant) {
-    let (count, wake) = &PENDING_ENDS;
-    let mut pending = count.lock().unwrap_or_else(|poison| poison.into_inner());
-    while *pending > 0 {
-        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
-            return;
-        };
-        pending = wake
-            .wait_timeout(pending, remaining)
-            .unwrap_or_else(|poison| poison.into_inner())
-            .0;
-    }
-}
-
-/// How long the quit hook waits for the best-effort `codingSessions.end`
-/// calls before letting the quit proceed (a dead network must never wedge
-/// ⌘Q; the server staleness sweep remains the backstop).
+/// How long the quit hook waits for the engines' suspend reports before
+/// letting the quit proceed (a dead network must never wedge ⌘Q; the server
+/// watchdog's offline flag and the next start's re-claim are the backstop).
 const QUIT_END_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// EXP-758: the floor under one engine's share of the quit budget. Mirrors
@@ -609,60 +566,45 @@ fn quit_engine_wait(
         .max(QUIT_ENGINE_MIN_WAIT)
 }
 
-/// EXP-105: end every `sessions` row THIS process hosts when the app
-/// quits (⌘Q, last-window close on non-macOS). The per-session exit hook and
-/// watchers die with their entities during teardown — the claude child gets
-/// SIGHUP from its PTY closing, but nothing would end the synced row, so the
-/// "coding now" badge ghosted on every client until the server staleness
-/// sweep. Installed once from `ui::init`.
+/// EXP-105 → FEED-134: SUSPEND every session THIS process hosts when the
+/// app quits (⌘Q, last-window close on non-macOS) — the CLI daemon's stop
+/// rule (`daemon.rs`): a quit is not a person ending the work. Each engine
+/// is killed with [`engine::SUSPEND_OUTCOME`], so its end sequence reports
+/// the row `idle` (not busy) instead of ending it and keeps its worktree or
+/// scratch dir and run record; the next message resumes the SAME row from
+/// that record, exactly as after a crash (NEW-5's re-claim covers an
+/// engine whose idle report never landed). Installed once from `ui::init`.
 ///
 /// The waiting happens IN the observer body, not the returned future: gpui's
 /// `shutdown` only grants quit futures `SHUTDOWN_TIMEOUT` (200ms) — not
 /// enough for HTTPS round trips — while the body runs synchronously before
-/// that clock starts. Sessions still registered end here; sessions the
-/// pre-quit release cascade already handed to their release watchers are
-/// covered by draining [`PENDING_ENDS`] within the same deadline.
+/// that clock starts.
 pub fn install_quit_hook(cx: &mut App) {
     cx.on_app_quit(|cx| {
         // EXP-746: an ACP run's agent is OUR child, not a PTY's — nothing
-        // SIGHUPs it when we go. Kill every engine first so the child dies
-        // with us and the end sequence has the quit window to land in; the
-        // row end below is the same idempotent backstop the retired PTY
-        // path used.
+        // SIGHUPs it when we go. Suspend every engine first so the child dies
+        // with us and the end sequence has the quit window to land in.
         // (Closing a WINDOW deliberately does not do this: an ACP run is not
         // window-bound — that is the point of moving it off the dock.)
         let engines: Vec<engine::EngineSession> = LocalSessions::global_ref(cx)
             .map(|sessions| sessions.read(cx).acp_hosts())
             .unwrap_or_default();
         for session in &engines {
-            session.kill("ended");
+            session.kill(engine::SUSPEND_OUTCOME);
         }
         let deadline = std::time::Instant::now() + QUIT_END_TIMEOUT;
-        let session_ids: Vec<String> = LocalSessions::global_ref(cx)
-            .map(|sessions| sessions.read(cx).session_ids())
-            .unwrap_or_default();
-        let trpc = (!session_ids.is_empty())
-            .then(|| queries::trpc_client(cx).map(Arc::new))
-            .flatten();
-        if let Some(trpc) = trpc {
-            for session_id in session_ids {
-                spawn_tracked_end(Arc::clone(&trpc), session_id);
-            }
-        }
         // EXP-758: a `kill` is only a message to the engine loop. The ACP
         // child dies in the engine thread's `ChildGuard` drop, which our exit
         // never waited for, so ⌘Q with a live codex run orphaned `codex
         // app-server` and every tool subprocess under it (only claude carries
         // the reaper's `claude-hooks` anchor). Wait each engine out on the SAME
-        // deadline the row ends drain against; the network calls above are
-        // already running on their own threads, so the two waits overlap.
+        // deadline, which also covers the idle reports the end sequences send.
         for session in &engines {
             let wait = quit_engine_wait(deadline, std::time::Instant::now());
             if session.wait_timeout(wait).is_none() {
                 log::warn!("[ui] quit: an acp engine did not exit within {wait:?}");
             }
         }
-        drain_pending_ends(deadline);
         // EXP-300: kill agent processes that escaped their PTY. `claude`
         // spawns a daemon that `setsid`s away, so killing the PTY child does
         // not reach it; it survives our exit, stays in our macOS COALITION,

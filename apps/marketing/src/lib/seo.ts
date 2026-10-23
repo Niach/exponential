@@ -5,6 +5,7 @@
    description/canonical/og:/twitter:/ld+json tag is owned here. */
 
 import { PLANS } from "./plans"
+import { blogPages } from "../blog/seo"
 
 export const SITE_ORIGIN = `https://exponential.at`
 export const SITE_NAME = `Exponential`
@@ -301,4 +302,7 @@ export const PAGES: PageSeo[] = [
     description: `Talk to us about Enterprise and running Exponential in-house.`,
     ogImage: `/og/og-default.png`,
   },
+  /* The blog (EXP-1366): the index and one entry per post, from the post
+     registry (src/blog/posts.ts). */
+  ...blogPages(SITE_ORIGIN, SITE_NAME),
 ]

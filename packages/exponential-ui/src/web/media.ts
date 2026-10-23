@@ -1,0 +1,213 @@
+// VAPP-91: the media loader. A source resolves through the host's
+// `mediaRequest` (absolute url + headers, the policy hook that adds auth for
+// /api/attachments) after `resolveUrl`, always under the media policy
+// (VAPP-103: schemes + hosts, `urls.ts`; a denied src loads nothing); a
+// request with headers is fetched once — under `MEDIA_LIMITS` (bytes,
+// timeout) — and shown as a blob url (an <img> cannot send headers). A
+// direct <img> load is the browser's (its own decode limits).
+//
+// Video/Audio are STREAMS (`kind: "stream"`, catalog/host.json: the policy
+// applies, the player's byte limits do not): a request with headers goes
+// to the host's `mediaStreamUrl` (a signed / cookie-authed url the player
+// streams and seeks, re-checked against the policy) when it has one, else
+// it is fetched whole into a blob url under `MEDIA_LIMITS.maxBytes` and a
+// `MEDIA_LIMITS.timeoutMs` total timeout (VAPP-107: a whole-fetch past
+// either fails like a 404; a long video needs `mediaStreamUrl`). No pixel
+// check on a stream. A poster is an image.
+//
+// Blob urls pin their bytes until revoked, so the cache is bounded: every
+// mounted consumer holds a reference; an entry nobody holds stays cached
+// (a re-mounted row, a virtualized list scrolling back, shows it at once)
+// until more than MEDIA_CACHE_IDLE_MAX idle entries exist, when the least
+// recently released one is dropped and its url revoked. An entry in use is
+// never evicted.
+//
+// FEED-128: hoisted from the React renderer: the cache, the fetchers and
+// `openMediaSource` (one source's plan + load) are framework-free; a
+// renderer wraps them in its reactivity (React: `useMediaSource`).
+
+import { MEDIA_LIMITS, mediaImageWithinLimits } from "@exponential-at/ui"
+import type { AnyHostPlugin as HostPlugin } from "./host-types"
+import { mediaRequestOf, mediaUrlAllowed } from "./urls"
+
+/** What a source feeds: an image (the limits hold) or a player stream. */
+export type MediaKind = `image` | `stream`
+
+/** How many fetched media nobody shows stay cached (their blob urls live). */
+export const MEDIA_CACHE_IDLE_MAX = 64
+
+export interface MediaCacheEntry {
+  promise: Promise<string>
+  /** Set once the fetch resolved. */
+  url?: string
+  /** Mounted consumers. */
+  refs: number
+}
+
+/** Insertion order = recency (acquire/release move an entry to the end). */
+const blobs = new Map<string, MediaCacheEntry>()
+
+export function mediaCacheKey(url: string, headers: Record<string, string>): string {
+  return `${url}\n${JSON.stringify(headers)}`
+}
+
+function touch(k: string, e: MediaCacheEntry): void {
+  blobs.delete(k)
+  blobs.set(k, e)
+}
+
+export function acquireMedia(k: string, load: () => Promise<string>): MediaCacheEntry {
+  let e = blobs.get(k)
+  if (!e) {
+    const entry: MediaCacheEntry = { refs: 0, promise: Promise.resolve(``) }
+    entry.promise = load().then((url) => {
+      entry.url = url
+      // Evicted (or failed over) while loading: nobody can use it.
+      if (blobs.get(k) !== entry) URL.revokeObjectURL(url)
+      return url
+    })
+    entry.promise.catch(() => {
+      if (blobs.get(k) === entry) blobs.delete(k)
+    })
+    e = entry
+  }
+  e.refs += 1
+  touch(k, e)
+  return e
+}
+
+export function releaseMedia(k: string, e: MediaCacheEntry): void {
+  e.refs -= 1
+  if (e.refs > 0 || blobs.get(k) !== e) return
+  touch(k, e)
+  let idle = 0
+  for (const v of blobs.values()) if (v.refs === 0) idle += 1
+  for (const [ok, v] of blobs) {
+    if (idle <= MEDIA_CACHE_IDLE_MAX) break
+    if (v.refs > 0) continue
+    blobs.delete(ok)
+    if (v.url) URL.revokeObjectURL(v.url)
+    idle -= 1
+  }
+}
+
+/** The cache's size (tests). */
+export function mediaCacheStats(): { entries: number; inUse: number } {
+  let inUse = 0
+  for (const v of blobs.values()) if (v.refs > 0) inUse += 1
+  return { entries: blobs.size, inUse }
+}
+
+/** Drop every idle entry and revoke its url (tests, a host that logs out). */
+export function clearMediaCache(): void {
+  for (const [k, v] of blobs) {
+    if (v.refs > 0) continue
+    blobs.delete(k)
+    if (v.url) URL.revokeObjectURL(v.url)
+  }
+}
+
+/** One source, planned: `direct` = the url to use as is (no headers, or
+ *  undefined when the policy denies it), `denied` = the policy refused a
+ *  non-empty src, `key` = the cache identity of a FETCHED source ('' when
+ *  direct), `open()` = start (or join) its load: the url promise and the
+ *  release a consumer calls when it unmounts. */
+export interface MediaSourcePlan {
+  fetched: boolean
+  key: string
+  direct: string | undefined
+  denied: boolean
+  open: () => { promise: Promise<string>; release: () => void }
+}
+
+export function openMediaSource(host: HostPlugin, src: string, kind: MediaKind = `image`): MediaSourcePlan {
+  const req = mediaRequestOf(host, src)
+  const headers = req?.headers ?? {}
+  const fetched = req !== null && Object.keys(headers).length > 0
+  const k = fetched ? `${kind}\n${mediaCacheKey(req.url, headers)}` : ``
+  return {
+    fetched,
+    key: k,
+    direct: req ? req.url : undefined,
+    denied: Boolean(src) && req === null,
+    open: () => {
+      if (!req || !fetched) return { promise: Promise.resolve(req ? req.url : ``), release: () => {} }
+      const hosted = kind === `stream` && host.mediaStreamUrl !== undefined
+      const entry = hosted ? streamEntry(host, req) : acquireMedia(k, () => (kind === `stream` ? fetchStream(req.url, headers) : fetchLimited(req.url, headers)).then((b) => URL.createObjectURL(b)))
+      return { promise: entry.promise, release: hosted ? () => {} : () => releaseMedia(k, entry) }
+    },
+  }
+}
+
+/** A host stream url (never cached here, never revoked: the host owns
+ *  it), re-checked against the media policy. */
+export function streamEntry(host: HostPlugin, req: { url: string; headers: Record<string, string> }): MediaCacheEntry {
+  const promise = Promise.resolve(host.mediaStreamUrl!(req)).then((url) => {
+    if (typeof url !== `string` || !mediaUrlAllowed(host, url)) throw new Error(`stream url denied by the media policy`)
+    return url
+  })
+  return { promise, refs: 0 }
+}
+
+/** A Video/Audio fetch (no `mediaStreamUrl`): the whole body into a blob
+ *  under `maxBytes` (Content-Length up front, then as it streams) and
+ *  `timeoutMs` for the WHOLE download (VAPP-107); no pixel check. */
+export function fetchStream(url: string, headers: Record<string, string>, limits: { maxBytes: number; timeoutMs: number } = MEDIA_LIMITS): Promise<Blob> {
+  return fetchLimited(url, headers, { ...limits, maxPixels: Infinity }, false)
+}
+
+/** A fetch under `MEDIA_LIMITS`: the whole request within `timeoutMs`, the
+ *  body (Content-Length up front, then as it streams) within `maxBytes`, an
+ *  image's width × height × frames within `maxPixels` before any decode
+ *  (`mediaImageWithinLimits`: SVG sizes count, an unreadable raster is
+ *  refused; `image = false` skips that check: a stream's bytes are not
+ *  an image). */
+export async function fetchLimited(url: string, headers: Record<string, string>, limits: { maxBytes: number; timeoutMs: number; maxPixels: number } = MEDIA_LIMITS, image = true): Promise<Blob> {
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(new Error(`media timed out after ${limits.timeoutMs} ms`)), limits.timeoutMs)
+  const over = () => new Error(`media is over ${limits.maxBytes} bytes`)
+  try {
+    const r = await fetch(url, { headers, signal: abort.signal })
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+    if (Number(r.headers.get(`content-length`) ?? NaN) > limits.maxBytes) throw over()
+    const chunks: Uint8Array[] = []
+    let total = 0
+    if (r.body) {
+      const reader = r.body.getReader()
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        total += value.byteLength
+        if (total > limits.maxBytes) {
+          abort.abort()
+          throw over()
+        }
+        chunks.push(value)
+      }
+    } else {
+      const all = new Uint8Array(await r.arrayBuffer())
+      if (all.byteLength > limits.maxBytes) throw over()
+      chunks.push(all)
+    }
+    // The whole body: SVG sizes, animation frames and unreadable rasters
+    // follow the core's pixel × frame rule (gpui, SwiftUI, Compose alike).
+    if (image) {
+      const refused = mediaImageWithinLimits(chunks.length === 1 ? chunks[0]! : concat(chunks), limits)
+      if (refused) throw new Error(refused)
+    }
+    return new Blob(chunks as BlobPart[], { type: r.headers.get(`content-type`) ?? `` })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function concat(chunks: readonly Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0))
+  let at = 0
+  for (const c of chunks) {
+    out.set(c, at)
+    at += c.byteLength
+  }
+  return out
+}
+

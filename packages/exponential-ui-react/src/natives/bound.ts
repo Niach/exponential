@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useSurfaceContext } from "../context"
-import { boundPath } from "../data"
+import { boundPath } from "@exponential-at/ui/web"
 import type { NativeProps } from "../node-view"
 
 export function useBoundState<T>(node: NativeProps[`node`], scope: string, prop: string, external: T, key: (v: T) => string = (v) => JSON.stringify(v) ?? ``): [T, (next: T, written?: unknown) => void, string | undefined] {

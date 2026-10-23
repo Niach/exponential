@@ -6,6 +6,7 @@ import promptBudget from "@exponential-at/ui/fixtures/prompt-budget.json"
 import { DocsCallout, DocsCode, DocsLayout, DocsSection } from "@exp/site-shell"
 import { DocsTable, IcArrow } from "../components/Content"
 import { GuideFile } from "../components/GuideFile"
+import { LIMITS, MEDIA_LIMITS } from "@exponential-at/ui"
 import { CORE_CATALOG as CATALOG_ID, FUNCTION_COUNT } from "../lib/catalog-facts"
 import { CHECK_DIR, GUIDE_CHECK, GUIDES_NAV } from "../lib/content"
 import { GUIDES, guidePath } from "../lib/guides"
@@ -83,6 +84,249 @@ return <ExponentialSurface surface={surface} theme="neutral" mode="light" host={
             More in the {SDK_README(`packages/exponential-ui-react/README.md`, `React renderer's README`)}: how a
             theme becomes scoped CSS, overlays, windowed lists and painter overrides.
           </p>
+        </>
+      ),
+    },
+    {
+      id: `primitives`,
+      label: `Primitives`,
+      body: (
+        <>
+          <p>
+            The app around a surface can use the same components: <code>@exponential-at/ui-react/primitives</code>{` `}
+            is the shadcn set on Radix (button, dialog, select, table, command, toast, calendar…). Import its compiled
+            stylesheet once. Inside a surface they wear its theme; outside one,{` `}
+            <code>globalsCss(theme)</code> from <code>@exponential-at/ui/web</code> writes the theme as shadcn
+            variables.
+          </p>
+          <DocsCode language="tsx">{`import "@exponential-at/ui-react/styles.css"
+import { builtinTheme } from "@exponential-at/ui"
+import { globalsCss } from "@exponential-at/ui/web"
+import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger, Toaster, toast } from "@exponential-at/ui-react/primitives"
+
+const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in a <style>
+<Dialog>
+  <DialogTrigger asChild><Button>Open</Button></DialogTrigger>
+  <DialogContent><DialogTitle>Saved views</DialogTitle></DialogContent>
+</Dialog>
+<Button variant="outline" onClick={() => toast.success("Saved")}>Save</Button>
+<Toaster />`}</DocsCode>
+        </>
+      ),
+    },
+  ],
+
+  solid: [
+    {
+      id: `install`,
+      label: `Install`,
+      body: (
+        <>
+          <p>
+            Two packages: <code>@exponential-at/ui</code> (the catalog, themes, reducer and host runtime) and{` `}
+            <code>@exponential-at/ui-solid</code> (the renderer). Solid 1.9 with{` `}
+            <code>vite-plugin-solid</code>; the surface injects its own styles, so there is no stylesheet setup.
+          </p>
+          <DocsCode>{`npm install @exponential-at/ui @exponential-at/ui-solid solid-js`}</DocsCode>
+          <Unpublished>
+            Until then, pack the tarballs from a checkout of the repo and install those:
+          </Unpublished>
+          <DocsCode>{`bun samples/exponential-ui/pack-local.ts      # → samples/exponential-ui/.packs/*.tgz
+npm install ../exponential/samples/exponential-ui/.packs/exponential-at-ui-0.1.0.tgz \\
+            ../exponential/samples/exponential-ui/.packs/exponential-at-ui-solid-0.1.0.tgz`}</DocsCode>
+          <GuideFile path="solid/package.json" caption="the whole dependency list" />
+          <GuideFile path="solid/vite.config.ts" />
+        </>
+      ),
+    },
+    {
+      id: `paint`,
+      label: `Paint a surface`,
+      body: (
+        <>
+          <p>
+            <code>createSurface</code> reduces A2UI messages into a tree and a data model (a Solid store);{` `}
+            <code>&lt;ExponentialSurface&gt;</code> paints it in a theme and a mode. The plugin object takes icons,{` `}
+            <code>onAction</code>, <code>onInput</code>, <code>openUrl</code> and extra functions.
+          </p>
+          <GuideFile path="solid/src/App.tsx" />
+          <p>
+            The DOM, the compiled stylesheet and the themes are the React renderer's, checked case by case in
+            headless Chromium (DOM, computed styles, frames and pixels).
+          </p>
+        </>
+      ),
+    },
+    {
+      id: `with-host`,
+      label: `With a host`,
+      body: (
+        <>
+          <p>
+            One <code>ExponentialHost</code> per app reads messages from a transport and posts actions back;{` `}
+            <code>&lt;HostSurface&gt;</code> paints one of its surfaces by id, with a fallback until the agent has
+            created it.
+          </p>
+          <DocsCode language="tsx">{`const host = new ExponentialHost({ transport: new JsonlStreamTransport({ url: "/a2ui.jsonl", postUrl: "/action" }) })
+onMount(() => host.connect()); onCleanup(() => host.close())
+return <HostSurface host={host} surfaceId="main" theme="orange" fallback={<p>Waiting for the agent…</p>} />`}</DocsCode>
+          <p>
+            Extensions use <code>defineSolidExtension</code>; the hooks have Solid names (<code>createSurface</code>,{` `}
+            <code>createHostSurface</code>, <code>createField</code>). More in the{` `}
+            {SDK_README(`packages/exponential-ui-solid/README.md`, `Solid renderer's README`)}.
+          </p>
+          <GuideFile path="solid/src/TrendLine.tsx" />
+        </>
+      ),
+    },
+    {
+      id: `define`,
+      label: `A surface in TypeScript`,
+      body: (
+        <>
+          <p>
+            <code>defineSurface</code> from <code>@exponential-at/ui</code> works unchanged in a Solid project: the
+            typed tree becomes the same messages an agent sends, and <code>createSurface</code> applies them. Nothing
+            Solid-specific is needed; the file compiles under this project&apos;s tsconfig and runs under Node.
+          </p>
+          <GuideFile path="solid/src/defined.ts" caption="the typed DSL, as in the TypeScript guide" />
+          <GuideFile path="solid/src/Defined.tsx" caption="painted by the Solid renderer" />
+        </>
+      ),
+    },
+    {
+      id: `primitives`,
+      label: `Primitives`,
+      body: (
+        <>
+          <p>
+            <code>@exponential-at/ui-solid/primitives</code> is the React primitive set on Solid, with the same DOM and
+            classes (one set of recipes, checked against React in headless Chromium).{` `}
+            <code>@exponential-at/ui-solid/styles.css</code> is the same stylesheet as React's;{` `}
+            <code>globalsCss(theme)</code> from <code>@exponential-at/ui/web</code> themes them outside a surface.
+            The names differ in three ways: <code>class</code> for <code>className</code>, <code>as</code> for{` `}
+            <code>asChild</code>, and <code>create*</code> for the <code>use*</code> hooks.
+          </p>
+          <DocsCode language="tsx">{`import "@exponential-at/ui-solid/styles.css"
+import { builtinTheme } from "@exponential-at/ui"
+import { globalsCss } from "@exponential-at/ui/web"
+import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger, Toaster, toast } from "@exponential-at/ui-solid/primitives"
+
+const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in a <style>
+<Dialog>
+  <DialogTrigger as={Button}>Open</DialogTrigger>
+  <DialogContent><DialogTitle>Saved views</DialogTitle></DialogContent>
+</Dialog>
+<Button variant="outline" class="ml-2" onClick={() => toast.success("Saved")}>Save</Button>
+<Toaster />`}</DocsCode>
+          <p>
+            Six React modules are the Exponential app's own and have no Solid twin: <code>glass-rows</code>,{` `}
+            <code>typeahead</code>, <code>composer</code>, <code>trace</code>, <code>pill</code> and{` `}
+            <code>segmented-bar</code>.
+          </p>
+        </>
+      ),
+    },
+  ],
+
+  element: [
+    {
+      id: `install`,
+      label: `Install`,
+      body: (
+        <>
+          <p>
+            Two packages: <code>@exponential-at/ui</code> (the catalog, themes, reducer and host runtime) and{` `}
+            <code>@exponential-at/ui-element</code> (the custom element <code>{`<exponential-surface>`}</code>). No
+            framework in the page and no framework plugin in Vite; the element brings the Solid painter and its own
+            styles.
+          </p>
+          <DocsCode>{`npm install @exponential-at/ui @exponential-at/ui-element`}</DocsCode>
+          <Unpublished>
+            Until then, pack the tarballs from a checkout of the repo and install those:
+          </Unpublished>
+          <DocsCode>{`bun samples/exponential-ui/pack-local.ts      # → samples/exponential-ui/.packs/*.tgz
+npm install ../exponential/samples/exponential-ui/.packs/exponential-at-ui-0.1.0.tgz \\
+            ../exponential/samples/exponential-ui/.packs/exponential-at-ui-solid-0.1.0.tgz \\
+            ../exponential/samples/exponential-ui/.packs/exponential-at-ui-element-0.1.0.tgz`}</DocsCode>
+          <GuideFile path="element/package.json" caption="the whole dependency list" />
+          <GuideFile path="element/vite.config.ts" />
+          <p>
+            Without a bundler, <code>@exponential-at/ui-element/standalone</code> is one self-contained ES module:
+          </p>
+          <DocsCode language="html">{`<script type="module" src="/vendor/exponential-ui-element/standalone.js"></script>`}</DocsCode>
+        </>
+      ),
+    },
+    {
+      id: `paint`,
+      label: `Paint a surface`,
+      body: (
+        <>
+          <p>
+            Importing <code>@exponential-at/ui-element/define</code> registers the element. Its attributes are the
+            surface's options (<code>theme</code>, <code>mode</code>, <code>density</code>, <code>locale</code>,{` `}
+            <code>direction</code>, <code>width</code>, <code>surface-id</code>); the host box is{` `}
+            <code>display: contents</code>, so the surface root is the box.
+          </p>
+          <GuideFile path="element/index.html" />
+          <p>
+            <code>apply(message)</code> takes A2UI v0.9 server messages; the element keeps the tree and the data
+            model.
+          </p>
+          <GuideFile path="element/src/main.ts" />
+          <p>
+            Everything the user does arrives as a bubbling <code>CustomEvent</code>: <code>xui-action</code>,{` `}
+            <code>xui-input</code> and <code>xui-upload</code> (<code>detail.waitUntil(promise)</code> keeps the
+            control pending), <code>xui-function-call</code> (<code>detail.respond(value)</code>),{` `}
+            <code>xui-open-url</code> (cancelable), <code>xui-ready</code>, <code>xui-status</code>,{` `}
+            <code>xui-paint-error</code>. The DOM, the compiled stylesheet and the themes are the React renderer's,
+            checked case by case in headless Chromium (DOM, computed styles, frames and pixels).
+          </p>
+        </>
+      ),
+    },
+    {
+      id: `with-host`,
+      label: `With a host`,
+      body: (
+        <>
+          <p>
+            <code>src</code> builds an <code>ExponentialHost</code> on the matching transport (<code>transport</code>{` `}
+            = <code>jsonl</code>, <code>sse</code> or <code>ws</code>; <code>ws:</code> URLs pick WebSocket),
+            connects when the element is attached and closes when it is removed; <code>post</code> is where actions
+            go.
+          </p>
+          <DocsCode language="html">{`<exponential-surface src="/a2ui.jsonl" post="/action" surface-id="main" theme="orange"></exponential-surface>`}</DocsCode>
+          <p>
+            Or hand it your own host, a theme JSON and a host plugin as properties:
+          </p>
+          <DocsCode language="ts">{`el.host = new ExponentialHost({ transport: new JsonlStreamTransport({ url: "/a2ui.jsonl", postUrl: "/action" }) })
+el.theme = brandJson
+el.plugin = { icons: iconsFromSvg((name) => svgFor(name)), openUrl: (url) => window.open(url) }`}</DocsCode>
+          <p>
+            Extensions use <code>defineElementExtension</code>: a painter is a plain function from a context (props,
+            theme, mode, <code>applyRootProps</code>, <code>children()</code>) to an <code>Element</code>, run again
+            when they change. More in the{` `}
+            {SDK_README(`packages/exponential-ui-element/README.md`, `web component's README`)}.
+          </p>
+          <GuideFile path="element/src/TrendLine.ts" />
+        </>
+      ),
+    },
+    {
+      id: `define`,
+      label: `A surface in TypeScript`,
+      body: (
+        <>
+          <p>
+            <code>defineSurface</code> from <code>@exponential-at/ui</code> works unchanged in a plain Vite project:
+            the typed tree becomes the same messages an agent sends, and <code>apply()</code> on the element takes
+            them. Nothing element-specific is needed; the file compiles under this project&apos;s tsconfig and runs
+            under Node.
+          </p>
+          <GuideFile path="element/src/defined.ts" caption="the typed DSL, as in the TypeScript guide" />
+          <GuideFile path="element/src/mount-defined.ts" caption="painted by <exponential-surface>" />
         </>
       ),
     },
@@ -325,6 +569,8 @@ cd packages/exponential-ui-compose
             head={[`Platform`, `Load`]}
             rows={[
               [`React`, <code key="c">{`<HostSurface theme={brandJson} … />`}</code>],
+              [`Solid`, <code key="c">{`<ExponentialSurface theme={brandJson} … />`}</code>],
+              [`Web component`, <code key="c">{`<exponential-surface theme="orange"> · el.theme = brandJson`}</code>],
               [`TypeScript`, <code key="c">{`validateTheme(json) · loadTheme(json, { themes: BUILTIN_THEMES })`}</code>],
               [`SwiftUI`, <code key="c">{`ThemeHandle.load(json:) · model.setTheme(…)`}</code>],
               [`Compose`, <code key="c">{`ThemeHandle.load(json, parents) · model.setTheme(…)`}</code>],
@@ -370,6 +616,8 @@ cd packages/exponential-ui-compose
             head={[`Platform`, `Register`]}
             rows={[
               [`React`, <code key="c">{`defineReactExtension({ catalog, components }) · registerExtension(…)`}</code>],
+              [`Solid`, <code key="c">{`defineSolidExtension({ catalog, components }) · registerExtension(…)`}</code>],
+              [`Web component`, <code key="c">{`defineElementExtension({ catalog, components }) · el.extensions = […]`}</code>],
               [`SwiftUI`, <code key="c">{`ExponentialUI.register(extension: json, painters: [kind: painter])`}</code>],
               [`Compose`, <code key="c">{`ExponentialUi.register(extensionJson, mapOf(kind to painter))`}</code>],
               [`gpui`, <code key="c">{`view.register_painter("TrendLine", Box::new(MyTrendLine))`}</code>],
@@ -450,9 +698,17 @@ cd packages/exponential-ui-compose
         <>
           <p>
             <code>openUrl</code> and <code>Link</code> go through the URL policy: allowed schemes (default{` `}
-            <code>https http mailto tel</code>), an optional host allowlist, relative URLs against a base. Media
-            rules add headers to matching image requests, for example an authorization header for your own API and
-            nothing for anyone else's.
+            <code>https http mailto tel</code>; <code>schemes: ["https"]</code> for https only), an optional host
+            allowlist, relative URLs against a base. Media rules add headers to matching image requests, for example
+            an authorization header for your own API and nothing for anyone else's.
+          </p>
+          <p>
+            Private hosts are denied by default, for links and media alike: <code>localhost</code>, <code>*.local</code>
+            , loopback, link-local (the cloud metadata address included) and the private IPv4 and IPv6 ranges. A host
+            opts names back in with <code>allowPrivate: ["localhost"]</code> (a dev setup) or <code>["*"]</code>; a
+            <code>hosts</code> allowlist alone does not. The check is on the literal address after URL normalization
+            and never resolves a name. The whole model, limits included, is on the{` `}
+            <a href="/guides/security/">security page</a>.
           </p>
           <p>
             The rules are the same on every platform: they are written once in{` `}
@@ -535,11 +791,17 @@ cd packages/exponential-ui-compose
               [<code key="v">catalogPrompt()</code>, promptBudget.full.components, `≈ ${promptBudget.full.tokens.toLocaleString(`en-US`)}`],
               [<code key="v">{`{ lite: true }`}</code>, promptBudget.lite.components, `≈ ${promptBudget.lite.tokens.toLocaleString(`en-US`)}`],
               [<code key="v">{`{ terse: true }`}</code>, promptBudget.terse.components, `≈ ${promptBudget.terse.tokens.toLocaleString(`en-US`)}`],
+              [<code key="v">{`{ sections: ["rules", "index", "functions", "style"] }`}</code>, `${promptBudget.index.components} (one line each)`, `≈ ${promptBudget.index.tokens.toLocaleString(`en-US`)}`],
+              [<code key="v">{`{ sections: ["rules"] }`}</code>, `–`, `≈ ${promptBudget.rules.tokens.toLocaleString(`en-US`)}`],
+              [<code key="v">componentPrompt(name)</code>, `1`, `≈ ${promptBudget.perComponent.meanTokens} on average`],
             ]}
           />
           <p>
-            Pass <code>extensions</code> to include yours. The <a href="/playground/">playground</a> shows the
-            prompt in full.
+            The prompt is sectioned: <code>sections</code> picks what to print, <code>only</code> narrows the component
+            blocks to the ones a task needs, and <code>componentPrompt(name)</code> is one component&apos;s block on
+            demand. A host serves the rules and the index first and answers a model&apos;s request for a component with
+            its block, which is how the <a href="/eval/">ergonomics eval</a> measured the cheapest prompt. Pass{` `}
+            <code>extensions</code> to include yours. The <a href="/playground/">playground</a> shows every variant in full.
           </p>
         </>
       ),
@@ -578,7 +840,179 @@ cd packages/exponential-ui-compose
       ),
     },
   ],
+  security: [
+    {
+      id: `model`,
+      label: `What a surface can do`,
+      body: (
+        <>
+          <p>
+            A surface is <strong>data</strong>: A2UI messages describing a tree of catalog components, a data model
+            and the actions wired to them. There is no script, no HTML passthrough, no iframe or webview, and no
+            component that downloads code. The expression language is a closed operator set over the data model; the
+            client functions are the catalog's built-ins plus whatever the host registers by name. Themes are data
+            too: colours as hex, fonts by family (system or host-supplied), recipes as style objects. Extensions and
+            painter overrides are host code you compile in, never something a surface can send.
+          </p>
+          <p>
+            Every renderer replays the same fixtures, so what a surface can and cannot do is identical on React,
+            SolidJS, the <code>{`<exponential-surface>`}</code> web component, SwiftUI, Compose and gpui. The web
+            renderers share one URL and media filter (the web layer of <code>@exponential-at/ui</code>); the web
+            component's <code>src</code> and <code>post</code> pass it too, before a transport exists, and its
+            standalone bundle carries it. The Rust core behind the three native painters is fuzzed nightly; the
+            TypeScript reference runs property tests on the same modules.
+          </p>
+          <DocsTable
+            head={[`A surface can`, `A surface cannot`]}
+            rows={[
+              [`Compose any catalog component with props, slots, styles and conditions`, `Run code of any kind, or load a component that is not in the catalog or a registered extension`],
+              [`Bind props to its data model and to host sources the host registered (and a package listed)`, `Read anything outside its own data model, or follow a source its package did not list`],
+              [`Call the built-in client functions, and host functions by name through the policy gate`, `Call a host function the host did not register, or one the policy denies`],
+              [`Link to and load media from URLs the URL and media policy allow`, `Open javascript:, file: or data: links, or reach private, loopback and link-local hosts unless the host opts them in`],
+              [`Ask for a theme by id or send one as JSON`, `Make a renderer fetch a font or image from somewhere the media policy denies, or crash it with a bad theme (the default stands in)`],
+            ]}
+          />
+        </>
+      ),
+    },
+    {
+      id: `host`,
+      label: `The host's responsibilities`,
+      body: (
+        <>
+          <p>
+            The host is the boundary. Four things are yours to decide, all plain options of <code>ExponentialHost</code>
+            {` `}(see <a href="/guides/host-plugins/">Write a host plugin</a>):
+          </p>
+          <DocsTable
+            head={[`Hook`, `What it decides`, `Default`]}
+            rows={[
+              [<code key="f">functions</code>, `Which registered host functions a surface may call: deny wins, then allow, then ask (your consent hook), then default; a package's functions list narrows it further.`, `allow for a registered name; built-ins always run`],
+              [<code key="s">sources</code>, `Which binding sources a package's surfaces may follow (sources on the package), matched as scheme:name or a prefix.`, `any registered scheme`],
+              [<code key="u">urls</code>, `Allowed schemes, an optional host allowlist, the base for relative URLs, and allowPrivate for the private hosts you opt back in.`, `https http mailto tel; private hosts denied`],
+              [<code key="m">media</code>, `The same for every src, plus the header rules that add auth to your own API; mediaStreamUrl for authed video.`, `https http data; private hosts denied; file only when listed`],
+            ]}
+          />
+          <p>
+            The consent hook is where a person says yes or no to an <strong>ask</strong> decision. The Exponential app's
+            card names the tool and shows its arguments; a destructive-sounding call takes the destructive answer.
+            Make yours show the same two things: a name alone is not enough to decide.
+          </p>
+          <DocsCallout kind="warn" title="Private hosts and DNS">
+            The private-host rule is on the literal address after URL normalization (<code>2130706433</code> and{` `}
+            <code>0x7f.1</code> are loopback too). It never resolves a name: a public name that resolves to a private
+            address is your network's job (egress rules, a filtering resolver). Opt in by name, never with{` `}
+            <code>["*"]</code> outside a dev setup.
+          </DocsCallout>
+        </>
+      ),
+    },
+    {
+      id: `limits`,
+      label: `The limits`,
+      body: (
+        <>
+          <p>
+            Every core enforces the same input limits; past one, the input is refused with an issue and no work is
+            done. Media loads are capped before anything decodes.
+          </p>
+          <DocsTable
+            head={[`Limit`, `Value`, `What happens past it`]}
+            rows={[
+              [`Components per surface`, String(LIMITS.maxComponents), `the rest is dropped, one issue`],
+              [`Nesting depth`, String(LIMITS.maxDepth), `a deeper node is the Unknown placeholder`],
+              [`One server message`, `${Math.round(LIMITS.maxMessageBytes / 1048576)} MiB`, `INVALID_MESSAGE`],
+              [`Template items`, String(LIMITS.maxTemplateItems), `the rest is not rendered`],
+              [`A data pointer`, `${LIMITS.maxPointerBytes} bytes, ${LIMITS.maxPointerSegments} segments`, `the write is refused`],
+              [`An image`, `${Math.round(MEDIA_LIMITS.maxBytes / 1048576)} MiB, ${MEDIA_LIMITS.timeoutMs / 1000} s, ${Math.round(MEDIA_LIMITS.maxPixels / 1048576)} Mpx across every frame`, `fails like a 404; the fallback paints`],
+              [`Video / audio without mediaStreamUrl (React, SolidJS, the web component)`, `the same bytes and seconds for the whole download`, `fails like a 404`],
+            ]}
+          />
+          <p>
+            The Rust core's recursive passes grow their stack on the heap when a host thread runs low, so an iOS
+            secondary thread never decides. A panic inside the core never crosses the FFI: a call that cannot throw
+            answers a safe empty value, a call that can throw answers <code>UiError.Panic</code>, and the surface
+            stays usable. Deep or wide inputs are the fuzzers' bread and butter; the nightly job runs every target with
+            address sanitizer.
+          </p>
+        </>
+      ),
+    },
+    {
+      id: `report`,
+      label: `How to report`,
+      body: (
+        <>
+          <p>
+            Found a way for a surface to do something on this page's right-hand column? Please do not open a public
+            issue. Write to <a href="mailto:security@exponential.at">security@exponential.at</a> with the message that
+            triggers it (JSON or JSONL) and the renderer and version. You get an answer within three working days, a
+            fix lands as a patch release of every affected package, and the fixture that locks it joins the
+            conformance suite so it can never regress on any platform.
+          </p>
+          <p>
+            Hardening that is not a vulnerability (a limit you would tune, a policy option you miss) is a regular
+            issue on the <a href={LINKS.repo}>repository</a>.
+          </p>
+        </>
+      ),
+    },
+  ],
 }
+
+const DEFINE_SECTIONS: Section[] = [
+  {
+    id: `why`,
+    label: `Why a DSL`,
+    body: (
+      <>
+        <p>
+          A surface is a flat list of JSON components: fine for a model, tedious for a person. <code>defineSurface</code>{` `}
+          takes a nested, typed tree instead. Every component is a factory on <code>ui</code> whose props autocomplete
+          from the catalog (<code>ComponentProps</code>, generated from the same catalog the renderers read), so a
+          misspelt prop or a wrong enum is a type error, and the result is the same flat list an agent would send.
+        </p>
+        <GuideFile path="define/package.json" caption="one dependency" />
+      </>
+    ),
+  },
+  {
+    id: `write`,
+    label: `Write a surface`,
+    body: (
+      <>
+        <p>
+          <code>ui.Stack(props, children)</code> nests; the third argument carries what is not a prop: an explicit{` `}
+          <code>id</code>, <code>style</code>, <code>on</code>, <code>visible</code>, <code>slots</code>. A List renders one
+          template per item of a data path: <code>{`{ template, path, key }`}</code> as its children. <code>bind(path)</code>{` `}
+          reads the data model (relative inside a template), <code>call(name, args)</code> computes, <code>event(name)</code>{` `}
+          sends an action to you and <code>run(name, args)</code> runs a client function.
+        </p>
+        <GuideFile path="define/surface.ts" />
+      </>
+    ),
+  },
+  {
+    id: `validate`,
+    label: `Validate and send`,
+    body: (
+      <>
+        <p>
+          <code>defineSurface</code> never throws on a bad surface: it returns <code>issues</code> from the same reducer
+          the renderers use (a literal-only prop given a binding, an unknown icon, a missing required prop), the flat{` `}
+          <code>components</code>, the <code>messages</code> (createSurface, updateComponents, one updateDataModel per
+          data path) and their <code>jsonl</code>. Hand the messages to any host from the render guides, or embed them in
+          a app template. Ids are assigned top-down (<code>root</code>, then <code>row-1</code>, <code>row-2</code>…)
+          unless you name a node.
+        </p>
+        <DocsCode language="ts">{`const surface = defineSurface(tree, { surfaceId: "devices", data: { "/devices": rows } })
+if (surface.issues.length) throw new Error(surface.issues.map((i) => i.id + ": " + i.message).join("\n"))
+host.receive(surface.messages) // or: transport.send(surface.jsonl)`}</DocsCode>
+      </>
+    ),
+  },
+]
+GUIDE_SECTIONS.define = DEFINE_SECTIONS
 
 function CiSection({ slug }: { slug: string }) {
   const check = GUIDE_CHECK[slug]
@@ -593,7 +1027,7 @@ function CiSection({ slug }: { slug: string }) {
       <DocsCode>{`bun apps/ui-site/guides/check.ts ${check}`}</DocsCode>
       <p>
         For a complete app on this platform, see the{` `}
-        <a href={LINKS.source(`samples/exponential-ui`)}>samples</a>: four hosts rendering the same surface from a
+        <a href={LINKS.source(`samples/exponential-ui`)}>samples</a>: six hosts rendering the same surface from a
         local A2UI server, in a third-party theme, with a custom extension component.
       </p>
     </>

@@ -55,6 +55,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "fast-check": "^4.3.0",
     "jsdom": "^27.0.0",
     "playwright": "^1.54.2",
     "react": "^19.2.0",

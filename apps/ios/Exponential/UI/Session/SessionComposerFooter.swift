@@ -69,62 +69,65 @@ struct SessionComposerFooter: View {
     var body: some View {
         // ONE row that claims the tools slot's width (`layoutPriority`), so
         // `GlassComposer`'s own spacer collapses and the ring sits beside Send.
-        HStack(spacing: GlassComposerTokens.toolSpacing) {
-            // EXP-850 §13: the steer composers attach with the `ui-add` (plus)
-            // concept ×4; `editor-image` stays the comment/description glyph.
-            GlassComposerToolButton(
-                AppIcons.uiAdd,
-                accessibilityLabel: onPlus == nil ? "Add file or image" : ComposerMenu.plusLabel,
-                enabled: onPlus != nil || attachEnabled
-            ) {
-                if let onPlus {
-                    onPlus()
-                    return
+        // N-14: a row host — inside a sheet the pins' rows disclose under it.
+        InlinePickerRow {
+            HStack(spacing: GlassComposerTokens.toolSpacing) {
+                // EXP-850 §13: the steer composers attach with the `ui-add` (plus)
+                // concept ×4; `editor-image` stays the comment/description glyph.
+                GlassComposerToolButton(
+                    AppIcons.uiAdd,
+                    accessibilityLabel: onPlus == nil ? "Add file or image" : ComposerMenu.plusLabel,
+                    enabled: onPlus != nil || attachEnabled
+                ) {
+                    if let onPlus {
+                        onPlus()
+                        return
+                    }
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) { attachMenuOpen = true }
                 }
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) { attachMenuOpen = true }
-            }
-            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
-                attachAnchor = frame
-            }
-            .steerAttachChoiceMenu(
-                isPresented: $attachMenuOpen,
-                anchor: attachAnchor,
-                onPhoto: onPhoto,
-                onFile: onFile
-            )
-
-            if let controls {
-                if let devicePin = controls.devicePin {
-                    SessionDevicePinView(pin: devicePin, fullWidth: false)
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                    attachAnchor = frame
                 }
-                SessionModelPill(controls: controls)
+                .steerAttachChoiceMenu(
+                    isPresented: $attachMenuOpen,
+                    anchor: attachAnchor,
+                    onPhoto: onPhoto,
+                    onFile: onFile
+                )
 
-                if controls.showsPlanLabel {
-                    Text(AgentFeed.planModeFooterLabel)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(DesignTokens.Semantic.blue)
-                        .lineLimit(1)
-                        .accessibilityIdentifier("session-plan-mode")
+                if let controls {
+                    if let devicePin = controls.devicePin {
+                        SessionDevicePinView(pin: devicePin, fullWidth: false)
+                    }
+                    SessionModelPill(controls: controls)
+
+                    if controls.showsPlanLabel {
+                        Text(AgentFeed.planModeFooterLabel)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(DesignTokens.Semantic.blue)
+                            .lineLimit(1)
+                            .accessibilityIdentifier("session-plan-mode")
+                    }
                 }
-            }
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
 
-            // No context data yet = no ring (web/Android draw nothing then).
-            if let controls, controls.usageFraction != nil {
-                Button(action: controls.onUsage) {
-                    ContextRing(fraction: controls.usageFraction, severity: controls.usageSeverity)
-                        .frame(
-                            width: GlassComposerTokens.toolHitSize,
-                            height: GlassComposerTokens.toolHitSize
-                        )
-                        .contentShape(Circle())
+                // No context data yet = no ring (web/Android draw nothing then).
+                if let controls, controls.usageFraction != nil {
+                    Button(action: controls.onUsage) {
+                        ContextRing(fraction: controls.usageFraction, severity: controls.usageSeverity)
+                            .frame(
+                                width: GlassComposerTokens.toolHitSize,
+                                height: GlassComposerTokens.toolHitSize
+                            )
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Usage")
+                    .accessibilityIdentifier("session-context-ring")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Usage")
-                .accessibilityIdentifier("session-context-ring")
             }
         }
         .layoutPriority(1)
@@ -243,44 +246,48 @@ struct SessionComposerOptionsLine: View {
     var plan: Binding<Bool>?
 
     var body: some View {
-        HStack(spacing: 12) {
-            // EXP-1252: with the Device pin the picks can outgrow a phone, so
-            // they scroll sideways like the launch line (`AgentOptionsRow`);
-            // the usage ring stays pinned trailing.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    if let devicePin = controls.devicePin {
-                        SessionDevicePinView(pin: devicePin)
-                    }
-                    SessionModelPill(controls: controls)
-                    if let plan {
-                        HStack(spacing: 6) {
-                            Text("Plan")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            Toggle("Plan", isOn: plan)
-                                .labelsHidden()
-                                .toggleStyle(.switch)
-                                .controlSize(.mini)
-                                .tint(DesignTokens.Semantic.blue)
-                                .disabled(controls.ended)
+        // N-14: a row host — inside a sheet the pins' rows disclose in the
+        // slot under the whole line, as wide as it.
+        InlinePickerRow {
+            HStack(spacing: 12) {
+                // EXP-1252: with the Device pin the picks can outgrow a phone, so
+                // they scroll sideways like the launch line (`AgentOptionsRow`);
+                // the usage ring stays pinned trailing.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        if let devicePin = controls.devicePin {
+                            SessionDevicePinView(pin: devicePin)
                         }
-                        .fixedSize()
-                        .accessibilityElement(children: .combine)
-                        .accessibilityIdentifier("session-plan-toggle")
+                        SessionModelPill(controls: controls)
+                        if let plan {
+                            HStack(spacing: 6) {
+                                Text("Plan")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                Toggle("Plan", isOn: plan)
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                                    .controlSize(.mini)
+                                    .tint(DesignTokens.Semantic.blue)
+                                    .disabled(controls.ended)
+                            }
+                            .fixedSize()
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("session-plan-toggle")
+                        }
                     }
                 }
-            }
-            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-            if controls.usageFraction != nil {
-                Button(action: controls.onUsage) {
-                    ContextRing(fraction: controls.usageFraction, severity: controls.usageSeverity)
-                        .frame(width: GlassComposerTokens.toolHitSize, height: GlassComposerTokens.toolHitSize)
-                        .contentShape(Circle())
+                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                if controls.usageFraction != nil {
+                    Button(action: controls.onUsage) {
+                        ContextRing(fraction: controls.usageFraction, severity: controls.usageSeverity)
+                            .frame(width: GlassComposerTokens.toolHitSize, height: GlassComposerTokens.toolHitSize)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Usage")
+                    .accessibilityIdentifier("session-context-ring")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Usage")
-                .accessibilityIdentifier("session-context-ring")
             }
         }
         .padding(.horizontal, 12)

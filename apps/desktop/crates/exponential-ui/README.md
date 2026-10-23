@@ -48,7 +48,7 @@ A2UI messages (JSON) ─▶ reducer ─▶ UiNode tree ─▶ bind pass + layout
    `fixtures/bind-time.json` locks both.
 3. **Theme** (`theme`, `recipes`, `themes`, `geometry`): `load_theme`
    flattens an `extends` chain over the built-ins (`neutral` →
-   `exponential` → `playful`), `resolve_recipe` answers a part's visuals for
+   `exponential` → `playful` → `orange`), `resolve_recipe` answers a part's visuals for
    one mode and state set. Round 1: `breakpoint` (px), `ease` (cubic bezier)
    and `density` token groups, `contrast` overlays, `resolve_mode`
    (`system`), `apply_density`, `apply_contrast`, `resolve_condition_key`.
@@ -137,6 +137,14 @@ unchanged text.
   placeholder).
 - The `shaping` feature adds `ShapingMeasure`: text shaped in-process on the
   system fonts with cosmic-text (baselines from the first layout run).
+- VAPP-106, size: the embedded catalog is the RUNTIME one (no descriptions
+  or examples); the `descriptions` feature (off) adds them as
+  `catalog::descriptions()` for a host that builds its own prompt. The
+  default-on `builtin-themes` feature embeds the non-default resolved
+  themes (`neutral`, `playful`, ~140 KB of .rodata); `--no-default-features`
+  keeps only `exponential`, and a host theme that `extends` another
+  built-in then falls back to the default with an issue. Sizes on record:
+  `packages/exponential-ui/release/sizes.json`.
 
 ## Surface API
 

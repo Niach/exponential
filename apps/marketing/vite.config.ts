@@ -1,6 +1,6 @@
 import { defineConfig, type Plugin } from "vite"
 import react from "@vitejs/plugin-react"
-import { cpSync, existsSync, readFileSync, statSync } from "node:fs"
+import { cpSync, existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { resolve } from "node:path"
 
 /* The screenshot store (EXP-566) lives at the REPO ROOT, not in public/ — the
@@ -9,6 +9,16 @@ import { resolve } from "node:path"
    the docs pages reference /shots/<view>/<platform>.webp, dev serves them from
    the store, and the build copies the store into dist. */
 const SHOTS_DIR = resolve(__dirname, `../../shots`)
+
+/* The blog (EXP-1366): blog/index.html plus one shell per post directory,
+   found on disk so a new post needs no config change. */
+const BLOG_DIR = resolve(__dirname, `blog`)
+const blogInputs: Record<string, string> = Object.fromEntries([
+  [`blog`, resolve(BLOG_DIR, `index.html`)],
+  ...readdirSync(BLOG_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => [`blog-${entry.name}`, resolve(BLOG_DIR, entry.name, `index.html`)]),
+])
 const SHOTS_PREFIX = `/shots/`
 
 function contentType(file: string): string {
@@ -105,6 +115,7 @@ export default defineConfig({
         terms: resolve(__dirname, `terms/index.html`),
         imprint: resolve(__dirname, `imprint/index.html`),
         contact: resolve(__dirname, `contact/index.html`),
+        ...blogInputs,
       },
     },
   },

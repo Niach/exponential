@@ -17,7 +17,9 @@ import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 // the row (`blocked.kind`), lands under Needs you (`needs_input`) and is
 // said ONCE in the parent's conversation through the bus. Each flag has
 // exactly one clearer: a claim (`unclaimed`), the next device report
-// (`stuck`), the device's next heartbeat (`device_offline`).
+// (`stuck`), the device's next heartbeat (`device_offline`). FEED-129: the
+// device-written usage wall (`rate_limit`) is the device's to clear, or
+// this watchdog's once its `resetsAt` passed.
 
 export const WATCHDOG_INTERVAL_MS = 60 * 1000
 
@@ -28,6 +30,8 @@ export interface WatchdogRun {
   nudged: number
   stuck: number
   offline: number
+  /** FEED-129: usage walls whose reset time passed, cleared this tick. */
+  expired: number
   /** NEW-2: agent schedule firings this tick, and pruned event rows. */
   fired: number
   pruned: number
@@ -177,6 +181,39 @@ async function flagOffline(now: Date): Promise<number> {
   })
 }
 
+/** FEED-129: a usage wall (`rate_limit`) whose reset time passed: cleared.
+ *  The device clears a wall on the next assistant token, but a walled run
+ *  whose engine went away (an account switch that failed, a host restart)
+ *  has nobody to do it, and the row read "Usage limit" hours after the
+ *  window reopened. A wall naming no reset stays the device's. Silent: the
+ *  bus said the wall once; its passing is no line. */
+async function clearExpiredWalls(now: Date): Promise<number> {
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ id: sessions.id, blocked: sessions.blocked })
+      .from(sessions)
+      .where(
+        and(
+          inArray(sessions.status, [...LIVE]),
+          sql`${sessions.blocked} ->> 'kind' = 'rate_limit'`,
+          sql`${sessions.blocked} ->> 'resetsAt' IS NOT NULL`
+        )
+      )
+      .for(`update`, { skipLocked: true })
+    // Parsed here, never cast in SQL: the stamp is a free string from the
+    // device, and a malformed one must not fail the whole tick.
+    const expired = rows.filter((row) => {
+      const at = Date.parse(row.blocked?.resetsAt ?? ``)
+      return Number.isFinite(at) && at <= now.getTime()
+    })
+    await clearBlockedInTx(
+      tx,
+      expired.map((row) => row.id)
+    )
+    return expired.length
+  })
+}
+
 /** The device heartbeat: its `device_offline` sessions are live again. */
 export async function restoreDeviceSessionsInTx(
   tx: Tx,
@@ -246,6 +283,7 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     nudged: await nudgeStalled(now),
     stuck: await flagStuck(now),
     offline: await flagOffline(now),
+    expired: await clearExpiredWalls(now),
     // NEW-2: the same tick fires the agents' schedules (a missed tick is
     // caught up here) and sweeps the event stream.
     fired: await fireScheduledTriggers(now),
@@ -265,7 +303,7 @@ export function startSessionWatchdog(): void {
         reportSchedulerRun(`session-watchdog`, {
           ok: true,
           durationMs: performance.now() - begun,
-          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.fired} fired, ${run.pruned} events pruned`,
+          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned`,
         })
       )
       .catch((error: unknown) => {

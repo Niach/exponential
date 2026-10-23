@@ -4,10 +4,12 @@ The data half of Exponential UI (VAPP-84): the **core catalog** of
 components an A2UI surface may use, the **A2UI basic catalog** vendored and
 mapped onto it, the **macro table** that turns composite components into
 natives, the **model-facing descriptions** and prompt, the **token names**
-themes must define, the **runtime theme format** with the three built-in
+themes must define, the **runtime theme format** with the four built-in
 themes and the theme builder (VAPP-92), codegen for TypeScript, Swift, Kotlin
 and Rust, and the fixtures every renderer suite locks against. No renderer
-lives here (React: VAPP-87, the Rust core: VAPP-86, painters: VAPP-88/89/90).
+lives here (React: VAPP-87, Solid: FEED-128, the web component
+`<exponential-surface>`: FEED-130, the Rust core: VAPP-86, painters:
+VAPP-88/89/90).
 
 It also defines the **host API** every renderer shares (VAPP-91: transport,
 functions, bindings, negotiation, policy, declarative packages, the
@@ -34,10 +36,12 @@ nothing from the Exponential app.
 | `catalog/host.json` | the host API contract (VAPP-91): message kinds, ops, error codes, function decisions, URL schemes, MCP carrier, package format |
 | `catalog/core.schema.json` | generated: the catalog as JSON Schema in A2UI's catalog shape |
 | `catalog/theme.schema.json` | generated: a theme file as JSON Schema |
-| `themes/` | the built-in themes: `neutral` (stock shadcn, the root), `exponential` (GENERATED: design-tokens values + `exponential.recipes.json`), `playful` (the test theme) |
+| `themes/` | the built-in themes: `neutral` (stock shadcn, the root), `exponential` (GENERATED: design-tokens values + `exponential.recipes.json`), `playful` (the test theme), `orange` (the brand reference: `exponential` with an orange primary) |
 | `builder/` | the theme builder page (`dev:builder` / `build:builder`); ui.exponential.at mounts it (VAPP-93) |
 | `src/` | the TS reference implementation (below) |
-| `generated/*.{swift,kt,rs}` | generated constants for the three native targets; `*Themes*` = the built-ins RESOLVED, embedded as JSON |
+| `generated/*.{swift,kt,rs}` | generated constants for the three native targets; `*Themes*` = the built-ins RESOLVED, embedded as JSON; `catalog.descriptions.generated.rs` = the catalog's text for a Rust host behind the crate's `descriptions` feature (VAPP-106) |
+| `generated/core.runtime.json` | VAPP-106: the RUNTIME catalog `src/catalog.ts` loads (the source minus every description, example and `$comment`): what a renderer needs, what the Rust core embeds |
+| `generated/core.descriptions.json` | VAPP-106: the rest of the source, keyed like the catalog; `describeCatalog()` (`src/catalog.described.ts`) attaches it for the prompt, the schema emitter and the docs |
 | `docs/components.generated.json` | generated: one doc page per component as data (ui.exponential.at renders it, VAPP-93) |
 | `docs/themes.generated.json` | generated: the token vocabulary with every built-in's values, the recipe contract per component |
 | `fixtures/` | the contract (below) |
@@ -46,7 +50,7 @@ nothing from the Exponential app.
 | `docs/round-3-contract.md` | round 3 (VAPP-102): ONE Row / Section / Chip / Segmented / Menu, the core-computed tree guides (`src/tree-guides.ts`, `fixtures/tree-guides.json`), the 16 names round 4 removed, the lite prune |
 | `src/host/` | the host API reference: router, decoders, policy, sources, packages, the `ExponentialHost` runtime + transports |
 | `src/connector/` | the Exponential connector (MCP OAuth + `exp:` sources over MCP) and `createAppHost` |
-| `conformance/` | the conformance suite: `manifest.json` (generated), `report.schema.json`, the runner guide; round 1's real-font harness beside it (`run.ts`, `dump.ts`, `compare.ts`, `fonts.json`) |
+| `conformance/` | the conformance suite: `manifest.json` (generated), `report.schema.json`, the runner guide; round 1's real-font harness beside it (`run.ts`, `dump.ts`, `compare.ts`, `fonts.json`); the shared web runner (`browser-suites.ts`) and the web-parity check (`parity.ts`: Solid and the web component against React) |
 | `release/` | the npm build + staging scripts and the release runbook (all registries) |
 | `vendor/a2ui/` | A2UI v0.9 schemas, byte-pinned (see its README) |
 | `vendor/json-render/` | attribution for the borrowed description wording |
@@ -141,7 +145,10 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
   `styles.css` palettes + `themes/exponential.recipes.json` so the app and
   the SDK cannot drift; `playful` = the deliberately different test theme
   (pill buttons, no card borders, underlined tabs, Nunito) the conformance
-  suite renders on every painter. The natives get all three RESOLVED in
+  suite renders on every painter; `orange` = the brand-coloured reference
+  theme, `extends: exponential` with only the colours changed (primary, ring,
+  the accent pair, the chart scale), the smallest brand theme there is. The
+  natives get all four RESOLVED in
   `generated/ExponentialUIThemes.generated.*` (parse once at startup).
 - **Builder** (`builder/`, `bun run --filter @exponential-at/ui dev:builder`
   → :4180): pick a base, edit tokens and recipes with the recipe sheet and
@@ -180,6 +187,14 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
 - `catalogPrompt({extensions?, lite?, terse?})` — the compact system prompt.
 - `coreSchema(iconNames)` / `extensionSchema(ext, iconNames)` — JSON Schema.
 
+## The web layer (`@exponential-at/ui/web`)
+
+FEED-128: the FRAMEWORK-FREE half of a web renderer, so React and Solid compile byte-identical stylesheets and share one bind pass. `src/web/`: `theme-css.ts` (`compileTheme`: a resolved theme → one scoped sheet; `globalsCss(theme, {light?, dark?})`: the theme as UNSCOPED shadcn globals with literal values, `:root` + `.dark`, for an app that is not Exponential UI), `box-css.ts` (the per-node sheet), `base-css.ts` (`BASE_CSS`, layer `xui-base`), `data.ts` (JSON pointers, bindings, client functions, `bindTree`), `urls.ts` + `media.ts` (URL/media policy, the bounded blob cache, `fetchLimited`), `host-types.ts` (`HostPlugin<Icon, Markdown>`, the events), and the natives' pure helpers (`coerce`, `table`, `dates`, `inputs` = `HostOwnedController`, `markdown` = the parser to a tree, `form` = the field registry, `list`, `listbox`). Nothing in it imports a UI framework.
+
+FEED-131: `@exponential-at/ui/web/primitives` (`src/web/primitives/`) is the framework-free half of the shadcn primitive set: one module per primitive holding its Tailwind class recipes (cva recipes keep their names, `buttonVariants`, `alertVariants`, `codeBlockVariants`; plain strings are one frozen `<MODULE>_CLASSES` object keyed by part, with conditional fragments as keyed entries; the named constants `MENU_*_CLASS`, `SEGMENTED_*`, `GLASS_CARD_CLASS`, `FIELD_CHROME_CLASS`, `MOBILE_ARMS` stay) plus the pure helpers (`cn`, `getInitials`, `middleTruncate`, `avatarHueIndex`, `ringGeometry`, `choiceToggle`, `isTypeaheadPortalInteraction`, …). The React set and its Solid twin import ONE source of class strings, and `recipes.test.ts` fails if either renderer's file of the same name carries a class literal. A Tailwind build that paints them scans this directory (`@source`).
+
+The DOM contract every web renderer keeps: a `.xui-surface.<scope>` root with `data-xui-mode`; `data-xui-id` (placed nodes and parts), `data-xui-part="<Component>/<part>"`, recipe props as `data-r-*` (natives) / `data-m-*` (macro parts), forced states as `data-xs`; `xui-<Component>-<part>` part classes (`partClass`); and the cascade order `LAYERS` (`xui-base` < `xui-recipe` < `xui-node` < `xui-part`).
+
 ## The host API (VAPP-91)
 
 A surface needs exactly this from its host, the same shape on all four
@@ -214,15 +229,25 @@ painters through the facade); `catalog/host.json` is the contract and
 - **Negotiation**: `supportedCatalogIds(extensionIds)` = core, core lite,
   A2UI basic, then the registered extensions; `clientCapabilities`.
 - **Policy** (every renderer, every href and src): `decideUrl` (schemes
-  `https http mailto tel`, optional host allowlist, relative urls against
-  `baseUrl`) for `openUrl`, `Link`, markdown links and FileUpload file urls
-  (`safeHref`; denied = plain text); `mediaRequest(url, {baseUrl, rules,
-  schemes, hosts})` = the image loader's url + headers (auth for
+  `https http mailto tel`; `schemes: ["https"]` = https only; optional host
+  allowlist; relative urls against `baseUrl`) for `openUrl`, `Link`,
+  markdown links and FileUpload file urls (`safeHref`; denied = plain
+  text); `mediaRequest(url, {baseUrl, rules, schemes, hosts,
+  allowPrivate})` = the image loader's url + headers (auth for
   `/api/attachments`), null when the media policy (default `https http
   data`, `file` only when listed) denies it; `MEDIA_LIMITS` (20 MiB, 30 s,
   32 Mpx across every frame, read by `mediaImageWithinLimits` before
   decoding: header or SVG size × `imageFrames`; an unreadable raster is
-  refused) bound every image load.
+  refused) bound every image load, and the React video/audio whole-fetch
+  fallback too (VAPP-107). **Private hosts are denied by default**
+  (VAPP-107, `isPrivateHost`): `localhost`, `*.localhost`, `*.local`,
+  0/8, 10/8, 127/8, 169.254/16, 172.16/12, 192.168/16, `::`, `::1`,
+  fe80::/10, fc00::/7 and IPv4-mapped private addresses, for http(s)
+  hrefs and media alike, reason `private`; a host opts names back in with
+  `allowPrivate: ["localhost"]` (`*.suffix`, or `*` for all), which a
+  `hosts` allowlist does not do. Literals only: no DNS lookup (a public
+  name that resolves privately is the network's job). The threat model:
+  https://ui.exponential.at/guides/security/.
 - **Runtime**: `new ExponentialHost({transport, functions, sources,
   extensions, packages, policy})`: `connect()`, `receive(message)`,
   `surface(id)` (a `SurfaceStore`), `action(...)`, `callFunction(...)`,
@@ -253,15 +278,17 @@ painters through the facade); `catalog/host.json` is the contract and
 The Exponential app is a host like any other: web `apps/web/src/lib/exponential-ui-host.tsx`
 (`harness.*` functions, `exp:` over the Electric collections, the consent
 card, the app extension's painters from `@exp/ui`, the Devices package
-`packages/ui/exponential-ui/templates/devices.json`, the built-in app of the Apps page).
+`packages/ui/exponential-ui/templates/devices.json` on `/exponential-ui-devices`).
 Samples outside the workspace: `samples/exponential-ui/` (a local A2UI
-server, a third-party theme, one extension component, four hosts).
+server, a third-party theme, one extension component, six hosts).
 
 ## Conformance
 
 `conformance/README.md`: 24 suites (version 2); a renderer is conformant
 when `bun run --filter @exponential-at/ui conformance:check <report>` says
-so. All four renderers and the core run it in CI (`exponential-ui.yml`).
+so. All six renderers and the core run it in CI (`exponential-ui.yml`);
+the Solid renderer and the web component also pass the web-parity check
+against React.
 
 ## Fixtures (the contract; the Rust core replays them with these test names)
 
@@ -310,7 +337,21 @@ generate time too (never at runtime).
 ```bash
 bun run --filter @exponential-at/ui dev:builder     # the theme builder on :4180
 bun run --filter @exponential-at/ui build:builder   # bundles builder/dist (ignored)
+bun run --filter @exponential-at/ui size            # VAPP-106: bundle + binary sizes vs release/size-budget.json (release/README.md)
 ```
+
+### Entries (VAPP-106)
+
+The root `@exponential-at/ui` is what a renderer needs (the runtime catalog,
+macros, the reducer, the validator, bind-time, formatting, themes, the host
+API). What only a server or a tool needs is an entry of its own, so a
+browser never downloads it: `@exponential-at/ui/prompt` (`catalogPrompt`,
+`estimateTokens`, `PROMPT_RULES`; it attaches the catalog's descriptions and
+examples with `describeCatalog()` first), `./schema` (`coreSchema`,
+`extensionSchema`, with the vendored A2UI basic catalog), `./conformance`
+(`conformanceManifest`, `checkReport`, with every fixture bundled),
+`./host` (the host API alone). The entries share chunks; sizes are on
+record in `release/sizes.json`.
 
 ## Extensions
 

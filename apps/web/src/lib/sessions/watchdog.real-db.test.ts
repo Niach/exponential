@@ -386,4 +386,29 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     await w.host.report({ sessionId: rootId, blocked: null })
     expect(await row(rootId)).toMatchObject({ blocked: null, needsInput: false })
   })
+
+  // FEED-129: a walled run whose engine went away before the reset (a
+  // failed account switch) had nobody to clear the wall; the row read
+  // "Usage limit" hours after the window reopened.
+  it(`a usage wall whose reset passed is cleared by the watchdog; one still ahead, or naming none, waits for the device`, async () => {
+    const w = await world()
+    const past = await w.root(`past`)
+    const ahead = await w.root(`ahead`)
+    const unset = await w.root(`unset`)
+    for (const id of [past, ahead, unset]) await w.host.claim({ sessionId: id })
+    const wall = (resetsAt: string | null) =>
+      ({ kind: `rate_limit`, agent: `claude`, window: `session`, resetsAt, since: ago(2 * MIN).toISOString() }) as const
+    await w.host.report({ sessionId: past, blocked: wall(ago(MIN).toISOString()) })
+    await w.host.report({ sessionId: ahead, blocked: wall(new Date(NOW.getTime() + MIN).toISOString()) })
+    await w.host.report({ sessionId: unset, blocked: wall(null) })
+    for (const id of [past, ahead, unset]) expect(await row(id)).toMatchObject({ needsInput: true })
+    // The bus said the wall ONCE when the device reported it.
+    const said = (await lines(past, `session_blocked`, past)).length
+    expect(await runWatchdog(NOW)).toMatchObject({ expired: 1 })
+    expect(await row(past)).toMatchObject({ blocked: null, needsInput: false })
+    expect((await row(ahead)).blocked).toMatchObject({ kind: `rate_limit` })
+    expect((await row(unset)).blocked).toMatchObject({ kind: `rate_limit` })
+    // Silent: its passing is no line.
+    expect(await lines(past, `session_blocked`, past)).toHaveLength(said)
+  })
 })

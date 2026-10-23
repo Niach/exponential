@@ -51,9 +51,15 @@ export function packagePolicy(functions: readonly string[] | undefined): Functio
 }
 
 export interface UrlPolicy {
+  /** The schemes allowed; default `DEFAULT_URL_SCHEMES` (https, http,
+   *  mailto, tel). `["https"]` = https only. */
   schemes?: readonly string[]
   /** http(s) hosts allowed: exact or `*.example.com`; unset = any. */
   hosts?: readonly string[]
+  /** VAPP-107: private, loopback and link-local hosts (`isPrivateHost`)
+   *  are DENIED for http(s) unless listed here: exact, `*.suffix`, or `*`
+   *  for every private address. A `hosts` allowlist does not opt one in. */
+  allowPrivate?: readonly string[]
   baseUrl?: string
 }
 
@@ -61,7 +67,7 @@ export interface UrlDecision {
   allowed: boolean
   /** The absolute url when it parses. */
   url?: string
-  reason?: `invalid` | `scheme` | `host`
+  reason?: `invalid` | `scheme` | `host` | `private`
 }
 
 function absolute(url: string, baseUrl?: string): URL | null {
@@ -82,14 +88,84 @@ function hostMatches(pattern: string, host: string): boolean {
   return p.startsWith(`*.`) ? host.endsWith(p.slice(1)) && host.length > p.length - 1 : host === p
 }
 
+/** The dotted-decimal IPv4 a WHATWG-parsed hostname is (the parser has
+ *  already normalized `0x7f.1`, `2130706433` and the like), else null. */
+function ipv4(host: string): [number, number, number, number] | null {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
+  if (!m) return null
+  const parts = m.slice(1).map(Number) as [number, number, number, number]
+  return parts.every((n) => n <= 255) ? parts : null
+}
+
+/** A WHATWG-serialized IPv6 (`[...]`, lower-case hex, `::` once) as its
+ *  eight 16-bit pieces, else null. */
+function ipv6(host: string): number[] | null {
+  if (!host.startsWith(`[`) || !host.endsWith(`]`)) return null
+  const text = host.slice(1, -1)
+  const halves = text.split(`::`)
+  if (halves.length > 2) return null
+  const pieces = (part: string): number[] | null => {
+    if (part === ``) return []
+    const out: number[] = []
+    for (const p of part.split(`:`)) {
+      if (!/^[0-9a-f]{1,4}$/.test(p)) return null
+      out.push(parseInt(p, 16))
+    }
+    return out
+  }
+  const head = pieces(halves[0]!)
+  const tail = halves.length === 2 ? pieces(halves[1]!) : []
+  if (!head || !tail) return null
+  if (halves.length === 1) return head.length === 8 ? head : null
+  if (head.length + tail.length > 7) return null
+  return [...head, ...new Array<number>(8 - head.length - tail.length).fill(0), ...tail]
+}
+
+function privateV4([a, b]: [number, number, number, number]): boolean {
+  // 0.0.0.0/8 ("this" network), 10/8, 127/8 (loopback), 169.254/16
+  // (link-local), 172.16/12, 192.168/16.
+  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+}
+
+/** VAPP-107: is a parsed, lower-cased hostname one the URL and media policy
+ *  deny by default (`catalog/host.json` urls.privateHosts)? `localhost`
+ *  and `*.localhost`, `*.local` (mDNS), the IPv4 blocks 0/8, 10/8, 127/8,
+ *  169.254/16, 172.16/12, 192.168/16, and IPv6 `::`, `::1`, fe80::/10,
+ *  fc00::/7 plus an IPv4-mapped address of a private IPv4. LITERALS only:
+ *  the policy never resolves names (a public name that resolves privately
+ *  is the host network's job). */
+export function isPrivateHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, ``)
+  if (host === `localhost` || host.endsWith(`.localhost`) || host.endsWith(`.local`)) return true
+  const v4 = ipv4(host)
+  if (v4) return privateV4(v4)
+  const v6 = ipv6(host)
+  if (!v6) return false
+  if (v6.every((p) => p === 0)) return true
+  if (v6.slice(0, 7).every((p) => p === 0) && v6[7] === 1) return true
+  if ((v6[0]! & 0xffc0) === 0xfe80 || (v6[0]! & 0xfe00) === 0xfc00) return true
+  if (v6.slice(0, 5).every((p) => p === 0) && v6[5] === 0xffff) return privateV4([v6[6]! >> 8, v6[6]! & 0xff, v6[7]! >> 8, v6[7]! & 0xff])
+  return false
+}
+
+function privateAllowed(allow: readonly string[] | undefined, host: string): boolean {
+  return (allow ?? []).some((p) => p === `*` || hostMatches(p, host))
+}
+
+/** The decision for a url: it must parse (relative against `baseUrl`), use
+ *  one of `schemes`, and for http(s) match `hosts` when set and not be a
+ *  private host unless `allowPrivate` covers it. */
 export function decideUrl(policy: UrlPolicy | undefined, url: string): UrlDecision {
   const parsed = absolute(url.trim(), policy?.baseUrl)
   if (!parsed) return { allowed: false, reason: `invalid` }
   const scheme = parsed.protocol.replace(/:$/, ``).toLowerCase()
   const schemes = policy?.schemes ?? DEFAULT_URL_SCHEMES
   if (!schemes.includes(scheme)) return { allowed: false, url: parsed.href, reason: `scheme` }
-  if (policy?.hosts && (scheme === `http` || scheme === `https`) && !policy.hosts.some((h) => hostMatches(h, parsed.hostname.toLowerCase())))
-    return { allowed: false, url: parsed.href, reason: `host` }
+  if (scheme === `http` || scheme === `https`) {
+    const host = parsed.hostname.toLowerCase()
+    if (policy?.hosts && !policy.hosts.some((h) => hostMatches(h, host))) return { allowed: false, url: parsed.href, reason: `host` }
+    if (isPrivateHost(host) && !privateAllowed(policy?.allowPrivate, host)) return { allowed: false, url: parsed.href, reason: `private` }
+  }
   return { allowed: true, url: parsed.href }
 }
 
@@ -106,6 +182,8 @@ export interface MediaOptions {
   schemes?: readonly string[]
   /** http(s) hosts media may load from: exact or `*.example.com`; unset = any. */
   hosts?: readonly string[]
+  /** VAPP-107: the private hosts media may load from (`UrlPolicy.allowPrivate`). */
+  allowPrivate?: readonly string[]
 }
 
 export interface MediaRequest {
@@ -118,7 +196,7 @@ export interface MediaRequest {
  *  Null when the url does not resolve or the media policy (schemes, hosts)
  *  denies it: nothing loads. */
 export function mediaRequest(url: string, options: MediaOptions = {}): MediaRequest | null {
-  const d = decideUrl({ baseUrl: options.baseUrl, schemes: options.schemes ?? DEFAULT_MEDIA_SCHEMES, hosts: options.hosts }, url)
+  const d = decideUrl({ baseUrl: options.baseUrl, schemes: options.schemes ?? DEFAULT_MEDIA_SCHEMES, hosts: options.hosts, allowPrivate: options.allowPrivate }, url)
   if (!d.allowed || !d.url) return null
   const href = d.url
   const headers: Record<string, string> = {}

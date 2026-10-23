@@ -1,0 +1,35 @@
+{
+  "name": "@exponential-at/ui-bench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Exponential UI benchmark suite (VAPP-105): the scenario fixtures every renderer runs, the per-renderer runners (React, Solid and the web component in Chromium, the Rust core, gpui headless, SwiftUI on macOS / the iOS Simulator / a device, Compose on the JVM / an emulator / a device), the committed results per machine, and the CI ratchet.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./scenarios/*": "./scenarios/*",
+    "./results": "./results/index.ts",
+    "./budgets.json": "./budgets.json",
+    "./findings.json": "./findings.json"
+  },
+  "scripts": {
+    "generate": "bun run ./scripts/generate.ts",
+    "test": "bun test ./src",
+    "typecheck": "tsc --noEmit",
+    "bench": "bun run ./scripts/run.ts",
+    "bench:react": "bun run ./runners/react.ts",
+    "bench:solid": "bun run ./runners/solid.ts",
+    "bench:element": "bun run ./runners/element.ts",
+    "ratchet": "bun run ./scripts/ratchet.ts",
+    "machine": "bun run ./scripts/machine.ts"
+  },
+  "devDependencies": {
+    "@exp/tsconfig": "workspace:*",
+    "@exponential-at/ui": "workspace:*",
+    "@exponential-at/ui-react": "workspace:*",
+    "@exponential-at/ui-solid": "workspace:*",
+    "@exponential-at/ui-element": "workspace:*",
+    "@types/bun": "latest",
+    "playwright": "^1.54.2",
+    "typescript": "^5.7.2"
+  }
+}

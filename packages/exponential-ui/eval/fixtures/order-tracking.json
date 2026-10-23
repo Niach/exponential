@@ -1,0 +1,16 @@
+{
+  "$comment": "VAPP-108 eval fixture: the reply to corpus prompt `order-tracking` given catalogPrompt() as the system prompt. Recorded by the session's own model from the same prompt (no API key in the recording environment); `bun eval/record.ts --force --only order-tracking` replaces it with an API recording (recordedBy: api).",
+  "id": "order-tracking",
+  "prompt": "An order tracking view: the order number, where it is (placed, packed, shipped, delivered), the items with quantity and price, the total, and a Contact support button.",
+  "model": "claude-fable-5-1",
+  "promptVariant": "full",
+  "recordedAt": "2026-10-22T10:00:00.000Z",
+  "recordedBy": "session",
+  "usage": {
+    "inputTokens": 7041,
+    "outputTokens": 491,
+    "cacheReadInputTokens": 0,
+    "estimated": true
+  },
+  "text": "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"order\",\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\":\"v0.9\",\"updateComponents\":{\"surfaceId\":\"order\",\"components\":[{\"id\":\"root\",\"component\":\"Stack\",\"gap\":\"lg\",\"children\":[\"head\",\"progress\",\"items\",\"total\",\"support\"]},{\"id\":\"head\",\"component\":\"AppBar\",\"title\":{\"call\":\"concat\",\"args\":{\"values\":[\"Order \",{\"path\":\"/order/number\"}]}},\"subtitle\":{\"path\":\"/order/eta\"},\"back\":true,\"on\":{\"back\":{\"event\":{\"name\":\"back\"}}}},{\"id\":\"progress\",\"component\":\"Stepper\",\"steps\":[{\"label\":\"Placed\"},{\"label\":\"Packed\"},{\"label\":\"Shipped\"},{\"label\":\"Delivered\"}],\"current\":{\"path\":\"/order/stage\"}},{\"id\":\"items\",\"component\":\"Section\",\"title\":\"Items\",\"children\":[\"itemList\"]},{\"id\":\"itemList\",\"component\":\"List\",\"divided\":true,\"children\":{\"componentId\":\"item\",\"path\":\"/order/items\",\"key\":\"sku\"}},{\"id\":\"item\",\"component\":\"Row\",\"title\":{\"path\":\"name\"},\"subtitle\":{\"call\":\"concat\",\"args\":{\"values\":[\"× \",{\"path\":\"qty\"}]}},\"value\":{\"call\":\"formatCurrency\",\"args\":{\"value\":{\"path\":\"price\"},\"currency\":\"EUR\",\"decimals\":2,\"grouping\":true}}},{\"id\":\"total\",\"component\":\"Stack\",\"direction\":\"horizontal\",\"justify\":\"between\",\"style\":{\"paddingHorizontal\":\"$spacing.md\"},\"children\":[\"totalLabel\",\"totalValue\"]},{\"id\":\"totalLabel\",\"component\":\"Text\",\"text\":\"Total\",\"variant\":\"label\"},{\"id\":\"totalValue\",\"component\":\"Text\",\"text\":{\"call\":\"formatCurrency\",\"args\":{\"value\":{\"path\":\"/order/total\"},\"currency\":\"EUR\",\"decimals\":2,\"grouping\":true}},\"variant\":\"title\"},{\"id\":\"support\",\"component\":\"Button\",\"label\":\"Contact support\",\"variant\":\"outline\",\"icon\":\"ui-help\",\"on\":{\"press\":{\"event\":{\"name\":\"support\",\"context\":{\"order\":{\"path\":\"/order/number\"}}}}}}]}}\n{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"order\",\"path\":\"/order\",\"value\":{\"number\":\"#10482\",\"eta\":\"Arrives Thursday\",\"stage\":2,\"items\":[{\"sku\":\"a1\",\"name\":\"Desk lamp\",\"qty\":1,\"price\":49.9},{\"sku\":\"b2\",\"name\":\"USB-C cable, 2 m\",\"qty\":2,\"price\":12}],\"total\":73.9}}}"
+}

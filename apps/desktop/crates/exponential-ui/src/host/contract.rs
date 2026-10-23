@@ -16,7 +16,7 @@ pub const MESSAGE_KINDS: &[&str] = &["createSurface", "updateComponents", "updat
 /// What the router turns a message into.
 pub const OP_KINDS: &[&str] = &["create", "components", "data", "bind", "delete", "send"];
 pub const HOST_ERROR_CODES: &[&str] =
-    &["VALIDATION_FAILED", "INVALID_MESSAGE", "UNSUPPORTED_CATALOG", "SURFACE_NOT_FOUND", "TEMPLATE_NOT_FOUND", "FUNCTION_NOT_FOUND", "FUNCTION_DENIED", "RENDER_FAILED"];
+    &["VALIDATION_FAILED", "INVALID_MESSAGE", "UNSUPPORTED_CATALOG", "SURFACE_NOT_FOUND", "TEMPLATE_NOT_FOUND", "FUNCTION_NOT_FOUND", "FUNCTION_DENIED", "SOURCE_DENIED", "RENDER_FAILED"];
 pub const VALIDATION_FAILED: &str = "VALIDATION_FAILED";
 pub const INVALID_MESSAGE: &str = "INVALID_MESSAGE";
 pub const UNSUPPORTED_CATALOG: &str = "UNSUPPORTED_CATALOG";
@@ -24,13 +24,20 @@ pub const SURFACE_NOT_FOUND: &str = "SURFACE_NOT_FOUND";
 pub const TEMPLATE_NOT_FOUND: &str = "TEMPLATE_NOT_FOUND";
 pub const FUNCTION_NOT_FOUND: &str = "FUNCTION_NOT_FOUND";
 pub const FUNCTION_DENIED: &str = "FUNCTION_DENIED";
+/// VAPP-107: a `bindDataModel` outside a package surface's `sources`.
+pub const SOURCE_DENIED: &str = "SOURCE_DENIED";
 /// A component's painter failed (`paint.errorCode`).
 pub const RENDER_FAILED: &str = "RENDER_FAILED";
 pub const FUNCTION_DECISIONS: &[&str] = &["allow", "ask", "deny", "not_found"];
 /// The default function policy's `default`.
 pub const DEFAULT_FUNCTION_DECISION: &str = "allow";
 pub const DEFAULT_URL_SCHEMES: &[&str] = &["https", "http", "mailto", "tel"];
+/// VAPP-107: the hosts `decide_url` denies by default (`urls.privateHosts`,
+/// the rule itself is [`super::is_private_host`]).
+pub const PRIVATE_HOSTS: &[&str] = &["localhost", "*.localhost", "*.local", "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "::", "::1", "fe80::/10", "fc00::/7", "::ffff:<private IPv4>"];
+pub const URL_REASONS: &[&str] = &["invalid", "scheme", "host", "private"];
 pub const MEDIA_RULE_KEYS: &[&str] = &["prefix", "headers"];
+pub const MEDIA_OPTION_KEYS: &[&str] = &["baseUrl", "rules", "schemes", "hosts", "allowPrivate"];
 /// The media loader's schemes when the host lists none (no `file`).
 pub const DEFAULT_MEDIA_SCHEMES: &[&str] = &["https", "http", "data"];
 /// `media.limits`: what every image loader enforces.
@@ -60,9 +67,10 @@ pub fn host_contract() -> Value {
         "ops": {"kinds": OP_KINDS},
         "clientMessages": {"errorCodes": HOST_ERROR_CODES},
         "functions": {"decisions": FUNCTION_DECISIONS, "defaultPolicy": {"allow": [], "ask": [], "deny": [], "default": DEFAULT_FUNCTION_DECISION}},
-        "urls": {"defaultSchemes": DEFAULT_URL_SCHEMES},
+        "urls": {"defaultSchemes": DEFAULT_URL_SCHEMES, "privateHosts": PRIVATE_HOSTS, "reasons": URL_REASONS},
         "media": {
             "ruleKeys": MEDIA_RULE_KEYS,
+            "optionKeys": MEDIA_OPTION_KEYS,
             "defaultSchemes": DEFAULT_MEDIA_SCHEMES,
             "limits": {"maxBytes": MEDIA_MAX_BYTES, "timeoutMs": MEDIA_TIMEOUT_MS, "maxPixels": MEDIA_MAX_PIXELS},
         },

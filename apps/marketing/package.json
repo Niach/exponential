@@ -16,6 +16,8 @@
     "@exp/site-shell": "workspace:*",
     "@exp/ui": "workspace:*",
     "@exp/view-catalog": "workspace:*",
+    "@exponential-at/ui": "workspace:*",
+    "@exponential-at/ui-react": "workspace:*",
     "@remotion/cli": "4.0.484",
     "@remotion/google-fonts": "4.0.484",
     "@remotion/player": "4.0.484",

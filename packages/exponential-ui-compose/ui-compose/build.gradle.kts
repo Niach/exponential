@@ -64,6 +64,10 @@ android {
             // ConformanceTest: the default report path and the renderer version (VAPP-91).
             it.systemProperty("exponential.ui.conformanceReport", File(repoRoot, ".conformance/exponential-ui-compose.json").absolutePath)
             it.systemProperty("exponential.ui.version", project.version.toString())
+            // BenchSuiteTest (VAPP-105): runs under EXPONENTIAL_UI_BENCH=1 over the bench package's scenarios.
+            it.systemProperty("exponential.ui.bench", System.getenv("EXPONENTIAL_UI_BENCH") ?: "")
+            it.systemProperty("exponential.ui.benchRepeat", System.getenv("EXPONENTIAL_UI_BENCH_REPEAT") ?: "")
+            it.systemProperty("exponential.ui.benchScenarios", File(repoRoot, "packages/exponential-ui-bench/scenarios").absolutePath)
             it.maxHeapSize = "3g"
             // One JVM per test class: the facade keeps ONE callback vtable per
             // process, registered by whichever classloader loaded the binding
@@ -119,10 +123,42 @@ val catalogSource = tasks.register<CatalogSource>("exponentialUiCatalogSource") 
     output.set(layout.buildDirectory.dir("generated/source/exponentialUiCatalog"))
 }
 
+/**
+ * VAPP-105: the benchmark scenarios (every JSON file of
+ * `packages/exponential-ui-bench/scenarios`) as ASSETS of the instrumented
+ * test APK (`bench/<id>.json`), so `BenchSuiteInstrumentedTest` reads the
+ * same contract on a device. (No `slash-star` in this comment: Kotlin nests
+ * block comments, and one swallowed the dependencies block once.)
+ */
+abstract class BenchScenarios : DefaultTask() {
+    @get:InputDirectory
+    abstract val source: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val output: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val dir = output.get().asFile
+        dir.deleteRecursively()
+        val dest = File(dir, "bench")
+        dest.mkdirs()
+        source.get().asFile.listFiles { f -> f.extension == "json" }?.forEach { it.copyTo(File(dest, it.name)) }
+    }
+}
+
+val benchScenarios = tasks.register<BenchScenarios>("exponentialUiBenchScenarios") {
+    source.set(File(repoRoot, "packages/exponential-ui-bench/scenarios"))
+    output.set(layout.buildDirectory.dir("generated/benchScenarios"))
+}
+
 androidComponents {
     // `java`: the Kotlin compile reads the variant's java source dirs (AGP
     // leaves `sources.kotlin` null under the kotlin-android plugin).
-    onVariants { variant -> variant.sources.java?.addGeneratedSourceDirectory(catalogSource, CatalogSource::output) }
+    onVariants { variant ->
+        variant.sources.java?.addGeneratedSourceDirectory(catalogSource, CatalogSource::output)
+        variant.androidTest?.sources?.assets?.addGeneratedSourceDirectory(benchScenarios, BenchScenarios::output)
+    }
 }
 
 dependencies {

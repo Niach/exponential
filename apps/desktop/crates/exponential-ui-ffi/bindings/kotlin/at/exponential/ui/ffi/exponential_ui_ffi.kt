@@ -2076,7 +2076,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_constructor_surface_with_theme() != 19728.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_exponential_ui_ffi_checksum_constructor_theme_builtin() != 29878.toShort()) {
+    if (lib.uniffi_exponential_ui_ffi_checksum_constructor_theme_builtin() != 49233.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_constructor_theme_load() != 18071.toShort()) {
@@ -6743,7 +6743,7 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     companion object {
         
     /**
-     * A built-in theme (`neutral`, `exponential`, `playful`).
+     * A built-in theme (`neutral`, `exponential`, `playful`, `orange`).
      */
     @Throws(UiException::class) fun `builtin`(`id`: kotlin.String): Theme {
             return FfiConverterTypeTheme.lift(
@@ -8645,6 +8645,20 @@ sealed class UiException: kotlin.Exception() {
             get() = "issuesJson=${ `issuesJson` }"
     }
     
+    /**
+     * VAPP-107: the core panicked inside this call (a core bug, a host
+     * callback that threw). The call did nothing; the host process is
+     * unharmed and the object stays usable (a surface records it as an
+     * issue too). `reason` = the panic's text.
+     */
+    class Panic(
+        
+        val `reason`: kotlin.String
+        ) : UiException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+    
 
     
 
@@ -8670,6 +8684,9 @@ public object FfiConverterTypeUiError : FfiConverterRustBuffer<UiException> {
             2 -> UiException.Theme(
                 FfiConverterString.read(buf),
                 )
+            3 -> UiException.Panic(
+                FfiConverterString.read(buf),
+                )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
     }
@@ -8686,6 +8703,11 @@ public object FfiConverterTypeUiError : FfiConverterRustBuffer<UiException> {
                 4UL
                 + FfiConverterString.allocationSize(value.`issuesJson`)
             )
+            is UiException.Panic -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`reason`)
+            )
         }
     }
 
@@ -8699,6 +8721,11 @@ public object FfiConverterTypeUiError : FfiConverterRustBuffer<UiException> {
             is UiException.Theme -> {
                 buf.putInt(2)
                 FfiConverterString.write(value.`issuesJson`, buf)
+                Unit
+            }
+            is UiException.Panic -> {
+                buf.putInt(3)
+                FfiConverterString.write(value.`reason`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }

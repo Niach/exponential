@@ -11,9 +11,9 @@ import type { Tx } from "@/lib/sessions/tx"
 // (`sessions.app_id` + `user_id` = the member), on a device of the member's
 // (the one named, else their default), live only while the member has the
 // editor open: leaving ENDS it (`sessions.end` on the root, the tree), the
-// next message continues it (an ended root continues as a child of itself,
-// `continueSession`), so the chat is the root's tree. Every new or continued
-// session opens with the app BRIEF as the preface of its first message.
+// next message revives the same root (FEED-134 `reviveRoot`), so the chat is
+// the root's messages. A new or revived session gets the app BRIEF as the
+// preface of its first message.
 
 /** The app, when the caller is a member of its team and it is not trashed. */
 export async function loadAppForUser(userId: string, appId: string): Promise<App> {

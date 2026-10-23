@@ -3,6 +3,7 @@ import { FooterCTA, SiteFooter, SiteHeader } from "./components/SiteShell"
 import { ActionsSection } from "./components/ActionsSection"
 import { AgentIconRow } from "./components/agent-icons"
 import { AgentsSection } from "./components/AgentsSection"
+import { BlogStrip } from "./components/blog/BlogStrip"
 import { CollabSection } from "./components/CollabSection"
 import { HeroDownload } from "./components/HeroDownload"
 import { HomePricing } from "./components/HomePricing"
@@ -99,6 +100,9 @@ export function HomePage() {
         {/* ── Collaboration: widget → board, realtime with the team
                (EXP-176, SLOP-4) ── */}
         <CollabSection />
+
+        {/* ── Have you tried turning it off and on again: the newest post (EXP-1366) ── */}
+        <BlogStrip />
 
         {/* ── Pricing ──────────────────────────── */}
         <HomePricing />

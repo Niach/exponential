@@ -43,8 +43,8 @@ use crate::context_layout::{self, CarriedBase, ContextLayers};
 use crate::doctor::{run_doctor, ToolCheck};
 use crate::git_credentials;
 use crate::git_worktree::{
-    branch_name, clone_path, create_worktree, ensure_clone, fetch_base, seed_empty_remote,
-    shared_cargo_target_dir, GitError, TokenUrl,
+    branch_name, carried_branch, clone_path, create_worktree_with, ensure_clone, fetch_base,
+    seed_empty_remote, shared_cargo_target_dir, GitError, Parked, TokenUrl,
 };
 use crate::mcp_json::write_mcp_json;
 use crate::mcp_servers::ResolvedMcp;
@@ -439,6 +439,8 @@ pub enum PrepareRequest {
 /// into a ready worktree. The real impl is [`GitWorktrees`] (argv git).
 /// `expires_at` is the token's real ISO-8601 expiry from the mint — the
 /// ambient-auth install's no-downgrade stamp (EXP-73).
+/// `parked` = what to do with a layout dir that is not on `branch`: a launch
+/// reclaims it, a resume keeps it where the agent left it (FEED-129).
 pub trait WorktreeProvider: Send + Sync {
     #[allow(clippy::too_many_arguments)]
     fn prepare(
@@ -449,6 +451,7 @@ pub trait WorktreeProvider: Send + Sync {
         branch: &str,
         url: &TokenUrl,
         expires_at: Option<&str>,
+        parked: Parked,
     ) -> Result<PathBuf, GitError>;
 }
 
@@ -468,6 +471,7 @@ impl WorktreeProvider for GitWorktrees {
         branch: &str,
         url: &TokenUrl,
         expires_at: Option<&str>,
+        parked: Parked,
     ) -> Result<PathBuf, GitError> {
         let clone = ensure_clone(repos_root, full_name, url)?;
         git_credentials::ensure(&clone, url, expires_at)?;
@@ -480,7 +484,7 @@ impl WorktreeProvider for GitWorktrees {
             let _ = fetch_base(&clone, default_branch, url);
         }
         let worktree =
-            create_worktree(&clone, branch, &format!("origin/{default_branch}"), url)?;
+            create_worktree_with(&clone, branch, &format!("origin/{default_branch}"), url, parked)?;
         // Best-effort exclude coverage for the launcher's local-only files
         // ([`LOCAL_EXCLUDES`]), via the shared, never-committed
         // `.git/info/exclude`.
@@ -1560,6 +1564,7 @@ fn prepare_session(
                     &branch,
                     &url,
                     minted.expires_at.as_deref(),
+                    Parked::Reclaim,
                 )?;
                 workspace = Some(RepoWorkspace {
                     clone,
@@ -2047,6 +2052,10 @@ fn prepare_resume(
         match &record.branch {
             Some(branch) => {
                 crate::git_worktree::validate_branch_arg(branch, "resume run")?;
+                // FEED-129: a standing worktree is KEPT as the agent left it
+                // (`Parked::Keep`) — a checkout back to the recorded branch
+                // refused every resume of a run that had moved to another
+                // branch and edited files, and its messages sat unconsumed.
                 let worktree = deps.worktrees.prepare(
                     &deps.settings.repos_root_path(),
                     url.full_name(),
@@ -2054,6 +2063,7 @@ fn prepare_resume(
                     branch,
                     &url,
                     minted.expires_at.as_deref(),
+                    Parked::Keep,
                 )?;
                 // A re-created worktree is the cwd wherever git put it (the
                 // layout path, normally — the same one the record names, so
@@ -2068,6 +2078,14 @@ fn prepare_resume(
                         );
                     }
                     cwd = worktree;
+                } else if let Some(carried) = carried_branch(&cwd, branch) {
+                    // The run stands on another branch: the row follows, so
+                    // the thread's PR opens from where the commits are.
+                    log::info!(
+                        "resume {}: worktree stays on {carried} (recorded branch {branch}); the row follows",
+                        record.session_id
+                    );
+                    report_branch(&deps.trpc, &session_id, &carried);
                 }
             }
             // A branch-less repo-backed record still needs its ambient auth

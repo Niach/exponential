@@ -83,7 +83,7 @@ public enum SessionsSendInput: Sendable, Equatable {
         text: String? = nil
     )
     /// A message into an existing session (resumes it when idle; an ended
-    /// thread continues in a new child server-side). Needs text or files.
+    /// thread revives server-side, the same row). Needs text or files.
     case message(sessionId: String, text: String? = nil, attachmentIds: [String]? = nil)
     /// EXP-849: the mid-session account SWITCH — `{sessionId, account}`, no
     /// text. The server moves the synced `sessions.account`; the host device

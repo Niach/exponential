@@ -3,7 +3,8 @@ name: release-ui
 # VAPP-91: publishes the Exponential UI SDK on `ui-v<semver>` tags, in the
 # repo's tag-triggered pattern (cli-v*, desktop-v*…). One tag = one version on
 # every registry:
-#   npm          @exponential-at/ui, @exponential-at/ui-react     (NPM_TOKEN)
+#   npm          @exponential-at/ui, @exponential-at/ui-react,
+#                @exponential-at/ui-solid, @exponential-at/ui-element (NPM_TOKEN)
 #   crates.io    exponential-ui                                   (CARGO_REGISTRY_TOKEN)
 #   SwiftPM      ExponentialUI: the xcframework zip on this release + the
 #                tagged distribution repo Niach/exponential-ui-swift (SWIFT_DIST_TOKEN)
@@ -64,7 +65,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for p in ui ui-react; do
+          for p in ui ui-react ui-solid ui-element; do
             if [ -n "$NODE_AUTH_TOKEN" ]; then (cd dist-npm/$p && npm publish --access public --provenance); \
             else (cd dist-npm/$p && npm pack --pack-destination ../); fi
           done
@@ -100,6 +101,9 @@ jobs:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
       - name: Build the xcframework
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
+      - uses: oven-sh/setup-bun@v2
+      - name: Size gate (xcframework slices, VAPP-106)
+        run: bun packages/exponential-ui/release/size.ts xcframework --check
       - name: Zip + checksum
         id: zip
         run: |
@@ -136,6 +140,9 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
         run: bash apps/desktop/crates/exponential-ui-ffi/build-android.sh
+      - uses: oven-sh/setup-bun@v2
+      - name: Size gate (every ABI's .so, VAPP-106)
+        run: bun packages/exponential-ui/release/size.ts android --check
       - name: The Central Portal bundle
         working-directory: packages/exponential-ui-compose
         env:

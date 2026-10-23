@@ -33,29 +33,10 @@ env:
   IMAGE: ghcr.io/niach/exponential-web
 
 jobs:
-  # Gate: the production image must never ship on a red typecheck/test run.
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - name: Typecheck web
-        run: bun run typecheck
-      - name: Web unit tests
-        env:
-          # Unit tests never query the DB, but db/connection.ts throws at
-          # import time without a URL — give it an unreachable dummy.
-          DATABASE_URL: postgresql://ci:ci@127.0.0.1:59999/ci
-        run: bun run test
-      - name: Widget unit tests
-        run: bun run test:widget
-      - name: Steer relay + ticket tests
-        run: bun run test:steer-relay
-
+  # EXP-1364: no test gate here any more. Every change reaches master through
+  # a pull request whose `test / gate` check is REQUIRED (branch protection),
+  # so this run only builds: ~6 minutes instead of a second full test pass.
   build:
-    needs: test
     strategy:
       fail-fast: false
       matrix:
@@ -64,6 +45,8 @@ jobs:
             runner: ubuntu-latest
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
+    # GitHub-hosted, both: pushing the image from the Mint went through a home
+    # upload link (9 minutes vs 6).
     runs-on: ${{ matrix.runner }}
 
     steps:
