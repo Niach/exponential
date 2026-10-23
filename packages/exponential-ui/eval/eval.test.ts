@@ -60,7 +60,7 @@ describe(`the report`, () => {
     expect(a.surfaces).toBe(prompts.length)
     expect(a.validatorClean).toBeGreaterThanOrEqual(0)
     expect(a.validatorClean).toBeLessThanOrEqual(a.surfaces)
-    expect(a.issueKinds.reduce((n, k) => n + k.count, 0)).toBe(a.issuesTotal)
+    expect((a.issueKinds as { count: number }[]).reduce((n, k) => n + k.count, 0)).toBe(a.issuesTotal)
     expect(a.spacing.rhythm).toBeGreaterThanOrEqual(0)
     expect(a.spacing.rhythm).toBeLessThanOrEqual(1)
     for (const r of RUBRICS) expect(a.rubric[r].passed).toBeLessThanOrEqual(a.rubric[r].expected)

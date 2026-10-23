@@ -348,8 +348,8 @@
           "warmPassMs": 0.3
         },
         "list-100k": {
-          "ffiBytesPerStep": 24411,
-          "ffiCallsPerStep": 179,
+          "ffiBytesPerStep": 24816,
+          "ffiCallsPerStep": 43,
           "firstPaintMs": 165.6,
           "measureCallsPerStep": 40,
           "memoryMb": 126,
@@ -367,7 +367,7 @@
         },
         "streaming": {
           "applyMs": 6.9,
-          "ffiBytesTotal": 8942883,
+          "ffiBytesTotal": 9190883,
           "nodes": 607,
           "p95ApplyMs": 13.4,
           "totalMs": 1367.5
@@ -407,8 +407,8 @@
           "warmPassMs": 0.3
         },
         "list-100k": {
-          "ffiBytesPerStep": 24411,
-          "ffiCallsPerStep": 179,
+          "ffiBytesPerStep": 24816,
+          "ffiCallsPerStep": 43,
           "firstPaintMs": 144.4,
           "measureCallsPerStep": 40,
           "memoryMb": 152.9,
@@ -426,7 +426,7 @@
         },
         "streaming": {
           "applyMs": 7.2,
-          "ffiBytesTotal": 8942883,
+          "ffiBytesTotal": 9190883,
           "nodes": 607,
           "p95ApplyMs": 13.4,
           "totalMs": 1432.5

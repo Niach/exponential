@@ -5,27 +5,27 @@
     "budgetTokens": 7000,
     "full": {
       "components": 75,
-      "chars": 27996,
-      "tokens": 6999
+      "chars": 27997,
+      "tokens": 7000
     },
     "lite": {
       "components": 53,
-      "chars": 20558,
-      "tokens": 5140
+      "chars": 20556,
+      "tokens": 5139
     },
     "terse": {
       "components": 75,
-      "chars": 20595,
+      "chars": 20596,
       "tokens": 5149
     },
     "index": {
       "components": 75,
-      "chars": 10348,
-      "tokens": 2587
+      "chars": 10331,
+      "tokens": 2583
     },
     "rules": {
-      "chars": 1848,
-      "tokens": 462
+      "chars": 1831,
+      "tokens": 458
     },
     "perComponent": {
       "mean": 325,
@@ -39,11 +39,11 @@
       "claude-cli": 30
     },
     "validatorClean": 13,
-    "issuesTotal": 42,
+    "issuesTotal": 39,
     "issueKinds": [
       {
         "message": "props.icon: not an icons.json name",
-        "count": 13
+        "count": 12
       },
       {
         "message": "props.emptyText: unknown prop",
@@ -59,10 +59,6 @@
       },
       {
         "message": "props.description: expected a string",
-        "count": 2
-      },
-      {
-        "message": "props.selected: expected a boolean",
         "count": 2
       },
       {
@@ -1007,14 +1003,6 @@
         {
           "id": "list",
           "message": "props.emptyText: unknown prop"
-        },
-        {
-          "id": "notifRow",
-          "message": "props.icon: not an icons.json name"
-        },
-        {
-          "id": "notifRow",
-          "message": "props.selected: expected a boolean"
         }
       ],
       "spacing": {
@@ -1824,10 +1812,6 @@
         {
           "id": "msgList",
           "message": "props.emptyText: unknown prop"
-        },
-        {
-          "id": "msgRow",
-          "message": "props.selected: expected a boolean"
         }
       ],
       "spacing": {

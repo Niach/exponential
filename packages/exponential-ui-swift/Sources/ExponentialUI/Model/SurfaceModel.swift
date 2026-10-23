@@ -492,49 +492,57 @@ public final class SurfaceModel {
     }
 
     /// The resolved visuals and text styles: every slot (`nil`) or the
-    /// changed ones; then the inherited text colours.
+    /// changed ones, in ONE `paintAt` per step (VAPP-151: was a `visual`
+    /// plus a `textStyle` call per slot); then the inherited text colours.
     private func readVisuals(_ changed: Set<Int>?) {
         var st = styles
         var ts = textStyles
+        // Observable reads once, not per slot.
+        let ns = nodes
+        let family = theme?.sansFamily
         if let changed {
-            var leaves = 0
-            // Most slots changed (a rebind, a sort): ONE bulk read beats a
-            // call per slot; the unchanged slots read back what they hold.
-            let bulk = changed.count * 2 > st.count ? surface.visuals() : nil
-            if let bulk, var c = Self.benchCounters { c.calls += 1; c.bytesOut += bulk.count * 96; Self.benchCounters = c }
-            for i in changed where i < st.count {
-                if let bulk {
-                    st[i] = i < bulk.count ? paintStyle(bulk[i]) : PaintStyle()
+            let slots = changed.filter { $0 < st.count }.sorted()
+            let paints = surface.paintAt(indices: slots.map { UInt32($0) })
+            countPaint(paints)
+            // `paints` is `slots` in order minus the slots without a visual,
+            // which paint the default.
+            var p = 0
+            for i in slots {
+                if p < paints.count, Int(paints[p].index) == i {
+                    st[i] = paintStyle(paints[p].visual)
+                    if ns[i].isLeaf, let t = paints[p].textStyle { ts[i] = TextStyle(t, defaultFamily: family) } else { ts[i] = nil }
+                    p += 1
                 } else {
-                    st[i] = surface.visual(index: UInt32(i)).map(paintStyle) ?? PaintStyle()
-                }
-                if nodes[i].isLeaf {
-                    leaves += 1
-                    if let t = surface.textStyle(index: UInt32(i)) { ts[i] = TextStyle(t, defaultFamily: theme?.sansFamily) } else { ts[i] = nil }
-                } else {
+                    st[i] = PaintStyle()
                     ts[i] = nil
                 }
             }
-            // A text style is read for the leaves only (VAPP-131: the count charged every changed node).
-            if var c = Self.benchCounters { let read = bulk == nil ? changed.lazy.filter { $0 < st.count }.count : 0; c.calls += read + leaves; c.bytesOut += read * 96 + leaves * 48; Self.benchCounters = c }
         } else {
-            let visuals = surface.visuals()
-            if var c = Self.benchCounters { c.calls += 1; c.bytesOut += visuals.count * 96; Self.benchCounters = c }
-            st = visuals.map(paintStyle)
-            if st.count < nodes.count { st += [PaintStyle](repeating: PaintStyle(), count: nodes.count - st.count) }
-            ts = [:]
             // The core resolves a leaf's text style DURING the pass (the
             // recipe's font): read after it, never from pre-pass nodes.
-            for n in nodes where n.isLeaf && !n.removed {
-                if let t = surface.textStyle(index: UInt32(n.index)) { ts[n.index] = TextStyle(t, defaultFamily: theme?.sansFamily) }
+            let paints = surface.paintAt(indices: (0..<ns.count).map { UInt32($0) })
+            countPaint(paints)
+            st = [PaintStyle](repeating: PaintStyle(), count: ns.count)
+            ts = [:]
+            for p in paints where Int(p.index) < ns.count {
+                let i = Int(p.index)
+                st[i] = paintStyle(p.visual)
+                if ns[i].isLeaf && !ns[i].removed, let t = p.textStyle { ts[i] = TextStyle(t, defaultFamily: family) }
             }
-            if var c = Self.benchCounters { let leaves = nodes.lazy.filter { $0.isLeaf && !$0.removed }.count; c.calls += leaves; c.bytesOut += leaves * 48; Self.benchCounters = c }
         }
         if changed == nil || changed?.isEmpty == false || inks.count != nodes.count {
             styles = st
             if ts != textStyles { textStyles = ts }
             computeInks()
         }
+    }
+
+    /// One facade call per `paintAt`: 100 bytes a visual, 48 a text style.
+    private func countPaint(_ paints: [FfiPaint]) {
+        guard var c = Self.benchCounters else { return }
+        c.calls += 1
+        c.bytesOut += paints.reduce(0) { $0 + 100 + ($1.textStyle == nil ? 0 : 48) }
+        Self.benchCounters = c
     }
 
     private func paintStyle(_ v: FfiVisual) -> PaintStyle {
