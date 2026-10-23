@@ -400,8 +400,10 @@ impl Measure for FixedMeasure {
 #[derive(Debug, Default, Clone)]
 pub struct MeasureMemo {
     pub intrinsics: HashMap<u32, Intrinsics>,
-    /// (index, width in 1/64 px) → height.
-    pub heights: HashMap<(u32, i64), f32>,
+    /// index → (width in 1/64 px, height) pairs. VAPP-132: by index, so
+    /// forgetting a leaf costs its own entries, not every leaf's (a
+    /// 10,000-item rebind forgot 10,000 leaves one full scan each).
+    heights: HashMap<u32, Vec<(i64, f32)>>,
 }
 
 impl MeasureMemo {
@@ -416,11 +418,26 @@ impl MeasureMemo {
 
     pub fn forget(&mut self, index: u32) {
         self.intrinsics.remove(&index);
-        self.heights.retain(|(i, _), _| *i != index);
+        self.heights.remove(&index);
     }
 
     pub fn height_at(&self, index: u32, width: f32) -> Option<f32> {
-        self.heights.get(&(index, Self::width_key(width))).copied()
+        let key = Self::width_key(width);
+        self.heights.get(&index)?.iter().find(|(w, _)| *w == key).map(|(_, h)| *h)
+    }
+
+    /// Remember the height at a width key ([`Self::width_key`]).
+    pub fn insert_height(&mut self, index: u32, width_key: i64, height: f32) {
+        let at = self.heights.entry(index).or_default();
+        match at.iter_mut().find(|(w, _)| *w == width_key) {
+            Some(entry) => entry.1 = height,
+            None => at.push((width_key, height)),
+        }
+    }
+
+    /// Every (width key, height) remembered for a leaf.
+    pub fn heights_of(&self, index: u32) -> &[(i64, f32)] {
+        self.heights.get(&index).map(Vec::as_slice).unwrap_or(&[])
     }
 }
 
