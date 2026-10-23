@@ -7,9 +7,10 @@
 // its budget FAILS, as it must land with its new budget in the same change.
 // A metric with no budget (a new scenario, a new machine) is reported, never
 // gated, so a first run on a new machine passes and writes the numbers.
-// `machineTimings` makes a machine's timings `warn`: recorded and reported,
-// a worse one a warning, never a failure (runners without CPU isolation);
-// its counts and bytes still gate.
+// `machineTimings` (per machine) and `rendererTimings` (per renderer, on
+// every machine) make timings `warn`: recorded and reported, a worse one a
+// warning, never a failure (runners without CPU isolation, an emulator on a
+// shared VM); counts and bytes still gate.
 import manifest from "../scenarios/manifest.json"
 import type { Fragment } from "./results"
 
@@ -21,8 +22,10 @@ export type Budgets = {
   headroom: number
   /** A machine's own `headroom` (a shared hosted VM drifts far more than a dedicated box). */
   machineHeadroom?: Record<string, number>
-  /** A machine's timings `gate` (default) or only `warn` (a shared box: a worse timing never fails; counts still gate). */
+  /** A machine's timings (`mint`): `gate` (default) or only `warn` (a worse timing never fails; counts still gate). */
   machineTimings?: Record<string, `gate` | `warn`>
+  /** A renderer's timings on EVERY machine (`compose-android`): `gate` (default) or only `warn`. */
+  rendererTimings?: Record<string, `gate` | `warn`>
   machines: Record<string, Record<string, Record<string, Record<string, number>>>>
 }
 
@@ -41,11 +44,15 @@ export interface Verdict {
 
 const KINDS: Record<string, Record<string, Verdict[`kind`]>> = Object.fromEntries(manifest.scenarios.map((s) => [s.id, Object.fromEntries(s.metrics.map((m) => [m.id, m.kind as Verdict[`kind`]]))]))
 
+/** How [renderer]'s timings on [machine] count: `warn` when the machine's or the renderer's mode says so, else `gate`. */
+export const timingMode = (budgets: Budgets, machine: string, renderer: string): `gate` | `warn` =>
+  budgets.machineTimings?.[machine] === `warn` || budgets.rendererTimings?.[renderer] === `warn` ? `warn` : `gate`
+
 /** Compare one fragment with the budgets of its machine. */
 export function check(fragment: Fragment, budgets: Budgets, machine = fragment.machine ?? `unknown`): Verdict[] {
   const out: Verdict[] = []
   const mine = budgets.machines[machine]?.[fragment.renderer] ?? {}
-  const warnTimings = budgets.machineTimings?.[machine] === `warn`
+  const warnTimings = timingMode(budgets, machine, fragment.renderer) === `warn`
   for (const [scenario, metrics] of Object.entries(fragment.scenarios)) {
     for (const [metric, value] of Object.entries(metrics)) {
       const kind = KINDS[scenario]?.[metric] ?? `ms`

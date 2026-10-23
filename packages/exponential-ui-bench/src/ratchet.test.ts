@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { budgetsFor, check, describe as line, failing, headroomOf, worstOf, type Budgets } from "./ratchet"
+import { budgetsFor, check, describe as line, failing, headroomOf, timingMode, worstOf, type Budgets } from "./ratchet"
 import type { Fragment } from "./results"
 
 const budgets: Budgets = { floor: 0.5, headroom: 1.5, machines: { m: { core: { "list-100k": { firstPaintMs: 100, scrollStepMs: 5, renderedItems: 30 } } } } }
@@ -58,5 +58,21 @@ describe(`ratchet`, () => {
     expect(line(v[2])).toStartWith(`::error`)
     // Any other machine still gates its timings.
     expect(failing(check({ ...fragment({ "list-100k": { firstPaintMs: 300 } }), machine: `other` }, { ...shared, machines: { other: budgets.machines.m } })).map((x) => x.metric)).toEqual([`firstPaintMs`])
+  })
+
+  it(`a warn renderer: its timing over budget warns on every machine, its count fails, other renderers gate`, () => {
+    const emu: Budgets = { ...budgets, rendererTimings: { "compose-android": `warn` }, machines: { m: { core: budgets.machines.m.core, "compose-android": budgets.machines.m.core }, n: { "compose-android": budgets.machines.m.core } } }
+    for (const machine of [`m`, `n`]) {
+      const v = check({ ...fragment({ "list-100k": { firstPaintMs: 300, renderedItems: 31 } }), renderer: `compose-android`, machine }, emu)
+      expect(v.map((x) => [x.metric, x.status, x.warnOnly ?? false])).toEqual([
+        [`firstPaintMs`, `worse`, true],
+        [`renderedItems`, `worse`, false],
+      ])
+      expect(failing(v).map((x) => x.metric)).toEqual([`renderedItems`])
+    }
+    expect(failing(check(fragment({ "list-100k": { firstPaintMs: 300 } }), emu)).map((x) => x.metric)).toEqual([`firstPaintMs`])
+    expect(timingMode(emu, `m`, `compose-android`)).toBe(`warn`)
+    expect(timingMode({ ...emu, machineTimings: { m: `warn` } }, `m`, `core`)).toBe(`warn`)
+    expect(timingMode(emu, `m`, `core`)).toBe(`gate`)
   })
 })

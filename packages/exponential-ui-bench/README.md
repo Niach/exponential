@@ -85,7 +85,9 @@ every timing at its worst of the runs × the machine's headroom and the counts
 exact (the last run's), at `headroom` 1.5 (`machineHeadroom` can override it
 per machine). Counts and bytes gate everywhere; `machineTimings` makes `mint`'s
 timings warnings only (four runners share one 32-core box without CPU
-isolation), while the GitHub-hosted labels and `macbook` gate them. The CI machines are named by the runner that
+isolation) and `rendererTimings` does the same for `compose-android` everywhere
+(an emulator, swiftshader software rendering, a shared VM; real Android
+timings come from a real device); every other timing gates. The CI machines are named by the runner that
 actually ran the job, one id per runner class: `github-ubuntu-latest` (React,
 Solid, the web component, Compose JVM and the emulator always; the core and
 gpui when `pick` falls back to GitHub), `mint` (the core and gpui on the
