@@ -98,7 +98,8 @@ pub trait HostPlugin: 'static {
     /// the image loader makes (absolute url + headers, e.g. auth for
     /// `/api/attachments`). `None` = denied: nothing loads. The default:
     /// `resolve_url(src)` through [`Self::media_options`]. Whatever this
-    /// returns is re-checked against `media_options()`'s schemes and hosts.
+    /// returns is re-checked against `media_options()`'s schemes, hosts and
+    /// private opt-ins.
     fn media_request(&self, src: &str) -> Option<MediaRequest> {
         media_request(&self.resolve_url(src), &self.media_options())
     }

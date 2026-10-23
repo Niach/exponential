@@ -85,14 +85,21 @@ export interface CatalogView {
   macros: Record<string, MacroDef>
 }
 
+/** A prototype-less copy of a table: a lookup by an agent-chosen name
+ *  (`constructor`, `__proto__`, `valueOf`) finds nothing instead of
+ *  `Object.prototype`'s members (VAPP-107, property-tested). */
+function ownTable<T>(source: Record<string, T>): Record<string, T> {
+  return Object.assign(Object.create(null) as Record<string, T>, source)
+}
+
 /** The core merged with the given extensions. Extension names never shadow a
  *  core name (defineExtension refuses that), so a plain spread is exact. */
 export function catalogView(extensions: readonly ExtensionDef[] = []): CatalogView {
   const view: CatalogView = {
-    components: { ...coreCatalog.components },
-    enums: { ...coreCatalog.enums },
-    defs: { ...coreCatalog.defs },
-    macros: { ...coreMacros },
+    components: ownTable(coreCatalog.components),
+    enums: ownTable(coreCatalog.enums),
+    defs: ownTable(coreCatalog.defs),
+    macros: ownTable(coreMacros),
   }
   for (const ext of extensions) {
     Object.assign(view.components, ext.components)

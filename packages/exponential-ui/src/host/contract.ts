@@ -36,6 +36,7 @@ export type HostErrorCode =
   | `TEMPLATE_NOT_FOUND`
   | `FUNCTION_NOT_FOUND`
   | `FUNCTION_DENIED`
+  | `SOURCE_DENIED`
   | `RENDER_FAILED`
 
 /** A server → client message: the four A2UI v0.9 kinds plus the two

@@ -5736,6 +5736,14 @@ public enum UiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError
      */
     case Theme(issuesJson: String
     )
+    /**
+     * VAPP-107: the core panicked inside this call (a core bug, a host
+     * callback that threw). The call did nothing; the host process is
+     * unharmed and the object stays usable (a surface records it as an
+     * issue too). `reason` = the panic's text.
+     */
+    case Panic(reason: String
+    )
 
     
 
@@ -5771,6 +5779,9 @@ public struct FfiConverterTypeUiError: FfiConverterRustBuffer {
         case 2: return .Theme(
             issuesJson: try FfiConverterString.read(from: &buf)
             )
+        case 3: return .Panic(
+            reason: try FfiConverterString.read(from: &buf)
+            )
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -5791,6 +5802,11 @@ public struct FfiConverterTypeUiError: FfiConverterRustBuffer {
         case let .Theme(issuesJson):
             writeInt(&buf, Int32(2))
             FfiConverterString.write(issuesJson, into: &buf)
+            
+        
+        case let .Panic(reason):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(reason, into: &buf)
             
         }
     }

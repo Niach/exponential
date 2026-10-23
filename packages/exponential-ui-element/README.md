@@ -66,7 +66,7 @@ Read-only properties:
 
 - `handle`: the `SurfaceHandle`, or `null` until the first paint.
 - `issues`: the active store's reduce issues.
-- `status`: the transport status.
+- `status`: the transport status; `statusDetail`: its detail (an error, or why the URL policy refused `src`/`post`).
 - `surfaceState`: the `SurfaceState` being painted.
 
 Methods:
@@ -123,6 +123,18 @@ before the host opens a URL.
 A `host` property belongs to the page. The element connects it only if it
 has a transport and has never connected (`status === "closed"`), and it
 never closes it.
+
+`src` and `post` pass the page's URL policy (`plugin.urls`, the one every
+href passes) BEFORE a transport is built (`decideTransport`): a private,
+loopback or link-local host (`10.0.0.5`, `localhost`, `*.local`,
+`169.254.169.254`, `::1`, decimal and IPv4-mapped literals) is denied unless
+`plugin.urls.allowPrivate` opts it in (the page's own private origin is, so
+a dev server on localhost streams from itself); a `hosts` allowlist holds;
+`schemes: ["https"]` means https + wss only; `javascript:`, `file:`, `data:`
+never connect. A `ws:`/`wss:` url is decided as its http(s) twin. A denied
+`src` or `post` builds no host and fetches nothing: `status` is `closed`,
+`statusDetail` says why (`src denied by the URL policy (private)`) and
+`xui-status` fires once. The standalone bundle carries the same filter.
 
 ## Extensions
 

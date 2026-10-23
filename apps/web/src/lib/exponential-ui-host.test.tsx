@@ -40,7 +40,7 @@ import { HostSurface } from "@exponential-at/ui-react"
 import { appReactExtension } from "@exp/ui"
 import { contract } from "@exp/domain-contract"
 import { exponentialUiConsentPrompt } from "@/lib/prompts"
-import { ConsentCard, HostBanner, LIVENESS_TICK_MS, McpCallError, callMcp, createAppHost, createConsentGate, devicesValue } from "./exponential-ui-host"
+import { ConsentCard, HostBanner, LIVENESS_TICK_MS, McpCallError, callMcp, createAppHost, createConsentGate, devicesValue, ownPrivateHosts } from "./exponential-ui-host"
 
 /** A fetch that answers each tools/call with `answer(id)` (the request's id). */
 const answering = (answer: (id: number) => Response) =>
@@ -50,6 +50,21 @@ const sse = (events: unknown[]) =>
     status: 200,
     headers: { "content-type": `text/event-stream` },
   })
+
+describe(`VAPP-107: the app opts only its own private origin in`, () => {
+  it(`localhost in dev, nothing in the cloud, never the LAN`, () => {
+    expect(ownPrivateHosts(`http://localhost:3000`)).toEqual([`localhost`])
+    expect(ownPrivateHosts(`http://127.0.0.1:5173`)).toEqual([`127.0.0.1`])
+    expect(ownPrivateHosts(`https://app.exponential.at`)).toEqual([])
+    expect(ownPrivateHosts(`nope`)).toEqual([])
+    const host = createAppHost({ consent: createConsentGate(), navigate: () => {} })
+    const origin = window.location.origin
+    expect(host.mediaRequest(`${origin}/api/attachments/a1`)?.url).toBe(`${origin}/api/attachments/a1`)
+    expect(host.mediaRequest(`/api/attachments/a1`)?.url).toBe(`${origin}/api/attachments/a1`)
+    expect(host.mediaRequest(`http://192.168.1.10/cam.jpg`)).toBeNull()
+    expect(host.openUrl(`http://169.254.169.254/latest/meta-data/`)).toBe(false)
+  })
+})
 
 describe(`the app host`, () => {
   it(`renders the Devices package from the synced devices and runs a row press through the policy`, async () => {
@@ -174,6 +189,45 @@ describe(`exp:devices liveness`, () => {
 })
 
 describe(`the consent card`, () => {
+  it(`VAPP-107: shows the arguments as compact JSON, a disclosure past the preview, the destructive role for a destructive op`, async () => {
+    const gate = createConsentGate()
+    const view = render(<ConsentCard gate={gate} />)
+    act(() => {
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: { tool: `exponential_issues`, arguments: { op: `get`, id: `EXP-12` } } } as never)
+    })
+    const block = await view.findByTestId(`exponential-ui-consent-arguments`)
+    expect(block.textContent).toBe(`{"op":"get","id":"EXP-12"}`)
+    expect(view.getByRole(`button`, { name: `Allow` }).getAttribute(`data-role`)).toBe(`default`)
+    expect(view.queryByTestId(`exponential-ui-consent-show-all`)).toBeNull()
+    // A long argument list previews and discloses.
+    const long = { op: `create`, boardId: `b`.repeat(40), title: `t`.repeat(120), description: `d`.repeat(300) }
+    act(() => {
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: { tool: `exponential_issues`, arguments: long } } as never)
+    })
+    const preview = await view.findByTestId(`exponential-ui-consent-arguments`)
+    expect(preview.textContent).toBe(`${JSON.stringify(long).slice(0, 160)}…`)
+    fireEvent.click(view.getByTestId(`exponential-ui-consent-show-all`))
+    // The CodeBlock paints one element per line: the text joins without newlines.
+    expect(view.getByTestId(`exponential-ui-consent-arguments`).textContent).toBe(JSON.stringify(long, null, 2).replace(/\n/g, ``))
+    // A destructive op: the destructive entry (Allow destructive, Deny still focused).
+    act(() => {
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: { tool: `exponential_issues`, arguments: { op: `delete`, id: `EXP-12` } } } as never)
+    })
+    await vi.waitFor(() => expect(view.getByTestId(`exponential-ui-consent-arguments`).textContent).toBe(`{"op":"delete","id":"EXP-12"}`))
+    expect(view.getByRole(`button`, { name: `Allow` }).getAttribute(`data-role`)).toBe(`destructive`)
+    expect(document.activeElement).toBe(view.getByRole(`button`, { name: `Deny` }))
+    // No arguments: no block. A plain host function shows its own args.
+    act(() => {
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.openIssue`, args: { identifier: `EXP-1` } } as never)
+    })
+    expect((await view.findByTestId(`exponential-ui-consent-arguments`)).textContent).toBe(`{"identifier":"EXP-1"}`)
+    act(() => {
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: { tool: `exponential_devices` } } as never)
+    })
+    await view.findByText(`Allow this surface to run exponential_devices?`)
+    expect(view.queryByTestId(`exponential-ui-consent-arguments`)).toBeNull()
+  })
+
   it(`reads the contract prompt: Deny focused (Enter denies), Allow a plain default answer`, async () => {
     const gate = createConsentGate()
     const view = render(<ConsentCard gate={gate} />)

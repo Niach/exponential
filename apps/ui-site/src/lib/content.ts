@@ -155,6 +155,7 @@ export const GUIDE_CHECK: Record<string, string> = {
   vapps: `react`,
   agents: `agent`,
   define: `define`,
+  security: `react`,
 }
 
 /** The directory under apps/ui-site/guides/ a check builds. */

@@ -20,6 +20,7 @@ export const GUIDES: readonly GuideEntry[] = [
   { slug: `vapps`, title: `Build and embed a vapp`, blurb: `A declarative package of templates, functions and a theme, run in any host.` },
   { slug: `agents`, title: `Connect an agent`, blurb: `The catalog prompt and its sections, A2UI over MCP, and validating what the model sends.` },
   { slug: `define`, title: `Write a surface in TypeScript`, blurb: `defineSurface: typed component factories, bindings and actions, validated into the same A2UI an agent sends.` },
+  { slug: `security`, title: `Security and the threat model`, blurb: `What a surface can and cannot do, what the host decides, the limits every core enforces, and how to report.` },
 ]
 
 export const guidePath = (slug: string) => `/guides/${slug}/`

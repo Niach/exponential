@@ -25,6 +25,12 @@ const GROUPS: { id: string; label: string; title: string; slugs: string[] }[] = 
     title: `Build with agents`,
     slugs: [`vapps`, `agents`, `define`],
   },
+  {
+    id: `trust`,
+    label: `Trust`,
+    title: `Know the boundary`,
+    slugs: [`security`],
+  },
 ]
 
 const SECTIONS: DocsSectionType[] = [

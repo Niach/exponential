@@ -7,11 +7,13 @@
 // direct <img> load is the browser's (its own decode limits).
 //
 // Video/Audio are STREAMS (`kind: "stream"`, catalog/host.json: the policy
-// applies, the byte limits do not): a request with headers goes to the
-// host's `mediaStreamUrl` (a signed / cookie-authed url the player streams
-// and seeks, re-checked against the policy) when it has one, else it is
-// fetched whole into a blob url with no byte, pixel or total-time cap
-// (only the wait for the response headers is timed). A poster is an image.
+// applies, the player's byte limits do not): a request with headers goes
+// to the host's `mediaStreamUrl` (a signed / cookie-authed url the player
+// streams and seeks, re-checked against the policy) when it has one, else
+// it is fetched whole into a blob url under `MEDIA_LIMITS.maxBytes` and a
+// `MEDIA_LIMITS.timeoutMs` total timeout (VAPP-107: a whole-fetch past
+// either fails like a 404; a long video needs `mediaStreamUrl`). No pixel
+// check on a stream. A poster is an image.
 //
 // Blob urls pin their bytes until revoked, so the cache is bounded: every
 // mounted consumer holds a reference; an entry nobody holds stays cached
@@ -147,29 +149,20 @@ export function streamEntry(host: HostPlugin, req: { url: string; headers: Recor
   return { promise, refs: 0 }
 }
 
-/** A Video/Audio fetch (no `mediaStreamUrl`): the whole body into a blob,
- *  no byte or pixel cap; only the wait for the response headers is timed
- *  (`MEDIA_LIMITS.timeoutMs`), the download itself may take as long as it
- *  takes. */
-export async function fetchStream(url: string, headers: Record<string, string>, timeoutMs: number = MEDIA_LIMITS.timeoutMs): Promise<Blob> {
-  const abort = new AbortController()
-  const timer = setTimeout(() => abort.abort(new Error(`media timed out after ${timeoutMs} ms`)), timeoutMs)
-  let r: Response
-  try {
-    r = await fetch(url, { headers, signal: abort.signal })
-  } finally {
-    clearTimeout(timer)
-  }
-  if (!r.ok) throw new Error(`HTTP ${r.status}`)
-  return r.blob()
+/** A Video/Audio fetch (no `mediaStreamUrl`): the whole body into a blob
+ *  under `maxBytes` (Content-Length up front, then as it streams) and
+ *  `timeoutMs` for the WHOLE download (VAPP-107); no pixel check. */
+export function fetchStream(url: string, headers: Record<string, string>, limits: { maxBytes: number; timeoutMs: number } = MEDIA_LIMITS): Promise<Blob> {
+  return fetchLimited(url, headers, { ...limits, maxPixels: Infinity }, false)
 }
 
 /** A fetch under `MEDIA_LIMITS`: the whole request within `timeoutMs`, the
  *  body (Content-Length up front, then as it streams) within `maxBytes`, an
  *  image's width × height × frames within `maxPixels` before any decode
  *  (`mediaImageWithinLimits`: SVG sizes count, an unreadable raster is
- *  refused). */
-export async function fetchLimited(url: string, headers: Record<string, string>, limits: { maxBytes: number; timeoutMs: number; maxPixels: number } = MEDIA_LIMITS): Promise<Blob> {
+ *  refused; `image = false` skips that check: a stream's bytes are not
+ *  an image). */
+export async function fetchLimited(url: string, headers: Record<string, string>, limits: { maxBytes: number; timeoutMs: number; maxPixels: number } = MEDIA_LIMITS, image = true): Promise<Blob> {
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(new Error(`media timed out after ${limits.timeoutMs} ms`)), limits.timeoutMs)
   const over = () => new Error(`media is over ${limits.maxBytes} bytes`)
@@ -198,8 +191,10 @@ export async function fetchLimited(url: string, headers: Record<string, string>,
     }
     // The whole body: SVG sizes, animation frames and unreadable rasters
     // follow the core's pixel × frame rule (gpui, SwiftUI, Compose alike).
-    const refused = mediaImageWithinLimits(chunks.length === 1 ? chunks[0]! : concat(chunks), limits)
-    if (refused) throw new Error(refused)
+    if (image) {
+      const refused = mediaImageWithinLimits(chunks.length === 1 ? chunks[0]! : concat(chunks), limits)
+      if (refused) throw new Error(refused)
+    }
     return new Blob(chunks as BlobPart[], { type: r.headers.get(`content-type`) ?? `` })
   } finally {
     clearTimeout(timer)

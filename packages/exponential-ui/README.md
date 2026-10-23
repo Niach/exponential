@@ -229,15 +229,25 @@ painters through the facade); `catalog/host.json` is the contract and
 - **Negotiation**: `supportedCatalogIds(extensionIds)` = core, core lite,
   A2UI basic, then the registered extensions; `clientCapabilities`.
 - **Policy** (every renderer, every href and src): `decideUrl` (schemes
-  `https http mailto tel`, optional host allowlist, relative urls against
-  `baseUrl`) for `openUrl`, `Link`, markdown links and FileUpload file urls
-  (`safeHref`; denied = plain text); `mediaRequest(url, {baseUrl, rules,
-  schemes, hosts})` = the image loader's url + headers (auth for
+  `https http mailto tel`; `schemes: ["https"]` = https only; optional host
+  allowlist; relative urls against `baseUrl`) for `openUrl`, `Link`,
+  markdown links and FileUpload file urls (`safeHref`; denied = plain
+  text); `mediaRequest(url, {baseUrl, rules, schemes, hosts,
+  allowPrivate})` = the image loader's url + headers (auth for
   `/api/attachments`), null when the media policy (default `https http
   data`, `file` only when listed) denies it; `MEDIA_LIMITS` (20 MiB, 30 s,
   32 Mpx across every frame, read by `mediaImageWithinLimits` before
   decoding: header or SVG size × `imageFrames`; an unreadable raster is
-  refused) bound every image load.
+  refused) bound every image load, and the React video/audio whole-fetch
+  fallback too (VAPP-107). **Private hosts are denied by default**
+  (VAPP-107, `isPrivateHost`): `localhost`, `*.localhost`, `*.local`,
+  0/8, 10/8, 127/8, 169.254/16, 172.16/12, 192.168/16, `::`, `::1`,
+  fe80::/10, fc00::/7 and IPv4-mapped private addresses, for http(s)
+  hrefs and media alike, reason `private`; a host opts names back in with
+  `allowPrivate: ["localhost"]` (`*.suffix`, or `*` for all), which a
+  `hosts` allowlist does not do. Literals only: no DNS lookup (a public
+  name that resolves privately is the network's job). The threat model:
+  https://ui.exponential.at/guides/security/.
 - **Runtime**: `new ExponentialHost({transport, functions, sources,
   extensions, packages, policy})`: `connect()`, `receive(message)`,
   `surface(id)` (a `SurfaceStore`), `action(...)`, `callFunction(...)`,

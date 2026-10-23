@@ -53,12 +53,12 @@
     "gzip": 16384
   },
   "@exponential-at/ui-element/index": {
-    "bytes": 15360,
-    "gzip": 5632
+    "bytes": 16384,
+    "gzip": 6144
   },
   "@exponential-at/ui-element/define": {
-    "bytes": 15360,
-    "gzip": 5632
+    "bytes": 16384,
+    "gzip": 6144
   },
   "@exponential-at/ui-element/standalone.js": {
     "bytes": 675840,

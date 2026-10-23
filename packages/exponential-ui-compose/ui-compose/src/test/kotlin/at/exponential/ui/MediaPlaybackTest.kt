@@ -127,6 +127,8 @@ class MediaPlaybackTest {
         override val mediaOptions = MediaOptions(
             rules = listOf(MediaRule("$base/signed/", mapOf("Authorization" to "Bearer t0k"))),
             hosts = listOf("127.0.0.1"),
+            // VAPP-107: the loopback test server is a private host; a hosts allowlist alone does not opt it in.
+            allowPrivate = listOf("127.0.0.1"),
         )
     }
 

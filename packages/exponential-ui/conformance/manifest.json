@@ -127,7 +127,7 @@
         "fixtures/host-policy.json"
       ],
       "unit": "case",
-      "cases": 67,
+      "cases": 103,
       "check": "Decide the function / combine / url, build the media request, parse the source, negotiate the catalog ids: each equals `expected`."
     },
     {
@@ -136,7 +136,7 @@
         "fixtures/host-router.json"
       ],
       "unit": "package or flow",
-      "cases": 8,
+      "cases": 11,
       "check": "Validate each package; for each flow build ONE router with `extensionIds`, install `packages` (issues = `installIssues`), route every step: the ops equal `expected`."
     },
     {

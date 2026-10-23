@@ -8,22 +8,24 @@
 //   - extensions: the app extension (`@exp/ui` appExtensionCatalog +
 //     appReactExtension) and its declarative packages (Devices);
 //   - policy: `harness.mcp` asks first (the consent card), urls through the
-//     URL policy (same-origin app links navigate in place);
+//     URL policy (same-origin app links navigate in place; VAPP-107: a
+//     private origin, the localhost dev setup, is opted back in for the
+//     app's own loads and nothing else);
 //   - status: `host_offline` + the catalog-update banner (`HostBanner`).
 // No private hook: if one is ever needed, the SDK's API is incomplete.
 
-import { useSyncExternalStore } from "react"
-import { ExponentialHost } from "@exponential-at/ui"
+import { useState, useSyncExternalStore } from "react"
+import { ExponentialHost, isPrivateHost } from "@exponential-at/ui"
 import type { FunctionCallInfo, ParsedSource, SourceEmit, Transport } from "@exponential-at/ui"
 import { useHostStatus } from "@exponential-at/ui-react"
-import { Prompt, appExtensionCatalog, devicesPackage, toast } from "@exp/ui"
+import { Button, CodeBlock, CodeBlockContent, Collapsible, CollapsibleContent, CollapsibleTrigger, Prompt, appExtensionCatalog, devicesPackage, toast } from "@exp/ui"
 import type { VappPackage } from "@exponential-at/ui"
 import { getDeviceIconName } from "@exp/ui"
 import { boardCollection, deviceCollection, issueCollection, teamCollection } from "@/lib/collections"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { readinessAgo } from "@/lib/coding-readiness"
 import { readJsonRpcAnswer } from "@/lib/mcp-oauth/json-rpc-reader"
-import { exponentialUiConsentPrompt, promptActions } from "@/lib/prompts"
+import { destructiveTool, exponentialUiConsentPrompt, promptActions } from "@/lib/prompts"
 
 /** The consent card's store: one pending `ask` call at a time, answered
  *  by the person (Allow / Deny). */
@@ -200,8 +202,21 @@ export interface AppHostOptions {
   packages?: readonly VappPackage[]
 }
 
+/** VAPP-107: the private hosts the app's policy opts back in: its OWN
+ *  origin when that is private (the localhost dev setup), else nothing (the
+ *  cloud origin is public; the LAN stays denied either way). */
+export function ownPrivateHosts(origin: string): string[] {
+  try {
+    const host = new URL(origin).hostname
+    return isPrivateHost(host) ? [host] : []
+  } catch {
+    return []
+  }
+}
+
 export function createAppHost(options: AppHostOptions): ExponentialHost {
   const origin = typeof window === `undefined` ? `http://localhost` : window.location.origin
+  const allowPrivate = ownPrivateHosts(origin)
   return new ExponentialHost({
     transport: options.transport,
     extensions: [appExtensionCatalog],
@@ -230,8 +245,8 @@ export function createAppHost(options: AppHostOptions): ExponentialHost {
     policy: {
       functions: { ask: [`harness.mcp`] },
       onFunctionCall: (call) => options.consent.ask(call),
-      media: { baseUrl: origin },
-      urls: { baseUrl: origin },
+      media: { baseUrl: origin, allowPrivate },
+      urls: { baseUrl: origin, allowPrivate },
       openUrl: (url) => {
         if (url.startsWith(`${origin}/`)) options.navigate(url.slice(origin.length))
         else window.open(url, `_blank`, `noopener,noreferrer`)
@@ -240,13 +255,63 @@ export function createAppHost(options: AppHostOptions): ExponentialHost {
   })
 }
 
-/** The consent card: what a surface wants to run, Deny (focused, Enter) /
- *  Allow, worded by the contract's `exponential-ui-consent` prompt. */
+/** VAPP-107 (the consent prompt's `slot`): what the card shows of a call:
+ *  the tool it names, the arguments it carries (a `harness.mcp` call's MCP
+ *  `arguments`, else the function's own args; an empty object = none, as
+ *  compact JSON) and whether it sounds destructive. The desktop twin's
+ *  `consent_words` derives the same three. */
+export function consentWords(call: Pick<FunctionCallInfo, `name` | `args`>): { tool: string; args: string | null; destructive: boolean } {
+  const mcp = call.name === `harness.mcp`
+  const tool = mcp ? String(call.args.tool ?? ``) : call.name
+  const raw = mcp ? call.args.arguments : call.args
+  const args = raw && typeof raw === `object` ? JSON.stringify(raw) : null
+  const op = raw && typeof raw === `object` ? (raw as Record<string, unknown>).op : undefined
+  return { tool, args: args === null || args === `{}` ? null : args, destructive: destructiveTool(tool, op) }
+}
+
+/** Past this many characters the arguments block collapses to a preview
+ *  with a Show all disclosure (the prompt's `slot`). */
+export const CONSENT_ARGS_PREVIEW = 160
+
+/** The arguments block of the consent card: compact JSON in the CodeBlock
+ *  (sm, json); past `CONSENT_ARGS_PREVIEW` characters a preview with a
+ *  disclosure that shows the whole JSON pretty-printed. */
+export function ConsentArguments({ args }: { args: string }) {
+  const [open, setOpen] = useState(false)
+  const block = (code: string) => (
+    <CodeBlock size="sm" data-testid="exponential-ui-consent-arguments">
+      <CodeBlockContent language="json">{code}</CodeBlockContent>
+    </CodeBlock>
+  )
+  if (args.length <= CONSENT_ARGS_PREVIEW) return block(args)
+  let pretty = args
+  try {
+    pretty = JSON.stringify(JSON.parse(args), null, 2)
+  } catch {
+    // Not JSON: the compact text stands.
+  }
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="flex flex-col gap-2">
+      {open ? <CollapsibleContent forceMount>{block(pretty)}</CollapsibleContent> : block(`${args.slice(0, CONSENT_ARGS_PREVIEW)}…`)}
+      <CollapsibleTrigger asChild>
+        <Button variant="ghost" size="sm" className="self-start" data-testid="exponential-ui-consent-show-all">
+          {open ? `Show less` : `Show all`}
+        </Button>
+      </CollapsibleTrigger>
+    </Collapsible>
+  )
+}
+
+/** The consent card: what a surface wants to run (the tool AND its
+ *  arguments), Deny (focused, Enter) / Allow, worded by the contract's
+ *  `exponential-ui-consent` prompt; a destructive-sounding call takes the
+ *  `exponential-ui-consent-destructive` entry (Allow in the destructive
+ *  role). */
 export function ConsentCard({ gate }: { gate: ConsentGate }) {
   const call = useSyncExternalStore(gate.subscribe, gate.current, gate.current)
   if (!call) return null
-  const tool = call.name === `harness.mcp` ? String(call.args.tool ?? ``) : call.name
-  const copy = exponentialUiConsentPrompt(tool)
+  const { tool, args, destructive } = consentWords(call)
+  const copy = exponentialUiConsentPrompt(tool, destructive)
   return (
     <Prompt
       open
@@ -259,7 +324,9 @@ export function ConsentCard({ gate }: { gate: ConsentGate }) {
         deny: { onSelect: () => gate.answer(false) },
         allow: { onSelect: () => gate.answer(true) },
       })}
-    />
+    >
+      {args === null ? null : <ConsentArguments key={args} args={args} />}
+    </Prompt>
   )
 }
 

@@ -6,6 +6,7 @@ import promptBudget from "@exponential-at/ui/fixtures/prompt-budget.json"
 import { DocsCallout, DocsCode, DocsLayout, DocsSection } from "@exp/site-shell"
 import { DocsTable, IcArrow } from "../components/Content"
 import { GuideFile } from "../components/GuideFile"
+import { LIMITS, MEDIA_LIMITS } from "@exponential-at/ui"
 import { CORE_CATALOG as CATALOG_ID, FUNCTION_COUNT } from "../lib/catalog-facts"
 import { CHECK_DIR, GUIDE_CHECK, GUIDES_NAV } from "../lib/content"
 import { GUIDES, guidePath } from "../lib/guides"
@@ -697,9 +698,17 @@ cd packages/exponential-ui-compose
         <>
           <p>
             <code>openUrl</code> and <code>Link</code> go through the URL policy: allowed schemes (default{` `}
-            <code>https http mailto tel</code>), an optional host allowlist, relative URLs against a base. Media
-            rules add headers to matching image requests, for example an authorization header for your own API and
-            nothing for anyone else's.
+            <code>https http mailto tel</code>; <code>schemes: ["https"]</code> for https only), an optional host
+            allowlist, relative URLs against a base. Media rules add headers to matching image requests, for example
+            an authorization header for your own API and nothing for anyone else's.
+          </p>
+          <p>
+            Private hosts are denied by default, for links and media alike: <code>localhost</code>, <code>*.local</code>
+            , loopback, link-local (the cloud metadata address included) and the private IPv4 and IPv6 ranges. A host
+            opts names back in with <code>allowPrivate: ["localhost"]</code> (a dev setup) or <code>["*"]</code>; a
+            <code>hosts</code> allowlist alone does not. The check is on the literal address after URL normalization
+            and never resolves a name. The whole model, limits included, is on the{` `}
+            <a href="/guides/security/">security page</a>.
           </p>
           <p>
             The rules are the same on every platform: they are written once in{` `}
@@ -826,6 +835,124 @@ cd packages/exponential-ui-compose
             issues back as a tool error and the model retries. For structured outputs or a validator of your own,{` `}
             <code>coreSchema()</code> is the whole catalog as JSON Schema, with the core catalog id{` `}
             <code>{CATALOG_ID}</code>.
+          </p>
+        </>
+      ),
+    },
+  ],
+  security: [
+    {
+      id: `model`,
+      label: `What a surface can do`,
+      body: (
+        <>
+          <p>
+            A surface is <strong>data</strong>: A2UI messages describing a tree of catalog components, a data model
+            and the actions wired to them. There is no script, no HTML passthrough, no iframe or webview, and no
+            component that downloads code. The expression language is a closed operator set over the data model; the
+            client functions are the catalog's built-ins plus whatever the host registers by name. Themes are data
+            too: colours as hex, fonts by family (system or host-supplied), recipes as style objects. Extensions and
+            painter overrides are host code you compile in, never something a surface can send.
+          </p>
+          <p>
+            Every renderer replays the same fixtures, so what a surface can and cannot do is identical on React,
+            SolidJS, the <code>{`<exponential-surface>`}</code> web component, SwiftUI, Compose and gpui. The web
+            renderers share one URL and media filter (the web layer of <code>@exponential-at/ui</code>); the web
+            component's <code>src</code> and <code>post</code> pass it too, before a transport exists, and its
+            standalone bundle carries it. The Rust core behind the three native painters is fuzzed nightly; the
+            TypeScript reference runs property tests on the same modules.
+          </p>
+          <DocsTable
+            head={[`A surface can`, `A surface cannot`]}
+            rows={[
+              [`Compose any catalog component with props, slots, styles and conditions`, `Run code of any kind, or load a component that is not in the catalog or a registered extension`],
+              [`Bind props to its data model and to host sources the host registered (and a package listed)`, `Read anything outside its own data model, or follow a source its package did not list`],
+              [`Call the built-in client functions, and host functions by name through the policy gate`, `Call a host function the host did not register, or one the policy denies`],
+              [`Link to and load media from URLs the URL and media policy allow`, `Open javascript:, file: or data: links, or reach private, loopback and link-local hosts unless the host opts them in`],
+              [`Ask for a theme by id or send one as JSON`, `Make a renderer fetch a font or image from somewhere the media policy denies, or crash it with a bad theme (the default stands in)`],
+            ]}
+          />
+        </>
+      ),
+    },
+    {
+      id: `host`,
+      label: `The host's responsibilities`,
+      body: (
+        <>
+          <p>
+            The host is the boundary. Four things are yours to decide, all plain options of <code>ExponentialHost</code>
+            {` `}(see <a href="/guides/host-plugins/">Write a host plugin</a>):
+          </p>
+          <DocsTable
+            head={[`Hook`, `What it decides`, `Default`]}
+            rows={[
+              [<code key="f">functions</code>, `Which registered host functions a surface may call: deny wins, then allow, then ask (your consent hook), then default; a package's functions list narrows it further.`, `allow for a registered name; built-ins always run`],
+              [<code key="s">sources</code>, `Which binding sources a package's surfaces may follow (sources on the package), matched as scheme:name or a prefix.`, `any registered scheme`],
+              [<code key="u">urls</code>, `Allowed schemes, an optional host allowlist, the base for relative URLs, and allowPrivate for the private hosts you opt back in.`, `https http mailto tel; private hosts denied`],
+              [<code key="m">media</code>, `The same for every src, plus the header rules that add auth to your own API; mediaStreamUrl for authed video.`, `https http data; private hosts denied; file only when listed`],
+            ]}
+          />
+          <p>
+            The consent hook is where a person says yes or no to an <strong>ask</strong> decision. The Exponential app's
+            card names the tool and shows its arguments; a destructive-sounding call takes the destructive answer.
+            Make yours show the same two things: a name alone is not enough to decide.
+          </p>
+          <DocsCallout kind="warn" title="Private hosts and DNS">
+            The private-host rule is on the literal address after URL normalization (<code>2130706433</code> and{` `}
+            <code>0x7f.1</code> are loopback too). It never resolves a name: a public name that resolves to a private
+            address is your network's job (egress rules, a filtering resolver). Opt in by name, never with{` `}
+            <code>["*"]</code> outside a dev setup.
+          </DocsCallout>
+        </>
+      ),
+    },
+    {
+      id: `limits`,
+      label: `The limits`,
+      body: (
+        <>
+          <p>
+            Every core enforces the same input limits; past one, the input is refused with an issue and no work is
+            done. Media loads are capped before anything decodes.
+          </p>
+          <DocsTable
+            head={[`Limit`, `Value`, `What happens past it`]}
+            rows={[
+              [`Components per surface`, String(LIMITS.maxComponents), `the rest is dropped, one issue`],
+              [`Nesting depth`, String(LIMITS.maxDepth), `a deeper node is the Unknown placeholder`],
+              [`One server message`, `${Math.round(LIMITS.maxMessageBytes / 1048576)} MiB`, `INVALID_MESSAGE`],
+              [`Template items`, String(LIMITS.maxTemplateItems), `the rest is not rendered`],
+              [`A data pointer`, `${LIMITS.maxPointerBytes} bytes, ${LIMITS.maxPointerSegments} segments`, `the write is refused`],
+              [`An image`, `${Math.round(MEDIA_LIMITS.maxBytes / 1048576)} MiB, ${MEDIA_LIMITS.timeoutMs / 1000} s, ${Math.round(MEDIA_LIMITS.maxPixels / 1048576)} Mpx across every frame`, `fails like a 404; the fallback paints`],
+              [`Video / audio without mediaStreamUrl (React, SolidJS, the web component)`, `the same bytes and seconds for the whole download`, `fails like a 404`],
+            ]}
+          />
+          <p>
+            The Rust core's recursive passes grow their stack on the heap when a host thread runs low, so an iOS
+            secondary thread never decides. A panic inside the core never crosses the FFI: a call that cannot throw
+            answers a safe empty value, a call that can throw answers <code>UiError.Panic</code>, and the surface
+            stays usable. Deep or wide inputs are the fuzzers' bread and butter; the nightly job runs every target with
+            address sanitizer.
+          </p>
+        </>
+      ),
+    },
+    {
+      id: `report`,
+      label: `How to report`,
+      body: (
+        <>
+          <p>
+            Found a way for a surface to do something on this page's right-hand column? Please do not open a public
+            issue. Write to <a href="mailto:security@exponential.at">security@exponential.at</a> with the message that
+            triggers it (JSON or JSONL) and the renderer and version. You get an answer within three working days, a
+            fix lands as a patch release of every affected package, and the fixture that locks it joins the
+            conformance suite so it can never regress on any platform.
+          </p>
+          <p>
+            Hardening that is not a vulnerability (a limit you would tune, a policy option you miss) is a regular
+            issue on the <a href={LINKS.repo}>repository</a>.
           </p>
         </>
       ),

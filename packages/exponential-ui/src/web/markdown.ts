@@ -225,11 +225,15 @@ export interface MarkdownList {
  *  indented 2+ columns past its list's nests under the previous item. */
 export function parseList(lines: readonly string[]): MarkdownList {
   const indentOf = (ws: string) => ws.replace(/\t/g, `    `).length
-  const first = LIST_ITEM.exec(lines[0]!)!
+  // VAPP-107 (property-tested): no lines, or a line that is no list item,
+  // is an empty list / a skipped line, never a throw.
+  const first = lines.length ? LIST_ITEM.exec(lines[0]!) : null
+  if (!first) return { indent: 0, ordered: false, items: [] }
   const root: MarkdownList = { indent: indentOf(first[1]!), ordered: /\d/.test(first[2]!), items: [] }
   const stack: MarkdownList[] = [root]
   for (const line of lines) {
-    const m = LIST_ITEM.exec(line)!
+    const m = LIST_ITEM.exec(line)
+    if (!m) continue
     const indent = indentOf(m[1]!)
     while (stack.length > 1 && indent < stack[stack.length - 1]!.indent) stack.pop()
     let list = stack[stack.length - 1]!

@@ -2,7 +2,13 @@
 // hosts) on Solid: every media src passes the host contract's policy (a
 // denied one loads nothing), the media limits hold (an oversized image is
 // refused, streams pass the byte caps, a stream url is re-checked), and
-// markdown images go through the same policy.
+// markdown images go through the same policy. VAPP-107 on Solid: a private,
+// loopback or link-local host is denied unless the host opts it in (the
+// page's own private origin is), `schemes: ["https"]` is https only for
+// hrefs and srcs alike, and the video/audio whole-fetch fallback keeps the
+// byte cap and a total timeout. The filter is the shared web layer's
+// (`@exponential-at/ui/web` urls.ts / media.ts): one code path, both
+// renderers, locked here through the Solid natives.
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, render } from "@solidjs/testing-library"
@@ -10,7 +16,7 @@ import { CORE_CATALOG_ID, MEDIA_LIMITS, reduceNested } from "@exponential-at/ui"
 import type { NestedNode } from "@exponential-at/ui"
 import { ExponentialSurface } from "./surface"
 import { renderMarkdown } from "./markdown"
-import { clearMediaCache, fetchLimited } from "./media"
+import { clearMediaCache, fetchLimited, fetchStream } from "./media"
 import type { HostPlugin } from "./host"
 
 afterEach(() => {
@@ -21,6 +27,93 @@ afterEach(() => {
 const tree = (node: NestedNode) => reduceNested(node, { catalogId: CORE_CATALOG_ID }).root
 const paint = (node: NestedNode, host?: HostPlugin) => render(() => <ExponentialSurface root={tree(node)} theme="neutral" id="safe" host={host} />).container
 const markdown = (text: string) => render(() => <div>{renderMarkdown(text)}</div>).container
+
+describe(`VAPP-107: a private host is denied unless the host opts it in`, () => {
+  it(`a LAN camera src loads nothing; a Link to a loopback literal paints as text`, () => {
+    const c = paint({ id: `i`, component: `Image`, props: { src: `http://192.168.1.10/cam.jpg`, alt: `cam` } })
+    expect(c.querySelector(`img`)?.getAttribute(`src`) ?? null).toBeNull()
+    expect(c.querySelector(`[data-xui-c="Image"]`)!.getAttribute(`data-state`)).toBe(`error`)
+    cleanup()
+    const l = paint({ id: `l`, component: `Link`, props: { href: `http://127.0.0.1:3000/x`, label: `x`, external: true } })
+    expect(l.querySelector(`a`)!.getAttribute(`href`)).toBeNull()
+    expect(l.querySelector(`a`)!.hasAttribute(`data-denied`)).toBe(true)
+  })
+  it(`the cloud metadata endpoint, a .local name and an IPv4-mapped loopback are private too`, () => {
+    for (const src of [`http://169.254.169.254/latest/meta-data/`, `http://printer.local/a.png`, `http://[::ffff:127.0.0.1]/a.png`, `http://2130706433/a.png`]) {
+      const c = paint({ id: `i`, component: `Image`, props: { src, alt: `a` } })
+      expect(c.querySelector(`img`)?.getAttribute(`src`) ?? null).toBeNull()
+      cleanup()
+    }
+  })
+  it(`a host that opts 10.0.0.5 in loads from it, and only from it`, () => {
+    const host: HostPlugin = { media: { allowPrivate: [`10.0.0.5`] }, urls: { allowPrivate: [`10.0.0.5`] } }
+    const c = paint({ id: `i`, component: `Image`, props: { src: `http://10.0.0.5/a.png`, alt: `a` } }, host)
+    expect(c.querySelector(`img`)!.getAttribute(`src`)).toBe(`http://10.0.0.5/a.png`)
+    cleanup()
+    const lan = paint({ id: `i`, component: `Image`, props: { src: `http://10.0.0.6/a.png`, alt: `a` } }, host)
+    expect(lan.querySelector(`img`)?.getAttribute(`src`) ?? null).toBeNull()
+    cleanup()
+    const l = paint({ id: `l`, component: `Link`, props: { href: `http://10.0.0.5/x`, label: `x`, external: true } }, host)
+    expect(l.querySelector(`a`)!.getAttribute(`href`)).toBe(`http://10.0.0.5/x`)
+  })
+  it(`a hosts allowlist alone does not opt a private host in`, () => {
+    const host: HostPlugin = { media: { hosts: [`10.0.0.5`] }, urls: { hosts: [`10.0.0.5`] } }
+    const c = paint({ id: `i`, component: `Image`, props: { src: `http://10.0.0.5/a.png`, alt: `a` } }, host)
+    expect(c.querySelector(`img`)?.getAttribute(`src`) ?? null).toBeNull()
+    cleanup()
+    const l = paint({ id: `l`, component: `Link`, props: { href: `http://10.0.0.5/x`, label: `x`, external: true } }, host)
+    expect(l.querySelector(`a`)!.getAttribute(`href`)).toBeNull()
+  })
+  it(`the page's own private origin (jsdom: localhost) is opted in, nothing else private is`, () => {
+    expect(new URL(document.baseURI).hostname).toBe(`localhost`)
+    const c = paint({ id: `i`, component: `Image`, props: { src: `x.png`, alt: `x` } })
+    expect(c.querySelector(`img`)!.getAttribute(`src`)).toBe(`${new URL(document.baseURI).origin}/x.png`)
+    cleanup()
+    const l = paint({ id: `l`, component: `Link`, props: { href: `/docs`, label: `x` } })
+    expect(l.querySelector(`a`)!.getAttribute(`href`)).toBe(`${new URL(document.baseURI).origin}/docs`)
+    cleanup()
+    const other = paint({ id: `i`, component: `Image`, props: { src: `http://127.0.0.1:3000/x.png`, alt: `x` } })
+    expect(other.querySelector(`img`)?.getAttribute(`src`) ?? null).toBeNull()
+  })
+  it(`a host mediaRequest hook cannot widen the private rule`, () => {
+    const host: HostPlugin = { mediaRequest: (src) => ({ url: src, headers: { authorization: `Bearer t` } }) }
+    const c = paint({ id: `i`, component: `Image`, props: { src: `http://169.254.169.254/latest/a.png`, alt: `a` } }, host)
+    expect(c.querySelector(`img`)?.getAttribute(`src`) ?? null).toBeNull()
+  })
+  it(`a markdown link or image to a private host is its label / alt`, () => {
+    const c = markdown(`see [router](http://192.168.0.1/) ![cam](http://10.0.0.9/cam.jpg) end`)
+    expect(c.querySelector(`a`)).toBeNull()
+    expect(c.querySelector(`img`)).toBeNull()
+    expect(c.textContent).toContain(`router`)
+    expect(c.textContent).toContain(`cam end`)
+    expect(c.innerHTML).not.toContain(`192.168`)
+    expect(c.innerHTML).not.toContain(`10.0.0.9`)
+  })
+})
+
+describe(`VAPP-107: schemes: ["https"] is https only`, () => {
+  const host: HostPlugin = { urls: { schemes: [`https`] }, media: { schemes: [`https`] } }
+  it(`an http Link paints as text, an https one navigates; mailto drops too`, () => {
+    const c = paint({ id: `l`, component: `Link`, props: { href: `http://exponential.at/x`, label: `x`, external: true } }, host)
+    expect(c.querySelector(`a`)!.getAttribute(`href`)).toBeNull()
+    cleanup()
+    const ok = paint({ id: `l`, component: `Link`, props: { href: `https://exponential.at/x`, label: `x`, external: true } }, host)
+    expect(ok.querySelector(`a`)!.getAttribute(`href`)).toBe(`https://exponential.at/x`)
+    cleanup()
+    const mail = paint({ id: `l`, component: `Link`, props: { href: `mailto:a@b.c`, label: `x` } }, host)
+    expect(mail.querySelector(`a`)!.getAttribute(`href`)).toBeNull()
+  })
+  it(`an http Image src loads nothing, an https one loads; data: drops too`, () => {
+    const c = paint({ id: `i`, component: `Image`, props: { src: `http://exponential.at/a.png`, alt: `a` } }, host)
+    expect(c.querySelector(`img`)?.getAttribute(`src`) ?? null).toBeNull()
+    cleanup()
+    const ok = paint({ id: `i`, component: `Image`, props: { src: `https://exponential.at/a.png`, alt: `a` } }, host)
+    expect(ok.querySelector(`img`)!.getAttribute(`src`)).toBe(`https://exponential.at/a.png`)
+    cleanup()
+    const data = paint({ id: `i`, component: `Image`, props: { src: `data:image/png;base64,iVBORw0KGgo=`, alt: `a` } }, host)
+    expect(data.querySelector(`img`)?.getAttribute(`src`) ?? null).toBeNull()
+  })
+})
 
 describe(`media: every src passes the media policy`, () => {
   it(`a file:// or javascript: Image src never loads; the fallback paints`, () => {
@@ -106,19 +199,54 @@ describe(`media limits`, () => {
     vi.spyOn(globalThis, `fetch`).mockResolvedValue(new Response(png, { status: 200 }))
     await expect(fetchLimited(`https://x.test/a.png`, {}, { ...limits, maxBytes: 1000 })).rejects.toThrow(/40000×30000/)
   })
-  it(`Video/Audio with headers stream past the byte caps; the poster keeps the image limits`, async () => {
+  it(`Video/Audio with headers skip the pixel check but keep the byte cap (VAPP-107); the poster keeps the image limits`, async () => {
     clearMediaCache()
     let n = 0
     vi.spyOn(URL, `createObjectURL`).mockImplementation(() => `blob:media-${++n}`)
     vi.spyOn(URL, `revokeObjectURL`).mockImplementation(() => {})
-    vi.spyOn(globalThis, `fetch`).mockImplementation(async () => new Response(new Uint8Array(8), { status: 200, headers: { "content-length": String(MEDIA_LIMITS.maxBytes + 1) } }))
+    // 8 bytes that are no image: a stream takes them, an image (the poster) refuses them as an unreadable raster.
+    vi.spyOn(globalThis, `fetch`).mockImplementation(async (u) =>
+      String(u).endsWith(`poster.png`)
+        ? new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), { status: 200, headers: { "content-type": `image/png` } })
+        : new Response(new Uint8Array(8), { status: 200, headers: { "content-type": `video/mp4` } })
+    )
     const host: HostPlugin = { mediaRequest: (src) => ({ url: src, headers: { authorization: `Bearer t` } }) }
     const c = paint({ id: `v`, component: `Video`, props: { src: `https://exponential.at/clip.mp4`, poster: `https://exponential.at/poster.png` } }, host)
     await vi.waitFor(() => expect(c.querySelector(`video`)!.getAttribute(`src`)).toMatch(/^blob:media-/))
+    await new Promise((r) => setTimeout(r, 20))
     expect(c.querySelector(`video`)!.getAttribute(`poster`)).toBeNull()
     cleanup()
     const a = paint({ id: `a`, component: `AudioPlayer`, props: { src: `https://exponential.at/talk.m4a` } }, host)
     await vi.waitFor(() => expect(a.querySelector(`audio`)!.getAttribute(`src`)).toMatch(/^blob:media-/))
+    cleanup()
+    // Over the byte cap, as a whole film is: the whole-fetch fallback fails like a 404 (the host wants mediaStreamUrl).
+    vi.spyOn(globalThis, `fetch`).mockImplementation(async () => new Response(new Uint8Array(8), { status: 200, headers: { "content-length": String(MEDIA_LIMITS.maxBytes + 1) } }))
+    const big = paint({ id: `v`, component: `Video`, props: { src: `https://exponential.at/film.mp4` } }, host)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(big.querySelector(`video`)!.getAttribute(`src`)).toBeNull()
+  })
+  it(`VAPP-107: the video/audio whole-fetch fallback keeps the byte cap and a total timeout`, async () => {
+    const body = (n: number) =>
+      new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(new Uint8Array(n))
+          c.close()
+        },
+      })
+    vi.spyOn(globalThis, `fetch`).mockImplementation(async (u) => new Response(String(u).endsWith(`big.mp4`) ? body(150) : body(50), { status: 200, headers: { "content-type": `video/mp4` } }))
+    await expect(fetchStream(`https://x.test/big.mp4`, {}, { maxBytes: 100, timeoutMs: 1000 })).rejects.toThrow(/over 100 bytes/)
+    const ok = await fetchStream(`https://x.test/clip.mp4`, {}, { maxBytes: 100, timeoutMs: 1000 })
+    expect(ok.size).toBe(50)
+    expect(ok.type).toBe(`video/mp4`)
+    // A download that outlives timeoutMs (the headers came, the body never ends) is aborted.
+    vi.spyOn(globalThis, `fetch`).mockImplementation(async (_u, init) => {
+      const signal = init?.signal as AbortSignal
+      return new Response(new ReadableStream<Uint8Array>({ start: (c) => signal.addEventListener(`abort`, () => c.error(new Error(`aborted mid-body`))) }), { status: 200 })
+    })
+    await expect(fetchStream(`https://x.test/endless.mp4`, {}, { maxBytes: 100, timeoutMs: 10 })).rejects.toThrow(/aborted mid-body/)
+    // An over-long Content-Length is refused before any byte is read.
+    vi.spyOn(globalThis, `fetch`).mockImplementation(async () => new Response(body(1), { status: 200, headers: { "content-length": `999` } }))
+    await expect(fetchStream(`https://x.test/long.mp4`, {}, { maxBytes: 100, timeoutMs: 1000 })).rejects.toThrow(/over 100 bytes/)
   })
   it(`a host mediaStreamUrl hands the player a header-less url, re-checked by the policy`, async () => {
     const fetchSpy = vi.spyOn(globalThis, `fetch`)

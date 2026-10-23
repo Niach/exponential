@@ -41,19 +41,24 @@ data class FunctionPolicy(
 }
 
 /**
- * openUrl / Link: the scheme must be in [schemes]; when [hosts] is set an
- * http(s) url's host must match one (exact or `*.example.com`). Relative
- * urls resolve against [baseUrl] (default: the media options' `baseUrl`).
+ * openUrl / Link: the scheme must be in [schemes] (`listOf("https")` =
+ * https only); when [hosts] is set an http(s) url's host must match one
+ * (exact or `*.example.com`); a private, loopback or link-local host is
+ * denied unless [allowPrivate] opts it in (VAPP-107: exact, `*.suffix` or
+ * `*`). Relative urls resolve against [baseUrl] (default: the media
+ * options' `baseUrl`).
  */
 data class UrlPolicy(
     val schemes: List<String>? = null,
     val hosts: List<String>? = null,
     val baseUrl: String? = null,
+    val allowPrivate: List<String>? = null,
 ) {
     internal fun json(fallbackBase: String?): String {
         val m = LinkedHashMap<String, JsonValue>()
         schemes?.let { m["schemes"] = JsonValue.Arr(it.map(JsonValue::Str)) }
         hosts?.let { m["hosts"] = JsonValue.Arr(it.map(JsonValue::Str)) }
+        allowPrivate?.let { m["allowPrivate"] = JsonValue.Arr(it.map(JsonValue::Str)) }
         (baseUrl ?: fallbackBase)?.let { m["baseUrl"] = JsonValue.Str(it) }
         return JsonValue.Obj(m).json
     }
@@ -67,13 +72,15 @@ data class MediaRule(val prefix: String, val headers: Map<String, String>)
  * [rules] add headers; [schemes] = the schemes a src may use (null = the
  * contract's `media.defaultSchemes`: https, http, data; `file` only when
  * listed); [hosts] = the http(s) hosts media may load from (exact or
- * `*.example.com`; null = any).
+ * `*.example.com`; null = any); [allowPrivate] = the private hosts media
+ * may load from (VAPP-107; null = none).
  */
 data class MediaOptions(
     val baseUrl: String? = null,
     val rules: List<MediaRule> = emptyList(),
     val schemes: List<String>? = null,
     val hosts: List<String>? = null,
+    val allowPrivate: List<String>? = null,
 ) {
     /** The contract's JSON. */
     val json: String
@@ -87,6 +94,7 @@ data class MediaOptions(
             )
             schemes?.let { m["schemes"] = JsonValue.Arr(it.map(JsonValue::Str)) }
             hosts?.let { m["hosts"] = JsonValue.Arr(it.map(JsonValue::Str)) }
+            allowPrivate?.let { m["allowPrivate"] = JsonValue.Arr(it.map(JsonValue::Str)) }
             return JsonValue.Obj(m).json
         }
 }

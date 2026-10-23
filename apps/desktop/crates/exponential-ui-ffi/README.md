@@ -74,6 +74,18 @@ bindings), so an embedder never builds Rust.
   `formatString`, `resolveConditionsJson`, `componentA11yJson`,
   `validateStyleJson`.
 
+## The panic boundary (VAPP-107)
+
+A Rust panic never crosses the FFI. Every exported call that cannot throw
+runs under `shield` (VAPP-103 rfix): it answers a safe empty value of its
+type and a surface records the panic as an issue (`ffi.<method>`). Every
+call that CAN throw runs under `guarded`: the panic comes back as the typed
+`UiError.Panic(reason)` (Kotlin `UiException.Panic`), the object stays
+usable and the next call is fine. Both need `panic = "unwind"`, which the
+`mobile` profile keeps (decided with VAPP-106); under `panic = "abort"`
+nothing could be caught. `tests/facade.rs` locks both with a throwing host
+measurer and a throwing host formatter.
+
 ## Round 2 (`docs/round-2-contract.md`)
 
 | API | what |

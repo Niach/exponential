@@ -8954,6 +8954,7 @@ dependencies = [
  "terminal",
  "theme",
  "updater",
+ "url",
  "uuid",
  "x11rb",
 ]
