@@ -518,6 +518,22 @@
         "sha256": "daabd7c7b704c3e9a83b7d3a0f14a069699b2d35aeafa3e3533f7921ddc1c931"
       }
     },
+    "dock-card": {
+      "web": {
+        "file": "shots/dock-card/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 70334,
+        "sha256": "56abcd9e58b768cd8eacf519a6aca9b52d76a72c59fdabc86e2b1ff672d765e3"
+      },
+      "web-mobile": {
+        "file": "shots/dock-card/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 60658,
+        "sha256": "f7b7e736f62315d63bec049efb269e683df90cd22cef28e5bd83297969fc4e89"
+      }
+    },
     "drafts": {
       "web": {
         "file": "shots/drafts/web.webp",
