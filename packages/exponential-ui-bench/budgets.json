@@ -6,10 +6,10 @@
     "apple-m4-pro-darwin": {
       "compose-jvm": {
         "cold-start": {
-          "coldStartMs": 3628.6,
-          "firstPaintMs": 43.4,
-          "nodes": 591,
-          "memoryMb": 337.6
+          "coldStartMs": 1153.5,
+          "firstPaintMs": 36.2,
+          "nodes": 604,
+          "memoryMb": 260
         },
         "card-grid": {
           "warmPassMs": 0.3,
@@ -18,48 +18,48 @@
         },
         "list-100k": {
           "firstPaintMs": 168.4,
-          "scrollStepMs": 7.2,
-          "scrollToIndexMs": 9.1,
+          "scrollStepMs": 5.6,
+          "scrollToIndexMs": 6.1,
           "renderedItems": 30,
           "measureCallsPerStep": 78.04,
-          "ffiCallsPerStep": 181.94,
-          "ffiBytesPerStep": 57688.82,
-          "memoryMb": 191.1
+          "ffiCallsPerStep": 143.02,
+          "ffiBytesPerStep": 49993.64,
+          "memoryMb": 148.5
         },
         "streaming": {
           "applyMs": 2.9,
           "p95ApplyMs": 7.1,
           "totalMs": 561.2,
           "nodes": 607,
-          "ffiBytesTotal": 12210953
+          "ffiBytesTotal": 5212191
         },
         "theme-switch": {
-          "themeSwitchMs": 28.1,
+          "themeSwitchMs": 20.8,
           "modeSwitchMs": 8.3,
-          "restyled": 596
+          "restyled": 609
         },
         "resize": {
           "resizeMs": 5,
           "upcallsPerResize": 1
         },
         "deep-nesting": {
-          "firstPaintMs": 5.3,
+          "firstPaintMs": 3.8,
           "warmPassMs": 0.2,
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 830.9,
-          "rebindMs": 1016.1,
+          "firstPaintMs": 532.9,
+          "rebindMs": 513.8,
           "nodes": 10001
         },
         "overlay": {
-          "openMs": 0.5,
+          "openMs": 0.4,
           "closeMs": 0.2
         },
         "table-1k": {
-          "firstPaintMs": 16,
-          "scrollStepMs": 14,
-          "sortMs": 14.4,
+          "firstPaintMs": 15.2,
+          "scrollStepMs": 7.8,
+          "sortMs": 10.9,
           "renderedRows": 30
         }
       },

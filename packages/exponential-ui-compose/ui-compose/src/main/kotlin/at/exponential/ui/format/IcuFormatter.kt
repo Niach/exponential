@@ -32,10 +32,17 @@ import java.math.RoundingMode
  */
 class IcuFormatter(val locale: String, val timeZone: String? = null) : HostFormatter {
     private val ulocale: ULocale = ULocale.forLanguageTag(locale.ifEmpty { "en-US" })
-    private val zone: TimeZone = timeZone?.let { TimeZone.getTimeZone(it) } ?: TimeZone.getDefault()
-    private val utc: TimeZone = TimeZone.getTimeZone("UTC")
-    private val plurals: PluralRules = PluralRules.forLocale(ulocale)
+    // VAPP-134: everything past the locale loads on first use (a surface
+    // that never formats a plural pays nothing for it), and a configured
+    // ICU formatter is kept per shape (ICU's getInstance clones a prototype).
+    private val zone: TimeZone by lazy { timeZone?.let { TimeZone.getTimeZone(it) } ?: TimeZone.getDefault() }
+    private val utc: TimeZone by lazy { TimeZone.getTimeZone("UTC") }
+    private val plurals: PluralRules by lazy { PluralRules.forLocale(ulocale) }
     private val names: String by lazy { namesJson(ulocale) }
+    private val formats = HashMap<String, Any>()
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T : Any> cached(key: String, make: () -> T): T = formats.getOrPut(key, make) as T
 
     override fun locale(): String = ulocale.toLanguageTag()
 
@@ -48,34 +55,43 @@ class IcuFormatter(val locale: String, val timeZone: String? = null) : HostForma
         return this
     }
 
+    @Synchronized
     override fun number(value: Double, decimals: UInt?, grouping: Boolean): String {
         if (!value.isFinite()) return ""
-        val f = NumberFormat.getNumberInstance(ulocale)
         val d = decimals?.toInt()
-        f.digits(d ?: 0, d ?: 3)
-        f.isGroupingUsed = grouping
+        val f = cached("n|$d|$grouping") {
+            NumberFormat.getNumberInstance(ulocale).also {
+                it.digits(d ?: 0, d ?: 3)
+                it.isGroupingUsed = grouping
+            }
+        }
         return clean(f.format(decimal(value)))
     }
 
+    @Synchronized
     override fun currency(value: Double, code: String, decimals: UInt?, grouping: Boolean): String {
         if (!value.isFinite()) return ""
         val currency = runCatching { Currency.getInstance(code.uppercase()) }.getOrNull() ?: return ""
-        val f = NumberFormat.getCurrencyInstance(ulocale)
-        f.currency = currency
         val d = decimals?.toInt() ?: currency.defaultFractionDigits
-        f.digits(d, d)
-        f.isGroupingUsed = grouping
+        val f = cached("c|${currency.currencyCode}|$d|$grouping") {
+            NumberFormat.getCurrencyInstance(ulocale).also {
+                it.currency = currency
+                it.digits(d, d)
+                it.isGroupingUsed = grouping
+            }
+        }
         return clean(f.format(decimal(value)))
     }
 
+    @Synchronized
     override fun percent(value: Double, decimals: UInt?): String {
         if (!value.isFinite()) return ""
-        val f = NumberFormat.getPercentInstance(ulocale)
         val d = decimals?.toInt() ?: 0
-        f.digits(d, d)
+        val f = cached("p|$d") { NumberFormat.getPercentInstance(ulocale).also { it.digits(d, d) } }
         return clean(f.format(decimal(value)))
     }
 
+    @Synchronized
     override fun date(epochMs: Double, dateOnly: Boolean, format: String?, style: String?, time: Boolean): String {
         val tz = if (dateOnly) utc else zone
         val ms = epochMs.toLong()
@@ -101,13 +117,15 @@ class IcuFormatter(val locale: String, val timeZone: String? = null) : HostForma
             "full" -> DateFormat.FULL
             else -> DateFormat.MEDIUM
         }
-        val f = if (time) DateFormat.getDateTimeInstance(s, DateFormat.SHORT, ulocale) else DateFormat.getDateInstance(s, ulocale)
-        f.timeZone = tz
+        val f = cached("d|$s|$time|$dateOnly") {
+            (if (time) DateFormat.getDateTimeInstance(s, DateFormat.SHORT, ulocale) else DateFormat.getDateInstance(s, ulocale)).also { it.timeZone = tz }
+        }
         return clean(f.format(java.util.Date(ms)))
     }
 
+    @Synchronized
     override fun relativeTime(value: Long, unit: String): String {
-        val f = RelativeDateTimeFormatter.getInstance(ulocale)
+        val f = cached("r") { RelativeDateTimeFormatter.getInstance(ulocale) }
         if (Build.VERSION.SDK_INT >= 28) {
             val u = when (unit) {
                 "second" -> RelativeDateTimeFormatter.RelativeDateTimeUnit.SECOND
