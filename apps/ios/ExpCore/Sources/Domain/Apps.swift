@@ -37,6 +37,8 @@ public enum Apps {
         public static let deleteTitle = "Delete {name}?"
         public static let deleteBody = "Its versions go with it. This cannot be undone."
         public static let delete = "Delete"
+        public static let openEditor = "Open in the editor"
+        public static let settingsTitle = "Apps"
 
         public enum Menu {
             public static let rename = "Rename"
@@ -324,7 +326,10 @@ public enum AppHostSources {
     /// `exp:issues`: the board's issues (every board when nil) in sort
     /// order, cut at `limit` (`params.limit`, else 50).
     public static func issuesValue(_ issues: [IssueInput], board: String?, limit: String?) -> IssuesValue {
-        let cap = limit.flatMap { Double($0) }.flatMap { $0.isFinite ? max(0, Int($0)) : nil } ?? defaultIssueLimit
+        // A finite number, clamped before the Int conversion (`Int(1e20)`
+        // traps; a package may name any limit).
+        let cap = limit.flatMap { Double($0) }.flatMap { $0.isFinite ? Int(min(max($0, 0), Double(Int32.max))) : nil }
+            ?? defaultIssueLimit
         let rows = issues
             .enumerated()
             .filter { board == nil || board == "" || $0.element.boardId == board }

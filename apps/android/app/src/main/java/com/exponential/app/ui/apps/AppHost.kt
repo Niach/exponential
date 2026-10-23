@@ -53,11 +53,13 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.images.resolveAccountForUrl
 import com.exponential.app.domain.AppHostValues
+import com.exponential.app.domain.classifyAppLink
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.Prompts
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.CodeBlock
 import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.ui.markdown.rememberAppLinkHandler
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import dagger.hilt.EntryPoint
@@ -302,7 +304,11 @@ fun rememberAppHost(
     val context = LocalContext.current
     val toaster = LocalToaster.current
     val openIssue by rememberUpdatedState(onOpenIssue)
-    val host = remember(packages, consent, themeId) {
+    // The markdown links' rule for an allowed href (web + iOS alike): an
+    // instance link opens in-app, anything else in the Custom Tab; no
+    // instance known = the SDK's system opener.
+    val links = rememberAppLinkHandler()
+    val host = remember(packages, consent, themeId, links) {
         val deps = EntryPointAccessors.fromApplication(context.applicationContext, AppHostEntryPoint::class.java)
         val auth = deps.authRepository()
         val db = accountDatabaseFlow(auth, deps.databaseHolder())
@@ -363,6 +369,7 @@ fun rememberAppHost(
                     // app's OWN instance is (the localhost dev setup), nothing
                     // else. A public origin listed here changes nothing.
                     urls = UrlPolicy(baseUrl = origin, allowPrivate = ownHost),
+                    openUrl = links?.let { handler -> { url: String -> handler.onOpen(classifyAppLink(url, handler.origin), url) } },
                     media = MediaOptions(
                         baseUrl = origin,
                         allowPrivate = ownHost,

@@ -2132,7 +2132,7 @@
       "group": "coding",
       "title": "Apps",
       "blurb": "VAPP-110: the team's Exponential apps (fixtures/apps.json): the band with New app, one row per app (glyph, name, the version pill, the … menu with Rename and Delete), the built-in Devices app first with its Built-in pill. An app is a declarative Exponential UI package every client renders; the list is where apps are created, renamed, deleted and opened.",
-      "order": 28,
+      "order": 30,
       "web": {
         "route": "/t/$teamSlug/apps",
         "anchor": {
@@ -2161,7 +2161,7 @@
       "group": "coding",
       "title": "App editor",
       "blurb": "VAPP-110: one app's editor (fixtures/apps.json): the member's editor session (the chat: channel rows + the composer) beside the live preview of the head package rendered by the Exponential UI renderer through the app host; Versions opens the history (restore = a new head). Phones show Chat | Preview | Versions as a segmented control.",
-      "order": 29,
+      "order": 31,
       "web": {
         "route": "/t/$teamSlug/apps/$appSlug",
         "anchor": {

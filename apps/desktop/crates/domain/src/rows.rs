@@ -821,6 +821,12 @@ impl SessionRow {
         self.session_kind() == crate::contract::SESSION_KIND_AGENT
     }
 
+    /// VAPP-110: a member's app EDITOR session (`app_id` set): no thread,
+    /// like an agent's conversation (`partitionThreads` skips both).
+    pub fn is_app_editor(&self) -> bool {
+        self.app_id.as_deref().is_some_and(|id| !id.is_empty())
+    }
+
     /// EXP-1341: a persistent session (an agent's conversation): it idles
     /// instead of ending and its device revives it ([`crate::session_kind`]).
     pub fn is_persistent(&self) -> bool {

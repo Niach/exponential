@@ -44,6 +44,7 @@ final class AppsTests: XCTestCase {
             "namePlaceholder": Apps.Copy.namePlaceholder, "descriptionPlaceholder": Apps.Copy.descriptionPlaceholder,
             "create": Apps.Copy.create, "rename": Apps.Copy.rename, "deleteTitle": Apps.Copy.deleteTitle,
             "deleteBody": Apps.Copy.deleteBody, "delete": Apps.Copy.delete,
+            "openEditor": Apps.Copy.openEditor, "settingsTitle": Apps.Copy.settingsTitle,
         ]
         // Every string key of `copy`, both ways.
         let strings = copy.compactMapValues { $0 as? String }
