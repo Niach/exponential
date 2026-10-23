@@ -25,7 +25,7 @@
           "measureCallsPerPass": 29
         },
         "list-100k": {
-          "firstPaintMs": 113.216,
+          "firstPaintMs": 85.337,
           "scrollStepMs": 3.428,
           "scrollToIndexMs": 3.565,
           "renderedItems": 30,
@@ -56,7 +56,7 @@
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 332.863,
+          "firstPaintMs": 329.269,
           "rebindMs": 329.343,
           "nodes": 10001
         },
@@ -65,7 +65,7 @@
           "closeMs": 0.103
         },
         "table-1k": {
-          "firstPaintMs": 10.253,
+          "firstPaintMs": 10.361,
           "scrollStepMs": 4.493,
           "sortMs": 6.528,
           "renderedRows": 30
