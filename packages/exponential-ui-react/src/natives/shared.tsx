@@ -6,13 +6,13 @@
 // `builtinIcons` (never a hardcoded glyph for an owned part).
 
 import { useContext, useMemo, type ReactNode } from "react"
-import { displayString, nativeRecipeProps } from "@exponential-at/ui"
+import { displayString } from "@exponential-at/ui"
 import { arr, bool, builtinIconName, failingCheck, failingChecks, formatFileSize, num, objects, phrase, str } from "@exponential-at/ui/web"
 import type { UiNode } from "@exponential-at/ui"
 import { InstanceContext, useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 // FEED-128: `PLACED` (round 2 §6, the placed-part table) lives in the web layer, shared with Solid.
-import { PLACED, partClass, propAttribute } from "@exponential-at/ui/web"
+import { PLACED, partClass, propAttribute, recipeQuery } from "@exponential-at/ui/web"
 
 export type Attrs = Record<string, unknown>
 
@@ -36,7 +36,7 @@ export function useParts(node: UiNode, props: Record<string, unknown>): PartFn {
   const ctx = useSurfaceContext()
   const instance = useContext(InstanceContext)
   return useMemo(() => {
-    const recipe = nativeRecipeProps(node.component, props, ctx.extensionDefs)
+    const recipe = recipeQuery(node.component, props, ctx.extensionDefs)
     const recipeAttrs: Attrs = {}
     for (const [k, v] of Object.entries(recipe)) if (typeof v !== `object`) recipeAttrs[propAttribute(false, k)] = String(v)
     const scope = ctx.compiled.scope

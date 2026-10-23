@@ -5,8 +5,8 @@
 
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react"
 import { listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection } from "@exponential-at/ui"
-import { InstanceContext, ScopeContext, SurfaceContext, useSurfaceContext } from "../context"
-import { getPointer, LITERAL_ROWS_ROOT, setPointer } from "@exponential-at/ui/web"
+import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, readView, useSurfaceContext } from "../context"
+import { getPointer, LITERAL_ROWS_ROOT } from "@exponential-at/ui/web"
 import { WindowedList, type WindowedListHandle } from "../list"
 import type { NativeProps } from "../node-view"
 import { NodeView, TemplateItemView, mergeStyle, templateItems } from "../node-view"
@@ -192,11 +192,11 @@ function LiteralScope({ value, pointer, suffix, node }: { value: unknown; pointe
   const ctx = useSurfaceContext()
   const outer = useContext(InstanceContext)
   const view = useMemo(() => {
-    const data = setPointer(ctx.data as Record<string, unknown>, pointer, value)
+    const data = readView(ctx, pointer, value)
     const setData = (p: string, v: unknown) => {
       if (p !== pointer && !p.startsWith(`${pointer}/`)) ctx.setData(p, v)
     }
-    return { ...ctx, data, setData }
+    return deriveContext(ctx, { setData }, data)
   }, [ctx, pointer, value])
   return (
     <SurfaceContext.Provider value={view}>

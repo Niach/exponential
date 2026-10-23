@@ -28,7 +28,7 @@ import {
   DEFAULT_LOCALE,
   DEFAULT_THEME_ID,
 } from "@exponential-at/ui"
-import type { ModeName, ResolvedTheme, ScrollAlign, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
+import type { ModeName, ResolvedTheme, ScrollAlign, TemplateBudget, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
 import { BASE_CSS } from "@exponential-at/ui/web"
 import { compileNodeSheet, queryToken, surfaceClass } from "@exponential-at/ui/web"
 import { SurfaceContext, type SurfaceContextValue } from "./context"
@@ -36,6 +36,7 @@ import { CLIENT_FUNCTIONS, memoFormatter, setPointer, type DataModel } from "@ex
 import { extensionCatalogs, extensionMacroNames, registeredExtensions, subscribeExtensions, type ReactExtension } from "./extensions"
 import type { HostPlugin } from "./host"
 import { NodeView } from "./node-view"
+import { share } from "./live"
 import { useMediaQuery } from "./platform"
 import { openAllowed } from "@exponential-at/ui/web"
 import { compiledTheme } from "@exponential-at/ui/web"
@@ -283,6 +284,24 @@ function usesLiveClock(value: unknown): boolean {
   return Object.values(v).some(usesLiveClock)
 }
 
+function sameBudget(a: TemplateBudget | undefined, b: TemplateBudget | undefined): boolean {
+  if (a === b) return true
+  if (!a || !b || a.issue?.id !== b.issue?.id || a.issue?.message !== b.issue?.message || a.allowed.size !== b.allowed.size) return false
+  for (const [k, v] of a.allowed) if (b.allowed.get(k) !== v) return false
+  return true
+}
+
+type LiveMembers = Pick<SurfaceContextValue, `data` | `breakpoint` | `xq`>
+
+/** The context with its live members as getters over `live`. */
+function withLive(value: Omit<SurfaceContextValue, keyof LiveMembers>, live: { current: LiveMembers }): SurfaceContextValue {
+  return Object.defineProperties(value, {
+    data: { get: () => live.current.data, enumerable: true, configurable: true },
+    breakpoint: { get: () => live.current.breakpoint, enumerable: true, configurable: true },
+    xq: { get: () => live.current.xq, enumerable: true, configurable: true },
+  }) as SurfaceContextValue
+}
+
 export function ExponentialSurface({
   surface,
   root: rootProp,
@@ -345,23 +364,38 @@ export function ExponentialSurface({
     setLocalData(dataProp ?? {})
   }
   const data = surface ? surface.data : localData
-  const setData = useCallback(
-    (pointer: string, value: unknown) => {
-      if (surface) surface.setData(pointer, value)
-      else setLocalData((cur) => setPointer(cur, pointer, value))
-    },
-    [surface]
-  )
+  // Through a ref: the surface state is a new object on every change, and a
+  // new `setData` would be a new context (every node re-rendered).
+  const latestSurface = useRef(surface)
+  latestSurface.current = surface
+  const setData = useCallback((pointer: string, value: unknown) => {
+    const current = latestSurface.current
+    if (current) current.setData(pointer, value)
+    else setLocalData((cur) => setPointer(cur, pointer, value))
+  }, [])
 
-  const root = surface ? surface.root : (rootProp ?? null)
+  // VAPP-141: a new tree shares every unchanged node with the last one
+  // (`share`), so a streamed `updateComponents` re-renders only the nodes
+  // it changed.
+  const lastTree = useRef<{ root: UiNode | null; templates: Readonly<Record<string, UiNode>> }>({ root: null, templates: NO_TEMPLATES })
+  const rawRoot = surface ? surface.root : (rootProp ?? null)
+  const root = useMemo(() => (lastTree.current.root = share(lastTree.current.root, rawRoot)), [rawRoot])
   // Round 2 §4: a data template's node comes from the reducer's LIFTED
   // `templates` (it is no longer in the tree, so never painted in place).
-  const templates = (surface ? surface.templates : templatesProp) ?? NO_TEMPLATES
+  const rawTemplates = (surface ? surface.templates : templatesProp) ?? NO_TEMPLATES
+  const templates = useMemo(() => (lastTree.current.templates = share(lastTree.current.templates, rawTemplates)), [rawTemplates])
   const templateNode = useCallback((componentId: string) => templates[componentId], [templates])
   const templateRoots = useMemo(() => Object.values(templates), [templates])
   // VAPP-103: past `maxTemplateItems` items or `maxComponents` nodes per
   // surface the rest is not rendered (ONE issue, the Rust build's rule).
-  const budget = useMemo(() => (root ? templateBudget(root, data, templateNode) : undefined), [root, data, templateNode])
+  // Kept while its counts are the same (it is in the context: a new one
+  // re-renders every node).
+  const lastBudget = useRef<TemplateBudget | undefined>(undefined)
+  const budget = useMemo(() => {
+    const next = root ? templateBudget(root, data, templateNode) : undefined
+    if (sameBudget(lastBudget.current, next)) return lastBudget.current
+    return (lastBudget.current = next)
+  }, [root, data, templateNode])
   useEffect(() => {
     if (budget?.issue) console.warn(`[exponential-ui] ${surfaceId}: ${budget.issue.id}: ${budget.issue.message}`)
   }, [surfaceId, budget?.issue?.id, budget?.issue?.message])
@@ -440,8 +474,24 @@ export function ExponentialSurface({
   // Every open passes the URL policy (the host's opener or a new tab).
   const openUrl = useCallback((url: string) => openAllowed(hostValue, url), [hostValue])
 
+  // VAPP-141: data, breakpoint and xq are LIVE members (getters over this
+  // render's values); the context keeps its identity when only they change
+  // and the layout effect below tells the subscribed nodes (`live.ts`).
+  const live = useRef({ data, breakpoint, xq })
+  live.current = { data, breakpoint, xq }
+  const listeners = useRef(new Set<() => void>()).current
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      listeners.add(listener)
+      return () => void listeners.delete(listener)
+    },
+    [listeners]
+  )
+  useIsoLayoutEffect(() => {
+    for (const listener of [...listeners]) listener()
+  }, [data, breakpoint, xq, listeners])
   const ctx: SurfaceContextValue = useMemo(
-    () => ({
+    () => withLive({
       surfaceId,
       compiled,
       theme,
@@ -449,7 +499,6 @@ export function ExponentialSurface({
       host: hostValue,
       extensions,
       extensionDefs,
-      data,
       setData,
       templateNode,
       templateBudget: budget,
@@ -467,13 +516,12 @@ export function ExponentialSurface({
       paintFailures,
       strings,
       t,
-      breakpoint,
-      xq,
       reducedMotion,
       hover,
       announce,
-    }),
-    [surfaceId, compiled, theme, mode, hostValue, extensions, extensionDefs, data, setData, templateNode, budget, states, measure, portal, toastLayer, direction, functions, openUrl, locale, formatter, now, registerScroller, paintFailures, strings, t, breakpoint, xq, reducedMotion, hover, announce]
+      subscribe,
+    }, live),
+    [surfaceId, compiled, theme, mode, hostValue, extensions, extensionDefs, setData, templateNode, budget, states, measure, portal, toastLayer, direction, functions, openUrl, locale, formatter, now, registerScroller, paintFailures, strings, t, reducedMotion, hover, announce, subscribe]
   )
 
   const nodeEl = useCallback((id: string): HTMLElement | null => rootEl?.querySelector<HTMLElement>(`[data-xui-id="${typeof CSS !== `undefined` && CSS.escape ? CSS.escape(id) : id.replace(/"/g, `\\"`)}"]`) ?? null, [rootEl])
@@ -519,6 +567,12 @@ export function ExponentialSurface({
   const scopeSel = `.${surfaceClass(surfaceId)}`
   const layerCss = `@layer xui-base{@container xui (width >= ${md}px){${scopeSel} .xui-toast-layer{left:auto;right:var(--xui-spacing-lg);transform:none;align-items:flex-end}${scopeSel}[dir="rtl"] .xui-toast-layer{right:auto;left:var(--xui-spacing-lg)}}}`
 
+  // VAPP-141: React rewrites a `dangerouslySetInnerHTML` whenever the
+  // OBJECT is new, and a rewritten sheet restyles the whole surface: one
+  // object per sheet text.
+  const themeHtml = useMemo(() => ({ __html: `${BASE_CSS}\n${compiled.css}` }), [compiled.css])
+  const nodesHtml = useMemo(() => ({ __html: `${sheet.css}${layerCss}` }), [sheet.css, layerCss])
+
   return (
     <div
       ref={setRootEl}
@@ -532,8 +586,8 @@ export function ExponentialSurface({
       dir={direction}
       style={width === undefined ? style : { width, ...style }}
     >
-      <style data-xui-style="theme" dangerouslySetInnerHTML={{ __html: `${BASE_CSS}\n${compiled.css}` }} />
-      <style data-xui-style="nodes" dangerouslySetInnerHTML={{ __html: `${sheet.css}${layerCss}` }} />
+      <style data-xui-style="theme" dangerouslySetInnerHTML={themeHtml} />
+      <style data-xui-style="nodes" dangerouslySetInnerHTML={nodesHtml} />
       <SurfaceContext.Provider value={ctx}>
         <div className="xui-container">
           {root ? <NodeView node={root} /> : null}

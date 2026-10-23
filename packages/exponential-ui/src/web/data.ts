@@ -8,8 +8,8 @@
 // functions run through the SURFACE Formatter (round 2 §3: Intl in the
 // surface locale + time zone). Pure, so the host can run it too.
 
-import { CORE_FUNCTIONS, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, catalogView, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, truthy, writePointer } from "@exponential-at/ui"
-import type { CatalogView, ExtensionDef, Formatter } from "@exponential-at/ui"
+import { CORE_FUNCTIONS, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, catalogView, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, recipeParts, resolveString, truthy, writePointer } from "@exponential-at/ui"
+import type { CatalogView, ExtensionDef, Formatter, PartSpec } from "@exponential-at/ui"
 
 export type DataModel = Record<string, unknown> | unknown[]
 
@@ -237,6 +237,31 @@ export function viewOf(extensions?: readonly ExtensionDef[]): CatalogView {
   let view = views.get(extensions)
   if (!view) views.set(extensions, (view = catalogView(extensions)))
   return view
+}
+
+const CORE_PARTS = recipeParts()
+const partsByView = new WeakMap<readonly ExtensionDef[], Record<string, PartSpec>>()
+
+/** `nativeRecipeProps` with the catalog view and the recipe-part table
+ *  cached per extension list (VAPP-141): the core's builds both on every
+ *  call, which is every painted node on every render. Same result. */
+export function recipeQuery(component: string, props: Record<string, unknown>, extensions?: readonly ExtensionDef[]): Record<string, unknown> {
+  const view = viewOf(extensions)
+  let parts = CORE_PARTS
+  if (extensions && extensions.length > 0) {
+    const hit = partsByView.get(extensions)
+    if (hit) parts = hit
+    else partsByView.set(extensions, (parts = recipeParts(extensions)))
+  }
+  const def = view.components[component]
+  const spec = parts[component]
+  const out: Record<string, unknown> = {}
+  if (!def || !spec) return out
+  for (const name of spec.props) {
+    const value = props[name] ?? def.props[name]?.default
+    if (value !== undefined) out[name] = value
+  }
+  return out
 }
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === `object` && v !== null && !Array.isArray(v)

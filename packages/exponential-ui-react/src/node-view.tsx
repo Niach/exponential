@@ -15,15 +15,16 @@
 // once per item under the item's scope, keyed by `template.key`.
 
 import { Component, Fragment, memo, useCallback, useContext, useEffect, useMemo, type CSSProperties, type ReactNode } from "react"
-import { UNKNOWN_COMPONENT, catalogView, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential-at/ui"
-import type { ExtensionDef, UiNode } from "@exponential-at/ui"
+import { UNKNOWN_COMPONENT, instanceSegment, isResponsiveValue, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential-at/ui"
+import type { UiNode } from "@exponential-at/ui"
 import { dynamicStyleEntries, nodeClass, queryToken, styleDirection } from "@exponential-at/ui/web"
-import { InstanceContext, ScopeContext, SurfaceContext, resolveContextOf, useSurfaceContext, type SurfaceContextValue } from "./context"
+import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, resolveContextOf, useSurfaceContext, type SurfaceContextValue } from "./context"
+import { responsiveProps, useLive } from "./live"
 import { absolutePath, ariaAttributes, getPointer, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, type ResolveContext } from "@exponential-at/ui/web"
 import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
 import { NATIVES } from "./natives"
-import { cssValue, isMacroComponent, partClass, propAttribute } from "@exponential-at/ui/web"
+import { cssValue, isMacroComponent, partClass, propAttribute, recipeQuery } from "@exponential-at/ui/web"
 
 export interface NativeProps extends ExtensionComponentProps {
   /** The data scope (template item) this node renders under. */
@@ -34,24 +35,6 @@ export interface NativeProps extends ExtensionComponentProps {
 }
 
 const CONTAINERS = new Set([`Box`, `List`])
-
-const responsiveCache = new WeakMap<readonly ExtensionDef[], Map<string, string[]>>()
-
-/** The props of a component marked `responsive: true` in the catalog. */
-function responsiveProps(component: string, extensions: readonly ExtensionDef[]): string[] {
-  let byComponent = responsiveCache.get(extensions)
-  if (!byComponent) {
-    byComponent = new Map()
-    responsiveCache.set(extensions, byComponent)
-  }
-  let hit = byComponent.get(component)
-  if (!hit) {
-    const def = catalogView(extensions as ExtensionDef[]).components[component]
-    hit = def ? Object.entries(def.props).filter(([, s]) => s.responsive).map(([n]) => n) : []
-    byComponent.set(component, hit)
-  }
-  return hit
-}
 
 /** The id a node's style rules are keyed by. */
 export function styleIdOf(node: UiNode): string {
@@ -72,7 +55,7 @@ export function useRootProps(node: UiNode, props: Record<string, unknown>, domId
       const macro = isMacroComponent(node.recipe.macro, macros)
       for (const [k, v] of Object.entries(recipeProps ?? node.recipe.props)) if (v !== undefined && v !== null && typeof v !== `object`) attrs[propAttribute(macro, k)] = String(v)
     }
-    for (const [k, v] of Object.entries(nativeRecipeProps(node.component, props, ctx.extensionDefs))) if (typeof v !== `object`) attrs[propAttribute(false, k)] = String(v)
+    for (const [k, v] of Object.entries(recipeQuery(node.component, props, ctx.extensionDefs))) if (typeof v !== `object`) attrs[propAttribute(false, k)] = String(v)
     if (ctx.states.length) attrs[`data-xs`] = ctx.states.join(` `)
     // Contract §6: the node's accessibility (author label/description + a
     // macro part's role and states) resolved, then mapped to ARIA. A
@@ -167,14 +150,17 @@ export function useEmitter(node: UiNode, scope: string, domId: string = node.id)
 
 /** A node, or nothing when its `visible` resolves falsy (no layout, not in
  *  the a11y tree). Memoized on the node: a parent re-render does not cascade;
- *  a context change (data, breakpoint, theme…) still reaches every node. */
+ *  a context change (theme, locale…) still reaches every node, a data,
+ *  breakpoint or `data-xq` change only the nodes that read the new value
+ *  (`useLive`, VAPP-141). */
 export const NodeView = memo(function NodeView({ node }: { node: UiNode }) {
   const ctx = useSurfaceContext()
   const scope = useContext(ScopeContext)
+  const live = useLive(ctx, node, scope)
   if (node.visible !== undefined && !resolveVisible(node.visible, resolveContextOf(ctx, scope))) return null
   const own = ownDirection(node, ctx)
-  if (own && own !== ctx.direction) return <DirectedNode node={node} scope={scope} direction={own} />
-  return <BoundNode node={node} scope={scope} />
+  if (own && own !== ctx.direction) return <DirectedNode node={node} scope={scope} direction={own} live={live} />
+  return <BoundNode node={node} scope={scope} live={live} />
 })
 
 /** A node's own style `direction` (round 2 §2: any node, inherited),
@@ -188,21 +174,24 @@ export function ownDirection(node: UiNode, ctx?: Pick<SurfaceContextValue, `them
 /** A node whose `direction` differs from its parent's: it and its subtree
  *  paint with it (Radix `dir`, arrow keys, mirrored glyphs, the chart
  *  mirror read `ctx.direction`). */
-function DirectedNode({ node, scope, direction }: { node: UiNode; scope: string; direction: `ltr` | `rtl` }) {
+function DirectedNode({ node, scope, direction, live }: { node: UiNode; scope: string; direction: `ltr` | `rtl`; live: readonly unknown[] }) {
   const ctx = useSurfaceContext()
-  const value = useMemo(() => ({ ...ctx, direction }), [ctx, direction])
+  const value = useMemo(() => deriveContext(ctx, { direction }), [ctx, direction])
   return (
     <SurfaceContext.Provider value={value}>
-      <BoundNode node={node} scope={scope} />
+      <BoundNode node={node} scope={scope} live={live} />
     </SurfaceContext.Provider>
   )
 }
 
-const BoundNode = memo(function BoundNode({ node, scope }: { node: UiNode; scope: string }) {
+/** `live` = the values the node reads (`useLive`): a new array re-binds it. */
+const BoundNode = memo(function BoundNode({ node, scope, live }: { node: UiNode; scope: string; live: readonly unknown[] }) {
   const ctx = useSurfaceContext()
   const instance = useContext(InstanceContext)
   const domId = `${node.id}${instance}`
-  const rctx = useMemo(() => resolveContextOf(ctx, scope), [ctx, scope])
+  const data = ctx.data
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const rctx = useMemo(() => resolveContextOf(ctx, scope), [ctx, scope, data, live])
   const props = useMemo(() => {
     const out = resolveNodeProps(node.component, node.props, rctx, ctx.extensionDefs)
     for (const name of responsiveProps(node.component, ctx.extensionDefs)) {
