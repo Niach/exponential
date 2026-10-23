@@ -2137,8 +2137,12 @@
       },
       "notes": {
         "ios": "VAPP-112: the LIVE walk: the Threads tab's Apps button (phones have no sixth tab), gated on the seeded Team dashboard row and the built-in Devices row.",
-        "android": "VAPP-116: the Android Apps list lands with the phone app host.",
+        "android": "VAPP-116: the LIVE walk (signed in, the seeded demo apps): Threads → the header's Apps entry. The phone reaches Apps from the Threads tab (no sidebar).",
         "desktop": "VAPP-114: the IDE's Apps screen lands with Screen::Apps."
+      },
+      "android": {
+        "shot": "sg_apps",
+        "lane": "styleguide"
       }
     },
     {
@@ -2170,8 +2174,12 @@
       "notes": {
         "web": "`$appSlug` resolves to DEMO_APP_SLUG (apps/web/scripts/screenshot-demo.ts), the seeded Team dashboard app with three versions and the demo user's editor session.",
         "ios": "VAPP-112: the LIVE walk: the Apps list's Team dashboard row, the Chat tab gated on the seeded editor chat.",
-        "android": "VAPP-116: the Android editor lands with the phone app host.",
+        "android": "VAPP-116: Apps → Team dashboard (DEMO_APP_SLUG) on its Chat tab (the web-mobile `app` shot's tab), the head package rendering on Preview through the Compose app host.",
         "desktop": "VAPP-114: the IDE's editor lands with Screen::Apps."
+      },
+      "android": {
+        "shot": "sg_app",
+        "lane": "styleguide"
       }
     },
     {

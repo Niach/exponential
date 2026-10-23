@@ -27,6 +27,7 @@ import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
 import com.exponential.app.domain.AgentHome
+import com.exponential.app.domain.Apps
 import com.exponential.app.domain.AgentSettings
 import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.ComposerMenuRowId
@@ -86,7 +87,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
  *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
  *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_plan-card ·
- *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt
+ *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
+ *   sg_apps · sg_app
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -161,6 +163,9 @@ class StyleguideScreenshotsTest {
             "sg_script-card", "sg_comment-call-card",
             "sg_trace", "sg_code-block", "sg_ask-dock", "sg_plan-card",
         )
+
+        /** VAPP-110: the seeded Team dashboard app (web `DEMO_APP_SLUG`). */
+        private const val DEMO_APP_SLUG = "team-dashboard"
 
         // APP-5 — the only seeded issue with a comment thread.
         private const val SHOWCASE_ISSUE_TITLE = ScreenshotFlow.SHOWCASE_ISSUE_TITLE
@@ -732,6 +737,29 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(AGENT_REPLY_CLOCK), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_agent-channel")
+        Espresso.pressBack()
+        flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
+        flow.settle(longer = true)
+
+        // --- sg_apps / sg_app (VAPP-116): the Threads header's Apps entry
+        // opens the selected team's Apps (the built-in Devices app first,
+        // then the seeded Team dashboard + the version-less app); the
+        // dashboard opens its editor on the Chat tab, the demo user's editor
+        // session (web-mobile's `app` shot). Leaving it ends that session,
+        // exactly as the web capture does.
+        composeRule.onNode(hasTestTag("nav-apps")).performClick()
+        flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
+        val dashboardRow = hasTestTag("${Apps.TestIds.ROW}-$DEMO_APP_SLUG")
+        flow.waitFor(dashboardRow, SYNC_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_apps")
+        composeRule.onNode(dashboardRow).performClick()
+        flow.waitFor(hasTestTag(Apps.TestIds.TABS), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag(Apps.TestIds.CHAT), SYNC_TIMEOUT)
+        flow.settle(longer = true)
+        flow.screenshot("sg_app")
+        Espresso.pressBack()
+        flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
         Espresso.pressBack()
         flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
         flow.settle(longer = true)

@@ -129,6 +129,13 @@
       }
     },
     "app": {
+      "android": {
+        "file": "shots/app/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 61972,
+        "sha256": "c49cafc30f2a53258be4988f503f4e4c5ff3451d2cc9f76c7202815ada1c2099"
+      },
       "ios": {
         "file": "shots/app/ios.webp",
         "width": 828,
@@ -152,6 +159,13 @@
       }
     },
     "apps": {
+      "android": {
+        "file": "shots/apps/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 12418,
+        "sha256": "215e5bd306ac0a2b8c3e1b721ce50c9b130c8c8a65274dc216dac197d62f325e"
+      },
       "ios": {
         "file": "shots/apps/ios.webp",
         "width": 828,

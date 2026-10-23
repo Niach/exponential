@@ -316,6 +316,32 @@ val MIGRATION_92_93: Migration = object : Migration(92, 93) {
     }
 }
 
+// VAPP-110: sessions.app_id + the `apps` and `app_versions` tables.
+val MIGRATION_93_94: Migration = object : Migration(93, 94) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `sessions` ADD COLUMN `app_id` TEXT")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `apps` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+                "`slug` TEXT NOT NULL, `name` TEXT NOT NULL, `icon` TEXT, `color` TEXT, " +
+                "`description` TEXT NOT NULL, `package` TEXT, `head_version` INTEGER, " +
+                "`created_by` TEXT NOT NULL, `deleted_at` TEXT, `created_at` TEXT NOT NULL, " +
+                "`updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_apps_team_id` ON `apps` (`team_id`)")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `app_versions` (`id` TEXT NOT NULL, `app_id` TEXT NOT NULL, " +
+                "`team_id` TEXT NOT NULL, `number` INTEGER, `note` TEXT, `session_id` TEXT, " +
+                "`created_by` TEXT, `created_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_app_versions_app_id` ON `app_versions` (`app_id`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_app_versions_team_id` ON `app_versions` (`team_id`)")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'sessions'",
+        )
+    }
+}
+
 private val NEW_TABLES_V92 = listOf(
     "CREATE TABLE IF NOT EXISTS `agents` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
         "`name` TEXT NOT NULL, `icon` TEXT, `color` TEXT, `triggers` TEXT, `device_id` TEXT NOT NULL, " +
