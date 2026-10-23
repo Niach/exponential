@@ -40,12 +40,24 @@ const EMPTY = `\u0000xui-empty`
 const toRadix = (value: string): string => (value === `` ? EMPTY : value)
 const fromRadix = (value: string): string => (value === EMPTY ? `` : value)
 
-/** Keeps the hidden native <select>'s options free of `EMPTY`. */
-function useNativeEmptyOption(root: HTMLElement | null): void {
+/** Keeps the hidden native <select>'s options free of `EMPTY`; a select
+ *  mounted while the value is `""` gets the empty placeholder option first
+ *  and keeps it (the Solid painter's `NativeSelect`; Radix only renders it
+ *  for an uncontrolled value). */
+function useNativeEmptyOption(root: HTMLElement | null, empty: boolean): void {
+  const emptyNow = useRef(empty)
+  emptyNow.current = empty
   useEffect(() => {
     if (!root || typeof MutationObserver === `undefined`) return
+    const seen = new WeakSet<HTMLSelectElement>()
     const fix = () => {
-      for (const option of Array.from(root.querySelectorAll<HTMLOptionElement>(`select[aria-hidden] option`))) if (option.getAttribute(`value`) === EMPTY) option.setAttribute(`value`, ``)
+      for (const select of Array.from(root.querySelectorAll<HTMLSelectElement>(`select[aria-hidden]`))) {
+        if (!seen.has(select)) {
+          seen.add(select)
+          if (emptyNow.current) select.insertBefore(document.createElement(`option`), select.firstChild).setAttribute(`value`, ``)
+        }
+        for (const option of Array.from(select.options)) if (option.getAttribute(`value`) === EMPTY) option.setAttribute(`value`, ``)
+      }
     }
     fix()
     const observer = new MutationObserver(fix)
@@ -98,7 +110,7 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
   const options = sourced ?? inline
   const hasEmpty = options.some((o) => o.value === ``)
   const [plainRoot, setPlainRoot] = useState<HTMLDivElement | null>(null)
-  useNativeEmptyOption(hasEmpty ? plainRoot : null)
+  useNativeEmptyOption(hasEmpty ? plainRoot : null, value === ``)
   const commit = (next: string | string[]) => {
     const out = multiple && !rawIsArray && typeof raw === `string` ? (next as string[]).join(`,`) : next
     setValue(next, out)
@@ -133,7 +145,13 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
       <div ref={hasEmpty ? setPlainRoot : undefined} {...(rootProps as Record<string, unknown>)} data-source={source || undefined}>
         {label}
         <SelectPrimitive.Root
-          value={(value as string) || undefined}
+          // With an empty option the Select stays CONTROLLED through every
+          // pick (`""` is Radix's controlled "no value": the placeholder
+          // state, no item checked, the same DOM); a flip to `undefined`
+          // and back would make Radix warn. Without one, an unset value
+          // stays `undefined` (the hidden native <select> keeps its empty
+          // placeholder option, as Solid's).
+          value={hasEmpty ? (value as string) : (value as string) || undefined}
           // The option already holding the value fires nothing (Radix's rule;
           // `""` reads as Radix's "no value", so it is checked here).
           onValueChange={(v) => {

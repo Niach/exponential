@@ -4,7 +4,7 @@
 // apps/desktop/crates/exponential-ui/tests/interactions_fixture.rs, so gpui
 // and the natives (through the FFI) behave like this renderer.
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render } from "@testing-library/react"
 import { CORE_CATALOG_ID, reduceNested } from "@exponential-at/ui"
 import type { NestedNode } from "@exponential-at/ui"
@@ -132,6 +132,10 @@ interface SelectCase {
 describe(`fixtures/interactions-round1.json select`, () => {
   for (const c of (fixture as unknown as { select: SelectCase[] }).select) {
     it(`Select: ${c.name}`, () => {
+      // A pick to or from "" must not flip Radix between controlled and
+      // uncontrolled (Radix warns in development) or log any error.
+      const errors = vi.spyOn(console, `error`).mockImplementation(() => {})
+      const warnings = vi.spyOn(console, `warn`).mockImplementation(() => {})
       const actions: SurfaceActionEvent[] = []
       const options = [
         { label: `Any`, value: `` },
@@ -158,6 +162,9 @@ describe(`fixtures/interactions-round1.json select`, () => {
       expect(actions.filter((a) => a.name === `change`).map((a) => a.context.value)).toEqual(c.expect.changes)
       expect(trigger().textContent).toBe(c.expect.shows)
       expect(container.querySelector(`[data-xui-id="v"]`)?.textContent).toBe(c.expect.value === null ? `<unset>` : c.expect.value)
+      expect([...errors.mock.calls, ...warnings.mock.calls].map((call) => String(call[0]))).toEqual([])
+      errors.mockRestore()
+      warnings.mockRestore()
     })
   }
 })
