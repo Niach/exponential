@@ -65,6 +65,8 @@ struct WorkingIndicatorRow: View {
 /// hides the strip when the queue is empty or the run is over.
 struct AgentQueueStrip: View {
     let messages: [QueuedMessage]
+    /// N-12: inside THE Dock's sheet (no strip chrome, no column).
+    var plain = false
     let onRemove: (String) -> Void
 
     var body: some View {
@@ -95,15 +97,29 @@ struct AgentQueueStrip: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .glassRow(isOpaque: true)
-        // EXP-927 §2c "Alignment": the same reading column as the strip above
-        // it and the transcript above that.
-        .transcriptColumn()
+        .modifier(QueueStripChrome(plain: plain))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(AgentFeed.queueStripTitle)
         .accessibilityIdentifier("agent-queue-strip")
+    }
+}
+
+/// The strip's own row and column; none inside THE Dock's sheet.
+private struct QueueStripChrome: ViewModifier {
+    let plain: Bool
+
+    func body(content: Content) -> some View {
+        if plain {
+            content
+        } else {
+            content
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .glassRow(isOpaque: true)
+                // EXP-927 §2c "Alignment": the same reading column as the
+                // transcript above it.
+                .transcriptColumn()
+        }
     }
 }
 

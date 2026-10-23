@@ -436,22 +436,6 @@ final class SessionTreeTests: XCTestCase {
         }
     }
 
-    /// EXP-1306: `composerCases` — the card takes the composer's place.
-    func testComposerYieldsToCardReplaysEveryCase() throws {
-        for testCase in try cases(try fixture("session-thread.json"), "composerCases") {
-            let name = try XCTUnwrap(testCase["name"] as? String)
-            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
-            XCTAssertEqual(
-                SessionTree.composerYieldsToCard(
-                    live: try XCTUnwrap(input["live"] as? Bool),
-                    pendingAsk: try XCTUnwrap(input["pendingAsk"] as? Bool)
-                ),
-                try XCTUnwrap(testCase["expected"] as? Bool),
-                name
-            )
-        }
-    }
-
     /// EXP-1211: `repliesCases` — the quick replies above the composer.
     func testComposerRepliesReplaysEveryCase() throws {
         let fixture = try fixture("session-thread.json")

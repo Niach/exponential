@@ -2,8 +2,12 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-893: the expanded steer composer's footer row, web's order: `+`
-/// attach (wave D: Photo | File) · the model pill (the session's `model`
+/// N-12 (THE composer row ×4): the expanded steer composer's ONE tool row,
+/// web's order: `+` (the only tool; wave D: Photo | File, a thread's opens
+/// its composer-menu.json sheet) · the Device pin as its GLYPH alone (the
+/// name in the picker and its label) · the model pin · the Plan switch …
+/// the context ring beside Send ⇄ Stop; nothing under the card.
+/// EXP-893: · the model pill (the session's `model`
 /// config option; picking one SENDS `/model <alias>` as a plain message,
 /// EXP-877; codex and an ENDED row get a plain label; before the relay
 /// reports one it falls back to the row/device model) · `Plan mode` (blue,
@@ -40,6 +44,9 @@ struct SessionComposerFooter: View {
         /// EXP-1252: the Device pin before Model (`AgentSessionModel.devicePin`);
         /// nil = hidden (agents, asides).
         var devicePin: SessionDevicePin? = nil
+        /// N-12: the Plan switch (`sessions.configure`, live mid-run); nil =
+        /// none (a dispatcher root, codex, an ended row).
+        var plan: Binding<Bool>? = nil
 
         /// Codex has no mid-run model prompt and an ended row takes no
         /// `/model`: both draw the chevron-less label.
@@ -69,7 +76,9 @@ struct SessionComposerFooter: View {
     var body: some View {
         // ONE row that claims the tools slot's width (`layoutPriority`), so
         // `GlassComposer`'s own spacer collapses and the ring sits beside Send.
-        // N-14: a row host — inside a sheet the pins' rows disclose under it.
+        // N-14: a ROW host — a pin opened inline (inside a sheet host)
+        // discloses its rows under the whole row, as wide as it; the
+        // collapsed pins never change (the device pin stays its glyph).
         InlinePickerRow {
             HStack(spacing: GlassComposerTokens.toolSpacing) {
                 // EXP-850 §13: the steer composers attach with the `ui-add` (plus)
@@ -99,11 +108,13 @@ struct SessionComposerFooter: View {
 
                 if let controls {
                     if let devicePin = controls.devicePin {
-                        SessionDevicePinView(pin: devicePin, fullWidth: false)
+                        SessionDevicePinView(pin: devicePin, iconOnly: true)
                     }
                     SessionModelPill(controls: controls)
 
-                    if controls.showsPlanLabel {
+                    if let plan = controls.plan {
+                        SessionPlanSwitch(plan: plan, ended: controls.ended)
+                    } else if controls.showsPlanLabel {
                         Text(AgentFeed.planModeFooterLabel)
                             .font(.caption.weight(.medium))
                             .foregroundStyle(DesignTokens.Semantic.blue)
@@ -200,9 +211,11 @@ extension DevicePickerDevice {
 /// `OptionPillLabel` trigger, titled "Move to device", the note as its hint.
 struct SessionDevicePinView: View {
     let pin: SessionDevicePin
-    /// The full name (the options line scrolls); false = it may truncate
-    /// (the raw session view's in-card footer, which cannot scroll).
+    /// The full name (the options line scrolls); false = it may truncate.
     var fullWidth: Bool = true
+    /// N-12: inside the composer card, the glyph alone (the name in the
+    /// picker and the accessibility label; a pending move names the target).
+    var iconOnly: Bool = false
 
     @Environment(\.toaster) private var toaster
 
@@ -214,85 +227,50 @@ struct SessionDevicePinView: View {
                 onChange: pin.onPick,
                 title: SessionDeviceMove.pickerTitle,
                 trigger: {
-                    OptionPillLabel(icon: pin.icon, text: pin.label)
-                        .fixedSize(horizontal: fullWidth, vertical: false)
+                    OptionPillLabel(icon: pin.icon ?? AppIcons.uiDevice, text: iconOnly ? "" : pin.label, chevron: !iconOnly)
+                        .fixedSize(horizontal: fullWidth || iconOnly, vertical: false)
                 }
             )
-            .accessibilityLabel("Device")
+            .accessibilityLabel(iconOnly ? "Device: \(pin.label)" : "Device")
             // The move's note rides the pin as its hint, like the account
             // switch's cost note (web `title=`, desktop tooltip).
             .accessibilityHint(SessionDeviceMove.note)
             .accessibilityIdentifier("session-device-pin")
         } else {
-            OptionPillLabel(icon: pin.icon, text: pin.label, chevron: false)
-                .fixedSize(horizontal: fullWidth, vertical: false)
+            OptionPillLabel(icon: pin.icon ?? AppIcons.uiDevice, text: iconOnly ? "" : pin.label, chevron: false)
+                .fixedSize(horizontal: fullWidth || iconOnly, vertical: false)
                 .opacity(pin.sending ? 1 : 0.6)
                 .onTapGesture {
                     guard let reason = pin.blockedReason else { return }
                     toaster.info(reason)
                 }
-                .accessibilityLabel("Device")
+                .accessibilityLabel(iconOnly ? "Device: \(pin.label)" : "Device")
                 .accessibilityHint(pin.blockedReason ?? "")
                 .accessibilityIdentifier("session-device-pin")
         }
     }
 }
 
-/// EXP-1334: the thread composer's options line UNDER the card — the model
-/// pill, the Plan switch (live mid-run through `sessions.configure`; nil =
-/// none) and, trailing, the usage ring (hidden until context data lands).
-struct SessionComposerOptionsLine: View {
-    let controls: SessionComposerFooter.Controls
-    var plan: Binding<Bool>?
+/// THE Plan switch of the composer row (web `Plan` + the small Switch).
+struct SessionPlanSwitch: View {
+    let plan: Binding<Bool>
+    var ended = false
 
     var body: some View {
-        // N-14: a row host — inside a sheet the pins' rows disclose in the
-        // slot under the whole line, as wide as it.
-        InlinePickerRow {
-            HStack(spacing: 12) {
-                // EXP-1252: with the Device pin the picks can outgrow a phone, so
-                // they scroll sideways like the launch line (`AgentOptionsRow`);
-                // the usage ring stays pinned trailing.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        if let devicePin = controls.devicePin {
-                            SessionDevicePinView(pin: devicePin)
-                        }
-                        SessionModelPill(controls: controls)
-                        if let plan {
-                            HStack(spacing: 6) {
-                                Text("Plan")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                Toggle("Plan", isOn: plan)
-                                    .labelsHidden()
-                                    .toggleStyle(.switch)
-                                    .controlSize(.mini)
-                                    .tint(DesignTokens.Semantic.blue)
-                                    .disabled(controls.ended)
-                            }
-                            .fixedSize()
-                            .accessibilityElement(children: .combine)
-                            .accessibilityIdentifier("session-plan-toggle")
-                        }
-                    }
-                }
-                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-                if controls.usageFraction != nil {
-                    Button(action: controls.onUsage) {
-                        ContextRing(fraction: controls.usageFraction, severity: controls.usageSeverity)
-                            .frame(width: GlassComposerTokens.toolHitSize, height: GlassComposerTokens.toolHitSize)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Usage")
-                    .accessibilityIdentifier("session-context-ring")
-                }
-            }
+        HStack(spacing: 6) {
+            Text("Plan")
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Toggle("Plan", isOn: plan)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .tint(DesignTokens.Semantic.blue)
+                .disabled(ended)
         }
-        .padding(.horizontal, 12)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("thread-composer-options")
+        .fixedSize()
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("session-plan-toggle")
     }
 }
 

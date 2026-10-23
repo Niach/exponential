@@ -53,6 +53,17 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
     @ViewBuilder let pinnedHeader: () -> Pinned
     @ViewBuilder let content: () -> Content
     @ViewBuilder let primaryAction: () -> Action
+    /// N-12: a full-width hairline above the pinned action slot (THE Dock
+    /// sheet's footer, web `border-t`).
+    var actionDivider = false
+    /// N-12: whether the action slot draws at all. Unset = the slot's TYPE
+    /// decides (`EmptyView` = none); a wrapper passing its own generic
+    /// footer through modifiers states it, so a footer-less sheet never
+    /// draws an empty strip and its divider.
+    var actionVisible: Bool? = nil
+    /// The sheet's ground: `GlassSheetTokens.background`, or (N-12, THE Dock
+    /// sheet: ONE gray ×4) the card composite.
+    var background: Color = GlassSheetTokens.background
 
     // The pieces of a fitted sheet's natural height. Each slot measures itself
     // AFTER its padding, so the sum is the detent.
@@ -71,17 +82,23 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
         @ViewBuilder headerTrailing: @escaping () -> Header,
         @ViewBuilder pinnedHeader: @escaping () -> Pinned,
         @ViewBuilder content: @escaping () -> Content,
-        @ViewBuilder primaryAction: @escaping () -> Action
+        @ViewBuilder primaryAction: @escaping () -> Action,
+        actionDivider: Bool = false,
+        actionVisible: Bool? = nil,
+        background: Color = GlassSheetTokens.background
     ) {
+        self.background = background
+        self.actionVisible = actionVisible
         self.title = title
         self.height = height
         self.headerTrailing = headerTrailing
         self.pinnedHeader = pinnedHeader
         self.content = content
         self.primaryAction = primaryAction
+        self.actionDivider = actionDivider
     }
 
-    private var hasAction: Bool { Action.self != EmptyView.self }
+    private var hasAction: Bool { actionVisible ?? (Action.self != EmptyView.self) }
 
     private var resolvedDetents: Set<PresentationDetent> {
         guard height == .fitted else { return [.large] }
@@ -130,7 +147,10 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
                     // over the last scrolled row. A `.height` detent excludes
                     // safe-area insets, so this is a VStack slot rather than a
                     // `safeAreaInset`.
-                    .background(GlassSheetTokens.background)
+                    .background(background)
+                    .overlay(alignment: .top) {
+                        if actionDivider { GlassSheetDivider() }
+                    }
                     .measuredHeight { actionHeight = $0 }
             }
         }
@@ -142,10 +162,21 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
             if inset < 60 { bottomInset = inset }
         }
         .presentationDetents(resolvedDetents)
-        .presentationBackground(GlassSheetTokens.background)
+        .presentationBackground(background)
         .presentationCornerRadius(GlassSheetTokens.cornerRadius)
         .presentationDragIndicator(.visible)
         .presentationContentInteraction(.scrolls)
+    }
+}
+
+/// The sheet's full-width card hairline (THE Dock sheet's footer edge).
+public struct GlassSheetDivider: View {
+    public init() {}
+
+    public var body: some View {
+        Rectangle()
+            .fill(DesignTokens.Glass.strokeCard)
+            .frame(height: 1)
     }
 }
 

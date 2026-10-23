@@ -477,8 +477,8 @@ pub(crate) fn session_thread_view(
 }
 
 /// VAPP-110: an app EDITOR's channel: [`session_thread_view`] over the
-/// WHOLE tree's messages (web `useTreeMessages`), since an ended editor
-/// root continues as a child of itself and the chat goes on there.
+/// WHOLE tree's messages (web `useTreeMessages`): the editor session's
+/// children (and a pre-FEED-134 continuation child) post there too.
 pub(crate) fn editor_thread_view(root_id: &str, now_ms: i64, cx: &App) -> Option<SessionThreadView> {
     thread_view(root_id, None, now_ms, true, cx)
 }

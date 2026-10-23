@@ -96,6 +96,7 @@
     { "id": "comment-call-card", "class": "expressible", "with": "Card (padded false) + Row (Avatar lead, meta) + Markdown lines 3 + Link" },
     { "id": "trace", "class": "expressible", "with": "Trace + TraceItem + CodeBlock (the catalog's own)" },
     { "id": "ask-dock", "class": "expressible", "with": "Card + Markdown + Radio / ChoiceTiles + Button; the stacked compact cards are Row surface card" },
+    { "id": "dock-card", "class": "expressible", "with": "DockCard (the catalog's own: the row over a bottom Drawer with its footer slot); the pile is Box + the stack geometry" },
     { "id": "plan-card", "class": "expressible", "with": "Card + Markdown + Image + ChoiceTiles + Radio + Button; the Preview frame is a Box" },
     { "id": "code-block", "class": "expressible", "with": "CodeBlock (the catalog's own)" },
     { "id": "feedback-states", "class": "expressible", "with": "Spinner + Button loading + Skeleton + Toast; the mark's stroke sweep is IconDisc (app extension)" },

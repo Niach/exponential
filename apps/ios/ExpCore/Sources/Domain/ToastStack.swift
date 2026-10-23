@@ -88,6 +88,12 @@ public enum ToastStack {
         }
     }
 
+    /// The toast's numbers (N-12: the shared `Stack.layout` takes them).
+    public static let stack = StackConstants(
+        peek: Constants.peek, scaleStep: Constants.scaleStep,
+        visible: Constants.visible, gap: Constants.gap
+    )
+
     /// The stack box's height and every item's placement, `heights` oldest
     /// first (the LAST item is the newest, in front). A bottom-anchored stack
     /// still measures `offset` from the box's top.
@@ -96,48 +102,66 @@ public enum ToastStack {
         expanded: Bool,
         anchoredBottom: Bool
     ) -> (height: Double, items: [ItemGeometry]) {
+        Stack.layout(heights: heights, expanded: expanded, anchoredBottom: anchoredBottom, constants: stack)
+    }
+}
+
+/// N-12: one stack's numbers: the toast's (toast-stack.json `constants`) or
+/// THE Dock pile's (dock.json `stack`).
+public struct StackConstants: Equatable, Sendable {
+    /// How far an older item peeks out behind the one in front of it.
+    public let peek: Double
+    /// How much smaller each rank behind the front draws.
+    public let scaleStep: Double
+    /// How many items draw at all while collapsed.
+    public let visible: Int
+    /// The space between items while expanded.
+    public let gap: Double
+
+    public init(peek: Double, scaleStep: Double, visible: Int, gap: Double) {
+        self.peek = peek
+        self.scaleStep = scaleStep
+        self.visible = visible
+        self.gap = gap
+    }
+}
+
+/// N-12: THE stack geometry ×4 (TS reference src/stack.ts `stackLayout`),
+/// shared by the toasts and the Dock pile.
+public enum Stack {
+    private static func round(_ value: Double) -> Double {
+        (value * 1e4).rounded() / 1e4
+    }
+
+    /// `heights` oldest first (the last is the front). `anchoredBottom` = the
+    /// box grows upward from its bottom edge; `offset` is from the box's top.
+    public static func layout(
+        heights: [Double],
+        expanded: Bool,
+        anchoredBottom: Bool,
+        constants: StackConstants
+    ) -> (height: Double, items: [ToastStack.ItemGeometry]) {
         let count = heights.count
         guard count > 0 else { return (0, []) }
-        let peek = Constants.peek
-        let gap = Constants.gap
-
-        let front = heights[count - 1]
-        var collapsedHeight = front + peek * Double(count - 1)
-        for (index, height) in heights.enumerated() {
-            let rank = Double(count - 1 - index)
-            collapsedHeight = max(collapsedHeight, height + peek * rank)
+        // Distance of each item's anchor-side edge from the box's anchor edge.
+        let lead: [Double] = heights.indices.map { index in
+            expanded
+                ? heights[(index + 1)...].reduce(0) { $0 + $1 + constants.gap }
+                : constants.peek * Double(count - 1 - index)
         }
-        let expandedHeight = heights.reduce(0, +) + gap * Double(count - 1)
-        let boxHeight = expanded ? expandedHeight : collapsedHeight
-
-        var items: [ItemGeometry] = []
-        items.reserveCapacity(count)
-        for (index, height) in heights.enumerated() {
-            let rankInt = count - 1 - index
-            let rank = Double(rankInt)
-            let offset: Double
-            if expanded {
-                let newer = heights[(index + 1)...].reduce(0, +)
-                offset = anchoredBottom
-                    ? expandedHeight - newer - rank * gap - height
-                    : newer + rank * gap
-            } else {
-                offset = anchoredBottom
-                    ? collapsedHeight - height - rank * peek
-                    : rank * peek
-            }
-            let scale = expanded
-                ? 1
-                : 1 - Constants.scaleStep * Double(min(rankInt, Constants.visible - 1))
-            items.append(
-                ItemGeometry(
-                    offset: offset,
-                    scale: scale,
-                    visible: expanded || rankInt < Constants.visible
-                )
+        var height: Double = 0
+        for (index, h) in heights.enumerated() { height = max(height, lead[index] + h) }
+        let items = heights.enumerated().map { index, h -> ToastStack.ItemGeometry in
+            let rank = count - 1 - index
+            let offset = round(anchoredBottom ? height - lead[index] - h : lead[index])
+            if expanded { return ToastStack.ItemGeometry(offset: offset, scale: 1, visible: true) }
+            return ToastStack.ItemGeometry(
+                offset: offset,
+                scale: round(1 - constants.scaleStep * Double(min(rank, constants.visible - 1))),
+                visible: rank < constants.visible
             )
         }
-        return (boxHeight, items)
+        return (round(height), items)
     }
 }
 

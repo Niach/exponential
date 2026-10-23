@@ -19,6 +19,7 @@
 //! `user_id` = me), the app's glyph as the agent's mark, the first send
 //! `sessions.send({appId, text, deviceId})` on the caller's default device.
 
+use std::collections::HashSet;
 use std::time::Instant;
 
 use gpui::prelude::FluentBuilder as _;
@@ -137,7 +138,8 @@ pub struct AgentScreenView {
     composer: Option<(String, Entity<crate::steer_viewer::SteerSessionView>)>,
     first: FirstComposer,
     /// THE ask dock's state (the focused card, the swap animation).
-    ask_dock: Entity<crate::ask_dock::AskDockState>,
+    /// N-12: THE Dock's state (the fan, the open sheet, the band height).
+    dock: Entity<crate::dock::DockState>,
     /// The name the placeholder was built for.
     placeholder_name: Option<String>,
     scroll: ScrollHandle,
@@ -218,7 +220,7 @@ impl AgentScreenView {
                 notice: None,
                 mention_team: None,
             },
-            ask_dock: cx.new(|_| crate::ask_dock::AskDockState::default()),
+            dock: cx.new(|_| crate::dock::DockState::default()),
             placeholder_name: None,
             scroll: ScrollHandle::new(),
             follow: crate::controls::TailFollow::default(),
@@ -318,8 +320,8 @@ impl AgentScreenView {
             .as_deref()
             .and_then(|id| {
                 let now = crate::session_data::now_ms();
-                // VAPP-110: an editor's chat is its whole tree (an ended
-                // root continues as a child of itself).
+                // VAPP-110: an editor's chat is its whole tree (a
+                // revived root keeps its rows, FEED-134).
                 if editor {
                     crate::session_data::editor_thread_view(id, now, cx)
                 } else {
@@ -512,7 +514,7 @@ impl AgentScreenView {
                 .render_strip("agent-pending-remove", self.first.sending, Self::remove_first_file, cx)
         });
         let notice = self.first.notice.clone();
-        let composer = crate::composer::session_composer_box(
+        let composer = crate::composer::session_composer_card(
             crate::composer::SessionComposerBox::new(self.first.mention.clone(), submit)
                 .strip(strip)
                 .tool(
@@ -535,9 +537,6 @@ impl AgentScreenView {
                 .child(
                     div()
                         .w_full()
-                        .max_w(px(CHANNEL_W))
-                        .mx_auto()
-                        .px(px(crate::work_header::WORK_GUTTER))
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
                         .child(notice),
@@ -688,30 +687,47 @@ impl Render for AgentScreenView {
                 .pt_6()
                 .child(crate::feedback::skeleton_rows("agent-loading", 3, 36., cx));
         }
-        // THE ask dock (ask-dock.json ×4): the conversation's waiting cards
-        // take the composer's slot; a reader who may not reply keeps them
-        // inline.
+        // N-12: THE Dock (dock.json ×4) floats over the conversation's
+        // bottom edge: its waiting cards, the root's Queue, queued messages
+        // and banners, then THE composer; a reader who may not reply keeps
+        // the cards inline. No conversation yet = the same composer, whose
+        // send opens it.
         let team_id = self.subject_team_id();
         let composer_view = self.composer.as_ref().map(|(_, composer)| composer.clone());
-        let dock = composer_view
-            .as_ref()
-            .filter(|composer| composer.read(cx).may_message())
-            .and_then(|_| {
-                crate::thread_screen::conversation_dock(
+        let text = crate::thread_screen::ThreadText::team(team_id.as_deref());
+        let rows_snapshot = self.rows.clone();
+        let (band, sheet, docked) = match composer_view.filter(|composer| composer.read(cx).may_message()) {
+            Some(composer) => {
+                let pending = domain::ask_dock::thread_pending_asks(&rows_snapshot, |_| None);
+                let docked: HashSet<String> = pending.iter().map(|ask| ask.id.clone()).collect();
+                let (band, sheet) = crate::thread_screen::root_dock(
                     "agent",
-                    &self.rows,
-                    |_| None,
-                    &self.ask_dock,
-                    &crate::thread_screen::ThreadText::team(team_id.as_deref()),
+                    &rows_snapshot,
+                    &pending,
+                    None,
+                    &self.dock,
+                    &composer,
+                    &text,
                     &self.images,
                     window,
                     cx,
-                )
-            });
-        let docked = dock.as_ref().map(|(_, ids)| ids.clone()).unwrap_or_default();
-        let rows: Vec<AnyElement> = self
-            .rows
-            .clone()
+                );
+                (band, sheet, docked)
+            }
+            None if self.composer.is_none() => {
+                let card = self.render_first_composer(cx);
+                let band = crate::dock::band(
+                    &self.dock,
+                    crate::dock::Band { id: "agent".into(), rows: Vec::new(), actions: Vec::new(), composer: Some(card) },
+                    window,
+                    cx,
+                );
+                (band, None, HashSet::new())
+            }
+            None => (None, None, HashSet::new()),
+        };
+        let band_height = if band.is_some() { self.dock.read(cx).band_height() } else { 0. };
+        let rows: Vec<AnyElement> = rows_snapshot
             .iter()
             .filter(|row| !docked.contains(row.id()))
             .map(|row| self.render_row(row, window, cx))
@@ -732,42 +748,34 @@ impl Render for AgentScreenView {
             .mx_auto()
             .px(px(crate::work_header::WORK_GUTTER))
             .pt_8()
-            .pb_8()
+            .pb(px(band_height.max(16.) + crate::dock::DOCK_GAP))
             .gap_4()
             .children(rows)
             .children(chat_empty);
-        // THE session composer of the conversation, targeting its root; it
-        // yields its slot to the dock. No conversation yet = the same box,
-        // whose send opens it.
-        let composer = match (dock, composer_view) {
-            (Some((dock, _)), _) => Some(
-                div()
-                    .w_full()
-                    .max_w(px(CHANNEL_W))
-                    .mx_auto()
-                    .px(px(crate::work_header::WORK_GUTTER))
-                    .child(dock)
-                    .into_any_element(),
-            ),
-            (None, Some(composer)) => {
-                composer.update(cx, |composer, cx| composer.render_session_composer(window, cx))
-            }
-            (None, None) => Some(self.render_first_composer(cx)),
-        };
         v_flex()
             .track_focus(&self.focus_handle)
             .size_full()
             .min_h_0()
             .overflow_hidden()
             .when(!editor, |this| this.child(self.render_header(cx)))
-            .child(self.follow.scroller(
-                if editor { "app-editor-chat-scroll" } else { "agent-conversation-scroll" },
-                &self.scroll,
-                column,
-                cx.entity_id(),
-                cx,
-            ))
-            .children(composer.map(|composer| div().w_full().pb_2().child(composer)))
+            .child(
+                div()
+                    .relative()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .child(self.follow.scroller(
+                        if editor { "app-editor-chat-scroll" } else { "agent-conversation-scroll" },
+                        &self.scroll,
+                        column,
+                        cx.entity_id(),
+                        cx,
+                    ))
+                    .children(band)
+                    .children(sheet),
+            )
     }
 }
 

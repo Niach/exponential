@@ -68,9 +68,9 @@ fun InlinePickerRow(
     rowModifier: Modifier = Modifier,
     horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
     verticalAlignment: Alignment.Vertical = Alignment.Top,
-    /** VAPP-110: false = the row fits its width instead of scrolling (a form
-     *  row whose field takes the rest with `weight`, like the identity row). */
-    scrollable: Boolean = true,
+    /** False = a row that lays its children out itself (weights, a trailing
+     *  Send): THE composer row inside its card. */
+    scroll: Boolean = true,
     content: @Composable RowScope.() -> Unit,
 ) {
     val slot = remember { InlinePickerSlot() }
@@ -79,16 +79,22 @@ fun InlinePickerRow(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(if (scrollable) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
+                    .then(if (scroll) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
                     .then(rowModifier),
                 horizontalArrangement = horizontalArrangement,
                 verticalAlignment = verticalAlignment,
                 content = content,
             )
         }
-        val rows = slot.content
-        if (rows != null) {
-            Box(Modifier.fillMaxWidth()) { rows() }
-        }
+        InlinePickerSlotRows(slot)
+    }
+}
+
+/** The slot's rows (the one picker's), as wide as the host; nothing folded. */
+@Composable
+fun InlinePickerSlotRows(slot: InlinePickerSlot) {
+    val rows = slot.content
+    if (rows != null) {
+        Box(Modifier.fillMaxWidth()) { rows() }
     }
 }

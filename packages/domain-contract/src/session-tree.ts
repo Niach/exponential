@@ -630,12 +630,6 @@ export function guideMenuEntries(input: {
   return input.state === `open` && input.member ? [`close-pr`] : []
 }
 
-/** EXP-1306 (EXP-820 ×4): a question or plan card waiting on the viewer
- *  takes the session composer's place. */
-export function composerYieldsToCard(input: { live: boolean; pendingAsk: boolean }): boolean {
-  return input.live && input.pendingAsk
-}
-
 export const REPLIES_COPY = threadFixture.copy.replies
 
 export interface ComposerReplies {

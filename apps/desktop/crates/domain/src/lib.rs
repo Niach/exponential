@@ -89,7 +89,7 @@ pub mod contract {
 }
 
 pub mod activity_fold;
-// THE ask dock (pending question/plan cards in the composer's slot), fixture-locked ×4.
+// THE ask cards' words (titles, plan options, a thread's waiting cards), fixture-locked ×4.
 pub mod ask_dock;
 // EXP-1294: Team settings → Agents (trigger summary, validation), fixture-locked ×4.
 pub mod agent_settings;
@@ -105,6 +105,8 @@ pub mod coding_readiness;
 pub mod detail_chrome;
 pub mod diff;
 pub mod diff_tree;
+// N-12: THE Dock (the cards over the composer, the pile, auto-open), fixture-locked ×4.
+pub mod dock;
 pub mod edit_card;
 pub mod entity_preview;
 pub mod enums;
@@ -140,6 +142,8 @@ pub mod session_kind;
 pub mod session_title;
 // EXP-1294: the session tree's views (card, thread, Threads page, Agents), fixture-locked ×4.
 pub mod session_tree;
+// N-12: THE stack geometry (the toasts and the Dock pile), fixture-locked ×4.
+pub mod stack;
 pub mod statuses;
 pub mod tree_guides;
 

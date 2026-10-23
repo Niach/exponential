@@ -302,7 +302,7 @@ fun AppFormSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 rowModifier = Modifier.padding(start = 12.dp, top = 6.dp, bottom = 6.dp),
-                scrollable = false,
+                scroll = false,
             ) {
                 IconPicker(selected = icon, onSelect = { icon = it }, accentColor = parseColor(color))
                 ColorPicker(selected = color, onSelect = { color = it })

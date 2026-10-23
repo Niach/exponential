@@ -495,7 +495,8 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             .id
             .clone()
             .unwrap_or_else(|| ElementId::CodeLocation(*std::panic::Location::caller()));
-        let in_dialog = crate::native_dialog::is_dialog_window(window, cx);
+        // A dialog window or THE Dock sheet (a sheet host): the host decides.
+        let in_dialog = crate::native_dialog::is_dialog_window(window, cx) || crate::dock::in_sheet_host();
         match self.surface_in(in_dialog) {
             PickerSurface::Menu => self.render_menu(id),
             PickerSurface::Search => self.render_search(id, window, cx),

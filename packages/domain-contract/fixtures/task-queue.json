@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1321/1324: THE Queue x4 (web components/agent-session, desktop steer_viewer, iOS AgentSessionView, Android AgentSessionScreen): ONE block at the bottom of the transcript, in the transcript's reading column, directly above the queued-messages strip, replacing the background-task/`Waiting on` lines AND the Work card's `tasks` variant. Paint = a `Trace` (fixtures/trace.json, size `sm`) of two `TraceCollapsible`s: `todo` (its icon + title, OPEN by default; the reader's toggle sticks for the session) whose content lists its items as Trace lines (item icon + label + description; state `running` = the title shimmers, `pending` = the line at pendingOpacity), then `completed` (collapsed by default) whose items are lines at pendingOpacity. A running background item's description (elapsed) ticks once a second. Model = pure `taskQueue(input)` (src/task-queue.ts); mirrors compare the WHOLE expected object.",
+  "$comment": "EXP-1321/1324: THE Queue x4 (web components/agent-session, desktop steer_viewer, iOS AgentSessionView, Android AgentSessionScreen): ONE block at the bottom of the transcript, in the transcript's reading column, directly above the queued-messages strip, replacing the background-task/`Waiting on` lines AND the Work card's `tasks` variant. Paint = a `Trace` (fixtures/trace.json, size `sm`) of two `TraceCollapsible`s: `todo` (its icon + title, OPEN by default; the reader's toggle sticks for the session) whose content lists its items as Trace lines (item icon + label + description; state `running` = the title shimmers, `pending` = the line at pendingOpacity), then `completed` (collapsed by default) whose items are lines at pendingOpacity. A running background item's description (elapsed) ticks once a second. Model = pure `taskQueue(input)` (src/task-queue.ts); mirrors compare the WHOLE expected object. N-12: the block is a DockCard of THE Dock (fixtures/dock.json `tasks`): collapsed = the todo title, the completed title, the first todo item and its description; open = this Trace in the sheet's body.",
   "copy": {
     "todo": "{count} to do",
     "completed": "{count} completed",
@@ -271,6 +271,53 @@
               "icon": "trace-background",
               "label": "Watch the logs",
               "description": "0s"
+            }
+          ]
+        },
+        "completed": null
+      }
+    },
+    {
+      "name": "only CLI background watchers (no todo list) still make the queue",
+      "input": {
+        "tasks": [],
+        "backgroundTasks": [
+          {
+            "id": "b3",
+            "kind": "shell",
+            "description": "sleep 600",
+            "startedAt": 1792000000000
+          },
+          {
+            "id": "b4",
+            "kind": "shell",
+            "description": "gh run watch 18420",
+            "startedAt": 1792000060000
+          }
+        ],
+        "waits": [],
+        "now": 1792000250000
+      },
+      "expected": {
+        "todo": {
+          "title": "2 to do",
+          "icon": "trace-todo",
+          "items": [
+            {
+              "key": "background:b3",
+              "kind": "background",
+              "state": "running",
+              "icon": "trace-background",
+              "label": "sleep 600",
+              "description": "4m 10s"
+            },
+            {
+              "key": "background:b4",
+              "kind": "background",
+              "state": "running",
+              "icon": "trace-background",
+              "label": "gh run watch 18420",
+              "description": "3m 10s"
             }
           ]
         },

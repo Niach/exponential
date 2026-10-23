@@ -2056,12 +2056,6 @@ public enum SessionTree {
         }
     }
 
-    /// EXP-1306 (EXP-820 ×4): a question or plan card waiting on the viewer
-    /// takes the session composer's place.
-    public static func composerYieldsToCard(live: Bool, pendingAsk: Bool) -> Bool {
-        live && pendingAsk
-    }
-
     /// EXP-1211: the quick replies above a session's composer = its NEWEST
     /// `replies` card (createdAt, then id) minus the sent items; nil = none
     /// (a newer card replaces an older one even when it is all sent).

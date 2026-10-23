@@ -41,6 +41,8 @@ import com.exponential.app.ui.styleguide.FeedbackStatesScreenTestId
 import com.exponential.app.ui.styleguide.ThreadCardsKind
 import com.exponential.app.ui.styleguide.AskDockSpecimenScreen
 import com.exponential.app.ui.styleguide.AskDockSpecimenScreenTestId
+import com.exponential.app.ui.styleguide.DockCardSpecimenScreen
+import com.exponential.app.ui.styleguide.DockCardSpecimenScreenTestId
 import com.exponential.app.ui.styleguide.ThreadCardsScreen
 import com.exponential.app.ui.styleguide.TraceSpecimenKind
 import com.exponential.app.ui.styleguide.TraceSpecimenScreen
@@ -86,7 +88,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
  *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
- *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_plan-card ·
+ *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_apps · sg_app
  *
@@ -161,7 +163,7 @@ class StyleguideScreenshotsTest {
         private val CAPTURE_SHOTS = setOf(
             "sg_feedback-states", "sg_work-card",
             "sg_script-card", "sg_comment-call-card",
-            "sg_trace", "sg_code-block", "sg_ask-dock", "sg_plan-card",
+            "sg_trace", "sg_code-block", "sg_ask-dock", "sg_dock-card", "sg_plan-card",
         )
 
         /** VAPP-110: the seeded Team dashboard app (web `DEMO_APP_SLUG`). */
@@ -775,8 +777,8 @@ class StyleguideScreenshotsTest {
         composeRule.onAllNodes(coldStartRow).onFirst().performClick()
         flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION), NAV_TIMEOUT)
         flow.waitFor(hasText(COLD_START_REPLY_FRAGMENT, substring = true), SYNC_TIMEOUT)
-        // THE ask dock: the seeded question + the child's plan stack in the composer's slot.
-        flow.waitFor(hasTestTag("ask-dock-row"), SYNC_TIMEOUT)
+        // N-12: THE Dock: the seeded question + the child's plan as DockCards above the composer.
+        flow.waitFor(hasTestTag("dock-card"), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("thread-strip-chips"), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("thread-tab-add"), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("thread-tab-guide"), SYNC_TIMEOUT)
@@ -804,7 +806,9 @@ class StyleguideScreenshotsTest {
         }
         flow.waitFor(childCard, SYNC_TIMEOUT)
         composeRule.onAllNodes(childCard).onFirst().performClick()
-        flow.waitFor(hasTestTag("agent-feed-question"), NETWORK_TIMEOUT)
+        // N-12: the relay's question is a DockCard above the composer, no
+        // longer a feed row.
+        flow.waitFor(hasTestTag("dock-card"), NETWORK_TIMEOUT)
         flow.settle(longer = true)
         flow.screenshot("sg_session")
         // Session → Threads: the session page is a page OF the thread (its
@@ -1061,11 +1065,18 @@ class StyleguideScreenshotsTest {
         show(TraceSpecimenKind.CodeBlock.testId) { TraceSpecimenScreen(TraceSpecimenKind.CodeBlock) }
         flow.screenshot("sg_code-block")
 
-        // --- sg_ask-dock: THE ask dock (ask-dock.json) — one waiting plan,
-        // the stack of two plans + a question, one focused with the back
-        // arrow — drawn by the real ThreadAskDock on a capture-only screen.
+        // --- sg_ask-dock: THE Dock (dock.json + ask-dock.json) — one waiting
+        // plan, the pile, the pile fanned, the plan's sheet — drawn by the
+        // real DockCard / DockPile / DockSheetSpecimenFrame on a capture-only
+        // screen.
         show(AskDockSpecimenScreenTestId) { AskDockSpecimenScreen() }
         flow.screenshot("sg_ask-dock")
+
+        // --- sg_dock-card: THE DockCard primitive (dock.json), the web
+        // entry's rows: one card, a banner with its action, the pile, the
+        // fan, the sheet frame.
+        show(DockCardSpecimenScreenTestId) { DockCardSpecimenScreen() }
+        flow.screenshot("sg_dock-card")
 
         // --- sg_plan-card: THE rich plan / question card (EXP-1280,
         // plan-card.json): session-thread.json's rich case — the pending plan
