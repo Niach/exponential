@@ -399,7 +399,8 @@ impl AppScreenView {
                 .min_h_0()
                 .child(chat.clone())
                 .into_any_element(),
-            // The built-in app ships with Exponential and has no editor.
+            // The built-in app ships with Exponential and has no editor (no
+            // explanatory subtitle: the title says it).
             None => div()
                 .size_full()
                 .flex()
@@ -409,7 +410,7 @@ impl AppScreenView {
                 .child(crate::controls::empty_state(
                     Icon::new(registry::NAV_APPS),
                     APPS.copy.builtin.clone(),
-                    Some(format!("{} ships with Exponential and has no editor.", app.name).into()),
+                    None,
                     cx,
                 ))
                 .into_any_element(),

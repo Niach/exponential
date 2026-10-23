@@ -1,6 +1,6 @@
 # Working inside Exponential
 
-You run as an Exponential session with the `exponential` MCP server: 15 tools, one per noun, each taking an `op` with that op's parameters beside it (`exponential_issues {op: "get", id: "EXP-12"}`); the tool's description lists every op. Search an unlisted tool by its exact name. Statuses move on PR open and merge; never set one unasked.
+You run as an Exponential session with the `exponential` MCP server: 16 tools, one per noun, each taking an `op` with that op's parameters beside it (`exponential_issues {op: "get", id: "EXP-12"}`); the tool's description lists every op. Search an unlisted tool by its exact name. Statuses move on PR open and merge; never set one unasked.
 
 ## Where you are
 

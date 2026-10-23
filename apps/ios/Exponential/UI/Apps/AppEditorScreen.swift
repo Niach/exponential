@@ -140,7 +140,6 @@ struct AppEditorScreen: View {
             AppBackground()
             EmptyState(
                 title: Apps.Copy.builtin,
-                description: "\(app.name) ships with Exponential and has no editor.",
                 icon: AppIcons.navApps,
                 size: .page
             )

@@ -224,7 +224,7 @@ export function AppEditor({
 
   const chat = app.builtin ? (
     <div className="flex h-full items-center justify-center p-6">
-      <EmptyState icon={NavAppsIcon} title={APPS_COPY.builtin} description={`${app.name} ships with Exponential and has no editor.`} size="page" />
+      <EmptyState icon={NavAppsIcon} title={APPS_COPY.builtin} size="page" />
     </div>
   ) : (
     <div className="flex h-full min-h-0 flex-col" data-testid={APPS_TEST_IDS.chat}>
