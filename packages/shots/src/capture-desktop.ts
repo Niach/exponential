@@ -66,8 +66,8 @@ import { rawShotPath, repoRoot } from "./paths.ts"
 /** `[[bin]] name` of `apps/desktop/crates/app` — also the CGWindow owner name. */
 export const DEFAULT_PROCESS_NAME = `exp-desktop`
 export const DEFAULT_BINARY = `apps/desktop/target/release/${DEFAULT_PROCESS_NAME}`
-/** What the desktop app talks to. The vite dev server, not the Caddy proxy. */
-export const DEFAULT_BASE_URL = `http://localhost:5173`
+/** What the desktop app talks to. The vite dev server, not the Caddy proxy; `SHOTS_DEV_URL` overrides it (an isolated stack beside the shared one). */
+export const DEFAULT_BASE_URL = process.env.SHOTS_DEV_URL ?? `http://localhost:5173`
 /** `PLATFORM_FRAME.desktop` is 1800×1125 — this @2x source scales exactly onto it. */
 export const WINDOW_SIZE = `1440x900`
 /**

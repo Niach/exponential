@@ -56,6 +56,7 @@ import {
 import { baselineSkipNote, scopeSince, storeBaseline, type AffectedScope } from "./affected.ts"
 import {
   captureDesktop,
+  DEFAULT_BASE_URL,
   mintSessionToken,
   resolveBinary,
   screenRecordingAllowed,
@@ -97,8 +98,8 @@ import {
 
 /** Through the Caddy h2 proxy — what the browser and the natives talk to. */
 const PROXY_URL = `https://localhost:3000`
-/** The vite dev server — what the desktop app talks to. */
-const DEV_URL = `http://localhost:5173`
+/** The vite dev server — what the desktop app talks to (`SHOTS_DEV_URL` when 5173 is another stack's). */
+const DEV_URL = DEFAULT_BASE_URL
 /** Compose services every capture depends on. */
 const CORE_SERVICES = [`postgres`, `electric`, `caddy`]
 /**
