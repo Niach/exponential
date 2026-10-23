@@ -65,6 +65,26 @@ export function recipeParts(extensions: readonly ExtensionDef[] = []): Record<st
   return out
 }
 
+interface RecipeTables {
+  view: CatalogView
+  parts: Record<string, PartSpec>
+}
+
+let coreTables: RecipeTables | undefined
+const tablesByExtensions = new WeakMap<readonly ExtensionDef[], RecipeTables>()
+
+/** VAPP-147: the catalog view and the part table `nativeRecipeProps` reads,
+ *  built once per extension list (every painted node asks, on every
+ *  render: rebuilding both per call was most of a web renderer's bind). An
+ *  empty list is the core's. Read-only: callers get copies from
+ *  `recipeParts`. */
+function recipeTables(extensions: readonly ExtensionDef[]): RecipeTables {
+  if (extensions.length === 0) return (coreTables ??= { view: catalogView(), parts: recipeParts() })
+  let hit = tablesByExtensions.get(extensions)
+  if (!hit) tablesByExtensions.set(extensions, (hit = { view: catalogView(extensions), parts: recipeParts(extensions) }))
+  return hit
+}
+
 /** The recipe query a NATIVE node answers to: its `when` props with the
  *  catalog defaults filled in (a macro part carries its own `recipe`). */
 export function nativeRecipeProps(
@@ -72,9 +92,9 @@ export function nativeRecipeProps(
   props: Record<string, unknown>,
   extensions: readonly ExtensionDef[] = []
 ): Record<string, unknown> {
-  const view = catalogView(extensions)
+  const { view, parts } = recipeTables(extensions)
   const def = view.components[component]
-  const spec = recipeParts(extensions)[component]
+  const spec = parts[component]
   const out: Record<string, unknown> = {}
   if (!def || !spec) return out
   for (const name of spec.props) {

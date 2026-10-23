@@ -1,15 +1,14 @@
 // VAPP-87: Ring, Spinner, Skeleton, TreeGuides (Chart: chart.tsx).
 
-import { resolveRecipe, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS } from "@exponential-at/ui"
+import { resolveRecipe, nativeRecipeProps, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS } from "@exponential-at/ui"
 import { useSurfaceContext } from "../context"
 import { CHROME } from "../icons"
 import type { NativeProps } from "../node-view"
 import { mergeStyle } from "../node-view"
 import { arr, bool, num, str, useParts } from "./shared"
-import { recipeQuery } from "@exponential-at/ui/web"
 
 function sizeOf(ctx: ReturnType<typeof useSurfaceContext>, component: string, part: string, props: Record<string, unknown>, fallback: number): number {
-  const style = resolveRecipe(ctx.theme, { component, part, props: recipeQuery(component, props, ctx.extensionDefs) }, ctx.mode)
+  const style = resolveRecipe(ctx.theme, { component, part, props: nativeRecipeProps(component, props, ctx.extensionDefs) }, ctx.mode)
   return typeof style.width === `number` ? style.width : fallback
 }
 
@@ -18,8 +17,8 @@ export function RingNative({ node, props, rootProps }: NativeProps) {
   const part = useParts(node, props)
   const size = sizeOf(ctx, `Ring`, `root`, props, 32)
   const value = Math.max(0, Math.min(1, num(props.value, 0)))
-  const trackStyle = resolveRecipe(ctx.theme, { component: `Ring`, part: `track`, props: recipeQuery(`Ring`, props) }, ctx.mode)
-  const fillStyle = resolveRecipe(ctx.theme, { component: `Ring`, part: `fill`, props: recipeQuery(`Ring`, props) }, ctx.mode)
+  const trackStyle = resolveRecipe(ctx.theme, { component: `Ring`, part: `track`, props: nativeRecipeProps(`Ring`, props) }, ctx.mode)
+  const fillStyle = resolveRecipe(ctx.theme, { component: `Ring`, part: `fill`, props: nativeRecipeProps(`Ring`, props) }, ctx.mode)
   const stroke = typeof trackStyle.borderWidth === `number` ? trackStyle.borderWidth : 2
   const r = size / 2 - stroke / 2
   const c = 2 * Math.PI * r

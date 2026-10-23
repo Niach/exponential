@@ -15,7 +15,7 @@
 // once per item under the item's scope, keyed by `template.key`.
 
 import { Component, Fragment, memo, useCallback, useContext, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react"
-import { UNKNOWN_COMPONENT, instanceSegment, isResponsiveValue, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential-at/ui"
+import { UNKNOWN_COMPONENT, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential-at/ui"
 import type { UiNode } from "@exponential-at/ui"
 import { dynamicStyleEntries, nodeClass, queryToken, styleDirection } from "@exponential-at/ui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, resolveContextOf, useSurfaceContext, type SurfaceContextValue } from "./context"
@@ -24,7 +24,7 @@ import { absolutePath, ariaAttributes, getPointer, resolveAccessibility, resolve
 import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
 import { NATIVES } from "./natives"
-import { cssValue, isMacroComponent, partClass, propAttribute, recipeQuery } from "@exponential-at/ui/web"
+import { cssValue, isMacroComponent, partClass, propAttribute } from "@exponential-at/ui/web"
 
 export interface NativeProps extends ExtensionComponentProps {
   /** The data scope (template item) this node renders under. */
@@ -55,7 +55,7 @@ export function useRootProps(node: UiNode, props: Record<string, unknown>, domId
       const macro = isMacroComponent(node.recipe.macro, macros)
       for (const [k, v] of Object.entries(recipeProps ?? node.recipe.props)) if (v !== undefined && v !== null && typeof v !== `object`) attrs[propAttribute(macro, k)] = String(v)
     }
-    for (const [k, v] of Object.entries(recipeQuery(node.component, props, ctx.extensionDefs))) if (typeof v !== `object`) attrs[propAttribute(false, k)] = String(v)
+    for (const [k, v] of Object.entries(nativeRecipeProps(node.component, props, ctx.extensionDefs))) if (typeof v !== `object`) attrs[propAttribute(false, k)] = String(v)
     if (ctx.states.length) attrs[`data-xs`] = ctx.states.join(` `)
     // Contract §6: the node's accessibility (author label/description + a
     // macro part's role and states) resolved, then mapped to ARIA. A
