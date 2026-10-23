@@ -33,6 +33,9 @@ class NodeInfo(n: FfiNode) {
     val extensionKind: String? = n.extensionKind
     val depth: Int = n.depth.toInt()
     val parent: Int? = n.parent?.toInt()
+
+    /** Child indices in paint order (the core's; empty for a freed slot). */
+    val children: List<Int> = if (n.children.isEmpty()) emptyList() else n.children.map { it.toInt() }
     val layer: Int = n.layer.toInt()
     val isLeaf: Boolean = n.isLeaf
     val props: Props = JsonValue.parse(n.propsJson).obj ?: emptyMap()
@@ -116,6 +119,10 @@ class NodeInfo(n: FfiNode) {
                 else -> s("text") ?: s("label") ?: s("title") ?: s("placeholder") ?: s("alt")
             }
         }
+
+    /** Everything a view reads (the delta check, [SurfaceModel.verifyDelta]). */
+    internal val signature: List<Any?>
+        get() = listOf(index, id, component, part, owner, ownerComponent, catalogId, extensionKind, parent, layer, isLeaf, props, lines, pressable, removed, hidden, triggerFor, hoverStyled, accessibility, partStates, macroName, live, form, children)
 
     override fun toString(): String = "NodeInfo($index, $id, $component${part?.let { ".$it" } ?: ""})"
 }
