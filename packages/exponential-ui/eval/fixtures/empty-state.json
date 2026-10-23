@@ -1,0 +1,16 @@
+{
+  "$comment": "VAPP-108 eval fixture: the reply to corpus prompt `empty-state` given catalogPrompt() as the system prompt. Recorded by the session's own model from the same prompt (no API key in the recording environment); `bun eval/record.ts --force --only empty-state` replaces it with an API recording (recordedBy: api).",
+  "id": "empty-state",
+  "prompt": "The empty state of a board with no issues yet: say so, explain what a board is for in one sentence and offer to create the first issue.",
+  "model": "claude-fable-5-1",
+  "promptVariant": "full",
+  "recordedAt": "2026-10-22T10:00:00.000Z",
+  "recordedBy": "session",
+  "usage": {
+    "inputTokens": 7033,
+    "outputTokens": 116,
+    "cacheReadInputTokens": 0,
+    "estimated": true
+  },
+  "text": "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"board\",\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\":\"v0.9\",\"updateComponents\":{\"surfaceId\":\"board\",\"components\":[{\"id\":\"root\",\"component\":\"EmptyState\",\"icon\":\"nav-boards\",\"title\":\"No issues yet\",\"description\":\"A board collects the issues of one project so the team and its agents work from one list.\",\"actionLabel\":\"Create the first issue\",\"on\":{\"press\":{\"event\":{\"name\":\"createIssue\"}}}}]}}"
+}

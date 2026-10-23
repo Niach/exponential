@@ -15,6 +15,7 @@ const PAGES: [RegExp, () => Promise<PageModule>][] = [
   [/^\/guides\/[a-z0-9-]+\/$/, () => import("../pages/Guide")],
   [/^\/playground\/$/, () => import("../pages/Playground")],
   [/^\/conformance\/$/, () => import("../pages/Conformance")],
+  [/^\/eval\/$/, () => import("../pages/Eval")],
   [/^\/numbers\/$/, () => import("../pages/Numbers")],
 ]
 

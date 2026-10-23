@@ -71,3 +71,50 @@ describe(`round 1: the prompt teaches responsive authoring`, () => {
     expect(full).toContain(` — The syntax colouring.`)
   })
 })
+
+describe(`VAPP-108: sections, the index and components on demand`, () => {
+  const { catalogIndex, componentPrompt, DEFAULT_SECTIONS, PROMPT_SECTIONS } = require(`./prompt`) as typeof import("./prompt")
+
+  test(`the default sections print the same prompt as before`, () => {
+    expect(catalogPrompt({ sections: DEFAULT_SECTIONS })).toBe(catalogPrompt())
+    expect(PROMPT_SECTIONS).toContain(`index`)
+  })
+
+  test(`rules alone, the index alone, and the index prompt are each far smaller than the full one; the budget records them`, () => {
+    const full = catalogPrompt()
+    const rules = catalogPrompt({ sections: [`rules`] })
+    const index = catalogPrompt({ sections: [`rules`, `index`, `functions`, `style`] })
+    expect(rules).toContain(`Rules:`)
+    expect(rules).not.toContain(`\nStack:`)
+    expect(index).toContain(`Index (every component`)
+    expect(index).toContain(`Stack (children): `)
+    expect(index).not.toContain(`\n  gap^: `)
+    expect(index.length).toBeLessThan(full.length * 0.45)
+    expect(budget.index).toEqual({ components: componentNames().length, chars: index.length, tokens: estimateTokens(index) })
+    expect(budget.rules).toEqual({ chars: rules.length, tokens: estimateTokens(rules) })
+    // Every offered component is in the index, grouped.
+    const lines = catalogIndex()
+    for (const name of componentNames()) expect(lines.some((l) => l.includes(`${name}: `) || l.includes(`${name} (`)), name).toBe(true)
+  })
+
+  test(`componentPrompt gives one block with the shapes it reaches; only narrows the components section`, () => {
+    const section = componentPrompt(`Section`)
+    expect(section.startsWith(`Section: `)).toBe(true)
+    expect(section).toContain(`\n  count: number`)
+    expect(section).not.toContain(`Shapes:`)
+    const table = componentPrompt(`Table`)
+    expect(table).toContain(`Shapes: column = {`)
+    expect(table).toContain(`sort = {`)
+    expect(componentPrompt(`Unknown`)).toBe(``)
+    expect(componentPrompt(`Nope`)).toBe(``)
+    const only = catalogPrompt({ only: [`Stack`, `Button`] })
+    expect(only).toContain(`\nStack: `)
+    expect(only).toContain(`\nButton: `)
+    expect(only).not.toContain(`\nTable: `)
+    expect(only).toContain(`ask for any other component by name`)
+    expect(only.length).toBeLessThan(catalogPrompt().length / 3)
+    const ext = defineExtension(extensionFixture.extension as unknown as ExtensionDef)
+    expect(componentPrompt(`StatCard`, { extensions: [ext] })).toContain(`trend: up|down|flat`)
+    expect(catalogIndex({ extensions: [ext] }).join(`\n`)).toContain(`StatCard`)
+  })
+})

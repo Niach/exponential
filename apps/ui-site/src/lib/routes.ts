@@ -144,6 +144,14 @@ export const ROUTES: readonly Route[] = [
     crumbs({ name: `Conformance`, path: `/conformance/` })
   ),
   route(
+    `/eval/`,
+    () => import("../pages/Eval"),
+    `Ergonomics eval · ${SITE_NAME}`,
+    `How well an agent builds app screens from the catalog prompt: 30 prompts scored on validator issues, tokens, a visual rubric and spacing parity with the Exponential app, plus the rewrite gap list.`,
+    [`src/pages/Eval.tsx`, `../../packages/exponential-ui/eval`],
+    crumbs({ name: `Ergonomics eval`, path: `/eval/` })
+  ),
+  route(
     `/numbers/`,
     () => import("../pages/Numbers"),
     `Numbers · ${SITE_NAME}`,
