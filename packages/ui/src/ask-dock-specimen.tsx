@@ -4,11 +4,12 @@ import { dockRows, type DockSource } from "@exp/domain-contract/dock"
 import { DockCard, DockPile, DockSheetSpecimenFrame } from "./dock"
 import { ThreadPlanSheet } from "./session-thread-view"
 
-// N-12: THE Dock specimen (fixtures/dock.json + ask-dock.json ×4): the
-// DockCards at rest in their four states: one waiting plan (a single card),
-// the pile (a plan, a question, THE Queue, the queued messages: the front
-// card whole, the others peeking out above it), the pile fanned, and a plan
-// card's sheet (the real `ThreadPlanSheet` in the sheet's static frame: the
+// N-12: THE Dock specimen (fixtures/dock.json + ask-dock.json ×4, the
+// CANONICAL one: the IDE, iOS and Android specimens draw exactly these
+// rows): the DockCards at rest in their four states: one waiting plan (a
+// single card), the pile (the queued messages, THE Queue, the suggested
+// tasks, a plan, a question: the front card whole, the others peeking out
+// above it), the pile fanned, and a plan card's sheet (the real `ThreadPlanSheet` in the sheet's static frame: the
 // pinned header with "Question 1 of 2", the body, the footer). The
 // styleguide entry and the app's `?dev=ask-dock` capture render it; the
 // natives' specimens draw the same rows.
@@ -85,6 +86,14 @@ const STATE: DockSource[] = [
       completed: { title: `2 completed` },
     },
   },
+  {
+    kind: `suggestions`,
+    id: `m4`,
+    label: `3 suggested tasks`,
+    caption: `1 started`,
+    title: `Lazy-load the markdown editor`,
+    open: 2,
+  },
 ]
 
 /** A specimen-sized stand-in for the app's GFM renderer: a heading line
@@ -130,7 +139,7 @@ export function AskDockSpecimen() {
       <Case label="One waiting plan">
         <DockCard row={single[0]!} onOpen={noop} />
       </Case>
-      <Case label="A plan, a question, the Queue and the queued messages, piled">
+      <Case label="A plan, a question, the suggested tasks, the Queue and the queued messages, piled">
         <PileCase expanded={false} />
       </Case>
       <Case label="The pile fanned (hover or a tap)">
