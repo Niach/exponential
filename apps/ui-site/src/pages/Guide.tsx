@@ -181,7 +181,7 @@ return <HostSurface host={host} surfaceId="main" theme="orange" fallback={<p>Wai
       body: (
         <>
           <p>
-            <code>@exponential_app/ui-solid/primitives</code> is the React primitive set on Solid, with the same DOM and
+            <code>@exponential_app/ui-solid/primitives</code> is the React primitive set on Solid, module for module, with the same DOM and
             classes (one set of recipes, checked against React in headless Chromium).{` `}
             <code>@exponential_app/ui-solid/styles.css</code> is the same stylesheet as React's;{` `}
             <code>globalsCss(theme)</code> from <code>@exponential_app/ui/web</code> themes them outside a surface.
@@ -200,11 +200,6 @@ const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in
 </Dialog>
 <Button variant="outline" class="ml-2" onClick={() => toast.success("Saved")}>Save</Button>
 <Toaster />`}</DocsCode>
-          <p>
-            Six React modules are the Exponential app's own and have no Solid twin: <code>glass-rows</code>,{` `}
-            <code>typeahead</code>, <code>composer</code>, <code>trace</code>, <code>pill</code> and{` `}
-            <code>segmented-bar</code>.
-          </p>
         </>
       ),
     },
@@ -447,7 +442,7 @@ targets: [
           <DocsCode language="toml">{`[dependencies]
 exponential-ui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }
 exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-v0.1.1" }`}</DocsCode>
-          <GuideFile path="gpui/Cargo.toml" caption="path dependencies standing in for crates.io" />
+          <GuideFile path="gpui/Cargo.toml" caption="path dependencies standing in for the git ones" />
         </>
       ),
     },
@@ -543,7 +538,7 @@ exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-
       body: (
         <>
           <p>
-            Themes load at runtime, so the file can come from your bundle, a URL or a app package. Every loader
+            Themes load at runtime, so the file can come from your bundle, a URL or an app package. Every loader
             flattens the <code>extends</code> chain and reports every problem at once (an unknown token, a key
             outside the whitelist, a misspelled part) without crashing.
           </p>
@@ -621,7 +616,7 @@ exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-
           <p>
             Pass the extension to the prompt (<code>catalogPrompt({`{ extensions: [metricsCatalog] }`})</code>) and
             to the host (<code>new ExponentialHost({`{ extensions: [metricsCatalog] }`})</code>), so the client
-            advertises its id and the model knows the new components. The Exponential app's issue rows, run rows and
+            advertises its id and the model knows the new components. The Exponential app's issue rows, session rows and
             chips are an extension built exactly this way.
           </p>
         </>
@@ -710,7 +705,7 @@ exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-
       body: (
         <>
           <p>
-            A app is data, never code: templates (components, initial data, bindings), the functions it may call
+            An app is data, never code: templates (components, initial data, bindings), the functions it may call
             and a theme, in one JSON package. This one shows a greeting that follows a weather source and can toast:
           </p>
           <GuideFile path="react/src/hello.app.json" />
@@ -744,7 +739,7 @@ exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-
             Because a package is data, the same file runs in every host: the web, the SwiftUI and Compose hosts, the
             gpui host. Against an Exponential instance, <code>ExponentialConnector</code> does the MCP OAuth grant
             (discovery, dynamic registration, PKCE) and serves the instance's issues, boards, teams and members as{` `}
-            <code>exp:</code> sources, so a app can show live data the user has consented to. Hosted apps, which
+            <code>exp:</code> sources, so an app can show live data the user has consented to. Hosted apps, which
             run elsewhere and stream their UI, embed through the same <code>Transport</code> interface.
           </p>
           <p>
@@ -912,7 +907,7 @@ exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-
           />
           <p>
             The Rust core's recursive passes grow their stack on the heap when a host thread runs low, so an iOS
-            secondary thread never decides. A panic inside the core never crosses the FFI: a call that cannot throw
+            secondary thread never overflows. A panic inside the core never crosses the FFI: a call that cannot throw
             answers a safe empty value, a call that can throw answers <code>UiError.Panic</code>, and the surface
             stays usable. Deep or wide inputs are the fuzzers' bread and butter; the nightly job runs every target with
             address sanitizer.
@@ -926,7 +921,7 @@ exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-
       body: (
         <>
           <p>
-            Found a way for a surface to do something on this page's right-hand column? Please do not open a public
+            Found a way for a surface to do something from the <em>A surface cannot</em> column above? Please do not open a public
             issue. Write to <a href="mailto:security@exponential.at">security@exponential.at</a> with the message that
             triggers it (JSON or JSONL) and the renderer and version. You get an answer within three working days, a
             fix lands as a patch release of every affected package, and the fixture that locks it joins the
@@ -984,7 +979,7 @@ const DEFINE_SECTIONS: Section[] = [
           the renderers use (a literal-only prop given a binding, an unknown icon, a missing required prop), the flat{` `}
           <code>components</code>, the <code>messages</code> (createSurface, updateComponents, one updateDataModel per
           data path) and their <code>jsonl</code>. Hand the messages to any host from the render guides, or embed them in
-          a app template. Ids are assigned top-down (<code>root</code>, then <code>row-1</code>, <code>row-2</code>…)
+          an app template. Ids are assigned top-down (<code>root</code>, then <code>row-1</code>, <code>row-2</code>…)
           unless you name a node.
         </p>
         <DocsCode language="ts">{`const surface = defineSurface(tree, { surfaceId: "devices", data: { "/devices": rows } })

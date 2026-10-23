@@ -3,6 +3,10 @@
 All notable changes to this package. The SDK packages share one version and
 release together from a `ui-v<version>` tag (`packages/exponential-ui/release/README.md`).
 
+## Unreleased
+
+- **Breaking:** `@exponential_app/ui-react/primitives` no longer exports the Exponential app's own components: `glass-rows` (`GlassGroup`, `GlassRow`, `ListRow`, …), `typeahead`, `composer`, `trace`, `pill` and `segmented-bar` moved to the app's `@exp/ui`, and `SegmentedControl` lost its `embedded` arm (the glass-group row). React's primitive set is now the same module set as Solid's; the compiled `styles.css` drops their classes (−10.6 KB).
+
 ## 0.1.1 (2026-10-23)
 
 - Renamed from `@exponential-at/ui-react` to `@exponential_app/ui-react` (the npm scope is the `exponential_app` org); the peer `@exponential_app/ui` follows. No code change.

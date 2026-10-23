@@ -17,7 +17,7 @@ export const entry: StyleguideEntry = {
     web: {
       state: `ok`,
       symbol: `Trace`,
-      file: `packages/exponential-ui-react/src/primitives/trace.tsx`,
+      file: `packages/ui/src/trace.tsx`,
       note: `models: @exp/domain-contract/trace + /task-queue; rows: apps/web/src/components/agent-session.tsx`,
     },
     desktop: {

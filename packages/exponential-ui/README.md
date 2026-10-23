@@ -77,7 +77,7 @@ style?, on?, children: [UiNode], slots?, template?, recipe?}`.
 ## Themes (VAPP-92)
 
 A theme is **data, never code**: one JSON file (`catalog/theme.schema.json`)
-every renderer loads at runtime, safe to fetch from a URL or a app package.
+every renderer loads at runtime, safe to fetch from a URL or an app package.
 Three levels of customisation, cheapest first: **tokens** (colours per mode,
 radius, spacing, type, control heights, shadows, border widths, motion, the press / popover-enter `scale`),
 **recipes** (per component part × `when` selector a small style object), and a

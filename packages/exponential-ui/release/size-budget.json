@@ -9,12 +9,12 @@
     "gzip": 49152
   },
   "@exponential_app/ui-react/primitives": {
-    "bytes": 72704,
-    "gzip": 20992
+    "bytes": 56320,
+    "gzip": 16384
   },
   "@exponential_app/ui-react/styles.css": {
-    "bytes": 99328,
-    "gzip": 16384
+    "bytes": 88064,
+    "gzip": 14336
   },
   "@exponential_app/ui/prompt": {
     "bytes": 135823,
@@ -49,8 +49,8 @@
     "gzip": 64512
   },
   "@exponential_app/ui-solid/styles.css": {
-    "bytes": 99328,
-    "gzip": 16384
+    "bytes": 88064,
+    "gzip": 14336
   },
   "@exponential_app/ui-element/index": {
     "bytes": 16384,

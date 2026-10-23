@@ -315,14 +315,14 @@ A step = the scroll, the window's render flushed and the layout read back
 ## The primitive set
 
 `src/primitives/` holds the generic shadcn/Radix components the app and
-extension authors share (button, input, select, dialog, sheet, tabs, the glass
-rows, pill, meter, composer, calendar, table, command, toast, … plus round 1's alert-dialog,
-breadcrumb, kbd, scroll-area), themed only through the surface's variables;
-only what the app imports lives here (the catalog's natives own Radix
-directly). Their class strings and pure helpers live in
+extension authors share (button, input, select, dialog, sheet, tabs, meter,
+calendar, table, command, toast, … plus round 1's alert-dialog, breadcrumb,
+kbd, scroll-area), themed only through the surface's variables; the catalog's
+natives own Radix directly. The Exponential app's own components (the glass
+rows, typeahead, composer, trace, pill, segmented bar) live in `@exp/ui`, not
+here. Their class strings and pure helpers live in
 `@exponential_app/ui/web/primitives` (FEED-131), shared with the Solid twin
-(`@exponential_app/ui-solid/primitives`, every module but glass-rows,
-typeahead, composer, trace, pill and segmented-bar). `@exp/ui` re-exports every one
+(`@exponential_app/ui-solid/primitives`, the same module set). `@exp/ui` re-exports every one
 (its old paths are one-line shims), and its `styles.css` scans this directory
 so the app's Tailwind build still emits their classes. An embedder without
 Tailwind takes the compiled `dist/exponential-ui-react.css`
