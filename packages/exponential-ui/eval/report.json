@@ -2135,7 +2135,7 @@
         "width": 1280,
         "react": {
           "height": 224,
-          "nodes": 34,
+          "nodes": 38,
           "gaps": [
             12
           ],
@@ -2172,25 +2172,19 @@
           "overflowsX": false,
           "picture": "eval/out/issue-list-filters/element-1280.png"
         },
-        "equal": false,
+        "equal": true,
         "differences": {
-          "solid": [
-            "nodes: react 34, solid 38",
-            "pixels: 7145 differ (0.16 %)"
-          ],
-          "element": [
-            "nodes: react 34, element 38",
-            "pixels: 7145 differ (0.16 %)"
-          ]
+          "solid": [],
+          "element": []
         },
         "pixelDiff": {
           "solid": {
-            "pixels": 7145,
-            "share": 0.001550564236111111
+            "pixels": 0,
+            "share": 0
           },
           "element": {
-            "pixels": 7145,
-            "share": 0.001550564236111111
+            "pixels": 0,
+            "share": 0
           }
         }
       }
