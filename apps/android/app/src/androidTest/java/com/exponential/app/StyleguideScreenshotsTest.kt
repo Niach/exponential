@@ -40,6 +40,8 @@ import com.exponential.app.ui.styleguide.FeedbackStatesScreenTestId
 import com.exponential.app.ui.styleguide.ThreadCardsKind
 import com.exponential.app.ui.styleguide.AskDockSpecimenScreen
 import com.exponential.app.ui.styleguide.AskDockSpecimenScreenTestId
+import com.exponential.app.ui.styleguide.DockCardSpecimenScreen
+import com.exponential.app.ui.styleguide.DockCardSpecimenScreenTestId
 import com.exponential.app.ui.styleguide.ThreadCardsScreen
 import com.exponential.app.ui.styleguide.TraceSpecimenKind
 import com.exponential.app.ui.styleguide.TraceSpecimenScreen
@@ -85,7 +87,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
  *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
- *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_plan-card ·
+ *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
@@ -159,7 +161,7 @@ class StyleguideScreenshotsTest {
         private val CAPTURE_SHOTS = setOf(
             "sg_feedback-states", "sg_work-card",
             "sg_script-card", "sg_comment-call-card",
-            "sg_trace", "sg_code-block", "sg_ask-dock", "sg_plan-card",
+            "sg_trace", "sg_code-block", "sg_ask-dock", "sg_dock-card", "sg_plan-card",
         )
 
         // APP-5 — the only seeded issue with a comment thread.
@@ -1041,6 +1043,12 @@ class StyleguideScreenshotsTest {
         // screen.
         show(AskDockSpecimenScreenTestId) { AskDockSpecimenScreen() }
         flow.screenshot("sg_ask-dock")
+
+        // --- sg_dock-card: THE DockCard primitive (dock.json), the web
+        // entry's rows: one card, a banner with its action, the pile, the
+        // fan, the sheet frame.
+        show(DockCardSpecimenScreenTestId) { DockCardSpecimenScreen() }
+        flow.screenshot("sg_dock-card")
 
         // --- sg_plan-card: THE rich plan / question card (EXP-1280,
         // plan-card.json): session-thread.json's rich case — the pending plan

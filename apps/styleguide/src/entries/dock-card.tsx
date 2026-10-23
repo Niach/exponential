@@ -82,7 +82,7 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `DockCards / DockPile / DockCard / DockSheet`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/components/Dock.kt`,
-      note: `the pile = ToastStack.stackLayout with Dock.STACK, the sheet = GlassSheet; specimen AskDockSpecimenScreen (sg_ask-dock)`,
+      note: `the pile = ToastStack.stackLayout with Dock.STACK, the sheet = GlassSheet; specimens DockCardSpecimenScreen (sg_dock-card), AskDockSpecimenScreen (sg_ask-dock)`,
     },
   },
   island: () => (

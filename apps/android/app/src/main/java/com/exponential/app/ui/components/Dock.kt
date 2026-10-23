@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -57,6 +58,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import com.exponential.app.domain.Dock
 import com.exponential.app.domain.ToastStack
+import com.exponential.app.ui.components.picker.InlinePickerSlot
+import com.exponential.app.ui.components.picker.InlinePickerSlotRows
+import com.exponential.app.ui.components.picker.LocalInlinePickerSlot
+import com.exponential.app.ui.components.picker.LocalPickerPresentation
+import com.exponential.app.ui.components.picker.PickerPresentation
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
@@ -74,7 +80,9 @@ import com.exponential.app.ui.theme.TextEmphasis
 // band (the band's measured height pads the transcript and lifts the jump
 // button). A tap on a card opens its sheet ([DockSheet]: a pinned header,
 // ONE scrolling body ([DockSheetBody]), a pinned footer ([DockSheetFooter]),
-// at most `sheet.maxHeightFraction` of the screen).
+// at most `sheet.maxHeightFraction` of the screen). N-6: the sheet is a
+// SHEET host (GlassSheet provides PickerPresentation.Inline): every picker or
+// menu opened in it discloses inline ([GlassHostMenu]), never a second surface.
 
 /** The tint of a card's glyph and label ×4 (web `TINT_CLASS`). */
 @Composable
@@ -419,16 +427,27 @@ fun ColumnScope.DockSheetBody(content: @Composable ColumnScope.() -> Unit) {
     )
 }
 
-/** The sheet's pinned footer: the primary actions, a hairline above it. */
+/** The sheet's pinned footer: the primary actions, a hairline above it.
+ *  N-6 + N-14: a ROW host: a menu opened in it (the plan's Yes split with
+ *  "Yes, and start with a fresh context") discloses its rows under the
+ *  footer's row, as wide as it, never as a popup over the sheet. */
 @Composable
 fun DockSheetFooter(content: @Composable ColumnScope.() -> Unit) {
+    val slot = remember { InlinePickerSlot() }
     Column(Modifier.fillMaxWidth().testTag(Dock.TestIds.SHEET_FOOTER)) {
         HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeCard)
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
-            content = content,
-        )
+        ) {
+            CompositionLocalProvider(
+                LocalPickerPresentation provides PickerPresentation.Inline,
+                LocalInlinePickerSlot provides slot,
+            ) {
+                content()
+            }
+            InlinePickerSlotRows(slot)
+        }
     }
 }
 
@@ -451,7 +470,10 @@ fun DockSheetSpecimenFrame(
             .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
             .padding(top = 12.dp),
     ) {
-        DockSheetChrome(row = row, onClose = null, content = content)
+        // The live sheet's host rule (GlassSheet): pickers inside open inline.
+        CompositionLocalProvider(LocalPickerPresentation provides PickerPresentation.Inline) {
+            DockSheetChrome(row = row, onClose = null, content = content)
+        }
     }
 }
 
