@@ -8,6 +8,71 @@
     "os": "darwin 27.0.0"
   },
   "runs": {
+    "compose-android": {
+      "platform": "android",
+      "device": "Google sdk_gphone64_arm64 (API 36) emulator",
+      "date": "2026-10-23T08:03:37.140407Z",
+      "scenarios": {
+        "cold-start": {
+          "coldStartMs": 6819.25,
+          "firstPaintMs": 105.803,
+          "nodes": 604,
+          "memoryMb": 32.544
+        },
+        "card-grid": {
+          "warmPassMs": 0.316,
+          "upcallsPerPass": 1,
+          "measureCallsPerPass": 29
+        },
+        "list-100k": {
+          "firstPaintMs": 1395.631,
+          "scrollStepMs": 11.971,
+          "scrollToIndexMs": 11.564,
+          "renderedItems": 30,
+          "measureCallsPerStep": 78.04,
+          "ffiCallsPerStep": 143.02,
+          "ffiBytesPerStep": 49993.64,
+          "memoryMb": 112.832
+        },
+        "streaming": {
+          "applyMs": 8.567,
+          "p95ApplyMs": 23.575,
+          "totalMs": 1713.345,
+          "nodes": 607,
+          "ffiBytesTotal": 5212191
+        },
+        "theme-switch": {
+          "themeSwitchMs": 59.523,
+          "modeSwitchMs": 23.524,
+          "restyled": 609
+        },
+        "resize": {
+          "resizeMs": 10.506,
+          "upcallsPerResize": 1
+        },
+        "deep-nesting": {
+          "firstPaintMs": 12.422,
+          "warmPassMs": 0.225,
+          "depth": 48
+        },
+        "template-10k": {
+          "firstPaintMs": 1540.884,
+          "rebindMs": 1594.115,
+          "nodes": 10001
+        },
+        "overlay": {
+          "openMs": 0.977,
+          "closeMs": 0.497
+        },
+        "table-1k": {
+          "firstPaintMs": 72.24,
+          "scrollStepMs": 23.693,
+          "sortMs": 33.143,
+          "renderedRows": 30
+        }
+      },
+      "commit": "02024b0361d"
+    },
     "compose-jvm": {
       "platform": "macos",
       "device": "Robolectric API 34, aarch64, 14 cpus",

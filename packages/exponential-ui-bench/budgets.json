@@ -4,6 +4,65 @@
   "headroom": 1.5,
   "machines": {
     "apple-m4-pro-darwin": {
+      "compose-android": {
+        "cold-start": {
+          "coldStartMs": 10228.9,
+          "firstPaintMs": 158.8,
+          "nodes": 604,
+          "memoryMb": 48.9
+        },
+        "card-grid": {
+          "warmPassMs": 0.5,
+          "upcallsPerPass": 1,
+          "measureCallsPerPass": 29
+        },
+        "list-100k": {
+          "firstPaintMs": 2093.5,
+          "scrollStepMs": 18,
+          "scrollToIndexMs": 17.4,
+          "renderedItems": 30,
+          "measureCallsPerStep": 78.04,
+          "ffiCallsPerStep": 143.02,
+          "ffiBytesPerStep": 49993.64,
+          "memoryMb": 169.3
+        },
+        "streaming": {
+          "applyMs": 12.9,
+          "p95ApplyMs": 35.4,
+          "totalMs": 2570.1,
+          "nodes": 607,
+          "ffiBytesTotal": 5212191
+        },
+        "theme-switch": {
+          "themeSwitchMs": 89.3,
+          "modeSwitchMs": 35.3,
+          "restyled": 609
+        },
+        "resize": {
+          "resizeMs": 15.8,
+          "upcallsPerResize": 1
+        },
+        "deep-nesting": {
+          "firstPaintMs": 18.7,
+          "warmPassMs": 0.4,
+          "depth": 48
+        },
+        "template-10k": {
+          "firstPaintMs": 2311.4,
+          "rebindMs": 2391.2,
+          "nodes": 10001
+        },
+        "overlay": {
+          "openMs": 1.5,
+          "closeMs": 0.8
+        },
+        "table-1k": {
+          "firstPaintMs": 108.4,
+          "scrollStepMs": 35.6,
+          "sortMs": 49.8,
+          "renderedRows": 30
+        }
+      },
       "compose-jvm": {
         "cold-start": {
           "coldStartMs": 1153.5,
