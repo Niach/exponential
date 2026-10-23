@@ -104,6 +104,9 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
     public let aside: Bool
     /// NEW-2: the agent this root is a conversation of (nil = a thread).
     public let agentId: String?
+    /// VAPP-110: the app this root is a member's editor session of (nil =
+    /// none); like an agent's conversation it is no thread.
+    public let appId: String?
 
     public init(
         id: String,
@@ -131,9 +134,11 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
         deviceId: String? = nil,
         caption: String? = nil,
         aside: Bool = false,
-        agentId: String? = nil
+        agentId: String? = nil,
+        appId: String? = nil
     ) {
         self.agentId = agentId
+        self.appId = appId
         self.deviceId = deviceId
         self.caption = caption
         self.aside = aside
@@ -1765,8 +1770,10 @@ public enum SessionTree {
             return newest > (readAt[sessionId] ?? -1)
         }
         let roots = sessions.filter {
-            // NEW-2: an agent's conversation (a root with `agentId`) is no thread.
-            $0.parentId == nil && ($0.agentId ?? "").isEmpty && (teamId == nil || $0.teamId == teamId)
+            // NEW-2: an agent's conversation (a root with `agentId`) is no thread;
+            // VAPP-110: neither is an app's editor session (`appId`).
+            $0.parentId == nil && ($0.agentId ?? "").isEmpty && ($0.appId ?? "").isEmpty
+                && (teamId == nil || $0.teamId == teamId)
         }
         var byRoot: [String: [TreeSession]] = [:]
         for session in sessions { byRoot[session.rootId, default: []].append(session) }

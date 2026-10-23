@@ -157,6 +157,11 @@ final class StyleguideScreenshots: XCTestCase {
     private static let sessionTitle = "Profile the launch path"
     /// Its id (`DEMO_SESSION_ID`): the strip chip of its thread page.
     private static let sessionId = "7c1f0a52-6f3c-4e19-9a2b-2d5d0f7c8e41"
+    /// VAPP-110: the seeded Team dashboard app (`DEMO_APP_SLUG`) and the
+    /// last agent line of the demo user's editor session with it.
+    private static let appSlug = "team-dashboard"
+    private static let appName = "Team dashboard"
+    private static let appChatReply = "the six newest issues as rows"
 
     @MainActor
     func testCaptureStyleguideScreenshots() throws {
@@ -213,6 +218,14 @@ final class StyleguideScreenshots: XCTestCase {
             "The Threads tab never listed the cold-start thread — reseed with `bun run seed:screenshots`"
         )
         snapshot("sg_session-row", settle: 2)
+
+        // ── sg_apps · sg_app: the team's Apps off the Threads header, then
+        // the Team dashboard editor (VAPP-110, DEMO_APP_SLUG) on its Chat tab.
+        // Gated: opening the editor and leaving it ENDS the seeded editor
+        // session, so only a run that wants these shots visits.
+        if ScreenshotShots.isWanted("sg_apps") || ScreenshotShots.isWanted("sg_app") {
+            walkApps(app)
+        }
 
         // Switch to Issues for the board.
         let issuesTab = app.buttons["tab-issues"]
@@ -932,6 +945,35 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.launch,
             "The \(card) screen never opened — is -uiTestingStyleguide wired?"
         )
+    }
+
+    /// VAPP-110: the Threads header's Apps button → the list (gated on the
+    /// seeded Team dashboard row and the built-in Devices row) → the Team
+    /// dashboard editor (gated on its seeded chat) → back to the Threads tab.
+    @MainActor
+    private func walkApps(_ app: XCUIApplication) {
+        let appsButton = anyElement(app, identified: "nav-apps")
+        expect(appsButton, within: Wait.nav, "The Threads header has no Apps button")
+        appsButton.tap()
+        let dashboardRow = anyElement(app, identified: "apps-row-\(Self.appSlug)")
+        expect(dashboardRow, within: Wait.sync, "The Apps list has no \(Self.appName) row — reseed with `bun run seed:screenshots`")
+        expect(anyElement(app, identified: "apps-row-devices"), within: Wait.nav, "The Apps list has no built-in Devices row")
+        snapshot("sg_apps", settle: 2)
+        guard ScreenshotShots.isWanted("sg_app") else {
+            goBack(app)
+            return
+        }
+        app.staticTexts[Self.appName].firstMatch.tap()
+        expect(
+            anyElement(app, containing: Self.appChatReply),
+            within: Wait.sync,
+            "The \(Self.appName) editor never drew its seeded chat"
+        )
+        expect(anyElement(app, identified: "app-editor-tabs"), within: Wait.nav, "The editor drew no Chat | Preview | Versions control")
+        snapshot("sg_app", settle: 2)
+        goBack(app)
+        goBack(app)
+        settle(1)
     }
 
     /// EXP-1309: the Threads tab → the Triage agent's channel → back → the

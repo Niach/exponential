@@ -16,6 +16,12 @@ enum AppRoute: Hashable {
     /// definition's id; the conversation is resolved — or, none yet, opened
     /// by the first message — on the page).
     case agentChannel(accountId: String, agentId: String)
+    /// VAPP-110: the team's Apps (fixtures/apps.json), pushed from the
+    /// Threads tab's header.
+    case apps(accountId: String)
+    /// VAPP-110: one app's editor (`appId` = its row id, or the built-in's
+    /// `AppListEntry.builtinId`).
+    case app(accountId: String, appId: String)
     /// My Work (EXP-58): Inbox + My Issues merged behind one destination.
     case myWork
     /// EXP-1291: the Threads tab (it replaced Reviews) — the agents, then
@@ -913,6 +919,13 @@ extension MainNavigator {
         case let .agentChannel(accountId, agentId):
             AgentChannelScreen(agentId: agentId)
                 .id(agentId)
+                .environment(\.accountId, accountId)
+        case let .apps(accountId):
+            AppsListScreen()
+                .environment(\.accountId, accountId)
+        case let .app(accountId, appId):
+            AppEditorScreen(appId: appId)
+                .id(appId)
                 .environment(\.accountId, accountId)
         case .myWork:
             MyWorkView()

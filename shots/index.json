@@ -129,6 +129,13 @@
       }
     },
     "app": {
+      "ios": {
+        "file": "shots/app/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 54358,
+        "sha256": "4b01b64c3f229f3b399eafc44644185ada2c3f9454c5b73ecdb8defd0c4c7d40"
+      },
       "web": {
         "file": "shots/app/web.webp",
         "width": 1800,
@@ -145,6 +152,13 @@
       }
     },
     "apps": {
+      "ios": {
+        "file": "shots/apps/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 14352,
+        "sha256": "c598fabddaad210ac6198d1088199f6faa17d462cddfb26f9d2eac4c6797d07e"
+      },
       "web": {
         "file": "shots/apps/web.webp",
         "width": 1800,
