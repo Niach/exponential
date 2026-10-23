@@ -1,3 +1,2 @@
 [
-  { "renderer": "swift-macos", "scenario": "template-10k", "metric": "rebindMs", "value": 582.673, "machine": "apple-m4-pro-darwin", "issue": "VAPP-142", "cause": "Down from 2,567 ms with the painter's caches (props parsed from bytes, a measure memo, local tombstones, one bulk visuals read); what is left is the UniFFI Swift binding lifting 20,000 records through a generic Data reader (61 % of the profile) and two facade calls per changed node: the faster reader and a batched paintAt ship from the core." }
 ]
