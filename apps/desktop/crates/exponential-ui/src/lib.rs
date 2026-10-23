@@ -51,7 +51,7 @@ pub mod generated;
 /// guard page, however the tree nests.
 #[inline]
 pub(crate) fn deep<R>(f: impl FnOnce() -> R) -> R {
-    stacker::maybe_grow(64 * 1024, 1024 * 1024, f)
+    stack::maybe_grow(64 * 1024, 1024 * 1024, f)
 }
 
 /// VAPP-103: run a whole pass (a reduce, a rebuild, a layout) with at
@@ -67,11 +67,13 @@ pub(crate) fn deep<R>(f: impl FnOnce() -> R) -> R {
 /// per-level [`deep`] rarely switches.
 #[inline]
 pub(crate) fn roomy<R>(f: impl FnOnce() -> R) -> R {
-    stacker::maybe_grow(PASS_STACK, 8 * 1024 * 1024, f)
+    stack::maybe_grow(PASS_STACK, 8 * 1024 * 1024, f)
 }
 
 /// The stack a pass asks for before it runs on its own segment ([`roomy`]).
 pub(crate) const PASS_STACK: usize = 512 * 1024;
+
+pub(crate) mod stack;
 
 pub mod a11y;
 pub mod animation;
