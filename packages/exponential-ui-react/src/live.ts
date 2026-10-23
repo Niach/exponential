@@ -1,11 +1,12 @@
-// VAPP-141 + VAPP-137: what a node re-renders FOR. The surface context is
-// stable across data, breakpoint and `data-xq` changes (those three are
-// getters over the surface's latest render, `SurfaceContextValue.subscribe`
-// announces a change); each node subscribes to the values ITS bindings
+// VAPP-141 + VAPP-137 + VAPP-130: what a node re-renders FOR. The surface
+// context is stable across data, breakpoint, `data-xq` and mode changes
+// (those four are getters over the surface's latest render,
+// `SurfaceContextValue.subscribe` announces a change); each node subscribes to the values ITS bindings
 // read — the absolute pointers in its props, `visible`, dynamic style,
 // recipe props, accessibility and template path, the breakpoint when it
 // has a responsive prop, `data-xq` when an `@media` block sets its
-// direction — and re-renders only when one of them is a new value. A call
+// direction, the mode when its painter reads it (the stylesheet carries
+// both modes) — and re-renders only when one of them is a new value. A call
 // whose function may read the model on its own (`formatString`, a host
 // function) or a host-painted component re-renders on every change.
 
@@ -22,7 +23,13 @@ export interface NodeDeps {
   all: boolean
   breakpoint: boolean
   xq: boolean
+  mode: boolean
 }
+
+/** The natives that read `ctx.mode` while painting (a recipe size or
+ *  colour resolved in JS); every other node's look follows the root's
+ *  `data-xui-mode` in CSS. */
+const MODE_READERS = new Set([`Ring`, `Spinner`, `TreeGuides`, `Avatar`])
 
 /** The client functions that read nothing but their arguments. */
 const PURE = new Set(Object.keys(CLIENT_FUNCTIONS).filter((name) => name !== `formatString`))
@@ -84,7 +91,7 @@ export function nodeDeps(node: UiNode, scope: string, ctx: SurfaceContextValue):
     collect(node.recipe?.props, scope, paths, ctx.functions) ||
     collect(node.accessibility, scope, paths, ctx.functions)
   if (node.template) paths.push(absolutePath(node.template.path, scope))
-  return { paths: [...new Set(paths)], all, breakpoint: hosted || responsiveProps(node.component, ctx.extensionDefs).length > 0, xq: hosted || mediaDirection(node.style as Record<string, unknown> | undefined) }
+  return { paths: [...new Set(paths)], all, breakpoint: hosted || responsiveProps(node.component, ctx.extensionDefs).length > 0, xq: hosted || mediaDirection(node.style as Record<string, unknown> | undefined), mode: hosted || MODE_READERS.has(node.component) }
 }
 
 const NONE: readonly unknown[] = []
@@ -95,12 +102,12 @@ const noSubscription = () => () => {}
 export function useLive(ctx: SurfaceContextValue, node: UiNode, scope: string): readonly unknown[] {
   const deps = useMemo(() => nodeDeps(node, scope, ctx), [node, scope, ctx])
   const last = useRef<readonly unknown[]>(NONE)
-  const watches = deps.all || deps.breakpoint || deps.xq || deps.paths.length > 0
+  const watches = deps.all || deps.breakpoint || deps.xq || deps.mode || deps.paths.length > 0
   const read = (): readonly unknown[] => {
     if (!watches) return NONE
     const data = ctx.data
     const next: unknown[] = deps.paths.map((p) => getPointer(data, p))
-    next.push(deps.all ? data : undefined, deps.breakpoint ? ctx.breakpoint : undefined, deps.xq ? ctx.xq : undefined)
+    next.push(deps.all ? data : undefined, deps.breakpoint ? ctx.breakpoint : undefined, deps.xq ? ctx.xq : undefined, deps.mode ? ctx.mode : undefined)
     const prev = last.current
     if (prev.length === next.length && prev.every((v, i) => Object.is(v, next[i]))) return prev
     last.current = next

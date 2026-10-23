@@ -73,7 +73,7 @@ export interface SurfaceContextValue {
   hover: boolean
   /** Speak a message through the surface's live regions. */
   announce: (text: string, live?: `polite` | `assertive`) => void
-  /** VAPP-141: `data`, `breakpoint` and `xq` are LIVE (the surface's
+  /** VAPP-141: `data`, `breakpoint`, `xq` and `mode` are LIVE (the surface's
    *  latest render; the context object keeps its identity when only they
    *  change): a listener hears every change, and a node re-renders when a
    *  value it reads is new (`live.ts`). Returns the unsubscribe. */
@@ -89,7 +89,7 @@ export function useSurfaceContext(): SurfaceContextValue {
 }
 
 /** A context with some members replaced, the live getters (`data`,
- *  `breakpoint`, `xq`) kept live (a plain spread would freeze them);
+ *  `breakpoint`, `xq`, `mode`) kept live (a plain spread would freeze them);
  *  `data` may be a getter of its own (a read view over the live model). */
 export function deriveContext(ctx: SurfaceContextValue, values: Partial<SurfaceContextValue>, data?: () => DataModel): SurfaceContextValue {
   const out = Object.defineProperties({}, Object.getOwnPropertyDescriptors(ctx)) as SurfaceContextValue

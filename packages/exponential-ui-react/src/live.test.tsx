@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, it } from "vitest"
 import { act, cleanup, render } from "@testing-library/react"
-import { useEffect } from "react"
+import { useEffect, type ReactNode } from "react"
 import type { FlatComponent } from "@exponential-at/ui"
 import { ExponentialSurface } from "./surface"
 import { useSurface, type SurfaceState } from "./use-surface"
@@ -22,7 +22,7 @@ function counting() {
     const real = NATIVES[name]
     NATIVES[name] = (p: NativeProps) => {
       painted.push(p.domId)
-      return real(p)
+      return (real as (props: NativeProps) => ReactNode)(p)
     }
     return () => {
       NATIVES[name] = real

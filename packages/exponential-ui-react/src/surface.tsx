@@ -291,7 +291,7 @@ function sameBudget(a: TemplateBudget | undefined, b: TemplateBudget | undefined
   return true
 }
 
-type LiveMembers = Pick<SurfaceContextValue, `data` | `breakpoint` | `xq`>
+type LiveMembers = Pick<SurfaceContextValue, `data` | `breakpoint` | `xq` | `mode`>
 
 /** The context with its live members as getters over `live`. */
 function withLive(value: Omit<SurfaceContextValue, keyof LiveMembers>, live: { current: LiveMembers }): SurfaceContextValue {
@@ -299,6 +299,7 @@ function withLive(value: Omit<SurfaceContextValue, keyof LiveMembers>, live: { c
     data: { get: () => live.current.data, enumerable: true, configurable: true },
     breakpoint: { get: () => live.current.breakpoint, enumerable: true, configurable: true },
     xq: { get: () => live.current.xq, enumerable: true, configurable: true },
+    mode: { get: () => live.current.mode, enumerable: true, configurable: true },
   }) as SurfaceContextValue
 }
 
@@ -474,11 +475,11 @@ export function ExponentialSurface({
   // Every open passes the URL policy (the host's opener or a new tab).
   const openUrl = useCallback((url: string) => openAllowed(hostValue, url), [hostValue])
 
-  // VAPP-141: data, breakpoint and xq are LIVE members (getters over this
+  // VAPP-141 + VAPP-130: data, breakpoint, xq and mode are LIVE members (getters over this
   // render's values); the context keeps its identity when only they change
   // and the layout effect below tells the subscribed nodes (`live.ts`).
-  const live = useRef({ data, breakpoint, xq })
-  live.current = { data, breakpoint, xq }
+  const live = useRef({ data, breakpoint, xq, mode })
+  live.current = { data, breakpoint, xq, mode }
   const listeners = useRef(new Set<() => void>()).current
   const subscribe = useCallback(
     (listener: () => void) => {
@@ -489,13 +490,12 @@ export function ExponentialSurface({
   )
   useIsoLayoutEffect(() => {
     for (const listener of [...listeners]) listener()
-  }, [data, breakpoint, xq, listeners])
+  }, [data, breakpoint, xq, mode, listeners])
   const ctx: SurfaceContextValue = useMemo(
     () => withLive({
       surfaceId,
       compiled,
       theme,
-      mode,
       host: hostValue,
       extensions,
       extensionDefs,
@@ -521,7 +521,7 @@ export function ExponentialSurface({
       announce,
       subscribe,
     }, live),
-    [surfaceId, compiled, theme, mode, hostValue, extensions, extensionDefs, setData, templateNode, budget, states, measure, portal, toastLayer, direction, functions, openUrl, locale, formatter, now, registerScroller, paintFailures, strings, t, reducedMotion, hover, announce, subscribe]
+    [surfaceId, compiled, theme, hostValue, extensions, extensionDefs, setData, templateNode, budget, states, measure, portal, toastLayer, direction, functions, openUrl, locale, formatter, now, registerScroller, paintFailures, strings, t, reducedMotion, hover, announce, subscribe]
   )
 
   const nodeEl = useCallback((id: string): HTMLElement | null => rootEl?.querySelector<HTMLElement>(`[data-xui-id="${typeof CSS !== `undefined` && CSS.escape ? CSS.escape(id) : id.replace(/"/g, `\\"`)}"]`) ?? null, [rootEl])
