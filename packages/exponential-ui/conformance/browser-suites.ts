@@ -24,7 +24,6 @@ import {
   checkGeometry,
   clientCapabilities,
   combineDecisions,
-  conformanceManifest,
   decideFunction,
   decideUrl,
   defineExtension,
@@ -53,7 +52,9 @@ import {
   resolveStyleValues,
   styleToCss,
 } from "../src/index"
-import type { ChildTemplate, ConformanceReport, Decoded, ExtensionDef, FlatComponent, ModeName, NestedNode, UiNode, VappPackage } from "../src/index"
+import type { ChildTemplate, Decoded, ExtensionDef, FlatComponent, ModeName, NestedNode, UiNode, VappPackage } from "../src/index"
+import { conformanceManifest } from "../src/conformance"
+import type { ConformanceReport } from "../src/conformance"
 import { BASE_CSS, CLIENT_FUNCTIONS, LITERAL_ROWS_ROOT, absolutePath, bindTree, isBinding, memoFormatter, resolveNodeProps, resolveValue, setPointer, type DataModel, type ResolveContext } from "../src/web/index"
 import { launchChromium, openPage, pageUrl, type Query, type WebHarness } from "./browser-page"
 

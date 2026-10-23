@@ -4,9 +4,26 @@
 // bind: the store (per-toast clocks that pause while the stack is expanded)
 // and the stack geometry of fixtures/toast-stack.json (a copy of the app's
 // contract, drift-tested from packages/ui).
-import toastStack from "../../../fixtures/toast-stack.json" with { type: "json" }
+//
+// VAPP-106: the constants are WRITTEN here, not imported from the fixture:
+// a renderer entry (`@exponential-at/ui/web/primitives`) ships no fixture
+// (release/size.ts gates it); toast.test.ts holds them equal to
+// fixtures/toast-stack.json `constants`.
 
-export const TOAST_CONSTANTS = toastStack.constants
+export const TOAST_CONSTANTS = {
+  width: 356,
+  gap: 14,
+  peek: 14,
+  scaleStep: 0.05,
+  visible: 3,
+  durationMs: 4000,
+  swipeThreshold: 45,
+  viewportOffset: 24,
+  mobileViewportOffset: 16,
+  placement: { pointer: `bottom-right`, touch: `top-center` },
+  touchMaxWidth: 600,
+  kinds: [`success`, `error`, `info`, `warning`],
+}
 
 export type ToastKind = `success` | `error` | `info` | `warning`
 export type ToastPlacement = `bottom-right` | `top-center`

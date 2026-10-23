@@ -67,6 +67,8 @@ pub fn theme_or_default(input: &Value) -> (Arc<ResolvedTheme>, Vec<ThemeIssue>) 
 mod tests {
     use super::*;
 
+    /// VAPP-106: `extends: "neutral"` and `"playful"` need the `builtin-themes` feature.
+    #[cfg(feature = "builtin-themes")]
     #[test]
     fn theme_or_default_never_fails() {
         let (t, issues) = theme_or_default(&serde_json::json!("nope"));

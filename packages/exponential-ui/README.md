@@ -39,7 +39,9 @@ nothing from the Exponential app.
 | `themes/` | the built-in themes: `neutral` (stock shadcn, the root), `exponential` (GENERATED: design-tokens values + `exponential.recipes.json`), `playful` (the test theme), `orange` (the brand reference: `exponential` with an orange primary) |
 | `builder/` | the theme builder page (`dev:builder` / `build:builder`); ui.exponential.at mounts it (VAPP-93) |
 | `src/` | the TS reference implementation (below) |
-| `generated/*.{swift,kt,rs}` | generated constants for the three native targets; `*Themes*` = the built-ins RESOLVED, embedded as JSON |
+| `generated/*.{swift,kt,rs}` | generated constants for the three native targets; `*Themes*` = the built-ins RESOLVED, embedded as JSON; `catalog.descriptions.generated.rs` = the catalog's text for a Rust host behind the crate's `descriptions` feature (VAPP-106) |
+| `generated/core.runtime.json` | VAPP-106: the RUNTIME catalog `src/catalog.ts` loads (the source minus every description, example and `$comment`): what a renderer needs, what the Rust core embeds |
+| `generated/core.descriptions.json` | VAPP-106: the rest of the source, keyed like the catalog; `describeCatalog()` (`src/catalog.described.ts`) attaches it for the prompt, the schema emitter and the docs |
 | `docs/components.generated.json` | generated: one doc page per component as data (ui.exponential.at renders it, VAPP-93) |
 | `docs/themes.generated.json` | generated: the token vocabulary with every built-in's values, the recipe contract per component |
 | `fixtures/` | the contract (below) |
@@ -335,7 +337,21 @@ generate time too (never at runtime).
 ```bash
 bun run --filter @exponential-at/ui dev:builder     # the theme builder on :4180
 bun run --filter @exponential-at/ui build:builder   # bundles builder/dist (ignored)
+bun run --filter @exponential-at/ui size            # VAPP-106: bundle + binary sizes vs release/size-budget.json (release/README.md)
 ```
+
+### Entries (VAPP-106)
+
+The root `@exponential-at/ui` is what a renderer needs (the runtime catalog,
+macros, the reducer, the validator, bind-time, formatting, themes, the host
+API). What only a server or a tool needs is an entry of its own, so a
+browser never downloads it: `@exponential-at/ui/prompt` (`catalogPrompt`,
+`estimateTokens`, `PROMPT_RULES`; it attaches the catalog's descriptions and
+examples with `describeCatalog()` first), `./schema` (`coreSchema`,
+`extensionSchema`, with the vendored A2UI basic catalog), `./conformance`
+(`conformanceManifest`, `checkReport`, with every fixture bundled),
+`./host` (the host API alone). The entries share chunks; sizes are on
+record in `release/sizes.json`.
 
 ## Extensions
 

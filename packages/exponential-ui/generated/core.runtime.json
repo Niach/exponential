@@ -1,0 +1,3404 @@
+{
+  "id": "https://ui.exponential.at/catalogs/core/v1",
+  "liteId": "https://ui.exponential.at/catalogs/core-lite/v1",
+  "name": "Exponential UI core",
+  "version": "1",
+  "unknownComponent": "Unknown",
+  "enums": {
+    "variant": [
+      "default",
+      "secondary",
+      "outline",
+      "ghost",
+      "destructive",
+      "link"
+    ],
+    "size": [
+      "sm",
+      "default",
+      "lg",
+      "icon"
+    ],
+    "tone": [
+      "neutral",
+      "primary",
+      "success",
+      "warning",
+      "danger",
+      "info"
+    ],
+    "gap": [
+      "none",
+      "xs",
+      "sm",
+      "md",
+      "lg",
+      "xl"
+    ],
+    "align": [
+      "start",
+      "center",
+      "end",
+      "stretch"
+    ],
+    "justify": [
+      "start",
+      "center",
+      "end",
+      "between",
+      "around",
+      "evenly"
+    ],
+    "textVariant": [
+      "body",
+      "caption",
+      "muted",
+      "lead",
+      "code",
+      "label",
+      "title"
+    ],
+    "headingLevel": [
+      "h1",
+      "h2",
+      "h3",
+      "h4"
+    ],
+    "imageFit": [
+      "contain",
+      "cover",
+      "fill",
+      "none",
+      "scaleDown"
+    ],
+    "orientation": [
+      "horizontal",
+      "vertical"
+    ],
+    "side": [
+      "top",
+      "right",
+      "bottom",
+      "left"
+    ],
+    "inputType": [
+      "text",
+      "email",
+      "password",
+      "number",
+      "search",
+      "url",
+      "tel"
+    ],
+    "validateOn": [
+      "change",
+      "blur",
+      "submit"
+    ],
+    "alertType": [
+      "info",
+      "success",
+      "warning",
+      "error"
+    ],
+    "controlSize": [
+      "sm",
+      "default",
+      "lg"
+    ],
+    "spinnerSize": [
+      "xs",
+      "sm",
+      "default",
+      "lg"
+    ],
+    "tabClosable": [
+      "none",
+      "hover",
+      "always"
+    ],
+    "groupType": [
+      "single",
+      "multiple"
+    ],
+    "rowChevron": [
+      "none",
+      "right",
+      "selector"
+    ],
+    "rowSurface": [
+      "flat",
+      "card"
+    ],
+    "chipShape": [
+      "pill",
+      "rect"
+    ],
+    "density": [
+      "default",
+      "compact"
+    ],
+    "listDirection": [
+      "vertical",
+      "horizontal"
+    ],
+    "chartKind": [
+      "bar",
+      "stackedBar",
+      "line",
+      "area",
+      "pie",
+      "donut",
+      "sparkline"
+    ],
+    "segmentedVariant": [
+      "segmented",
+      "toggles",
+      "outline",
+      "bar"
+    ],
+    "liveTone": [
+      "live",
+      "attention",
+      "done",
+      "unread",
+      "idle",
+      "muted"
+    ],
+    "menuItemKind": [
+      "item",
+      "checkbox",
+      "separator",
+      "label",
+      "submenu"
+    ],
+    "openOn": [
+      "press",
+      "hover"
+    ],
+    "menuOpenOn": [
+      "press",
+      "contextmenu"
+    ],
+    "live": [
+      "off",
+      "polite",
+      "assertive"
+    ],
+    "selectable": [
+      "none",
+      "single",
+      "multiple"
+    ],
+    "cellType": [
+      "text",
+      "number",
+      "date",
+      "boolean",
+      "badge",
+      "slot",
+      "currency",
+      "percent",
+      "relativeTime"
+    ],
+    "sortDirection": [
+      "asc",
+      "desc"
+    ],
+    "imageLoading": [
+      "lazy",
+      "eager"
+    ],
+    "scrollDirection": [
+      "vertical",
+      "horizontal",
+      "both"
+    ],
+    "collapseBelow": [
+      "never",
+      "sm",
+      "md",
+      "lg",
+      "xl"
+    ],
+    "codeLanguage": [
+      "plain",
+      "json",
+      "js",
+      "ts",
+      "tsx",
+      "rust",
+      "swift",
+      "kotlin",
+      "python",
+      "bash",
+      "html",
+      "css",
+      "sql",
+      "yaml",
+      "markdown",
+      "ansi"
+    ],
+    "codeToken": [
+      "plain",
+      "keyword",
+      "string",
+      "number",
+      "comment",
+      "punctuation",
+      "operator",
+      "type",
+      "function",
+      "property",
+      "tag",
+      "attribute",
+      "success",
+      "warning",
+      "error"
+    ],
+    "codeBlockVariant": [
+      "default",
+      "destructive"
+    ],
+    "codeBlockSize": [
+      "default",
+      "sm"
+    ],
+    "traceStatus": [
+      "running",
+      "error",
+      "pending"
+    ],
+    "traceSize": [
+      "default",
+      "sm"
+    ]
+  },
+  "defs": {
+    "option": {
+      "properties": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "value": {
+          "type": "string",
+          "required": true
+        },
+        "icon": {
+          "type": "icon"
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        },
+        "image": {
+          "type": "url"
+        }
+      }
+    },
+    "check": {
+      "properties": {
+        "condition": {
+          "type": "boolean",
+          "required": true,
+          "bindable": true
+        },
+        "message": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    "tab": {
+      "properties": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "value": {
+          "type": "string",
+          "required": true
+        },
+        "icon": {
+          "type": "icon"
+        },
+        "count": {
+          "type": "number"
+        }
+      }
+    },
+    "menuItem": {
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "enum",
+          "enum": "menuItemKind",
+          "default": "item"
+        },
+        "icon": {
+          "type": "icon"
+        },
+        "shortcut": {
+          "type": "string"
+        },
+        "checked": {
+          "type": "boolean",
+          "bindable": true
+        },
+        "destructive": {
+          "type": "boolean"
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "menuItem"
+          },
+          "bindable": true
+        },
+        "searchable": {
+          "type": "boolean"
+        },
+        "placeholder": {
+          "type": "string"
+        }
+      }
+    },
+    "searchItem": {
+      "properties": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "value": {
+          "type": "string",
+          "required": true
+        },
+        "icon": {
+          "type": "icon"
+        },
+        "identifier": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "accordionItem": {
+      "properties": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "value": {
+          "type": "string",
+          "required": true
+        },
+        "count": {
+          "type": "number"
+        }
+      }
+    },
+    "segment": {
+      "properties": {
+        "value": {
+          "type": "number",
+          "required": true
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone"
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    },
+    "series": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "required": true
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone"
+        }
+      }
+    },
+    "pageItem": {
+      "properties": {
+        "title": {
+          "type": "string"
+        }
+      }
+    },
+    "step": {
+      "properties": {
+        "label": {
+          "type": "string",
+          "required": true
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "column": {
+      "properties": {
+        "key": {
+          "type": "string",
+          "required": true
+        },
+        "label": {
+          "type": "string",
+          "required": true
+        },
+        "type": {
+          "type": "enum",
+          "enum": "cellType",
+          "default": "text"
+        },
+        "slot": {
+          "type": "string"
+        },
+        "width": {
+          "type": "number"
+        },
+        "align": {
+          "type": "enum",
+          "values": [
+            "start",
+            "center",
+            "end"
+          ],
+          "default": "start"
+        },
+        "sortable": {
+          "type": "boolean",
+          "default": false
+        },
+        "currency": {
+          "type": "string"
+        },
+        "decimals": {
+          "type": "number"
+        }
+      }
+    },
+    "sort": {
+      "properties": {
+        "key": {
+          "type": "string",
+          "required": true
+        },
+        "direction": {
+          "type": "enum",
+          "enum": "sortDirection",
+          "required": true
+        }
+      }
+    },
+    "panel": {
+      "properties": {
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "collapsible": {
+          "type": "boolean"
+        }
+      }
+    },
+    "file": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "size": {
+          "type": "number"
+        },
+        "type": {
+          "type": "string"
+        },
+        "url": {
+          "type": "url"
+        }
+      }
+    }
+  },
+  "functions": {
+    "names": [
+      "required",
+      "regex",
+      "length",
+      "numeric",
+      "email",
+      "formatString",
+      "formatNumber",
+      "formatCurrency",
+      "formatDate",
+      "pluralize",
+      "openUrl",
+      "and",
+      "or",
+      "not",
+      "percent",
+      "add",
+      "sub",
+      "eq",
+      "lt",
+      "clamp",
+      "cond",
+      "fallback",
+      "concat",
+      "coalesce",
+      "text",
+      "map",
+      "len",
+      "fill",
+      "set",
+      "formatPercent",
+      "formatRelativeTime",
+      "filter"
+    ],
+    "core": {
+      "percent": {
+        "args": {
+          "value": "number",
+          "max": "number"
+        },
+        "returns": "string"
+      },
+      "add": {
+        "args": {
+          "a": "number",
+          "b": "number"
+        },
+        "returns": "number"
+      },
+      "sub": {
+        "args": {
+          "a": "number",
+          "b": "number"
+        },
+        "returns": "number"
+      },
+      "eq": {
+        "args": {
+          "a": "any",
+          "b": "any"
+        },
+        "returns": "boolean"
+      },
+      "lt": {
+        "args": {
+          "a": "number",
+          "b": "number"
+        },
+        "returns": "boolean"
+      },
+      "clamp": {
+        "args": {
+          "value": "number",
+          "min": "number",
+          "max": "number"
+        },
+        "returns": "number"
+      },
+      "cond": {
+        "args": {
+          "if": "any",
+          "then": "any",
+          "else": "any"
+        },
+        "returns": "any"
+      },
+      "fallback": {
+        "args": {
+          "value": "any",
+          "default": "any"
+        },
+        "returns": "any"
+      },
+      "concat": {
+        "args": {
+          "values": "array"
+        },
+        "returns": "string"
+      },
+      "coalesce": {
+        "args": {
+          "values": "array"
+        },
+        "returns": "any"
+      },
+      "text": {
+        "args": {
+          "value": "any"
+        },
+        "returns": "string"
+      },
+      "map": {
+        "args": {
+          "value": "any",
+          "cases": "object",
+          "default": "any"
+        },
+        "returns": "any"
+      },
+      "len": {
+        "args": {
+          "value": "any"
+        },
+        "returns": "number"
+      },
+      "fill": {
+        "args": {
+          "template": "string",
+          "params": "object"
+        },
+        "returns": "string"
+      },
+      "set": {
+        "args": {
+          "path": "string",
+          "value": "any"
+        },
+        "returns": "void"
+      },
+      "formatPercent": {
+        "args": {
+          "value": "number",
+          "decimals": "number"
+        },
+        "returns": "string"
+      },
+      "formatRelativeTime": {
+        "args": {
+          "value": "any",
+          "now": "any"
+        },
+        "returns": "string"
+      },
+      "filter": {
+        "args": {
+          "items": "array",
+          "query": "string",
+          "fields": "array",
+          "where": "object"
+        },
+        "returns": "array"
+      }
+    },
+    "basic": {
+      "required": {
+        "args": {
+          "value": "any"
+        },
+        "returns": "boolean"
+      },
+      "regex": {
+        "args": {
+          "value": "string",
+          "pattern": "string"
+        },
+        "returns": "boolean"
+      },
+      "length": {
+        "args": {
+          "value": "string",
+          "min": "number",
+          "max": "number"
+        },
+        "returns": "boolean"
+      },
+      "numeric": {
+        "args": {
+          "value": "number",
+          "min": "number",
+          "max": "number"
+        },
+        "returns": "boolean"
+      },
+      "email": {
+        "args": {
+          "value": "string"
+        },
+        "returns": "boolean"
+      },
+      "formatString": {
+        "args": {
+          "value": "string"
+        },
+        "returns": "string"
+      },
+      "formatNumber": {
+        "args": {
+          "value": "number",
+          "decimals": "number",
+          "grouping": "boolean"
+        },
+        "returns": "string"
+      },
+      "formatCurrency": {
+        "args": {
+          "value": "number",
+          "currency": "string",
+          "decimals": "number",
+          "grouping": "boolean"
+        },
+        "returns": "string"
+      },
+      "formatDate": {
+        "args": {
+          "value": "any",
+          "format": "string"
+        },
+        "returns": "string"
+      },
+      "pluralize": {
+        "args": {
+          "value": "number",
+          "zero": "string",
+          "one": "string",
+          "two": "string",
+          "few": "string",
+          "many": "string",
+          "other": "string"
+        },
+        "returns": "string"
+      },
+      "openUrl": {
+        "args": {
+          "url": "string"
+        },
+        "returns": "void"
+      },
+      "and": {
+        "args": {
+          "values": "array"
+        },
+        "returns": "boolean"
+      },
+      "or": {
+        "args": {
+          "values": "array"
+        },
+        "returns": "boolean"
+      },
+      "not": {
+        "args": {
+          "value": "any"
+        },
+        "returns": "boolean"
+      }
+    }
+  },
+  "builtinIcons": {
+    "Accordion.trigger": "ui-chevron-down",
+    "Carousel.previous": "ui-chevron-left",
+    "Carousel.next": "ui-chevron-right",
+    "Checkbox.check": "ui-check",
+    "ChipInput.remove": "ui-close",
+    "CodeBlock.copy": "ui-copy",
+    "CodeBlock.copied": "ui-check",
+    "Composer.attachment": "ui-attach",
+    "Composer.send": "ui-send",
+    "Composer.stop": "ui-stop",
+    "DatePicker.trigger": "calendar",
+    "DatePicker.previousMonth": "ui-chevron-left",
+    "DatePicker.nextMonth": "ui-chevron-right",
+    "DateRangePicker.trigger": "calendar",
+    "Dialog.close": "ui-close",
+    "Menu.check": "ui-check",
+    "Menu.submenuIndicator": "ui-chevron-right",
+    "FileUpload.icon": "upload",
+    "FileUpload.file": "ui-file",
+    "FileUpload.remove": "ui-close",
+    "Image.fallback": "ui-icon-placeholder",
+    "NumberField.decrement": "ui-minus",
+    "NumberField.increment": "ui-add",
+    "Select.trigger": "ui-selector",
+    "Select.search": "search",
+    "Select.check": "ui-check",
+    "SearchList.search": "search",
+    "SearchList.check": "ui-check",
+    "Table.sortIcon.asc": "ui-chevron-up",
+    "Table.sortIcon.desc": "ui-chevron-down",
+    "Tabs.close": "ui-close",
+    "Tabs.new": "ui-add",
+    "TimePicker.trigger": "ui-clock",
+    "Toast.close": "ui-close",
+    "Toast.icon.info": "ui-info",
+    "Toast.icon.success": "ui-success",
+    "Toast.icon.warning": "ui-warning",
+    "Toast.icon.error": "ui-error",
+    "Unknown.root": "ui-warning"
+  },
+  "components": {
+    "Box": {
+      "kind": "native",
+      "group": "layout",
+      "lite": true,
+      "children": "many",
+      "props": {
+        "style": {
+          "type": "style"
+        },
+        "pressable": {
+          "type": "boolean"
+        }
+      },
+      "events": [
+        "press"
+      ]
+    },
+    "Stack": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "many",
+      "props": {
+        "direction": {
+          "type": "enum",
+          "enum": "orientation",
+          "default": "vertical",
+          "responsive": true
+        },
+        "gap": {
+          "type": "enum",
+          "enum": "gap",
+          "default": "md",
+          "responsive": true
+        },
+        "align": {
+          "type": "enum",
+          "enum": "align",
+          "default": "stretch",
+          "responsive": true
+        },
+        "justify": {
+          "type": "enum",
+          "enum": "justify",
+          "default": "start",
+          "responsive": true
+        },
+        "wrap": {
+          "type": "boolean",
+          "default": false,
+          "responsive": true
+        },
+        "style": {
+          "type": "style"
+        }
+      }
+    },
+    "Grid": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "many",
+      "props": {
+        "columns": {
+          "type": "number",
+          "default": 2,
+          "responsive": true
+        },
+        "gap": {
+          "type": "enum",
+          "enum": "gap",
+          "default": "md",
+          "responsive": true
+        },
+        "style": {
+          "type": "style"
+        }
+      }
+    },
+    "Card": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "many",
+      "props": {
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "padded": {
+          "type": "boolean",
+          "default": true
+        },
+        "style": {
+          "type": "style"
+        }
+      }
+    },
+    "Separator": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "orientation": {
+          "type": "enum",
+          "enum": "orientation",
+          "default": "horizontal"
+        }
+      }
+    },
+    "List": {
+      "kind": "native",
+      "group": "layout",
+      "lite": true,
+      "children": "many",
+      "slots": [
+        "section"
+      ],
+      "slotScope": "row",
+      "props": {
+        "direction": {
+          "type": "enum",
+          "enum": "listDirection",
+          "default": "vertical"
+        },
+        "gap": {
+          "type": "enum",
+          "enum": "gap",
+          "default": "none"
+        },
+        "divided": {
+          "type": "boolean",
+          "default": false
+        },
+        "sectionBy": {
+          "type": "string"
+        },
+        "stickyHeaders": {
+          "type": "boolean",
+          "default": false
+        },
+        "style": {
+          "type": "style"
+        }
+      }
+    },
+    "Resizable": {
+      "kind": "native",
+      "group": "layout",
+      "lite": true,
+      "children": "many",
+      "props": {
+        "direction": {
+          "type": "enum",
+          "enum": "orientation",
+          "default": "horizontal",
+          "responsive": true
+        },
+        "sizes": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "bindable": true
+        },
+        "panels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "panel"
+          }
+        },
+        "handle": {
+          "type": "boolean",
+          "default": false
+        },
+        "style": {
+          "type": "style"
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "ScrollArea": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "many",
+      "props": {
+        "direction": {
+          "type": "enum",
+          "enum": "scrollDirection",
+          "default": "vertical"
+        },
+        "maxHeight": {
+          "type": "number"
+        },
+        "style": {
+          "type": "style"
+        }
+      }
+    },
+    "Sidebar": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "many",
+      "slots": [
+        "sidebar"
+      ],
+      "props": {
+        "side": {
+          "type": "enum",
+          "values": [
+            "left",
+            "right"
+          ],
+          "default": "left"
+        },
+        "width": {
+          "type": "number",
+          "default": 240
+        },
+        "collapseBelow": {
+          "type": "enum",
+          "enum": "collapseBelow",
+          "default": "md"
+        },
+        "collapsed": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        }
+      }
+    },
+    "AppBar": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "none",
+      "slots": [
+        "leading",
+        "trailing"
+      ],
+      "props": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "subtitle": {
+          "type": "string",
+          "bindable": true
+        },
+        "back": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "back"
+      ]
+    },
+    "Section": {
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "children": "many",
+      "slots": [
+        "leading",
+        "trailing"
+      ],
+      "props": {
+        "title": {
+          "type": "string",
+          "bindable": true
+        },
+        "caption": {
+          "type": "string"
+        },
+        "count": {
+          "type": "number"
+        },
+        "icon": {
+          "type": "icon"
+        },
+        "collapsible": {
+          "type": "boolean",
+          "default": false
+        },
+        "open": {
+          "type": "boolean",
+          "default": true,
+          "bindable": true
+        },
+        "tint": {
+          "type": "enum",
+          "enum": "tone",
+          "default": "neutral"
+        },
+        "tree": {
+          "type": "boolean",
+          "default": false
+        },
+        "loading": {
+          "type": "boolean",
+          "default": false
+        },
+        "style": {
+          "type": "style"
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "Group": {
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "children": "many",
+      "props": {
+        "title": {
+          "type": "string"
+        },
+        "footer": {
+          "type": "string"
+        }
+      }
+    },
+    "Text": {
+      "kind": "native",
+      "group": "text",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "text": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "variant": {
+          "type": "enum",
+          "enum": "textVariant",
+          "default": "body"
+        },
+        "align": {
+          "type": "enum",
+          "values": [
+            "start",
+            "center",
+            "end"
+          ]
+        },
+        "lines": {
+          "type": "number"
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone"
+        },
+        "shimmer": {
+          "type": "boolean",
+          "default": false
+        },
+        "live": {
+          "type": "enum",
+          "enum": "live",
+          "default": "off"
+        },
+        "style": {
+          "type": "style"
+        }
+      }
+    },
+    "Heading": {
+      "kind": "macro",
+      "group": "text",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "text": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "level": {
+          "type": "enum",
+          "enum": "headingLevel",
+          "default": "h2"
+        }
+      }
+    },
+    "Markdown": {
+      "kind": "native",
+      "group": "text",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "text": {
+          "type": "markdown",
+          "required": true,
+          "bindable": true
+        },
+        "lines": {
+          "type": "number"
+        },
+        "style": {
+          "type": "style"
+        }
+      }
+    },
+    "CodeBlock": {
+      "kind": "native",
+      "group": "text",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "code": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "language": {
+          "type": "enum",
+          "enum": "codeLanguage",
+          "default": "plain"
+        },
+        "title": {
+          "type": "string"
+        },
+        "lineNumbers": {
+          "type": "boolean",
+          "default": false
+        },
+        "wrap": {
+          "type": "boolean",
+          "default": false
+        },
+        "copyable": {
+          "type": "boolean",
+          "default": true
+        },
+        "highlight": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "maxLines": {
+          "type": "number"
+        },
+        "variant": {
+          "type": "enum",
+          "enum": "codeBlockVariant",
+          "default": "default"
+        },
+        "size": {
+          "type": "enum",
+          "enum": "codeBlockSize",
+          "default": "default"
+        }
+      }
+    },
+    "Kbd": {
+      "kind": "macro",
+      "group": "text",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "keys": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    "Label": {
+      "kind": "macro",
+      "group": "text",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "text": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "for": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "Image": {
+      "kind": "native",
+      "group": "media",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "src": {
+          "type": "url",
+          "bindable": true
+        },
+        "alt": {
+          "type": "string",
+          "required": true
+        },
+        "fit": {
+          "type": "enum",
+          "enum": "imageFit",
+          "default": "cover"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "aspectRatio": {
+          "type": "number"
+        },
+        "fallback": {
+          "type": "icon"
+        },
+        "loading": {
+          "type": "enum",
+          "enum": "imageLoading",
+          "default": "lazy"
+        },
+        "focalX": {
+          "type": "number"
+        },
+        "focalY": {
+          "type": "number"
+        },
+        "style": {
+          "type": "style"
+        }
+      }
+    },
+    "Icon": {
+      "kind": "native",
+      "group": "media",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "name": {
+          "type": "icon",
+          "required": true
+        },
+        "size": {
+          "type": "enum",
+          "enum": "controlSize",
+          "default": "default"
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone"
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    },
+    "Video": {
+      "kind": "native",
+      "group": "media",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "src": {
+          "type": "url",
+          "required": true,
+          "bindable": true
+        },
+        "poster": {
+          "type": "url"
+        },
+        "durationMs": {
+          "type": "number"
+        },
+        "autoplay": {
+          "type": "boolean",
+          "default": false
+        },
+        "aspectRatio": {
+          "type": "number",
+          "default": 1.7777778
+        },
+        "style": {
+          "type": "style"
+        }
+      }
+    },
+    "AudioPlayer": {
+      "kind": "native",
+      "group": "media",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "src": {
+          "type": "url",
+          "required": true,
+          "bindable": true
+        },
+        "title": {
+          "type": "string"
+        },
+        "durationMs": {
+          "type": "number"
+        }
+      }
+    },
+    "Avatar": {
+      "kind": "native",
+      "group": "media",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "src": {
+          "type": "url",
+          "bindable": true
+        },
+        "size": {
+          "type": "enum",
+          "enum": "controlSize",
+          "default": "default"
+        },
+        "seed": {
+          "type": "string"
+        }
+      }
+    },
+    "Carousel": {
+      "kind": "native",
+      "group": "media",
+      "lite": false,
+      "children": "many",
+      "props": {
+        "page": {
+          "type": "number",
+          "default": 0,
+          "bindable": true
+        },
+        "loop": {
+          "type": "boolean",
+          "default": false
+        },
+        "indicators": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "Tabs": {
+      "kind": "native",
+      "group": "navigation",
+      "lite": true,
+      "children": "many",
+      "props": {
+        "tabs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "tab"
+          },
+          "required": true
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "fill": {
+          "type": "boolean",
+          "default": false
+        },
+        "closable": {
+          "type": "enum",
+          "enum": "tabClosable",
+          "default": "none"
+        },
+        "addable": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "change",
+        "close",
+        "new"
+      ]
+    },
+    "Segmented": {
+      "kind": "native",
+      "group": "navigation",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
+          "required": true
+        },
+        "type": {
+          "type": "enum",
+          "enum": "groupType",
+          "default": "single"
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "variant": {
+          "type": "enum",
+          "enum": "segmentedVariant",
+          "default": "segmented"
+        },
+        "size": {
+          "type": "enum",
+          "enum": "controlSize",
+          "default": "default"
+        },
+        "fill": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "Accordion": {
+      "kind": "native",
+      "group": "navigation",
+      "lite": false,
+      "children": "many",
+      "props": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "accordionItem"
+          },
+          "required": true
+        },
+        "type": {
+          "type": "enum",
+          "enum": "groupType",
+          "default": "single"
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "Collapsible": {
+      "kind": "macro",
+      "group": "navigation",
+      "lite": true,
+      "children": "many",
+      "props": {
+        "title": {
+          "type": "string",
+          "required": true
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "count": {
+          "type": "number"
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "Trace": {
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "children": "many",
+      "props": {
+        "size": {
+          "type": "enum",
+          "enum": "traceSize",
+          "default": "default"
+        }
+      }
+    },
+    "TraceItem": {
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "children": "many",
+      "props": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "icon": {
+          "type": "icon"
+        },
+        "description": {
+          "type": "string"
+        },
+        "status": {
+          "type": "enum",
+          "enum": "traceStatus"
+        },
+        "size": {
+          "type": "enum",
+          "enum": "traceSize",
+          "default": "default"
+        },
+        "collapsible": {
+          "type": "boolean",
+          "default": false
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "Pagination": {
+      "kind": "macro",
+      "group": "navigation",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "totalPages": {
+          "type": "number",
+          "required": true
+        },
+        "page": {
+          "type": "number",
+          "default": 1,
+          "bindable": true
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "Breadcrumb": {
+      "kind": "macro",
+      "group": "navigation",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
+          "required": true
+        }
+      },
+      "events": [
+        "select"
+      ]
+    },
+    "Stepper": {
+      "kind": "macro",
+      "group": "navigation",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "step"
+          },
+          "required": true
+        },
+        "current": {
+          "type": "number",
+          "default": 0,
+          "bindable": true
+        },
+        "orientation": {
+          "type": "enum",
+          "enum": "orientation",
+          "default": "horizontal"
+        }
+      }
+    },
+    "Dialog": {
+      "kind": "native",
+      "group": "overlay",
+      "lite": false,
+      "children": "many",
+      "slots": [
+        "trigger",
+        "footer"
+      ],
+      "props": {
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "dismissible": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "Drawer": {
+      "kind": "native",
+      "group": "overlay",
+      "lite": false,
+      "children": "many",
+      "slots": [
+        "trigger",
+        "footer"
+      ],
+      "props": {
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "side": {
+          "type": "enum",
+          "enum": "side",
+          "default": "bottom",
+          "responsive": true
+        },
+        "dismissible": {
+          "type": "boolean",
+          "default": true
+        },
+        "dragToDismiss": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "AlertDialog": {
+      "kind": "macro",
+      "group": "overlay",
+      "lite": false,
+      "children": "many",
+      "slots": [
+        "trigger"
+      ],
+      "props": {
+        "title": {
+          "type": "string",
+          "required": true
+        },
+        "description": {
+          "type": "string"
+        },
+        "confirmLabel": {
+          "type": "string",
+          "default": "$string.confirm"
+        },
+        "cancelLabel": {
+          "type": "string",
+          "default": "$string.cancel"
+        },
+        "destructive": {
+          "type": "boolean",
+          "default": false
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        }
+      },
+      "events": [
+        "confirm",
+        "cancel",
+        "change"
+      ]
+    },
+    "Popover": {
+      "kind": "native",
+      "group": "overlay",
+      "lite": false,
+      "children": "many",
+      "slots": [
+        "trigger"
+      ],
+      "props": {
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "side": {
+          "type": "enum",
+          "enum": "side",
+          "default": "bottom"
+        },
+        "openOn": {
+          "type": "enum",
+          "enum": "openOn",
+          "default": "press"
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "Tooltip": {
+      "kind": "native",
+      "group": "overlay",
+      "lite": false,
+      "children": "many",
+      "props": {
+        "content": {
+          "type": "string",
+          "required": true
+        },
+        "side": {
+          "type": "enum",
+          "enum": "side",
+          "default": "top"
+        }
+      }
+    },
+    "Menu": {
+      "kind": "native",
+      "group": "overlay",
+      "lite": false,
+      "children": "one",
+      "props": {
+        "label": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "icon"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "menuItem"
+          },
+          "required": true
+        },
+        "openOn": {
+          "type": "enum",
+          "enum": "menuOpenOn",
+          "default": "press"
+        }
+      },
+      "events": [
+        "select"
+      ]
+    },
+    "Toast": {
+      "kind": "native",
+      "group": "overlay",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "description": {
+          "type": "string",
+          "bindable": true
+        },
+        "type": {
+          "type": "enum",
+          "enum": "alertType",
+          "default": "info"
+        },
+        "open": {
+          "type": "boolean",
+          "default": true,
+          "bindable": true
+        },
+        "duration": {
+          "type": "number",
+          "default": 5000
+        },
+        "actionLabel": {
+          "type": "string"
+        },
+        "dismissible": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "events": [
+        "dismiss",
+        "action",
+        "change"
+      ]
+    },
+    "Badge": {
+      "kind": "macro",
+      "group": "feedback",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "text": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "variant": {
+          "type": "enum",
+          "enum": "variant",
+          "default": "default"
+        },
+        "icon": {
+          "type": "icon"
+        }
+      }
+    },
+    "Alert": {
+      "kind": "macro",
+      "group": "feedback",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "title": {
+          "type": "string",
+          "required": true
+        },
+        "message": {
+          "type": "string"
+        },
+        "type": {
+          "type": "enum",
+          "enum": "alertType",
+          "default": "info"
+        }
+      }
+    },
+    "Chip": {
+      "kind": "macro",
+      "group": "feedback",
+      "lite": true,
+      "children": "none",
+      "slots": [
+        "leading"
+      ],
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "shape": {
+          "type": "enum",
+          "enum": "chipShape",
+          "default": "pill"
+        },
+        "selected": {
+          "type": "boolean",
+          "default": false
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone",
+          "default": "neutral"
+        },
+        "dot": {
+          "type": "color"
+        },
+        "icon": {
+          "type": "icon"
+        },
+        "image": {
+          "type": "url"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "removable": {
+          "type": "boolean",
+          "default": false
+        },
+        "pressable": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "press",
+        "remove"
+      ]
+    },
+    "EmptyState": {
+      "kind": "macro",
+      "group": "feedback",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "icon": {
+          "type": "icon",
+          "required": true
+        },
+        "title": {
+          "type": "string",
+          "required": true
+        },
+        "description": {
+          "type": "string"
+        },
+        "actionLabel": {
+          "type": "string"
+        },
+        "size": {
+          "type": "enum",
+          "values": [
+            "page",
+            "list"
+          ],
+          "default": "page"
+        }
+      },
+      "events": [
+        "press"
+      ]
+    },
+    "Progress": {
+      "kind": "macro",
+      "group": "feedback",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "value": {
+          "type": "number",
+          "required": true,
+          "bindable": true
+        },
+        "max": {
+          "type": "number",
+          "default": 100
+        },
+        "label": {
+          "type": "string"
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone",
+          "default": "primary"
+        }
+      }
+    },
+    "Meter": {
+      "kind": "macro",
+      "group": "feedback",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "segments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "segment"
+          },
+          "required": true
+        },
+        "max": {
+          "type": "number",
+          "default": 100
+        },
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "Ring": {
+      "kind": "native",
+      "group": "feedback",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "value": {
+          "type": "number",
+          "required": true,
+          "bindable": true
+        },
+        "size": {
+          "type": "enum",
+          "enum": "controlSize",
+          "default": "default"
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone",
+          "default": "primary"
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    },
+    "Spinner": {
+      "kind": "native",
+      "group": "feedback",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "size": {
+          "type": "enum",
+          "enum": "spinnerSize",
+          "default": "default"
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    },
+    "Skeleton": {
+      "kind": "native",
+      "group": "feedback",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "width": {
+          "type": "string"
+        },
+        "height": {
+          "type": "string"
+        },
+        "rounded": {
+          "type": "boolean",
+          "default": false
+        },
+        "rows": {
+          "type": "number"
+        },
+        "rowHeight": {
+          "type": "number"
+        },
+        "dot": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "Table": {
+      "kind": "native",
+      "group": "data",
+      "lite": false,
+      "children": "none",
+      "slots": [
+        "*"
+      ],
+      "slotScope": "row",
+      "props": {
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "column"
+          },
+          "required": true
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "required": true,
+          "bindable": true
+        },
+        "rowKey": {
+          "type": "string",
+          "default": "id"
+        },
+        "sort": {
+          "type": "object",
+          "shape": "sort",
+          "bindable": true
+        },
+        "selectable": {
+          "type": "enum",
+          "enum": "selectable",
+          "default": "none"
+        },
+        "selected": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "bindable": true
+        },
+        "caption": {
+          "type": "string"
+        },
+        "emptyText": {
+          "type": "string",
+          "default": "$string.noResults"
+        },
+        "striped": {
+          "type": "boolean",
+          "default": false
+        },
+        "density": {
+          "type": "enum",
+          "enum": "density",
+          "default": "default"
+        },
+        "stickyHeader": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "sort",
+        "select",
+        "rowPress"
+      ]
+    },
+    "Chart": {
+      "kind": "native",
+      "group": "data",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "kind": {
+          "type": "enum",
+          "enum": "chartKind",
+          "required": true
+        },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "bindable": true
+        },
+        "series": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "series"
+          },
+          "required": true,
+          "bindable": true
+        },
+        "title": {
+          "type": "string"
+        },
+        "height": {
+          "type": "number",
+          "default": 200
+        },
+        "xLabel": {
+          "type": "string"
+        },
+        "yLabel": {
+          "type": "string"
+        },
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "showAxes": {
+          "type": "boolean",
+          "default": true
+        },
+        "showGrid": {
+          "type": "boolean",
+          "default": true
+        },
+        "showLegend": {
+          "type": "boolean",
+          "default": true
+        },
+        "showValues": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "Sparkline": {
+      "kind": "macro",
+      "group": "data",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "required": true,
+          "bindable": true
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone",
+          "default": "primary"
+        },
+        "height": {
+          "type": "number",
+          "default": 24
+        }
+      }
+    },
+    "Button": {
+      "kind": "native",
+      "group": "action",
+      "lite": true,
+      "children": "one",
+      "props": {
+        "label": {
+          "type": "string",
+          "bindable": true
+        },
+        "icon": {
+          "type": "icon"
+        },
+        "variant": {
+          "type": "enum",
+          "enum": "variant",
+          "default": "default"
+        },
+        "size": {
+          "type": "enum",
+          "enum": "size",
+          "default": "default"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "loading": {
+          "type": "boolean",
+          "default": false
+        },
+        "pendingLabel": {
+          "type": "string"
+        },
+        "submit": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "press"
+      ]
+    },
+    "Link": {
+      "kind": "native",
+      "group": "action",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "href": {
+          "type": "url"
+        },
+        "external": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "press"
+      ]
+    },
+    "Toggle": {
+      "kind": "native",
+      "group": "action",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true
+        },
+        "icon": {
+          "type": "icon"
+        },
+        "pressed": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "variant": {
+          "type": "enum",
+          "values": [
+            "default",
+            "outline"
+          ],
+          "default": "default"
+        },
+        "size": {
+          "type": "enum",
+          "enum": "controlSize",
+          "default": "default"
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "Form": {
+      "kind": "native",
+      "group": "input",
+      "lite": true,
+      "children": "many",
+      "props": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "busy": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "summary": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "submit",
+        "invalid",
+        "change"
+      ]
+    },
+    "Input": {
+      "kind": "native",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "type": {
+          "type": "enum",
+          "enum": "inputType",
+          "default": "text"
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "check"
+          }
+        },
+        "validateOn": {
+          "type": "enum",
+          "enum": "validateOn",
+          "default": "blur"
+        }
+      },
+      "events": [
+        "change",
+        "submit",
+        "focus",
+        "blur"
+      ]
+    },
+    "Textarea": {
+      "kind": "native",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "rows": {
+          "type": "number",
+          "default": 3
+        },
+        "autosize": {
+          "type": "boolean",
+          "default": false
+        },
+        "maxRows": {
+          "type": "number"
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "check"
+          }
+        },
+        "validateOn": {
+          "type": "enum",
+          "enum": "validateOn",
+          "default": "blur"
+        }
+      },
+      "events": [
+        "change",
+        "focus",
+        "blur"
+      ]
+    },
+    "NumberField": {
+      "kind": "native",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "value": {
+          "type": "number",
+          "bindable": true
+        },
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "step": {
+          "type": "number",
+          "default": 1
+        },
+        "precision": {
+          "type": "number"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "check"
+          }
+        },
+        "validateOn": {
+          "type": "enum",
+          "enum": "validateOn",
+          "default": "blur"
+        }
+      },
+      "events": [
+        "change",
+        "submit",
+        "focus",
+        "blur"
+      ]
+    },
+    "Checkbox": {
+      "kind": "native",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "checked": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "check"
+          }
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "Radio": {
+      "kind": "native",
+      "group": "input",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
+          "required": true
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "orientation": {
+          "type": "enum",
+          "enum": "orientation",
+          "default": "vertical"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "check"
+          }
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "ChoiceTiles": {
+      "kind": "native",
+      "group": "input",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
+          "required": true
+        },
+        "type": {
+          "type": "enum",
+          "enum": "groupType",
+          "default": "single"
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "columns": {
+          "type": "number",
+          "default": 2
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "check"
+          }
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "Switch": {
+      "kind": "native",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "checked": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "description": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "Slider": {
+      "kind": "native",
+      "group": "input",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string"
+        },
+        "min": {
+          "type": "number",
+          "default": 0
+        },
+        "max": {
+          "type": "number",
+          "required": true
+        },
+        "step": {
+          "type": "number",
+          "default": 1
+        },
+        "value": {
+          "type": "number",
+          "bindable": true
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "Rating": {
+      "kind": "macro",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "value": {
+          "type": "number",
+          "default": 0,
+          "bindable": true
+        },
+        "max": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 100
+        },
+        "readOnly": {
+          "type": "boolean",
+          "default": false
+        },
+        "size": {
+          "type": "enum",
+          "enum": "controlSize",
+          "default": "default"
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "Select": {
+      "kind": "native",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
+          "bindable": true
+        },
+        "source": {
+          "type": "string"
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "multiple": {
+          "type": "boolean",
+          "default": false
+        },
+        "searchable": {
+          "type": "boolean",
+          "default": false
+        },
+        "emptyText": {
+          "type": "string",
+          "default": "$string.noResults"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "check"
+          }
+        },
+        "validateOn": {
+          "type": "enum",
+          "enum": "validateOn",
+          "default": "change"
+        }
+      },
+      "events": [
+        "change",
+        "search"
+      ]
+    },
+    "SearchList": {
+      "kind": "native",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "searchItem"
+          },
+          "required": true,
+          "bindable": true
+        },
+        "query": {
+          "type": "string",
+          "bindable": true
+        },
+        "placeholder": {
+          "type": "string",
+          "default": "$string.search"
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "emptyText": {
+          "type": "string",
+          "default": "$string.noResults"
+        },
+        "maxRows": {
+          "type": "number",
+          "default": 8
+        },
+        "showCount": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "events": [
+        "search",
+        "select"
+      ]
+    },
+    "ChipInput": {
+      "kind": "native",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "bindable": true
+        },
+        "suggestions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
+          "bindable": true
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "max": {
+          "type": "number"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "check"
+          }
+        }
+      },
+      "events": [
+        "change",
+        "add",
+        "remove"
+      ]
+    },
+    "DatePicker": {
+      "kind": "native",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "value": {
+          "type": "date",
+          "bindable": true
+        },
+        "min": {
+          "type": "date"
+        },
+        "max": {
+          "type": "date"
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "firstDayOfWeek": {
+          "type": "number"
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "DateRangePicker": {
+      "kind": "native",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "start": {
+          "type": "date",
+          "bindable": true
+        },
+        "end": {
+          "type": "date",
+          "bindable": true
+        },
+        "min": {
+          "type": "date"
+        },
+        "max": {
+          "type": "date"
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "firstDayOfWeek": {
+          "type": "number"
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "TimePicker": {
+      "kind": "native",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "min": {
+          "type": "string"
+        },
+        "max": {
+          "type": "string"
+        },
+        "step": {
+          "type": "number",
+          "default": 15
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "FileUpload": {
+      "kind": "native",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "accept": {
+          "type": "string"
+        },
+        "multiple": {
+          "type": "boolean",
+          "default": false
+        },
+        "maxSize": {
+          "type": "number"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "file"
+          },
+          "bindable": true
+        },
+        "hint": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "upload",
+        "remove"
+      ]
+    },
+    "Composer": {
+      "kind": "native",
+      "group": "input",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "placeholder": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "submitLabel": {
+          "type": "string",
+          "default": "$string.send"
+        },
+        "attachments": {
+          "type": "boolean",
+          "default": false
+        },
+        "busy": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "submit",
+        "change",
+        "stop"
+      ]
+    },
+    "Row": {
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "children": "none",
+      "slots": [
+        "leading",
+        "trailing"
+      ],
+      "props": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "identifier": {
+          "type": "string",
+          "bindable": true
+        },
+        "subtitle": {
+          "type": "string",
+          "bindable": true
+        },
+        "meta": {
+          "type": "string",
+          "bindable": true
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "icon"
+        },
+        "chevron": {
+          "type": "enum",
+          "enum": "rowChevron",
+          "default": "none"
+        },
+        "selected": {
+          "type": "boolean",
+          "default": false
+        },
+        "density": {
+          "type": "enum",
+          "enum": "density",
+          "default": "default"
+        },
+        "surface": {
+          "type": "enum",
+          "enum": "rowSurface",
+          "default": "flat"
+        },
+        "pressable": {
+          "type": "boolean",
+          "default": false
+        },
+        "depth": {
+          "type": "number",
+          "default": 0
+        }
+      },
+      "events": [
+        "press"
+      ]
+    },
+    "TreeGuides": {
+      "kind": "native",
+      "group": "list",
+      "lite": true,
+      "children": "none",
+      "hidden": true,
+      "props": {
+        "depth": {
+          "type": "number",
+          "required": true
+        },
+        "elbowAt": {
+          "type": "number"
+        },
+        "tee": {
+          "type": "boolean",
+          "default": false
+        },
+        "passThrough": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "Unknown": {
+      "kind": "native",
+      "group": "feedback",
+      "lite": true,
+      "children": "none",
+      "hidden": true,
+      "props": {
+        "component": {
+          "type": "string",
+          "required": true
+        },
+        "catalogId": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
