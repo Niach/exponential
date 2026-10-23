@@ -275,16 +275,18 @@ running it; steer it from the web or `exponential sessions log {} --follow`",
 const FOREGROUND_TICK: Duration = Duration::from_secs(10);
 const FOREGROUND_POLL: Duration = Duration::from_secs(15);
 
-/// The shapes the foreground loop plans over (it plans only once both
+/// The shapes the foreground loop plans over (it plans only once all
 /// reached `up-to-date`: a cold store would read the row as gone → Kill).
-const FOREGROUND_SHAPES: &[&str] = &["sessions", "messages"];
+/// NEW-8: the messages wait on their conversations (a message's session is
+/// its conversation's).
+const FOREGROUND_SHAPES: &[&str] = &["sessions", "messages", "conversations"];
 
 /// EXP-1292: the foreground `code`/`run` process is the ONLY host of its
 /// session — it holds the claim lock, so the daemon on the same machine
 /// skips the row — so it runs its own one-session pickup: the person
 /// messages sent from the web are delivered, answered question/plan cards
 /// reach the engine, and an `ended` row (Stop/end, the agent's
-/// `sessions_end`) kills the run. It syncs the `sessions` + `messages`
+/// `sessions_end`) kills the run. It syncs the `sessions` + `messages` (+ NEW-8 `conversations`)
 /// shapes into a private store (deleted at the end) and plans over them
 /// like the daemon, acting only on its own session; until those shapes are
 /// up it polls the row for an end over MCP. The thread stops with the
@@ -358,7 +360,7 @@ fn run_foreground_pickup(ctx: &Ctx, deps: &PickupDeps, session_id: &str) {
     }
 }
 
-/// The private store's pipeline (sessions + messages only). `None` leaves
+/// The private store's pipeline (sessions + messages + conversations only). `None` leaves
 /// the loop on the MCP end poll.
 fn start_foreground_sync(ctx: &Ctx, db_path: &std::path::Path) -> Option<Arc<sync::SyncManager>> {
     if let Some(parent) = db_path.parent() {
@@ -392,8 +394,8 @@ fn foreground_pass(
 ) {
     use coding::pickup::PickupAction;
     let rows: Vec<SessionRow> = crate::commands::daemon::read_shape_rows(store, "sessions");
-    let messages: Vec<domain::rows::MessageRow> =
-        crate::commands::daemon::read_shape_rows(store, "messages");
+    // NEW-8: keyed through their conversation.
+    let messages: Vec<domain::rows::MessageRow> = crate::commands::daemon::read_keyed_messages(store);
     deps.live.settle_handed(&messages);
     let views = deps.live.live_views();
     let in_flight = std::collections::HashSet::new();
@@ -522,8 +524,8 @@ fn wait_for_foreground_gate(data_dir: &std::path::Path) -> anyhow::Result<ClaimL
 }
 
 /// The just-queued row as the pickup reads it. The MCP projection carries
-/// the server-resolved columns (team, repository, branch, kind, the agent
-/// CLI); the pickers it does not project come from what this start sent.
+/// the server-resolved columns (team, repository, branch, the agent
+/// definition, the agent CLI); the pickers it does not project come from what this start sent.
 pub fn session_row_from_remote(remote: &RemoteSession, input: &SessionsSendInput) -> SessionRow {
     SessionRow {
         id: remote.id.clone(),
@@ -531,7 +533,7 @@ pub fn session_row_from_remote(remote: &RemoteSession, input: &SessionsSendInput
         parent_id: remote.parent_id.clone(),
         root_id: remote.root_id.clone(),
         depth: Some(i64::from(remote.depth)),
-        kind: remote.kind.clone(),
+        agent_id: remote.agent_id.clone(),
         user_id: remote.user_id.clone(),
         // Just sent naming this device: a projection that leaves it out
         // (or the status) still reads as the row this start queued.
@@ -543,8 +545,6 @@ pub fn session_row_from_remote(remote: &RemoteSession, input: &SessionsSendInput
         plan_mode: input.plan_mode.unwrap_or(false),
         computer_use: input.computer_use.unwrap_or(false),
         ultracode: input.ultracode.unwrap_or(false),
-        // The projection's own flag.
-        dispatch: remote.dispatch,
         repository_id: remote.repository_id.clone(),
         branch: remote.branch.clone(),
         status: Some(if remote.status.is_empty() {
@@ -554,7 +554,6 @@ pub fn session_row_from_remote(remote: &RemoteSession, input: &SessionsSendInput
         }),
         busy: remote.busy,
         title: remote.title.clone(),
-        name: remote.name.clone(),
         ..SessionRow::default()
     }
 }
@@ -705,7 +704,6 @@ mod tests {
         let remote = RemoteSession {
             id: "s1".into(),
             team_id: Some("t1".into()),
-            kind: Some("thread".into()),
             device_id: Some("cli-dev".into()),
             cli: Some("claude".into()),
             repository_id: Some("r1".into()),

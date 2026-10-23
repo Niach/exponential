@@ -1,6 +1,7 @@
 package com.exponential.app.domain
 
 import com.exponential.app.data.db.AgentDefinitionEntity
+import com.exponential.app.data.db.ConversationEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.data.db.MessageEntity
@@ -42,7 +43,6 @@ object SessionTree {
         val teamId: String,
         val parentId: String?,
         val rootId: String,
-        val kind: String,
         val userId: String,
         val status: String,
         val busy: Boolean,
@@ -51,21 +51,12 @@ object SessionTree {
         val shared: Boolean,
         val title: String?,
         val guide: List<GuideEntry>?,
-        val actionName: String?,
-        val name: String?,
-        val icon: String?,
-        val color: String?,
-        val sortOrder: Double,
         val startedAt: String?,
         val endedAt: String?,
         val createdAt: String,
         val updatedAt: String,
         /** The steer device that runs it (`devices.device_id`); null = none. */
         val deviceId: String? = null,
-        /** EXP-1323: the live status line (absent = null). */
-        val caption: String? = null,
-        /** EXP-1323: a `/btw` aside child (absent = false). */
-        val aside: Boolean = false,
         /** NEW-2: the agent whose conversation this root is (null = a thread
          *  or a child); the kind derives from it ([SessionKind.sessionKindOf]). */
         val agentId: String? = null,
@@ -288,9 +279,6 @@ object SessionTree {
         /** A spinner while true. */
         val running: Boolean,
         val testId: String,
-        /** EXP-1323: the live status line under the name; an ended session's is
-         *  dropped unless it is an aside (its answer's first line stays). */
-        val caption: String? = null,
     )
 
     /**
@@ -324,7 +312,6 @@ object SessionTree {
         } else {
             null
         }
-        val caption = session.caption?.trim()
         return SessionCard(
             sessionId = session.id,
             icon = CardCopy.ICONS.getValue(state),
@@ -335,14 +322,13 @@ object SessionTree {
             elapsed = elapsed,
             running = state == SessionState.Working,
             testId = CardCopy.TEST_ID_CARD,
-            caption = caption?.takeIf { it.isNotEmpty() && (state != SessionState.Ended || session.aside) },
         )
     }
 
     // ── EXP-1341: titles via [SessionTitle] ─────────────────────────────────
 
     private fun titleSession(s: Session) =
-        SessionTitle.TitleSession(id = s.id, rootId = s.rootId, name = s.name, title = s.title, actionName = s.actionName)
+        SessionTitle.TitleSession(id = s.id, rootId = s.rootId, title = s.title)
 
     private fun titleLink(link: SessionIssue) =
         SessionTitle.TitleLink(link.sessionId, link.issueId, link.sortOrder)
@@ -1027,8 +1013,6 @@ object SessionTree {
         /** EXP-1323: bold title (a root: the tree's newest agent message is
          *  newer than the viewer's read of the root; a child: its own). */
         val unread: Boolean = false,
-        /** EXP-1323: the live caption (the session card rule). */
-        val caption: String? = null,
     )
 
     data class ThreadsListGroup(val key: ThreadsGroupKey, val title: String, val rows: List<ThreadsListRow>)
@@ -1107,21 +1091,20 @@ object SessionTree {
                 parentId = null,
                 rootId = root.id,
                 unread = unreadAt(newestAgentInTree[root.id], root.id),
-                caption = sessionCard(root, title, cardNow).caption,
             )
             val key = when {
                 needsYou -> ThreadsGroupKey.NeedsYou
                 running -> ThreadsGroupKey.Running
                 else -> ThreadsGroupKey.Recent
             }
-            // A live tree nests its children (depth-first, creation order;
-            // asides stay in the Conversation); Recent collapses to the root.
+            // A live tree nests its children (depth-first, creation order);
+            // Recent collapses to the root.
             val children = mutableListOf<ThreadsListRow>()
             if (key != ThreadsGroupKey.Recent) {
                 val ordered = treeOrder(tree)
                 fun walk(parentId: String, depth: Int) {
                     for (child in ordered) {
-                        if (child.parentId != parentId || child.aside) continue
+                        if (child.parentId != parentId) continue
                         val card = sessionCard(child, titleOf(child), cardNow)
                         val ended = child.status == DomainContract.sessionStatusEnded
                         children.add(
@@ -1137,7 +1120,6 @@ object SessionTree {
                                 parentId = parentId,
                                 rootId = root.id,
                                 unread = unreadAt(newestAgent[child.id], child.id),
-                                caption = card.caption,
                             ),
                         )
                         walk(child.id, depth + 1)
@@ -1539,7 +1521,6 @@ object SessionTree {
         teamId = row.teamId,
         parentId = row.parentId,
         rootId = row.rootId.ifEmpty { row.id },
-        kind = row.kind,
         userId = row.userId,
         status = row.status,
         busy = row.busy,
@@ -1551,18 +1532,11 @@ object SessionTree {
             val obj = element as? JsonObject
             GuideEntry(text = obj?.str("text"), label = obj?.str("label"))
         },
-        actionName = row.actionName,
-        name = row.name,
-        icon = row.icon,
-        color = row.color,
-        sortOrder = row.sortOrder,
         startedAt = row.startedAt,
         endedAt = row.endedAt,
         createdAt = row.createdAt,
         updatedAt = row.updatedAt,
         deviceId = row.deviceId.ifBlank { null },
-        caption = row.caption,
-        aside = row.aside,
         agentId = row.agentId,
         appId = row.appId,
     )
@@ -1589,9 +1563,22 @@ object SessionTree {
         return parents
     }
 
-    fun message(row: MessageEntity): Message = Message(
+    /** NEW-8: a `conversations` row as the keying input of [messages]. */
+    fun conversation(row: ConversationEntity): MessageConversation.Conversation =
+        MessageConversation.Conversation(id = row.id, sessionId = row.sessionId)
+
+    /** NEW-8: the rows keyed through their conversation
+     *  ([MessageConversation.keyMessagesBySession]): dm/channel and
+     *  not-yet-synced conversations are left out, input order kept. */
+    fun messages(rows: List<MessageEntity>, conversations: List<ConversationEntity>): List<Message> =
+        MessageConversation.keyMessagesBySession(rows, conversations.map(::conversation)) { it.conversationId }
+            .map { (row, sessionId) -> message(row, sessionId) }
+
+    /** [sessionId] = the session the row's conversation belongs to (resolved
+     *  by [messages] or by a DAO query scoped to that session's conversation). */
+    fun message(row: MessageEntity, sessionId: String): Message = Message(
         id = row.id,
-        sessionId = row.sessionId,
+        sessionId = sessionId,
         authorKind = row.authorKind,
         authorId = row.authorId,
         body = row.body,

@@ -143,7 +143,7 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
           data-testid="session-back"
         >
           <BackIcon className="size-4 shrink-0" />
-          <span className="truncate">{rootAgent?.name || rootRow?.name || `Back`}</span>
+          <span className="truncate">{rootAgent?.name || `Back`}</span>
         </Link>
       ) : !isRoot || threadTitle ? (
         <Link

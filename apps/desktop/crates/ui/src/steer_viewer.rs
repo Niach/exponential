@@ -644,6 +644,10 @@ impl SteerSessionView {
             subscriptions.push(cx.observe(&collections.messages, |this, _, cx| {
                 this.refresh_replies(cx);
             }));
+            // NEW-8: a message's session is its conversation's.
+            subscriptions.push(cx.observe(&collections.conversations, |this, _, cx| {
+                this.refresh_replies(cx);
+            }));
             // EXP-776: the chip memo is only as fresh as the issues and
             // statuses it was read from (glyph and tint are part of a chip).
             subscriptions.push(cx.observe(&collections.issues, |this, _, cx| {
@@ -1471,9 +1475,8 @@ impl SteerSessionView {
             self.row = row;
             self.may_message = may_message;
             // EXP-1334: the synced row now says what a pick asked for — the
-            // pick has settled (a DISPATCHER's never will: its picks are its
-            // WORK picks, server-only, so the local pick stays the read).
-            if let Some(row) = self.row.as_ref().filter(|row| !row.dispatch) {
+            // pick has settled.
+            if let Some(row) = self.row.as_ref() {
                 self.option_picks.drop_matching(row);
             }
             cx.notify();
@@ -7553,8 +7556,8 @@ impl SteerSessionView {
     }
 
     /// EXP-1334 — THE Plan switch under the card (web `planOn`): the pick
-    /// ahead of its row, else the live mode (`config_state.currentMode`,
-    /// never a DISPATCHER's: it hands the work to children), else the row's
+    /// ahead of its row, else the live mode (`config_state.currentMode`),
+    /// else the row's
     /// `plan_mode`; a flip = `sessions.configure({planMode})`. Read-only
     /// where the run cannot change; nothing for an agent without a plan mode
     /// (web `agentSupportsPlanMode`: claude only).
@@ -7565,7 +7568,7 @@ impl SteerSessionView {
         }
         let on = match self.option_picks.plan_mode {
             Some(on) => on,
-            None if !row.dispatch && self.feed.config().is_some() => self.plan_mode_label().is_some(),
+            None if self.feed.config().is_some() => self.plan_mode_label().is_some(),
             None => row.plan_mode,
         };
         let session_id = self.session_id.to_string();

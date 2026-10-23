@@ -53,21 +53,14 @@ export const MODELS = contract.codingModel.values.map((value) => ({
   label: value.charAt(0).toUpperCase() + value.slice(1),
 }))
 
-/** EXP-1252 `MOVING_LABEL` (apps/web/src/lib/session-device-move.ts ×4). */
-const movingLabel = (device: string) => `Moving to ${device}…`
-
 /** N-12: the session composer's in-card row: the Device pin as its glyph
- *  alone (EXP-1252: THE launch pin; a pick moves the session; `moving` = a
- *  move is pending, the tooltip names the target) · the model pin · the
- *  Plan switch. */
+ *  alone (EXP-1252: THE launch pin; a pick moves the session) · the model
+ *  pin · the Plan switch. */
 export function ComposerSessionRowSpecimen({
   phase,
-  moving = false,
 }: {
   phase: Exclude<ComposerPhase, `start`>
-  moving?: boolean
 }) {
-  const target = DEVICES[1]!
   const current = DEVICES[0]!
   return (
     <div className="flex min-w-0 items-center gap-x-2.5 pl-1 text-xs text-muted-foreground">
@@ -83,8 +76,8 @@ export function ComposerSessionRowSpecimen({
             variant="inline"
             iconOnly
             label="Move to device"
-            value={moving ? movingLabel(target.name) : current.name}
-            icon={getDeviceIcon(moving ? target : current)}
+            value={current.name}
+            icon={getDeviceIcon(current)}
           />
         }
       />
@@ -99,14 +92,7 @@ export function ComposerSessionRowSpecimen({
 
 /** The options line under the START composer: device · account · model ·
  *  Plan · repository. (A session's pins sit in the card: above.) */
-export function ComposerOptionsSpecimen({
-  phase,
-  moving = false,
-}: {
-  phase: ComposerPhase
-  moving?: boolean
-}) {
-  const target = DEVICES[1]!
+export function ComposerOptionsSpecimen({ phase }: { phase: ComposerPhase }) {
   return (
     <ComposerOptionsRow>
       <DevicePicker
@@ -116,16 +102,6 @@ export function ComposerOptionsSpecimen({
         value="mint"
         onChange={noop}
         width="sm"
-        trigger={
-          moving ? (
-            <PickerTrigger
-              variant="inline"
-              label="Move to device"
-              value={movingLabel(target.name)}
-              icon={getDeviceIcon(target)}
-            />
-          ) : undefined
-        }
       />
       {phase === `start` && (
         <AccountPicker variant="inline" value="claude:1" options={ACCOUNTS} onChange={noop} />

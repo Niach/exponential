@@ -49,7 +49,6 @@ use crate::pickers::{
 };
 
 pub(crate) mod account_picker;
-pub(crate) mod action_picker;
 pub(crate) mod assignee_picker;
 pub(crate) mod board_picker;
 pub(crate) mod device_picker;
@@ -2281,7 +2280,7 @@ mod tests {
 
         struct Pickers {
             seen: Rc<Cell<u32>>,
-            surfaces: Rc<Cell<[Option<PickerSurface>; 10]>>,
+            surfaces: Rc<Cell<[Option<PickerSurface>; 9]>>,
         }
 
         impl gpui::Render for Pickers {
@@ -2292,7 +2291,7 @@ mod tests {
             ) -> impl IntoElement {
                 let seen = self.seen.clone();
                 let surfaces = self.surfaces.clone();
-                let mut mounted: [Option<PickerSurface>; 10] = [None; 10];
+                let mut mounted: [Option<PickerSurface>; 9] = [None; 9];
                 let noop: OnPickerChange<String> = Rc::new(|_, _, _| {});
 
                 let boards = vec![Board::seeded("board-1", "team-1", "Mobile Bugs")];
@@ -2311,12 +2310,6 @@ mod tests {
                 }))
                 .expect("user row")];
                 let statuses = default_resolved_statuses();
-                let actions = vec![action_picker::ActionPickerAction {
-                    id: "action-1".to_string(),
-                    name: "Fix merge conflicts".to_string(),
-                    icon: Some("wrench".to_string()),
-                    description: None,
-                }];
                 let devices = vec![device_picker::DevicePickerDevice {
                     id: "device-1".to_string(),
                     name: "studio".to_string(),
@@ -2343,56 +2336,52 @@ mod tests {
                 let issue: Picker<String> =
                     issue_picker::issue_multi_picker(&issues, vec![], probe(&seen, 1), noop.clone());
                 mounted[1] = Some(issue.surface());
-                let action: Picker<String> =
-                    action_picker::action_picker(&actions, None, probe(&seen, 2), noop.clone());
-                mounted[2] = Some(action.surface());
                 let account: Picker<String> =
-                    account_picker::account_picker(&accounts, None, probe(&seen, 3), noop.clone());
-                mounted[3] = Some(account.surface());
+                    account_picker::account_picker(&accounts, None, probe(&seen, 2), noop.clone());
+                mounted[2] = Some(account.surface());
                 let device: Picker<String> =
-                    device_picker::device_picker(&devices, None, probe(&seen, 4), noop.clone());
-                mounted[4] = Some(device.surface());
+                    device_picker::device_picker(&devices, None, probe(&seen, 3), noop.clone());
+                mounted[3] = Some(device.surface());
                 let assignee: Picker<String> = assignee_picker::assignee_picker(
                     &members,
                     PickerMode::Single,
                     vec![],
                     true,
-                    probe(&seen, 5),
+                    probe(&seen, 4),
                     noop.clone(),
                 );
-                mounted[5] = Some(assignee.surface());
+                mounted[4] = Some(assignee.surface());
                 let icon: Picker<String> = icon_picker::icon_picker(
                     icon_picker::IconSet::Device,
                     None,
-                    probe(&seen, 6),
+                    probe(&seen, 5),
                     noop.clone(),
                 );
-                mounted[6] = Some(icon.surface());
+                mounted[5] = Some(icon.surface());
                 let status: Picker<String> = status_picker::status_picker(
                     &statuses,
                     PickerMode::Single,
                     vec![],
-                    probe(&seen, 7),
+                    probe(&seen, 6),
                     noop.clone(),
                 );
-                mounted[7] = Some(status.surface());
+                mounted[6] = Some(status.surface());
                 let priority: Picker<domain::IssuePriority> = priority_picker::priority_picker(
                     PickerMode::Single,
                     vec![],
-                    probe(&seen, 8),
+                    probe(&seen, 7),
                     Rc::new(|_, _, _| {}),
                 );
-                mounted[8] = Some(priority.surface());
+                mounted[7] = Some(priority.surface());
                 let label: Picker<String> =
-                    label_picker::label_picker(&labels, vec![], probe(&seen, 9), noop.clone());
-                mounted[9] = Some(label.surface());
+                    label_picker::label_picker(&labels, vec![], probe(&seen, 8), noop.clone());
+                mounted[8] = Some(label.surface());
 
                 surfaces.set(mounted);
                 v_flex()
                     .w(px(400.))
                     .child(board.render(window, cx))
                     .child(issue.render(window, cx))
-                    .child(action.render(window, cx))
                     .child(account.render(window, cx))
                     .child(device.render(window, cx))
                     .child(assignee.render(window, cx))
@@ -2404,7 +2393,7 @@ mod tests {
         }
 
         let seen = Rc::new(Cell::new(0u32));
-        let surfaces = Rc::new(Cell::new([None; 10]));
+        let surfaces = Rc::new(Cell::new([None; 9]));
         let (seen_out, surfaces_out) = (seen.clone(), surfaces.clone());
         cx.update(|cx| {
             gpui_component::init(cx);
@@ -2434,14 +2423,13 @@ mod tests {
 
         assert_eq!(
             seen_out.get(),
-            (1 << 10) - 1,
-            "all ten typed pickers mounted their trigger through Picker::render"
+            (1 << 9) - 1,
+            "all nine typed pickers mounted their trigger through Picker::render"
         );
         let mounted = surfaces_out.get();
         let expected = [
             PickerSurface::Search, // board   — searchable
             PickerSurface::Search, // issue   — searchable, multi
-            PickerSurface::Search, // action  — searchable
             PickerSurface::Menu,   // account — a short single pick
             PickerSurface::Menu,   // device  — a short single pick
             PickerSurface::Search, // assignee— searchable

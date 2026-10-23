@@ -430,9 +430,6 @@ pub struct SessionCard {
     pub tone: String,
     pub elapsed: Option<String>,
     pub running: bool,
-    /// EXP-1323: the live status line under the name; an ended session's
-    /// is dropped unless it is an aside (its answer's first line stays).
-    pub caption: Option<String>,
     pub test_id: String,
 }
 
@@ -493,12 +490,6 @@ pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCa
         _ => None,
     };
     let name = title.to_string();
-    let caption = session
-        .caption
-        .as_deref()
-        .map(str::trim)
-        .filter(|caption| !caption.is_empty() && (state != SessionState::Ended || session.aside))
-        .map(str::to_string);
     SessionCard {
         session_id: session.id.clone(),
         icon: state.icon().to_string(),
@@ -508,7 +499,6 @@ pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCa
         tone: state.tone().to_string(),
         elapsed,
         running: state == SessionState::Working,
-        caption,
         test_id: SESSION_CARD.test_ids.card.clone(),
     }
 }
@@ -1699,9 +1689,6 @@ pub struct ThreadsListRow {
     /// newer than the viewer's read of the root; a child: its own).
     #[serde(default)]
     pub unread: bool,
-    /// EXP-1323: the live caption (the session card rule).
-    #[serde(default)]
-    pub caption: Option<String>,
     /// The tree's newest `updated_at` (the sort key), verbatim; a child's
     /// own `updated_at`.
     pub activity_at: String,
@@ -1874,7 +1861,6 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
         } else {
             ThreadsListKey::Recent
         };
-        let caption = session_card(root, &title, 0).caption;
         let row = ThreadsListRow {
             session_id: root.id.clone(),
             team_id: root.team_id.clone().unwrap_or_default(),
@@ -1886,11 +1872,10 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
             busy: live.iter().any(|session| session.busy),
             needs_you,
             unread: unread_at(newest_agent_in_tree.get(root.id.as_str()), &root.id),
-            caption,
             activity_at: activity,
         };
-        // A live tree nests its children (depth-first, creation order;
-        // asides stay in the Conversation); Recent collapses to the root.
+        // A live tree nests its children (depth-first, creation order);
+        // Recent collapses to the root.
         let mut children = Vec::new();
         if key != ThreadsListKey::Recent {
             let ordered = tree_order(tree);
@@ -1901,7 +1886,7 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
                 visit: &mut dyn FnMut(&'s SessionRow, &str, usize),
             ) {
                 for child in ordered.iter().copied() {
-                    if child.parent_id.as_deref() != Some(parent_id) || child.aside {
+                    if child.parent_id.as_deref() != Some(parent_id) {
                         continue;
                     }
                     visit(child, parent_id, depth);
@@ -1925,7 +1910,6 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
                     busy: !child.is_ended() && child.busy,
                     needs_you: !child.is_ended() && child.needs_input,
                     unread: unread_at(newest_agent.get(child.id.as_str()), &child.id),
-                    caption: card.caption,
                     activity_at: child.updated_at.clone().unwrap_or_default(),
                 });
             });
@@ -2252,6 +2236,32 @@ mod tests {
             .unwrap_or_default()
     }
 
+    /// NEW-8: a fixture `TreeMessage` is already KEYED (its `sessionId` is
+    /// the session its conversation belongs to): it hydrates with a
+    /// synthesized conversation and the resolved session set after decode
+    /// (the row's own `session_id` is never decoded).
+    fn messages(value: &Value) -> Vec<MessageRow> {
+        value
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .enumerate()
+                    .map(|(index, item)| {
+                        let session_id = item["sessionId"].as_str().unwrap_or_default().to_string();
+                        let mut item = item.clone();
+                        if let Some(object) = item.as_object_mut() {
+                            object.entry("conversationId").or_insert_with(|| json!(format!("c-{session_id}")));
+                        }
+                        let mut message: MessageRow = row(&item, &format!("row-{index}"));
+                        message.session_id = session_id;
+                        message
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     fn now(value: &Value) -> i64 {
         parse_instant(value.as_str().expect("now")).expect("now parses")
     }
@@ -2401,7 +2411,7 @@ mod tests {
             let sessions: Vec<SessionRow> = rows(&input["sessions"]);
             let links: Vec<SessionIssueRow> = rows(&input["sessionIssues"]);
             let issues: Vec<TreeIssue> = serde_json::from_value(input["issues"].clone()).unwrap();
-            let messages: Vec<MessageRow> = rows(&input["messages"]);
+            let messages: Vec<MessageRow> = messages(&input["messages"]);
             let prs: Vec<PullRequestRow> = rows(&input["pullRequests"]);
             let sessions: Vec<&SessionRow> = sessions.iter().collect();
             let links: Vec<&SessionIssueRow> = links.iter().collect();
@@ -2436,7 +2446,7 @@ mod tests {
             let sessions: Vec<SessionRow> = rows(&input["sessions"]);
             let links: Vec<SessionIssueRow> = rows(&input["sessionIssues"]);
             let issues: Vec<TreeIssue> = serde_json::from_value(input["issues"].clone()).unwrap();
-            let messages: Vec<MessageRow> = rows(&input["messages"]);
+            let messages: Vec<MessageRow> = messages(&input["messages"]);
             let reads: Vec<SessionReadRow> = rows(&input["reads"]);
             let sessions: Vec<&SessionRow> = sessions.iter().collect();
             let links: Vec<&SessionIssueRow> = links.iter().collect();
@@ -2462,7 +2472,7 @@ mod tests {
             let links: Vec<SessionIssueRow> = rows(&input["sessionIssues"]);
             let issues: Vec<TreeIssue> =
                 serde_json::from_value(input["issues"].clone()).unwrap_or_default();
-            let messages: Vec<MessageRow> = rows(&input["messages"]);
+            let messages: Vec<MessageRow> = messages(&input["messages"]);
             let reads: Vec<SessionReadRow> = rows(&input["reads"]);
             let sessions: Vec<&SessionRow> = sessions.iter().collect();
             let links: Vec<&SessionIssueRow> = links.iter().collect();
@@ -2643,7 +2653,7 @@ mod tests {
         assert!(!cases.is_empty());
         for case in cases {
             let input = &case["input"];
-            let messages: Vec<MessageRow> = rows(&input["messages"]);
+            let messages: Vec<MessageRow> = messages(&input["messages"]);
             let messages: Vec<&MessageRow> = messages.iter().collect();
             let replies = composer_replies(input["sessionId"].as_str().unwrap(), &messages);
             assert_whole(&replies, &case["expected"], case["name"].as_str().unwrap());

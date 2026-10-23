@@ -33,13 +33,9 @@ class CrossTeamTest {
     }
 
     @Test
-    fun `a team action, then a pr, then the first issue names the route's subject`() {
+    fun `a saved prompt, then a pr, then the first issue names the route's subject`() {
         assertEquals(
-            RouteSubject.Action("act-1"),
-            routeSubject(mapOf("actionId" to "act-1")::get),
-        )
-        assertEquals(
-            RouteSubject.Action("act-2"),
+            RouteSubject.Prompt("act-2"),
             routeSubject(mapOf("action" to "act-2", "issues" to "i-1")::get),
         )
         // A builtin has no team row: its pr pick decides.

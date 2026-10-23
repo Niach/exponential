@@ -163,11 +163,6 @@ pub struct SessionReport {
     /// server strips the key (its zod object is not strict).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
-    /// EXP-1331: the live status line (`Editing ProductCard.tsx`, <=80
-    /// chars). `Some(None)` sends an explicit `null` (cleared at turn end
-    /// and session end).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub caption: Option<Option<String>>,
     /// EXP-1334: the row's `plan_mode` as the run is in it. EXP-1280: no
     /// device writes it any more (plan mode is Exponential's: a person's
     /// `sessions.configure` or the server's approval moves the row); kept
@@ -529,7 +524,6 @@ mod tests {
             branch: Some("exp/EXP-1".to_string()),
             title: Some("Fix the login".to_string()),
             account: Some("0a1b2c3d".to_string()),
-            caption: Some(Some("Editing cart.rs".to_string())),
             plan_mode: Some(false),
             model: Some("opus".to_string()),
             device_id: Some("dev-1".to_string()),
@@ -540,7 +534,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&input).unwrap(),
-            r#"{"sessionId":"s1","status":"running","needsInput":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","caption":"Editing cart.rs","planMode":false,"model":"opus","deviceId":"dev-1"}"#
+            r#"{"sessionId":"s1","status":"running","needsInput":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","planMode":false,"model":"opus","deviceId":"dev-1"}"#
         );
 
         // Some(None) = an explicit null (the wall cleared); a no-reset wall
@@ -552,15 +546,6 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&ReportInput { session_id: "s1", report: &cleared }).unwrap(),
             r#"{"sessionId":"s1","blocked":null}"#
-        );
-        // EXP-1331: the caption's clear is an explicit null too.
-        let uncaptioned = SessionReport {
-            caption: Some(None),
-            ..Default::default()
-        };
-        assert_eq!(
-            serde_json::to_string(&ReportInput { session_id: "s1", report: &uncaptioned }).unwrap(),
-            r#"{"sessionId":"s1","caption":null}"#
         );
         let open_ended = BlockedInput {
             kind: "rate_limit".to_string(),

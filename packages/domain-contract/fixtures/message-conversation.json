@@ -1,0 +1,52 @@
+{
+  "$comment": "NEW-8: a message lives in a CONVERSATION (`messages.conversation_id`), never on a session. A session's thread is the messages of its own conversation: the `conversations` row with kind `session` and `sessionId` = that session (one each, `uniq_conversations_session`). Clients sync the `conversations` shape and key every message through it: keyMessagesBySession(messages, conversations) returns the messages whose conversation belongs to a session, each with that `sessionId`, in input order. A message whose conversation is a dm or a channel (`sessionId` null) belongs to no session; a message whose conversation has not synced yet is held back (never guessed); a legacy `sessionId` the row may still carry is ignored, the conversation decides. Readiness: anything waiting on the messages (the title rungs, the thread's first paint) waits on the conversations shape too. Mirrors: TS src/message-conversation.ts, desktop `domain::message_conversation`, iOS ExpCore `MessageConversation.swift`, Android `domain/MessageConversation.kt`.",
+  "conversations": [
+    { "id": "c-root", "kind": "session", "sessionId": "s-root" },
+    { "id": "c-child", "kind": "session", "sessionId": "s-child" },
+    { "id": "c-dm", "kind": "dm", "sessionId": null },
+    { "id": "c-channel", "kind": "channel", "sessionId": null }
+  ],
+  "cases": [
+    {
+      "name": "a session conversation keys its messages to that session, in input order",
+      "messages": [
+        { "id": "m-2", "conversationId": "c-child" },
+        { "id": "m-1", "conversationId": "c-root" },
+        { "id": "m-3", "conversationId": "c-root" }
+      ],
+      "expected": [
+        { "id": "m-2", "sessionId": "s-child" },
+        { "id": "m-1", "sessionId": "s-root" },
+        { "id": "m-3", "sessionId": "s-root" }
+      ]
+    },
+    {
+      "name": "dm and channel messages belong to no session",
+      "messages": [
+        { "id": "m-dm", "conversationId": "c-dm" },
+        { "id": "m-ch", "conversationId": "c-channel" },
+        { "id": "m-1", "conversationId": "c-root" }
+      ],
+      "expected": [{ "id": "m-1", "sessionId": "s-root" }]
+    },
+    {
+      "name": "a message whose conversation has not synced is held back",
+      "messages": [
+        { "id": "m-early", "conversationId": "c-unsynced" },
+        { "id": "m-1", "conversationId": "c-root" }
+      ],
+      "expected": [{ "id": "m-1", "sessionId": "s-root" }]
+    },
+    {
+      "name": "a legacy sessionId on the row is ignored: the conversation decides",
+      "messages": [{ "id": "m-legacy", "conversationId": "c-child", "sessionId": "s-root" }],
+      "expected": [{ "id": "m-legacy", "sessionId": "s-child" }]
+    },
+    {
+      "name": "no conversations synced: nothing is keyed",
+      "conversations": [],
+      "messages": [{ "id": "m-1", "conversationId": "c-root" }],
+      "expected": []
+    }
+  ]
+}

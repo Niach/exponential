@@ -306,7 +306,9 @@ pub struct PickupInput<'a> {
     pub device_id: &'a str,
     /// Every visible `sessions` row.
     pub sessions: &'a [SessionRow],
-    /// Every visible `messages` row.
+    /// Every visible `messages` row, KEYED through its conversation (NEW-8
+    /// `domain::message_conversation::key_messages_by_session`: `session_id`
+    /// = the session its conversation belongs to, never the row's own).
     pub messages: &'a [MessageRow],
     /// Sessions with an engine attached in this process.
     pub live: &'a HashMap<String, LiveView>,
@@ -1544,35 +1546,24 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
             return Err(reason);
         }
     };
-    // EXP-1330: a `/btw` aside forks its parent's run (`crate::aside`): no
-    // worktree, no brief turn — the question is the first prompt.
-    let prepared = if row.aside {
-        crate::aside::prepare(row, &brief, &deps.options, &deps.device_label, &deps.coding).map(
-            |prepared| match prepared {
-                crate::aside::AsidePrepared::Ready(prepared) => Ok(*prepared),
-                crate::aside::AsidePrepared::Refused(reason) => Err(reason),
-            },
-        )
-    } else {
-        // The brief names the root's issues as the server saw them at the
-        // claim; the host's shapes may not have them yet.
-        let mut issue_identifiers = brief_issue_identifiers(&brief.brief);
-        if issue_identifiers.is_empty() {
-            issue_identifiers = (deps.issue_identifiers)(row.root_id_or_self());
-        }
-        let req = SessionLaunchRequest {
-            session: row.clone(),
-            brief,
-            issue_identifiers,
-            resume: None,
-            device_label: deps.device_label.clone(),
-            options: deps.options.clone(),
-        };
-        crate::prepare(&PrepareRequest::Session(req), &deps.coding).map(|prepared| match prepared {
-            Prepared::Ready(prepared) => Ok(prepared),
-            Prepared::Disabled(reason) => Err(reason.message()),
-        })
+    // The brief names the root's issues as the server saw them at the
+    // claim; the host's shapes may not have them yet.
+    let mut issue_identifiers = brief_issue_identifiers(&brief.brief);
+    if issue_identifiers.is_empty() {
+        issue_identifiers = (deps.issue_identifiers)(row.root_id_or_self());
+    }
+    let req = SessionLaunchRequest {
+        session: row.clone(),
+        brief,
+        issue_identifiers,
+        resume: None,
+        device_label: deps.device_label.clone(),
+        options: deps.options.clone(),
     };
+    let prepared = crate::prepare(&PrepareRequest::Session(req), &deps.coding).map(|prepared| match prepared {
+        Prepared::Ready(prepared) => Ok(prepared),
+        Prepared::Disabled(reason) => Err(reason.message()),
+    });
     match prepared {
         Ok(Ok(prepared)) => {
             deps.live.settle(&row.id);
@@ -2301,10 +2292,9 @@ pub fn switch_session(
     if account_moves {
         log::info!("pickup: account switch of {session_id} -> {target}: suspending the run");
         // EXP-1281: every client shows the move as it happens (the card's
-        // spinner + caption), a rotation included; the resumed run's first
-        // turn edge (or a refusal) clears it.
-        let email = crate::agent_profiles::known_email(&deps.coding.data_dir, record.agent, &target);
-        report_switching(deps, session_id, &switching_caption(email.as_deref()));
+        // spinner), a rotation included; the resumed run's first turn edge
+        // (or a refusal) clears it.
+        report_switching(deps, session_id);
     } else {
         log::info!("pickup: reconfiguring session {session_id}: suspending the run");
     }
@@ -2388,9 +2378,10 @@ pub fn switch_session(
                 rest.retain(|m| m.id != seed.id);
             }
             hand(&*engine, session_id, &rest, deps);
+            // The landed run's turn edges take over the switching state.
+            switching.trpc = None;
             let running = session_device::SessionReport {
                 status: Some(session_device::ReportStatus::Running),
-                caption: switching.trpc.take().map(|_| None),
                 ..session_device::SessionReport::default()
             };
             if let Err(err) = session_device::report(&deps.coding.trpc, session_id, &running) {
@@ -2446,66 +2437,29 @@ fn row_wall(row: &SessionRow) -> Option<session_device::BlockedInput> {
     })
 }
 
-/// EXP-1281: the caption a session wears while it moves to another login —
-/// its email, never a profile id.
-pub fn switching_caption(email: Option<&str>) -> String {
-    match email.map(str::trim).filter(|email| !email.is_empty()) {
-        Some(email) => format!("Switching to {email}…"),
-        None => SWITCHING_CAPTION.to_string(),
-    }
-}
-
-/// EXP-1281: [`switching_caption`] when the target's email is unknown.
-pub const SWITCHING_CAPTION: &str = "Switching account…";
-
-/// EXP-1281: the caption while a walled run looks for another login (the
-/// rotation's forced usage probe).
-pub const ROTATION_PROBE_CAPTION: &str = "Checking other accounts…";
-
-/// EXP-1281: report a session as busy with `caption` (an account move in
-/// flight, the wall lifted: the cards spin, the caption says why).
-/// Best-effort.
-pub fn report_switching(deps: &PickupDeps, session_id: &str, caption: &str) {
-    report_switching_via(&deps.coding.trpc, session_id, caption);
-}
-
-/// [`report_switching`] for callers with only a client at hand (the
-/// rotation hosts).
-pub fn report_switching_via(trpc: &api::trpc::TrpcClient, session_id: &str, caption: &str) {
+/// EXP-1281: report a session as busy (an account move in flight, the wall
+/// lifted: the cards spin). NEW-8: no caption (the server never stores
+/// one). Best-effort.
+pub fn report_switching(deps: &PickupDeps, session_id: &str) {
     // The wall stays with the login the run leaves.
     let report = session_device::SessionReport {
         busy: Some(true),
         blocked: Some(None),
-        caption: Some(Some(caption.to_string())),
         ..session_device::SessionReport::default()
     };
-    if let Err(err) = session_device::report(trpc, session_id, &report) {
+    if let Err(err) = session_device::report(&deps.coding.trpc, session_id, &report) {
         log::warn!("pickup: switching state of {session_id} not reported: {err}");
     }
 }
 
-/// EXP-1281: set (or clear, `None`) a walled session's caption while the
-/// rotation reads the other logins' usage ([`ROTATION_PROBE_CAPTION`]): the
-/// wall stays, the caption says something is happening. Best-effort.
-pub fn report_caption_via(trpc: &api::trpc::TrpcClient, session_id: &str, caption: Option<&str>) {
-    let report = session_device::SessionReport {
-        caption: Some(caption.map(str::to_string)),
-        ..session_device::SessionReport::default()
-    };
-    if let Err(err) = session_device::report(trpc, session_id, &report) {
-        log::warn!("pickup: caption of {session_id} not reported: {err}");
-    }
-}
-
 /// EXP-1281: clear a [`report_switching`] that led nowhere (no target, a
-/// failed switch): not busy, no caption — and the wall the switching state
+/// failed switch): not busy — and the wall the switching state
 /// lifted (`blocked`, as the row carried it) put back, else a walled run
 /// that stays on its login shows no "Usage limit" and its engine's next
 /// `blocked` report reads as a brand-new wall (another push). Best-effort.
 pub fn report_switch_settled(trpc: &api::trpc::TrpcClient, session_id: &str, blocked: Option<session_device::BlockedInput>) {
     let report = session_device::SessionReport {
         busy: Some(false),
-        caption: Some(None),
         blocked: blocked.map(Some),
         ..session_device::SessionReport::default()
     };
@@ -2691,7 +2645,6 @@ fn row_from_record(record: &RunRecord, device_id: &str) -> SessionRow {
     SessionRow {
         id: record.session_id.clone(),
         team_id: some(&record.team_id),
-        kind: Some(record.kind.as_str().to_string()),
         // NEW-2: persistence keys on `agent_id`; the record keeps the kind
         // only, so a recorded agent run stands in its own id (nothing on
         // the device resolves the definition from it).
@@ -2719,7 +2672,6 @@ mod tests {
         canned_server, canned_server_recording, make_deps, temp_dir, FakeWorktrees, REPORT_OK,
         RESOLVE_NONE,
     };
-    use domain::contract::SESSION_KIND_AGENT;
     use std::path::Path;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
@@ -2730,7 +2682,6 @@ mod tests {
         SessionRow {
             id: id.to_string(),
             team_id: Some("team-1".to_string()),
-            kind: Some("thread".to_string()),
             device_id: Some(device.to_string()),
             cli: Some("claude".to_string()),
             status: Some(status.to_string()),
@@ -2742,9 +2693,7 @@ mod tests {
 
     fn agent(id: &str, status: &str) -> SessionRow {
         SessionRow {
-            kind: Some(SESSION_KIND_AGENT.to_string()),
             agent_id: Some("ag-triage".to_string()),
-            name: Some("Triage".to_string()),
             ..session(id, status, DEV, "2026-10-01T00:00:00Z")
         }
     }
@@ -4079,14 +4028,14 @@ mod tests {
             vec!["sessions.report", "sessions.brief", "mcpServers.resolveForLaunch", "sessions.report"]
         );
         // EXP-1281: every client sees the move while it happens (the wall
-        // lifted, the cards spinning), and the landed run clears the caption.
+        // lifted, the cards spinning), and the landed run reports running.
         let shown = requests.lock().unwrap()[0].clone();
         assert!(
-            shown.ends_with(r#"{"sessionId":"sess-1","busy":true,"blocked":null,"caption":"Switching account…"}"#),
+            shown.ends_with(r#"{"sessionId":"sess-1","busy":true,"blocked":null}"#),
             "{shown}"
         );
         let running = requests.lock().unwrap()[3].clone();
-        assert!(running.ends_with(r#"{"sessionId":"sess-1","status":"running","caption":null}"#), "{running}");
+        assert!(running.ends_with(r#"{"sessionId":"sess-1","status":"running"}"#), "{running}");
         let spawned = host.spawned.lock().unwrap().clone();
         assert_eq!(spawned.len(), 1);
         assert_eq!(spawned[0].session_id, "sess-1", "the SAME row");
@@ -4351,7 +4300,7 @@ mod tests {
             vec!["sessions.report", "sessions.brief", "sessions.reply", "sessions.report", "sessions.report"]
         );
         let settled = requests.lock().unwrap()[4].clone();
-        assert!(settled.ends_with(r#"{"sessionId":"sess-1","busy":false,"caption":null}"#), "{settled}");
+        assert!(settled.ends_with(r#"{"sessionId":"sess-1","busy":false}"#), "{settled}");
         // The wake the next pass plans for the same message stays quiet.
         assert!(resume_session(&row, &pending, &host.deps).unwrap().is_empty());
         assert_eq!(requests.lock().unwrap().len(), 5);
@@ -4391,7 +4340,7 @@ mod tests {
         let settled = requests.lock().unwrap()[4].clone();
         assert!(
             settled.ends_with(
-                r#"{"sessionId":"sess-1","busy":false,"blocked":{"kind":"rate_limit","agent":"claude","window":"weekly","resetsAt":"2026-10-03T00:00:00Z","since":"2026-10-02T00:00:00Z","handled":true},"caption":null}"#
+                r#"{"sessionId":"sess-1","busy":false,"blocked":{"kind":"rate_limit","agent":"claude","window":"weekly","resetsAt":"2026-10-03T00:00:00Z","since":"2026-10-02T00:00:00Z","handled":true}}"#
             ),
             "{settled}"
         );

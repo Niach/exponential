@@ -5,8 +5,8 @@
 //! `launch_options::inline_pin_trigger{,_with}`, the real switch); in a
 //! session (running, then an idle thread = its root session) the pins IN
 //! the card's tool row ([`super::composer_dialog::session_row`]: the Device
-//! pin as its glyph alone · Model · Plan; EXP-1252: a pending move names
-//! the target in the glyph's tooltip); then the one composer in a session
+//! pin as its glyph alone · Model · Plan; EXP-1252: a pick moves the
+//! session to that device); then the one composer in a session
 //! ([`super::composer_dialog::ComposerSpecimen`]: the "+", the pins, the
 //! context ring beside Stop, nothing under the card). Effort, Ultracode,
 //! MCP servers and Computer use are rows of the composer's "+" menu (the
@@ -34,11 +34,9 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .child(caption("Before a start (Home / New session): device · account · model · Plan · repository, under the card", cx))
         .child(options_line("sg-composer-options-start", Phase::Start, cx))
         .child(caption("A running session: the pins in the card's tool row — the device glyph · model · Plan (live mid-run)", cx))
-        .child(session_row("sg-composer-options-running", Phase::Running, false, cx))
-        .child(caption("A move pending (EXP-1252): the device glyph's tooltip names the target until the handoff", cx))
-        .child(session_row("sg-composer-options-moving", Phase::Running, true, cx))
+        .child(session_row("sg-composer-options-running", Phase::Running, cx))
         .child(caption("An idle thread = its root session: the same row", cx))
-        .child(session_row("sg-composer-options-idle", Phase::Idle, false, cx))
+        .child(session_row("sg-composer-options-idle", Phase::Idle, cx))
         .child(caption("The one composer in a session: the \"+\", the pins, the context ring beside Stop; nothing under the card", cx))
         .child(composer)
 }

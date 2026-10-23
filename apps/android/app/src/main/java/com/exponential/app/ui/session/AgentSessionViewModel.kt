@@ -28,6 +28,7 @@ import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.keyedMessages
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.data.steer.SteerConnectionStore
@@ -132,16 +133,15 @@ data class SessionAccountSwitchState(
 
 /**
  * EXP-1252: the session composer's Device pin — [SessionDeviceMove]'s rows
- * and gates for ONE session. [visible] false = no pin at all (an agent, an
- * aside); [blockedReason] = the whole pin disabled (can't steer, ended).
+ * and gates for ONE session. [visible] false = no pin at all (an agent's
+ * conversation); [blockedReason] = the whole pin disabled (can't steer, ended).
  */
 data class SessionDeviceMoveState(
     val visible: Boolean = false,
     val blockedReason: String? = null,
     val rows: List<SessionDeviceMoveRow> = emptyList(),
-    /** The current device's name, or `Moving to <target>…`. */
+    /** The current device's name. */
     val label: String = "",
-    val moving: Boolean = false,
     val deviceId: String? = null,
 )
 
@@ -379,14 +379,12 @@ class AgentSessionViewModel @AssistedInject constructor(
         steerDeviceFlow(dbFlow, session.map { it?.teamId }.distinctUntilChanged(), auth.userId),
         auth.userId,
     ) { row, devices, userId ->
-        if (row == null || !SessionDeviceMove.visible(SessionKind.sessionKindOf(row.agentId), row.aside)) {
+        if (row == null || !SessionDeviceMove.visible(SessionKind.sessionKindOf(row.agentId))) {
             return@combine SessionDeviceMoveState()
         }
-        val moveTo = row.moveToDeviceId?.takeIf { it.isNotEmpty() }
         val rows = SessionDeviceMove.rows(
             devices.orEmpty(),
             deviceId = row.deviceId.takeIf { it.isNotEmpty() },
-            moveToDeviceId = moveTo,
             teamId = row.teamId,
             shared = row.shared,
             cli = row.cli,
@@ -398,8 +396,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                 ended = row.isEnded,
             ),
             rows = rows,
-            label = SessionDeviceMove.pinLabel(rows, row.deviceId, moveTo),
-            moving = moveTo != null,
+            label = SessionDeviceMove.pinLabel(rows, row.deviceId),
             deviceId = row.deviceId,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionDeviceMoveState())
@@ -631,7 +628,7 @@ class AgentSessionViewModel @AssistedInject constructor(
      */
     val composerReplies: StateFlow<SessionTree.ComposerReplies?> = dbFlow
         .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
-        .map { rows -> SessionTree.composerReplies(codingSessionId, rows.map(SessionTree::message)) }
+        .map { rows -> SessionTree.composerReplies(codingSessionId, rows.map { SessionTree.message(it, codingSessionId) }) }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -694,7 +691,9 @@ class AgentSessionViewModel @AssistedInject constructor(
             } else {
                 combine(
                     dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(root) },
-                    dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeByRoot(root) },
+                    dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { db ->
+                        db.keyedMessages(db.messageDao().observeByRoot(root))
+                    },
                     dbFlow.scopedQuery(emptyList<SessionIssueEntity>()) { it.sessionIssueDao().observeByRoot(root) },
                     issues,
                     session,
@@ -707,7 +706,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                         listOf(rootRow, mine).distinctBy { it.id },
                         links.map(SessionTree::sessionIssue),
                         linked.map { SessionTree.issue(it) },
-                        messages.map(SessionTree::message),
+                        messages,
                     )
                     val title = titles.getValue(rootRow.id)
                     val name = titles.getValue(mine.id)
@@ -868,7 +867,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         // A late sync: whenever the synced row says a pick, the override goes.
         viewModelScope.launch {
             session.filterNotNull().collect { row ->
-                if (!row.dispatch) _configurePicks.update { it.dropSettledBy(row) }
+                _configurePicks.update { it.dropSettledBy(row) }
             }
         }
     }
@@ -932,8 +931,7 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     /** `sessions.configure` with the changed fields; the pick shows at once,
      *  stays until the synced row confirms it (bounded: [CONFIGURE_SYNC_WAIT_MS],
-     *  web parity) and rolls back on a refusal. A dispatcher's row never
-     *  reflects its work picks: those stay as the read. */
+     *  web parity) and rolls back on a refusal. */
     fun configure(change: ConfigurePicks) {
         val previousMcp = _configurePicks.value.mcpServerIds
         _configurePicks.update { it.overriddenBy(change) }
@@ -951,7 +949,6 @@ class AgentSessionViewModel @AssistedInject constructor(
                         mcpServerIds = change.mcpServerIds,
                     ),
                 )
-                if (session.value?.dispatch == true) return@launch
                 // The synced row now says it (or the wait ran out: the row is
                 // the read either way, as on web).
                 withTimeoutOrNull(CONFIGURE_SYNC_WAIT_MS) {
@@ -1114,13 +1111,13 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     /**
      * EXP-1252: [picked] in the Device pin — another device = MOVE the session
-     * there, the current device while a move is pending = CANCEL it; both ONE
-     * `sessions.send({sessionId, deviceId})`. The synced `move_to_device_id`
-     * relabels the pin, so success needs nothing else.
+     * there, ONE `sessions.send({sessionId, deviceId})`; the current device
+     * does nothing. The synced row (a re-targeted queued row, or the ended
+     * one) says the rest, so success needs nothing else.
      */
     fun moveToDevice(picked: String) {
         val row = session.value ?: return
-        SessionDeviceMove.pick(picked, row.deviceId, row.moveToDeviceId?.takeIf { it.isNotEmpty() }) ?: return
+        SessionDeviceMove.pick(picked, row.deviceId) ?: return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             try {
@@ -1224,7 +1221,7 @@ class AgentSessionViewModel @AssistedInject constructor(
      */
     val toolAsks: StateFlow<List<SessionTree.ThreadRow>> = dbFlow
         .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
-        .map { rows -> SessionTree.toolPostedAsks(rows.map(SessionTree::message)) }
+        .map { rows -> SessionTree.toolPostedAsks(rows.map { SessionTree.message(it, codingSessionId) }) }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

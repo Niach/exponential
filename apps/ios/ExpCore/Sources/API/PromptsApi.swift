@@ -6,7 +6,7 @@ import Foundation
 // (tRPC `prompts.get` is the only body path). Running one is
 // `sessions.send({promptId, text, deviceId})`: a new root whose first
 // message is the body plus what was typed. Member list/get, owner writes.
-// The `actions` router is gone; the `actions` shape stays, served empty.
+// NEW-8: the client no longer syncs the legacy `actions` shape.
 
 /// One prompt row (`prompts.list` without a body; `get` / `create` /
 /// `update` with one).
@@ -183,125 +183,5 @@ public final class PromptsApi: Sendable {
     /// Owner-gated `prompts.delete`.
     public func delete(accountId: String, id: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "prompts.delete", input: IdInput(id: id))
-    }
-}
-
-// MARK: - The composer's saved-prompt value type
-
-/// One typed action input (EXP-257) — a legacy pick schema. NEW-2 prompts
-/// carry NO inputs; the type stays for the composer's input fields and old
-/// `action` entity refs, always empty off a prompt.
-public struct ActionInputDto: Decodable, Sendable, Equatable {
-    public let key: String
-    public let label: String
-    public let type: String
-    public let required: Bool?
-    public let placeholder: String?
-
-    public init(
-        key: String,
-        label: String,
-        type: String,
-        required: Bool? = nil,
-        placeholder: String? = nil
-    ) {
-        self.key = key
-        self.label = label
-        self.type = type
-        self.required = required
-        self.placeholder = placeholder
-    }
-
-    public var isRequired: Bool { required == true }
-}
-
-/// The saved prompt as the composer and the prompt pages read it (NEW-2: fed
-/// from the synced `prompts` rows; the name is legacy, NEW-7 renames the
-/// screens). `body` is empty off the shape (tRPC `prompts.get` stays the only
-/// body path); `inputs` / `promptPlaceholder` are always nil off a prompt.
-public struct ActionDto: Identifiable, Sendable, Decodable {
-    public let id: String
-    public let teamId: String
-    public let name: String
-    public let icon: String?
-    public let body: String
-    public let sortOrder: Double
-    public let createdAt: String
-    public let updatedAt: String
-    public let inputs: [ActionInputDto]?
-    public let promptPlaceholder: String?
-
-    public init(
-        id: String,
-        teamId: String,
-        name: String,
-        icon: String? = nil,
-        body: String,
-        sortOrder: Double,
-        createdAt: String,
-        updatedAt: String,
-        inputs: [ActionInputDto]? = nil,
-        promptPlaceholder: String? = nil
-    ) {
-        self.id = id
-        self.teamId = teamId
-        self.name = name
-        self.icon = icon
-        self.body = body
-        self.sortOrder = sortOrder
-        self.createdAt = createdAt
-        self.updatedAt = updatedAt
-        self.inputs = inputs
-        self.promptPlaceholder = promptPlaceholder
-    }
-}
-
-public extension ActionDto {
-    /// A synced `prompts` row (no body by shape design).
-    init(prompt: PromptEntity) {
-        self.init(
-            id: prompt.id,
-            teamId: prompt.teamId,
-            name: prompt.name,
-            icon: prompt.icon,
-            body: "",
-            sortOrder: prompt.sortOrder,
-            createdAt: prompt.createdAt,
-            updatedAt: prompt.updatedAt
-        )
-    }
-
-    /// A tRPC prompt row (`prompts.get` / `.update` carry the body).
-    init(prompt: PromptDto) {
-        self.init(
-            id: prompt.id,
-            teamId: prompt.teamId,
-            name: prompt.name,
-            icon: prompt.icon,
-            body: prompt.body ?? "",
-            sortOrder: prompt.sortOrder,
-            createdAt: prompt.createdAt,
-            updatedAt: prompt.updatedAt
-        )
-    }
-
-    /// A legacy synced `actions` row (the shape is served empty since NEW-2;
-    /// an old transcript's `action` ref may still resolve one locally).
-    init(entity: ActionEntity) {
-        let parsedInputs = entity.inputs
-            .flatMap { $0.data(using: .utf8) }
-            .flatMap { try? JSONDecoder().decode([ActionInputDto].self, from: $0) }
-        self.init(
-            id: entity.id,
-            teamId: entity.teamId,
-            name: entity.name,
-            icon: entity.icon,
-            body: "",
-            sortOrder: entity.sortOrder ?? 0,
-            createdAt: entity.createdAt,
-            updatedAt: entity.updatedAt,
-            inputs: parsedInputs,
-            promptPlaceholder: entity.promptPlaceholder
-        )
     }
 }

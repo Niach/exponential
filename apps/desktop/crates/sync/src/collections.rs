@@ -44,8 +44,8 @@ use crate::shapes::{shape_by_name, ShapeSpec};
 use crate::store::{ShapeStore, StoreError};
 
 use domain::rows::{
-    ActionRow, AgentDefRow, Attachment, Board, Comment, DeviceRow, DeviceWorktreeRow, Issue, IssueDraftRow,
-    IssueEvent, IssueLabel, IssueRelation, IssueStatusRow, IssueSubscriber, Label, MessageRow,
+    AgentDefRow, Attachment, Board, Comment, DeviceRow, DeviceWorktreeRow, Issue, IssueDraftRow,
+    IssueEvent, IssueLabel, IssueRelation, IssueStatusRow, IssueSubscriber, Label, MessageRow, ConversationRow,
     Notification, Pin, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow,
     EventRow, PromptRow, AppRow, AppVersionRow, SessionRow, Team, TeamInvite, TeamMember, User,
 };
@@ -191,9 +191,9 @@ id_shape_row!(IssueSubscriber, "issue_subscribers");
 id_shape_row!(SessionRow, "sessions");
 id_shape_row!(SessionIssueRow, "session_issues");
 id_shape_row!(MessageRow, "messages");
+id_shape_row!(ConversationRow, "conversations");
 id_shape_row!(PullRequestRow, "pull_requests");
 id_shape_row!(PullRequestIssueRow, "pull_request_issues");
-id_shape_row!(ActionRow, "actions");
 id_shape_row!(IssueStatusRow, "issue_statuses");
 id_shape_row!(DeviceRow, "devices");
 id_shape_row!(DeviceWorktreeRow, "device_worktrees");
@@ -377,11 +377,14 @@ pub struct Collections {
     pub session_issues: Entity<Collection<SessionIssueRow>>,
     /// EXP-1294 every session's conversation (`consumed_at` NULL = queued).
     pub messages: Entity<Collection<MessageRow>>,
+    /// NEW-8 the conversations messages live in (the 31st shape): a
+    /// message's session is its conversation's
+    /// (`domain::message_conversation`).
+    pub conversations: Entity<Collection<ConversationRow>>,
     /// EXP-1294 every pull request (PR state left `issues`).
     pub pull_requests: Entity<Collection<PullRequestRow>>,
     /// EXP-1294 pull request ↔ issue links.
     pub pull_request_issues: Entity<Collection<PullRequestIssueRow>>,
-    pub actions: Entity<Collection<ActionRow>>,
     /// EXP-314 per-team custom issue statuses (the 16th shape).
     pub issue_statuses: Entity<Collection<IssueStatusRow>>,
     /// EXP-481 per-user device registry (the 17th shape).
@@ -451,11 +454,11 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.messages;
         $body;
+        let $entity = &$collections.conversations;
+        $body;
         let $entity = &$collections.pull_requests;
         $body;
         let $entity = &$collections.pull_request_issues;
-        $body;
-        let $entity = &$collections.actions;
         $body;
         let $entity = &$collections.issue_statuses;
         $body;
@@ -503,9 +506,9 @@ impl Collections {
             sessions: cx.new(|_| Collection::new()),
             session_issues: cx.new(|_| Collection::new()),
             messages: cx.new(|_| Collection::new()),
+            conversations: cx.new(|_| Collection::new()),
             pull_requests: cx.new(|_| Collection::new()),
             pull_request_issues: cx.new(|_| Collection::new()),
-            actions: cx.new(|_| Collection::new()),
             issue_statuses: cx.new(|_| Collection::new()),
             devices: cx.new(|_| Collection::new()),
             device_worktrees: cx.new(|_| Collection::new()),
@@ -550,11 +553,11 @@ impl Collections {
             "sessions" => apply_to(&self.sessions, keys, full_replace, sqlite, cx),
             "session_issues" => apply_to(&self.session_issues, keys, full_replace, sqlite, cx),
             "messages" => apply_to(&self.messages, keys, full_replace, sqlite, cx),
+            "conversations" => apply_to(&self.conversations, keys, full_replace, sqlite, cx),
             "pull_requests" => apply_to(&self.pull_requests, keys, full_replace, sqlite, cx),
             "pull_request_issues" => {
                 apply_to(&self.pull_request_issues, keys, full_replace, sqlite, cx)
             }
-            "actions" => apply_to(&self.actions, keys, full_replace, sqlite, cx),
             "issue_statuses" => {
                 apply_to(&self.issue_statuses, keys, full_replace, sqlite, cx)
             }
@@ -1412,9 +1415,9 @@ mod tests {
             SessionRow::spec().name,
             SessionIssueRow::spec().name,
             MessageRow::spec().name,
+            ConversationRow::spec().name,
             PullRequestRow::spec().name,
             PullRequestIssueRow::spec().name,
-            ActionRow::spec().name,
             IssueStatusRow::spec().name,
             DeviceRow::spec().name,
             DeviceWorktreeRow::spec().name,

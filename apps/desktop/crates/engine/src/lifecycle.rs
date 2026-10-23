@@ -16,8 +16,7 @@
 //!   diffs are local-only);
 //! - `NeedsInputForwarder` (EXP-214) and its `agent_busy` twin (EXP-848),
 //!   plus the blocked/title/status forwarders — every one of them writes
-//!   `sessions.report` (EXP-1292; no heartbeat), the EXP-1331 live caption
-//!   included ([`crate::live_caption`], throttled, cleared at the end);
+//!   `sessions.report` (EXP-1292; no heartbeat; NEW-8: no caption);
 //! - the FEED-25 stall watchdog ([`crate::stall`]): a live turn silent for
 //!   `STALL_AFTER` gets `Cancel`, one that ignores it for `STALL_KILL_GRACE`
 //!   gets `Shutdown` with a `Failed` reason;
@@ -162,14 +161,9 @@ impl RunLifecycle {
                 });
             }
         }
-        // 4b. EXP-1331: the caption's last write — the clear, or an aside's
-        //     pinned answer — while the row is still live.
-        //     EXP-1252: a RELEASED run writes nothing to the row (it names
-        //     another device now, or is about to).
+        // EXP-1252: a RELEASED run writes nothing to the row (it names
+        // another device now, or is about to).
         let released = outcome == RELEASED_OUTCOME;
-        if !ctx.replay && !released {
-            finish_caption(ctx);
-        }
         // 5. The row's last status. A thread session ends, through the
         //    observer-based path, so the CLI's `registry::end_outcome_resolves`
         //    applies; an agent root idles (agents never end — the next
@@ -227,7 +221,7 @@ pub const SUSPEND_OUTCOME: &str = "suspended";
 /// (an agent moved in Settings): the host kills its engine. Like
 /// [`SUSPEND_OUTCOME`] the workspace stays (the stale-worktree and scratch
 /// sweeps reclaim it) and no WIP is saved, but the end sequence writes
-/// NOTHING to the row — not its status, not its caption: the row belongs
+/// NOTHING to the row — not its status: the row belongs
 /// to the other device.
 pub const RELEASED_OUTCOME: &str = coding::pickup::RELEASED_OUTCOME;
 
@@ -236,29 +230,6 @@ pub const RELEASED_OUTCOME: &str = coding::pickup::RELEASED_OUTCOME;
 /// reclaimed on the way out.
 pub fn keeps_workspace(outcome: &str) -> bool {
     outcome == SUSPEND_OUTCOME || outcome == RELEASED_OUTCOME
-}
-
-/// EXP-1331: the `sessions.report{caption}` hook.
-fn caption_hook(ctx: &SessionCtx) -> crate::live_caption::CaptionHook {
-    let trpc = Arc::clone(&ctx.trpc);
-    let session_id = ctx.session_id.clone();
-    Arc::new(move |caption: Option<&str>| {
-        let report = api::session_device::SessionReport {
-            caption: Some(caption.map(str::to_string)),
-            ..Default::default()
-        };
-        api::session_device::report(&trpc, &session_id, &report).is_ok()
-    })
-}
-
-/// EXP-1331: the end sequence's caption write, past the throttle. The
-/// tickers stopped first (`active` is down), so nothing writes after it.
-fn finish_caption(ctx: &SessionCtx) {
-    let pin = ctx.aside.as_ref().and_then(crate::aside::AsideState::pin);
-    let hook = caption_hook(ctx);
-    if let Ok(mut forwarder) = ctx.caption_forwarder.lock() {
-        forwarder.finish(pin.as_deref(), &hook);
-    }
 }
 
 /// EXP-1292: the row's last status write at the end of a run.
@@ -662,7 +633,6 @@ fn spawn_tickers(
             // the end sequence writes the row's last status itself.
             let mut status = steer::StatusForwarder::new();
             let mut stall = crate::stall::StallWatchdog::new();
-            let live_caption_hook = caption_hook(&ctx);
             let report = {
                 let trpc = Arc::clone(&ctx.trpc);
                 let session_id = ctx.session_id.clone();
@@ -766,16 +736,6 @@ fn spawn_tickers(
                 {
                     let title = ctx.agent_title.get();
                     agent_title.tick(title.as_deref(), &title_hook);
-                }
-                {
-                    // EXP-1331: under the forwarder's lock, re-checking
-                    // `active`, so the end sequence's last write is last.
-                    let caption = ctx.live_caption();
-                    if let Ok(mut forwarder) = ctx.caption_forwarder.lock() {
-                        if active.load(Ordering::SeqCst) {
-                            forwarder.tick(caption.as_deref(), &live_caption_hook);
-                        }
-                    }
                 }
                 {
                     // EXP-831 follow-up: a wall whose own reset stamp has
@@ -1065,7 +1025,7 @@ mod tests {
     }
 
     /// EXP-1252: a released run (handed to another device) writes no row:
-    /// no end, no idle, no caption — and keeps its workspace like a suspend.
+    /// no end, no idle — and keeps its workspace like a suspend.
     #[test]
     fn a_released_run_writes_no_row() {
         assert!(keeps_workspace(RELEASED_OUTCOME));

@@ -16,7 +16,6 @@ extension TreeSession {
             teamId: row.teamId,
             parentId: row.parentId,
             rootId: row.rootId,
-            kind: row.kind,
             userId: row.userId,
             status: row.status,
             busy: row.busy,
@@ -25,18 +24,11 @@ extension TreeSession {
             shared: row.shared,
             title: row.title,
             guide: TreeGuideEntry.parseList(row.guide),
-            actionName: row.actionName,
-            name: row.name,
-            icon: row.icon,
-            color: row.color,
-            sortOrder: row.sortOrder,
             startedAt: row.startedAt,
             endedAt: row.endedAt,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
             deviceId: row.deviceId.isEmpty ? nil : row.deviceId,
-            caption: row.caption,
-            aside: row.aside,
             agentId: row.agentId,
             appId: row.appId
         )
@@ -60,8 +52,9 @@ extension TreeIssue {
 }
 
 extension TreeMessage {
-    /// A synced `messages` row, its `card` jsonb parsed tolerantly.
-    init(messageRow row: MessageEntity) {
+    /// A synced `messages` row keyed to its conversation's session (NEW-8),
+    /// its `card` jsonb parsed tolerantly.
+    init(messageRow row: SessionMessage) {
         self.init(
             id: row.id,
             sessionId: row.sessionId,

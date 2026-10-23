@@ -321,17 +321,6 @@ internal fun ThreadListRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.testTag(if (row.unread) "threads-row-unread" else "threads-row-title"),
             )
-            // EXP-1323: the live caption (what it does right now), muted.
-            row.caption?.let { caption ->
-                Text(
-                    caption,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.testTag("threads-row-caption"),
-                )
-            }
         }
         // EXP-1339: no lock on a list row; `merged` has no text (its lead
         // alone turns pr-merged violet).

@@ -3,12 +3,14 @@
 //! parent's worktree), launched by `coding::aside`. The engine half: the
 //! fork + tool posture on the adapter ([`ASIDE_DISALLOWED_TOOLS`] and NO MCP
 //! servers, [`ASIDE_MCP_CONFIG`]) and the one-shot end — after its FIRST
-//! reply the aside pins that reply's first line as its caption and ends (the
-//! reply itself posts like any turn's), unless a person spoke in it
-//! meanwhile: then it is an ordinary session.
+//! reply the aside ends (the reply itself posts like any turn's), unless a
+//! person spoke in it meanwhile: then it is an ordinary session.
+//!
+//! NEW-8: nothing launches an aside any more (`/btw` is gone and the pickup
+//! never routes one); a run record left by an older build still resumes
+//! under this posture, never with the full tool set.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
 
 /// What an aside may not touch: every writing tool, the shell, and
 /// subagents (which would carry those tools back in).
@@ -29,14 +31,10 @@ pub(crate) struct AsideState {
     /// A turn has started (the seed question went to the agent): the idle
     /// edges before it (the handshake) are no answer.
     turn_started: AtomicBool,
-    /// The latest final reply text of the turn in flight.
-    reply: Mutex<Option<String>>,
     /// A person's message was handed to the run.
     person_spoke: AtomicBool,
     /// The first turn ended: decided once, never again.
     settled: AtomicBool,
-    /// The caption the end sequence writes last (the answer's first line).
-    pin: Mutex<Option<String>>,
 }
 
 /// What the idle edge decided.
@@ -46,22 +44,13 @@ pub(crate) enum AsideEnd {
     Nothing,
     /// A person spoke: the run carries on as an ordinary session.
     KeepGoing,
-    /// End the run; the caption to pin (`None` = the answer was empty).
-    End(Option<String>),
+    /// End the run.
+    End,
 }
 
 impl AsideState {
     pub(crate) fn turn_started(&self) {
         self.turn_started.store(true, Ordering::SeqCst);
-    }
-
-    pub(crate) fn note_reply(&self, body: &str) {
-        if body.trim().is_empty() {
-            return;
-        }
-        if let Ok(mut reply) = self.reply.lock() {
-            *reply = Some(body.to_string());
-        }
     }
 
     pub(crate) fn person_spoke(&self) {
@@ -76,20 +65,7 @@ impl AsideState {
         if self.person_spoke.load(Ordering::SeqCst) {
             return AsideEnd::KeepGoing;
         }
-        let caption = self
-            .reply
-            .lock()
-            .ok()
-            .and_then(|reply| reply.clone())
-            .and_then(|reply| crate::live_caption::first_line_caption(&reply));
-        if let Ok(mut pin) = self.pin.lock() {
-            pin.clone_from(&caption);
-        }
-        AsideEnd::End(caption)
-    }
-
-    pub(crate) fn pin(&self) -> Option<String> {
-        self.pin.lock().ok().and_then(|pin| pin.clone())
+        AsideEnd::End
     }
 }
 
@@ -98,16 +74,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_first_answer_ends_the_aside_with_its_first_line() {
+    fn the_first_answer_ends_the_aside() {
         let aside = AsideState::default();
         assert_eq!(aside.turn_ended(), AsideEnd::Nothing, "the handshake's idle edge");
         aside.turn_started();
-        aside.note_reply("The cart total is computed in `cart.rs`.\n\nDetails…");
-        assert_eq!(
-            aside.turn_ended(),
-            AsideEnd::End(Some("The cart total is computed in `cart.rs`.".to_string()))
-        );
-        assert_eq!(aside.pin().as_deref(), Some("The cart total is computed in `cart.rs`."));
+        assert_eq!(aside.turn_ended(), AsideEnd::End);
         assert_eq!(aside.turn_ended(), AsideEnd::Nothing, "settled once");
     }
 
@@ -122,9 +93,7 @@ mod tests {
     fn a_person_reply_keeps_the_aside_running() {
         let aside = AsideState::default();
         aside.turn_started();
-        aside.note_reply("Yes.");
         aside.person_spoke();
         assert_eq!(aside.turn_ended(), AsideEnd::KeepGoing);
-        assert_eq!(aside.pin(), None);
     }
 }

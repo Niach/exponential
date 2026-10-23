@@ -359,8 +359,8 @@ final class AgentSessionModel {
     }
 
     /// The composer's model pill: the live relay model, else the synced
-    /// row's pick, else (a dispatcher) the host's thread model, else the
-    /// defaults — so a thread with no live relay still names its model.
+    /// row's pick, else the host's default, else the contract defaults — so a
+    /// thread with no live relay still names its model.
     /// `row` overrides `session` (a thread's root row arrives first).
     func composerModelValue(row: SessionEntity? = nil) -> String {
         let row = row ?? session
@@ -368,7 +368,6 @@ final class AgentSessionModel {
             live: sessionConfig?.modelValue,
             rowModel: row?.model,
             cli: row?.cli,
-            dispatch: row?.dispatch ?? false,
             launchDefaults: hostSteerDevice?.launchDefaults
         )
     }
@@ -496,11 +495,11 @@ final class AgentSessionModel {
         )
     }
 
-    /// The composer's Device pin (before Model), or nil = hidden (agents,
-    /// asides, no row yet). Rules + copy: `SessionDeviceMove`.
+    /// The composer's Device pin (before Model), or nil = hidden (agents, no
+    /// row yet). Rules + copy: `SessionDeviceMove`.
     var devicePin: SessionDevicePin? {
         guard let session,
-              SessionDeviceMove.pinVisible(kind: sessionKindOf(agentId: session.agentId), aside: session.aside)
+              SessionDeviceMove.pinVisible(kind: sessionKindOf(agentId: session.agentId))
         else { return nil }
         let devices = moveCandidateDevices
         let agent = SessionAccountSwitch.agent(
@@ -521,11 +520,7 @@ final class AgentSessionModel {
             shared: session.shared, userId: session.userId, currentUserId: currentUserId
         )
         return SessionDevicePin(
-            label: SessionDeviceMove.pinLabel(
-                currentDeviceName: currentName,
-                moveToDeviceId: session.moveToDeviceId,
-                devices: devices
-            ),
+            label: currentName,
             icon: current.map { DeviceIconDisplay.iconName(for: $0) },
             rows: rows.map(DevicePickerDevice.init(moveRow:)),
             currentDeviceId: session.deviceId,
@@ -542,19 +537,16 @@ final class AgentSessionModel {
     /// Why the last move request failed — a toast, cleared on each attempt.
     private(set) var moveError: String?
 
-    /// EXP-1252: ONE `sessions.send({sessionId, deviceId})`: another device
-    /// requests the move, the CURRENT one while moving cancels it. The synced
-    /// `move_to_device_id` is the confirmation.
+    /// EXP-1252: ONE `sessions.send({sessionId, deviceId})` to another
+    /// device; the current one does nothing (NEW-8: nothing is pending on the
+    /// row, the server moves the session at once).
     func moveDevice(to deviceId: String) async {
-        guard let session, !movingDevice else { return }
-        let pick = SessionDeviceMove.pick(
-            deviceId: deviceId,
-            currentDeviceId: session.deviceId,
-            moveToDeviceId: session.moveToDeviceId
-        )
-        guard let input = SessionDeviceMove.sendInput(
-            sessionId: session.id, pick: pick, currentDeviceId: session.deviceId
-        ) else { return }
+        guard let session, !movingDevice,
+              let input = SessionDeviceMove.sendInput(
+                  sessionId: session.id,
+                  pick: SessionDeviceMove.pick(deviceId: deviceId, currentDeviceId: session.deviceId)
+              )
+        else { return }
         moveError = nil
         movingDevice = true
         defer { movingDevice = false }

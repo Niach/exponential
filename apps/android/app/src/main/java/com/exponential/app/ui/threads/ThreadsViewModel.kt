@@ -1,5 +1,6 @@
 package com.exponential.app.ui.threads
 
+import com.exponential.app.data.db.keyedMessages
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.auth.AuthRepository
@@ -40,7 +41,7 @@ class ThreadsViewModel @Inject constructor(
         sessions,
         dbFlow.scopedQuery(emptyList()) { it.sessionIssueDao().observeAll() }.map { it.map(SessionTree::sessionIssue) },
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }.map { it.map(SessionTree::issue) },
-        dbFlow.scopedQuery(emptyList()) { it.messageDao().observeAll() }.map { it.map(SessionTree::message) },
+        dbFlow.scopedQuery(emptyList()) { it.keyedMessages(it.messageDao().observeAll()) },
         // EXP-1323: the viewer's read marks (bold rows + the nav dot).
         dbFlow.scopedQuery(emptyList()) { it.sessionReadDao().observeAll() }.map { it.map(SessionTree::sessionRead) },
     ) { s, links, issues, messages, reads -> Inputs(s, links, issues, messages, reads) }

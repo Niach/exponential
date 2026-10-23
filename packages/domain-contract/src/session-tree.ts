@@ -18,7 +18,6 @@ export interface TreeSession {
   teamId: string
   parentId: string | null
   rootId: string
-  kind: string
   userId: string
   /** The logical `devices.device_id` that runs it (null/absent = unset). */
   deviceId?: string | null
@@ -29,11 +28,6 @@ export interface TreeSession {
   shared: boolean
   title: string | null
   guide: { text?: string | null; label?: string | null }[] | null
-  actionName: string | null
-  name: string | null
-  icon: string | null
-  color: string | null
-  sortOrder: number
   /** NEW-2: the agent this root is a conversation of (absent = null). */
   agentId?: string | null
   /** VAPP-110: the app this root is a member's editor session of (absent = null). */
@@ -42,10 +36,6 @@ export interface TreeSession {
   endedAt: string | null
   createdAt: string
   updatedAt: string
-  /** EXP-1323: the live status line (absent = null). */
-  caption?: string | null
-  /** EXP-1323: a `/btw` aside child (absent = false). */
-  aside?: boolean
 }
 
 /** EXP-1323: the viewer's read marks (`session_reads`, already user-scoped). */
@@ -72,6 +62,9 @@ export interface TreeIssue {
 
 export interface TreeMessage {
   id: string
+  /** NEW-8: the session its conversation belongs to, keyed through the
+   *  `conversations` shape (`keyMessagesBySession`), never the row's own
+   *  legacy `session_id`. */
   sessionId: string
   authorKind: string
   authorId: string | null
@@ -151,9 +144,6 @@ export interface SessionCard {
   tone: string
   elapsed: string | null
   running: boolean
-  /** EXP-1323: the live status line under the name; an ended session's is
-   *  dropped unless it is an aside (its answer's first line stays). */
-  caption: string | null
   testId: string
 }
 
@@ -184,7 +174,6 @@ export function sessionCard(
   const end = state === `ended` ? ms(session.endedAt) ?? ms(session.updatedAt) : ms(now)
   const elapsed =
     start !== null && end !== null && state !== `queued` ? formatElapsed(end - start) : null
-  const caption = session.caption?.trim()
   return {
     sessionId: session.id,
     icon: SESSION_CARD_ICONS[state],
@@ -194,7 +183,6 @@ export function sessionCard(
     tone: cardFixture.tones[state],
     elapsed,
     running: state === `working`,
-    caption: caption && (state !== `ended` || session.aside === true) ? caption : null,
     testId: cardFixture.testIds.card,
   }
 }
@@ -972,8 +960,6 @@ export interface ThreadsListRow {
   /** EXP-1323: bold title (a root: the tree's newest agent message is
    *  newer than the viewer's read of the root; a child: its own). */
   unread: boolean
-  /** EXP-1323: the live caption (the session card rule). */
-  caption: string | null
   activityAt: string
 }
 
@@ -1110,18 +1096,17 @@ export function partitionThreads(input: {
       busy: live.some((s) => s.busy),
       needsYou,
       unread: unreadAt(newestAgentInTree.get(root.id), root.id),
-      caption: sessionCard(root, title, now).caption,
       activityAt: activity,
     }
     const key = needsYou ? `needs_you` : running ? `running` : `recent`
-    // A live tree nests its children (depth-first, creation order; asides
-    // stay in the Conversation); Recent collapses to the root.
+    // A live tree nests its children (depth-first, creation order); Recent
+    // collapses to the root.
     const children: ThreadsListRow[] = []
     if (key !== `recent`) {
       const ordered = treeOrder(tree)
       const walk = (parentId: string, depth: number) => {
         for (const child of ordered) {
-          if (child.parentId !== parentId || child.aside === true) continue
+          if (child.parentId !== parentId) continue
           const card = sessionCard(
             child,
             sessionTitle(child, input.sessionIssues, input.issues, input.messages),
@@ -1138,7 +1123,6 @@ export function partitionThreads(input: {
             busy: child.status !== `ended` && child.busy,
             needsYou: child.status !== `ended` && child.needsInput,
             unread: unreadAt(newestAgent.get(child.id), child.id),
-            caption: card.caption,
             activityAt: child.updatedAt,
           })
           walk(child.id, depth + 1)

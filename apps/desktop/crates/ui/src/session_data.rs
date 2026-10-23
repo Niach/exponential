@@ -17,6 +17,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
 use domain::contract::{SESSION_STATUS_QUEUED, SESSION_STATUS_RUNNING};
+use domain::message_conversation::ConversationSessions;
 use domain::pr_stack::PrSet;
 use domain::rows::{
     Issue, MessageRow, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow,
@@ -185,13 +186,7 @@ pub(crate) fn session_title_of(session_id: &str, cx: &App) -> Option<String> {
         .filter_map(|link| all_issues.get(&link.issue_id))
         .map(TreeIssue::from_issue)
         .collect();
-    let messages: Vec<MessageRow> = collections
-        .messages
-        .read(cx)
-        .iter()
-        .filter(|message| message.session_id == session_id)
-        .cloned()
-        .collect();
+    let messages: Vec<MessageRow> = keyed_messages(cx, |owner, _| owner == session_id);
     let link_refs: Vec<&SessionIssueRow> = links.iter().collect();
     let message_refs: Vec<&MessageRow> = messages.iter().collect();
     Some(domain::session_title::session_title(&row, &link_refs, &issues, &message_refs))
@@ -281,6 +276,35 @@ pub(crate) fn first_issue_identifier(root_id: &str, cx: &App) -> Option<String> 
 // Messages
 // ---------------------------------------------------------------------------
 
+/// NEW-8: conversation id → session id over the synced `conversations`
+/// (a message belongs to the session of its conversation).
+pub(crate) fn conversation_sessions(cx: &App) -> ConversationSessions {
+    let Some(store) = Store::try_global(cx) else {
+        return ConversationSessions::new();
+    };
+    domain::message_conversation::conversation_sessions(store.collections().conversations.read(cx).iter())
+}
+
+/// NEW-8: the synced messages KEYED through their conversation (each
+/// `session_id` = its conversation's session; a dm/channel message or one
+/// whose conversation has not synced is held back), kept where
+/// `keep(session_id, message)` holds. Store order; the row's own legacy
+/// `session_id` is never read.
+pub(crate) fn keyed_messages(cx: &App, keep: impl Fn(&str, &MessageRow) -> bool) -> Vec<MessageRow> {
+    let Some(store) = Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let sessions = conversation_sessions(cx);
+    let messages = store.collections().messages.read(cx);
+    domain::message_conversation::key_messages_by_session(
+        messages.iter().filter(|message| {
+            domain::message_conversation::session_of(message, &sessions)
+                .is_some_and(|session_id| keep(session_id, message))
+        }),
+        &sessions,
+    )
+}
+
 fn sort_messages(messages: &mut [MessageRow]) {
     messages.sort_by(|a, b| {
         a.created_at
@@ -291,17 +315,7 @@ fn sort_messages(messages: &mut [MessageRow]) {
 
 /// The messages of ONE session (its own conversation), oldest first.
 pub(crate) fn messages_of_session(session_id: &str, cx: &App) -> Vec<MessageRow> {
-    let Some(store) = Store::try_global(cx) else {
-        return Vec::new();
-    };
-    let mut out: Vec<MessageRow> = store
-        .collections()
-        .messages
-        .read(cx)
-        .iter()
-        .filter(|message| message.session_id == session_id)
-        .cloned()
-        .collect();
+    let mut out: Vec<MessageRow> = keyed_messages(cx, |owner, _| owner == session_id);
     sort_messages(&mut out);
     out
 }
@@ -320,13 +334,7 @@ pub(crate) fn tree_messages(root_id: &str, cx: &App) -> Vec<MessageRow> {
         .filter(|session| session.id == root_id || session.root_id_or_self() == root_id)
         .map(|session| session.id.clone())
         .collect();
-    let mut out: Vec<MessageRow> = collections
-        .messages
-        .read(cx)
-        .iter()
-        .filter(|message| tree.contains(&message.session_id))
-        .cloned()
-        .collect();
+    let mut out: Vec<MessageRow> = keyed_messages(cx, |owner, _| tree.contains(owner));
     sort_messages(&mut out);
     out
 }
@@ -520,24 +528,21 @@ fn thread_view(
         .filter(|session| session.root_id_or_self() == root_id)
         .map(|session| session.id.as_str())
         .collect();
-    let messages: Vec<&MessageRow> = collections
-        .messages
-        .read(cx)
-        .iter()
-        .filter(|message| {
-            message.session_id == root_id
-                // EXP-1341: a card-less input names its session (first prompt).
-                || (team_ids.contains(message.session_id.as_str()) && message.card.is_none())
-                || (tree_ids.contains(message.session_id.as_str())
-                    && message.card.as_ref().is_some_and(|card| {
-                        matches!(
-                            card.get("kind").and_then(serde_json::Value::as_str),
-                            Some(domain::contract::MESSAGE_CARD_KIND_QUESTION)
-                                | Some(domain::contract::MESSAGE_CARD_KIND_PLAN)
-                        )
-                    }))
-        })
-        .collect();
+    // NEW-8: every message keyed through its conversation.
+    let keyed: Vec<MessageRow> = keyed_messages(cx, |owner, message| {
+        owner == root_id
+            // EXP-1341: a card-less input names its session (first prompt).
+            || (team_ids.contains(owner) && message.card.is_none())
+            || (tree_ids.contains(owner)
+                && message.card.as_ref().is_some_and(|card| {
+                    matches!(
+                        card.get("kind").and_then(serde_json::Value::as_str),
+                        Some(domain::contract::MESSAGE_CARD_KIND_QUESTION)
+                            | Some(domain::contract::MESSAGE_CARD_KIND_PLAN)
+                    )
+                }))
+    });
+    let messages: Vec<&MessageRow> = keyed.iter().collect();
     // VAPP-110: the tree's plain messages re-homed onto the root (cards stay
     // where they are: a continuation's own session card is not a message).
     let rehomed: Vec<MessageRow> = if whole_tree {
@@ -678,7 +683,7 @@ pub(crate) fn agents_in_team(team_id: &str, cx: &App) -> Vec<AgentRow> {
 #[derive(Clone, PartialEq, Eq)]
 struct ListsKey {
     team_id: String,
-    revisions: [u64; 5],
+    revisions: [u64; 6],
 }
 
 #[derive(Default)]
@@ -700,6 +705,7 @@ pub(crate) fn thread_lists(team_id: &str, cx: &mut App) -> Rc<Vec<ThreadsListGro
             collections.sessions.read(cx).revision(),
             collections.session_issues.read(cx).revision(),
             collections.messages.read(cx).revision(),
+            collections.conversations.read(cx).revision(),
             collections.issues.read(cx).revision(),
             collections.session_reads.read(cx).revision(),
         ],
@@ -741,13 +747,10 @@ fn derive_thread_lists(team_id: &str, cx: &App) -> Vec<ThreadsListGroup> {
     // A session's own messages title it; EXP-1323: the tree's agent messages
     // decide its unread bold (and each child's own).
     let in_team: HashSet<&str> = rows.iter().map(|session| session.id.as_str()).collect();
-    let messages: Vec<&MessageRow> = collections
-        .messages
-        .read(cx)
-        .iter()
-        // EXP-1341: every session's own first prompt names it.
-        .filter(|message| in_team.contains(message.session_id.as_str()))
-        .collect();
+    // EXP-1341: every session's own first prompt names it (NEW-8: keyed
+    // through its conversation).
+    let keyed: Vec<MessageRow> = keyed_messages(cx, |owner, _| in_team.contains(owner));
+    let messages: Vec<&MessageRow> = keyed.iter().collect();
     let session_reads = collections.session_reads.read(cx);
     let reads: Vec<&SessionReadRow> = session_reads
         .iter()
@@ -782,12 +785,14 @@ pub(crate) fn unread_marker(session_id: &str, whole_tree: bool, cx: &App) -> Opt
     let store = Store::try_global(cx)?;
     let collections = store.collections();
     let sessions = collections.sessions.read(cx);
+    // NEW-8: a message's session is its conversation's.
+    let owners = conversation_sessions(cx);
     let in_scope = |message: &MessageRow| {
-        message.session_id == session_id
-            || (whole_tree
-                && sessions
-                    .get(&message.session_id)
-                    .is_some_and(|session| session.root_id_or_self() == session_id))
+        domain::message_conversation::session_of(message, &owners).is_some_and(|owner| {
+            owner == session_id
+                || (whole_tree
+                    && sessions.get(owner).is_some_and(|session| session.root_id_or_self() == session_id))
+        })
     };
     let newest = collections
         .messages
@@ -816,11 +821,12 @@ struct SentReads(HashMap<String, i64>);
 impl gpui::Global for SentReads {}
 
 /// The collection revisions each session's [`unread_marker`] scan last ran
-/// at (`messages`, `session_reads`, and `sessions` for a whole tree): the
+/// at (`messages`, `session_reads`, `sessions` for a whole tree, and NEW-8
+/// `conversations`): the
 /// screens call [`mark_read_if_unread`] every frame, and the scan walks every
 /// synced message — so a frame in which nothing synced skips it.
 #[derive(Default)]
-struct ReadScans(HashMap<String, (u64, u64, u64)>);
+struct ReadScans(HashMap<String, (u64, u64, u64, u64)>);
 
 impl gpui::Global for ReadScans {}
 
@@ -836,6 +842,7 @@ pub(crate) fn mark_read_if_unread(session_id: &str, whole_tree: bool, cx: &mut A
         collections.messages.read(cx).revision(),
         collections.session_reads.read(cx).revision(),
         if whole_tree { collections.sessions.read(cx).revision() } else { 0 },
+        collections.conversations.read(cx).revision(),
     );
     let scans = cx.default_global::<ReadScans>();
     if scans.0.get(session_id) == Some(&revisions) {
@@ -1034,6 +1041,8 @@ pub(crate) fn observe_session_collections<V: 'static>(cx: &mut gpui::Context<V>)
         cx.observe(&collections.sessions, |_, _, cx| cx.notify()),
         cx.observe(&collections.session_issues, |_, _, cx| cx.notify()),
         cx.observe(&collections.messages, |_, _, cx| cx.notify()),
+        // NEW-8: a message's session is its conversation's.
+        cx.observe(&collections.conversations, |_, _, cx| cx.notify()),
         cx.observe(&collections.pull_requests, |_, _, cx| cx.notify()),
         cx.observe(&collections.pull_request_issues, |_, _, cx| cx.notify()),
         cx.observe(&collections.issues, |_, _, cx| cx.notify()),
@@ -1144,7 +1153,6 @@ mod tests {
                     busy: false,
                     needs_you: false,
                     unread: false,
-                    caption: None,
                     activity_at: String::new(),
                 })
                 .collect(),
@@ -1183,7 +1191,6 @@ mod tests {
                 busy: false,
                 needs_you: false,
                 unread: false,
-                caption: None,
                 activity_at: String::new(),
             }],
         };

@@ -185,7 +185,7 @@ private fun CommentCardSpecimens() {
     )
 }
 
-private fun specimenCard(id: String, name: String, state: SessionTree.SessionState, elapsed: String?, caption: String?) =
+private fun specimenCard(id: String, name: String, state: SessionTree.SessionState, elapsed: String?) =
     SessionTree.SessionCard(
         sessionId = id,
         icon = SessionTree.CardCopy.ICONS.getValue(state),
@@ -196,7 +196,6 @@ private fun specimenCard(id: String, name: String, state: SessionTree.SessionSta
         elapsed = elapsed,
         running = state == SessionTree.SessionState.Working,
         testId = SessionTree.CardCopy.TEST_ID_CARD,
-        caption = caption,
     )
 
 /** EXP-1323: the `session-thread.json` live dispatcher case, drawn by the
@@ -213,7 +212,7 @@ private fun SuggestionsSpecimens() {
     )
     Caption("Session")
     SessionCard(
-        card = specimenCard("r", "Speed up the shop", SessionTree.SessionState.Working, "9m 00s", "Dispatching"),
+        card = specimenCard("r", "Speed up the shop", SessionTree.SessionState.Working, "9m 00s"),
         onClick = {},
     )
     Caption("Suggested tasks")
@@ -230,8 +229,7 @@ private fun SuggestionsSpecimens() {
                     text = "Avoid layout shift in the cart.",
                     state = SessionTree.SuggestionState.Started,
                     card = specimenCard(
-                        "c1", "Add width and height to cart thumbnails", SessionTree.SessionState.Working,
-                        "6m 00s", "Reading CartLineItem.tsx",
+                        "c1", "Add width and height to cart thumbnails", SessionTree.SessionState.Working, "6m 00s",
                     ),
                     issueId = null,
                     identifier = null,
@@ -241,7 +239,7 @@ private fun SuggestionsSpecimens() {
                     title = "Lazy-load product images",
                     text = "Below-the-fold images load late.",
                     state = SessionTree.SuggestionState.Started,
-                    card = specimenCard("c2", "Lazy-load product images", SessionTree.SessionState.Ended, "3m 00s", null),
+                    card = specimenCard("c2", "Lazy-load product images", SessionTree.SessionState.Ended, "3m 00s"),
                     issueId = null,
                     identifier = null,
                 ),

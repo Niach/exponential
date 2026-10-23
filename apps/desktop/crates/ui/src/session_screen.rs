@@ -210,7 +210,6 @@ fn back_target(session_id: &str, cx: &App) -> Option<(Screen, String)> {
         let agent_id = root.agent_id.clone().unwrap_or_else(|| root.id.clone());
         let name = crate::session_data::agent_def(&agent_id, cx)
             .map(|agent| crate::agent_screen::agent_def_name(&agent))
-            .or_else(|| root.name.clone())
             .unwrap_or_default();
         return Some((Screen::Agent { agent_id }, name));
     }

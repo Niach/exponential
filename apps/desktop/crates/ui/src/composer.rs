@@ -548,9 +548,8 @@ pub(crate) fn session_model_pin<V: gpui::Render>(
 }
 
 /// The model a session runs on BEFORE its relay says (no `config_state`
-/// yet, or no live room at all): the row's own pick, else (a dispatcher) the
-/// device's thread model for the row's agent, else the device's model, else
-/// the contract defaults. `device_agents` = the devices row's
+/// yet, or no live room at all): the row's own pick, else the device's
+/// model for the row's agent, else the contract defaults. `device_agents` = the devices row's
 /// `launch_defaults.agents`. Web `fallbackModel` (session-composer.tsx).
 pub(crate) fn fallback_session_model(
     row: Option<&domain::rows::SessionRow>,
@@ -570,12 +569,6 @@ pub(crate) fn fallback_session_model(
             .map(str::to_string)
     };
     let codex = agent == "codex";
-    if row.is_some_and(|row| row.dispatch) {
-        return pick("threadModel").unwrap_or_else(|| {
-            if codex { c::DEVICE_AGENT_DEFAULTS_CODEX_THREAD_MODEL } else { c::DEVICE_AGENT_DEFAULTS_THREAD_MODEL }
-                .to_string()
-        });
-    }
     pick("model").unwrap_or_else(|| {
         if codex { c::DEVICE_AGENT_DEFAULTS_CODEX_MODEL } else { c::DEVICE_AGENT_DEFAULTS_MODEL }.to_string()
     })
@@ -943,29 +936,19 @@ mod tests {
             "claude": { "model": "opus", "threadModel": "sonnet" },
             "codex": { "model": "", "threadModel": "" },
         });
-        let row = |cli: Option<&str>, model: Option<&str>, dispatch: bool| SessionRow {
+        let row = |cli: Option<&str>, model: Option<&str>| SessionRow {
             id: "s".into(),
             cli: cli.map(Into::into),
             model: model.map(Into::into),
-            dispatch,
             ..Default::default()
         };
         // The row's own pick wins.
-        assert_eq!(fallback_session_model(Some(&row(None, Some("fable"), true)), Some(&agents)), "fable");
-        // A dispatcher: the device's thread model, else the contract's.
-        assert_eq!(fallback_session_model(Some(&row(None, None, true)), Some(&agents)), "sonnet");
+        assert_eq!(fallback_session_model(Some(&row(None, Some("fable"))), Some(&agents)), "fable");
+        // NEW-8: never the legacy dispatcher's thread model; the device's
+        // model, else the contract's.
+        assert_eq!(fallback_session_model(Some(&row(None, None)), Some(&agents)), "opus");
         assert_eq!(
-            fallback_session_model(Some(&row(None, None, true)), None),
-            c::DEVICE_AGENT_DEFAULTS_THREAD_MODEL
-        );
-        assert_eq!(
-            fallback_session_model(Some(&row(Some("codex"), None, true)), Some(&agents)),
-            c::DEVICE_AGENT_DEFAULTS_CODEX_THREAD_MODEL
-        );
-        // A worker: the device's model, else the contract's.
-        assert_eq!(fallback_session_model(Some(&row(None, None, false)), Some(&agents)), "opus");
-        assert_eq!(
-            fallback_session_model(Some(&row(Some("codex"), None, false)), Some(&agents)),
+            fallback_session_model(Some(&row(Some("codex"), None)), Some(&agents)),
             c::DEVICE_AGENT_DEFAULTS_CODEX_MODEL
         );
         assert_eq!(fallback_session_model(None, None), c::DEVICE_AGENT_DEFAULTS_MODEL);

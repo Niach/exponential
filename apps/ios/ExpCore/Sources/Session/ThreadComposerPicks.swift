@@ -4,8 +4,6 @@ import Foundation
 /// nil = the synced row's own value stands. A pick shows at once; once the
 /// synced row reads the same it goes (web `session-composer-options.tsx`
 /// `dropSettled`), so a later change of the row never fights a stale pick.
-/// A DISPATCHER root's picks are its work picks (server-only `work_launch`),
-/// never echoed on the row: its picks stay the read for the view's life.
 public struct ThreadComposerPicks: Equatable, Sendable {
     public var planMode: Bool?
     public var effort: String?

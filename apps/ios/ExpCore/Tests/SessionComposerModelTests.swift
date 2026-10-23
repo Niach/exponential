@@ -18,32 +18,26 @@ final class SessionComposerModelTests: XCTestCase {
         )
     }
 
-    /// Web `fallbackModel` ×4: live, else the row, else (a dispatcher) the
-    /// device's thread model, else the device/contract session model.
+    /// Web `fallbackModel` ×4: live, else the row, else the device's
+    /// session model, else the contract default (NEW-8: no dispatcher rung).
     func testComposerModelFallsBackLikeWeb() {
         let device = DeviceLaunchDefaults(agents: [
             "claude": AgentLaunchDefaults(model: "opus", threadModel: "sonnet"),
         ])
         XCTAssertEqual(LaunchVocabulary.composerModel(
-            live: "fable", rowModel: "opus", cli: "claude", dispatch: true, launchDefaults: device
+            live: "fable", rowModel: "opus", cli: "claude", launchDefaults: device
         ), "fable")
         XCTAssertEqual(LaunchVocabulary.composerModel(
-            live: nil, rowModel: "opus", cli: "claude", dispatch: true, launchDefaults: device
-        ), "opus")
-        XCTAssertEqual(LaunchVocabulary.composerModel(
-            live: nil, rowModel: nil, cli: "claude", dispatch: true, launchDefaults: device
+            live: nil, rowModel: "sonnet", cli: "claude", launchDefaults: device
         ), "sonnet")
         XCTAssertEqual(LaunchVocabulary.composerModel(
-            live: nil, rowModel: nil, cli: nil, dispatch: true, launchDefaults: nil
-        ), "haiku")
-        XCTAssertEqual(LaunchVocabulary.composerModel(
-            live: nil, rowModel: nil, cli: "codex", dispatch: true, launchDefaults: device
-        ), DomainContract.deviceAgentDefaultsCodexThreadModel)
-        XCTAssertEqual(LaunchVocabulary.composerModel(
-            live: nil, rowModel: nil, cli: "claude", dispatch: false, launchDefaults: device
+            live: nil, rowModel: nil, cli: "claude", launchDefaults: device
         ), "opus")
         XCTAssertEqual(LaunchVocabulary.composerModel(
-            live: nil, rowModel: "", cli: "codex", dispatch: false, launchDefaults: nil
+            live: nil, rowModel: nil, cli: nil, launchDefaults: nil
+        ), LaunchVocabulary.defaultModel(for: "claude"))
+        XCTAssertEqual(LaunchVocabulary.composerModel(
+            live: nil, rowModel: "", cli: "codex", launchDefaults: nil
         ), DomainContract.deviceAgentDefaultsCodexModel)
     }
 }

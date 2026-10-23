@@ -4,7 +4,9 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import com.exponential.app.domain.SessionTree
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 
 @Dao
 interface TeamDao {
@@ -249,30 +251,6 @@ interface CommentDao {
     suspend fun clear()
 }
 
-@Dao
-interface ActionDao {
-    @Query("SELECT * FROM actions WHERE team_id = :teamId ORDER BY sort_order, name")
-    fun observeByTeam(teamId: String): Flow<List<ActionEntity>>
-
-    // EXP-1186: Actions is CROSS-TEAM — every member team's actions; the
-    // screen groups them by team.
-    @Query("SELECT * FROM actions ORDER BY sort_order, name")
-    fun observeAll(): Flow<List<ActionEntity>>
-
-    // SLOP-2: the action page's own row (its triggers ride it).
-    @Query("SELECT * FROM actions WHERE id = :id LIMIT 1")
-    fun observeById(id: String): Flow<ActionEntity?>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: ActionEntity)
-
-    @Query("DELETE FROM actions WHERE id = :id")
-    suspend fun deleteById(id: String)
-
-    @Query("DELETE FROM actions")
-    suspend fun clear()
-}
-
 // EXP-778: the caller's personal pins. The per-account DB only ever holds
 // the signed-in user's rows (the shape is `user_id = me`), so no user filter.
 // Sync-only since EXP-976: the phone has no sidebar, so nothing reads pins
@@ -395,7 +373,13 @@ interface MessageDao {
     @Query("SELECT * FROM messages ORDER BY created_at, id")
     fun observeAll(): Flow<List<MessageEntity>>
 
-    @Query("SELECT * FROM messages WHERE session_id = :sessionId ORDER BY created_at, id")
+    // NEW-8: a session's thread = the messages of its own conversation (the
+    // `conversations` row with that `session_id`); a message whose
+    // conversation has not synced yet is held back until it does.
+    @Query(
+        "SELECT * FROM messages WHERE conversation_id IN " +
+            "(SELECT id FROM conversations WHERE session_id = :sessionId) ORDER BY created_at, id",
+    )
     fun observeBySession(sessionId: String): Flow<List<MessageEntity>>
 
     // Every message of one tree (the root's conversation + its children's).
@@ -404,7 +388,8 @@ interface MessageDao {
 
     // A session's person messages the device has not consumed (the queue bar).
     @Query(
-        "SELECT * FROM messages WHERE session_id = :sessionId AND author_kind = 'user' " +
+        "SELECT * FROM messages WHERE conversation_id IN " +
+            "(SELECT id FROM conversations WHERE session_id = :sessionId) AND author_kind = 'user' " +
             "AND consumed_at IS NULL ORDER BY created_at, id",
     )
     fun observeQueued(sessionId: String): Flow<List<MessageEntity>>
@@ -418,6 +403,14 @@ interface MessageDao {
     @Query("DELETE FROM messages")
     suspend fun clear()
 }
+
+/**
+ * NEW-8: [rows] keyed through their conversation ([SessionTree.messages]):
+ * each message carries the session its conversation belongs to, and the
+ * result waits on the conversations shape too (re-emits as it syncs).
+ */
+fun ExponentialDatabase.keyedMessages(rows: Flow<List<MessageEntity>>): Flow<List<SessionTree.Message>> =
+    combine(rows, conversationDao().observeAll(), SessionTree::messages)
 
 // EXP-1323: the viewer's read marks (the per-account DB only holds the
 // signed-in user's rows, like pins).
@@ -436,9 +429,13 @@ interface SessionReadDao {
     suspend fun clear()
 }
 
-// NEW-3: conversations (step 1: one per session).
+// NEW-3: conversations (one per session; NEW-8: dm/channel rows carry no session).
 @Dao
 interface ConversationDao {
+    // NEW-8: every message is keyed through these ([com.exponential.app.domain.MessageConversation]).
+    @Query("SELECT * FROM conversations")
+    fun observeAll(): Flow<List<ConversationEntity>>
+
     @Query("SELECT * FROM conversations WHERE session_id = :sessionId LIMIT 1")
     fun observeBySession(sessionId: String): Flow<ConversationEntity?>
 

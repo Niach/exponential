@@ -3,14 +3,13 @@
 //! `SessionTitle.swift`, Android `domain/SessionTitle.kt`), byte-locked by
 //! `fixtures/session-title.json`. The first rung that yields text wins:
 //!
-//! 1. the explicit name: `name` (an agent's facet), else `title` (a name
-//!    passed to `sessions_send`, else the agent CLI's own auto-title);
+//! 1. the explicit `title` (a name passed to `sessions_send`, else the
+//!    agent CLI's own auto-title);
 //! 2. the session's issues = its OWN rows (`session_id` = the holder, root
 //!    or child alike, NEW-1), `#APP-1 Title` / `… + n`;
-//! 3. `Run <action>`;
-//! 4. the first prompt's first usable line (a person's or another
+//! 3. the first prompt's first usable line (a person's or another
 //!    session's input, never a card, never an image embed);
-//! 5. `Untitled`.
+//! 4. `Untitled`.
 //!
 //! [`session_title`] reads the synced rows; [`title_from_parts`] is the same
 //! ladder for callers that only hold the parts (the launcher's tab label).
@@ -28,8 +27,6 @@ pub mod copy {
     pub const ISSUE: &str = "#{identifier} {title}";
     /// Several issues: plus `{more}` = n - 1.
     pub const ISSUES: &str = "#{identifier} {title} + {more}";
-    /// An action session: `{action}`.
-    pub const ACTION: &str = "Run {action}";
     /// Nothing at all.
     pub const UNTITLED: &str = "Untitled";
 }
@@ -80,20 +77,15 @@ fn issue_label(issues: &[TitleIssue<'_>]) -> String {
 /// order, `prompt` = its first prompt (any body; its first usable line is
 /// taken).
 pub fn title_from_parts(
-    name: Option<&str>,
     title: Option<&str>,
     issues: &[TitleIssue<'_>],
-    action_name: Option<&str>,
     prompt: Option<&str>,
 ) -> String {
-    if let Some(named) = clean(name).or_else(|| clean(title)) {
+    if let Some(named) = clean(title) {
         return named.to_string();
     }
     if !issues.is_empty() {
         return issue_label(issues);
-    }
-    if let Some(action) = clean(action_name) {
-        return copy::ACTION.replacen("{action}", action, 1);
     }
     match prompt.and_then(first_line) {
         Some(line) => clip(line, TITLE_MAX),
@@ -170,18 +162,9 @@ pub fn session_title(
         .into_iter()
         .map(|issue| TitleIssue { identifier: &issue.identifier, title: &issue.title })
         .collect();
-    let needs_prompt = clean(session.name.as_deref()).is_none()
-        && clean(session.title.as_deref()).is_none()
-        && own.is_empty()
-        && clean(session.action_name.as_deref()).is_none();
+    let needs_prompt = clean(session.title.as_deref()).is_none() && own.is_empty();
     let prompt = if needs_prompt { first_prompt(&session.id, messages) } else { None };
-    title_from_parts(
-        session.name.as_deref(),
-        session.title.as_deref(),
-        &own,
-        session.action_name.as_deref(),
-        prompt,
-    )
+    title_from_parts(session.title.as_deref(), &own, prompt)
 }
 
 /// Every given session's title, keyed by id (the tree's card names).
@@ -221,9 +204,7 @@ mod tests {
             let session = SessionRow {
                 id: str_of(s, "id").unwrap(),
                 root_id: str_of(s, "rootId"),
-                name: str_of(s, "name"),
                 title: str_of(s, "title"),
-                action_name: str_of(s, "actionName"),
                 ..Default::default()
             };
             let links: Vec<SessionIssueRow> = input["links"]
@@ -247,16 +228,20 @@ mod tests {
                 .unwrap()
                 .iter()
                 .map(|m| {
-                    serde_json::from_value(json!({
+                    // NEW-8: a fixture `TitleMessage` is already keyed: its
+                    // `sessionId` is the RESOLVED session.
+                    let mut message: MessageRow = serde_json::from_value(json!({
                         "id": m["id"],
-                        "session_id": m["sessionId"],
+                        "conversation_id": format!("c-{}", m["sessionId"].as_str().unwrap_or_default()),
                         "author_kind": m["authorKind"],
                         "author_session_id": m["authorSessionId"],
                         "body": m["body"],
                         "card": m["card"],
                         "created_at": m["createdAt"],
                     }))
-                    .unwrap()
+                    .unwrap();
+                    message.session_id = m["sessionId"].as_str().unwrap_or_default().to_string();
+                    message
                 })
                 .collect();
             let link_refs: Vec<&SessionIssueRow> = links.iter().collect();
@@ -274,7 +259,7 @@ mod tests {
         let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
         assert_eq!(fixture["titles"]["issue"], copy::ISSUE);
         assert_eq!(fixture["titles"]["issues"], copy::ISSUES);
-        assert_eq!(fixture["titles"]["action"], copy::ACTION);
+        assert!(fixture["titles"].get("action").is_none());
         assert_eq!(fixture["untitled"], copy::UNTITLED);
         assert_eq!(fixture["titleMax"].as_u64().unwrap() as usize, TITLE_MAX);
     }
@@ -282,10 +267,9 @@ mod tests {
     #[test]
     fn parts_follow_the_same_ladder() {
         let issue = TitleIssue { identifier: "APP-1", title: "Crash" };
-        assert_eq!(title_from_parts(Some(" Bot "), Some("x"), &[issue], None, None), "Bot");
-        assert_eq!(title_from_parts(None, None, &[issue], Some("Tidy"), None), "#APP-1 Crash");
-        assert_eq!(title_from_parts(None, None, &[], Some("Tidy"), Some("hi")), "Run Tidy");
-        assert_eq!(title_from_parts(None, None, &[], None, Some("\n![a](b)\n do it ")), "do it");
-        assert_eq!(title_from_parts(None, Some(" "), &[], None, None), "Untitled");
+        assert_eq!(title_from_parts(Some(" Bot "), &[issue], None), "Bot");
+        assert_eq!(title_from_parts(None, &[issue], Some("hi")), "#APP-1 Crash");
+        assert_eq!(title_from_parts(None, &[], Some("\n![a](b)\n do it ")), "do it");
+        assert_eq!(title_from_parts(Some(" "), &[], None), "Untitled");
     }
 }

@@ -90,9 +90,8 @@ public enum SessionsSendInput: Sendable, Equatable {
     /// resumes the SAME row on that login between turns.
     case switchAccount(sessionId: String, account: String)
     /// EXP-1252: MOVE the session to another device — `{sessionId, deviceId}`,
-    /// no text. The server sets the synced `sessions.move_to_device_id`; the
-    /// source host hands the SAME row over after its current turn. The
-    /// session's CURRENT device while a move is pending = cancel.
+    /// no text. The server moves it at once (a queued row re-targets, a live
+    /// one ends here and continues on that device).
     case moveDevice(sessionId: String, deviceId: String)
 }
 

@@ -4,8 +4,7 @@ package com.exponential.app.domain
 // run the same way; a conversation session (a root with `agentId`) is just
 // `persistent` (never ends, revived on its device's return). Branch on these
 // traits, never on the kind string: [SessionKind.sessionKindOf] derives the
-// kind from `agentId`; the row's `kind` column is a legacy read shim (NEW-8
-// drops it). Hand-ported from `packages/domain-contract/src/session-kind.ts`,
+// kind from `agentId`. Hand-ported from `packages/domain-contract/src/session-kind.ts`,
 // locked to `fixtures/session-kind.json` by SessionKindTest.
 
 data class SessionTraits(

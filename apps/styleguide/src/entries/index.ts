@@ -5,7 +5,6 @@
  */
 import { entry as pickerBoard } from "./picker-board.tsx"
 import { entry as pickerIssue } from "./picker-issue.tsx"
-import { entry as pickerAction } from "./picker-action.tsx"
 import { entry as pickerAccount } from "./picker-account.tsx"
 import { entry as pickerDevice } from "./picker-device.tsx"
 import { entry as pickerAssignee } from "./picker-assignee.tsx"
@@ -60,7 +59,6 @@ export type { StyleguideEntry } from "./types.ts"
 export const ENTRIES: readonly StyleguideEntry[] = [
   pickerBoard,
   pickerIssue,
-  pickerAction,
   pickerAccount,
   pickerDevice,
   pickerAssignee,

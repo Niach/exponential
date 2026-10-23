@@ -35,7 +35,6 @@ describe(`thread title readiness`, () => {
       parentId: null,
       rootId: sessionId,
       unread: false,
-      caption: null,
       title,
       private: false,
       deviceId: null,
@@ -56,44 +55,35 @@ describe(`thread title readiness`, () => {
     expect(holdTitles(groups, new Set())).toBe(groups)
   })
 
-  it(`follows the title rungs: name/title settle, then own issues, then the action, then the first prompt`, () => {
-    const session = (
-      id: string,
-      over: Partial<{ name: string | null; actionName: string | null; title: string | null; rootId: string }> = {}
-    ) => ({
+  it(`follows the title rungs: a title settles, then own issues, then the first prompt`, () => {
+    const session = (id: string, over: Partial<{ title: string | null; rootId: string }> = {}) => ({
       id,
       rootId: over.rootId ?? id,
-      name: over.name ?? null,
-      actionName: over.actionName ?? null,
       title: over.title ?? null,
     })
     const sessions = [
-      session(`agent`, { name: `Triage` }),
       session(`named`, { title: `Cold start` }),
       session(`linked`),
-      session(`linkedAction`, { actionName: `Deploy` }),
-      session(`action`, { actionName: `Deploy` }),
       session(`bare`),
       session(`assigned`, { rootId: `linked` }),
       session(`child`, { rootId: `linked` }),
     ]
     // NEW-1: a row sits on the session holding the issue (root or child).
-    const links = [{ sessionId: `linked` }, { sessionId: `linkedAction` }, { sessionId: `assigned` }]
+    const links = [{ sessionId: `linked` }, { sessionId: `assigned` }]
     const all = { sessions, sessionIssues: links }
     // Everything in: nothing held.
     expect(
       unsettledTitleRoots({ ...all, linksReady: true, issuesReady: true, messagesReady: true })
     ).toEqual(new Set())
-    // Issues pending: only sessions holding issues wait, the action
-    // outranked by its issues too.
+    // Issues pending: only sessions holding issues wait.
     expect(
       unsettledTitleRoots({ ...all, linksReady: true, issuesReady: false, messagesReady: true })
-    ).toEqual(new Set([`linked`, `linkedAction`, `assigned`]))
-    // Messages pending: only an unnamed session with no issue and no action.
+    ).toEqual(new Set([`linked`, `assigned`]))
+    // Messages pending: only an untitled session with no issue.
     expect(
       unsettledTitleRoots({ ...all, linksReady: true, issuesReady: true, messagesReady: false })
     ).toEqual(new Set([`bare`, `child`]))
-    // Links unknown: every unnamed session could still gain an issue.
+    // Links unknown: every untitled session could still gain an issue.
     expect(
       unsettledTitleRoots({
         ...all,
@@ -102,6 +92,6 @@ describe(`thread title readiness`, () => {
         issuesReady: false,
         messagesReady: true,
       })
-    ).toEqual(new Set([`linked`, `linkedAction`, `action`, `bare`, `assigned`, `child`]))
+    ).toEqual(new Set([`linked`, `bare`, `assigned`, `child`]))
   })
 })

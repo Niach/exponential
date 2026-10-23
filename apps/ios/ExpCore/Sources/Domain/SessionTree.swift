@@ -74,8 +74,6 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
     public let parentId: String?
     /// The root's id (a root names itself).
     public let rootId: String
-    /// Contract `sessionKindValues`: thread | agent.
-    public let kind: String
     public let userId: String
     /// Contract `sessionStatusValues`: queued | running | idle | ended.
     public let status: String
@@ -85,12 +83,6 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
     public let shared: Bool
     public let title: String?
     public let guide: [TreeGuideEntry]?
-    public let actionName: String?
-    /// Agent facets (kind agent).
-    public let name: String?
-    public let icon: String?
-    public let color: String?
-    public let sortOrder: Double
     public let startedAt: String?
     public let endedAt: String?
     public let createdAt: String
@@ -98,10 +90,6 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
     /// EXP-1316: the steer device id of the machine that runs it (the
     /// thread row's device glyph); nil when unknown.
     public let deviceId: String?
-    /// EXP-1323: the live status line (nil = none).
-    public let caption: String?
-    /// EXP-1323: a `/btw` aside child.
-    public let aside: Bool
     /// NEW-2: the agent this root is a conversation of (nil = a thread).
     public let agentId: String?
     /// VAPP-110: the app this root is a member's editor session of (nil =
@@ -113,7 +101,6 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
         teamId: String,
         parentId: String?,
         rootId: String,
-        kind: String,
         userId: String,
         status: String,
         busy: Bool,
@@ -122,31 +109,21 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
         shared: Bool,
         title: String?,
         guide: [TreeGuideEntry]?,
-        actionName: String?,
-        name: String?,
-        icon: String?,
-        color: String?,
-        sortOrder: Double,
         startedAt: String?,
         endedAt: String?,
         createdAt: String,
         updatedAt: String,
         deviceId: String? = nil,
-        caption: String? = nil,
-        aside: Bool = false,
         agentId: String? = nil,
         appId: String? = nil
     ) {
         self.agentId = agentId
         self.appId = appId
         self.deviceId = deviceId
-        self.caption = caption
-        self.aside = aside
         self.id = id
         self.teamId = teamId
         self.parentId = parentId
         self.rootId = rootId
-        self.kind = kind
         self.userId = userId
         self.status = status
         self.busy = busy
@@ -155,11 +132,6 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
         self.shared = shared
         self.title = title
         self.guide = guide
-        self.actionName = actionName
-        self.name = name
-        self.icon = icon
-        self.color = color
-        self.sortOrder = sortOrder
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.createdAt = createdAt
@@ -516,6 +488,9 @@ public struct ComposerReplies: Equatable, Sendable {
 /// One `messages` row.
 public struct TreeMessage: Equatable, Sendable, Identifiable {
     public let id: String
+    /// NEW-8: the session its conversation belongs to, keyed through the
+    /// `conversations` shape (`MessageConversations`), never the row's own
+    /// legacy `session_id`.
     public let sessionId: String
     /// Contract `messageAuthorKindValues`: user | agent | system.
     public let authorKind: String
@@ -625,9 +600,6 @@ public struct SessionCard: Equatable, Sendable {
     public let tone: String
     public let elapsed: String?
     public let running: Bool
-    /// EXP-1323: the live status line under the name; an ended session's is
-    /// dropped unless it is an aside (its answer's first line stays).
-    public let caption: String?
     public let testId: String
 
     public init(
@@ -639,10 +611,8 @@ public struct SessionCard: Equatable, Sendable {
         tone: String,
         elapsed: String?,
         running: Bool,
-        caption: String? = nil,
         testId: String
     ) {
-        self.caption = caption
         self.sessionId = sessionId
         self.icon = icon
         self.name = name
@@ -1017,8 +987,6 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
     /// EXP-1323: bold title (a root: the tree's newest agent message is
     /// newer than the viewer's read of the root; a child: its own).
     public let unread: Bool
-    /// EXP-1323: the live caption (the session card rule).
-    public let caption: String?
 
     public var id: String { sessionId }
 
@@ -1032,7 +1000,6 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
         busy: Bool,
         needsYou: Bool,
         unread: Bool = false,
-        caption: String? = nil,
         activityAt: String,
         deviceId: String? = nil
     ) {
@@ -1041,7 +1008,6 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
         self.parentId = parentId
         self.rootId = rootId ?? sessionId
         self.unread = unread
-        self.caption = caption
         self.sessionId = sessionId
         self.teamId = teamId
         self.title = title
@@ -1358,7 +1324,6 @@ public enum SessionTree {
             tone: state.tone,
             elapsed: elapsed,
             running: state == .working,
-            caption: cardCaption(session),
             testId: CardCopy.testId
         )
     }
@@ -1371,14 +1336,6 @@ public enum SessionTree {
             return word
         }
         return state.word
-    }
-
-    /// EXP-1323: the card's second line — the trimmed caption; blank = nil;
-    /// an ended session's drops unless it is an aside.
-    public static func cardCaption(_ session: TreeSession) -> String? {
-        let caption = session.caption?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !caption.isEmpty, session.status != "ended" || session.aside else { return nil }
-        return caption
     }
 
     /// THE display title of one tree session off the tree rows
@@ -1818,18 +1775,17 @@ public enum SessionTree {
                 busy: live.contains { $0.busy },
                 needsYou: needsYou,
                 unread: unread(newestAgentInTree[root.id], root.id),
-                caption: cardCaption(root),
                 activityAt: activity,
                 deviceId: root.deviceId
             )
             let key: ThreadsListGroup.Key = needsYou ? .needsYou : running ? .running : .recent
-            // A live tree nests its children (depth-first, creation order;
-            // asides stay in the Conversation); Recent collapses to the root.
+            // A live tree nests its children (depth-first, creation order);
+            // Recent collapses to the root.
             var children: [ThreadsListRow] = []
             if key != .recent {
                 let ordered = treeOrder(tree)
                 func walk(_ parentId: String, _ depth: Int) {
-                    for child in ordered where child.parentId == parentId && !child.aside {
+                    for child in ordered where child.parentId == parentId {
                         let ended = child.status == "ended"
                         children.append(ThreadsListRow(
                             sessionId: child.id,
@@ -1841,7 +1797,6 @@ public enum SessionTree {
                             busy: !ended && child.busy,
                             needsYou: !ended && child.needsInput,
                             unread: unread(newestAgent[child.id], child.id),
-                            caption: cardCaption(child),
                             activityAt: child.updatedAt,
                             deviceId: child.deviceId
                         ))

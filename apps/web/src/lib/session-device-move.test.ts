@@ -16,12 +16,9 @@ import {
   deviceMoveTargetReason,
   deviceMoveVisible,
   MOVE_FAILED_TOAST,
-  MOVING_LABEL,
-  movingLabel,
   NOTE,
   PICKER_TITLE,
   REASON_AGENT,
-  REASON_ASIDE,
   REASON_ENDED,
   REASON_NO_LOGIN,
   REASON_OFFLINE,
@@ -39,12 +36,10 @@ const DESKTOP = `apps/desktop/crates/ui/src/device_move.rs`
 
 const SHARED = [
   PICKER_TITLE,
-  MOVING_LABEL,
   NOTE,
   REASON_STEER,
   REASON_ENDED,
   REASON_AGENT,
-  REASON_ASIDE,
   REASON_OFFLINE,
   REASON_VISIBILITY,
   REASON_UPDATE,
@@ -101,11 +96,10 @@ const session = (
 ) => ({ teamId: TEAM, shared: false, agent: `claude`, ...overrides })
 
 describe(`the pin's visibility and refusals (EXP-1252)`, () => {
-  it(`hides for agents and asides`, () => {
-    expect(deviceMoveVisible({ agentId: null, aside: false })).toBe(true)
-    expect(deviceMoveHiddenReason({ agentId: `agent-1`, aside: false })).toBe(REASON_AGENT)
+  it(`hides for agents`, () => {
+    expect(deviceMoveVisible({ agentId: null })).toBe(true)
+    expect(deviceMoveHiddenReason({ agentId: `agent-1` })).toBe(REASON_AGENT)
     expect(deviceMoveVisible({ agentId: `agent-1` })).toBe(false)
-    expect(deviceMoveHiddenReason({ agentId: null, aside: true })).toBe(REASON_ASIDE)
   })
 
   it(`refuses in the ×4 order: steer, then ended`, () => {
@@ -202,7 +196,6 @@ describe(`sessionDeviceMoveRows`, () => {
     const rows = sessionDeviceMoveRows(devices, {
       ...rowSession(),
       deviceId: `mac`,
-      moveToDeviceId: null,
     })
     expect(rows.map((row) => [row.id, row.name, row.current, row.reason])).toEqual([
       [`mac`, `Mac`, true, null],
@@ -223,27 +216,12 @@ describe(`sessionDeviceMoveRows`, () => {
     expect(missing[0]).toMatchObject({ id: `gone`, current: true, reason: null })
   })
 
-  it(`marks the pending target`, () => {
-    const rows = sessionDeviceMoveRows(devices, {
-      ...rowSession(),
-      deviceId: `mac`,
-      moveToDeviceId: `box`,
-    })
-    expect(rows.filter((row) => row.target).map((row) => row.id)).toEqual([`box`])
-  })
 })
 
 describe(`deviceMovePick`, () => {
-  it(`another device = move, the current one while moving = cancel`, () => {
-    expect(deviceMovePick(`box`, { deviceId: `mac`, moveToDeviceId: null })).toBe(`move`)
-    expect(deviceMovePick(`mac`, { deviceId: `mac`, moveToDeviceId: `box` })).toBe(`cancel`)
-    expect(deviceMovePick(`mac`, { deviceId: `mac`, moveToDeviceId: null })).toBeNull()
-    expect(deviceMovePick(`box`, { deviceId: `mac`, moveToDeviceId: `box` })).toBeNull()
-    expect(deviceMovePick(`srv`, { deviceId: `mac`, moveToDeviceId: `box` })).toBe(`move`)
-  })
-
-  it(`the moving label names the target`, () => {
-    expect(movingLabel(`Box`)).toBe(`Moving to Box…`)
+  it(`another device = move, the current one = nothing`, () => {
+    expect(deviceMovePick(`box`, { deviceId: `mac` })).toBe(`move`)
+    expect(deviceMovePick(`mac`, { deviceId: `mac` })).toBeNull()
   })
 })
 

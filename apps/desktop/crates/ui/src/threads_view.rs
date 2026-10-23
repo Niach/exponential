@@ -14,7 +14,7 @@
 //! `merged` draws no word, the violet lead says it) · the device icon. A row
 //! opens the thread. EXP-1323: a live tree nests its children under the
 //! root (tree guides; a child opens its session), an unread title is
-//! semibold, the live caption is the muted second line.
+//! semibold.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -232,7 +232,6 @@ fn thread_list_row(
             trailing,
             guides,
             strong: row.unread,
-            caption: row.caption.clone().map(SharedString::from),
             on_click: Some(Box::new(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
                 let session_id = session_id.clone();
                 let screen = if child {

@@ -23,7 +23,7 @@ pub struct PinToggleOutput {
 }
 
 /// `pins.toggle` — mutation. `kind` is a contract `pinKind` value
-/// (`domain::contract::PIN_KIND_*`); `target_id` the issue / session / action
+/// (`domain::contract::PIN_KIND_*`; NEW-8: never `action`); `target_id` the issue / session
 /// id that kind names.
 pub fn pins_toggle(
     trpc: &TrpcClient,

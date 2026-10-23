@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-23-conversations-on-every-client`,
+    date: `2026-10-23`,
+    title: `Every app reads threads through conversations, and actions are retired`,
+    summary: `Web, the IDE, iOS and Android now load a thread's messages through its conversation and stop syncing the retired actions, ready for the server cleanup that follows.`,
+    body: `- **Threads**: messages load through their conversation on every platform, so direct messages and channels can follow without another app update.
+- **Actions**: the apps no longer sync actions (prompts replaced them); an action pinned in the sidebar disappears.
+- **Devices**: moving a session to another device takes effect at once; the Moving to pin and its cancel are gone.
+- **Session cards**: the old caption line under a session's name is gone.`,
+  },
+  {
     id: `2026-10-23-threads-follow-ups`,
     date: `2026-10-23`,
     title: `Threads: the Conversation tab on every thread, filed issues stay where they are, and pickup after an update`,

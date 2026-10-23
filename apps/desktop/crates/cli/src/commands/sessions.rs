@@ -172,18 +172,18 @@ fn filter_by_device(
 }
 
 /// What a row is ABOUT: its title (a list row's is the server's derived
-/// one: title, action, agent name, first issue, first message), else a
-/// tree root's derived title, its action, a team agent's name.
+/// one), else a tree root's derived title, else what it is (an agent's
+/// conversation or a session). NEW-8: never the legacy `name`/`actionName`.
 pub fn subject(row: &RemoteSession) -> String {
     let named = |value: &Option<String>| value.clone().filter(|value| !value.trim().is_empty());
-    named(&row.title)
-        .or_else(|| named(&row.display_title))
-        .or_else(|| named(&row.action_name))
-        .or_else(|| named(&row.name))
-        .unwrap_or_else(|| match row.kind.as_deref() {
-            Some("agent") => "agent".to_string(),
-            _ => "session".to_string(),
-        })
+    named(&row.title).or_else(|| named(&row.display_title)).unwrap_or_else(|| {
+        if is_agent(row) { "agent" } else { "session" }.to_string()
+    })
+}
+
+/// An agent's conversation session: the kind derives from `agent_id`.
+fn is_agent(row: &RemoteSession) -> bool {
+    domain::session_kind::session_kind_of(row.agent_id.as_deref()) == domain::contract::SESSION_KIND_AGENT
 }
 
 /// The status cell: the row status plus the states a live row can hide
@@ -311,7 +311,7 @@ fn render_detail(tree: &RemoteSessionTree, id: &str) -> String {
     line("Session", &row.id);
     line("Subject", &subject(if row.parent_id.is_none() { row } else { &tree.root }));
     line("Status", &status_cell(row));
-    if row.kind.as_deref() == Some("agent") {
+    if is_agent(row) {
         line("Kind", "team agent");
     }
     if let Some(parent) = &row.parent_id {
@@ -611,8 +611,8 @@ mod tests {
         assert_eq!(status_cell(&tree_root), "running (usage wall)");
 
         let mut agent = row("s3");
-        agent.kind = Some("agent".into());
-        agent.name = Some("Triage bot".into());
+        agent.agent_id = Some("ag-1".into());
+        agent.title = Some("Triage bot".into());
         agent.status = "idle".into();
         assert_eq!(subject(&agent), "Triage bot");
         assert_eq!(status_cell(&agent), "idle");

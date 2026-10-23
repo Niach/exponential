@@ -34,17 +34,6 @@ const TYPED: ReadonlyArray<[string, () => React.ReactElement]> = [
     ),
   ],
   [
-    `ActionPicker`,
-    () => (
-      <pickers.ActionPicker
-        actions={[{ id: `a1`, name: `Release`, icon: `rocket` }]}
-        value={null}
-        onChange={noop}
-        trigger={trigger}
-      />
-    ),
-  ],
-  [
     `AccountPicker`,
     () => (
       <pickers.AccountPicker

@@ -64,7 +64,7 @@ pub(crate) fn message_placeholder(name: &str) -> String {
 /// The agent's display name: the `agents` row's `name`, `Untitled` while it
 /// is blank (EXP-1341's ladder bottom).
 pub(crate) fn agent_def_name(agent: &AgentDefRow) -> String {
-    domain::session_title::title_from_parts(agent.name.as_deref(), None, &[], None, None)
+    domain::session_title::title_from_parts(agent.name.as_deref(), &[], None)
 }
 
 /// The agent's mark: its icon in its colour (web `BoardGlyph`).
@@ -193,6 +193,10 @@ impl AgentScreenView {
                 this.refresh(window, cx)
             }));
             subscriptions.push(cx.observe_in(&collections.messages, window, |this, _, window, cx| {
+                this.refresh(window, cx)
+            }));
+            // NEW-8: a message's session is its conversation's.
+            subscriptions.push(cx.observe_in(&collections.conversations, window, |this, _, window, cx| {
                 this.refresh(window, cx)
             }));
             subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));

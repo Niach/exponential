@@ -38,7 +38,8 @@ struct ThreadRows: Sendable {
     let sessionIssues: [SessionIssueEntity]
     /// The root's linked issues in link order.
     let issues: [IssueEntity]
-    let messages: [MessageEntity]
+    /// NEW-8: keyed through their conversations (`SessionMessage`).
+    let messages: [SessionMessage]
     let pullRequests: [PullRequestEntity]
     /// Per pull request id, the issues it closes (`pull_request_issues`).
     let pullRequestIssueIds: [String: [String]]
@@ -55,8 +56,7 @@ struct ThreadRows: Sendable {
     var rootDevice: DeviceEntity?
     /// NEW-2: an agent conversation's DEFINITION row (`agents`, the root's
     /// `agent_id`): its name, icon and colour head the screen; nil = a
-    /// thread, or a definition not synced yet (the root's mirrored legacy
-    /// facets stand in).
+    /// thread, or a definition not synced yet (the defaults stand in).
     var agent: AgentDefinitionEntity?
     /// VAPP-110: an app EDITOR session's app (`apps`, the root's `app_id`):
     /// its chat is a CHANNEL like an agent's (the app's glyph + name on the
@@ -68,13 +68,12 @@ struct ThreadRows: Sendable {
     var isAgent: Bool { root.isAgent || root.appId != nil }
 
     /// The channel's name / icon / colour: the app's (an editor session),
-    /// the agent definition's, else the root's mirrored legacy facets
-    /// (`kind = agent` shim), else the defaults.
-    var agentName: String { app?.name ?? agent?.name ?? root.name ?? "" }
+    /// the agent definition's, else the defaults.
+    var agentName: String { app?.name ?? agent?.name ?? "" }
     var agentIcon: String {
-        BoardTypeDisplay.iconName(for: app?.icon ?? agent?.icon ?? root.icon) ?? SessionTree.ListCopy.agentDefaultIcon
+        BoardTypeDisplay.iconName(for: app?.icon ?? agent?.icon) ?? SessionTree.ListCopy.agentDefaultIcon
     }
-    var agentColor: String { app?.color ?? agent?.color ?? root.color ?? SessionTree.ListCopy.agentDefaultColor }
+    var agentColor: String { app?.color ?? agent?.color ?? SessionTree.ListCopy.agentDefaultColor }
 
     func session(id: String) -> SessionEntity? {
         sessions.first { $0.id == id }

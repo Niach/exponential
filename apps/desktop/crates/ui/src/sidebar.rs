@@ -764,12 +764,11 @@ impl RailView {
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
             // The Inbox dot is a live read over unread rows.
             cx.observe(&collections.notifications, |_, _, cx| cx.notify()),
-            // EXP-778: the Pinned section — its rows, and the action names
-            // it resolves (issues are observed below).
+            // EXP-778: the Pinned section's rows (issues are observed
+            // below).
             cx.observe(&collections.pins, |_, _, cx| cx.notify()),
             // EXP-878: the conditional Drafts entry and its count.
             cx.observe(&collections.issue_drafts, |_, _, cx| cx.notify()),
-            cx.observe(&collections.actions, |_, _, cx| cx.notify()),
             // EXP-311: the account button's avatar rides the users shape
             // (profile image URL) plus the async avatar-byte cache.
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
@@ -875,33 +874,6 @@ impl RailView {
                                 Screen::IssueDetail {
                                     issue_id: issue_id.clone(),
                                 },
-                            );
-                        }))
-                }
-                domain::contract::PIN_KIND_ACTION => {
-                    let Some(action) = collections.actions.read(cx).get(target_id).cloned() else {
-                        continue;
-                    };
-                    let name = action
-                        .name
-                        .clone()
-                        .unwrap_or_else(|| "Untitled action".to_string());
-                    let lead = crate::icons::action_icon(action.icon.as_deref())
-                        .with_size(gpui_component::Size::Medium)
-                        .flex_shrink_0()
-                        .into_any_element();
-                    let action_id = action.id.clone();
-                    self.entry(("rail-pin", index), lead, name, false, None, cx)
-                        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                            // No agent CLI, nothing to run — the composer
-                            // would refuse anyway.
-                            if crate::coding_flow::no_agent_reason(cx).is_some() {
-                                return;
-                            }
-                            crate::navigation::navigate_to_chat(
-                                window,
-                                cx,
-                                crate::navigation::ChatSeed::action(action_id.clone()),
                             );
                         }))
                 }

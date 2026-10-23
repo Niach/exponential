@@ -68,7 +68,6 @@ const BASE = {
   teamId: `t`,
   parentId: null,
   rootId: `s`,
-  kind: `thread`,
   userId: `u`,
   status: `running`,
   busy: false,
@@ -77,30 +76,24 @@ const BASE = {
   shared: true,
   title: null,
   guide: null,
-  actionName: null,
-  name: null,
-  icon: null,
-  color: null,
-  sortOrder: 0,
   startedAt: `2026-10-13T09:47:26.000Z`,
   endedAt: null,
   createdAt: `2026-10-13T09:47:00.000Z`,
   updatedAt: `2026-10-13T09:59:00.000Z`,
 }
 
-// EXP-1341: the 2nd arg = the session's resolved `sessionTitle` (name,
-// stored title, `#IDENT title`, `Run <action>`, the first prompt).
+// EXP-1341: the 2nd arg = the session's resolved `sessionTitle` (its
+// stored title, `#IDENT title`, the first prompt).
 const CARDS = [
   sessionCard({ ...BASE, busy: true }, `#APP-12 Login fails on Safari`, NOW),
-  // EXP-1323: the live caption, the card's muted second line.
   sessionCard(
-    { ...BASE, title: `Add width and height to cart thumbnails`, busy: true, caption: `Reading CartLineItem.tsx` },
+    { ...BASE, title: `Add width and height to cart thumbnails`, busy: true },
     `Add width and height to cart thumbnails`,
     NOW
   ),
   sessionCard({ ...BASE, title: `Profile the launch path`, needsInput: true }, `Profile the launch path`, NOW),
   sessionCard({ ...BASE, title: `Review the fix` }, `Review the fix`, NOW),
-  sessionCard({ ...BASE, status: `queued`, startedAt: null }, `Run Deploy`, NOW),
+  sessionCard({ ...BASE, status: `queued`, startedAt: null }, `Deploy the staging build`, NOW),
   sessionCard({ ...BASE, blocked: { window: `5h` } }, `Why does the cart badge lag a tap behind?`, NOW),
   sessionCard({ ...BASE, status: `ended`, endedAt: `2026-10-13T09:51:10.000Z` }, `Bump the CLI floor to 0.14.72`, NOW),
 ]
@@ -431,7 +424,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1293`,
   title: `Thread`,
-  blurb: `A thread IS a root session. Header: the title (THE \`sessionTitle()\` chain: the name, the agent's own title, \`#IDENT title\`, \`Run <action>\`, the first prompt; nobody renames it; a lock when private) and ONE tab strip that never scrolls (EXP-1334): "+" (THE Menu: Link an issue › the search list, New issue) and Conversation pinned left, Guide pinned right (a green dot while the root's Guide holds anything); between them the TOP-LEVEL issue chips then the dispatcher's DIRECT child sessions, THE strip chip (\`StripChip\`, shared with the work tabs strip): everything full → issues identifier-only → each zone folds into its own "+N" (\`partitionThreadStrip\`), the open chip always drawn. A chip with sub-issues / deeper sessions wears a chevron and a CLICK opens its subtree (THE tree rows with guides; phones: the bottom sheet); it reads \`<chip> › <open one>\` while a nested item is open. The conversation IS the dispatcher: no card of its own. No captions, no right sidebar; md+: while the Guide's PR is open the title row's trailing slot carries Merge (\`Merge PR\` | \`Merge stack\`) on every tab, then the \`…\` on the Guide tab; phones use the strip as the pager and keep the bottom Merge capsule on the Guide. THE session card = the Work card's header row: the state icon, the name (the same \`sessionTitle()\` chain, never a number), the muted state word (amber Needs you, rose Usage limit), trailing the elapsed and a spinner while working; it opens that session. The Threads page (and the phones' Threads tab) = Needs you · Running · Recent bands (filled, no count) over flat gapless rows, no dividers: the lead (spinner while busy, amber badge when it needs you, else the PR glyph), the title, ONE quiet word (\`ready to merge\`, \`stack\`, \`question\`; a merged thread shows only the violet lead, no word, and no row carries a lock, EXP-1339), then the root's device glyph (its name on hover, EXP-1318); the page and this specimen render THE same \`ThreadsList\`; phones put the Agents band on top. Models = \`buildSessionThread()\`, \`sessionCard()\`, \`partitionThreads()\`, \`sessionTitle()\` (fixtures \`session-thread.json\`, \`session-card.json\`, \`threads-list.json\`, \`session-title.json\` ×4).`,
+  blurb: `A thread IS a root session. Header: the title (THE \`sessionTitle()\` chain: its stored title (an explicit name or the agent's own), \`#IDENT title\`, the first prompt; nobody renames it; a lock when private) and ONE tab strip that never scrolls (EXP-1334): "+" (THE Menu: Link an issue › the search list, New issue) and Conversation pinned left, Guide pinned right (a green dot while the root's Guide holds anything); between them the TOP-LEVEL issue chips then the dispatcher's DIRECT child sessions, THE strip chip (\`StripChip\`, shared with the work tabs strip): everything full → issues identifier-only → each zone folds into its own "+N" (\`partitionThreadStrip\`), the open chip always drawn. A chip with sub-issues / deeper sessions wears a chevron and a CLICK opens its subtree (THE tree rows with guides; phones: the bottom sheet); it reads \`<chip> › <open one>\` while a nested item is open. The conversation IS the dispatcher: no card of its own. No captions, no right sidebar; md+: while the Guide's PR is open the title row's trailing slot carries Merge (\`Merge PR\` | \`Merge stack\`) on every tab, then the \`…\` on the Guide tab; phones use the strip as the pager and keep the bottom Merge capsule on the Guide. THE session card = the Work card's header row: the state icon, the name (the same \`sessionTitle()\` chain, never a number), the muted state word (amber Needs you, rose Usage limit), trailing the elapsed and a spinner while working; it opens that session. The Threads page (and the phones' Threads tab) = Needs you · Running · Recent bands (filled, no count) over flat gapless rows, no dividers: the lead (spinner while busy, amber badge when it needs you, else the PR glyph), the title, ONE quiet word (\`ready to merge\`, \`stack\`, \`question\`; a merged thread shows only the violet lead, no word, and no row carries a lock, EXP-1339), then the root's device glyph (its name on hover, EXP-1318); the page and this specimen render THE same \`ThreadsList\`; phones put the Agents band on top. Models = \`buildSessionThread()\`, \`sessionCard()\`, \`partitionThreads()\`, \`sessionTitle()\` (fixtures \`session-thread.json\`, \`session-card.json\`, \`threads-list.json\`, \`session-title.json\` ×4).`,
   status: {
     web: {
       state: `ok`,

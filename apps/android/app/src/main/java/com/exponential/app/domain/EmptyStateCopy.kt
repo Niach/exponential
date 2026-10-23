@@ -34,8 +34,6 @@ object EmptyStateCopy {
     val boards = State("boards", Size.Page, "nav-boards", "No boards yet", "Create a board to start tracking work.", "Create a board")
     val issues = State("issues", Size.Page, "nav-issues", "No issues yet", "Create an issue to start tracking work.", "New issue")
     val noTeam = State("no-team", Size.Page, "ui-team", "No team yet", "Create a team, or join one with an invite link.", null)
-    val actions = State("actions", Size.Page, "nav-actions", "No actions yet", "Create one on the web or desktop app.", null)
-    val actionUnavailable = State("action-unavailable", Size.Page, "action-default", "Action unavailable", "It may still be syncing, or it was deleted.", null)
     val runNotFound = State("run-not-found", Size.Page, "action-run", "Session not found", null, "Go to Agent")
     val threadNotFound = State(
         "thread-not-found",
@@ -80,8 +78,6 @@ object EmptyStateCopy {
         boards,
         issues,
         noTeam,
-        actions,
-        actionUnavailable,
         runNotFound,
         threadNotFound,
         noSelectionIssue,
@@ -113,14 +109,12 @@ object EmptyStateCopy {
 
     /** A concept id → its glyph; null for a concept this file never names. */
     fun conceptIcon(concept: String): ImageVector? = when (concept) {
-        "action-default" -> ExpIcons.actionDefault
         "action-run" -> ExpIcons.actionRun
         "auth-passkey" -> ExpIcons.authPasskey
         "coding-assistant" -> ExpIcons.codingAssistant
         "coding-diff" -> ExpIcons.codingDiff
         "coding-ended" -> ExpIcons.codingEnded
         "coding-running" -> ExpIcons.codingRunning
-        "nav-actions" -> ExpIcons.navActions
         "nav-boards" -> ExpIcons.navBoards
         "nav-devices" -> ExpIcons.navDevices
         "nav-drafts" -> ExpIcons.navDrafts

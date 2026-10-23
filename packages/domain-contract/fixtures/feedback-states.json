@@ -326,17 +326,15 @@
     "deadlineFrom": "sent",
     "remoteOnly": true,
     "startIdKey": "startId",
-    "$comment": "Final review (2026-10-12): ONE startId per DRAFT START, bound to the target device + the draft fingerprint (text, subject issue/action ids, attachments): minted on the first Start of that draft and reused by every Retry (timeout toast, failure toast, relay_timeout) AND every later Start press of the SAME draft on the SAME device, until a session lands or the draft or device changes (then a fresh id). The 30 s deadline counts from the moment the start request is SENT (after uploads), only for a start to another device; timeout = the error toast with Retry, composer idle, nothing aborted, the watch keeps running (also while the page is off-screen) for `watchMs`. A LATE landing clears the error; if the draft is unchanged since its send it clears the draft and lands as if in time, if the person changed it after the timeout the field stays exactly as they left it and nothing navigates (the session appears in Running). The server dedupes a start by (deviceId, startId) within `dedupeMs` (devices below this build ignore the id), devices dedupe it too.",
+    "$comment": "Final review (2026-10-12): ONE startId per DRAFT START, bound to the target device + the draft fingerprint (text, subject issue ids, attachments): minted on the first Start of that draft and reused by every Retry (timeout toast, failure toast, relay_timeout) AND every later Start press of the SAME draft on the SAME device, until a session lands or the draft or device changes (then a fresh id). The 30 s deadline counts from the moment the start request is SENT (after uploads), only for a start to another device; timeout = the error toast with Retry, composer idle, nothing aborted, the watch keeps running (also while the page is off-screen) for `watchMs`. A LATE landing clears the error; if the draft is unchanged since its send it clears the draft and lands as if in time, if the person changed it after the timeout the field stays exactly as they left it and nothing navigates (the session appears in Running). The server dedupes a start by (deviceId, startId) within `dedupeMs` (devices below this build ignore the id), devices dedupe it too.",
     "watchMs": 1800000,
     "dedupeMs": 1800000,
     "fingerprint": {
-      "$comment": "Recheck R2 (2026-10-12): the draft fingerprint that binds a startId. Two drafts are the SAME start when every field below is equal; lists compare as sets (order-free), absent and null are equal, text compares verbatim. Every client replays `fingerprint.cases` (same: true/false).",
+      "$comment": "Recheck R2 (2026-10-12): the draft fingerprint that binds a startId. Two drafts are the SAME start when every field below is equal; lists compare as sets (order-free), absent and null are equal, text compares verbatim. Every client replays `fingerprint.cases` (same: true/false). NEW-8: actions are gone, so no action id or inputs bind a start.",
       "fields": [
         "deviceId",
         "text",
         "issueIds (set)",
-        "actionId",
-        "actionInputs (key/value map)",
         "repositoryId (chat)",
         "attachments (set of local pick ids)",
         "agent",
@@ -360,8 +358,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -386,8 +382,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -416,8 +410,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -442,8 +434,6 @@
               "i2",
               "i1"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -472,8 +462,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -498,8 +486,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -528,8 +514,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -554,8 +538,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -584,8 +566,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -610,8 +590,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -640,8 +618,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -666,8 +642,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -696,8 +670,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -722,8 +694,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -751,8 +721,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -777,8 +745,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -807,8 +773,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -833,8 +797,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -863,8 +825,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -889,8 +849,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -919,8 +877,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -945,66 +901,10 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1",
               "a2"
-            ],
-            "agent": "claude",
-            "model": "opus",
-            "effort": "high",
-            "planMode": false,
-            "account": "acc1",
-            "mcpServerIds": [
-              "m1",
-              "m2"
-            ],
-            "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
-          },
-          "same": false
-        },
-        {
-          "name": "a changed action input is a new start",
-          "a": {
-            "deviceId": "d1",
-            "text": "Fix it",
-            "issueIds": [],
-            "actionId": "act1",
-            "actionInputs": {
-              "board": "b1"
-            },
-            "repositoryId": null,
-            "attachments": [
-              "a1"
-            ],
-            "agent": "claude",
-            "model": "opus",
-            "effort": "high",
-            "planMode": false,
-            "account": "acc1",
-            "mcpServerIds": [
-              "m1",
-              "m2"
-            ],
-            "computerUse": null,
-            "ultracode": false,
-            "subagentModel": null
-          },
-          "b": {
-            "deviceId": "d1",
-            "text": "Fix it",
-            "issueIds": [],
-            "actionId": "act1",
-            "actionInputs": {
-              "board": "b2"
-            },
-            "repositoryId": null,
-            "attachments": [
-              "a1"
             ],
             "agent": "claude",
             "model": "opus",
@@ -1030,8 +930,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"
@@ -1056,8 +954,6 @@
               "i1",
               "i2"
             ],
-            "actionId": null,
-            "actionInputs": {},
             "repositoryId": null,
             "attachments": [
               "a1"

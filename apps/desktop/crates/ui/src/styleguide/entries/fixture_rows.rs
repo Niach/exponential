@@ -4,7 +4,7 @@
 //! demo pull-request stack.
 
 use domain::pr_stack::PrSet;
-use domain::rows::{Issue, PullRequestIssueRow, PullRequestRow};
+use domain::rows::{Issue, MessageRow, PullRequestIssueRow, PullRequestRow};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
@@ -58,6 +58,34 @@ pub(crate) fn rows<T: DeserializeOwned>(value: &Value) -> Vec<T> {
                     serde_json::from_value(row_or(item, &format!("row-{index}")))
                         .expect("a fixture row deserializes")
                 })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// NEW-8: one fixture `TreeMessage` (already KEYED: its `sessionId` is the
+/// session its conversation belongs to) as a keyed `MessageRow`: a
+/// synthesized conversation, the resolved session set after decode (the
+/// row's own `session_id` is never decoded).
+pub(crate) fn message(value: &Value, fallback_id: &str) -> Option<MessageRow> {
+    let session_id = value["sessionId"].as_str().unwrap_or_default().to_string();
+    let mut object = row_or(value, fallback_id);
+    if let Some(object) = object.as_object_mut() {
+        object.entry("conversation_id").or_insert_with(|| json!(format!("c-{session_id}")));
+    }
+    let message: MessageRow = serde_json::from_value(object).ok()?;
+    Some(MessageRow { session_id, ..message })
+}
+
+/// Every fixture message ([`message`]; an id-less row reads `row-<index>`).
+pub(crate) fn messages(value: &Value) -> Vec<MessageRow> {
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| message(item, &format!("row-{index}")).expect("a fixture message deserializes"))
                 .collect()
         })
         .unwrap_or_default()

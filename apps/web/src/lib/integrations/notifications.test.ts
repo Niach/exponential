@@ -206,7 +206,7 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
     })
   })
 
-  it(`derives an untitled thread's name from its first issue, else its action`, async () => {
+  it(`derives an untitled thread's name from its first issue, else Untitled`, async () => {
     selectResults.push([session])
     selectResults.push([]) // throttle
     // EXP-1341 session-title.json: the tree's links, then the input messages.
@@ -229,14 +229,14 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
     expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(`#EXP-12 Login bug hit a rate limit`)
 
     vi.mocked(sendToUsers).mockClear()
-    selectResults.push([{ ...session, actionName: `Triage inbox` }])
+    selectResults.push([session])
     selectResults.push([])
     selectResults.push([]) // links: none
     selectResults.push([]) // messages: none
     selectResults.push([{ id: `owner` }])
     selectResults.push([])
     await notifySessionBlocked(`sess-2`, blocked)
-    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(`Run Triage inbox hit a rate limit`)
+    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(`Untitled hit a rate limit`)
   })
 
   it(`writes nothing for an owner who left the team, and never throws`, async () => {

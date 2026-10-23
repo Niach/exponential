@@ -273,21 +273,16 @@ pub struct RemoteSession {
     /// How deep the row sits in its tree (0 = the root).
     #[serde(default)]
     pub depth: u32,
-    /// Contract `sessionKind` (`thread` | `agent` on a root).
+    /// NEW-2: the agent DEFINITION a conversation session runs (`None` = a
+    /// thread); the kind derives from it (NEW-8: never the legacy `kind`).
     #[serde(default)]
-    pub kind: Option<String>,
+    pub agent_id: Option<String>,
     /// The row's title (a list row: the derived one).
     #[serde(default)]
     pub title: Option<String>,
     /// A tree root's derived title (`exponential_sessions_get`).
     #[serde(default)]
     pub display_title: Option<String>,
-    /// A team agent's display name (`kind = agent` roots only).
-    #[serde(default)]
-    pub name: Option<String>,
-    /// The action a thread ran, by name (a legacy read shim).
-    #[serde(default)]
-    pub action_name: Option<String>,
     #[serde(default)]
     pub user_id: Option<String>,
     #[serde(default)]
@@ -299,10 +294,6 @@ pub struct RemoteSession {
     pub account: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
-    /// A dispatcher root (threads + team agents): runs on the thread model
-    /// and hands work to child sessions. Absent on the wire = `false`.
-    #[serde(default)]
-    pub dispatch: bool,
     /// `queued` / `running` / `idle` / `ended` (contract `sessionStatus`).
     #[serde(default)]
     pub status: String,
@@ -650,11 +641,11 @@ mod tests {
     #[test]
     fn sessions_rows_decode_with_nulls() {
         let row: RemoteSession = serde_json::from_str(
-            r#"{"id":"s1","parentId":null,"rootId":"s1","kind":"thread","title":null,"status":"idle","deviceId":"d1","cli":"claude","busy":false,"needsInput":false,"blocked":null,"depth":0}"#,
+            r#"{"id":"s1","parentId":null,"rootId":"s1","kind":"thread","agentId":null,"name":"x","actionName":"y","dispatch":true,"title":null,"status":"idle","deviceId":"d1","cli":"claude","busy":false,"needsInput":false,"blocked":null,"depth":0}"#,
         )
         .unwrap();
         assert_eq!(row.status, "idle");
-        assert_eq!(row.kind.as_deref(), Some("thread"));
+        assert_eq!(row.agent_id, None, "NEW-8: the legacy kind/name/dispatch keys are ignored");
         assert_eq!(row.depth, 0);
         assert!(row.blocked.is_none());
     }

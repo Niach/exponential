@@ -338,12 +338,14 @@ extension IssueEntity: Codable {
 
 // MARK: - Session (EXP-1291)
 
-// ONE session tree. A thread IS a root session (`parent_id` NULL, `kind`
-// thread); a team agent is a root of `kind` agent (it idles, never ends);
-// children are sub-sessions on any device (`kind` thread, `depth` > 0). The
-// root carries the thread facets (title, the ONE Guide, the action it ran)
-// or the agent facets (name, icon, color, triggers); issues and PRs hang off
-// it through `session_issues` / `pull_requests`. Visibility is the shape's
+// ONE session tree. A thread IS a root session (`parent_id` NULL); an
+// agent's conversation is a root with `agent_id` (its name, icon, color and
+// order come from that `agents` definition); children are sub-sessions on
+// any device (`depth` > 0). The root carries the thread facets (title, the
+// ONE Guide); issues and PRs hang off it through `session_issues` /
+// `pull_requests`. NEW-8: the legacy columns (`kind`, `dispatch`, `caption`,
+// `aside`, `move_to_device_id`, the action and agent mirrors) are never read;
+// the decoder ignores them while the server still sends them. Visibility is the shape's
 // (`shared OR user_id = me`), so every row here may be shown. Mirrors the
 // sessions shape allowlist (`host_user_id`, `mcp_server_ids` and an agent's
 // `instructions` stay server-only).
@@ -358,9 +360,6 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     public let rootId: String
     /// 0 on a root.
     public let depth: Int
-    /// `thread` | `agent` (`DomainContract.sessionKindValues`); children are
-    /// always `thread`.
-    public let kind: String
     /// The STARTER (visibility keys on it).
     public let userId: String
     /// The steer device id of the machine that runs it.
@@ -374,9 +373,6 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     public let planMode: Bool
     public let computerUse: Bool
     public let ultracode: Bool
-    /// A dispatcher root (every new thread / team agent): it hands its work
-    /// to children, so it has no plan mode of its own.
-    public let dispatch: Bool
     public let repositoryId: String?
     /// The working branch, device-written at claim.
     public let branch: String?
@@ -400,33 +396,10 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// `{topic, …}` entry shape `parseSessionResults` reads; nil / `[]` =
     /// nothing yet.
     public let guide: String?
-    public let actionId: String?
-    /// Name snapshot: a deleted action still names the thread.
-    public let actionName: String?
-    /// The action's filled picks, raw jsonb TEXT (`{key: value}`).
-    public let actionInputs: String?
-    /// The agent or thread that started this root.
-    public let spawnedBySessionId: String?
-    // Agent facets (kind agent).
-    public let name: String?
-    public let icon: String?
-    public let color: String?
-    /// The agent's triggers, raw jsonb TEXT; "[]" = none.
-    public let triggers: String
-    public let sortOrder: Double
     public let createdAt: String
     public let updatedAt: String
-    /// EXP-1323: the live status line (device-written, ≤80 chars, cleared at
-    /// turn end); nil = none.
-    public let caption: String?
-    /// EXP-1323: a `/btw` aside child (its title = the question).
-    public let aside: Bool
-    /// EXP-1252: a pending move to that device (nil = none); the source host
-    /// hands the session over after its current turn.
-    public let moveToDeviceId: String?
     /// NEW-2: set = this root is an agent's conversation session (one per
-    /// agent and member); the kind derives from it (`sessionKindOf`), never
-    /// from the legacy `kind` shim.
+    /// agent and member); the kind derives from it (`sessionKindOf`).
     public let agentId: String?
     /// VAPP-110: set = this root is a member's EDITOR session of that app
     /// (one per app and member); like an agent's conversation it is no
@@ -439,7 +412,6 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         parentId: String? = nil,
         rootId: String? = nil,
         depth: Int = 0,
-        kind: String = DomainContract.sessionKindThread,
         userId: String,
         deviceId: String,
         cli: String? = nil,
@@ -449,7 +421,6 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         planMode: Bool = false,
         computerUse: Bool = false,
         ultracode: Bool = false,
-        dispatch: Bool = false,
         repositoryId: String? = nil,
         branch: String? = nil,
         status: String = DomainContract.sessionStatusQueued,
@@ -462,34 +433,18 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         shared: Bool = false,
         title: String? = nil,
         guide: String? = nil,
-        actionId: String? = nil,
-        actionName: String? = nil,
-        actionInputs: String? = nil,
-        spawnedBySessionId: String? = nil,
-        name: String? = nil,
-        icon: String? = nil,
-        color: String? = nil,
-        triggers: String = "[]",
-        sortOrder: Double = 0,
         createdAt: String,
         updatedAt: String,
-        caption: String? = nil,
-        aside: Bool = false,
-        moveToDeviceId: String? = nil,
         agentId: String? = nil,
         appId: String? = nil
     ) {
         self.agentId = agentId
         self.appId = appId
-        self.caption = caption
-        self.aside = aside
-        self.moveToDeviceId = moveToDeviceId
         self.id = id
         self.teamId = teamId
         self.parentId = parentId
         self.rootId = rootId ?? id
         self.depth = depth
-        self.kind = kind
         self.userId = userId
         self.deviceId = deviceId
         self.cli = cli
@@ -499,7 +454,6 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         self.planMode = planMode
         self.computerUse = computerUse
         self.ultracode = ultracode
-        self.dispatch = dispatch
         self.repositoryId = repositoryId
         self.branch = branch
         self.status = status
@@ -512,15 +466,6 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         self.shared = shared
         self.title = title
         self.guide = guide
-        self.actionId = actionId
-        self.actionName = actionName
-        self.actionInputs = actionInputs
-        self.spawnedBySessionId = spawnedBySessionId
-        self.name = name
-        self.icon = icon
-        self.color = color
-        self.triggers = triggers
-        self.sortOrder = sortOrder
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -535,8 +480,8 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     public var isLive: Bool { status != DomainContract.sessionStatusEnded }
 
     enum CodingKeys: String, CodingKey {
-        case id, depth, kind, cli, account, model, effort, ultracode, branch, status
-        case busy, blocked, shared, title, guide, name, icon, color, triggers, dispatch, caption, aside
+        case id, depth, cli, account, model, effort, ultracode, branch, status
+        case busy, blocked, shared, title, guide
         case teamId = "team_id"
         case parentId = "parent_id"
         case rootId = "root_id"
@@ -549,14 +494,8 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case startedAt = "started_at"
         case lastTurnAt = "last_turn_at"
         case endedAt = "ended_at"
-        case actionId = "action_id"
-        case actionName = "action_name"
-        case actionInputs = "action_inputs"
-        case spawnedBySessionId = "spawned_by_session_id"
-        case sortOrder = "sort_order"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
-        case moveToDeviceId = "move_to_device_id"
         case agentId = "agent_id"
         case appId = "app_id"
     }
@@ -564,8 +503,9 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
 
 // Custom decode: bools/numbers arrive as Postgres text off the Electric wire
 // and as native scalars from fixtures/tRPC; jsonb columns are stored as their
-// TEXT through the non-throwing helper, so a malformed Guide or trigger list
-// degrades one column, never the row. A same-file extension keeps
+// TEXT through the non-throwing helper, so a malformed Guide degrades one
+// column, never the row. Keys this type no longer names (the NEW-8 legacy
+// columns) are ignored, present or not. A same-file extension keeps
 // encode(to:) synthesis.
 extension SessionEntity: Codable {
     public init(from decoder: Decoder) throws {
@@ -575,7 +515,6 @@ extension SessionEntity: Codable {
         parentId = try c.decodeIfPresent(String.self, forKey: .parentId)
         rootId = try c.decodeIfPresent(String.self, forKey: .rootId) ?? id
         depth = try c.decodeWireInt(forKey: .depth) ?? 0
-        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? DomainContract.sessionKindThread
         userId = try c.decode(String.self, forKey: .userId)
         deviceId = try c.decode(String.self, forKey: .deviceId)
         cli = try c.decodeIfPresent(String.self, forKey: .cli)
@@ -585,7 +524,6 @@ extension SessionEntity: Codable {
         planMode = c.decodeWireBool(forKey: .planMode, default: false)
         computerUse = c.decodeWireBool(forKey: .computerUse, default: false)
         ultracode = c.decodeWireBool(forKey: .ultracode, default: false)
-        dispatch = c.decodeWireBool(forKey: .dispatch, default: false)
         repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
         branch = try c.decodeIfPresent(String.self, forKey: .branch)
         status = try c.decodeIfPresent(String.self, forKey: .status) ?? DomainContract.sessionStatusQueued
@@ -598,20 +536,8 @@ extension SessionEntity: Codable {
         shared = c.decodeWireBool(forKey: .shared, default: false)
         title = try c.decodeIfPresent(String.self, forKey: .title)
         guide = c.decodeWireJsonString(forKey: .guide)
-        actionId = try c.decodeIfPresent(String.self, forKey: .actionId)
-        actionName = try c.decodeIfPresent(String.self, forKey: .actionName)
-        actionInputs = c.decodeWireJsonString(forKey: .actionInputs)
-        spawnedBySessionId = try c.decodeIfPresent(String.self, forKey: .spawnedBySessionId)
-        name = try c.decodeIfPresent(String.self, forKey: .name)
-        icon = try c.decodeIfPresent(String.self, forKey: .icon)
-        color = try c.decodeIfPresent(String.self, forKey: .color)
-        triggers = c.decodeWireJsonString(forKey: .triggers) ?? "[]"
-        sortOrder = try c.decodeWireDouble(forKey: .sortOrder) ?? 0
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
-        caption = try c.decodeIfPresent(String.self, forKey: .caption)
-        aside = c.decodeWireBool(forKey: .aside, default: false)
-        moveToDeviceId = try c.decodeIfPresent(String.self, forKey: .moveToDeviceId)
         // NEW-2: absent on a pre-NEW-2 server = a thread.
         agentId = try c.decodeIfPresent(String.self, forKey: .agentId)
         // VAPP-110: absent on a pre-apps server = not an editor session.
@@ -640,8 +566,6 @@ public struct SessionIssueEntity: FetchableRecord, PersistableRecord, Identifiab
     public let addedBySessionId: String?
     /// Ascending = display order within the thread.
     public let sortOrder: Double
-    /// EXP-1341: the tree session working on it (nil = the root's own).
-    public let assignedSessionId: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -654,11 +578,9 @@ public struct SessionIssueEntity: FetchableRecord, PersistableRecord, Identifiab
         addedBy: String? = nil,
         addedBySessionId: String? = nil,
         sortOrder: Double = 0,
-        assignedSessionId: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
-        self.assignedSessionId = assignedSessionId
         self.id = id
         self.sessionId = sessionId
         self.issueId = issueId
@@ -679,7 +601,6 @@ public struct SessionIssueEntity: FetchableRecord, PersistableRecord, Identifiab
         case addedBy = "added_by"
         case addedBySessionId = "added_by_session_id"
         case sortOrder = "sort_order"
-        case assignedSessionId = "assigned_session_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -697,7 +618,6 @@ extension SessionIssueEntity: Codable {
         addedBy = try c.decodeIfPresent(String.self, forKey: .addedBy)
         addedBySessionId = try c.decodeIfPresent(String.self, forKey: .addedBySessionId)
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder) ?? 0
-        assignedSessionId = try c.decodeIfPresent(String.self, forKey: .assignedSessionId)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }
@@ -706,16 +626,20 @@ extension SessionIssueEntity: Codable {
 // MARK: - Message (EXP-1291)
 
 // The Conversation: one row per person message, per agent turn reply (the
-// turn's FINAL text) and per card, on the session that wrote it (`root_id`
-// names its thread/agent). `card` = the raw jsonb TEXT of a `MessageCard`
-// (`{kind, …}`, contract `messageCardKind`; an unknown kind renders as
-// nothing); `consumed_at` nil on a person's message = still queued for the
-// device.
+// turn's FINAL text) and per card, in the CONVERSATION that holds it
+// (`root_id` names its thread/agent). NEW-8: a message never names its
+// session; it belongs to the session of its conversation
+// (`MessageConversations`, read through `SessionMessage`). `card` = the raw
+// jsonb TEXT of a `MessageCard` (`{kind, …}`, contract `messageCardKind`; an
+// unknown kind renders as nothing); `consumed_at` nil on a person's message =
+// still queued for the device.
 public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "messages"
 
     public let id: String
-    public let sessionId: String
+    /// NEW-3/NEW-8: the conversation it lives in (`messages.conversation_id`,
+    /// NOT NULL on the server); a legacy `session_id` on the wire is ignored.
+    public let conversationId: String
     public let rootId: String
     public let teamId: String
     /// `user` | `agent` | `system` (`DomainContract.messageAuthorKindValues`).
@@ -732,13 +656,10 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// EXP-1323: the session that posted it (a child asking its parent);
     /// nil = none.
     public let authorSessionId: String?
-    /// NEW-3: the conversation it belongs to (beside the kept `session_id`;
-    /// the server derives either from the other); nil on pre-NEW-3 rows.
-    public let conversationId: String?
 
     public init(
         id: String,
-        sessionId: String,
+        conversationId: String,
         rootId: String,
         teamId: String,
         authorKind: String,
@@ -749,13 +670,11 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
         consumedAt: String? = nil,
         createdAt: String,
         updatedAt: String,
-        authorSessionId: String? = nil,
-        conversationId: String? = nil
+        authorSessionId: String? = nil
     ) {
         self.authorSessionId = authorSessionId
         self.conversationId = conversationId
         self.id = id
-        self.sessionId = sessionId
         self.rootId = rootId
         self.teamId = teamId
         self.authorKind = authorKind
@@ -770,7 +689,6 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
 
     enum CodingKeys: String, CodingKey {
         case id, body, card
-        case sessionId = "session_id"
         case rootId = "root_id"
         case teamId = "team_id"
         case authorKind = "author_kind"
@@ -788,7 +706,7 @@ extension MessageEntity: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
-        sessionId = try c.decode(String.self, forKey: .sessionId)
+        conversationId = try c.decode(String.self, forKey: .conversationId)
         rootId = try c.decode(String.self, forKey: .rootId)
         teamId = try c.decode(String.self, forKey: .teamId)
         authorKind = try c.decode(String.self, forKey: .authorKind)
@@ -800,7 +718,36 @@ extension MessageEntity: Codable {
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
         authorSessionId = try c.decodeIfPresent(String.self, forKey: .authorSessionId)
-        conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
+    }
+}
+
+// NEW-8: a message KEYED to the session of its conversation
+// (`MessageConversations.keyMessagesBySession`, contract
+// `message-conversation.json`): fetched by `SessionQueries.messages`, which
+// joins the synced `conversations` — a dm/channel message or one whose
+// conversation has not synced yet never reaches it.
+@dynamicMemberLookup
+public struct SessionMessage: FetchableRecord, Identifiable, Equatable, Sendable {
+    public let message: MessageEntity
+    /// The RESOLVED session: its conversation's `session_id`.
+    public let sessionId: String
+
+    public var id: String { message.id }
+
+    public init(message: MessageEntity, sessionId: String) {
+        self.message = message
+        self.sessionId = sessionId
+    }
+
+    /// A `messages` row joined with its conversation's session as
+    /// `conversation_session_id` (`SessionQueries.keyedMessagesSQL`).
+    public init(row: Row) throws {
+        message = try MessageEntity(row: row)
+        sessionId = row["conversation_session_id"]
+    }
+
+    public subscript<T>(dynamicMember keyPath: KeyPath<MessageEntity, T>) -> T {
+        message[keyPath: keyPath]
     }
 }
 
@@ -1036,104 +983,6 @@ public struct PullRequestIssueEntity: Codable, FetchableRecord, PersistableRecor
         case teamId = "team_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
-    }
-}
-
-// MARK: - Action
-
-// Team actions = saved prompts (EXP-268; EXP-1291 dropped their triggers,
-// repository and MCP picks). The server-side columns allowlist deliberately
-// EXCLUDES `body`: the ≤64KB markdown prompt never rides sync, tRPC
-// `actions.get` stays the only body path. Mirrors packages/db-schema actions
-// minus body.
-public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
-    public static let databaseTableName = "actions"
-
-    public let id: String
-    public let teamId: String
-    public let name: String
-    /// EXP-273: curated registry icon name (the same set as `boards.icon`);
-    /// nil = the generic action glyph.
-    public let icon: String?
-    /// Typed inputs schema (jsonb array of {key,label,type,required,
-    /// placeholder}) — Electric delivers it as a JSON value; stored as the
-    /// stringified JSON, decoded lazily by the UI. Null when the action
-    /// declares no inputs.
-    public let inputs: String?
-    /// EXP-825: the composer's field hint while this action is picked
-    /// (≤200 chars, server-trimmed); nil = the generic "Additional
-    /// instructions (optional)…" prompt.
-    public let promptPlaceholder: String?
-    public let sortOrder: Double?
-    public let createdAt: String
-    public let updatedAt: String
-
-    public init(
-        id: String,
-        teamId: String,
-        name: String,
-        icon: String?,
-        inputs: String?,
-        promptPlaceholder: String? = nil,
-        sortOrder: Double?,
-        createdAt: String,
-        updatedAt: String
-    ) {
-        self.id = id
-        self.teamId = teamId
-        self.name = name
-        self.icon = icon
-        self.inputs = inputs
-        self.promptPlaceholder = promptPlaceholder
-        self.sortOrder = sortOrder
-        self.createdAt = createdAt
-        self.updatedAt = updatedAt
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id, name, icon, inputs
-        case teamId = "team_id"
-        case promptPlaceholder = "prompt_placeholder"
-        case sortOrder = "sort_order"
-        case createdAt = "created_at"
-        case updatedAt = "updated_at"
-    }
-}
-
-// Custom decode: sort_order goes through the type-aware wire helper
-// (Postgres text off the Electric wire, native scalar from fixtures), and
-// `inputs` follows the IssueEventEntity permissive jsonb pattern — string,
-// object/array, or null — re-encoded to a stored string. Unlike the payload
-// path it re-encodes through the type-FAITHFUL JSONWireValue: the stored
-// string is later parsed as typed data (ActionInputDto's `required` Bool),
-// which AnyCodableValue's stringified nested scalars would break.
-extension ActionEntity: Codable {
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
-        teamId = try c.decode(String.self, forKey: .teamId)
-        name = try c.decode(String.self, forKey: .name)
-        icon = try c.decodeIfPresent(String.self, forKey: .icon)
-        // EXP-825: absent (an older row / server) and null both read as no hint.
-        promptPlaceholder = try c.decodeIfPresent(String.self, forKey: .promptPlaceholder)
-        sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
-        createdAt = try c.decode(String.self, forKey: .createdAt)
-        updatedAt = try c.decode(String.self, forKey: .updatedAt)
-
-        // Handle JSONB inputs: string, null, or object/array.
-        if c.contains(.inputs) {
-            if let stringValue = try? c.decode(String.self, forKey: .inputs) {
-                inputs = stringValue
-            } else if (try? c.decodeNil(forKey: .inputs)) == true {
-                inputs = nil
-            } else {
-                let rawJSON = try c.decode(JSONWireValue.self, forKey: .inputs)
-                let data = try JSONEncoder().encode(rawJSON)
-                inputs = String(data: data, encoding: .utf8)
-            }
-        } else {
-            inputs = nil
-        }
     }
 }
 
@@ -1489,24 +1338,24 @@ extension AppVersionEntity: Codable {
 }
 
 // EXP-778: personal pins — the 21st Electric shape. ONE row per (user,
-// target): an issue, a coding session or an action the user pinned into the
-// sidebar. The shape is static per user (`user_id = me`), NOT team/trash
-// scoped, so the local table holds every team's pins. Synced for client
-// parity only: the phone has no sidebar, so nothing here renders a pin
-// (EXP-858 dropped the controls, EXP-976 the switcher's read-only list).
-// `kind` ∈ contract `pinKind`; exactly one of issue_id / session_id /
-// action_id is set. Mirrors packages/db-schema pins.
+// target): an issue or a session the user pinned into the sidebar. The shape
+// is static per user (`user_id = me`), NOT team/trash scoped, so the local
+// table holds every team's pins. Synced for client parity only: the phone has
+// no sidebar, so nothing here renders a pin (EXP-858 dropped the controls,
+// EXP-976 the switcher's read-only list). `kind` ∈ contract `pinKind`; NEW-8:
+// a legacy `action` pin has no target here (`targetId` nil = ignored).
+// Mirrors packages/db-schema pins minus `action_id`.
 public struct PinEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "pins"
 
     public let id: String
     public let userId: String
     public let teamId: String
-    /// `issue` | `session` | `action` (`DomainContract.pinKindValues`).
+    /// `issue` | `session` (`DomainContract.pinKindValues`; a legacy
+    /// `action` pin is ignored).
     public let kind: String
     public let issueId: String?
     public let sessionId: String?
-    public let actionId: String?
     /// Ascending = display order.
     public let sortOrder: Double?
     public let createdAt: String
@@ -1519,7 +1368,6 @@ public struct PinEntity: FetchableRecord, PersistableRecord, Identifiable, Equat
         kind: String,
         issueId: String? = nil,
         sessionId: String? = nil,
-        actionId: String? = nil,
         sortOrder: Double?,
         createdAt: String,
         updatedAt: String
@@ -1530,18 +1378,17 @@ public struct PinEntity: FetchableRecord, PersistableRecord, Identifiable, Equat
         self.kind = kind
         self.issueId = issueId
         self.sessionId = sessionId
-        self.actionId = actionId
         self.sortOrder = sortOrder
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 
-    /// The one target id the row points at, whichever column carries it.
+    /// The one target id the row points at, whichever column carries it;
+    /// nil = no target (a legacy `action` pin or an unknown kind: ignored).
     public var targetId: String? {
         switch kind {
         case DomainContract.pinKindIssue: issueId
         case DomainContract.pinKindSession: sessionId
-        case DomainContract.pinKindAction: actionId
         default: nil
         }
     }
@@ -1552,7 +1399,6 @@ public struct PinEntity: FetchableRecord, PersistableRecord, Identifiable, Equat
         case teamId = "team_id"
         case issueId = "issue_id"
         case sessionId = "session_id"
-        case actionId = "action_id"
         case sortOrder = "sort_order"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -1560,7 +1406,7 @@ public struct PinEntity: FetchableRecord, PersistableRecord, Identifiable, Equat
 }
 
 // Custom decode: `sort_order` comes off the Electric wire as Postgres text
-// (the issues/actions precedent) and as a native number from fixtures.
+// (the issues precedent) and as a native number from fixtures.
 extension PinEntity: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -1570,7 +1416,6 @@ extension PinEntity: Codable {
         kind = try c.decode(String.self, forKey: .kind)
         issueId = try c.decodeIfPresent(String.self, forKey: .issueId)
         sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
-        actionId = try c.decodeIfPresent(String.self, forKey: .actionId)
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
@@ -2790,7 +2635,7 @@ public func getCommentBodyText(_ body: String?) -> String {
 // MARK: - JSONWireValue (type-faithful JSONB re-encoding)
 
 /// A faithful JSON tree for jsonb columns whose stored string is later parsed
-/// back into TYPED data (actions.inputs → ActionInputDto). Unlike
+/// back into TYPED data (e.g. `blocked`, a widget's `customData`). Unlike
 /// AnyCodableValue below — which stringifies every nested scalar, fine for the
 /// display-only issue_events payload — re-encoding this preserves
 /// bools/numbers/null exactly, so a wire `"required": true` survives the

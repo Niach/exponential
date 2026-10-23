@@ -10,16 +10,13 @@ object SessionTitle {
     // fixture `titles` / `titleMax` / `untitled`
     const val TITLE_ISSUE = "#{identifier} {title}"
     const val TITLE_ISSUES = "#{identifier} {title} + {more}"
-    const val TITLE_ACTION = "Run {action}"
     const val TITLE_MAX = 80
     const val UNTITLED = "Untitled"
 
     data class TitleSession(
         val id: String,
         val rootId: String,
-        val name: String?,
         val title: String?,
-        val actionName: String?,
     )
 
     data class TitleLink(
@@ -90,13 +87,10 @@ object SessionTitle {
         issues: List<TitleIssue>,
         messages: List<TitleMessage>,
     ): String {
-        val named = session.name?.trim()?.takeIf { it.isNotEmpty() }
-            ?: session.title?.trim()?.takeIf { it.isNotEmpty() }
+        val named = session.title?.trim()?.takeIf { it.isNotEmpty() }
         if (named != null) return named
         val own = sessionIssues(session, links, issues)
         if (own.isNotEmpty()) return issueLabel(own)
-        val action = session.actionName?.trim()
-        if (!action.isNullOrEmpty()) return TITLE_ACTION.replace("{action}", action)
         return firstPrompt(session.id, messages)?.let { clip(it, TITLE_MAX) } ?: UNTITLED
     }
 
