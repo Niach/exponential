@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Switch as SwitchPrimitive } from "radix-ui"
-import { SWITCH_CLASSES } from "@exponential-at/ui/web/primitives"
+import { SWITCH_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 

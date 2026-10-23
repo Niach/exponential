@@ -173,7 +173,7 @@ ScrollView { HostSurface(host: host, surfaceId: "main") { ProgressView() } }
 `ConformanceTests` replays every suite of
 `packages/exponential-ui/conformance/manifest.json` through the painter and
 writes `.conformance/exponential-ui-swift.json` (`bun run --filter
-@exponential-at/ui conformance:check <report>`).
+@exponential_app/ui conformance:check <report>`).
 
 ## Publishing (SwiftPM)
 

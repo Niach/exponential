@@ -4,7 +4,7 @@
 // file) so the barrel cannot become a cycle.
 //
 // Adding a component: a GENERIC one goes into
-// @exponential-at/ui-react/primitives with a one-line shim here (VAPP-87); a
+// @exponential_app/ui-react/primitives with a one-line shim here (VAPP-87); a
 // specialised one = `shadcn add` into src/, rewrite its `@/…` imports to
 // relative ones, then add a line here (see README.md).
 export * from "./agent-brand-mark"

@@ -72,7 +72,7 @@ import kotlin.math.abs
  * and overlays the frames the painter places), the pure ones through the
  * facade bindings. Writes the report to `$EXPONENTIAL_UI_CONFORMANCE_REPORT`,
  * default `<repo>/.conformance/exponential-ui-compose.json`; check it with
- * `bun run --filter @exponential-at/ui conformance:check <report>`.
+ * `bun run --filter @exponential_app/ui conformance:check <report>`.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w390dp-h800dp-mdpi")

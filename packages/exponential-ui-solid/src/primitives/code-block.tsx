@@ -1,7 +1,7 @@
 import { For, Show, children, createEffect, createMemo, createSignal, onCleanup, splitProps, type ComponentProps, type JSX } from "solid-js"
 import { Check, Copy } from "lucide-solid"
-import { tokenizeCode } from "@exponential-at/ui"
-import { CODE_BLOCK_CLASSES, CODE_TOKEN_CLASS, codeBlockLineVariants, codeBlockVariants, type CodeBlockLineVariantProps, type CodeBlockVariantProps } from "@exponential-at/ui/web/primitives"
+import { tokenizeCode } from "@exponential_app/ui"
+import { CODE_BLOCK_CLASSES, CODE_TOKEN_CLASS, codeBlockLineVariants, codeBlockVariants, type CodeBlockLineVariantProps, type CodeBlockVariantProps } from "@exponential_app/ui/web/primitives"
 
 import { PaintIcon } from "../icons"
 import { css, type StyleInput } from "../style"

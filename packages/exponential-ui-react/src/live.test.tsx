@@ -6,12 +6,12 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { act, cleanup, render } from "@testing-library/react"
 import { useEffect, type ReactNode } from "react"
-import type { FlatComponent } from "@exponential-at/ui"
+import type { FlatComponent } from "@exponential_app/ui"
 import { ExponentialSurface } from "./surface"
 import { useSurface, type SurfaceState } from "./use-surface"
 import { NATIVES } from "./natives"
 import type { NativeProps } from "./node-view"
-import { share } from "@exponential-at/ui/web"
+import { share } from "@exponential_app/ui/web"
 
 afterEach(cleanup)
 

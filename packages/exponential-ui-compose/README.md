@@ -36,7 +36,7 @@ cd packages/exponential-ui-compose
 ### In a blank project
 
 A blank Android Studio project (Compose template, AGP 8.10, Kotlin 2.4, minSdk 26) needs only
-`mavenCentral()` in its repositories and `implementation("at.exponential:ui-compose:0.1.0")`;
+`mavenCentral()` in its repositories and `implementation("at.exponential:ui-compose:0.1.1")`;
 the POM brings the primitives, Compose,
 coroutines and JNA (`@aar`). Ten lines of `MainActivity` (a `SurfaceModel`, `setNested` with the
 kitchen sink from `assets/`, `ExponentialSurface` in a `verticalScroll`) render the kitchen sink
@@ -283,12 +283,12 @@ HostSurface(host, "greenhouse", fallback = { Text("Waiting…") })
 
 Both modules publish as `at.exponential:ui-compose` and `at.exponential:ui-compose-primitives`.
 - Each artifact has the AAR, a full POM (Apache-2.0; developer `Exponential` <hello@exponential.at>; scm `github.com/Niach/exponential`), and sources and javadoc jars.
-- The version is the `uiVersion` Gradle property (`-PuiVersion=…`; release-ui.yml passes the tag's version, the `0.1.0` default lives in each module's `build.gradle.kts`).
+- The version is the `uiVersion` Gradle property (`-PuiVersion=…`; release-ui.yml passes the tag's version, the `0.1.1` default lives in each module's `build.gradle.kts`).
 - Signing is applied ONLY when `ORG_GRADLE_PROJECT_signingInMemoryKey` (+ `…Password`) is set. The root `build.gradle.kts` holds the shared POM, signing and repository setup.
 
 ```bash
 bash apps/desktop/crates/exponential-ui-ffi/build-android.sh       # the .so files the AAR bundles
-bash packages/exponential-ui-compose/release/central-bundle.sh -PuiVersion=0.1.0
+bash packages/exponential-ui-compose/release/central-bundle.sh -PuiVersion=0.1.1
 ```
 
 `central-bundle.sh` publishes into the local `centralBundle` repository (`build/central-bundle`). It drops `maven-metadata.xml`, adds any missing `.md5`/`.sha1`, and zips the Maven layout into `build/central-bundle.zip`, the Central Portal upload format. The upload is a CI `curl`; an unsigned bundle builds but the Portal rejects it.
@@ -307,7 +307,7 @@ bash packages/exponential-ui-compose/release/central-bundle.sh -PuiVersion=0.1.0
     - The painted suites run THROUGH this painter: catalog and replay composed by `ExponentialSurface`, control geometry from `SurfaceMeasurer`.
     - `format` runs through the painter's `IcuFormatter` (en-US, UTC); the animation timings and the leaves' direction come from a live surface's visuals.
     - The pure suites run through the bindings.
-    - The report goes to `$EXPONENTIAL_UI_CONFORMANCE_REPORT`, default `<repo>/.conformance/exponential-ui-compose.json`. Check it with `bun run --filter @exponential-at/ui conformance:check "$PWD/.conformance/exponential-ui-compose.json"`.
+    - The report goes to `$EXPONENTIAL_UI_CONFORMANCE_REPORT`, default `<repo>/.conformance/exponential-ui-compose.json`. Check it with `bun run --filter @exponential_app/ui conformance:check "$PWD/.conformance/exponential-ui-compose.json"`.
 
   - `Round2InteractionTest`: settings + the ICU formatter, strings, copy / focus / announce / file picks, toast timers, Resizable drags and keys, scroll containers + sticky pins, `scrollToIndex`, keys, animations, direction.
   - `RealFontConformanceTest`: the real-font harness (`packages/exponential-ui/conformance`, round 2 §8). Every case of `fixtures/conformance-cases.json` laid out with ONLY the conformance fonts (Robolectric's native text, density 3) is dumped to `build/conformance/compose.json` (the `xui-frame-dump/1` format) and compared with the web baseline by the rules of `compare.ts`. The gate is a ratchet over `src/test/conformance-known.json`: a worse case fails, and so does a better one until its budget is lowered. `onlyRef` (nodes the web places that Compose does not emit) is budgeted per case; the run prints the total. `build/conformance/report.txt` lists every origin. Rewrite the budget after a fix or a baseline rewrite: `EXP_UI_WRITE_FIXTURES=1 ./gradlew :ui-compose:testDebugUnitTest --tests '*RealFontConformanceTest'`.

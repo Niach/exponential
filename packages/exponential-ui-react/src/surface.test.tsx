@@ -4,12 +4,12 @@
 
 import { describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, renderHook } from "@testing-library/react"
-import { CORE_CATALOG_ID, DEFAULT_THEME_ID, THEME_SCHEMA_ID, reduceNested, builtinTheme } from "@exponential-at/ui"
-import type { NestedNode, ThemeIssue, ThemeSource } from "@exponential-at/ui"
+import { CORE_CATALOG_ID, DEFAULT_THEME_ID, THEME_SCHEMA_ID, reduceNested, builtinTheme } from "@exponential_app/ui"
+import type { NestedNode, ThemeIssue, ThemeSource } from "@exponential_app/ui"
 import { ExponentialSurface, resolveThemeInput } from "./surface"
 import { useSurface } from "./use-surface"
 import { useHostOwnedValue } from "./inputs"
-import { compileTheme } from "@exponential-at/ui/web"
+import { compileTheme } from "@exponential_app/ui/web"
 import { WINDOW_THRESHOLD } from "./natives/layout"
 import type { HostPlugin, SurfaceActionEvent, SurfaceInputEvent } from "./host"
 

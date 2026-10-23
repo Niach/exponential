@@ -1,6 +1,6 @@
 // VAPP-85: the drift gate. Every generated file is re-rendered in memory and
 // byte-compared with what is committed, so an edit to catalog/*.json without
-// `bun run --filter @exponential-at/ui generate` fails here (the
+// `bun run --filter @exponential_app/ui generate` fails here (the
 // domain-contract / icons pattern).
 
 import { describe, expect, test } from "bun:test"

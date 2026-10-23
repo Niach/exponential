@@ -6,8 +6,8 @@
 
 import { expect } from "vitest"
 import { act } from "react"
-import fixture from "@exponential-at/ui/fixtures/catalog-components.json"
-import type { NestedNode } from "@exponential-at/ui"
+import fixture from "@exponential_app/ui/fixtures/catalog-components.json"
+import type { NestedNode } from "@exponential_app/ui"
 import { renderReact, renderSolidSurface, serializeDom, type ParityCase } from "../test/parity"
 
 const ID_ATTRS = [`id`, `for`, `aria-controls`, `aria-labelledby`, `aria-describedby`, `aria-activedescendant`]

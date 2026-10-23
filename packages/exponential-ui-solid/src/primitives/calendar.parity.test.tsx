@@ -8,7 +8,7 @@ import { Calendar } from "./calendar"
 import type { CalendarProps } from "./calendar"
 import { expectElementParity } from "../test/parity"
 
-const REACT_CALENDAR = `@exponential-at/ui-react/primitives/calendar`
+const REACT_CALENDAR = `@exponential_app/ui-react/primitives/calendar`
 type ReactCalendar = { Calendar: FunctionComponent<Record<string, unknown>>; CalendarDayButton: FunctionComponent<Record<string, unknown>> }
 let reactCalendar: ReactCalendar | undefined
 const loadReact = async () => (reactCalendar ??= (await import(/* @vite-ignore */ REACT_CALENDAR)) as ReactCalendar)

@@ -4,8 +4,8 @@
 // `viewport` px, exactly as the Solid harness does (harness/main.tsx there).
 
 import { render } from "solid-js/web"
-import { WindowedList } from "@exponential-at/ui-solid"
-import type { WindowedListHandle } from "@exponential-at/ui-solid"
+import { WindowedList } from "@exponential_app/ui-solid"
+import type { WindowedListHandle } from "@exponential_app/ui-solid"
 
 export interface VListCase {
   extents: number[]

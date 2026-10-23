@@ -1,1 +1,1 @@
-export { middleTruncate } from "@exponential-at/ui-react/primitives"
+export { middleTruncate } from "@exponential_app/ui-react/primitives"

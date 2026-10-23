@@ -36,7 +36,7 @@
 //! (`layout`).
 //!
 //! The TypeScript reference implementation lives in `packages/exponential-ui`
-//! (`@exponential-at/ui`); both replay the same fixtures byte for byte, and
+//! (`@exponential_app/ui`); both replay the same fixtures byte for byte, and
 //! the catalog, macro table and built-in themes are embedded here from the
 //! same generator (`src/generated`).
 //!

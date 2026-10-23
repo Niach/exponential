@@ -18,7 +18,7 @@ plugins {
 
 // The Maven coordinates (the POM maps project dependencies through them).
 group = "at.exponential"
-version = (findProperty("uiVersion") as String?) ?: "0.1.0"
+version = (findProperty("uiVersion") as String?) ?: "0.1.1"
 
 android {
     namespace = "at.exponential.ui.primitives"

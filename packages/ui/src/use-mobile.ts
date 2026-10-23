@@ -1,1 +1,1 @@
-export { useIsMobile } from "@exponential-at/ui-react/primitives"
+export { useIsMobile } from "@exponential_app/ui-react/primitives"

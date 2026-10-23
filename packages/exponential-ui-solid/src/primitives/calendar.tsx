@@ -1,5 +1,5 @@
 // FEED-131: shadcn's Calendar on Solid, the twin of
-// @exponential-at/ui-react/primitives/calendar (shadcn's wrapper over
+// @exponential_app/ui-react/primitives/calendar (shadcn's wrapper over
 // react-day-picker 9). There is no DayPicker for Solid, so this file ports
 // the parts of DayPicker 9.14 the wrapper exposes and paints its EXACT DOM:
 // the same elements, attributes (`data-day`, `data-outside`, `data-today`,
@@ -7,7 +7,7 @@
 // en-US labels, the roving `tabindex`, `role="grid"` +
 // `aria-multiselectable`…) and the `rdp-*` default class names in the order
 // `cn(ours, defaults)` and DayPicker's modifier pass yield. Class strings
-// come from CALENDAR_CLASSES (@exponential-at/ui/web/primitives), one source.
+// come from CALENDAR_CLASSES (@exponential_app/ui/web/primitives), one source.
 //
 // Dates: plain local `Date`s and hand-written date math (date-fns' rules:
 // `startOfWeek`, `getWeek`, `addMonths`' end-of-month clamp…). Formatting:
@@ -23,7 +23,7 @@
 
 import { For, Show, createEffect, createMemo, createSignal, mergeProps, splitProps, untrack, type Component, type JSX } from "solid-js"
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-solid"
-import { CALENDAR_CLASSES, type ButtonVariantProps } from "@exponential-at/ui/web/primitives"
+import { CALENDAR_CLASSES, type ButtonVariantProps } from "@exponential_app/ui/web/primitives"
 
 import { PaintIcon } from "../icons"
 import { cn } from "./cn"

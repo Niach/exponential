@@ -1,7 +1,7 @@
 import * as React from "react"
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 
-import { ALERT_DIALOG_CLASSES } from "@exponential-at/ui/web/primitives"
+import { ALERT_DIALOG_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 

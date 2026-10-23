@@ -1,4 +1,4 @@
-# `@exponential-at/ui` — the Exponential UI catalog
+# `@exponential_app/ui` — the Exponential UI catalog
 
 The data half of Exponential UI (VAPP-84): the **core catalog** of
 components an A2UI surface may use, the **A2UI basic catalog** vendored and
@@ -150,12 +150,12 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
   the accent pair, the chart scale), the smallest brand theme there is. The
   natives get all four RESOLVED in
   `generated/ExponentialUIThemes.generated.*` (parse once at startup).
-- **Builder** (`builder/`, `bun run --filter @exponential-at/ui dev:builder`
+- **Builder** (`builder/`, `bun run --filter @exponential_app/ui dev:builder`
   → :4180): pick a base, edit tokens and recipes with the recipe sheet and
   the kitchen sink previewed live, import a shadcn `globals.css` / tweakcn
   export or a theme JSON, export the smallest `extends` theme
   (`diffTheme`). The preview is the real React renderer
-  (`builder/preview.tsx` on `@exponential-at/ui-react`, VAPP-87): what the
+  (`builder/preview.tsx` on `@exponential_app/ui-react`, VAPP-87): what the
   builder shows is what a host gets.
 
 ## The reference implementation (`src/`)
@@ -187,11 +187,11 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
 - `catalogPrompt({extensions?, lite?, terse?})` — the compact system prompt.
 - `coreSchema(iconNames)` / `extensionSchema(ext, iconNames)` — JSON Schema.
 
-## The web layer (`@exponential-at/ui/web`)
+## The web layer (`@exponential_app/ui/web`)
 
 FEED-128: the FRAMEWORK-FREE half of a web renderer, so React and Solid compile byte-identical stylesheets and share one bind pass. `src/web/`: `theme-css.ts` (`compileTheme`: a resolved theme → one scoped sheet; `globalsCss(theme, {light?, dark?})`: the theme as UNSCOPED shadcn globals with literal values, `:root` + `.dark`, for an app that is not Exponential UI), `box-css.ts` (the per-node sheet), `base-css.ts` (`BASE_CSS`, layer `xui-base`), `data.ts` (JSON pointers, bindings, client functions, `bindTree`), `urls.ts` + `media.ts` (URL/media policy, the bounded blob cache, `fetchLimited`), `host-types.ts` (`HostPlugin<Icon, Markdown>`, the events), and the natives' pure helpers (`coerce`, `table`, `dates`, `inputs` = `HostOwnedController`, `markdown` = the parser to a tree, `form` = the field registry, `list`, `listbox`). Nothing in it imports a UI framework.
 
-FEED-131: `@exponential-at/ui/web/primitives` (`src/web/primitives/`) is the framework-free half of the shadcn primitive set: one module per primitive holding its Tailwind class recipes (cva recipes keep their names, `buttonVariants`, `alertVariants`, `codeBlockVariants`; plain strings are one frozen `<MODULE>_CLASSES` object keyed by part, with conditional fragments as keyed entries; the named constants `MENU_*_CLASS`, `SEGMENTED_*`, `GLASS_CARD_CLASS`, `FIELD_CHROME_CLASS`, `MOBILE_ARMS` stay) plus the pure helpers (`cn`, `getInitials`, `middleTruncate`, `avatarHueIndex`, `ringGeometry`, `choiceToggle`, `isTypeaheadPortalInteraction`, …). The React set and its Solid twin import ONE source of class strings, and `recipes.test.ts` fails if either renderer's file of the same name carries a class literal. A Tailwind build that paints them scans this directory (`@source`).
+FEED-131: `@exponential_app/ui/web/primitives` (`src/web/primitives/`) is the framework-free half of the shadcn primitive set: one module per primitive holding its Tailwind class recipes (cva recipes keep their names, `buttonVariants`, `alertVariants`, `codeBlockVariants`; plain strings are one frozen `<MODULE>_CLASSES` object keyed by part, with conditional fragments as keyed entries; the named constants `MENU_*_CLASS`, `SEGMENTED_*`, `GLASS_CARD_CLASS`, `FIELD_CHROME_CLASS`, `MOBILE_ARMS` stay) plus the pure helpers (`cn`, `getInitials`, `middleTruncate`, `avatarHueIndex`, `ringGeometry`, `choiceToggle`, `isTypeaheadPortalInteraction`, …). The React set and its Solid twin import ONE source of class strings, and `recipes.test.ts` fails if either renderer's file of the same name carries a class literal. A Tailwind build that paints them scans this directory (`@source`).
 
 The DOM contract every web renderer keeps: a `.xui-surface.<scope>` root with `data-xui-mode`; `data-xui-id` (placed nodes and parts), `data-xui-part="<Component>/<part>"`, recipe props as `data-r-*` (natives) / `data-m-*` (macro parts), forced states as `data-xs`; `xui-<Component>-<part>` part classes (`partClass`); and the cascade order `LAYERS` (`xui-base` < `xui-recipe` < `xui-node` < `xui-part`).
 
@@ -285,7 +285,7 @@ server, a third-party theme, one extension component, six hosts).
 ## Conformance
 
 `conformance/README.md`: 24 suites (version 2); a renderer is conformant
-when `bun run --filter @exponential-at/ui conformance:check <report>` says
+when `bun run --filter @exponential_app/ui conformance:check <report>` says
 so. All six renderers and the core run it in CI (`exponential-ui.yml`);
 the Solid renderer and the web component also pass the web-parity check
 against React.
@@ -323,9 +323,9 @@ against React.
 ## Commands
 
 ```bash
-bun run --filter @exponential-at/ui generate   # idempotent; generate.test.ts gates drift
-bun run --filter @exponential-at/ui test
-bun run --filter @exponential-at/ui typecheck
+bun run --filter @exponential_app/ui generate   # idempotent; generate.test.ts gates drift
+bun run --filter @exponential_app/ui test
+bun run --filter @exponential_app/ui typecheck
 ```
 
 Change a component = edit `core.catalog.json` (and `macros.json` for a macro),
@@ -335,17 +335,17 @@ run generate, commit everything it rewrote. The icon vocabulary is read from
 generate time too (never at runtime).
 
 ```bash
-bun run --filter @exponential-at/ui dev:builder     # the theme builder on :4180
-bun run --filter @exponential-at/ui build:builder   # bundles builder/dist (ignored)
-bun run --filter @exponential-at/ui size            # VAPP-106: bundle + binary sizes vs release/size-budget.json (release/README.md)
+bun run --filter @exponential_app/ui dev:builder     # the theme builder on :4180
+bun run --filter @exponential_app/ui build:builder   # bundles builder/dist (ignored)
+bun run --filter @exponential_app/ui size            # VAPP-106: bundle + binary sizes vs release/size-budget.json (release/README.md)
 ```
 
 ### Entries (VAPP-106)
 
-The root `@exponential-at/ui` is what a renderer needs (the runtime catalog,
+The root `@exponential_app/ui` is what a renderer needs (the runtime catalog,
 macros, the reducer, the validator, bind-time, formatting, themes, the host
 API). What only a server or a tool needs is an entry of its own, so a
-browser never downloads it: `@exponential-at/ui/prompt` (`catalogPrompt`,
+browser never downloads it: `@exponential_app/ui/prompt` (`catalogPrompt`,
 `estimateTokens`, `PROMPT_RULES`; it attaches the catalog's descriptions and
 examples with `describeCatalog()` first), `./schema` (`coreSchema`,
 `extensionSchema`, with the vendored A2UI basic catalog), `./conformance`

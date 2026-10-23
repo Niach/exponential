@@ -5,12 +5,12 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render } from "@testing-library/react"
-import { CORE_CATALOG_ID, PENDING_DELAY_MS, reduceNested } from "@exponential-at/ui"
-import type { NestedNode } from "@exponential-at/ui"
+import { CORE_CATALOG_ID, PENDING_DELAY_MS, reduceNested } from "@exponential_app/ui"
+import type { NestedNode } from "@exponential_app/ui"
 import { ExponentialSurface } from "./surface"
-import { BASE_CSS } from "@exponential-at/ui/web"
-import { compileTheme } from "@exponential-at/ui/web"
-import { builtinTheme } from "@exponential-at/ui"
+import { BASE_CSS } from "@exponential_app/ui/web"
+import { compileTheme } from "@exponential_app/ui/web"
+import { builtinTheme } from "@exponential_app/ui"
 import type { SurfaceActionEvent } from "./host"
 
 afterEach(() => {

@@ -6,8 +6,8 @@
 // transport + `<HostSurface>`).
 import { render } from "solid-js/web"
 import { Show, createMemo, createResource, onCleanup } from "solid-js"
-import { ExponentialHost, JsonlStreamTransport, defineExtension } from "@exponential-at/ui"
-import { HostSurface, createHostStatus, defineSolidExtension } from "@exponential-at/ui-solid"
+import { ExponentialHost, JsonlStreamTransport, defineExtension } from "@exponential_app/ui"
+import { HostSurface, createHostStatus, defineSolidExtension } from "@exponential_app/ui-solid"
 
 const params = new URLSearchParams(location.search)
 const SERVER = params.get(`server`) ?? `http://localhost:4190`

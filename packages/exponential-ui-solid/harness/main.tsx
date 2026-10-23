@@ -11,38 +11,38 @@
 //   ?view=primitives&id=<id>&theme=<id>&mode=&width=   (one primitive-specimens.json entry, FEED-131: harness/primitives/)
 //   ?view=mount                                          (__xuiMount / __xuiVList)
 //   ?view=bench / ?view=round2
-//   ?view=bench-suite&scenario=<id>                      (VAPP-105: one scenario of @exponential-at/ui-bench; __xuiBenchSuite drives it)
+//   ?view=bench-suite&scenario=<id>                      (VAPP-105: one scenario of @exponential_app/ui-bench; __xuiBenchSuite drives it)
 // Natives not ported yet paint their `data-xui-pending` placeholder.
 
 import { For, Show, createSignal, onMount, type JSX } from "solid-js"
 import { render } from "solid-js/web"
-import { CORE_CATALOG_ID, reduceNested, reduceSurface, BUILTIN_THEME_IDS, THEME_SCHEMA_ID, componentDef } from "@exponential-at/ui"
-import type { FlatComponent, NestedNode, UiNode } from "@exponential-at/ui"
-import benchFixture from "@exponential-at/ui/fixtures/bench-list.json" with { type: "json" }
-import kitchenSink from "@exponential-at/ui/fixtures/kitchen-sink.json" with { type: "json" }
-import geometry from "@exponential-at/ui/fixtures/layout-geometry.json" with { type: "json" }
-import overlays from "@exponential-at/ui/fixtures/overlay-geometry.json" with { type: "json" }
-import components from "@exponential-at/ui/fixtures/catalog-components.json" with { type: "json" }
-import conditions from "@exponential-at/ui/fixtures/style-conditions.json" with { type: "json" }
-import controlGeometry from "@exponential-at/ui/fixtures/control-geometry.json" with { type: "json" }
+import { CORE_CATALOG_ID, reduceNested, reduceSurface, BUILTIN_THEME_IDS, THEME_SCHEMA_ID, componentDef } from "@exponential_app/ui"
+import type { FlatComponent, NestedNode, UiNode } from "@exponential_app/ui"
+import benchFixture from "@exponential_app/ui/fixtures/bench-list.json" with { type: "json" }
+import kitchenSink from "@exponential_app/ui/fixtures/kitchen-sink.json" with { type: "json" }
+import geometry from "@exponential_app/ui/fixtures/layout-geometry.json" with { type: "json" }
+import overlays from "@exponential_app/ui/fixtures/overlay-geometry.json" with { type: "json" }
+import components from "@exponential_app/ui/fixtures/catalog-components.json" with { type: "json" }
+import conditions from "@exponential_app/ui/fixtures/style-conditions.json" with { type: "json" }
+import controlGeometry from "@exponential_app/ui/fixtures/control-geometry.json" with { type: "json" }
 // VAPP-106: the runtime catalog ships without the components' examples; the
 // controls view paints each control from its example, so attach them here.
-import { describeCatalog } from "@exponential-at/ui/prompt"
-import specimens from "@exponential-at/ui/fixtures/specimens.json" with { type: "json" }
+import { describeCatalog } from "@exponential_app/ui/prompt"
+import specimens from "@exponential_app/ui/fixtures/specimens.json" with { type: "json" }
 // The kitchen sink's data model is the React package's fixture (one file
 // for both harnesses; a JSON file, not renderer code).
 import sinkData from "../../exponential-ui-react/fixtures/kitchen-sink.data.json" with { type: "json" }
-import benchManifest from "@exponential-at/ui-bench/scenarios/manifest.json" with { type: "json" }
-import benchColdStart from "@exponential-at/ui-bench/scenarios/cold-start.json" with { type: "json" }
-import benchCardGrid from "@exponential-at/ui-bench/scenarios/card-grid.json" with { type: "json" }
-import benchList100k from "@exponential-at/ui-bench/scenarios/list-100k.json" with { type: "json" }
-import benchStreaming from "@exponential-at/ui-bench/scenarios/streaming.json" with { type: "json" }
-import benchThemeSwitch from "@exponential-at/ui-bench/scenarios/theme-switch.json" with { type: "json" }
-import benchResize from "@exponential-at/ui-bench/scenarios/resize.json" with { type: "json" }
-import benchDeepNesting from "@exponential-at/ui-bench/scenarios/deep-nesting.json" with { type: "json" }
-import benchTemplate10k from "@exponential-at/ui-bench/scenarios/template-10k.json" with { type: "json" }
-import benchOverlay from "@exponential-at/ui-bench/scenarios/overlay.json" with { type: "json" }
-import benchTable1k from "@exponential-at/ui-bench/scenarios/table-1k.json" with { type: "json" }
+import benchManifest from "@exponential_app/ui-bench/scenarios/manifest.json" with { type: "json" }
+import benchColdStart from "@exponential_app/ui-bench/scenarios/cold-start.json" with { type: "json" }
+import benchCardGrid from "@exponential_app/ui-bench/scenarios/card-grid.json" with { type: "json" }
+import benchList100k from "@exponential_app/ui-bench/scenarios/list-100k.json" with { type: "json" }
+import benchStreaming from "@exponential_app/ui-bench/scenarios/streaming.json" with { type: "json" }
+import benchThemeSwitch from "@exponential_app/ui-bench/scenarios/theme-switch.json" with { type: "json" }
+import benchResize from "@exponential_app/ui-bench/scenarios/resize.json" with { type: "json" }
+import benchDeepNesting from "@exponential_app/ui-bench/scenarios/deep-nesting.json" with { type: "json" }
+import benchTemplate10k from "@exponential_app/ui-bench/scenarios/template-10k.json" with { type: "json" }
+import benchOverlay from "@exponential_app/ui-bench/scenarios/overlay.json" with { type: "json" }
+import benchTable1k from "@exponential_app/ui-bench/scenarios/table-1k.json" with { type: "json" }
 import { BASE_CSS, ExponentialSurface, WindowedList, createSurface } from "../src/index"
 import type { HostPlugin, SurfaceHandle, SurfaceInputEvent, WindowedListHandle } from "../src/index"
 import { harnessIcons } from "./icons"

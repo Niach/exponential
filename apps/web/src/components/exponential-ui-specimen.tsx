@@ -1,8 +1,8 @@
 import { useMemo } from "react"
-import { CORE_CATALOG_ID, DEFAULT_THEME_ID } from "@exponential-at/ui"
-import type { NestedNode } from "@exponential-at/ui"
-import specimens from "@exponential-at/ui/fixtures/specimens.json"
-import { ExponentialSurface, useSurface, type HostPlugin } from "@exponential-at/ui-react"
+import { CORE_CATALOG_ID, DEFAULT_THEME_ID } from "@exponential_app/ui"
+import type { NestedNode } from "@exponential_app/ui"
+import specimens from "@exponential_app/ui/fixtures/specimens.json"
+import { ExponentialSurface, useSurface, type HostPlugin } from "@exponential_app/ui-react"
 import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 
 // VAPP-93: one specimens.json entry painted alone on the page ground (the

@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 // FEED-130: the SELF-CONTAINED bundle — `src/standalone.ts` (registers
 // `<exponential-surface>`) with EVERY dependency inlined (solid-js,
-// @kobalte/core, the lucide-solid fallbacks, @exponential-at/ui,
-// @exponential-at/ui-solid) into ONE minified ES module at
+// @kobalte/core, the lucide-solid fallbacks, @exponential_app/ui,
+// @exponential_app/ui-solid) into ONE minified ES module at
 // `<dir>/dist/standalone.js` (+ its sourcemap): the `<script type="module">`
 // build for a page with no bundler. Vite + `vite-plugin-solid` (the Solid
 // painter ships TSX sources inside the monorepo). release/build-npm.ts calls

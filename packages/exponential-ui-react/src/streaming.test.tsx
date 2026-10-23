@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { act, cleanup, render } from "@testing-library/react"
 import { useEffect } from "react"
-import type { FlatComponent } from "@exponential-at/ui"
+import type { FlatComponent } from "@exponential_app/ui"
 import { ExponentialSurface } from "./surface"
 import { useSurface, type SurfaceState } from "./use-surface"
 

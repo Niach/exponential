@@ -17,7 +17,7 @@
 // the root's arrow handler here, the content = `createCollapsibleContent`).
 
 import { For, Show, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type Accessor, type Component, type JSX } from "solid-js"
-import type { UiNode } from "@exponential-at/ui"
+import type { UiNode } from "@exponential_app/ui"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"

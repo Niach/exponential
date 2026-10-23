@@ -1,6 +1,6 @@
 import * as React from "react"
 import { ScrollArea as ScrollAreaPrimitive } from "radix-ui"
-import { SCROLL_AREA_CLASSES } from "@exponential-at/ui/web/primitives"
+import { SCROLL_AREA_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 

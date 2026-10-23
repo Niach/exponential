@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential UI benchmark results (VAPP-105) on ONE machine, written by `bun run --filter @exponential-at/ui-bench bench`: one run per renderer, every scenario's metrics (scenarios/manifest.json says what each is; ms unless named otherwise). Commit a rerun whole, never edit a number.",
+  "$comment": "Exponential UI benchmark results (VAPP-105) on ONE machine, written by `bun run --filter @exponential_app/ui-bench bench`: one run per renderer, every scenario's metrics (scenarios/manifest.json says what each is; ms unless named otherwise). Commit a rerun whole, never edit a number.",
   "machine": {
     "id": "apple-m4-pro-darwin",
     "cpu": "Apple M4 Pro",

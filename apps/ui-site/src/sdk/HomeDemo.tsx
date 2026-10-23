@@ -7,8 +7,8 @@
    and again on Send. */
 import { Check } from "lucide-react"
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
-import type { IconMap } from "@exponential-at/ui-react"
-import demo from "@exponential-at/ui/fixtures/demo-surface.json"
+import type { IconMap } from "@exponential_app/ui-react"
+import demo from "@exponential_app/ui/fixtures/demo-surface.json"
 import { flatten, replayChunks, type Message, type Nested } from "./a2ui"
 import { PLATFORMS } from "./platforms"
 import type { LiveSurfaceProps } from "./runtime"

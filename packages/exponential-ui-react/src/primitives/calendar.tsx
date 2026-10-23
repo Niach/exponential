@@ -9,7 +9,7 @@ import {
   getDefaultClassNames,
   type DayButton,
 } from "react-day-picker"
-import { CALENDAR_CLASSES, buttonVariants } from "@exponential-at/ui/web/primitives"
+import { CALENDAR_CLASSES, buttonVariants } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 import { Button } from "./button"

@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Button as BaseButton, buttonVariants } from "@exponential-at/ui-react/primitives/button"
+import { Button as BaseButton, buttonVariants } from "@exponential_app/ui-react/primitives/button"
 
 import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
 

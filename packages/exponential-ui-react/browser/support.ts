@@ -1,7 +1,7 @@
 // VAPP-87: shared setup of the headless-Chromium suites — the harness server
 // on a free port and one Playwright browser per file. The serving + page
 // driving live in the shared web tooling
-// (@exponential-at/ui/conformance/browser-page.ts; `EXPONENTIAL_UI_CHROME`
+// (@exponential_app/ui/conformance/browser-page.ts; `EXPONENTIAL_UI_CHROME`
 // = an explicit Chromium executable).
 
 import type { Browser, Page } from "playwright"

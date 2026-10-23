@@ -5,8 +5,8 @@
 // (floating-ui placement is async), then the next one paints.
 
 import { afterEach, describe, expect, it } from "vitest"
-import type { NestedNode } from "@exponential-at/ui"
-import bindTime from "@exponential-at/ui/fixtures/bind-time.json"
+import type { NestedNode } from "@exponential_app/ui"
+import bindTime from "@exponential_app/ui/fixtures/bind-time.json"
 import { renderReact, serializeDom, type ParityCase } from "../../exponential-ui-solid/src/test/parity"
 import type { ExponentialSurfaceElement } from "./element"
 import { cardTree, cleanup, mount, tree } from "./test/helpers"

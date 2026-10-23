@@ -1,66 +1,66 @@
 {
   "$comment": "VAPP-106: the size budgets release/size.ts --check gates (bytes; gzip where a browser downloads it). Every entry of sizes.json has one, a little above the number on record, so a pull request that grows the SDK past it fails exponential-ui.yml; a change that shrinks something lowers its budget in the same commit (the ratchet). Keys: npm = <package>/<entry> (minified, the entry plus the chunks it imports; <package>/styles.css = a web renderer's stylesheet as built, <package>/standalone.js = the element's self-contained file), xcframework/<slice>, android/<abi>, crate/<host>/<artifact>.",
-  "@exponential-at/ui/index": {
-    "bytes": 396288,
+  "@exponential_app/ui/index": {
+    "bytes": 396295,
     "gzip": 112640
   },
-  "@exponential-at/ui-react/index": {
+  "@exponential_app/ui-react/index": {
     "bytes": 141312,
     "gzip": 49152
   },
-  "@exponential-at/ui-react/primitives": {
+  "@exponential_app/ui-react/primitives": {
     "bytes": 72704,
     "gzip": 20992
   },
-  "@exponential-at/ui-react/styles.css": {
+  "@exponential_app/ui-react/styles.css": {
     "bytes": 99328,
     "gzip": 16384
   },
-  "@exponential-at/ui/prompt": {
+  "@exponential_app/ui/prompt": {
     "bytes": 135823,
     "gzip": 33792
   },
-  "@exponential-at/ui/schema": {
+  "@exponential_app/ui/schema": {
     "bytes": 176665,
     "gzip": 43008
   },
-  "@exponential-at/ui/conformance": {
+  "@exponential_app/ui/conformance": {
     "bytes": 2057625,
     "gzip": 177700
   },
-  "@exponential-at/ui/host": {
+  "@exponential_app/ui/host": {
     "bytes": 323584,
     "gzip": 86016
   },
-  "@exponential-at/ui/web": {
+  "@exponential_app/ui/web": {
     "bytes": 84992,
     "gzip": 23552
   },
-  "@exponential-at/ui/web/primitives": {
+  "@exponential_app/ui/web/primitives": {
     "bytes": 55296,
     "gzip": 15360
   },
-  "@exponential-at/ui-solid/index": {
+  "@exponential_app/ui-solid/index": {
     "bytes": 373760,
     "gzip": 92160
   },
-  "@exponential-at/ui-solid/primitives": {
+  "@exponential_app/ui-solid/primitives": {
     "bytes": 261120,
     "gzip": 64512
   },
-  "@exponential-at/ui-solid/styles.css": {
+  "@exponential_app/ui-solid/styles.css": {
     "bytes": 99328,
     "gzip": 16384
   },
-  "@exponential-at/ui-element/index": {
+  "@exponential_app/ui-element/index": {
     "bytes": 16384,
     "gzip": 6144
   },
-  "@exponential-at/ui-element/define": {
+  "@exponential_app/ui-element/define": {
     "bytes": 16384,
     "gzip": 6144
   },
-  "@exponential-at/ui-element/standalone.js": {
+  "@exponential_app/ui-element/standalone.js": {
     "bytes": 675840,
     "gzip": 189440
   },

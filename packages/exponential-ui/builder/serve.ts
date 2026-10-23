@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// VAPP-92: `bun run --filter @exponential-at/ui dev:builder` — bundles the
+// VAPP-92: `bun run --filter @exponential_app/ui dev:builder` — bundles the
 // builder page on every request and serves it on :4180.
 
 import { join } from "node:path"

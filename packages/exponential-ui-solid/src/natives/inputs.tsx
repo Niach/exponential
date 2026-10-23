@@ -16,7 +16,7 @@
 // and, inside a <form>, Radix's hidden BUBBLE inputs after the control.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type JSX } from "solid-js"
-import { boundPath, hostPath, parseLocaleNumber } from "@exponential-at/ui/web"
+import { boundPath, hostPath, parseLocaleNumber } from "@exponential_app/ui/web"
 import { useSurfaceContext } from "../context"
 import { FieldErrors, createField, joinIds } from "../form"
 import { IconGlyph } from "../icons"

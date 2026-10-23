@@ -1,7 +1,7 @@
 // Registers <exponential-surface>: no framework, the element paints itself.
-import "@exponential-at/ui-element/define"
-import { CORE_CATALOG_ID } from "@exponential-at/ui"
-import type { ExponentialSurfaceElement } from "@exponential-at/ui-element"
+import "@exponential_app/ui-element/define"
+import { CORE_CATALOG_ID } from "@exponential_app/ui"
+import type { ExponentialSurfaceElement } from "@exponential_app/ui-element"
 import { metrics } from "./TrendLine"
 
 const el = document.querySelector<ExponentialSurfaceElement>(`exponential-surface`)!

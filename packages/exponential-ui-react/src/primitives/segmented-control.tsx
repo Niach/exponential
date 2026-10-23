@@ -1,6 +1,6 @@
 import * as React from "react"
 import type { LucideIcon } from "lucide-react"
-import { SEGMENTED_CONTROL_CLASSES } from "@exponential-at/ui/web/primitives"
+import { SEGMENTED_CONTROL_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 import { GlassTabsRow } from "./glass-rows"

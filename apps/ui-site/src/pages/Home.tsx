@@ -2,8 +2,8 @@
    lane's HomeDemo: a prompt, an A2UI replay in the React renderer and the
    same surface's native shots) sits in the hero; the rest is the pitch, the
    six renderers, the entry points and the packages. */
-import manifest from "@exponential-at/ui/conformance/manifest.json"
-import promptBudget from "@exponential-at/ui/fixtures/prompt-budget.json"
+import manifest from "@exponential_app/ui/conformance/manifest.json"
+import promptBudget from "@exponential_app/ui/fixtures/prompt-budget.json"
 import { CardGrid, DocsTable, IcArrow } from "../components/Content"
 import { COMPONENT_COUNT } from "../lib/catalog-facts"
 import { PACKAGES, RENDERERS } from "../lib/content"

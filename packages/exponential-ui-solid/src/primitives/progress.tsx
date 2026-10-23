@@ -1,5 +1,5 @@
 import { splitProps, type ComponentProps } from "solid-js"
-import { PROGRESS_CLASSES, progressIndicatorTransform } from "@exponential-at/ui/web/primitives"
+import { PROGRESS_CLASSES, progressIndicatorTransform } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 

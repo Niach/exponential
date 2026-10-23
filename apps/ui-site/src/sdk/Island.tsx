@@ -3,7 +3,7 @@
    the icon set load in an effect after hydration, so every page prerenders
    and hydrates without a mismatch, and no page chunk carries the renderer. */
 import { useEffect, useState, type CSSProperties, type ReactNode, type RefObject } from "react"
-import type { IconMap } from "@exponential-at/ui-react"
+import type { IconMap } from "@exponential_app/ui-react"
 import type { LiveSurfaceProps } from "./runtime"
 
 export interface SdkRuntime {

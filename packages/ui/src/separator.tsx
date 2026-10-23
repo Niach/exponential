@@ -1,1 +1,1 @@
-export * from "@exponential-at/ui-react/primitives/separator"
+export * from "@exponential_app/ui-react/primitives/separator"

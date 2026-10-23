@@ -1,6 +1,6 @@
 import { splitProps, type ComponentProps, type ValidComponent } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { buttonVariants, type ButtonVariantProps } from "@exponential-at/ui/web/primitives"
+import { buttonVariants, type ButtonVariantProps } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 

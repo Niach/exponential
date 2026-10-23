@@ -12,8 +12,8 @@ import {
   type ExtensionDef,
   type FlatComponent,
   type UiNode,
-} from "@exponential-at/ui"
-import { catalogPrompt } from "@exponential-at/ui/prompt"
+} from "@exponential_app/ui"
+import { catalogPrompt } from "@exponential_app/ui/prompt"
 import extensionJson from "../exponential-ui/extension.json"
 
 const extension = defineExtension(extensionJson as unknown as ExtensionDef)

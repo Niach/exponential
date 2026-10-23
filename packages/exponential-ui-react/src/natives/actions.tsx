@@ -9,13 +9,13 @@
 // at no less than the idle width.
 
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react"
-import { PENDING_DELAY_MS } from "@exponential-at/ui"
+import { PENDING_DELAY_MS } from "@exponential_app/ui"
 import { Toggle as TogglePrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
 import { useForm } from "../form"
 import { CHROME, IconGlyph } from "../icons"
 import { useBoundState } from "./bound"
-import { linkHref } from "@exponential-at/ui/web"
+import { linkHref } from "@exponential_app/ui/web"
 import type { NativeProps } from "../node-view"
 import { bool, str, useParts } from "./shared"
 

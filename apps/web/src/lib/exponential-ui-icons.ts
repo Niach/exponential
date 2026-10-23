@@ -6,7 +6,7 @@
 
 import { ICON_COMPONENTS } from "@exp/ui"
 import { SEMANTIC_ICONS, type IconConcept, type IconName } from "@exp/icons"
-import type { IconMap } from "@exponential-at/ui-react"
+import type { IconMap } from "@exponential_app/ui-react"
 
 export const exponentialUiIcons: IconMap = (name: string) => {
   const concept = SEMANTIC_ICONS[name as IconConcept] as IconName | undefined

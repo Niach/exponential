@@ -5,7 +5,7 @@
 // one per field and exposes its state as live getters.
 
 import { createEffect, createSignal, on, onCleanup, untrack, type Accessor } from "solid-js"
-import { DEBOUNCE_MS, HostOwnedController } from "@exponential-at/ui/web"
+import { DEBOUNCE_MS, HostOwnedController } from "@exponential_app/ui/web"
 
 export { DEBOUNCE_MS }
 

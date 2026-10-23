@@ -1,8 +1,8 @@
 import { useEffect, useMemo } from "react"
-import { ExponentialHost, JsonlStreamTransport } from "@exponential-at/ui"
-import { HostSurface } from "@exponential-at/ui-react"
-import { Button } from "@exponential-at/ui-react/primitives"
-import "@exponential-at/ui-react/styles.css"
+import { ExponentialHost, JsonlStreamTransport } from "@exponential_app/ui"
+import { HostSurface } from "@exponential_app/ui-react"
+import { Button } from "@exponential_app/ui-react/primitives"
+import "@exponential_app/ui-react/styles.css"
 
 export function App() {
   // One host per app: A2UI messages in over a transport, actions back out.

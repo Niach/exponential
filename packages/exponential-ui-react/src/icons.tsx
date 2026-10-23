@@ -41,7 +41,7 @@ import {
   Upload,
   X,
 } from "lucide-react"
-import { lookupIcon } from "@exponential-at/ui/web"
+import { lookupIcon } from "@exponential_app/ui/web"
 import type { IconComponent, IconMap } from "./host"
 
 /** The renderer's own chrome glyphs that are NOT catalog part glyphs (the

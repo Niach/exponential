@@ -1,1 +1,1 @@
-export * from "@exponential-at/ui-react/primitives/collapsible"
+export * from "@exponential_app/ui-react/primitives/collapsible"

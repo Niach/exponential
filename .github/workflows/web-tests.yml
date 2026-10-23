@@ -40,7 +40,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - name: Package unit tests (contract, the Exponential UI catalog, @exp/ui, MCP apps)
-        run: bun --filter @exp/domain-contract test && bun --filter @exponential-at/ui test && bun --filter @exp/ui --filter @exp/mcp-apps test
+        run: bun --filter @exp/domain-contract test && bun --filter @exponential_app/ui test && bun --filter @exp/ui --filter @exp/mcp-apps test
 
   unit:
     name: unit (${{ matrix.shard }}/4)

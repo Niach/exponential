@@ -6,7 +6,7 @@
 // focus; otherwise the values by name. A field shows its errors once it was
 // submitted, the Form refused a submit, or its `validateOn` moment passed.
 
-import { coreCatalog } from "@exponential-at/ui"
+import { coreCatalog } from "@exponential_app/ui"
 
 /** One registered field (a renderer's handle onto its control). */
 export interface FormField {

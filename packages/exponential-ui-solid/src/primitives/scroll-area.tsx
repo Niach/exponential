@@ -19,7 +19,7 @@ import {
   type ScrollAreaOrientation,
   type ScrollAreaScrollState,
   type ScrollAreaSizes,
-} from "@exponential-at/ui/web/primitives"
+} from "@exponential_app/ui/web/primitives"
 
 import { Dynamic } from "solid-js/web"
 import { createPresence } from "../behaviors"

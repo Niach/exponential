@@ -5,7 +5,7 @@ SDK (VAPP-84): an agent sends an A2UI surface, native renderers paint it in
 React, Solid, web components, SwiftUI, Jetpack Compose and gpui. VAPP-93. Same stack and look as
 exponential.at (`apps/marketing`): Vite + React, prerendered to static HTML,
 indexed, the shared chrome and styles of `@exp/site-shell`. Wherever it shows
-components it renders them with the SDK itself (`@exponential-at/ui-react`).
+components it renders them with the SDK itself (`@exponential_app/ui-react`).
 
 ## Commands
 
@@ -43,7 +43,7 @@ client entry loads each page type as its own chunk through `src/lib/pages.ts`
 | `/guides/`, `/guides/<slug>/` | `Guides.tsx`, `Guide.tsx` | the guides hub; every guide by slug (`src/lib/guides.ts`) |
 | `/playground/` | `Playground.tsx` | paste A2UI, render it in any theme, read the catalog prompt (prerendered) |
 | `/conformance/` | `Conformance.tsx` | the suites (from the manifest), reports, the real-font harness |
-| `/numbers/` | `Numbers.tsx` | the benchmark suite (VAPP-105): what a pass is per renderer, the scenarios (from `@exponential-at/ui-bench`'s manifest), the numbers per machine, weak points, the ratchet |
+| `/numbers/` | `Numbers.tsx` | the benchmark suite (VAPP-105): what a pass is per renderer, the scenarios (from `@exponential_app/ui-bench`'s manifest), the numbers per machine, weak points, the ratchet |
 
 The component pages are generated: a catalog component appears with its page,
 specimen, variants and embed code without a change here.

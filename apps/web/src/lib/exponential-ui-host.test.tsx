@@ -35,8 +35,8 @@ vi.mock(`@exp/ui`, async (importOriginal) => {
   return { ...actual, toast }
 })
 
-import { MemoryTransport } from "@exponential-at/ui"
-import { HostSurface } from "@exponential-at/ui-react"
+import { MemoryTransport } from "@exponential_app/ui"
+import { HostSurface } from "@exponential_app/ui-react"
 import { appReactExtension } from "@exp/ui"
 import { contract } from "@exp/domain-contract"
 import { exponentialUiConsentPrompt } from "@/lib/prompts"

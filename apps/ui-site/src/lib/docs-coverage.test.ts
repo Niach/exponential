@@ -2,7 +2,7 @@
    that fits one line of a search snippet (<= 160 chars), no lorem ipsum
    anywhere it renders, and only real components in its links. */
 import { expect, test } from "bun:test"
-import coreCatalog from "@exponential-at/ui/catalog/core.catalog.json"
+import coreCatalog from "@exponential_app/ui/catalog/core.catalog.json"
 import { embedCode, EMBED_TARGETS, jsonl, type EmbedTarget } from "../sdk/embed"
 import { surfaceMessages, flatten } from "../sdk/a2ui"
 import { studioTree, subjectOf, thumbProps } from "../sdk/ComponentStudio"

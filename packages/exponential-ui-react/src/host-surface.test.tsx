@@ -4,8 +4,8 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render } from "@testing-library/react"
-import { CORE_CATALOG_ID, ExponentialHost, MemoryTransport, defineExtension, reduceNested } from "@exponential-at/ui"
-import type { ClientMessage, FlatComponent } from "@exponential-at/ui"
+import { CORE_CATALOG_ID, ExponentialHost, MemoryTransport, defineExtension, reduceNested } from "@exponential_app/ui"
+import type { ClientMessage, FlatComponent } from "@exponential_app/ui"
 import { HostSurface, useHostStatus, useHostSurface, useHostSurfaceIds } from "./host-surface"
 import { clearMediaCache, mediaCacheStats, MEDIA_CACHE_IDLE_MAX, useMediaSrc } from "./media"
 import { ExponentialSurface, sameData } from "./surface"

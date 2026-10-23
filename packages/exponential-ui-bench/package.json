@@ -1,6 +1,6 @@
 {
-  "name": "@exponential-at/ui-bench",
-  "version": "0.1.0",
+  "name": "@exponential_app/ui-bench",
+  "version": "0.1.1",
   "private": true,
   "description": "Exponential UI benchmark suite (VAPP-105): the scenario fixtures every renderer runs, the per-renderer runners (React, Solid and the web component in Chromium, the Rust core, gpui headless, SwiftUI on macOS / the iOS Simulator / a device, Compose on the JVM / an emulator / a device), the committed results per machine, and the CI ratchet.",
   "license": "Apache-2.0",
@@ -24,10 +24,10 @@
   },
   "devDependencies": {
     "@exp/tsconfig": "workspace:*",
-    "@exponential-at/ui": "workspace:*",
-    "@exponential-at/ui-react": "workspace:*",
-    "@exponential-at/ui-solid": "workspace:*",
-    "@exponential-at/ui-element": "workspace:*",
+    "@exponential_app/ui": "workspace:*",
+    "@exponential_app/ui-react": "workspace:*",
+    "@exponential_app/ui-solid": "workspace:*",
+    "@exponential_app/ui-element": "workspace:*",
     "@types/bun": "latest",
     "playwright": "^1.54.2",
     "typescript": "^5.7.2"

@@ -3,7 +3,7 @@
 // recipes (`resolveRecipe`), exactly as React reads them.
 
 import { For, Show, createMemo, type JSX } from "solid-js"
-import { resolveRecipe, nativeRecipeProps, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS } from "@exponential-at/ui"
+import { resolveRecipe, nativeRecipeProps, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS } from "@exponential_app/ui"
 import type { Component } from "solid-js"
 import { useSurfaceContext, type SurfaceContextValue } from "../context"
 import { CHROME, PaintIcon } from "../icons"

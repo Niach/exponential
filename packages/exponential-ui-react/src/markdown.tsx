@@ -1,5 +1,5 @@
 // VAPP-87: the built-in markdown painter. The parser (a small GFM subset →
-// a block/inline tree) is the web layer's (`@exponential-at/ui/web`
+// a block/inline tree) is the web layer's (`@exponential_app/ui/web`
 // markdown.ts, FEED-128); this paints the tree through the theme's
 // `Markdown/<part>` recipes. A host with a real renderer (the app's TipTap
 // view) passes it as `host.Markdown` and this one steps aside. VAPP-103:
@@ -9,11 +9,11 @@
 // its alt text, as on every renderer.
 
 import { Fragment, createElement, useMemo, type MouseEvent, type ReactNode } from "react"
-import { linkHref, mediaRequestOf, parseMarkdown, type MarkdownBlock, type MarkdownInline, type MarkdownList } from "@exponential-at/ui/web"
+import { linkHref, mediaRequestOf, parseMarkdown, type MarkdownBlock, type MarkdownInline, type MarkdownList } from "@exponential_app/ui/web"
 import type { HostPlugin } from "./host"
 import { useMediaSource } from "./media"
 
-export { MAX_LINK_NESTING, MAX_LINK_DEST, MAX_BLOCK_NESTING, linkAt, wholeImage, parseList } from "@exponential-at/ui/web"
+export { MAX_LINK_NESTING, MAX_LINK_DEST, MAX_BLOCK_NESTING, linkAt, wholeImage, parseList } from "@exponential_app/ui/web"
 
 /** A block image through the media policy and loader in an `imageHeight`
  *  (160px, ×4) box (loading or loaded, so the box never jumps;

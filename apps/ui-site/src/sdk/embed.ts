@@ -49,8 +49,8 @@ export function embedCode(target: EmbedTarget, { messages, surfaceId, theme, mod
   switch (target) {
     case `react`: {
       const body = lines.replace(/\\/g, () => `\\\\`).replace(/`/g, () => `\\\``).replace(/\$\{/g, () => `\\\${`)
-      return `import { ExponentialHost, MemoryTransport } from "@exponential-at/ui"
-import { HostSurface } from "@exponential-at/ui-react"
+      return `import { ExponentialHost, MemoryTransport } from "@exponential_app/ui"
+import { HostSurface } from "@exponential_app/ui-react"
 
 const SURFACE = \`${body}\`
 
@@ -65,8 +65,8 @@ export function Preview() {
     }
     case `solid`: {
       const body = lines.replace(/\\/g, () => `\\\\`).replace(/`/g, () => `\\\``).replace(/\$\{/g, () => `\\\${`)
-      return `import { ExponentialSurface, createSurface } from "@exponential-at/ui-solid"
-import type { A2uiMessage } from "@exponential-at/ui-solid"
+      return `import { ExponentialSurface, createSurface } from "@exponential_app/ui-solid"
+import type { A2uiMessage } from "@exponential_app/ui-solid"
 
 const SURFACE = \`${body}\`
 
@@ -87,7 +87,7 @@ export function Preview() {
         .replace(/<\/(script)/gi, (_, tag: string) => `<\\/${tag}`)
         .replace(/<!--/g, () => `<\\!--`)
       return `<script type="module">
-  import "@exponential-at/ui-element/define"
+  import "@exponential_app/ui-element/define"
 </script>
 
 <exponential-surface surface-id="${surfaceId}" theme="${theme}" mode="${mode}"${rtl ? ` direction="rtl"` : ``}${width ? ` width="${width}"` : ``}></exponential-surface>

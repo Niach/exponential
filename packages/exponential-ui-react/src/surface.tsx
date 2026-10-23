@@ -27,18 +27,18 @@ import {
   textDirection,
   DEFAULT_LOCALE,
   DEFAULT_THEME_ID,
-} from "@exponential-at/ui"
-import type { Formatter, ModeName, ResolvedTheme, ScrollAlign, TemplateBudget, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
-import { BASE_CSS } from "@exponential-at/ui/web"
-import { compileNodeSheet, nodeSheetBatches, queryToken, share, surfaceClass, type NodeSheetBatch } from "@exponential-at/ui/web"
+} from "@exponential_app/ui"
+import type { Formatter, ModeName, ResolvedTheme, ScrollAlign, TemplateBudget, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential_app/ui"
+import { BASE_CSS } from "@exponential_app/ui/web"
+import { compileNodeSheet, nodeSheetBatches, queryToken, share, surfaceClass, type NodeSheetBatch } from "@exponential_app/ui/web"
 import { SurfaceContext, type SurfaceContextValue } from "./context"
-import { CLIENT_FUNCTIONS, memoFormatter, setPointer, type DataModel } from "@exponential-at/ui/web"
+import { CLIENT_FUNCTIONS, memoFormatter, setPointer, type DataModel } from "@exponential_app/ui/web"
 import { extensionCatalogs, extensionMacroNames, registeredExtensions, subscribeExtensions, type ReactExtension } from "./extensions"
 import type { HostPlugin } from "./host"
 import { NodeView } from "./node-view"
 import { useMediaQuery } from "./platform"
-import { openAllowed } from "@exponential-at/ui/web"
-import { compiledTheme } from "@exponential-at/ui/web"
+import { openAllowed } from "@exponential_app/ui/web"
+import { compiledTheme } from "@exponential_app/ui/web"
 import type { SurfaceState } from "./use-surface"
 
 export type ThemeInput = ResolvedTheme | ThemeSource | string

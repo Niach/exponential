@@ -1,8 +1,8 @@
 import * as React from "react"
 import type { VariantProps } from "class-variance-authority"
 import { Check, Copy } from "lucide-react"
-import { tokenizeCode } from "@exponential-at/ui"
-import { CODE_BLOCK_CLASSES, CODE_TOKEN_CLASS, codeBlockLineVariants, codeBlockVariants } from "@exponential-at/ui/web/primitives"
+import { tokenizeCode } from "@exponential_app/ui"
+import { CODE_BLOCK_CLASSES, CODE_TOKEN_CLASS, codeBlockLineVariants, codeBlockVariants } from "@exponential_app/ui/web/primitives"
 
 import { Button } from "./button"
 import { cn } from "./cn"

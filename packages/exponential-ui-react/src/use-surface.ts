@@ -5,10 +5,10 @@
 // `<ExponentialSurface surface={…}>`.
 
 import { useCallback, useMemo, useRef, useState } from "react"
-import { CORE_CATALOG_ID, reduceNested, reduceSurface } from "@exponential-at/ui"
-import type { ExtensionDef, FlatComponent, NestedNode, ReduceIssue, ResolvedTheme, UiNode } from "@exponential-at/ui"
-import { setPointer } from "@exponential-at/ui/web"
-import type { DataModel } from "@exponential-at/ui/web"
+import { CORE_CATALOG_ID, reduceNested, reduceSurface } from "@exponential_app/ui"
+import type { ExtensionDef, FlatComponent, NestedNode, ReduceIssue, ResolvedTheme, UiNode } from "@exponential_app/ui"
+import { setPointer } from "@exponential_app/ui/web"
+import type { DataModel } from "@exponential_app/ui/web"
 
 export interface A2uiMessage {
   version?: string

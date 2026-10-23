@@ -1,6 +1,6 @@
 {
-  "name": "@exponential-at/ui-element",
-  "version": "0.1.0",
+  "name": "@exponential_app/ui-element",
+  "version": "0.1.1",
   "private": true,
   "description": "Exponential UI as a custom element: <exponential-surface> paints a core A2UI surface with no framework in the host page, on the Solid painter and the shared web layer, with the same DOM, the same compiled stylesheet and the same runtime themes as the React renderer, run through the conformance suite and the web-parity check.",
   "license": "Apache-2.0",
@@ -27,13 +27,13 @@
     "build:standalone": "bun run ./scripts/build-standalone.ts"
   },
   "dependencies": {
-    "@exponential-at/ui": "workspace:*",
-    "@exponential-at/ui-solid": "workspace:*",
+    "@exponential_app/ui": "workspace:*",
+    "@exponential_app/ui-solid": "workspace:*",
     "solid-js": "^1.9.17"
   },
   "devDependencies": {
     "@exp/tsconfig": "workspace:*",
-    "@exponential-at/ui-react": "workspace:*",
+    "@exponential_app/ui-react": "workspace:*",
     "@testing-library/dom": "^10.4.1",
     "@types/bun": "latest",
     "@types/react": "^19.2.0",

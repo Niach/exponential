@@ -1,7 +1,7 @@
 import { fireEvent, render } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import { reduceSurface, type FlatComponent } from "@exponential-at/ui"
-import { ExponentialSurface } from "@exponential-at/ui-react"
+import { reduceSurface, type FlatComponent } from "@exponential_app/ui"
+import { ExponentialSurface } from "@exponential_app/ui-react"
 import { appExtensionCatalog, appReactExtension } from "./exponential-ui-app-extension"
 
 // VAPP-102: the app's components paint the extension's row natives.

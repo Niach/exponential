@@ -4,9 +4,9 @@
 // ONE custom extension component (TrendLine, a vanilla SVG painter). No
 // Exponential account, no backend of ours: the element's public API only
 // (`src` + `post` build the host and its JSONL transport).
-import "@exponential-at/ui-element/define"
-import { defineExtension } from "@exponential-at/ui"
-import { defineElementExtension } from "@exponential-at/ui-element"
+import "@exponential_app/ui-element/define"
+import { defineExtension } from "@exponential_app/ui"
+import { defineElementExtension } from "@exponential_app/ui-element"
 
 const params = new URLSearchParams(location.search)
 const SERVER = params.get(`server`) ?? `http://localhost:4190`

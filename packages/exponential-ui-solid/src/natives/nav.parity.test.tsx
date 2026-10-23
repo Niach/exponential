@@ -4,8 +4,8 @@
 // disabled items, closed panels, forced states, dark + rtl.
 
 import { describe, it } from "vitest"
-import type { NestedNode } from "@exponential-at/ui"
-import components from "@exponential-at/ui/fixtures/catalog-components.json"
+import type { NestedNode } from "@exponential_app/ui"
+import components from "@exponential_app/ui/fixtures/catalog-components.json"
 import { expectDomParity } from "../test/parity"
 
 type Case = { name: string; node: NestedNode }

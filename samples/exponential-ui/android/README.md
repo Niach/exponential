@@ -1,7 +1,7 @@
 # Greenhouse: the Android sample host
 
 A standalone Android Studio project (AGP 8.10, Kotlin 2.4, minSdk 26) that hosts an Exponential UI surface the way any third-party app would:
-- `at.exponential:ui-compose:0.1.0` from a Maven repository;
+- `at.exponential:ui-compose:0.1.1` from a Maven repository;
 - a surface streamed from the local A2UI JSONL server;
 - the server's custom theme (teal primary, pill buttons);
 - ONE custom extension component, `TrendLine`, painted natively with a Compose `Canvas`.

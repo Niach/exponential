@@ -1,7 +1,7 @@
 // FEED-131: the core's `search_matches` (SearchList, the Menu's searchable
 // submenu): pure.
 
-import { str } from "@exponential-at/ui/web"
+import { str } from "@exponential_app/ui/web"
 
 /** Does a row match the query (case-insensitive, label or identifier)?
  *  The core's `search_matches`. */

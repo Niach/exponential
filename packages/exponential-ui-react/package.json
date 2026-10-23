@@ -1,6 +1,6 @@
 {
-  "name": "@exponential-at/ui-react",
-  "version": "0.1.0",
+  "name": "@exponential_app/ui-react",
+  "version": "0.1.1",
   "private": true,
   "description": "Exponential UI for React: the reference renderer of the core A2UI catalog on Radix with real CSS, runtime themes, extensions, and the shadcn primitive set the Exponential app shares.",
   "license": "Apache-2.0",
@@ -36,7 +36,7 @@
     "react-dom": "^19.0.0"
   },
   "dependencies": {
-    "@exponential-at/ui": "workspace:*",
+    "@exponential_app/ui": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.544.0",

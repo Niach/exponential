@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, splitProps, type Component, type ComponentProps, type JSX } from "solid-js"
 import { ChevronRight } from "lucide-solid"
-import { DOCK_CARD_CLASSES, DOCK_PILE_CLASSES, dockPileGeometry, type DockCardTint } from "@exponential-at/ui/web/primitives"
+import { DOCK_CARD_CLASSES, DOCK_PILE_CLASSES, dockPileGeometry, type DockCardTint } from "@exponential_app/ui/web/primitives"
 
 import { bindStyle } from "../behaviors/style-writer"
 import { PaintIcon } from "../icons"
@@ -187,5 +187,5 @@ export function DockPile(props: DockPileProps) {
   )
 }
 
-export { DOCK_CARD_CLASSES, DOCK_PILE_CLASSES, DOCK_PILE_CONSTANTS, dockPileGeometry } from "@exponential-at/ui/web/primitives"
-export type { DockCardTint } from "@exponential-at/ui/web/primitives"
+export { DOCK_CARD_CLASSES, DOCK_PILE_CLASSES, DOCK_PILE_CONSTANTS, dockPileGeometry } from "@exponential_app/ui/web/primitives"
+export type { DockCardTint } from "@exponential_app/ui/web/primitives"
