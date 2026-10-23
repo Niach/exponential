@@ -2236,6 +2236,32 @@ mod tests {
             .unwrap_or_default()
     }
 
+    /// NEW-8: a fixture `TreeMessage` is already KEYED (its `sessionId` is
+    /// the session its conversation belongs to): it hydrates with a
+    /// synthesized conversation and the resolved session set after decode
+    /// (the row's own `session_id` is never decoded).
+    fn messages(value: &Value) -> Vec<MessageRow> {
+        value
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .enumerate()
+                    .map(|(index, item)| {
+                        let session_id = item["sessionId"].as_str().unwrap_or_default().to_string();
+                        let mut item = item.clone();
+                        if let Some(object) = item.as_object_mut() {
+                            object.entry("conversationId").or_insert_with(|| json!(format!("c-{session_id}")));
+                        }
+                        let mut message: MessageRow = row(&item, &format!("row-{index}"));
+                        message.session_id = session_id;
+                        message
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     fn now(value: &Value) -> i64 {
         parse_instant(value.as_str().expect("now")).expect("now parses")
     }
@@ -2385,7 +2411,7 @@ mod tests {
             let sessions: Vec<SessionRow> = rows(&input["sessions"]);
             let links: Vec<SessionIssueRow> = rows(&input["sessionIssues"]);
             let issues: Vec<TreeIssue> = serde_json::from_value(input["issues"].clone()).unwrap();
-            let messages: Vec<MessageRow> = rows(&input["messages"]);
+            let messages: Vec<MessageRow> = messages(&input["messages"]);
             let prs: Vec<PullRequestRow> = rows(&input["pullRequests"]);
             let sessions: Vec<&SessionRow> = sessions.iter().collect();
             let links: Vec<&SessionIssueRow> = links.iter().collect();
@@ -2420,7 +2446,7 @@ mod tests {
             let sessions: Vec<SessionRow> = rows(&input["sessions"]);
             let links: Vec<SessionIssueRow> = rows(&input["sessionIssues"]);
             let issues: Vec<TreeIssue> = serde_json::from_value(input["issues"].clone()).unwrap();
-            let messages: Vec<MessageRow> = rows(&input["messages"]);
+            let messages: Vec<MessageRow> = messages(&input["messages"]);
             let reads: Vec<SessionReadRow> = rows(&input["reads"]);
             let sessions: Vec<&SessionRow> = sessions.iter().collect();
             let links: Vec<&SessionIssueRow> = links.iter().collect();
@@ -2446,7 +2472,7 @@ mod tests {
             let links: Vec<SessionIssueRow> = rows(&input["sessionIssues"]);
             let issues: Vec<TreeIssue> =
                 serde_json::from_value(input["issues"].clone()).unwrap_or_default();
-            let messages: Vec<MessageRow> = rows(&input["messages"]);
+            let messages: Vec<MessageRow> = messages(&input["messages"]);
             let reads: Vec<SessionReadRow> = rows(&input["reads"]);
             let sessions: Vec<&SessionRow> = sessions.iter().collect();
             let links: Vec<&SessionIssueRow> = links.iter().collect();
@@ -2627,7 +2653,7 @@ mod tests {
         assert!(!cases.is_empty());
         for case in cases {
             let input = &case["input"];
-            let messages: Vec<MessageRow> = rows(&input["messages"]);
+            let messages: Vec<MessageRow> = messages(&input["messages"]);
             let messages: Vec<&MessageRow> = messages.iter().collect();
             let replies = composer_replies(input["sessionId"].as_str().unwrap(), &messages);
             assert_whole(&replies, &case["expected"], case["name"].as_str().unwrap());

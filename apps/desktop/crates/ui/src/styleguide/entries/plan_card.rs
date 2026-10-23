@@ -16,7 +16,7 @@ use domain::rows::MessageRow;
 use domain::session_tree::SessionThreadRow;
 use gpui::{div, px, App, Div, Entity, ParentElement as _, SharedString, Styled as _, Window};
 use gpui_component::{v_flex, ActiveTheme as _};
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::markdown::ImageCache;
 use crate::thread_screen::ThreadText;
@@ -30,22 +30,9 @@ const SESSION_THREAD_JSON: &str =
 /// The fixture case the entry draws.
 const CASE_PREFIX: &str = "EXP-1280: a rich plan card";
 
-/// A camelCase fixture row → the snake_case `MessageRow`.
+/// A camelCase fixture row → the snake_case, keyed `MessageRow` (NEW-8).
 fn message(value: &Value) -> Option<MessageRow> {
-    let mut out = Map::new();
-    for (key, cell) in value.as_object()? {
-        let mut snake = String::new();
-        for ch in key.chars() {
-            if ch.is_ascii_uppercase() {
-                snake.push('_');
-                snake.push(ch.to_ascii_lowercase());
-            } else {
-                snake.push(ch);
-            }
-        }
-        out.insert(snake, cell.clone());
-    }
-    serde_json::from_value(Value::Object(out)).ok()
+    super::fixture_rows::message(value, "")
 }
 
 /// The case's card rows, in Conversation order.

@@ -3722,7 +3722,7 @@ mod tests {
         let mut agent = row("agent-1", None);
         agent.kind = Some("agent".to_string());
         agent.agent_id = Some("ag-1".to_string());
-        agent.name = Some("Inbox watcher".to_string());
+        agent.title = Some("Inbox watcher".to_string());
         agent.plan_mode = false;
         let mut req = session_request(agent, &[]);
         req.brief.team_prompt = Some("Always write tests.".to_string());

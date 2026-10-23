@@ -913,9 +913,21 @@ pub struct SessionIssueRow {
 /// `system`); `card` = jsonb `{kind, …}` (contract `messageCardKind`; an
 /// unknown kind renders nothing). A person's message with `consumed_at`
 /// NULL is QUEUED (the device has not picked it up yet).
+///
+/// NEW-8: a message lives in a CONVERSATION (`conversation_id`); its session
+/// is the session of that conversation, resolved through the `conversations`
+/// shape by [`crate::message_conversation::key_messages_by_session`]. The
+/// row's own legacy `session_id` column is NEVER decoded.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct MessageRow {
     pub id: String,
+    /// NEW-8: the conversation the row lives in (required on the wire).
+    pub conversation_id: String,
+    /// NEW-8: the RESOLVED session (the session its conversation belongs
+    /// to), filled by [`crate::message_conversation::key_messages_by_session`]
+    /// only; empty on a row straight off the store. Never decoded: a legacy
+    /// `session_id` on the server row is ignored.
+    #[serde(skip_deserializing)]
     pub session_id: String,
     #[serde(default)]
     pub root_id: Option<String>,
@@ -937,6 +949,26 @@ pub struct MessageRow {
     /// a report, a suggestions card); `None` = a person or the root itself.
     #[serde(default)]
     pub author_session_id: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// NEW-8 `conversations` shape row: the chat primitive a message lives in.
+/// `kind` = `session` (one per session, `session_id` set) | `dm` |
+/// `channel` (`session_id` NULL).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct ConversationRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -2178,6 +2210,7 @@ mod tests {
     fn message_and_pull_request_rows_hydrate() {
         let queued: MessageRow = serde_json::from_value(json!({
             "id": "m-1",
+            "conversation_id": "c-1",
             "session_id": "s-1",
             "author_kind": "user",
             "body": "Fix it",
@@ -2186,9 +2219,12 @@ mod tests {
         .unwrap();
         assert!(queued.is_queued());
         assert_eq!(queued.card_kind(), None);
+        // NEW-8: the legacy column is never decoded; the conversation decides.
+        assert_eq!(queued.conversation_id, "c-1");
+        assert_eq!(queued.session_id, "");
         let card: MessageRow = serde_json::from_value(json!({
             "id": "m-2",
-            "session_id": "s-1",
+            "conversation_id": "c-1",
             "author_kind": "agent",
             "card": "{\"kind\":\"question\",\"question\":\"Ship?\"}"
         }))
@@ -2196,6 +2232,15 @@ mod tests {
         assert_eq!(card.card_kind(), Some("question"));
         assert!(!card.is_queued());
         assert_eq!(card.body_text(), "");
+        // NEW-8: a row without its conversation never hydrates.
+        assert!(serde_json::from_value::<MessageRow>(json!({"id": "m-3", "session_id": "s-1"})).is_err());
+        let conversation: ConversationRow = serde_json::from_value(json!({
+            "id": "c-1",
+            "kind": "session",
+            "session_id": "s-1"
+        }))
+        .unwrap();
+        assert_eq!(conversation.session_id.as_deref(), Some("s-1"));
 
         let pr: PullRequestRow = serde_json::from_value(json!({
             "id": "pr-1",

@@ -1,4 +1,4 @@
-//! The 31 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 32 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 31 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 32 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 31] = [
+pub const SHAPES: [ShapeSpec; 32] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -474,10 +474,12 @@ pub const SHAPES: [ShapeSpec; 31] = [
         // EXP-1294: every session's conversation (person, agent and system
         // rows; `card` jsonb). `consumed_at` NULL on a person's row = queued
         // (the device's pickup reads this shape). Scoping columns
-        // (`shared`, `owner_id`) stay server-side.
+        // (`shared`, `owner_id`) stay server-side. NEW-8: a row lives in a
+        // conversation; the legacy `session_id` is never read (the
+        // conversation decides, `domain::message_conversation`).
         columns: &[
             "id",
-            "session_id",
+            "conversation_id",
             "root_id",
             "team_id",
             "author_kind",
@@ -491,6 +493,15 @@ pub const SHAPES: [ShapeSpec; 31] = [
             "created_at",
             "updated_at",
         ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "conversations",
+        path: "/api/shapes/conversations",
+        // NEW-8: the conversation every message lives in (kind `session`,
+        // one per session, or `dm` / `channel` with no session). Byte-matches
+        // the proxy's allowlist (apps/web routes/api/shapes/conversations.ts).
+        columns: &["id", "team_id", "kind", "session_id", "title", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
     ShapeSpec {
@@ -829,8 +840,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_31_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 31);
+    fn registry_has_32_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 32);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -1217,6 +1228,15 @@ mod tests {
         assert_eq!(messages.path, "/api/shapes/messages");
         assert!(messages.columns.contains(&"consumed_at"));
         assert!(!messages.columns.contains(&"owner_id"));
+        // NEW-8: a message is keyed through its conversation, never its
+        // legacy `session_id`.
+        assert!(messages.columns.contains(&"conversation_id"));
+        assert!(!messages.columns.contains(&"session_id"));
+        assert_eq!(
+            shape_by_name("conversations").unwrap().columns,
+            &["id", "team_id", "kind", "session_id", "title", "created_at", "updated_at"]
+        );
+        assert_eq!(shape_by_name("conversations").unwrap().path, "/api/shapes/conversations");
         let pulls = shape_by_name("pull_requests").unwrap();
         assert_eq!(pulls.path, "/api/shapes/pull-requests");
         assert!(pulls.columns.contains(&"base_pull_request_id"));

@@ -91,7 +91,7 @@ pub(super) fn case(index: usize) -> Case {
     let sessions: Vec<SessionRow> = fixture_rows::rows(&input["sessions"]);
     let links: Vec<SessionIssueRow> = fixture_rows::rows(&input["sessionIssues"]);
     let issues: Vec<TreeIssue> = serde_json::from_value(input["issues"].clone()).unwrap_or_default();
-    let messages: Vec<MessageRow> = fixture_rows::rows(&input["messages"]);
+    let messages: Vec<MessageRow> = fixture_rows::messages(&input["messages"]);
     let pulls: Vec<PullRequestRow> = fixture_rows::rows(&input["pullRequests"]);
     let view = build_session_thread(
         SessionThreadInput {
@@ -548,7 +548,7 @@ pub(super) fn threads_list_case() -> (Vec<ThreadsListGroup>, PrSnapshot) {
     let sessions: Vec<SessionRow> = fixture_rows::rows(&input["sessions"]);
     let links: Vec<SessionIssueRow> = fixture_rows::rows(&input["sessionIssues"]);
     let issues: Vec<TreeIssue> = serde_json::from_value(input["issues"].clone()).unwrap_or_default();
-    let messages: Vec<MessageRow> = fixture_rows::rows(&input["messages"]);
+    let messages: Vec<MessageRow> = fixture_rows::messages(&input["messages"]);
     let reads: Vec<SessionReadRow> = fixture_rows::rows(&input["reads"]);
     let groups = partition_threads(ThreadsListInput {
         sessions: &sessions.iter().collect::<Vec<_>>(),

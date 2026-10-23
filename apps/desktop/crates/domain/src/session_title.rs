@@ -228,16 +228,20 @@ mod tests {
                 .unwrap()
                 .iter()
                 .map(|m| {
-                    serde_json::from_value(json!({
+                    // NEW-8: a fixture `TitleMessage` is already keyed: its
+                    // `sessionId` is the RESOLVED session.
+                    let mut message: MessageRow = serde_json::from_value(json!({
                         "id": m["id"],
-                        "session_id": m["sessionId"],
+                        "conversation_id": format!("c-{}", m["sessionId"].as_str().unwrap_or_default()),
                         "author_kind": m["authorKind"],
                         "author_session_id": m["authorSessionId"],
                         "body": m["body"],
                         "card": m["card"],
                         "created_at": m["createdAt"],
                     }))
-                    .unwrap()
+                    .unwrap();
+                    message.session_id = m["sessionId"].as_str().unwrap_or_default().to_string();
+                    message
                 })
                 .collect();
             let link_refs: Vec<&SessionIssueRow> = links.iter().collect();
