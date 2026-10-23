@@ -399,6 +399,58 @@ fn a_panicking_measurer_does_not_freeze_the_surface() {
     }
 }
 
+/// VAPP-107: a throwing call never unwinds across the FFI either: a host
+/// callback that panics inside a `Result` entry answers the typed
+/// `UiError::Panic` (Swift `UiError.Panic`, Kotlin `UiException.Panic`), the
+/// surface records it as an issue and stays usable.
+#[test]
+fn a_panic_inside_a_throwing_call_is_a_typed_error() {
+    struct Boom;
+    impl HostFormatter for Boom {
+        fn locale(&self) -> String {
+            "x-boom".into()
+        }
+        fn number(&self, _: f64, _: Option<u32>, _: bool) -> String {
+            panic!("the host formatter threw")
+        }
+        fn currency(&self, _: f64, _: String, _: Option<u32>, _: bool) -> String {
+            panic!("the host formatter threw")
+        }
+        fn percent(&self, _: f64, _: Option<u32>) -> String {
+            panic!("the host formatter threw")
+        }
+        fn date(&self, _: f64, _: bool, _: Option<String>, _: Option<String>, _: bool) -> String {
+            panic!("the host formatter threw")
+        }
+        fn relative_time(&self, _: i64, _: String) -> String {
+            panic!("the host formatter threw")
+        }
+        fn plural(&self, _: f64) -> String {
+            panic!("the host formatter threw")
+        }
+        fn bytes(&self, _: f64, _: String) -> String {
+            panic!("the host formatter threw")
+        }
+    }
+    let call = json!({"call": "formatNumber", "args": {"value": 1234.5}}).to_string();
+    let err = std::panic::catch_unwind(|| format_call_json(call.clone(), Some(Arc::new(Boom)), None, None)).expect("the panic stays on the Rust side").unwrap_err();
+    assert!(matches!(&err, UiError::Panic { reason } if reason.contains("the host formatter threw")), "{err}");
+    let next = format_call_json(call, Some(Arc::new(Loud)), None, None).unwrap();
+    assert!(next.as_deref().is_some_and(|s| s.contains("1234.5")), "the next call is fine: {next:?}");
+    // A surface method: the error AND an issue of the surface, which stays usable.
+    let surface = Surface::new("p".into(), core_catalog_id(), None, "light".into()).unwrap();
+    surface.set_formatter(Some(Arc::new(Boom)));
+    let tree = json!({"id": "root", "component": "Box", "children": [{"id": "n", "component": "Text", "props": {"text": {"call": "formatNumber", "args": {"value": 1}}}}]}).to_string();
+    surface.set_viewport(300.0, 0.0, None);
+    let first = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| surface.set_nested(tree.clone()).and_then(|_| surface.layout_fixed(None, true)))).expect("the panic stays on the Rust side");
+    assert!(matches!(&first, Err(UiError::Panic { reason }) if reason.contains("the host formatter threw")), "{first:?}");
+    let issues: Value = serde_json::from_str(&surface.issues_json()).unwrap();
+    assert!(issues.as_array().unwrap().iter().any(|i| i["id"].as_str().unwrap().starts_with("ffi.") && i["message"].as_str().unwrap().contains("the host formatter threw")), "{issues}");
+    surface.set_formatter(Some(Arc::new(Loud)));
+    surface.set_nested(tree).unwrap();
+    assert!(!surface.layout_fixed(None, true).unwrap().frames.is_empty(), "usable after the panic");
+}
+
 #[test]
 fn a_hover_card_closes_through_the_hover_timer() {
     let surface = Surface::new("h".into(), core_catalog_id(), None, "light".into()).unwrap();

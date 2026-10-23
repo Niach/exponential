@@ -11,8 +11,8 @@ import kitchenSink from "../fixtures/kitchen-sink.json" with { type: "json" }
 import type { NestedNode, UiNode } from "./types"
 
 describe(`built-in themes`, () => {
-  test(`the three built-ins load, neutral is the root`, () => {
-    expect(BUILTIN_THEME_IDS).toEqual([`neutral`, `exponential`, `playful`])
+  test(`the four built-ins load, neutral is the root`, () => {
+    expect(BUILTIN_THEME_IDS).toEqual([`neutral`, `exponential`, `playful`, `orange`])
     for (const theme of builtinThemes()) {
       expect(theme.chain[0]).toBe(`neutral`)
       expect(Object.keys(theme.modes.light.color).length).toBe(Object.keys(theme.modes.dark.color).length)

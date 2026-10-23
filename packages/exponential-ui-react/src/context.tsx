@@ -2,10 +2,10 @@
 
 import { createContext, useContext } from "react"
 import type { ExtensionDef, Formatter, ModeName, ResolvedTheme, ScrollAlign, TemplateBudget, UiNode } from "@exponential-at/ui"
-import type { CompiledTheme } from "./theme-css"
+import type { CompiledTheme } from "@exponential-at/ui/web"
 import type { HostPlugin } from "./host"
 import type { ReactExtension } from "./extensions"
-import type { ClientFunction, DataModel, ResolveContext } from "./data"
+import type { ClientFunction, DataModel, ResolveContext } from "@exponential-at/ui/web"
 
 export interface SurfaceContextValue {
   surfaceId: string

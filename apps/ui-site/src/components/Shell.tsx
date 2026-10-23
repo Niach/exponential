@@ -85,6 +85,7 @@ export function Shell({ path, children }: { path: string; children: ReactNode })
               { label: `Guides`, href: `/guides/` },
               { label: `Playground`, href: `/playground/` },
               { label: `Conformance`, href: `/conformance/` },
+              { label: `Numbers`, href: `/numbers/` },
             ],
           },
           {

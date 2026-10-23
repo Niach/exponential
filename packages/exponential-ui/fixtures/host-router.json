@@ -71,6 +71,71 @@
       "functions": [
         "",
         3
+      ],
+      "sources": [
+        "",
+        3
+      ]
+    },
+    "acme.scoped": {
+      "id": "acme.scoped",
+      "name": "Scoped",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "list": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": {
+                "path": "/devices/count"
+              }
+            }
+          ],
+          "bindings": [
+            {
+              "path": "/devices",
+              "source": "exp:devices"
+            }
+          ]
+        }
+      },
+      "functions": [
+        "harness.toast"
+      ],
+      "sources": [
+        "exp:devices",
+        "acme.*"
+      ]
+    },
+    "acme.leaky": {
+      "id": "acme.leaky",
+      "name": "Leaky",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "list": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text"
+            }
+          ],
+          "bindings": [
+            {
+              "path": "/devices",
+              "source": "exp:devices"
+            },
+            {
+              "path": "/issues",
+              "source": "EXP:issues?board=b1"
+            }
+          ]
+        }
+      },
+      "sources": [
+        "exp:devices"
       ]
     }
   },
@@ -714,6 +779,10 @@
           {
             "path": "/functions",
             "message": "functions is a list of names or prefix* patterns"
+          },
+          {
+            "path": "/sources",
+            "message": "sources is a list of scheme:name sources or prefix* patterns"
           }
         ]
       },
@@ -870,6 +939,154 @@
           ]
         }
       ]
+    },
+    {
+      "name": "VAPP-107: a package surface follows only its listed sources",
+      "packages": [
+        "acme.scoped",
+        "acme.leaky"
+      ],
+      "installIssues": {
+        "acme.scoped": [],
+        "acme.leaky": [
+          {
+            "path": "/templates/list/bindings/1/source",
+            "message": "source EXP:issues?board=b1 is not in the package's sources"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "message": {
+            "version": "v0.9",
+            "applyTemplate": {
+              "surfaceId": "s",
+              "templateId": "list",
+              "packageId": "acme.scoped"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "components",
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": {
+                    "path": "/devices/count"
+                  }
+                }
+              ]
+            },
+            {
+              "op": "bind",
+              "surfaceId": "s",
+              "path": "/devices",
+              "source": "exp:devices"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "bindDataModel": {
+              "surfaceId": "s",
+              "path": "/issues",
+              "source": "exp:issues?board=b1"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "SOURCE_DENIED",
+                  "surfaceId": "s",
+                  "message": "source exp:issues?board=b1 is not in package acme.scoped's sources",
+                  "path": "/issues"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "bindDataModel": {
+              "surfaceId": "s",
+              "path": "/devices",
+              "source": "EXP:devices?limit=5"
+            }
+          },
+          "expected": [
+            {
+              "op": "bind",
+              "surfaceId": "s",
+              "path": "/devices",
+              "source": "EXP:devices?limit=5"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "bindDataModel": {
+              "surfaceId": "s",
+              "path": "/extra",
+              "source": "acme.data:list/items"
+            }
+          },
+          "expected": [
+            {
+              "op": "bind",
+              "surfaceId": "s",
+              "path": "/extra",
+              "source": "acme.data:list/items"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "free",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "free",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "bindDataModel": {
+              "surfaceId": "free",
+              "path": "/issues",
+              "source": "exp:issues"
+            }
+          },
+          "expected": [
+            {
+              "op": "bind",
+              "surfaceId": "free",
+              "path": "/issues",
+              "source": "exp:issues"
+            }
+          ]
+        }
+      ]
     }
   ],
   "validation": [
@@ -911,6 +1128,23 @@
         {
           "path": "/functions",
           "message": "functions is a list of names or prefix* patterns"
+        },
+        {
+          "path": "/sources",
+          "message": "sources is a list of scheme:name sources or prefix* patterns"
+        }
+      ]
+    },
+    {
+      "package": "acme.scoped",
+      "expected": []
+    },
+    {
+      "package": "acme.leaky",
+      "expected": [
+        {
+          "path": "/templates/list/bindings/1/source",
+          "message": "source EXP:issues?board=b1 is not in the package's sources"
         }
       ]
     }

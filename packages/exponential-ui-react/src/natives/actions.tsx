@@ -15,7 +15,7 @@ import { useSurfaceContext } from "../context"
 import { useForm } from "../form"
 import { CHROME, IconGlyph } from "../icons"
 import { useBoundState } from "./bound"
-import { linkHref } from "../urls"
+import { linkHref } from "@exponential-at/ui/web"
 import type { NativeProps } from "../node-view"
 import { bool, str, useParts } from "./shared"
 

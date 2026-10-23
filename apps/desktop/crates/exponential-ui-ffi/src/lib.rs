@@ -62,6 +62,11 @@ pub enum UiError {
     Invalid { reason: String },
     /// A theme failed to load; `issues_json` = `[{path, message}]`.
     Theme { issues_json: String },
+    /// VAPP-107: the core panicked inside this call (a core bug, a host
+    /// callback that threw). The call did nothing; the host process is
+    /// unharmed and the object stays usable (a surface records it as an
+    /// issue too). `reason` = the panic's text.
+    Panic { reason: String },
 }
 
 impl std::error::Error for UiError {}
@@ -71,6 +76,7 @@ impl std::fmt::Display for UiError {
         match self {
             UiError::Invalid { reason } => write!(f, "invalid: {reason}"),
             UiError::Theme { issues_json } => write!(f, "theme: {issues_json}"),
+            UiError::Panic { reason } => write!(f, "panicked: {reason}"),
         }
     }
 }
@@ -747,31 +753,37 @@ fn strings_table(strings_json: Option<String>) -> Result<exponential_ui::strings
 /// `strings_json` overrides.
 #[uniffi::export]
 pub fn bind_tree_json(node_json: String, data_json: String, scope: String, strings_json: Option<String>) -> Result<Option<String>, UiError> {
-    let node: UiNode = parse(&node_json)?;
-    let data: Value = parse(&data_json)?;
-    let table = strings_table(strings_json)?;
-    let ctx = exponential_ui::data::ResolveContext::new(&data, &scope).with_strings(&table);
-    Ok(exponential_ui::data::bind_tree(&node, &ctx).map(|n| serde_json::to_string(&n).unwrap_or_default()))
+    guarded("bind_tree_json", || {
+        let node: UiNode = parse(&node_json)?;
+        let data: Value = parse(&data_json)?;
+        let table = strings_table(strings_json)?;
+        let ctx = exponential_ui::data::ResolveContext::new(&data, &scope).with_strings(&table);
+        Ok(exponential_ui::data::bind_tree(&node, &ctx).map(|n| serde_json::to_string(&n).unwrap_or_default()))
+    })
 }
 
 /// What a press does (`runAction`): `{data, event?, call?}` — the context
 /// and args resolved against the data as it is, then the `set` write.
 #[uniffi::export]
 pub fn run_action_json(action_json: String, data_json: String, scope: String, strings_json: Option<String>) -> Result<String, UiError> {
-    let action: Value = parse(&action_json)?;
-    let data: Value = parse(&data_json)?;
-    let table = strings_table(strings_json)?;
-    let ctx = exponential_ui::data::ResolveContext::new(&data, &scope).with_strings(&table);
-    serde_json::to_string(&exponential_ui::data::run_action(&action, &ctx)).map_err(invalid)
+    guarded("run_action_json", || {
+        let action: Value = parse(&action_json)?;
+        let data: Value = parse(&data_json)?;
+        let table = strings_table(strings_json)?;
+        let ctx = exponential_ui::data::ResolveContext::new(&data, &scope).with_strings(&table);
+        serde_json::to_string(&exponential_ui::data::run_action(&action, &ctx)).map_err(invalid)
+    })
 }
 
 /// A value with every binding and call resolved (`resolveDynamic`).
 #[uniffi::export]
 pub fn resolve_dynamic_json(value_json: String, data_json: String, scope: String) -> Result<Option<String>, UiError> {
-    let value: Value = parse(&value_json)?;
-    let data: Value = parse(&data_json)?;
-    let ctx = exponential_ui::data::ResolveContext::new(&data, &scope);
-    Ok(exponential_ui::data::resolve_value(&value, &ctx).map(|v| v.to_string()))
+    guarded("resolve_dynamic_json", || {
+        let value: Value = parse(&value_json)?;
+        let data: Value = parse(&data_json)?;
+        let ctx = exponential_ui::data::ResolveContext::new(&data, &scope);
+        Ok(exponential_ui::data::resolve_value(&value, &ctx).map(|v| v.to_string()))
+    })
 }
 
 /// CodeBlock's tokenizer: `[[{kind, text}]]` per line.
@@ -800,8 +812,10 @@ pub fn text_shimmer_json(color: String, dark: bool) -> String {
 /// `{min, max}` of a chart (`series_json` = the Chart's `series`).
 #[uniffi::export]
 pub fn chart_extent_json(kind: String, series_json: String, min: Option<f64>, max: Option<f64>) -> Result<String, UiError> {
-    let series: Vec<exponential_ui::chart::ChartSeries> = parse(&series_json)?;
-    serde_json::to_string(&exponential_ui::chart::chart_extent(&kind, &series, min, max)).map_err(invalid)
+    guarded("chart_extent_json", || {
+        let series: Vec<exponential_ui::chart::ChartSeries> = parse(&series_json)?;
+        serde_json::to_string(&exponential_ui::chart::chart_extent(&kind, &series, min, max)).map_err(invalid)
+    })
 }
 
 /// `{min, max, step, ticks}`: nice axis ticks.
@@ -831,23 +845,29 @@ pub fn text_direction(locale: String) -> String {
 /// The built-in strings with `overrides_json` merged over them.
 #[uniffi::export]
 pub fn string_table_json(overrides_json: Option<String>) -> Result<String, UiError> {
-    serde_json::to_string(&strings_table(overrides_json)?).map_err(invalid)
+    guarded("string_table_json", || {
+        serde_json::to_string(&strings_table(overrides_json)?).map_err(invalid)
+    })
 }
 
 /// `{name}` placeholders filled from `params_json`.
 #[uniffi::export]
 pub fn format_string(template: String, params_json: String) -> Result<String, UiError> {
-    let params: serde_json::Map<String, Value> = parse(&params_json)?;
-    Ok(exponential_ui::strings::format_string(&template, &params))
+    guarded("format_string", || {
+        let params: serde_json::Map<String, Value> = parse(&params_json)?;
+        Ok(exponential_ui::strings::format_string(&template, &params))
+    })
 }
 
 /// A style flattened for one context (`{width, height?, hover, reducedMotion,
 /// states, breakpoints}`), the reference `resolveConditions`.
 #[uniffi::export]
 pub fn resolve_conditions_json(style_json: String, context_json: String) -> Result<String, UiError> {
-    let style: serde_json::Map<String, Value> = parse(&style_json)?;
-    let ctx: exponential_ui::conditions::ConditionContext = parse(&context_json)?;
-    Ok(Value::Object(exponential_ui::conditions::resolve_conditions(&style, &ctx)).to_string())
+    guarded("resolve_conditions_json", || {
+        let style: serde_json::Map<String, Value> = parse(&style_json)?;
+        let ctx: exponential_ui::conditions::ConditionContext = parse(&context_json)?;
+        Ok(Value::Object(exponential_ui::conditions::resolve_conditions(&style, &ctx)).to_string())
+    })
 }
 
 /// A component's a11y contract `{role, keys}`, if any.
@@ -861,8 +881,10 @@ pub fn component_a11y_json(component: String) -> Option<String> {
 /// The issues of a style object (`[{path, message}]`).
 #[uniffi::export]
 pub fn validate_style_json(style_json: String, root: Option<bool>) -> Result<String, UiError> {
-    let style: Value = parse(&style_json)?;
-    serde_json::to_string(&exponential_ui::style_check::validate_style(&style, "style", root)).map_err(invalid)
+    guarded("validate_style_json", || {
+        let style: Value = parse(&style_json)?;
+        serde_json::to_string(&exponential_ui::style_check::validate_style(&style, "style", root)).map_err(invalid)
+    })
 }
 
 /// ONE surface. Every method locks it briefly; the host calls from any
@@ -902,6 +924,21 @@ impl Surface {
                 drop(panics);
                 fallback()
             }
+        }
+    }
+
+    /// [`guarded`] for a throwing surface method: the panic is also an issue
+    /// of this surface (`{id: "ffi.<method>", message: "panicked: …"}`, once
+    /// each), and the call answers [`UiError::Panic`].
+    fn guarded<T>(&self, what: &str, f: impl FnOnce() -> Result<T, UiError>) -> Result<T, UiError> {
+        let mut out = Err(UiError::Invalid { reason: String::new() });
+        self.shield(what, || (), || out = f());
+        match out {
+            Err(UiError::Invalid { reason }) if reason.is_empty() => {
+                let reason = self.panics.lock().unwrap_or_else(|e| e.into_inner()).iter().rev().find(|i| i.id == format!("ffi.{what}")).map(|i| i.message.trim_start_matches("panicked: ").to_string()).unwrap_or_else(|| "unknown panic".into());
+                Err(UiError::Panic { reason })
+            }
+            other => other,
         }
     }
 
@@ -953,16 +990,33 @@ impl Drop for PassGuard<'_> {
 /// bug, a host callback that threw inside a pass) answers `fallback()`
 /// instead: a safe empty value of the same type, the panic text on stderr
 /// (a surface method also records it as an issue: [`Surface::shield`]).
-/// Calls that return `Result` already throw a catchable error; the
-/// constructors without a `Result` (`HostRouter`, `JsonlDecoder`,
+/// The constructors without a `Result` (`HostRouter`, `JsonlDecoder`,
 /// `SseDecoder`) only allocate their empty state and have no value to fall
-/// back to.
+/// back to. VAPP-107: every THROWING call runs its body in [`guarded`]
+/// instead, so a panic reaches Swift / Kotlin as the typed
+/// [`UiError::Panic`] rather than UniFFI's opaque internal error. Both
+/// need `panic = "unwind"` (Cargo's default; the `mobile` profile keeps
+/// it, decided with VAPP-106): under `abort` nothing could be caught.
 fn shield<T>(what: &str, fallback: impl FnOnce() -> T, f: impl FnOnce() -> T) -> T {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(v) => v,
         Err(payload) => {
             eprintln!("exponential-ui-ffi: {what} panicked: {}", panic_text(payload.as_ref()));
             fallback()
+        }
+    }
+}
+
+/// VAPP-107: the panic boundary of every exported call that returns a
+/// `Result`: a panic in `f` becomes `Err(UiError::Panic)` (its text on
+/// stderr too), never an unwind across the FFI.
+fn guarded<T>(what: &str, f: impl FnOnce() -> Result<T, UiError>) -> Result<T, UiError> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(v) => v,
+        Err(payload) => {
+            let reason = panic_text(payload.as_ref());
+            eprintln!("exponential-ui-ffi: {what} panicked: {reason}");
+            Err(UiError::Panic { reason })
         }
     }
 }
@@ -1013,20 +1067,24 @@ impl Surface {
     /// (geometry mode); `mode` = `light|dark`.
     #[uniffi::constructor]
     pub fn new(surface_id: String, catalog_id: String, theme_id: Option<String>, mode: String) -> Result<Arc<Self>, UiError> {
-        let theme = match theme_id.as_deref() {
-            Some("") => None,
-            Some(id) => Some(exponential_ui::themes::builtin_theme(id).ok_or_else(|| invalid(format!("unknown built-in theme {id:?}")))?),
-            None => Some(exponential_ui::themes::default_theme()),
-        };
-        let options = SurfaceOptions { catalog_id, theme, mode: mode_of(&mode)?, extensions: Vec::new(), rounding: false, expand_controls: None };
-        Ok(Surface::wrap(CoreSurface::new(&surface_id, options)))
+        guarded("new", || {
+            let theme = match theme_id.as_deref() {
+                Some("") => None,
+                Some(id) => Some(exponential_ui::themes::builtin_theme(id).ok_or_else(|| invalid(format!("unknown built-in theme {id:?}")))?),
+                None => Some(exponential_ui::themes::default_theme()),
+            };
+            let options = SurfaceOptions { catalog_id, theme, mode: mode_of(&mode)?, extensions: Vec::new(), rounding: false, expand_controls: None };
+            Ok(Surface::wrap(CoreSurface::new(&surface_id, options)))
+        })
     }
 
     /// A surface painting with a `Theme` object (`None` = geometry mode).
     #[uniffi::constructor]
     pub fn with_theme(surface_id: String, catalog_id: String, theme: Option<Arc<Theme>>, mode: String) -> Result<Arc<Self>, UiError> {
-        let options = SurfaceOptions { catalog_id, theme: theme.map(|t| t.inner.clone()), mode: mode_of(&mode)?, extensions: Vec::new(), rounding: false, expand_controls: None };
-        Ok(Surface::wrap(CoreSurface::new(&surface_id, options)))
+        guarded("with_theme", || {
+            let options = SurfaceOptions { catalog_id, theme: theme.map(|t| t.inner.clone()), mode: mode_of(&mode)?, extensions: Vec::new(), rounding: false, expand_controls: None };
+            Ok(Surface::wrap(CoreSurface::new(&surface_id, options)))
+        })
     }
 
     /// Paint with this `Theme` object from the next pass on.
@@ -1052,28 +1110,36 @@ impl Surface {
 
     /// Load a theme file (JSON; `extends` may name a built-in) and use it.
     pub fn set_theme_json(&self, theme_json: String) -> Result<(), UiError> {
-        let theme = load_theme_inner(&theme_json, None)?;
-        self.core().set_theme(Some(Arc::new(theme)));
-        Ok(())
+        self.guarded("set_theme_json", || {
+            let theme = load_theme_inner(&theme_json, None)?;
+            self.core().set_theme(Some(Arc::new(theme)));
+            Ok(())
+        })
     }
 
     pub fn set_builtin_theme(&self, id: String) -> Result<(), UiError> {
-        let theme = exponential_ui::themes::builtin_theme(&id).ok_or_else(|| invalid(format!("unknown built-in theme {id:?}")))?;
-        self.core().set_theme(Some(theme));
-        Ok(())
+        self.guarded("set_builtin_theme", || {
+            let theme = exponential_ui::themes::builtin_theme(&id).ok_or_else(|| invalid(format!("unknown built-in theme {id:?}")))?;
+            self.core().set_theme(Some(theme));
+            Ok(())
+        })
     }
 
     /// `light | dark`, or `system` (with `system_dark` = the platform's
     /// current preference; call again when it changes).
     pub fn set_mode(&self, mode: String) -> Result<(), UiError> {
-        self.core().set_mode(mode_of(&mode)?);
-        Ok(())
+        self.guarded("set_mode", || {
+            self.core().set_mode(mode_of(&mode)?);
+            Ok(())
+        })
     }
 
     pub fn set_mode_setting(&self, mode: String, system_dark: bool) -> Result<(), UiError> {
-        let setting = ModeSetting::parse(&mode).ok_or_else(|| invalid(format!("mode must be light|dark|system, got {mode:?}")))?;
-        self.core().set_mode_setting(setting, system_dark);
-        Ok(())
+        self.guarded("set_mode_setting", || {
+            let setting = ModeSetting::parse(&mode).ok_or_else(|| invalid(format!("mode must be light|dark|system, got {mode:?}")))?;
+            self.core().set_mode_setting(setting, system_dark);
+            Ok(())
+        })
     }
 
     pub fn settings(&self) -> FfiSettings {
@@ -1085,10 +1151,12 @@ impl Surface {
 
     /// Every setting at once (what changed takes effect on the next layout).
     pub fn set_settings(&self, settings: FfiSettings) -> Result<(), UiError> {
-        let s = settings_of(&settings)?;
-        self.core().set_settings(s);
-        *self.time_zone.lock().unwrap_or_else(|e| e.into_inner()) = settings.time_zone;
-        Ok(())
+        self.guarded("set_settings", || {
+            let s = settings_of(&settings)?;
+            self.core().set_settings(s);
+            *self.time_zone.lock().unwrap_or_else(|e| e.into_inner()) = settings.time_zone;
+            Ok(())
+        })
     }
 
     pub fn set_locale(&self, locale: String) {
@@ -1099,21 +1167,27 @@ impl Surface {
 
     /// Built-in string overrides `{id: text}`.
     pub fn set_strings_json(&self, strings_json: String) -> Result<(), UiError> {
-        let map: indexmap::IndexMap<String, String> = parse(&strings_json)?;
-        self.core().set_strings(map);
-        Ok(())
+        self.guarded("set_strings_json", || {
+            let map: indexmap::IndexMap<String, String> = parse(&strings_json)?;
+            self.core().set_strings(map);
+            Ok(())
+        })
     }
 
     pub fn set_density(&self, density: String) -> Result<(), UiError> {
-        let d = Density::parse(&density).ok_or_else(|| invalid(format!("density must be compact|default|comfortable, got {density:?}")))?;
-        self.core().set_density(d);
-        Ok(())
+        self.guarded("set_density", || {
+            let d = Density::parse(&density).ok_or_else(|| invalid(format!("density must be compact|default|comfortable, got {density:?}")))?;
+            self.core().set_density(d);
+            Ok(())
+        })
     }
 
     pub fn set_contrast(&self, contrast: String, system_high: bool) -> Result<(), UiError> {
-        let c = contrast_of(&contrast)?;
-        self.core().set_contrast(c, system_high);
-        Ok(())
+        self.guarded("set_contrast", || {
+            let c = contrast_of(&contrast)?;
+            self.core().set_contrast(c, system_high);
+            Ok(())
+        })
     }
 
     /// Dynamic Type / font scale (1 = the theme's sizes).
@@ -1165,38 +1239,48 @@ impl Surface {
 
     /// Register an extension catalog (its JSON definition), validated.
     pub fn register_extension(&self, extension_json: String) -> Result<(), UiError> {
-        let ext: ExtensionDef = parse(&extension_json)?;
-        self.core().register_extension(ext).map_err(invalid)
+        self.guarded("register_extension", || {
+            let ext: ExtensionDef = parse(&extension_json)?;
+            self.core().register_extension(ext).map_err(invalid)
+        })
     }
 
     /// One A2UI server→client message as JSON.
     pub fn apply(&self, message_json: String) -> Result<FfiApplyOutcome, UiError> {
-        let message: Value = parse(&message_json)?;
-        let outcome = self.core().apply(&message).map_err(invalid)?;
-        Ok(FfiApplyOutcome { structure_changed: outcome.structure_changed, issues_json: serde_json::to_string(&outcome.issues).unwrap_or_default() })
+        self.guarded("apply", || {
+            let message: Value = parse(&message_json)?;
+            let outcome = self.core().apply(&message).map_err(invalid)?;
+            Ok(FfiApplyOutcome { structure_changed: outcome.structure_changed, issues_json: serde_json::to_string(&outcome.issues).unwrap_or_default() })
+        })
     }
 
     /// The nested authoring form (fixtures, MCP templates).
     pub fn set_nested(&self, nested_json: String) -> Result<FfiApplyOutcome, UiError> {
-        let tree: NestedNode = parse(&nested_json)?;
-        let outcome = self.core().set_nested(tree);
-        Ok(FfiApplyOutcome { structure_changed: outcome.structure_changed, issues_json: serde_json::to_string(&outcome.issues).unwrap_or_default() })
+        self.guarded("set_nested", || {
+            let tree: NestedNode = parse(&nested_json)?;
+            let outcome = self.core().set_nested(tree);
+            Ok(FfiApplyOutcome { structure_changed: outcome.structure_changed, issues_json: serde_json::to_string(&outcome.issues).unwrap_or_default() })
+        })
     }
 
     /// A flat component list (the `updateComponents` payload's `components`).
     pub fn set_components(&self, components_json: String) -> Result<FfiApplyOutcome, UiError> {
-        let components: Vec<FlatComponent> = parse(&components_json)?;
-        let outcome = self.core().set_components(components);
-        Ok(FfiApplyOutcome { structure_changed: outcome.structure_changed, issues_json: serde_json::to_string(&outcome.issues).unwrap_or_default() })
+        self.guarded("set_components", || {
+            let components: Vec<FlatComponent> = parse(&components_json)?;
+            let outcome = self.core().set_components(components);
+            Ok(FfiApplyOutcome { structure_changed: outcome.structure_changed, issues_json: serde_json::to_string(&outcome.issues).unwrap_or_default() })
+        })
     }
 
     /// Write at a JSON pointer (`value_json` null/None removes).
     pub fn set_data(&self, path: String, value_json: Option<String>) -> Result<(), UiError> {
-        let value = match value_json {
-            Some(v) => Some(parse::<Value>(&v)?),
-            None => None,
-        };
-        self.core().set_data(&path, value).map_err(invalid)
+        self.guarded("set_data", || {
+            let value = match value_json {
+                Some(v) => Some(parse::<Value>(&v)?),
+                None => None,
+            };
+            self.core().set_data(&path, value).map_err(invalid)
+        })
     }
 
     pub fn data_json(&self) -> String {
@@ -1307,21 +1391,23 @@ impl Surface {
     /// The fixed fake measure (8 px per character, 20 px lines, control
     /// boxes; `sizes_json` = `{id: {w, h}}` overrides), for geometry tests.
     pub fn layout_fixed(&self, sizes_json: Option<String>, wrap: bool) -> Result<FfiLayout, UiError> {
-        let mut sizes = std::collections::HashMap::new();
-        if let Some(json) = sizes_json {
-            let map: serde_json::Map<String, Value> = parse(&json)?;
-            for (id, m) in map {
-                sizes.insert(id, (m["w"].as_f64().unwrap_or(0.0) as f32, m["h"].as_f64().unwrap_or(0.0) as f32));
+        self.guarded("layout_fixed", || {
+            let mut sizes = std::collections::HashMap::new();
+            if let Some(json) = sizes_json {
+                let map: serde_json::Map<String, Value> = parse(&json)?;
+                for (id, m) in map {
+                    sizes.insert(id, (m["w"].as_f64().unwrap_or(0.0) as f32, m["h"].as_f64().unwrap_or(0.0) as f32));
+                }
             }
-        }
-        let mut m = exponential_ui::measure::FixedMeasure { sizes, wrap };
-        if let Some(last) = self.reentered() {
-            return Ok(last);
-        }
-        let _pass = self.pass.lock().unwrap_or_else(|e| e.into_inner());
-        let out = convert(self.core().layout(&mut m));
-        *self.last.lock().unwrap_or_else(|e| e.into_inner()) = Some(out.clone());
-        Ok(out)
+            let mut m = exponential_ui::measure::FixedMeasure { sizes, wrap };
+            if let Some(last) = self.reentered() {
+                return Ok(last);
+            }
+            let _pass = self.pass.lock().unwrap_or_else(|e| e.into_inner());
+            let out = convert(self.core().layout(&mut m));
+            *self.last.lock().unwrap_or_else(|e| e.into_inner()) = Some(out.clone());
+            Ok(out)
+        })
     }
 
     pub fn structure_version(&self) -> u64 {
@@ -1382,11 +1468,13 @@ impl Surface {
     /// An interaction on node `index`: `press`, `change`, `select`, `submit`,
     /// `commit`, with an optional JSON payload (`{value}`, `{open}`, `{page}`).
     pub fn event(&self, index: u32, name: String, payload_json: Option<String>) -> Result<Vec<FfiEvent>, UiError> {
-        let payload = match payload_json {
-            Some(p) => Some(parse::<Value>(&p)?),
-            None => None,
-        };
-        Ok(events(self.core().event(index, &name, payload)))
+        self.guarded("event", || {
+            let payload = match payload_json {
+                Some(p) => Some(parse::<Value>(&p)?),
+                None => None,
+            };
+            Ok(events(self.core().event(index, &name, payload)))
+        })
     }
 
     pub fn set_open(&self, id: String, open: bool) -> Vec<FfiEvent> {
@@ -1427,8 +1515,10 @@ impl Surface {
     /// `{"scrollIntoView": {"id"}}` | `{"scrollToIndex": {"id", "index",
     /// "align"?}}` (round 2).
     pub fn command_json(&self, command_json: String) -> Result<Vec<FfiEvent>, UiError> {
-        let command: SurfaceCommand = parse(&command_json)?;
-        Ok(events(self.core().command(&command)))
+        self.guarded("command_json", || {
+            let command: SurfaceCommand = parse(&command_json)?;
+            Ok(events(self.core().command(&command)))
+        })
     }
 
     /// Events raised outside a call that returns them (a hover opening a
@@ -1643,14 +1733,16 @@ fn bind_ctx<'a>(data: &'a Value, options: &'a BindOptions, table: &'a exponentia
 /// surface's; `None` = the English fallback). `None` = not visible.
 #[uniffi::export(default(formatter = None))]
 pub fn bind_row_slot_json(slot_json: String, rows_prop_json: String, rows_json: String, index: u32, data_json: String, options_json: Option<String>, formatter: Option<Arc<dyn HostFormatter>>) -> Result<Option<String>, UiError> {
-    let slot: UiNode = parse(&slot_json)?;
-    let rows_prop: Value = parse(&rows_prop_json)?;
-    let rows: Vec<Value> = parse(&rows_json)?;
-    let data: Value = parse(&data_json)?;
-    let (options, table) = bind_options(options_json)?;
-    let foreign = formatter.map(ForeignFormatter);
-    let ctx = bind_ctx(&data, &options, &table, foreign.as_ref());
-    Ok(exponential_ui::data::bind_row_slot(&slot, &rows_prop, &rows, index as usize, &ctx).map(|n| serde_json::to_string(&n).unwrap_or_default()))
+    guarded("bind_row_slot_json", || {
+        let slot: UiNode = parse(&slot_json)?;
+        let rows_prop: Value = parse(&rows_prop_json)?;
+        let rows: Vec<Value> = parse(&rows_json)?;
+        let data: Value = parse(&data_json)?;
+        let (options, table) = bind_options(options_json)?;
+        let foreign = formatter.map(ForeignFormatter);
+        let ctx = bind_ctx(&data, &options, &table, foreign.as_ref());
+        Ok(exponential_ui::data::bind_row_slot(&slot, &rows_prop, &rows, index as usize, &ctx).map(|n| serde_json::to_string(&n).unwrap_or_default()))
+    })
 }
 
 /// Round 2 (§4): a List `section` header bound for section `index`;
@@ -1659,21 +1751,25 @@ pub fn bind_row_slot_json(slot_json: String, rows_prop_json: String, rows_json: 
 /// [`bind_row_slot_json`].
 #[uniffi::export(default(formatter = None))]
 pub fn bind_section_header_json(slot_json: String, section_json: String, index: u32, data_json: String, options_json: Option<String>, formatter: Option<Arc<dyn HostFormatter>>) -> Result<Option<String>, UiError> {
-    let slot: UiNode = parse(&slot_json)?;
-    let section: Value = parse(&section_json)?;
-    let section = exponential_ui::list::ListSection { value: section.get("value").map(exponential_ui::format::display_string).unwrap_or_default(), start: section.get("start").and_then(Value::as_u64).unwrap_or(0) as usize, count: section.get("count").and_then(Value::as_u64).unwrap_or(0) as usize };
-    let data: Value = parse(&data_json)?;
-    let (options, table) = bind_options(options_json)?;
-    let foreign = formatter.map(ForeignFormatter);
-    let ctx = bind_ctx(&data, &options, &table, foreign.as_ref());
-    Ok(exponential_ui::data::bind_section_header(&slot, &section, index as usize, &ctx).map(|n| serde_json::to_string(&n).unwrap_or_default()))
+    guarded("bind_section_header_json", || {
+        let slot: UiNode = parse(&slot_json)?;
+        let section: Value = parse(&section_json)?;
+        let section = exponential_ui::list::ListSection { value: section.get("value").map(exponential_ui::format::display_string).unwrap_or_default(), start: section.get("start").and_then(Value::as_u64).unwrap_or(0) as usize, count: section.get("count").and_then(Value::as_u64).unwrap_or(0) as usize };
+        let data: Value = parse(&data_json)?;
+        let (options, table) = bind_options(options_json)?;
+        let foreign = formatter.map(ForeignFormatter);
+        let ctx = bind_ctx(&data, &options, &table, foreign.as_ref());
+        Ok(exponential_ui::data::bind_section_header(&slot, &section, index as usize, &ctx).map(|n| serde_json::to_string(&n).unwrap_or_default()))
+    })
 }
 
 /// Round 2 (§3): what a text prop shows for a bound value (`412`, `true`,
 /// nothing for null / objects).
 #[uniffi::export]
 pub fn display_string_json(value_json: String) -> Result<String, UiError> {
-    Ok(exponential_ui::format::display_string(&parse::<Value>(&value_json)?))
+    guarded("display_string_json", || {
+        Ok(exponential_ui::format::display_string(&parse::<Value>(&value_json)?))
+    })
 }
 
 /// Round 2: a format call (`{call, args}`) through the English fallback
@@ -1681,28 +1777,32 @@ pub fn display_string_json(value_json: String) -> Result<String, UiError> {
 /// through `formatter` (`now` = the clock for `formatRelativeTime`).
 #[uniffi::export(default(offset_minutes = None))]
 pub fn format_call_json(call_json: String, formatter: Option<Arc<dyn HostFormatter>>, now: Option<f64>, offset_minutes: Option<i32>) -> Result<Option<String>, UiError> {
-    let call: Value = parse(&call_json)?;
-    let empty = Value::Object(Default::default());
-    let foreign = formatter.map(ForeignFormatter);
-    let zoned = exponential_ui::format::ZonedEnglishFormatter::fixed(offset_minutes.unwrap_or(0));
-    let ctx = exponential_ui::data::ResolveContext::new(&empty, "");
-    let ctx = match &foreign {
-        Some(f) => ctx.with_formatter(f),
-        None => ctx.with_formatter(&zoned),
-    };
-    let ctx = match now {
-        Some(n) => ctx.with_now(n),
-        None => ctx,
-    };
-    Ok(exponential_ui::data::resolve_value(&call, &ctx).map(|v| v.to_string()))
+    guarded("format_call_json", || {
+        let call: Value = parse(&call_json)?;
+        let empty = Value::Object(Default::default());
+        let foreign = formatter.map(ForeignFormatter);
+        let zoned = exponential_ui::format::ZonedEnglishFormatter::fixed(offset_minutes.unwrap_or(0));
+        let ctx = exponential_ui::data::ResolveContext::new(&empty, "");
+        let ctx = match &foreign {
+            Some(f) => ctx.with_formatter(f),
+            None => ctx.with_formatter(&zoned),
+        };
+        let ctx = match now {
+            Some(n) => ctx.with_now(n),
+            None => ctx,
+        };
+        Ok(exponential_ui::data::resolve_value(&call, &ctx).map(|v| v.to_string()))
+    })
 }
 
 /// Round 2: a date value (`yyyy-mm-dd`, an ISO date-time, epoch ms) as
 /// `{ms, dateOnly}`, or `None` when unreadable.
 #[uniffi::export]
 pub fn parse_date_value_json(value_json: String) -> Result<Option<String>, UiError> {
-    let v: Value = parse(&value_json)?;
-    Ok(exponential_ui::format::parse_date_value(&v).map(|d| serde_json::json!({"ms": d.ms, "dateOnly": d.date_only}).to_string()))
+    guarded("parse_date_value_json", || {
+        let v: Value = parse(&value_json)?;
+        Ok(exponential_ui::format::parse_date_value(&v).map(|d| serde_json::json!({"ms": d.ms, "dateOnly": d.date_only}).to_string()))
+    })
 }
 
 /// Round 2: the TR35 subset over calendar fields with the host's names:
@@ -1711,14 +1811,16 @@ pub fn parse_date_value_json(value_json: String) -> Result<Option<String>, UiErr
 /// weekdaysShort, dayPeriods}` (`None` = English).
 #[uniffi::export]
 pub fn format_pattern_json(pattern: String, fields_json: String, names_json: Option<String>) -> Result<String, UiError> {
-    let f: Value = parse(&fields_json)?;
-    let n = |k: &str| f.get(k).and_then(Value::as_i64).unwrap_or(0);
-    let fields = exponential_ui::format::DateFields { year: n("year"), month: n("month").clamp(1, 12) as u32, day: n("day") as u32, weekday: n("weekday").rem_euclid(7) as u32, hour: n("hour") as u32, minute: n("minute") as u32, second: n("second") as u32 };
-    let names = match names_json {
-        Some(s) => parse::<exponential_ui::format::DateNames>(&s)?,
-        None => exponential_ui::format::english_names().clone(),
-    };
-    Ok(exponential_ui::format::format_pattern(&pattern, &fields, &names))
+    guarded("format_pattern_json", || {
+        let f: Value = parse(&fields_json)?;
+        let n = |k: &str| f.get(k).and_then(Value::as_i64).unwrap_or(0);
+        let fields = exponential_ui::format::DateFields { year: n("year"), month: n("month").clamp(1, 12) as u32, day: n("day") as u32, weekday: n("weekday").rem_euclid(7) as u32, hour: n("hour") as u32, minute: n("minute") as u32, second: n("second") as u32 };
+        let names = match names_json {
+            Some(s) => parse::<exponential_ui::format::DateNames>(&s)?,
+            None => exponential_ui::format::english_names().clone(),
+        };
+        Ok(exponential_ui::format::format_pattern(&pattern, &fields, &names))
+    })
 }
 
 /// Round 2: the unit a relative time shows in: `{value, unit}` for
@@ -1736,8 +1838,10 @@ pub fn relative_time_unit_json(delta_ms: f64) -> String {
 /// `{opacity, translateX, translateY, rotate, scale, band}`.
 #[uniffi::export]
 pub fn animation_frame_json(name: String, timing_json: String, elapsed_ms: f64, reduced_motion: bool) -> Result<Option<String>, UiError> {
-    let timing: exponential_ui::animation::AnimationTiming = parse(&timing_json)?;
-    Ok(exponential_ui::animation::frame_with_timing(&name, &timing, elapsed_ms, reduced_motion).map(|f| serde_json::to_string(&f).unwrap_or_default()))
+    guarded("animation_frame_json", || {
+        let timing: exponential_ui::animation::AnimationTiming = parse(&timing_json)?;
+        Ok(exponential_ui::animation::frame_with_timing(&name, &timing, elapsed_ms, reduced_motion).map(|f| serde_json::to_string(&f).unwrap_or_default()))
+    })
 }
 
 /// Round 2 (§1): the Resizable arithmetic, `{op, …}` → the numbers:
@@ -1750,23 +1854,25 @@ pub fn animation_frame_json(name: String, timing_json: String, elapsed_ms: f64, 
 /// use this for previews and the binding suites.
 #[uniffi::export]
 pub fn resizable_json(request_json: String) -> Result<String, UiError> {
-    use exponential_ui::resizable::{drag_delta, keyboard_resize, normalize_sizes, panel_extents, resize_panels, Orientation, PanelLimits};
-    let r: Value = parse(&request_json)?;
-    let nums = |k: &str| r.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect::<Vec<_>>()).unwrap_or_default();
-    let limits = PanelLimits::list(r.get("panels"));
-    let orientation = r.get("orientation").and_then(Value::as_str).and_then(Orientation::parse).unwrap_or_default();
-    let rtl = r.get("direction").and_then(Value::as_str) == Some("rtl");
-    let handle = r.get("handle").and_then(Value::as_u64).unwrap_or(0) as usize;
-    let handle_extent = |fallback: Option<&str>| r.get("handleExtent").or_else(|| fallback.and_then(|k| r.get(k))).and_then(Value::as_f64).unwrap_or(1.0);
-    let out = match r.get("op").and_then(Value::as_str).unwrap_or("") {
-        "normalize" => serde_json::json!(normalize_sizes(r.get("sizes").and_then(Value::as_array).map(Vec::as_slice), r.get("count").and_then(Value::as_u64).unwrap_or(0) as usize, &limits)),
-        "resize" => serde_json::json!(resize_panels(&nums("sizes"), handle, r.get("delta").and_then(Value::as_f64).unwrap_or(0.0), &limits)),
-        "key" => serde_json::json!(keyboard_resize(&nums("sizes"), handle, r.get("key").and_then(Value::as_str).unwrap_or(""), orientation, rtl, &limits)),
-        "extents" => serde_json::json!(panel_extents(&nums("sizes"), r.get("container").and_then(Value::as_f64).unwrap_or(0.0), handle_extent(Some("handle")))),
-        "drag" => serde_json::json!(drag_delta(r.get("px").and_then(Value::as_f64).unwrap_or(0.0), r.get("container").and_then(Value::as_f64).unwrap_or(0.0), r.get("panels").and_then(Value::as_u64).unwrap_or(0) as usize, orientation, rtl, handle_extent(None))),
-        other => return Err(invalid(format!("op must be normalize|resize|key|extents|drag, got {other:?}"))),
-    };
-    Ok(out.to_string())
+    guarded("resizable_json", || {
+        use exponential_ui::resizable::{drag_delta, keyboard_resize, normalize_sizes, panel_extents, resize_panels, Orientation, PanelLimits};
+        let r: Value = parse(&request_json)?;
+        let nums = |k: &str| r.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect::<Vec<_>>()).unwrap_or_default();
+        let limits = PanelLimits::list(r.get("panels"));
+        let orientation = r.get("orientation").and_then(Value::as_str).and_then(Orientation::parse).unwrap_or_default();
+        let rtl = r.get("direction").and_then(Value::as_str) == Some("rtl");
+        let handle = r.get("handle").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let handle_extent = |fallback: Option<&str>| r.get("handleExtent").or_else(|| fallback.and_then(|k| r.get(k))).and_then(Value::as_f64).unwrap_or(1.0);
+        let out = match r.get("op").and_then(Value::as_str).unwrap_or("") {
+            "normalize" => serde_json::json!(normalize_sizes(r.get("sizes").and_then(Value::as_array).map(Vec::as_slice), r.get("count").and_then(Value::as_u64).unwrap_or(0) as usize, &limits)),
+            "resize" => serde_json::json!(resize_panels(&nums("sizes"), handle, r.get("delta").and_then(Value::as_f64).unwrap_or(0.0), &limits)),
+            "key" => serde_json::json!(keyboard_resize(&nums("sizes"), handle, r.get("key").and_then(Value::as_str).unwrap_or(""), orientation, rtl, &limits)),
+            "extents" => serde_json::json!(panel_extents(&nums("sizes"), r.get("container").and_then(Value::as_f64).unwrap_or(0.0), handle_extent(Some("handle")))),
+            "drag" => serde_json::json!(drag_delta(r.get("px").and_then(Value::as_f64).unwrap_or(0.0), r.get("container").and_then(Value::as_f64).unwrap_or(0.0), r.get("panels").and_then(Value::as_u64).unwrap_or(0) as usize, orientation, rtl, handle_extent(None))),
+            other => return Err(invalid(format!("op must be normalize|resize|key|extents|drag, got {other:?}"))),
+        };
+        Ok(out.to_string())
+    })
 }
 
 /// Round 2 (§5): the list arithmetic, `{op, …}` → JSON: `window {extents,
@@ -1780,50 +1886,52 @@ pub fn resizable_json(request_json: String) -> Result<String, UiError> {
 /// {items, key?}`, `rowKeys {rows, rowKey?}`.
 #[uniffi::export]
 pub fn list_json(request_json: String) -> Result<String, UiError> {
-    use exponential_ui::list::*;
-    let r: Value = parse(&request_json)?;
-    let nums = |k: &str| r.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect::<Vec<_>>()).unwrap_or_default();
-    let num = |k: &str| r.get(k).and_then(Value::as_f64).unwrap_or(0.0);
-    let arr = |k: &str| r.get(k).and_then(Value::as_array).cloned().unwrap_or_default();
-    let out = match r.get("op").and_then(Value::as_str).unwrap_or("") {
-        "window" => serde_json::to_value(virtual_window(&nums("extents"), num("gap"), num("scroll"), num("viewport"), r.get("overscan").and_then(Value::as_u64).map(|o| o as usize).unwrap_or(DEFAULT_OVERSCAN))).map_err(invalid)?,
-        "scrollTo" => serde_json::json!(scroll_offset_for_index(&nums("extents"), num("gap"), r.get("index").and_then(Value::as_u64).unwrap_or(0) as usize, num("viewport"), num("scroll"), r.get("align").and_then(Value::as_str).and_then(ScrollAlign::parse).unwrap_or_default(), num("inset"))),
-        "sections" => {
-            let sections = list_sections(&arr("items"), r.get("sectionBy").and_then(Value::as_str).unwrap_or(""));
-            let rows: Vec<Value> = section_rows(&sections).into_iter().map(|row| match row {
-                SectionRow::Header(h) => serde_json::json!({"header": h}),
-                SectionRow::Item(i) => serde_json::json!({"item": i}),
-            }).collect();
-            serde_json::json!({"sections": sections, "rows": rows})
-        }
-        "scrollToItem" => {
-            let rows: Vec<SectionRow> = serde_json::from_value(r.get("rows").cloned().unwrap_or_default()).map_err(|e| invalid(format!("rows: {e}")))?;
-            let extents = nums("rowExtents");
-            if extents.len() != rows.len() {
-                return Err(invalid(format!("rowExtents ({}) must match rows ({})", extents.len(), rows.len())));
+    guarded("list_json", || {
+        use exponential_ui::list::*;
+        let r: Value = parse(&request_json)?;
+        let nums = |k: &str| r.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect::<Vec<_>>()).unwrap_or_default();
+        let num = |k: &str| r.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+        let arr = |k: &str| r.get(k).and_then(Value::as_array).cloned().unwrap_or_default();
+        let out = match r.get("op").and_then(Value::as_str).unwrap_or("") {
+            "window" => serde_json::to_value(virtual_window(&nums("extents"), num("gap"), num("scroll"), num("viewport"), r.get("overscan").and_then(Value::as_u64).map(|o| o as usize).unwrap_or(DEFAULT_OVERSCAN))).map_err(invalid)?,
+            "scrollTo" => serde_json::json!(scroll_offset_for_index(&nums("extents"), num("gap"), r.get("index").and_then(Value::as_u64).unwrap_or(0) as usize, num("viewport"), num("scroll"), r.get("align").and_then(Value::as_str).and_then(ScrollAlign::parse).unwrap_or_default(), num("inset"))),
+            "sections" => {
+                let sections = list_sections(&arr("items"), r.get("sectionBy").and_then(Value::as_str).unwrap_or(""));
+                let rows: Vec<Value> = section_rows(&sections).into_iter().map(|row| match row {
+                    SectionRow::Header(h) => serde_json::json!({"header": h}),
+                    SectionRow::Item(i) => serde_json::json!({"item": i}),
+                }).collect();
+                serde_json::json!({"sections": sections, "rows": rows})
             }
-            let align = r.get("align").and_then(Value::as_str).and_then(ScrollAlign::parse).unwrap_or_default();
-            serde_json::json!(scroll_offset_for_item(&rows, &extents, num("gap"), r.get("index").and_then(Value::as_u64).unwrap_or(0) as usize, num("viewport"), num("scroll"), align, r.get("stickyHeaders").and_then(Value::as_bool).unwrap_or(false)))
-        }
-        "sticky" => {
-            let extents = nums("rowExtents");
-            let offsets = match r.get("rowOffsets") {
-                Some(_) => nums("rowOffsets"),
-                None => item_offsets(&extents, num("gap")),
-            };
-            let mut headers: Vec<usize> = arr("headerRows").iter().filter_map(Value::as_u64).map(|h| h as usize).collect();
-            headers.sort_unstable();
-            headers.dedup();
-            if let Some(bad) = headers.iter().find(|&&h| h >= extents.len() || h >= offsets.len()) {
-                return Err(invalid(format!("headerRows: row {bad} is past rowExtents ({}) / rowOffsets ({})", extents.len(), offsets.len())));
+            "scrollToItem" => {
+                let rows: Vec<SectionRow> = serde_json::from_value(r.get("rows").cloned().unwrap_or_default()).map_err(|e| invalid(format!("rows: {e}")))?;
+                let extents = nums("rowExtents");
+                if extents.len() != rows.len() {
+                    return Err(invalid(format!("rowExtents ({}) must match rows ({})", extents.len(), rows.len())));
+                }
+                let align = r.get("align").and_then(Value::as_str).and_then(ScrollAlign::parse).unwrap_or_default();
+                serde_json::json!(scroll_offset_for_item(&rows, &extents, num("gap"), r.get("index").and_then(Value::as_u64).unwrap_or(0) as usize, num("viewport"), num("scroll"), align, r.get("stickyHeaders").and_then(Value::as_bool).unwrap_or(false)))
             }
-            serde_json::to_value(sticky_header(&offsets, &extents, &headers, num("scroll"))).map_err(invalid)?
-        }
-        "keys" => serde_json::json!(template_item_keys(&arr("items"), r.get("key").and_then(Value::as_str))),
-        "rowKeys" => serde_json::json!(table_row_keys(&arr("rows"), r.get("rowKey").and_then(Value::as_str).unwrap_or("id"))),
-        other => return Err(invalid(format!("op must be window|scrollTo|scrollToItem|sections|sticky|keys|rowKeys, got {other:?}"))),
-    };
-    Ok(out.to_string())
+            "sticky" => {
+                let extents = nums("rowExtents");
+                let offsets = match r.get("rowOffsets") {
+                    Some(_) => nums("rowOffsets"),
+                    None => item_offsets(&extents, num("gap")),
+                };
+                let mut headers: Vec<usize> = arr("headerRows").iter().filter_map(Value::as_u64).map(|h| h as usize).collect();
+                headers.sort_unstable();
+                headers.dedup();
+                if let Some(bad) = headers.iter().find(|&&h| h >= extents.len() || h >= offsets.len()) {
+                    return Err(invalid(format!("headerRows: row {bad} is past rowExtents ({}) / rowOffsets ({})", extents.len(), offsets.len())));
+                }
+                serde_json::to_value(sticky_header(&offsets, &extents, &headers, num("scroll"))).map_err(invalid)?
+            }
+            "keys" => serde_json::json!(template_item_keys(&arr("items"), r.get("key").and_then(Value::as_str))),
+            "rowKeys" => serde_json::json!(table_row_keys(&arr("rows"), r.get("rowKey").and_then(Value::as_str).unwrap_or("id"))),
+            other => return Err(invalid(format!("op must be window|scrollTo|scrollToItem|sections|sticky|keys|rowKeys, got {other:?}"))),
+        };
+        Ok(out.to_string())
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1840,18 +1948,22 @@ pub struct Theme {
 
 #[uniffi::export]
 impl Theme {
-    /// A built-in theme (`neutral`, `exponential`, `playful`).
+    /// A built-in theme (`neutral`, `exponential`, `playful`, `orange`).
     #[uniffi::constructor]
     pub fn builtin(id: String) -> Result<Arc<Self>, UiError> {
-        let inner = exponential_ui::themes::builtin_theme(&id).ok_or_else(|| invalid(format!("unknown built-in theme {id:?}")))?;
-        Ok(Arc::new(Theme { inner }))
+        guarded("builtin", || {
+            let inner = exponential_ui::themes::builtin_theme(&id).ok_or_else(|| invalid(format!("unknown built-in theme {id:?}")))?;
+            Ok(Arc::new(Theme { inner }))
+        })
     }
 
     /// Load a theme file over the built-ins (+ `parents_json` = extra sources).
     #[uniffi::constructor]
     pub fn load(theme_json: String, parents_json: Option<String>) -> Result<Arc<Self>, UiError> {
-        let theme = load_theme_inner(&theme_json, parents_json.as_deref())?;
-        Ok(Arc::new(Theme { inner: Arc::new(theme) }))
+        guarded("load", || {
+            let theme = load_theme_inner(&theme_json, parents_json.as_deref())?;
+            Ok(Arc::new(Theme { inner: Arc::new(theme) }))
+        })
     }
 
     pub fn id(&self) -> String {
@@ -1876,11 +1988,13 @@ impl Theme {
     /// A sub-part's look: `owner_component/part` for the OWNER's props (the
     /// recipe props are derived here, like the core does) and `states`.
     pub fn resolve_part(&self, owner_component: String, part: String, owner_props_json: String, states: Vec<String>, mode: String) -> Result<FfiPartStyle, UiError> {
-        let props: serde_json::Map<String, Value> = parse(&owner_props_json)?;
-        let query = RecipeQuery::new(owner_component.as_str(), part, exponential_ui::recipes::native_recipe_props(&owner_component, &props), states);
-        let style = exponential_ui::theme::resolve_recipe(&self.inner, &query, mode_of(&mode)?);
-        let v = exponential_ui::style::visual(&style, exponential_ui::style::BoxKind::Leaf);
-        Ok(FfiPartStyle { visual: visual(&v), style_json: Value::Object(style).to_string() })
+        guarded("resolve_part", || {
+            let props: serde_json::Map<String, Value> = parse(&owner_props_json)?;
+            let query = RecipeQuery::new(owner_component.as_str(), part, exponential_ui::recipes::native_recipe_props(&owner_component, &props), states);
+            let style = exponential_ui::theme::resolve_recipe(&self.inner, &query, mode_of(&mode)?);
+            let v = exponential_ui::style::visual(&style, exponential_ui::style::BoxKind::Leaf);
+            Ok(FfiPartStyle { visual: visual(&v), style_json: Value::Object(style).to_string() })
+        })
     }
 
     /// A colour token for the mode (`foreground`, `primary`, `chart1`…), hex.
@@ -1954,9 +2068,11 @@ impl Theme {
 
     /// The numeric box a control's recipe fixes (`{width, height, …}`), JSON.
     pub fn control_geometry(&self, component: String, props_json: String) -> Result<String, UiError> {
-        let props: serde_json::Map<String, Value> = parse(&props_json)?;
-        let g = exponential_ui::geometry::control_geometry(&self.inner, &component, &props, &[]);
-        serde_json::to_string(&g).map_err(invalid)
+        guarded("control_geometry", || {
+            let props: serde_json::Map<String, Value> = parse(&props_json)?;
+            let g = exponential_ui::geometry::control_geometry(&self.inner, &component, &props, &[]);
+            serde_json::to_string(&g).map_err(invalid)
+        })
     }
 }
 
@@ -1978,28 +2094,34 @@ fn extensions_of(extensions_json: Option<String>) -> Result<Vec<ExtensionDef>, U
 /// Reduce a flat component list → `{root, issues}` JSON.
 #[uniffi::export]
 pub fn reduce_surface_json(components_json: String, catalog_id: String, extensions_json: Option<String>) -> Result<String, UiError> {
-    let components: Vec<FlatComponent> = parse(&components_json)?;
-    let extensions = extensions_of(extensions_json)?;
-    let options = exponential_ui::reducer::ReduceOptions::new(&catalog_id).with_view(exponential_ui::catalog::CatalogView::with(&extensions));
-    let result = exponential_ui::reducer::reduce_surface(&components, &options);
-    serde_json::to_string(&result).map_err(invalid)
+    guarded("reduce_surface_json", || {
+        let components: Vec<FlatComponent> = parse(&components_json)?;
+        let extensions = extensions_of(extensions_json)?;
+        let options = exponential_ui::reducer::ReduceOptions::new(&catalog_id).with_view(exponential_ui::catalog::CatalogView::with(&extensions));
+        let result = exponential_ui::reducer::reduce_surface(&components, &options);
+        serde_json::to_string(&result).map_err(invalid)
+    })
 }
 
 /// Reduce the nested authoring form → `{root, issues}` JSON.
 #[uniffi::export]
 pub fn reduce_nested_json(nested_json: String, catalog_id: String, extensions_json: Option<String>) -> Result<String, UiError> {
-    let tree: NestedNode = parse(&nested_json)?;
-    let extensions = extensions_of(extensions_json)?;
-    let options = exponential_ui::reducer::ReduceOptions::new(&catalog_id).with_view(exponential_ui::catalog::CatalogView::with(&extensions));
-    let result = exponential_ui::reducer::reduce_nested(&tree, &options);
-    serde_json::to_string(&result).map_err(invalid)
+    guarded("reduce_nested_json", || {
+        let tree: NestedNode = parse(&nested_json)?;
+        let extensions = extensions_of(extensions_json)?;
+        let options = exponential_ui::reducer::ReduceOptions::new(&catalog_id).with_view(exponential_ui::catalog::CatalogView::with(&extensions));
+        let result = exponential_ui::reducer::reduce_nested(&tree, &options);
+        serde_json::to_string(&result).map_err(invalid)
+    })
 }
 
 /// Validate an extension definition; `[]` when fine.
 #[uniffi::export]
 pub fn extension_errors(extension_json: String) -> Result<Vec<String>, UiError> {
-    let ext: ExtensionDef = parse(&extension_json)?;
-    Ok(exponential_ui::extension::validate_extension(&ext))
+    guarded("extension_errors", || {
+        let ext: ExtensionDef = parse(&extension_json)?;
+        Ok(exponential_ui::extension::validate_extension(&ext))
+    })
 }
 
 fn load_theme_inner(theme_json: &str, parents_json: Option<&str>) -> Result<exponential_ui::theme::ResolvedTheme, UiError> {
@@ -2017,8 +2139,10 @@ fn load_theme_inner(theme_json: &str, parents_json: Option<&str>) -> Result<expo
 /// returns the RESOLVED theme JSON or `UiError::Theme` with the issues.
 #[uniffi::export]
 pub fn load_theme_json(theme_json: String, parents_json: Option<String>) -> Result<String, UiError> {
-    let theme = load_theme_inner(&theme_json, parents_json.as_deref())?;
-    serde_json::to_string(&theme).map_err(invalid)
+    guarded("load_theme_json", || {
+        let theme = load_theme_inner(&theme_json, parents_json.as_deref())?;
+        serde_json::to_string(&theme).map_err(invalid)
+    })
 }
 
 /// The issues of a theme file (`[]` when it loads).
@@ -2059,34 +2183,40 @@ pub fn builtin_theme_json(id: String) -> Option<String> {
 /// e.g. from `builtin_theme_json`), as JSON.
 #[uniffi::export]
 pub fn resolve_recipe_json(theme_json: String, component: String, part: String, props_json: String, states: Vec<String>, mode: String) -> Result<String, UiError> {
-    let theme: exponential_ui::theme::ResolvedTheme = parse(&theme_json)?;
-    let props: serde_json::Map<String, Value> = parse(&props_json)?;
-    let query = RecipeQuery::new(component, part, props, states);
-    let style = exponential_ui::theme::resolve_recipe(&theme, &query, mode_of(&mode)?);
-    Ok(Value::Object(style).to_string())
+    guarded("resolve_recipe_json", || {
+        let theme: exponential_ui::theme::ResolvedTheme = parse(&theme_json)?;
+        let props: serde_json::Map<String, Value> = parse(&props_json)?;
+        let query = RecipeQuery::new(component, part, props, states);
+        let style = exponential_ui::theme::resolve_recipe(&theme, &query, mode_of(&mode)?);
+        Ok(Value::Object(style).to_string())
+    })
 }
 
 /// The numeric box a control's recipe fixes (`{width, height, …}`), as JSON.
 #[uniffi::export]
 pub fn control_geometry_json(theme_json: String, component: String, props_json: String) -> Result<String, UiError> {
-    let theme: exponential_ui::theme::ResolvedTheme = parse(&theme_json)?;
-    let props: serde_json::Map<String, Value> = parse(&props_json)?;
-    let g = exponential_ui::geometry::control_geometry(&theme, &component, &props, &[]);
-    serde_json::to_string(&g).map_err(invalid)
+    guarded("control_geometry_json", || {
+        let theme: exponential_ui::theme::ResolvedTheme = parse(&theme_json)?;
+        let props: serde_json::Map<String, Value> = parse(&props_json)?;
+        let g = exponential_ui::geometry::control_geometry(&theme, &component, &props, &[]);
+        serde_json::to_string(&g).map_err(invalid)
+    })
 }
 
 /// The overlay placement rule (`side` = `top|right|bottom|left`).
 #[uniffi::export]
 #[allow(clippy::too_many_arguments)]
 pub fn place_overlay(anchor_x: f64, anchor_y: f64, anchor_w: f64, anchor_h: f64, size_w: f64, size_h: f64, viewport_w: f64, viewport_h: f64, side: String) -> Result<FfiPlacement, UiError> {
-    let side = exponential_ui::overlay::OverlaySide::parse(&side).ok_or_else(|| invalid(format!("bad side {side:?}")))?;
-    let p = exponential_ui::overlay::place_overlay(
-        &exponential_ui::overlay::Rect { x: anchor_x, y: anchor_y, width: anchor_w, height: anchor_h },
-        &exponential_ui::overlay::Size { width: size_w, height: size_h },
-        &exponential_ui::overlay::Size { width: viewport_w, height: viewport_h },
-        &exponential_ui::overlay::PlaceOptions::side(side),
-    );
-    Ok(FfiPlacement { x: p.x, y: p.y, side: p.side.as_str().to_string(), flipped: p.flipped })
+    guarded("place_overlay", || {
+        let side = exponential_ui::overlay::OverlaySide::parse(&side).ok_or_else(|| invalid(format!("bad side {side:?}")))?;
+        let p = exponential_ui::overlay::place_overlay(
+            &exponential_ui::overlay::Rect { x: anchor_x, y: anchor_y, width: anchor_w, height: anchor_h },
+            &exponential_ui::overlay::Size { width: size_w, height: size_h },
+            &exponential_ui::overlay::Size { width: viewport_w, height: viewport_h },
+            &exponential_ui::overlay::PlaceOptions::side(side),
+        );
+        Ok(FfiPlacement { x: p.x, y: p.y, side: p.side.as_str().to_string(), flipped: p.flipped })
+    })
 }
 
 /// Canonical JSON equality (numbers by value): what the binding test suites
@@ -2228,8 +2358,10 @@ impl HostRouter {
     /// Install a declarative package (JSON); returns its issues as a JSON
     /// array `[{path, message}]` (installed only when empty).
     pub fn install_package(&self, package_json: String) -> Result<String, UiError> {
-        let pkg: Value = parse(&package_json)?;
-        Ok(json_string(&self.inner.lock().unwrap_or_else(|e| e.into_inner()).install_package(&pkg)))
+        guarded("install_package", || {
+            let pkg: Value = parse(&package_json)?;
+            Ok(json_string(&self.inner.lock().unwrap_or_else(|e| e.into_inner()).install_package(&pkg)))
+        })
     }
 
     pub fn register_extension(&self, id: String) {
@@ -2325,53 +2457,67 @@ pub fn decode_jsonl_json(text: String) -> String {
 /// The A2UI messages inside an MCP tool result (JSON) → `{messages, issues}`.
 #[uniffi::export]
 pub fn messages_from_mcp_result_json(result_json: String) -> Result<String, UiError> {
-    let result: Value = parse(&result_json)?;
-    Ok(h::messages_from_mcp_result(&result).to_json().to_string())
+    guarded("messages_from_mcp_result_json", || {
+        let result: Value = parse(&result_json)?;
+        Ok(h::messages_from_mcp_result(&result).to_json().to_string())
+    })
 }
 
 /// A client message as the MCP `tools/call` that carries it back (`tool`
 /// defaults to `a2ui_event`).
 #[uniffi::export]
 pub fn mcp_action_call_json(message_json: String, tool: Option<String>) -> Result<String, UiError> {
-    let message: Value = parse(&message_json)?;
-    Ok(h::mcp_action_call(&message, tool.as_deref()).to_string())
+    guarded("mcp_action_call_json", || {
+        let message: Value = parse(&message_json)?;
+        Ok(h::mcp_action_call(&message, tool.as_deref()).to_string())
+    })
 }
 
 /// The function gate: `allow | ask | deny | not_found`. `policy_json` =
 /// `{allow?, ask?, deny?, default?}`.
 #[uniffi::export]
 pub fn decide_function(policy_json: Option<String>, name: String, registered: bool) -> Result<String, UiError> {
-    let policy: Option<h::FunctionPolicy> = policy_json.map(|p| parse(&p)).transpose()?;
-    Ok(h::decide_function(policy.as_ref(), &name, registered).as_str().to_string())
+    guarded("decide_function", || {
+        let policy: Option<h::FunctionPolicy> = policy_json.map(|p| parse(&p)).transpose()?;
+        Ok(h::decide_function(policy.as_ref(), &name, registered).as_str().to_string())
+    })
 }
 
 /// Two stacked decisions: the stricter wins.
 #[uniffi::export]
 pub fn combine_decisions(a: String, b: String) -> Result<String, UiError> {
-    Ok(h::combine_decisions(decision_of(&a)?, decision_of(&b)?).as_str().to_string())
+    guarded("combine_decisions", || {
+        Ok(h::combine_decisions(decision_of(&a)?, decision_of(&b)?).as_str().to_string())
+    })
 }
 
 /// A package's `functions` list (JSON array, or null) as a policy JSON.
 #[uniffi::export]
 pub fn package_policy_json(functions_json: Option<String>) -> Result<String, UiError> {
-    let functions: Option<Vec<String>> = functions_json.map(|f| parse(&f)).transpose()?;
-    Ok(json_string(&h::package_policy(functions.as_deref())))
+    guarded("package_policy_json", || {
+        let functions: Option<Vec<String>> = functions_json.map(|f| parse(&f)).transpose()?;
+        Ok(json_string(&h::package_policy(functions.as_deref())))
+    })
 }
 
 /// openUrl / Link: `{allowed, url?, reason?}` JSON. `policy_json` =
 /// `{schemes?, hosts?, baseUrl?}`.
 #[uniffi::export]
 pub fn decide_url_json(policy_json: Option<String>, url: String) -> Result<String, UiError> {
-    let policy: Option<h::UrlPolicy> = policy_json.map(|p| parse(&p)).transpose()?;
-    Ok(json_string(&h::decide_url(policy.as_ref(), &url)))
+    guarded("decide_url_json", || {
+        let policy: Option<h::UrlPolicy> = policy_json.map(|p| parse(&p)).transpose()?;
+        Ok(json_string(&h::decide_url(policy.as_ref(), &url)))
+    })
 }
 
 /// The media loader's request `{url, headers}` JSON (null when the url does
 /// not resolve). `options_json` = `{baseUrl?, rules?: [{prefix, headers}]}`.
 #[uniffi::export]
 pub fn media_request_json(url: String, options_json: String) -> Result<Option<String>, UiError> {
-    let options: h::MediaOptions = parse(&options_json)?;
-    Ok(h::media_request(&url, &options).map(|r| json_string(&r)))
+    guarded("media_request_json", || {
+        let options: h::MediaOptions = parse(&options_json)?;
+        Ok(h::media_request(&url, &options).map(|r| json_string(&r)))
+    })
 }
 
 /// What a whole image's bytes say before any decode (VAPP-103, the core's
@@ -2426,26 +2572,32 @@ pub fn client_capabilities_json(extension_ids: Vec<String>) -> String {
 /// three built-in catalogs).
 #[uniffi::export]
 pub fn validate_package_json(package_json: String, catalog_ids: Option<Vec<String>>) -> Result<String, UiError> {
-    let pkg: Value = parse(&package_json)?;
-    let ids = catalog_ids.unwrap_or_else(|| h::supported_catalog_ids::<&str>(&[]));
-    Ok(json_string(&h::validate_package(&pkg, &ids)))
+    guarded("validate_package_json", || {
+        let pkg: Value = parse(&package_json)?;
+        let ids = catalog_ids.unwrap_or_else(|| h::supported_catalog_ids::<&str>(&[]));
+        Ok(json_string(&h::validate_package(&pkg, &ids)))
+    })
 }
 
 /// A package template as its server messages (JSON array), null when the
 /// package has no such template. `data_json` = the caller's data.
 #[uniffi::export]
 pub fn template_messages_json(package_json: String, template_id: String, surface_id: String, data_json: Option<String>) -> Result<Option<String>, UiError> {
-    let pkg: Value = parse(&package_json)?;
-    let data: Option<Value> = data_json.map(|d| parse(&d)).transpose()?;
-    Ok(h::template_messages(&pkg, &template_id, &surface_id, data.as_ref()).map(|m| Value::Array(m).to_string()))
+    guarded("template_messages_json", || {
+        let pkg: Value = parse(&package_json)?;
+        let data: Option<Value> = data_json.map(|d| parse(&d)).transpose()?;
+        Ok(h::template_messages(&pkg, &template_id, &surface_id, data.as_ref()).map(|m| Value::Array(m).to_string()))
+    })
 }
 
 /// A client action message (A2UI v0.9 `action`) JSON.
 #[uniffi::export]
 pub fn action_message_json(surface_id: String, component_id: String, name: String, context_json: String, payload_json: Option<String>, timestamp: String) -> Result<String, UiError> {
-    let context: Value = parse(&context_json)?;
-    let payload: Option<Value> = payload_json.map(|p| parse(&p)).transpose()?;
-    Ok(h::action_message(&surface_id, &component_id, &name, context, payload, &timestamp).to_string())
+    guarded("action_message_json", || {
+        let context: Value = parse(&context_json)?;
+        let payload: Option<Value> = payload_json.map(|p| parse(&p)).transpose()?;
+        Ok(h::action_message(&surface_id, &component_id, &name, context, payload, &timestamp).to_string())
+    })
 }
 
 /// A client error message (A2UI v0.9 `error`) JSON.

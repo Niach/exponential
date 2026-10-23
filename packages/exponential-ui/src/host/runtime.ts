@@ -434,7 +434,8 @@ export class ExponentialHost {
 
   /** The policy decision for a call, before any consent hook. */
   decide(surfaceId: string, name: string): FunctionDecision {
-    const registered = name in this.functions
+    // Own names only: `constructor` is not a registered function (VAPP-107).
+    const registered = Object.prototype.hasOwnProperty.call(this.functions, name)
     let decision = decideFunction(this.options.policy?.functions, name, registered)
     const pkgId = this.stores.get(surfaceId)?.packageId
     const pkg = pkgId ? this.router.package(pkgId) : undefined
@@ -470,7 +471,7 @@ export class ExponentialHost {
       this.send(errorMessage(`FUNCTION_DENIED`, call.surfaceId, consentError === undefined ? `${call.name} was not allowed` : `${call.name} was not allowed: the consent hook failed: ${consentError}`))
       return consentError === undefined ? { decision } : { decision, error: consentError }
     }
-    const fn = this.functions[call.name]
+    const fn = Object.prototype.hasOwnProperty.call(this.functions, call.name) ? this.functions[call.name] : undefined
     if (!fn) return { decision: `allow` }
     try {
       return { decision: `allow`, result: await fn(call.args, call) }

@@ -27,6 +27,10 @@ import {
 } from "./mobile-popover"
 import { PickerItemBody, pickerItemKeywords, type PickerItem } from "./picker/picker-item"
 import { SkeletonRows } from "./skeleton"
+import { Slot } from "radix-ui"
+import { createPortal } from "react-dom"
+import { InlinePickerRowContext } from "./picker/inline-picker-row"
+
 import { useIsMobile } from "./use-mobile"
 import {
   PICKER_INLINE_WORD,
@@ -74,6 +78,9 @@ const WIDTH_CLASS = {
 } as const
 
 type ComboboxWidth = keyof typeof WIDTH_CLASS
+
+/** N-6: the popover-or-sheet pair, or the rows inline under the trigger. */
+type ComboboxPresentation = `popover` | `inline`
 
 /** What both arms of the union share — everything that is not selection. */
 interface ComboboxListBaseProps<TValue extends string> {
@@ -145,6 +152,15 @@ interface ComboboxShellProps<TValue extends string> {
   /** Controlled-open with no trigger element: a host that opens the picker
    *  from its own menu item (the issue row's "Move to board"). */
   hideTrigger?: boolean
+  /** N-6: where the rows open. `popover` (default) = the popover-or-sheet
+   *  pair; `inline` = in the host's flow under the trigger, for a host that
+   *  already is a surface (a dialog window, a phone form sheet). */
+  presentation?: ComboboxPresentation
+  /** N-14: where INLINE rows go — `rowSlot` = the row host's slot under the
+   *  whole row (`InlinePickerRow`), `underTrigger` = the host's flow under
+   *  the trigger. Unset = `rowSlot` inside a row host, else `underTrigger`.
+   *  `Picker` passes the resolved `pickerPlacement` body. */
+  inlineBody?: `rowSlot` | `underTrigger`
   /** Extra classes on the SURFACE (the popover panel). `className` styles the
    *  trigger, which a `renderTrigger` caller owns and styles itself — so a
    *  host that builds its own trigger has no other way to size the panel it
@@ -312,6 +328,8 @@ function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
     triggerVariant = `pill`,
     triggerLabel,
     renderTrigger,
+    presentation = `popover`,
+    inlineBody,
     width = `md`,
     align = triggerVariant === `row` ? `end` : `start`,
     open: openProp,
@@ -335,6 +353,69 @@ function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
     }
     onOpenChange?.(next)
   }
+
+  // N-14: an inline picker in a row host discloses into the row's ONE slot;
+  // opening another picker of the row folds this one.
+  const inline = presentation === `inline`
+  const row = React.useContext(InlinePickerRowContext)
+  const inSlot = inline && row !== null && (inlineBody ?? `rowSlot`) === `rowSlot`
+  const slotId = React.useId()
+  const setOpenRef = React.useRef(setOpen)
+  setOpenRef.current = setOpen
+  React.useLayoutEffect(() => {
+    if (!inSlot || !row) return
+    if (open) row.claim(slotId)
+    else row.release(slotId)
+  }, [inSlot, open, slotId])
+  // Only a CHANGE of the slot's owner folds this picker: on its own opening
+  // render the slot still names the previous owner.
+  const slotOwner = row?.openId ?? null
+  const lastSlotOwner = React.useRef(slotOwner)
+  React.useLayoutEffect(() => {
+    const previous = lastSlotOwner.current
+    lastSlotOwner.current = slotOwner
+    if (previous === slotOwner) return
+    if (inSlot && open && slotOwner !== null && slotOwner !== slotId) {
+      setOpenRef.current(false)
+    }
+  }, [inSlot, open, slotOwner, slotId])
+  React.useEffect(
+    () => () => {
+      row?.release(slotId)
+    },
+    [row?.release, slotId]
+  )
+
+  // Escape and a click outside fold the inline rows. Escape is caught on the
+  // WINDOW's capture phase, ahead of the dialog's own document listener, so
+  // it folds the rows instead of closing the host.
+  const triggerRef = React.useRef<HTMLElement | null>(null)
+  const bodyRef = React.useRef<HTMLDivElement | null>(null)
+  React.useEffect(() => {
+    if (!inline || !open) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== `Escape`) return
+      event.stopPropagation()
+      event.preventDefault()
+      setOpenRef.current(false)
+    }
+    // A CLICK (not a pointerdown): the rows folding would move what sits
+    // under them before the button comes up, losing the click on another
+    // pin; on a click, this fold and the other pin's opening land together.
+    const onClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node | null
+      if (!target) return
+      if (triggerRef.current?.contains(target)) return
+      if (bodyRef.current?.contains(target)) return
+      setOpenRef.current(false)
+    }
+    window.addEventListener(`keydown`, onKey, true)
+    document.addEventListener(`click`, onClickOutside, true)
+    return () => {
+      window.removeEventListener(`keydown`, onKey, true)
+      document.removeEventListener(`click`, onClickOutside, true)
+    }
+  }, [inline, open])
 
   const selectedValues = selectedValuesOf(props)
   const selectedSet = new Set<string>(selectedValues)
@@ -409,6 +490,58 @@ function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
     />
   )
 
+  // N-6: the INLINE presentation — the body in the host's flow under the
+  // trigger, no popover and no sheet. For a host that is already a surface
+  // and cannot afford a second one (a dialog window on the IDE, a sheet of
+  // form rows on a phone): the trigger discloses the same rows below
+  // itself, the host grows with them, a single pick folds them away again.
+  // The rows are the primitive's rows (`ComboboxList`) under the same
+  // markers, so every assertion on a picker holds here too.
+  //
+  // N-14: the COLLAPSED trigger never changes — the wrapper is `contents`,
+  // so the trigger renders at its intrinsic size exactly as the popover
+  // trigger does. Opened, the rows go into the row host's slot under the
+  // whole row (`rowSlot`), or directly under the trigger at the host's width.
+  if (inline) {
+    const body = open ? (
+      <div
+        ref={bodyRef}
+        data-slot="combobox-inline-body"
+        data-inline-body={inSlot ? `rowSlot` : `underTrigger`}
+        data-testid={testId}
+        className={cn(
+          `mt-1 flex max-h-72 min-h-0 w-full flex-col overflow-hidden border-t border-border/50 pt-1`,
+          surfaceClassName
+        )}
+      >
+        <ComboboxList {...listProps} className={undefined} />
+      </div>
+    ) : null
+    return (
+      <span
+        data-slot="combobox-inline"
+        data-state={open ? `open` : `closed`}
+        className="contents"
+      >
+        {!hideTrigger && (
+          <Slot.Root
+            ref={triggerRef}
+            aria-expanded={open}
+            data-state={open ? `open` : `closed`}
+            onClick={() => setOpen(!open)}
+          >
+            {trigger}
+          </Slot.Root>
+        )}
+        {body && inSlot
+          ? row?.slot
+            ? createPortal(body, row.slot)
+            : null
+          : body}
+      </span>
+    )
+  }
+
   return (
     <MobilePopover open={open} onOpenChange={setOpen}>
       {!hideTrigger && (
@@ -436,6 +569,7 @@ function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
 export { Combobox, ComboboxList, WIDTH_CLASS as COMBOBOX_WIDTH_CLASS }
 export type {
   ComboboxListProps,
+  ComboboxPresentation,
   ComboboxProps,
   ComboboxSelection,
   ComboboxWidth,

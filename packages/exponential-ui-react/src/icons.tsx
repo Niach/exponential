@@ -41,6 +41,7 @@ import {
   Upload,
   X,
 } from "lucide-react"
+import { lookupIcon } from "@exponential-at/ui/web"
 import type { IconComponent, IconMap } from "./host"
 
 /** The renderer's own chrome glyphs that are NOT catalog part glyphs (the
@@ -97,9 +98,7 @@ export const FALLBACK_ICONS: Record<string, IconComponent> = {
 }
 
 export function resolveIcon(icons: IconMap | undefined, name: string): IconComponent | undefined {
-  if (!icons) return FALLBACK_ICONS[name]
-  const hit = typeof icons === `function` ? icons(name) : icons[name]
-  return hit ?? FALLBACK_ICONS[name]
+  return lookupIcon(icons, name, FALLBACK_ICONS)
 }
 
 export function IconGlyph({ icons, name, size, className, ...rest }: { icons?: IconMap; name: string; size?: number; className?: string } & SVGProps<SVGSVGElement>) {

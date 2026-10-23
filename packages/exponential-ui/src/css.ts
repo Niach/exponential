@@ -47,7 +47,7 @@ export function cssString(text: string): string {
 }
 
 /** `font-family` for a theme family: the quoted name, then its `fonts`
- *  fallback list. Shared by the React renderer's `theme-css.ts`. */
+ *  fallback list. Shared by the web layer's `web/theme-css.ts`. */
 export function fontStack(family: string, fonts: Record<string, FontSpec>): string {
   const fallback = fonts[family]?.fallback
   return fallback ? `${cssString(family)}, ${fallback}` : cssString(family)

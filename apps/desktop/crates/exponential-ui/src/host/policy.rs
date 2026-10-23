@@ -120,11 +120,19 @@ pub fn package_policy(functions: Option<&[String]>) -> FunctionPolicy {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct UrlPolicy {
+    /// The schemes allowed; default [`DEFAULT_URL_SCHEMES`] (https, http,
+    /// mailto, tel). `["https"]` = https only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schemes: Option<Vec<String>>,
     /// http(s) hosts allowed: exact or `*.example.com`; unset = any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hosts: Option<Vec<String>>,
+    /// VAPP-107: private, loopback and link-local hosts
+    /// ([`is_private_host`]) are DENIED for http(s) unless listed here:
+    /// exact, `*.suffix`, or `*` for every private address. A `hosts`
+    /// allowlist does not opt one in.
+    #[serde(default, rename = "allowPrivate", skip_serializing_if = "Option::is_none")]
+    pub allow_private: Option<Vec<String>>,
     #[serde(default, rename = "baseUrl", skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
 }
@@ -135,7 +143,7 @@ pub struct UrlDecision {
     /// The absolute url when it parses.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    /// `invalid` | `scheme` | `host`.
+    /// `invalid` | `scheme` | `host` | `private`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
@@ -157,6 +165,100 @@ fn host_matches(pattern: &str, host: &str) -> bool {
     }
 }
 
+/// The dotted-decimal IPv4 a WHATWG-parsed hostname is (the parser has
+/// already normalized `0x7f.1`, `2130706433` and the like), else `None`.
+fn ipv4(host: &str) -> Option<[u8; 4]> {
+    let mut out = [0u8; 4];
+    let mut n = 0;
+    for part in host.split('.') {
+        if n == 4 || part.is_empty() || part.len() > 3 || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        out[n] = part.parse().ok()?;
+        n += 1;
+    }
+    (n == 4).then_some(out)
+}
+
+/// A WHATWG-serialized IPv6 (`[...]`, lower-case hex, `::` once) as its
+/// eight 16-bit pieces, else `None`.
+fn ipv6(host: &str) -> Option<[u16; 8]> {
+    let text = host.strip_prefix('[')?.strip_suffix(']')?;
+    let pieces = |part: &str| -> Option<Vec<u16>> {
+        if part.is_empty() {
+            return Some(Vec::new());
+        }
+        part.split(':').map(|p| if (1..=4).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) { u16::from_str_radix(p, 16).ok() } else { None }).collect()
+    };
+    let mut out = [0u16; 8];
+    match text.split_once("::") {
+        None => {
+            let all = pieces(text)?;
+            if all.len() != 8 {
+                return None;
+            }
+            out.copy_from_slice(&all);
+        }
+        Some((head, tail)) => {
+            if tail.contains("::") {
+                return None;
+            }
+            let (head, tail) = (pieces(head)?, pieces(tail)?);
+            if head.len() + tail.len() > 7 {
+                return None;
+            }
+            out[..head.len()].copy_from_slice(&head);
+            out[8 - tail.len()..].copy_from_slice(&tail);
+        }
+    }
+    Some(out)
+}
+
+fn private_v4([a, b, _, _]: [u8; 4]) -> bool {
+    // 0.0.0.0/8 ("this" network), 10/8, 127/8 (loopback), 169.254/16
+    // (link-local), 172.16/12, 192.168/16.
+    a == 0 || a == 10 || a == 127 || (a == 169 && b == 254) || (a == 172 && (16..=31).contains(&b)) || (a == 192 && b == 168)
+}
+
+/// VAPP-107: is a parsed, lower-cased hostname one the URL and media policy
+/// deny by default (`catalog/host.json` urls.privateHosts)? `localhost` and
+/// `*.localhost`, `*.local` (mDNS), the IPv4 blocks 0/8, 10/8, 127/8,
+/// 169.254/16, 172.16/12, 192.168/16, and IPv6 `::`, `::1`, fe80::/10,
+/// fc00::/7 plus an IPv4-mapped address of a private IPv4. LITERALS only:
+/// the policy never resolves names (a public name that resolves privately
+/// is the host network's job).
+pub fn is_private_host(hostname: &str) -> bool {
+    let lower = hostname.to_lowercase();
+    let host = lower.strip_suffix('.').unwrap_or(&lower);
+    if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") {
+        return true;
+    }
+    if let Some(v4) = ipv4(host) {
+        return private_v4(v4);
+    }
+    let Some(v6) = ipv6(host) else { return false };
+    if v6.iter().all(|p| *p == 0) {
+        return true;
+    }
+    if v6[..7].iter().all(|p| *p == 0) && v6[7] == 1 {
+        return true;
+    }
+    if v6[0] & 0xffc0 == 0xfe80 || v6[0] & 0xfe00 == 0xfc00 {
+        return true;
+    }
+    if v6[..5].iter().all(|p| *p == 0) && v6[5] == 0xffff {
+        return private_v4([(v6[6] >> 8) as u8, (v6[6] & 0xff) as u8, (v6[7] >> 8) as u8, (v6[7] & 0xff) as u8]);
+    }
+    false
+}
+
+fn private_allowed(allow: Option<&Vec<String>>, host: &str) -> bool {
+    allow.iter().flat_map(|l| l.iter()).any(|p| p == "*" || host_matches(p, host))
+}
+
+/// The decision for a url: it must parse (relative against `base_url`), use
+/// one of `schemes`, and for http(s) match `hosts` when set and not be a
+/// private host unless `allow_private` covers it.
 pub fn decide_url(policy: Option<&UrlPolicy>, url: &str) -> UrlDecision {
     let Some(parsed) = absolute(js_trim(url), policy.and_then(|p| p.base_url.as_deref())) else {
         return UrlDecision { allowed: false, url: None, reason: Some("invalid".into()) };
@@ -170,12 +272,15 @@ pub fn decide_url(policy: Option<&UrlPolicy>, url: &str) -> UrlDecision {
     if !allowed_scheme {
         return UrlDecision { allowed: false, url: Some(href), reason: Some("scheme".into()) };
     }
-    if let Some(hosts) = policy.and_then(|p| p.hosts.as_ref()) {
-        if scheme == "http" || scheme == "https" {
-            let host = parsed.host_str().unwrap_or("").to_lowercase();
+    if scheme == "http" || scheme == "https" {
+        let host = parsed.host_str().unwrap_or("").to_lowercase();
+        if let Some(hosts) = policy.and_then(|p| p.hosts.as_ref()) {
             if !hosts.iter().any(|h| host_matches(h, &host)) {
                 return UrlDecision { allowed: false, url: Some(href), reason: Some("host".into()) };
             }
+        }
+        if is_private_host(&host) && !private_allowed(policy.and_then(|p| p.allow_private.as_ref()), &host) {
+            return UrlDecision { allowed: false, url: Some(href), reason: Some("private".into()) };
         }
     }
     UrlDecision { allowed: true, url: Some(href), reason: None }
@@ -201,6 +306,9 @@ pub struct MediaOptions {
     /// http(s) hosts media may load from: exact or `*.example.com`; unset = any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hosts: Option<Vec<String>>,
+    /// VAPP-107: the private hosts media may load from ([`UrlPolicy::allow_private`]).
+    #[serde(default, rename = "allowPrivate", skip_serializing_if = "Option::is_none")]
+    pub allow_private: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -218,6 +326,7 @@ pub fn media_request(url: &str, options: &MediaOptions) -> Option<MediaRequest> 
     let policy = UrlPolicy {
         schemes: Some(options.schemes.clone().unwrap_or_else(|| DEFAULT_MEDIA_SCHEMES.iter().map(|s| s.to_string()).collect())),
         hosts: options.hosts.clone(),
+        allow_private: options.allow_private.clone(),
         base_url: options.base_url.clone(),
     };
     let decision = decide_url(Some(&policy), url);
@@ -627,6 +736,21 @@ mod tests {
         assert_eq!(image_dimensions(b"<svg/>"), Some((100, 100)));
         assert!(media_within_limits(crate::host::MEDIA_MAX_BYTES + 1, None).is_err());
         assert!(media_within_limits(10, Some((100, 100))).is_ok());
+    }
+
+    /// VAPP-107: the literal forms the WHATWG parser leaves behind.
+    #[test]
+    fn private_hosts_are_literals_in_every_normalized_form() {
+        for h in ["localhost", "LOCALHOST.", "app.localhost", "printer.local", "127.0.0.1", "127.255.0.9", "10.1.2.3", "172.16.0.1", "172.31.9.9", "192.168.0.1", "169.254.169.254", "0.0.0.0", "[::1]", "[::]", "[fe80::1]", "[febf::1]", "[fc00::1]", "[fdab:1::2]", "[::ffff:7f00:1]", "[::ffff:c0a8:101]"] {
+            assert!(is_private_host(h), "{h} is private");
+        }
+        for h in ["exponential.at", "8.8.8.8", "172.32.0.1", "172.15.0.1", "11.0.0.1", "192.169.0.1", "[2001:db8::1]", "[::ffff:808:808]", "[fec0::1]", "localhost.example", "mylocal.example", "256.1.1.1", "1.2.3", "[::1", "[::ffff::1]"] {
+            assert!(!is_private_host(h), "{h} is not private");
+        }
+        assert_eq!(decide_url(None, "http://[::FFFF:127.0.0.1]/").reason.as_deref(), Some("private"));
+        let opt = UrlPolicy { allow_private: Some(vec!["localhost".into()]), ..Default::default() };
+        assert!(decide_url(Some(&opt), "http://localhost:3000/").allowed);
+        assert_eq!(decide_url(Some(&opt), "http://127.0.0.1:3000/").reason.as_deref(), Some("private"));
     }
 
     #[test]

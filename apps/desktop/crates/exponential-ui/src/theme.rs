@@ -1345,7 +1345,10 @@ pub fn shadow_css(layers: &[Shadow]) -> String {
         .join(", ")
 }
 
-#[cfg(test)]
+// VAPP-106: these exercise `neutral` and `playful`, which only embed with
+// the default-on `builtin-themes` feature (tests/generated_drift.rs covers
+// the other state).
+#[cfg(all(test, feature = "builtin-themes"))]
 mod tests {
     /// VAPP-90: a conditioned rule wins over a LATER base rule (a child
     /// theme's appended override used to shadow every `checked`/`focus`
@@ -1375,14 +1378,15 @@ mod tests {
     }
 
     #[test]
-    fn the_three_built_ins_load_neutral_is_the_root() {
-        assert_eq!(BUILTIN_THEME_IDS, ["neutral", "exponential", "playful"]);
+    fn the_four_built_ins_load_neutral_is_the_root() {
+        assert_eq!(BUILTIN_THEME_IDS, ["neutral", "exponential", "playful", "orange"]);
         for theme in builtin_themes() {
             assert_eq!(theme.chain[0], "neutral");
             assert_eq!(theme.modes.light.color.len(), theme.modes.dark.color.len());
         }
         assert_eq!(builtin_theme("playful").unwrap().chain, ["neutral", "playful"]);
         assert_eq!(builtin_theme("exponential").unwrap().chain, ["neutral", "exponential"]);
+        assert_eq!(builtin_theme("orange").unwrap().chain, ["neutral", "exponential", "orange"]);
     }
 
     #[test]

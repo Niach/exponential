@@ -9,6 +9,11 @@
 # Knobs (EXP-1264, the shots `package` lane builds only what the device needs):
 #   ABIS="arm64-v8a"   the ABIs to build (default: all three, what the AAR ships)
 #   SKIP_BINDINGS=1    keep the committed Kotlin binding; skip the host build + bindgen
+#   EXPONENTIAL_UI_FEATURES="descriptions"   VAPP-106: `--no-default-features --features <list>`
+#                      (an empty list drops the non-default themes; crates/exponential-ui/Cargo.toml)
+# VAPP-106: the .so is built as ONE crate type (`cargo rustc --crate-type
+# cdylib`): with the facade's `[lib] crate-type` listing an rlib too, cargo
+# skips the profile's LTO. `strip = true` on the profile strips the .so.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DESKTOP="$(cd "$HERE/../.." && pwd)"
@@ -48,6 +53,8 @@ rm -rf "$HERE/bindings/kotlin/at"
 cp -R "$HERE/out/kotlin/at" "$HERE/bindings/kotlin/"
 fi
 
-echo "== android .so (profile mobile)"
-cargo ndk "${NDK_TARGETS[@]}" -o "$HERE/out/jniLibs" build -p exponential-ui-ffi --profile mobile
+echo "== android .so (profile mobile: LTO, stripped)"
+FEATURE_ARGS=()
+if [ -n "${EXPONENTIAL_UI_FEATURES+x}" ]; then FEATURE_ARGS=(--no-default-features --features "$EXPONENTIAL_UI_FEATURES"); fi
+cargo ndk "${NDK_TARGETS[@]}" -o "$HERE/out/jniLibs" rustc -p exponential-ui-ffi --profile mobile --crate-type cdylib ${FEATURE_ARGS[@]+"${FEATURE_ARGS[@]}"}
 for abi in ${ABIS//,/ }; do ls -la "$HERE/out/jniLibs/$abi/"; done

@@ -2088,6 +2088,702 @@
           "band": null
         }
       }
+    },
+    "orange": {
+      "pulse": {
+        "timing": {
+          "durationMs": 1960,
+          "easing": [
+            0.2,
+            0,
+            0,
+            1
+          ],
+          "iterations": "infinite"
+        },
+        "frames": [
+          {
+            "t": 0,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 490,
+            "frame": {
+              "opacity": 0.5611,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 980,
+            "frame": {
+              "opacity": 0.5,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 1470,
+            "frame": {
+              "opacity": 0.9389,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 1960,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 2940,
+            "frame": {
+              "opacity": 0.5,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          }
+        ],
+        "reduced": {
+          "opacity": 1,
+          "translateX": 0,
+          "translateY": 0,
+          "rotate": 0,
+          "scale": 1,
+          "band": null
+        }
+      },
+      "spin": {
+        "timing": {
+          "durationMs": 1120,
+          "easing": "linear",
+          "iterations": "infinite"
+        },
+        "frames": [
+          {
+            "t": 0,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 280,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 90,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 560,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 180,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 840,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 270,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 1120,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 1680,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 180,
+              "scale": 1,
+              "band": null
+            }
+          }
+        ],
+        "reduced": {
+          "opacity": 1,
+          "translateX": 0,
+          "translateY": 0,
+          "rotate": 0,
+          "scale": 1,
+          "band": null
+        }
+      },
+      "fade-in": {
+        "timing": {
+          "durationMs": 180,
+          "easing": [
+            0,
+            0,
+            0.2,
+            1
+          ],
+          "iterations": 1
+        },
+        "frames": [
+          {
+            "t": 0,
+            "frame": {
+              "opacity": 0,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 45,
+            "frame": {
+              "opacity": 0.5776,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 90,
+            "frame": {
+              "opacity": 0.8392,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 135,
+            "frame": {
+              "opacity": 0.9642,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 180,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 270,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          }
+        ],
+        "reduced": {
+          "opacity": 1,
+          "translateX": 0,
+          "translateY": 0,
+          "rotate": 0,
+          "scale": 1,
+          "band": null
+        }
+      },
+      "slide-in-up": {
+        "timing": {
+          "durationMs": 180,
+          "easing": [
+            0,
+            0,
+            0.2,
+            1
+          ],
+          "iterations": 1
+        },
+        "frames": [
+          {
+            "t": 0,
+            "frame": {
+              "opacity": 0,
+              "translateX": 0,
+              "translateY": 8,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 45,
+            "frame": {
+              "opacity": 0.5776,
+              "translateX": 0,
+              "translateY": 3.3794,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 90,
+            "frame": {
+              "opacity": 0.8392,
+              "translateX": 0,
+              "translateY": 1.286,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 135,
+            "frame": {
+              "opacity": 0.9642,
+              "translateX": 0,
+              "translateY": 0.2863,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 180,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 270,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          }
+        ],
+        "reduced": {
+          "opacity": 1,
+          "translateX": 0,
+          "translateY": 0,
+          "rotate": 0,
+          "scale": 1,
+          "band": null
+        }
+      },
+      "slide-in-down": {
+        "timing": {
+          "durationMs": 180,
+          "easing": [
+            0,
+            0,
+            0.2,
+            1
+          ],
+          "iterations": 1
+        },
+        "frames": [
+          {
+            "t": 0,
+            "frame": {
+              "opacity": 0,
+              "translateX": 0,
+              "translateY": -8,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 45,
+            "frame": {
+              "opacity": 0.5776,
+              "translateX": 0,
+              "translateY": -3.3794,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 90,
+            "frame": {
+              "opacity": 0.8392,
+              "translateX": 0,
+              "translateY": -1.286,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 135,
+            "frame": {
+              "opacity": 0.9642,
+              "translateX": 0,
+              "translateY": -0.2863,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 180,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 270,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          }
+        ],
+        "reduced": {
+          "opacity": 1,
+          "translateX": 0,
+          "translateY": 0,
+          "rotate": 0,
+          "scale": 1,
+          "band": null
+        }
+      },
+      "slide-in-left": {
+        "timing": {
+          "durationMs": 180,
+          "easing": [
+            0,
+            0,
+            0.2,
+            1
+          ],
+          "iterations": 1
+        },
+        "frames": [
+          {
+            "t": 0,
+            "frame": {
+              "opacity": 0,
+              "translateX": 8,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 45,
+            "frame": {
+              "opacity": 0.5776,
+              "translateX": 3.3794,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 90,
+            "frame": {
+              "opacity": 0.8392,
+              "translateX": 1.286,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 135,
+            "frame": {
+              "opacity": 0.9642,
+              "translateX": 0.2863,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 180,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 270,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          }
+        ],
+        "reduced": {
+          "opacity": 1,
+          "translateX": 0,
+          "translateY": 0,
+          "rotate": 0,
+          "scale": 1,
+          "band": null
+        }
+      },
+      "slide-in-right": {
+        "timing": {
+          "durationMs": 180,
+          "easing": [
+            0,
+            0,
+            0.2,
+            1
+          ],
+          "iterations": 1
+        },
+        "frames": [
+          {
+            "t": 0,
+            "frame": {
+              "opacity": 0,
+              "translateX": -8,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 45,
+            "frame": {
+              "opacity": 0.5776,
+              "translateX": -3.3794,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 90,
+            "frame": {
+              "opacity": 0.8392,
+              "translateX": -1.286,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 135,
+            "frame": {
+              "opacity": 0.9642,
+              "translateX": -0.2863,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 180,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          },
+          {
+            "t": 270,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": null
+            }
+          }
+        ],
+        "reduced": {
+          "opacity": 1,
+          "translateX": 0,
+          "translateY": 0,
+          "rotate": 0,
+          "scale": 1,
+          "band": null
+        }
+      },
+      "shimmer": {
+        "timing": {
+          "durationMs": 1400,
+          "easing": "linear",
+          "iterations": "infinite"
+        },
+        "frames": [
+          {
+            "t": 0,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": -1
+            }
+          },
+          {
+            "t": 350,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": -0.5
+            }
+          },
+          {
+            "t": 700,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": 0
+            }
+          },
+          {
+            "t": 1050,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": 0.5
+            }
+          },
+          {
+            "t": 1400,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": -1
+            }
+          },
+          {
+            "t": 2100,
+            "frame": {
+              "opacity": 1,
+              "translateX": 0,
+              "translateY": 0,
+              "rotate": 0,
+              "scale": 1,
+              "band": 0
+            }
+          }
+        ],
+        "reduced": {
+          "opacity": 1,
+          "translateX": 0,
+          "translateY": 0,
+          "rotate": 0,
+          "scale": 1,
+          "band": null
+        }
+      }
     }
   },
   "override": {

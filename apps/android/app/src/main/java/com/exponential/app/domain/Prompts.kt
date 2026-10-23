@@ -421,6 +421,22 @@ object Prompts {
         fun prompt(tool: String) = spec.render("title", "body", "tool" to tool)
     }
 
+    /** VAPP-107: the consent for a call that sounds destructive (the fixture
+     *  entry's `variants`): Allow in the destructive role, Deny keeps Enter. */
+    object ExponentialUiConsentDestructive {
+        val spec = Spec(
+            "exponential-ui-consent-destructive",
+            mapOf(
+                "title" to "Allow this surface to run {tool}?",
+                "body" to "It acts as you, with your access to this team.",
+            ),
+            listOf("tool"),
+            listOf(Action("deny", "Deny", Role.Cancel), Action("allow", "Allow", Role.Destructive)),
+            focus = "deny",
+        )
+        fun prompt(tool: String) = spec.render("title", "body", "tool" to tool)
+    }
+
     /** Every entry, keyed by its fixture id (the lock test walks it). Lazy:
      *  a nested object's first access initialises this one first. */
     val all: Map<String, Spec> by lazy {
@@ -430,7 +446,7 @@ object Prompts {
             DeleteTeam.spec, TrashBoard.spec, DeleteLabel.spec, RemoveMember.spec, LeaveTeam.spec,
             MakeOwner.spec, MakeMember.spec, RemoveRepository.spec, UnlinkSignInMethod.spec,
             RemovePassword.spec, RemovePasskey.spec, DeleteAccount.spec, RemoveServer.spec,
-            ExponentialUiConsent.spec,
+            ExponentialUiConsent.spec, ExponentialUiConsentDestructive.spec,
         ).associateBy { it.id }
     }
 }

@@ -72,7 +72,9 @@ export interface LinkArgs {
   source: SessionIssueSource
   addedBy: string | null
   addedBySessionId: string | null
-  /** The agent created the issue for this session (`issue_filed`). */
+  /** The session created the issue (`issue_filed`): the row holds it for
+   *  the PR's share and the strip, but filing is not taking
+   *  (issue-lifecycle.json `filed`: nothing moves). */
   filed?: boolean
   /** No event cards: a start's own issues (the brief names them). */
   quiet?: boolean
@@ -110,12 +112,14 @@ export async function linkIssues(tx: Tx, args: LinkArgs): Promise<{ linked: stri
     .onConflictDoNothing({ target: [sessionIssues.sessionId, sessionIssues.issueId] })
     .returning({ issueId: sessionIssues.issueId })
   const linked = inserted.map((row) => row.issueId)
-  await applyIssuesTakenInTx(tx, {
-    session: holder,
-    issueIds: linked,
-    actorUserId: args.addedBy,
-    origin: origin(args),
-  })
+  if (!args.filed) {
+    await applyIssuesTakenInTx(tx, {
+      session: holder,
+      issueIds: linked,
+      actorUserId: args.addedBy,
+      origin: origin(args),
+    })
+  }
   if (!args.quiet) {
     for (const issueId of linked) {
       await postSystemCard(tx, holder.rootId, {

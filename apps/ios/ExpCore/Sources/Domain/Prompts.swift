@@ -501,6 +501,27 @@ public enum Prompts {
         }
     }
 
+    /// VAPP-107: the consent for a call that sounds destructive (the fixture
+    /// entry's `variants`): Allow in the destructive role, Deny keeps Return.
+    public enum ExponentialUiConsentDestructive {
+        public static let entry = PromptEntry(
+            id: "exponential-ui-consent-destructive",
+            texts: [
+                "title": "Allow this surface to run {tool}?",
+                "body": "It acts as you, with your access to this team.",
+            ],
+            params: ["tool"],
+            actions: [
+                PromptAction(id: "deny", label: "Deny", role: .cancel),
+                PromptAction(id: "allow", label: "Allow", role: .destructive),
+            ],
+            focus: "deny"
+        )
+        public static func copy(tool: String) -> PromptCopy {
+            entry.copy(["tool": tool])
+        }
+    }
+
     /// Every mirrored entry, locked against the fixture's `prompts` key set.
     public static let all: [PromptEntry] = [
         DeleteIssue.entry, DeleteIssues.entry, DeleteFile.entry, MoveIssue.entry,
@@ -509,6 +530,6 @@ public enum Prompts {
         DeleteLabel.entry, RemoveMember.entry, LeaveTeam.entry, MakeOwner.entry,
         MakeMember.entry, RemoveRepository.entry, UnlinkSignInMethod.entry,
         RemovePassword.entry, RemovePasskey.entry, DeleteAccount.entry,
-        RemoveServer.entry, ExponentialUiConsent.entry,
+        RemoveServer.entry, ExponentialUiConsent.entry, ExponentialUiConsentDestructive.entry,
     ]
 }

@@ -175,7 +175,7 @@ fn every_catalog_component_and_macro_case_paints_in_every_theme_and_mode(cx: &mu
     let cases: Vec<(String, NestedNode)> = components.into_iter().map(|c| (c.name, c.node)).chain(macros.into_iter().map(|c| (c.name, c.input))).collect();
     assert!(cases.len() > 400);
     let mut painted = 0;
-    for theme in ["neutral", "exponential", "playful"] {
+    for theme in ["neutral", "exponential", "playful", "orange"] {
         for mode in [Mode::Light, Mode::Dark] {
             let (view, vcx) = open(cx, SurfaceViewOptions { theme: Some(builtin_theme(theme).unwrap()), mode, ..Default::default() });
             for (name, node) in &cases {
@@ -249,7 +249,7 @@ fn every_extension_case_paints_with_a_registered_painter(cx: &mut TestAppContext
 #[gpui::test]
 fn the_kitchen_sink_paints_in_every_theme_and_mode(cx: &mut TestAppContext) {
     init(cx);
-    for theme in ["neutral", "exponential", "playful"] {
+    for theme in ["neutral", "exponential", "playful", "orange"] {
         for mode in [Mode::Light, Mode::Dark] {
             let options = SurfaceViewOptions { theme: Some(builtin_theme(theme).unwrap()), mode, ..Default::default() };
             let (view, vcx) = open(cx, options);

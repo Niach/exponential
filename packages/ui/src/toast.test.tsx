@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { toast as sonnerToast } from "sonner"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/toast-stack.json"
+import sdkFixture from "@exponential-at/ui/fixtures/toast-stack.json"
 
 import { conceptIcon } from "./icons.generated"
 import {
@@ -28,6 +29,10 @@ import {
 const { constants } = fixture
 
 describe(`Toaster (EXP-1031 toast-stack contract)`, () => {
+  it(`the SDK's copy of the contract (FEED-131: the sonner-free primitive toast) has not drifted`, () => {
+    expect(sdkFixture).toEqual(fixture)
+  })
+
   it(`passes sonner the fixture's numbers`, () => {
     expect(TOASTER_PROPS.gap).toBe(constants.gap)
     expect(TOASTER_PROPS.visibleToasts).toBe(constants.visible)

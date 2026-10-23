@@ -444,6 +444,22 @@ pub const EXPONENTIAL_UI_CONSENT: Spec = Spec {
     focus: "deny",
 };
 
+/// VAPP-107: the consent for a call that sounds destructive (the fixture's
+/// `variants`): Allow in the destructive role, Deny keeps Return.
+pub const EXPONENTIAL_UI_CONSENT_DESTRUCTIVE: Spec = Spec {
+    id: "exponential-ui-consent-destructive",
+    copy: &[
+        ("title", "Allow this surface to run {tool}?"),
+        ("body", "It acts as you, with your access to this team."),
+    ],
+    params: &["tool"],
+    actions: &[
+        Action { id: "deny", label: "Deny", role: Role::Cancel },
+        Action { id: "allow", label: "Allow", role: Role::Destructive },
+    ],
+    focus: "deny",
+};
+
 /// Every entry, in fixture order (the lock test walks it).
 pub const ALL: &[Spec] = &[
     DELETE_ISSUE,
@@ -471,6 +487,7 @@ pub const ALL: &[Spec] = &[
     DELETE_ACCOUNT,
     REMOVE_SERVER,
     EXPONENTIAL_UI_CONSENT,
+    EXPONENTIAL_UI_CONSENT_DESTRUCTIVE,
 ];
 
 // ---------------------------------------------------------------------------
@@ -609,6 +626,22 @@ pub fn exponential_ui_consent(tool: &str) -> Prompt {
     EXPONENTIAL_UI_CONSENT.render("title", Some("body"), &[("tool", tool)])
 }
 
+/// VAPP-107: the same question for a call that sounds destructive
+/// ([`destructive_tool`]): Allow wears the destructive role.
+pub fn exponential_ui_consent_destructive(tool: &str) -> Prompt {
+    EXPONENTIAL_UI_CONSENT_DESTRUCTIVE.render("title", Some("body"), &[("tool", tool)])
+}
+
+/// VAPP-107 (the fixture entry's `variants`): a word of the tool name or of
+/// its `op` argument, split on anything but letters and lower-cased, is one
+/// of these.
+pub const DESTRUCTIVE_TOOL_WORDS: &[&str] = &["delete", "merge", "close", "end", "remove", "trash"];
+
+pub fn destructive_tool(tool: &str, op: Option<&str>) -> bool {
+    let text = format!("{tool} {}", op.unwrap_or("")).to_lowercase();
+    text.split(|c: char| !c.is_ascii_lowercase()).any(|w| DESTRUCTIVE_TOOL_WORDS.contains(&w))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -689,6 +722,19 @@ mod tests {
     }
 
     #[test]
+    fn a_destructive_sounding_tool_or_op_picks_the_destructive_consent() {
+        assert!(destructive_tool("exponential_issues", Some("delete")));
+        assert!(destructive_tool("exponential_pr", Some("merge")));
+        assert!(destructive_tool("exponential_sessions", Some("end")));
+        assert!(destructive_tool("acme.close_account", None));
+        assert!(!destructive_tool("acme.closeAccount", None));
+        assert!(!destructive_tool("exponential_issues", Some("list")));
+        assert!(!destructive_tool("harness.openIssue", None));
+        assert_eq!(exponential_ui_consent_destructive("t").actions[1].role, Role::Destructive);
+        assert_eq!(exponential_ui_consent_destructive("t").focused().role, Role::Cancel);
+    }
+
+    #[test]
     fn every_placeholder_is_a_declared_param() {
         let placeholder = regex::Regex::new(r"\{(\w+)\}").unwrap();
         for spec in ALL {
@@ -748,6 +794,7 @@ mod tests {
             delete_account(None),
             remove_server("Cloud"),
             exponential_ui_consent("exponential_issues_list"),
+            exponential_ui_consent_destructive("exponential_issues"),
         ];
         for prompt in rendered {
             assert!(

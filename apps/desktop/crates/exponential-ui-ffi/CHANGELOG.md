@@ -11,3 +11,4 @@ First release.
 - Swift and Kotlin bindings, committed and drift-gated.
 - `build-ios.sh` builds the xcframework: device, simulator and macOS slices, fat x86_64 + arm64, profile `mobile`, without the `cli` feature.
 - `build-android.sh` builds the `.so` per ABI.
+- VAPP-106: both scripts build the facade as ONE crate type (`cargo rustc --crate-type staticlib|cdylib`) so the `mobile` profile's LTO applies (cargo skipped it next to the rlib), `build-ios.sh` strips a copy of each archive before `lipo` (a device slice went from 44.5 MB to ~5 MB), and `EXPONENTIAL_UI_FEATURES` selects the core's feature gates. The profile keeps `panic = "unwind"` for the `catch_unwind` boundary.

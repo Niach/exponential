@@ -5,6 +5,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import at.exponential.ui.ffi.FfiFrame
 import at.exponential.ui.ffi.FfiLayer
+import at.exponential.ui.ffi.FfiLayout
 import at.exponential.ui.ffi.FfiList
 import at.exponential.ui.ffi.FfiNode
 import at.exponential.ui.json.JsonValue
@@ -189,7 +190,51 @@ data class PassStats(
     val measureRounds: Int = 0,
     val measureCalls: Int = 0,
     val nodes: Int = 0,
+    /** Nodes the core restyled this pass (a hover = 1; a theme switch = all). */
+    val restyled: Int = 0,
 )
+
+/**
+ * VAPP-105: what crossed the facade while [SurfaceModel.benchCounters] was
+ * set. `calls` = host → core calls (writes, the layout, the reads of nodes,
+ * visuals and text styles) plus the measure upcalls the core made;
+ * `bytesIn` = JSON the host handed the core (messages, trees, data);
+ * `bytesOut` = an ESTIMATE of the records the core handed back (a frame =
+ * 20 B, a layer 64, a list 40, a scroll 28, a sticky 12, a toast 24, a delta
+ * index 4, a node 64 + its id + its props JSON, a visual 96, a text style
+ * 48) — the facade serialises through UniFFI's RustBuffer, whose exact size
+ * the binding does not expose.
+ */
+class BenchCounters {
+    var calls: Int = 0
+    var bytesIn: Long = 0
+    var bytesOut: Long = 0
+
+    /** One call into the core carrying `bytes` of input. */
+    fun sent(bytes: Int) {
+        calls += 1
+        bytesIn += bytes
+    }
+
+    /** One read call into the core (`nodes`, `visuals`, a `textStyle`) returning `bytes` of records. */
+    fun received(bytes: Int) {
+        calls += 1
+        bytesOut += bytes
+    }
+
+    /** A layout call: the pass itself plus `upcalls` measure callbacks, and the layout record coming back. */
+    fun layout(out: FfiLayout, upcalls: Int) {
+        calls += 1 + upcalls
+        bytesOut += 48L + out.frames.size * 20L + out.layers.size * 64L + out.lists.size * 40L + out.scrolls.size * 28L + out.sticky.size * 12L +
+            out.toasts.size * 24L + (out.visualChanges.size + out.delta.added.size + out.delta.removed.size + out.delta.changed.size) * 4L
+    }
+
+    fun reset() {
+        calls = 0
+        bytesIn = 0
+        bytesOut = 0
+    }
+}
 
 /** The interaction states of one node (reported to the core as `states`). */
 internal data class InteractionState(val hover: Boolean = false, val pressed: Boolean = false, val focus: Boolean = false, val focusVisible: Boolean = false) {

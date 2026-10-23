@@ -5,7 +5,6 @@
 
 import { describe, expect, it } from "vitest"
 import {
-  catalogPrompt,
   coreCatalog,
   defineExtension,
   expandMacros,
@@ -14,6 +13,7 @@ import {
   type FlatComponent,
   type UiNode,
 } from "@exponential-at/ui"
+import { catalogPrompt } from "@exponential-at/ui/prompt"
 import extensionJson from "../exponential-ui/extension.json"
 
 const extension = defineExtension(extensionJson as unknown as ExtensionDef)

@@ -1,0 +1,204 @@
+{
+  "$comment": "VAPP-106: the SDK's sizes on record, written by release/size.ts --write (bytes; gzip for what a browser downloads; parts = the chunks of an entry, the thin archs of a slice, the top crates by .text). The budgets live in size-budget.json; CI (exponential-ui.yml) fails a pull request that goes over one.",
+  "measured": {
+    "npm": {
+      "at": "2026-10-23",
+      "host": "darwin-arm64",
+      "entries": {
+        "@exponential-at/ui/index": {
+          "bytes": 383388,
+          "gzip": 109336,
+          "parts": {
+            "index.js": 71529,
+            "chunks/index-z4hn6ysz.js": 104804,
+            "chunks/index-9wr0bksp.js": 122068,
+            "chunks/index-kb3b0ex6.js": 11815,
+            "chunks/index-a0gggrxj.js": 73172
+          }
+        },
+        "@exponential-at/ui-react/index": {
+          "bytes": 134673,
+          "gzip": 46643,
+          "parts": {
+            "index.js": 131687,
+            "chunks/index-38zfg7nq.js": 2986
+          }
+        },
+        "@exponential-at/ui-react/primitives": {
+          "bytes": 69129,
+          "gzip": 19770,
+          "parts": {
+            "primitives/index.js": 66143,
+            "chunks/index-38zfg7nq.js": 2986
+          }
+        },
+        "@exponential-at/ui-react/styles.css": {
+          "bytes": 97263,
+          "gzip": 15404
+        },
+        "@exponential-at/ui/prompt": {
+          "bytes": 122906,
+          "gzip": 31749,
+          "parts": {
+            "entries/prompt.js": 6490,
+            "chunks/index-k6c2zeh3.js": 43244,
+            "chunks/index-a0gggrxj.js": 73172
+          }
+        },
+        "@exponential-at/ui/schema": {
+          "bytes": 161800,
+          "gzip": 40321,
+          "parts": {
+            "entries/schema.js": 33569,
+            "chunks/index-k6c2zeh3.js": 43244,
+            "chunks/index-a0gggrxj.js": 73172,
+            "chunks/index-kb3b0ex6.js": 11815
+          }
+        },
+        "@exponential-at/ui/conformance": {
+          "bytes": 1747974,
+          "gzip": 166685,
+          "parts": {
+            "conformance.js": 1540919,
+            "chunks/index-9wr0bksp.js": 122068,
+            "chunks/index-kb3b0ex6.js": 11815,
+            "chunks/index-a0gggrxj.js": 73172
+          }
+        },
+        "@exponential-at/ui/host": {
+          "bytes": 313623,
+          "gzip": 83315,
+          "parts": {
+            "host/index.js": 1764,
+            "chunks/index-z4hn6ysz.js": 104804,
+            "chunks/index-9wr0bksp.js": 122068,
+            "chunks/index-kb3b0ex6.js": 11815,
+            "chunks/index-a0gggrxj.js": 73172
+          }
+        },
+        "@exponential-at/ui/web": {
+          "bytes": 81152,
+          "gzip": 22544,
+          "parts": {
+            "web/index.js": 81152
+          }
+        },
+        "@exponential-at/ui/web/primitives": {
+          "bytes": 52723,
+          "gzip": 14572,
+          "parts": {
+            "web/primitives/index.js": 52723
+          }
+        },
+        "@exponential-at/ui-solid/index": {
+          "bytes": 356435,
+          "gzip": 88243,
+          "parts": {
+            "index.js": 312449,
+            "chunks/image-loading-status-Biwbpt5c.js": 43986
+          }
+        },
+        "@exponential-at/ui-solid/primitives": {
+          "bytes": 248916,
+          "gzip": 61440,
+          "parts": {
+            "primitives.js": 204930,
+            "chunks/image-loading-status-Biwbpt5c.js": 43986
+          }
+        },
+        "@exponential-at/ui-solid/styles.css": {
+          "bytes": 97263,
+          "gzip": 15404
+        },
+        "@exponential-at/ui-element/index": {
+          "bytes": 15276,
+          "gzip": 5734,
+          "parts": {
+            "index.js": 416,
+            "chunks/index-rmfpvqbw.js": 14860
+          }
+        },
+        "@exponential-at/ui-element/define": {
+          "bytes": 15365,
+          "gzip": 5768,
+          "parts": {
+            "define.js": 505,
+            "chunks/index-rmfpvqbw.js": 14860
+          }
+        },
+        "@exponential-at/ui-element/standalone.js": {
+          "bytes": 650840,
+          "gzip": 181670
+        }
+      }
+    },
+    "android": {
+      "at": "2026-10-22",
+      "host": "darwin-arm64",
+      "entries": {
+        "android/arm64-v8a": {
+          "bytes": 4631848
+        },
+        "android/armeabi-v7a": {
+          "bytes": 3425864
+        },
+        "android/x86_64": {
+          "bytes": 5635960
+        }
+      }
+    },
+    "xcframework": {
+      "at": "2026-10-22",
+      "host": "darwin-arm64",
+      "entries": {
+        "xcframework/ios-arm64": {
+          "bytes": 6022752
+        },
+        "xcframework/ios-arm64_x86_64-simulator": {
+          "bytes": 12529632,
+          "parts": {
+            "x86_64": 6511776,
+            "arm64": 6017808
+          }
+        },
+        "xcframework/macos-arm64_x86_64": {
+          "bytes": 12668520,
+          "parts": {
+            "x86_64": 6633624,
+            "arm64": 6034848
+          }
+        }
+      }
+    },
+    "crate": {
+      "at": "2026-10-22",
+      "host": "darwin-arm64",
+      "entries": {
+        "crate/darwin/bench-example": {
+          "bytes": 4116824,
+          "parts": {
+            ".text": 2516582,
+            "exponential_ui": 1782579,
+            "std": 409907,
+            "taffy": 132506,
+            "serde_json": 81203,
+            "serde_core": 14848,
+            "serde": 8499,
+            "hashbrown": 8499,
+            "indexmap": 7475,
+            "bench": 7066,
+            "object": 3277,
+            "[Unknown]": 2970,
+            "zmij": 1434,
+            "stacker": 1229,
+            "itoa": 644,
+            "url": 284
+          }
+        },
+        "crate/darwin/exponential-ui-ffi": {
+          "bytes": 6250128
+        }
+      }
+    }
+  }
+}

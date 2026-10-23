@@ -60,6 +60,18 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_68: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-22-threads-survive-a-quit",
+    date: "2026-10-22",
+    title: "A thread survives an app quit, and a message to an ended thread resumes it",
+    summary: "Quitting the desktop app or losing a thread's process no longer ends the thread: it waits, and your next message resumes the same session with its context. A thread you ended on purpose resumes the same way instead of starting a copy.",
+    body: r#"- **Threads survive their process**: a thread's own session goes idle when the app quits, the daemon stops or the agent crashes, exactly like an agent's conversation; only End or the agent's own close ends it. Sub-sessions still end with their process and report to their parent.
+- **Resume, not copy**: a message to an ended thread resumes that same session (its branch, title, issues and context) instead of starting a one-turn copy that ended after its reply, left your answer unread and showed an identically named session waiting forever.
+- **Desktop quit**: ⌘Q suspends the sessions it hosts the way the daemon already did on stop; their worktrees stay where the agent left them for the resume."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_67: ChangelogEntry = ChangelogEntry {
     id: "2026-10-22-new-session-system",
     date: "2026-10-22",

@@ -9,6 +9,7 @@ import {
   deleteLabelPrompt,
   deleteTeamPrompt,
   deleteTriggerPrompt,
+  destructiveTool,
   exponentialUiConsentPrompt,
   fillPromptTemplate,
   leaveTeamPrompt,
@@ -93,6 +94,9 @@ const CASES: Record<string, Record<string, () => PromptCopy>> = {
   "exponential-ui-consent": {
     title: () => exponentialUiConsentPrompt(`{tool}`),
   },
+  "exponential-ui-consent-destructive": {
+    title: () => exponentialUiConsentPrompt(`{tool}`, true),
+  },
 }
 
 const BODY_CASES: Record<string, Record<string, () => PromptCopy>> = {
@@ -163,6 +167,18 @@ describe(`prompts (contract fixture)`, () => {
       }
     })
   }
+
+  it(`VAPP-107: a destructive-sounding tool or op picks the destructive consent`, () => {
+    expect(destructiveTool(`exponential_issues`, `delete`)).toBe(true)
+    expect(destructiveTool(`exponential_pr`, `merge`)).toBe(true)
+    expect(destructiveTool(`exponential_sessions`, `end`)).toBe(true)
+    expect(destructiveTool(`acme.closeAccount`)).toBe(false)
+    expect(destructiveTool(`acme.close_account`)).toBe(true)
+    expect(destructiveTool(`exponential_issues`, `list`)).toBe(false)
+    expect(destructiveTool(`harness.openIssue`)).toBe(false)
+    expect(destructiveTool(`exponential_issues`, { op: `delete` })).toBe(false)
+    expect(exponentialUiConsentPrompt(`t`, true).actions.map((a) => a.role)).toEqual([`cancel`, `destructive`])
+  })
 
   it(`fills params`, () => {
     expect(deleteFilePrompt(`report.pdf`).title).toBe(`Delete "report.pdf"?`)

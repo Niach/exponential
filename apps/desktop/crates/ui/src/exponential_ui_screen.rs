@@ -12,7 +12,7 @@
 //! reaches the SDK.
 //!
 //! Env (all DEV-ONLY, silently ignored when unset or unparseable):
-//! `EXP_DEV_EXPONENTIAL_UI_THEME=neutral|exponential|playful` (default
+//! `EXP_DEV_EXPONENTIAL_UI_THEME=neutral|exponential|playful|orange` (default
 //! `exponential`), `EXP_DEV_EXPONENTIAL_UI_MODE=light|dark` (default `dark`,
 //! the IDE's own), `EXP_DEV_EXPONENTIAL_UI_BENCH=<n>` (the core's synthetic
 //! n-node bench tree instead of the fixture — the 200-node budget check),
@@ -58,7 +58,7 @@ const ECHO_DELAY: Duration = Duration::from_millis(150);
 const SURFACE_ID: &str = "kitchen-sink";
 
 /// The built-in theme ids, in the order the switcher shows them.
-const THEME_IDS: [&str; 3] = ["neutral", "exponential", "playful"];
+const THEME_IDS: &[&str] = exponential_ui::themes::BUILTIN_THEME_IDS;
 
 /// The IDE as an Exponential UI host: icons by CONCEPT from the generated
 /// registry (then raw Lucide names, like the web host map), actions logged

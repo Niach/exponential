@@ -1,6 +1,6 @@
 /* Conformance: what it means, the suites (rendered from the generated
    manifest), how a third-party renderer runs them and checks its report,
-   our four runners and CI, and the real-font harness. */
+   our six runners and CI (+ the Solid and web-component web-parity checks), and the real-font harness. */
 import manifest from "@exponential-at/ui/conformance/manifest.json"
 import { DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { DocsTable } from "../components/Content"
@@ -48,6 +48,26 @@ const RUNNERS = [
     renderer: `@exponential-at/ui-react`,
     runner: `packages/exponential-ui-react/browser/suites.test.ts`,
     command: `bun run --filter @exponential-at/ui-react test:conformance`,
+  },
+  {
+    renderer: `@exponential-at/ui-solid`,
+    runner: `packages/exponential-ui-solid/browser/suites.test.ts`,
+    command: `bun run --filter @exponential-at/ui-solid test:conformance`,
+  },
+  {
+    renderer: `@exponential-at/ui-solid (web parity vs React: renderer + primitives)`,
+    runner: `packages/exponential-ui-solid/browser/parity.test.ts`,
+    command: `bun run --filter @exponential-at/ui-solid test:parity`,
+  },
+  {
+    renderer: `@exponential-at/ui-element`,
+    runner: `packages/exponential-ui-element/browser/suites.test.ts`,
+    command: `bun run --filter @exponential-at/ui-element test:conformance`,
+  },
+  {
+    renderer: `@exponential-at/ui-element (web parity vs React)`,
+    runner: `packages/exponential-ui-element/browser/parity.test.ts`,
+    command: `bun run --filter @exponential-at/ui-element test:parity`,
   },
   {
     renderer: `exponential-ui-gpui`,
@@ -177,7 +197,12 @@ export default function ConformancePage({ path }: PageProps) {
 
         <DocsSection id="runners" num="05" label="Our runners and CI">
           <h2>Our runners and CI</h2>
-          <p>The core and all four first-party renderers run the full suite:</p>
+          <p>
+            The core and all six first-party renderers run the full suite. The three web renderers run it in
+            headless Chromium, and Solid and the web component must also match React exactly: the same DOM, computed
+            styles, frames and pixels for every case and, for Solid, every primitive specimen, compared over the whole
+            page body.
+          </p>
           <DocsTable
             className="conf-runners"
             head={[`Renderer`, `Runner`, `Command`]}

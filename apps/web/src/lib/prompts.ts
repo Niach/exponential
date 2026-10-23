@@ -238,14 +238,35 @@ export const removeServerPrompt = (server: string) =>
 
 /** VAPP-91: a host asking before a surface acts as the person (`harness.mcp`
  *  names its MCP tool, any other `ask` function its own name). Deny takes
- *  focus and Enter; Allow is the explicit `default` answer. */
-export const exponentialUiConsentPrompt = (tool: string) =>
-  copyOf(
-    P[`exponential-ui-consent`],
-    P[`exponential-ui-consent`].title,
-    P[`exponential-ui-consent`].body,
-    { tool }
-  )
+ *  focus and Enter; Allow is the explicit `default` answer. VAPP-107:
+ *  `destructive` picks the `exponential-ui-consent-destructive` entry
+ *  (Allow wears the destructive role) for a call that sounds destructive
+ *  (`destructiveTool`). */
+export const exponentialUiConsentPrompt = (tool: string, destructive = false) => {
+  const entry = destructive
+    ? P[`exponential-ui-consent-destructive`]
+    : P[`exponential-ui-consent`]
+  return copyOf(entry, entry.title, entry.body, { tool })
+}
+
+/** VAPP-107 (the fixture entry's `variants`): a word of the tool name or
+ *  of its `op` argument, split on anything but letters and lower-cased, is
+ *  one of these. */
+export const DESTRUCTIVE_TOOL_WORDS: readonly string[] = [
+  `delete`,
+  `merge`,
+  `close`,
+  `end`,
+  `remove`,
+  `trash`,
+]
+
+export function destructiveTool(tool: string, op?: unknown): boolean {
+  const words = `${tool} ${typeof op === `string` ? op : ``}`
+    .toLowerCase()
+    .split(/[^a-z]+/)
+  return words.some((w) => DESTRUCTIVE_TOOL_WORDS.includes(w))
+}
 
 // ── Web-only prompts (not in the fixture until a second client shows them) ──
 

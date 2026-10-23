@@ -1,7 +1,8 @@
 //! The built-in themes, compiled in (VAPP-92; mirrors `src/themes.ts`).
 //! `neutral` is stock shadcn and the ROOT the others extend; `exponential`
 //! is generated from the app's design tokens; `playful` is the deliberately
-//! different test theme. The generator embeds them already RESOLVED
+//! different test theme; `orange` is `exponential` with an orange primary
+//! (colours only, the brand reference). The generator embeds them already RESOLVED
 //! (`BUILTIN_THEME_JSON`), so they are parsed once, never re-flattened.
 
 use std::sync::{Arc, LazyLock};
@@ -66,6 +67,8 @@ pub fn theme_or_default(input: &Value) -> (Arc<ResolvedTheme>, Vec<ThemeIssue>) 
 mod tests {
     use super::*;
 
+    /// VAPP-106: `extends: "neutral"` and `"playful"` need the `builtin-themes` feature.
+    #[cfg(feature = "builtin-themes")]
     #[test]
     fn theme_or_default_never_fails() {
         let (t, issues) = theme_or_default(&serde_json::json!("nope"));

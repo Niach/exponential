@@ -45,7 +45,7 @@
         "fixtures/theme-resolved.json"
       ],
       "unit": "theme",
-      "cases": 3,
+      "cases": 4,
       "check": "Load each built-in theme: the resolved theme equals the fixture."
     },
     {
@@ -81,7 +81,7 @@
         "fixtures/control-geometry.json"
       ],
       "unit": "theme × control × case",
-      "cases": 243,
+      "cases": 324,
       "check": "Measure the control under the theme: the box (height, padding, gap, border, radius) equals the fixture."
     },
     {
@@ -109,7 +109,7 @@
         "fixtures/kitchen-sink.expanded.json"
       ],
       "unit": "theme × mode",
-      "cases": 6,
+      "cases": 8,
       "check": "Paint the kitchen sink under each built-in theme and mode: the reduced tree equals kitchen-sink.expanded.json, no Unknown, the accessibility order is the pre-order of the painted nodes."
     },
     {
@@ -127,7 +127,7 @@
         "fixtures/host-policy.json"
       ],
       "unit": "case",
-      "cases": 67,
+      "cases": 103,
       "check": "Decide the function / combine / url, build the media request, parse the source, negotiate the catalog ids: each equals `expected`."
     },
     {
@@ -136,7 +136,7 @@
         "fixtures/host-router.json"
       ],
       "unit": "package or flow",
-      "cases": 8,
+      "cases": 11,
       "check": "Validate each package; for each flow build ONE router with `extensionIds`, install `packages` (issues = `installIssues`), route every step: the ops equal `expected`."
     },
     {
@@ -217,7 +217,7 @@
         "fixtures/animations.json"
       ],
       "unit": "theme × animation",
-      "cases": 30,
+      "cases": 38,
       "check": "Time each animation under the theme and sample its frames (and the reduced-motion frame): equal to `expected` within 1e-3; `opacity`: the painted opacity = the node's own × the frame's, within 1e-3."
     }
   ]

@@ -6,8 +6,8 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
-use super::contract::{error_message, INVALID_MESSAGE, MESSAGE_KINDS, SURFACE_NOT_FOUND, TEMPLATE_NOT_FOUND, UNSUPPORTED_CATALOG};
-use super::package::{supported_catalog_ids, template_messages, validate_package, PackageIssue};
+use super::contract::{error_message, INVALID_MESSAGE, MESSAGE_KINDS, SOURCE_DENIED, SURFACE_NOT_FOUND, TEMPLATE_NOT_FOUND, UNSUPPORTED_CATALOG};
+use super::package::{package_sources, source_allowed, supported_catalog_ids, template_messages, validate_package, PackageIssue};
 use super::sources::parse_source;
 use crate::catalog::A2UI_VERSION;
 use crate::limits;
@@ -197,11 +197,20 @@ impl HostRouter {
                 vec![json!({"op": "delete", "surfaceId": sid})]
             }
             "bindDataModel" => {
-                if !self.surfaces.contains_key(sid) {
+                let Some(info) = self.surfaces.get(sid) else {
                     return vec![missing(sid)];
-                }
+                };
                 match (body.get("path").and_then(Value::as_str), body.get("source").and_then(Value::as_str)) {
                     (Some(path), Some(source)) if parse_source(source).is_some() => {
+                        // VAPP-107: a package surface follows only the sources its package lists.
+                        if let Some(pkg) = info.package_id.as_deref().and_then(|id| self.packages.get(id)) {
+                            if !source_allowed(package_sources(pkg).as_deref(), source) {
+                                let pkg_id = pkg.get("id").and_then(Value::as_str).unwrap_or("");
+                                let at = normalize_path(Some(path));
+                                let at = if at.is_empty() { "/".to_string() } else { at };
+                                return vec![send(error_message(SOURCE_DENIED, sid, &format!("source {source} is not in package {pkg_id}'s sources"), Some(&at)))];
+                            }
+                        }
                         vec![json!({"op": "bind", "surfaceId": sid, "path": normalize_path(Some(path)), "source": source})]
                     }
                     _ => vec![invalid(sid, "bindDataModel needs a path and a scheme:name source")],
@@ -215,11 +224,14 @@ impl HostRouter {
                     return vec![send(error_message(TEMPLATE_NOT_FOUND, sid, &format!("no installed package has the template {template_id}"), None))];
                 };
                 let mut ops = Vec::new();
+                let pkg_id = pkg.get("id").and_then(Value::as_str).map(str::to_string);
                 for m in template_messages(&pkg, template_id, sid, body.get("data")).unwrap_or_default() {
                     ops.extend(self.route(&m));
-                }
-                if let Some(info) = self.surfaces.get_mut(sid) {
-                    info.package_id = pkg.get("id").and_then(Value::as_str).map(str::to_string);
+                    // The surface belongs to the package from its creation on (its
+                    // function policy and source allowlist apply to the template's own binds).
+                    if let Some(info) = self.surfaces.get_mut(sid) {
+                        info.package_id = pkg_id.clone();
+                    }
                 }
                 ops
             }

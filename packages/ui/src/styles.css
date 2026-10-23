@@ -13,6 +13,9 @@
    @exponential-at/ui-react/primitives (this package re-exports them), so
    their utilities are scanned at their real path too. */
 @source "../../exponential-ui-react/src/primitives/**/*.{ts,tsx}";
+/* FEED-131 — their class strings live in the framework-free recipes of
+   @exponential-at/ui/web/primitives. */
+@source "../../exponential-ui/src/web/primitives/**/*.ts";
 
 html {
   font-size: 1.15625rem;

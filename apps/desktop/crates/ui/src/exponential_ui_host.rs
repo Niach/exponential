@@ -434,27 +434,76 @@ fn mcp_fn() -> HostFunction {
     })
 }
 
+/// VAPP-107: the private hosts the IDE's policy opts back in (the web
+/// host's `ownPrivateHosts`): the instance's OWN host when it is private
+/// (a localhost dev instance), else none; the LAN stays denied either way.
+pub(crate) fn own_private_hosts(instance_url: &str) -> Vec<String> {
+    url::Url::parse(instance_url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_lowercase))
+        .filter(|h| exponential_ui::host::is_private_host(h))
+        .into_iter()
+        .collect()
+}
+
+/// VAPP-107 (the consent prompt's `slot`): what the window shows of a call,
+/// derived exactly as the web's `consentWords`: the tool it names (a
+/// `harness.mcp` call's MCP tool, else the function's own name), its
+/// arguments as compact JSON (the MCP `arguments`, else the function's
+/// args; an empty object = none) and whether it sounds destructive.
+pub(crate) struct ConsentWords {
+    pub tool: String,
+    pub args: Option<String>,
+    pub destructive: bool,
+}
+
+/// The desktop shows this many characters of the arguments (the web's
+/// preview length; it has no disclosure in a native alert).
+pub(crate) const CONSENT_ARGS_PREVIEW: usize = 160;
+
+pub(crate) fn consent_words(call: &FunctionCallInfo) -> ConsentWords {
+    let mcp = call.name == "harness.mcp";
+    let tool = if mcp { arg_str(&call.args, "tool") } else { call.name.clone() };
+    let raw = if mcp { call.args.get("arguments") } else { Some(&call.args) };
+    let raw = raw.filter(|v| v.is_object());
+    let args = raw.map(|v| v.to_string()).filter(|s| s != "{}");
+    let op = raw.and_then(|v| v.get("op")).and_then(Value::as_str);
+    ConsentWords { tool: tool.clone(), args, destructive: domain::prompts::destructive_tool(&tool, op) }
+}
+
 /// What the consent window asks (`prompts.json` `exponential-ui-consent`,
 /// Deny focused so Return denies): the tool a `harness.mcp` call runs, else
-/// the function's own name (the web's `ConsentCard`).
+/// the function's own name (the web's `ConsentCard`); a destructive-sounding
+/// call takes the `exponential-ui-consent-destructive` entry.
 pub(crate) fn consent_prompt(call: &FunctionCallInfo) -> domain::prompts::Prompt {
-    let tool = if call.name == "harness.mcp" {
-        arg_str(&call.args, "tool")
+    let words = consent_words(call);
+    if words.destructive {
+        domain::prompts::exponential_ui_consent_destructive(&words.tool)
     } else {
-        call.name.clone()
-    };
-    domain::prompts::exponential_ui_consent(&tool)
+        domain::prompts::exponential_ui_consent(&words.tool)
+    }
+}
+
+/// The arguments line the alert's code block shows: the compact JSON, cut
+/// to [`CONSENT_ARGS_PREVIEW`] characters with an ellipsis past it.
+pub(crate) fn consent_args_preview(args: &str) -> String {
+    match args.char_indices().nth(CONSENT_ARGS_PREVIEW) {
+        Some((at, _)) => format!("{}…", &args[..at]),
+        None => args.to_string(),
+    }
 }
 
 /// `ask` decisions: a native confirm over the active window. No window, a
-/// dismissal or Deny = `false`.
+/// dismissal or Deny = `false`. The arguments (when any) sit under the body
+/// in the CodeBlock (sm, json, no header), like the web card's.
 fn consent_hook() -> ConsentHook {
     Rc::new(|call: &FunctionCallInfo, cx: &mut App| -> Task<bool> {
         let (tx, rx) = flume::bounded::<bool>(1);
         let prompt = consent_prompt(call);
+        let args = consent_words(call).args.map(|a| consent_args_preview(&a));
         crate::navigation::on_active_window(cx, move |window, cx| {
             let (ok, closed) = (tx.clone(), tx);
-            let spec = crate::native_dialog::AlertSpec::from_prompt("Exponential UI", &prompt)
+            let mut spec = crate::native_dialog::AlertSpec::from_prompt("Exponential UI", &prompt)
                 .on_ok(move |_, _| {
                     let _ = ok.try_send(true);
                     true
@@ -462,6 +511,21 @@ fn consent_hook() -> ConsentHook {
                 .on_closed(move |_| {
                     let _ = closed.try_send(false);
                 });
+            if let Some(args) = args {
+                spec = spec.height(gpui::px(300.)).content(move |_, cx| {
+                    crate::code_block::code_block(
+                        crate::code_block::CodeBlockProps {
+                            id: "exponential-ui-consent-arguments".into(),
+                            title: None,
+                            code: args.clone(),
+                            language: "json",
+                            destructive: false,
+                            copyable: false,
+                        },
+                        cx,
+                    )
+                });
+            }
             crate::native_dialog::open_alert(window, cx, spec);
         });
         cx.background_spawn(async move { rx.recv_async().await.unwrap_or(false) })
@@ -617,6 +681,7 @@ impl IdeHost {
         let instance = sync::Store::try_global(cx)
             .and_then(|_| crate::queries::active_account(cx))
             .map(|a| a.instance_url);
+        let allow_private = instance.as_deref().map(own_private_hosts);
         let mut functions: HashMap<String, HostFunction> = HashMap::new();
         functions.insert("harness.toast".into(), toast_fn());
         functions.insert("harness.openIssue".into(), open_issue_fn());
@@ -645,9 +710,17 @@ impl IdeHost {
                     ..Default::default()
                 }),
                 on_function_call: Some(consent_hook()),
-                urls: Some(UrlPolicy { base_url: instance.clone(), ..Default::default() }),
+                urls: Some(UrlPolicy {
+                    base_url: instance.clone(),
+                    allow_private: allow_private.clone(),
+                    ..Default::default()
+                }),
                 open_url: None,
-                media: Some(MediaOptions { base_url: instance, ..Default::default() }),
+                media: Some(MediaOptions {
+                    base_url: instance,
+                    allow_private,
+                    ..Default::default()
+                }),
             },
             theme: exponential_ui::themes::builtin_theme(THEME_ID),
             mode,
@@ -854,6 +927,14 @@ mod tests {
     }
 
     #[test]
+    fn only_a_private_instance_origin_is_opted_in() {
+        assert_eq!(own_private_hosts("http://localhost:3000"), vec!["localhost".to_string()]);
+        assert_eq!(own_private_hosts("http://127.0.0.1:3000/"), vec!["127.0.0.1".to_string()]);
+        assert!(own_private_hosts("https://app.exponential.at").is_empty());
+        assert!(own_private_hosts("not a url").is_empty());
+    }
+
+    #[test]
     fn consent_names_the_tool() {
         let call = FunctionCallInfo {
             surface_id: "s".into(),
@@ -863,6 +944,20 @@ mod tests {
         };
         let prompt = consent_prompt(&call);
         assert_eq!(prompt, domain::prompts::exponential_ui_consent("exponential_issues_list"));
+        // VAPP-107: the arguments as compact JSON, a destructive op picks the destructive entry.
+        let get = FunctionCallInfo { surface_id: "s".into(), component_id: "b".into(), name: "harness.mcp".into(), args: json!({"tool": "exponential_issues", "arguments": {"op": "get", "id": "EXP-12"}}) };
+        let words = consent_words(&get);
+        assert_eq!((words.tool.as_str(), words.args.as_deref(), words.destructive), ("exponential_issues", Some(r#"{"op":"get","id":"EXP-12"}"#), false));
+        let delete = FunctionCallInfo { args: json!({"tool": "exponential_issues", "arguments": {"op": "delete", "id": "EXP-12"}}), ..get.clone() };
+        assert!(consent_words(&delete).destructive);
+        assert_eq!(consent_prompt(&delete), domain::prompts::exponential_ui_consent_destructive("exponential_issues"));
+        let none = FunctionCallInfo { args: json!({"tool": "exponential_devices"}), ..get.clone() };
+        assert_eq!(consent_words(&none).args, None);
+        let own = FunctionCallInfo { name: "harness.openIssue".into(), args: json!({"identifier": "EXP-1"}), ..get.clone() };
+        assert_eq!(consent_words(&own).args.as_deref(), Some(r#"{"identifier":"EXP-1"}"#));
+        let long = "x".repeat(400);
+        assert_eq!(consent_args_preview(&long), format!("{}…", "x".repeat(160)));
+        assert_eq!(consent_args_preview("short"), "short");
         assert_eq!(prompt.title, "Allow this surface to run exponential_issues_list?");
         assert_eq!(prompt.body.as_deref(), Some("It acts as you, with your access to this team."));
         // Return denies: Deny = cancel + focused, Allow = a plain default.

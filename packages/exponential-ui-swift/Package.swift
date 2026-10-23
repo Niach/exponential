@@ -66,7 +66,10 @@ if hasFFI {
         // AVKit: Video plays in its `VideoPlayer` (linked explicitly; autolink
         // alone leaves the test bundle without AVPlayerView's metadata).
         .target(name: "ExponentialUI", dependencies: ["ExponentialUICore", "ExponentialUIPrimitives"], linkerSettings: [.linkedFramework("AVKit")]),
-        .testTarget(name: "ExponentialUITests", dependencies: ["ExponentialUI"]),
+        // VAPP-105: `Resources/bench/` holds the benchmark scenario files on a
+        // REAL device run only (the bench runner copies them in and out; they
+        // are gitignored); macOS and the Simulator read the repo's files.
+        .testTarget(name: "ExponentialUITests", dependencies: ["ExponentialUI"], resources: [.copy("Resources")]),
     ]
 }
 

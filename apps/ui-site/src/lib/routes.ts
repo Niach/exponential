@@ -52,14 +52,14 @@ export const ROUTES: readonly Route[] = [
     `/`,
     () => import("../pages/Home"),
     `Exponential UI · generative UI, native on every platform`,
-    `An open A2UI SDK: an agent sends a surface as JSON, our renderers paint it natively in React, SwiftUI, Jetpack Compose and gpui. Themable at runtime, extensible, Apache-2.0.`,
+    `An open A2UI SDK: an agent sends a surface as JSON, our renderers paint it natively in React, Solid, web components, SwiftUI, Jetpack Compose and gpui. Themable at runtime, extensible, Apache-2.0.`,
     [`src/pages/Home.tsx`, `src/sdk`],
     [
       {
         "@context": `https://schema.org`,
         "@type": `SoftwareSourceCode`,
         name: SITE_NAME,
-        description: `Open A2UI renderers for React, SwiftUI, Jetpack Compose and gpui with a shared core catalog, runtime themes, extensions and a host API.`,
+        description: `Open A2UI renderers for React, Solid, web components, SwiftUI, Jetpack Compose and gpui with a shared core catalog, runtime themes, extensions and a host API.`,
         codeRepository: `https://github.com/Niach/exponential`,
         programmingLanguage: [`TypeScript`, `Swift`, `Kotlin`, `Rust`],
         license: `https://www.apache.org/licenses/LICENSE-2.0`,
@@ -97,7 +97,7 @@ export const ROUTES: readonly Route[] = [
     `/themes/`,
     () => import("../pages/Themes"),
     `Themes · ${SITE_NAME}`,
-    `Runtime themes: tokens and component recipes in one JSON file every renderer loads. The built-in neutral, exponential and playful themes, side by side.`,
+    `Runtime themes: tokens and component recipes in one JSON file every renderer loads. The built-in neutral, exponential, playful and orange themes, side by side.`,
     [`src/pages/Themes.tsx`, `../../packages/exponential-ui/themes`],
     crumbs({ name: `Themes`, path: `/themes/` })
   ),
@@ -113,7 +113,7 @@ export const ROUTES: readonly Route[] = [
     `/guides/`,
     () => import("../pages/Guides"),
     `Guides · ${SITE_NAME}`,
-    `Render A2UI in React, SwiftUI, Compose and gpui; write a theme, an extension or a host plugin; build a vapp; connect an agent. Every example compiles in CI.`,
+    `Render A2UI in React, Solid, a web component, SwiftUI, Compose and gpui; write a theme, an extension or a host plugin; build a vapp; connect an agent. Every example compiles in CI.`,
     [`src/pages/Guides.tsx`, `src/lib/guides.ts`],
     crumbs({ name: `Guides`, path: `/guides/` })
   ),
@@ -142,6 +142,22 @@ export const ROUTES: readonly Route[] = [
     `What it means for a renderer to be Exponential UI conformant, the fixture suites every renderer runs, and how a third-party renderer runs them and checks its report.`,
     [`src/pages/Conformance.tsx`, `../../packages/exponential-ui/conformance`],
     crumbs({ name: `Conformance`, path: `/conformance/` })
+  ),
+  route(
+    `/eval/`,
+    () => import("../pages/Eval"),
+    `Ergonomics eval · ${SITE_NAME}`,
+    `How well an agent builds app screens from the catalog prompt: 30 prompts scored on validator issues, tokens, a visual rubric and spacing parity with the Exponential app, plus the rewrite gap list.`,
+    [`src/pages/Eval.tsx`, `../../packages/exponential-ui/eval`],
+    crumbs({ name: `Ergonomics eval`, path: `/eval/` })
+  ),
+  route(
+    `/numbers/`,
+    () => import("../pages/Numbers"),
+    `Numbers · ${SITE_NAME}`,
+    `The Exponential UI benchmark suite: ten scenarios through every renderer (React, Solid, the web component, the Rust core, gpui, SwiftUI, Compose), the numbers per machine, the weak points and the CI ratchet.`,
+    [`src/pages/Numbers.tsx`, `../../packages/exponential-ui-bench/results`, `../../packages/exponential-ui-bench/scenarios`],
+    crumbs({ name: `Numbers`, path: `/numbers/` })
   ),
 ]
 

@@ -1,5 +1,7 @@
 import type { ReactNode } from "react"
 
+import { ComposerOptionsRow, Label, Picker, PickerList, Switch, type PickerItem } from "@exp/ui"
+
 import type { ComponentPlatform, ComponentStatus } from "../components.tsx"
 
 /**
@@ -54,10 +56,15 @@ export function typedPickerStatus(
 export function PickerSpecimen({
   trigger,
   surface,
+  inline,
   caption,
 }: {
   trigger: ReactNode
   surface: ReactNode
+  /** N-6: the INLINE presentation, disclosed — what every picker inside a
+   *  dialog (the IDE's dialog windows, the phones' sheets) wears: the same
+   *  rows in the host's flow under the trigger. One entry shows it. */
+  inline?: ReactNode
   caption?: string
 }) {
   return (
@@ -66,9 +73,97 @@ export function PickerSpecimen({
       <div className="w-[18rem] overflow-hidden rounded-lg border border-glass-stroke bg-popover">
         {surface}
       </div>
+      {inline !== undefined && (
+        <div
+          data-testid="picker-inline-specimen"
+          className="w-[18rem] rounded-lg border border-glass-stroke p-2"
+        >
+          {inline}
+        </div>
+      )}
       {caption !== undefined && (
         <p className="text-xs text-muted-foreground">{caption}</p>
       )}
+    </div>
+  )
+}
+
+const ROW_DEVICES: PickerItem[] = [
+  { value: `mac`, label: `MacBook Pro` },
+  { value: `server`, label: `Build server` },
+]
+const ROW_ACCOUNTS: PickerItem[] = [
+  { value: `claude`, label: `danny@example.com` },
+  { value: `codex`, label: `ops@example.com` },
+]
+const ROW_MODELS: PickerItem[] = [
+  { value: `opus`, label: `Opus` },
+  { value: `sonnet`, label: `Sonnet` },
+  { value: `haiku`, label: `Haiku` },
+]
+const ROW_REPOS: PickerItem[] = [
+  { value: `web`, label: `niach/exponential` },
+  { value: `site`, label: `niach/marketing` },
+]
+
+const noop = (): void => {}
+
+/** One start-session options row (Device · Account · Model · Plan ·
+ *  Repository) as a dialog draws it; `openModel` discloses the Model pin. */
+function OptionsRow({ openModel }: { openModel: boolean }) {
+  const pin = (title: string, items: PickerItem[], value: string, open?: boolean) => (
+    <Picker
+      mode="single"
+      items={items}
+      value={value}
+      onChange={noop}
+      mobileTitle={title}
+      triggerVariant="inline"
+      presentation="inline"
+      {...(open === undefined ? {} : { open, onOpenChange: noop })}
+    />
+  )
+  return (
+    <ComposerOptionsRow className="px-0">
+      {pin(`Device`, ROW_DEVICES, `mac`)}
+      {pin(`Account`, ROW_ACCOUNTS, `claude`)}
+      {pin(`Model`, ROW_MODELS, `opus`, openModel ? true : undefined)}
+      <Label className="cursor-pointer gap-1.5 font-normal">
+        <span>Plan</span>
+        <Switch size="sm" checked={false} onCheckedChange={noop} aria-label="Plan mode" />
+      </Label>
+      {pin(`Repository`, ROW_REPOS, `web`)}
+    </ComposerOptionsRow>
+  )
+}
+
+/**
+ * N-14 (picker-presentation.json): THE composer options row in a dialog.
+ * Collapsed, every pin is its bare trigger; opened, its rows disclose into
+ * the ONE slot under the whole row, as wide as the row, so no pin moves.
+ */
+export function OptionsRowSpecimen() {
+  return (
+    <div className="grid gap-3">
+      {[false, true].map((openModel) => (
+        <div
+          key={String(openModel)}
+          data-testid={openModel ? `picker-row-specimen-open` : `picker-row-specimen-collapsed`}
+          className="w-[30rem] max-w-full rounded-xl border border-glass-stroke bg-popover p-3"
+        >
+          <div className="mb-2 rounded-lg border border-glass-stroke px-3 py-2 text-sm text-muted-foreground">
+            What should the agent do?
+          </div>
+          <OptionsRow openModel={openModel} />
+          {/* A static page renders no portal: the slot's disclosed rows are
+              drawn here in the slot's own frame. */}
+          {openModel && (
+            <div className="mt-1 max-h-72 overflow-hidden border-t border-border/50 pt-1 text-sm text-foreground">
+              <PickerList mode="single" items={ROW_MODELS} value="opus" onChange={noop} />
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
