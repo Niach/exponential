@@ -202,7 +202,8 @@ describe(`maxTemplateItems (VAPP-103)`, () => {
     expect(container.querySelector(`[data-xui-id="b"]`)!.children.length).toBe(3)
     expect(warn).toHaveBeenCalledWith(`[exponential-ui] ti: dot: ${LIMIT_ISSUES.templateItems}`)
     warn.mockRestore()
-  })
+    // Renders MAX_TEMPLATE_ITEMS nodes in jsdom: past vitest's 5 s default on a loaded CI runner (5.3 s seen).
+  }, 15_000)
 })
 
 describe(`dynamic style values`, () => {
