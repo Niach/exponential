@@ -996,6 +996,7 @@
           "enum": "orientation",
           "default": "vertical",
           "responsive": true,
+          "bindable": true,
           "description": "A row or a column (`{base: \"vertical\", md: \"horizontal\"}`)."
         },
         "gap": {
@@ -1010,6 +1011,7 @@
           "enum": "align",
           "default": "stretch",
           "responsive": true,
+          "bindable": true,
           "description": "Cross-axis alignment of the children."
         },
         "justify": {
@@ -1017,6 +1019,7 @@
           "enum": "justify",
           "default": "start",
           "responsive": true,
+          "bindable": true,
           "description": "Main-axis distribution of the children."
         },
         "wrap": {
@@ -1337,10 +1340,12 @@
         },
         "caption": {
           "type": "string",
+          "bindable": true,
           "description": "Muted text after the title."
         },
         "count": {
           "type": "number",
+          "bindable": true,
           "description": "A count after the title; off unless given."
         },
         "icon": {
@@ -1372,6 +1377,7 @@
         "loading": {
           "type": "boolean",
           "default": false,
+          "bindable": true,
           "description": "A refetch is running: a small spinner before the count. The first load is a Skeleton instead."
         },
         "style": {
@@ -1569,6 +1575,7 @@
           "type": "enum",
           "enum": "codeBlockVariant",
           "default": "default",
+          "bindable": true,
           "description": "destructive = failed output."
         },
         "size": {
@@ -1644,6 +1651,7 @@
         "alt": {
           "type": "string",
           "required": true,
+          "bindable": true,
           "description": "The accessibility description."
         },
         "fit": {
@@ -1704,6 +1712,7 @@
         "name": {
           "type": "icon",
           "required": true,
+          "bindable": true,
           "description": "The icon name (an icons.json concept or Lucide name)."
         },
         "size": {
@@ -1715,6 +1724,7 @@
         "tone": {
           "type": "enum",
           "enum": "tone",
+          "bindable": true,
           "description": "A colour tone instead of the current text colour."
         },
         "label": {
@@ -2622,6 +2632,7 @@
           "type": "enum",
           "enum": "variant",
           "default": "default",
+          "bindable": true,
           "description": "Filled, secondary, outlined or destructive."
         },
         "icon": {
@@ -2694,6 +2705,7 @@
           "type": "enum",
           "enum": "tone",
           "default": "neutral",
+          "bindable": true,
           "description": "Colour tone of the chip."
         },
         "dot": {
@@ -3218,6 +3230,7 @@
         },
         "icon": {
           "type": "icon",
+          "bindable": true,
           "description": "An icon before the label, or alone with size `icon`."
         },
         "variant": {
@@ -3836,11 +3849,13 @@
         "min": {
           "type": "number",
           "default": 0,
+          "bindable": true,
           "description": "The lowest value."
         },
         "max": {
           "type": "number",
           "required": true,
+          "bindable": true,
           "description": "The highest value."
         },
         "step": {
@@ -4432,17 +4447,20 @@
         },
         "icon": {
           "type": "icon",
+          "bindable": true,
           "description": "The lead glyph (the `leading` slot replaces it)."
         },
         "chevron": {
           "type": "enum",
           "enum": "rowChevron",
           "default": "none",
+          "bindable": true,
           "description": "A trailing disclosure (`right`) or picker (`selector`) glyph."
         },
         "selected": {
           "type": "boolean",
           "default": false,
+          "bindable": true,
           "description": "Draws it as the active row."
         },
         "density": {

@@ -3,6 +3,499 @@
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "cases": [
     {
+      "name": "Stack/bound:direction",
+      "input": {
+        "id": "stack",
+        "component": "Stack",
+        "props": {
+          "direction": {
+            "path": "/direction"
+          },
+          "gap": "sm",
+          "align": "center"
+        },
+        "children": [
+          {
+            "id": "stack-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expanded": {
+        "id": "stack",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "stack-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            },
+            "children": []
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": {
+            "call": "map",
+            "args": {
+              "value": {
+                "path": "/direction"
+              },
+              "cases": {
+                "horizontal": "row"
+              },
+              "default": "column"
+            }
+          },
+          "flexWrap": "nowrap",
+          "gap": "$spacing.sm",
+          "alignItems": "center",
+          "justifyContent": "start"
+        },
+        "recipe": {
+          "macro": "Stack",
+          "part": "root",
+          "props": {}
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "direction": "horizontal"
+          },
+          "bound": {
+            "id": "stack",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stack-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "nowrap",
+              "gap": "$spacing.sm",
+              "alignItems": "center",
+              "justifyContent": "start"
+            },
+            "recipe": {
+              "macro": "Stack",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "direction": ""
+          },
+          "bound": {
+            "id": "stack",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stack-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexWrap": "nowrap",
+              "gap": "$spacing.sm",
+              "alignItems": "center",
+              "justifyContent": "start"
+            },
+            "recipe": {
+              "macro": "Stack",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "stack",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stack-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexWrap": "nowrap",
+              "gap": "$spacing.sm",
+              "alignItems": "center",
+              "justifyContent": "start"
+            },
+            "recipe": {
+              "macro": "Stack",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Stack/bound:align",
+      "input": {
+        "id": "stack",
+        "component": "Stack",
+        "props": {
+          "direction": "horizontal",
+          "gap": "sm",
+          "align": {
+            "path": "/align"
+          }
+        },
+        "children": [
+          {
+            "id": "stack-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expanded": {
+        "id": "stack",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "stack-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            },
+            "children": []
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "flexWrap": "nowrap",
+          "gap": "$spacing.sm",
+          "alignItems": {
+            "path": "/align"
+          },
+          "justifyContent": "start"
+        },
+        "recipe": {
+          "macro": "Stack",
+          "part": "root",
+          "props": {}
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "align": "center"
+          },
+          "bound": {
+            "id": "stack",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stack-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "nowrap",
+              "gap": "$spacing.sm",
+              "alignItems": "center",
+              "justifyContent": "start"
+            },
+            "recipe": {
+              "macro": "Stack",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "align": ""
+          },
+          "bound": {
+            "id": "stack",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stack-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "nowrap",
+              "gap": "$spacing.sm",
+              "alignItems": "",
+              "justifyContent": "start"
+            },
+            "recipe": {
+              "macro": "Stack",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "stack",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stack-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "nowrap",
+              "gap": "$spacing.sm",
+              "justifyContent": "start"
+            },
+            "recipe": {
+              "macro": "Stack",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Stack/bound:justify",
+      "input": {
+        "id": "stack",
+        "component": "Stack",
+        "props": {
+          "direction": "horizontal",
+          "gap": "sm",
+          "align": "center",
+          "justify": {
+            "path": "/justify"
+          }
+        },
+        "children": [
+          {
+            "id": "stack-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expanded": {
+        "id": "stack",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "stack-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            },
+            "children": []
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "flexWrap": "nowrap",
+          "gap": "$spacing.sm",
+          "alignItems": "center",
+          "justifyContent": {
+            "call": "map",
+            "args": {
+              "value": {
+                "path": "/justify"
+              },
+              "cases": {
+                "between": "space-between",
+                "around": "space-around",
+                "evenly": "space-evenly"
+              },
+              "default": {
+                "call": "fallback",
+                "args": {
+                  "value": {
+                    "path": "/justify"
+                  },
+                  "default": "start"
+                }
+              }
+            }
+          }
+        },
+        "recipe": {
+          "macro": "Stack",
+          "part": "root",
+          "props": {}
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "justify": "Bound"
+          },
+          "bound": {
+            "id": "stack",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stack-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "nowrap",
+              "gap": "$spacing.sm",
+              "alignItems": "center",
+              "justifyContent": "Bound"
+            },
+            "recipe": {
+              "macro": "Stack",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "justify": ""
+          },
+          "bound": {
+            "id": "stack",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stack-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "nowrap",
+              "gap": "$spacing.sm",
+              "alignItems": "center",
+              "justifyContent": ""
+            },
+            "recipe": {
+              "macro": "Stack",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "stack",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "stack-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "nowrap",
+              "gap": "$spacing.sm",
+              "alignItems": "center",
+              "justifyContent": "start"
+            },
+            "recipe": {
+              "macro": "Stack",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
       "name": "Sidebar/bound:collapsed",
       "input": {
         "id": "sidebar",
@@ -1501,6 +1994,1376 @@
       ]
     },
     {
+      "name": "Section/bound:caption",
+      "input": {
+        "id": "section",
+        "component": "Section",
+        "props": {
+          "title": "In progress",
+          "icon": "nav-issues",
+          "caption": {
+            "path": "/caption"
+          }
+        },
+        "children": [
+          {
+            "id": "section-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expanded": {
+        "id": "section",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "section.header",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "section.header.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "nav-issues",
+                  "size": "sm"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Section",
+                  "part": "icon",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.header.title",
+                "component": "Text",
+                "props": {
+                  "text": "In progress",
+                  "variant": "label",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "title",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.header.caption",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "path": "/caption"
+                  },
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0
+                },
+                "visible": {
+                  "path": "/caption"
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "caption",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.header.spacer",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "spacer",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "height": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "recipe": {
+              "macro": "Section",
+              "part": "header",
+              "props": {
+                "tint": "neutral",
+                "tree": false,
+                "open": true,
+                "collapsible": false
+              }
+            },
+            "accessibility": {
+              "role": "heading",
+              "level": 3
+            }
+          },
+          {
+            "id": "section.body",
+            "component": "List",
+            "props": {
+              "divided": true,
+              "gap": "none"
+            },
+            "children": [
+              {
+                "id": "section-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "Section",
+              "part": "body",
+              "props": {
+                "tint": "neutral",
+                "tree": false,
+                "open": true,
+                "collapsible": false
+              }
+            },
+            "accessibility": {
+              "role": "list"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.xs"
+        },
+        "recipe": {
+          "macro": "Section",
+          "part": "root",
+          "props": {
+            "tint": "neutral",
+            "tree": false,
+            "open": true,
+            "collapsible": false
+          }
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "caption": "Bound"
+          },
+          "bound": {
+            "id": "section",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "section.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "section.header.icon",
+                    "component": "Icon",
+                    "props": {
+                      "name": "nav-issues",
+                      "size": "sm"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "icon",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "In progress",
+                      "variant": "label",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "title",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.caption",
+                    "component": "Text",
+                    "props": {
+                      "text": "Bound",
+                      "variant": "muted",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "caption",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.spacer",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "spacer",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm",
+                  "height": "$control.row",
+                  "paddingHorizontal": "$spacing.md",
+                  "borderRadius": "$radius.md"
+                },
+                "accessibility": {
+                  "role": "heading",
+                  "level": 3
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "header",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.body",
+                "component": "List",
+                "props": {
+                  "divided": true,
+                  "gap": "none"
+                },
+                "children": [
+                  {
+                    "id": "section-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "accessibility": {
+                  "role": "list"
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "body",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "Section",
+              "part": "root",
+              "props": {
+                "tint": "neutral",
+                "tree": false,
+                "open": true,
+                "collapsible": false
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "caption": ""
+          },
+          "bound": {
+            "id": "section",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "section.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "section.header.icon",
+                    "component": "Icon",
+                    "props": {
+                      "name": "nav-issues",
+                      "size": "sm"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "icon",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "In progress",
+                      "variant": "label",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "title",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.spacer",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "spacer",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm",
+                  "height": "$control.row",
+                  "paddingHorizontal": "$spacing.md",
+                  "borderRadius": "$radius.md"
+                },
+                "accessibility": {
+                  "role": "heading",
+                  "level": 3
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "header",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.body",
+                "component": "List",
+                "props": {
+                  "divided": true,
+                  "gap": "none"
+                },
+                "children": [
+                  {
+                    "id": "section-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "accessibility": {
+                  "role": "list"
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "body",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "Section",
+              "part": "root",
+              "props": {
+                "tint": "neutral",
+                "tree": false,
+                "open": true,
+                "collapsible": false
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "section",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "section.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "section.header.icon",
+                    "component": "Icon",
+                    "props": {
+                      "name": "nav-issues",
+                      "size": "sm"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "icon",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "In progress",
+                      "variant": "label",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "title",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.spacer",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "spacer",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm",
+                  "height": "$control.row",
+                  "paddingHorizontal": "$spacing.md",
+                  "borderRadius": "$radius.md"
+                },
+                "accessibility": {
+                  "role": "heading",
+                  "level": 3
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "header",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.body",
+                "component": "List",
+                "props": {
+                  "divided": true,
+                  "gap": "none"
+                },
+                "children": [
+                  {
+                    "id": "section-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "accessibility": {
+                  "role": "list"
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "body",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "Section",
+              "part": "root",
+              "props": {
+                "tint": "neutral",
+                "tree": false,
+                "open": true,
+                "collapsible": false
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Section/bound:count",
+      "input": {
+        "id": "section",
+        "component": "Section",
+        "props": {
+          "title": "In progress",
+          "icon": "nav-issues",
+          "count": {
+            "path": "/count"
+          }
+        },
+        "children": [
+          {
+            "id": "section-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expanded": {
+        "id": "section",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "section.header",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "section.header.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "nav-issues",
+                  "size": "sm"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Section",
+                  "part": "icon",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.header.title",
+                "component": "Text",
+                "props": {
+                  "text": "In progress",
+                  "variant": "label",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "title",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.header.count",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "text",
+                    "args": {
+                      "value": {
+                        "path": "/count"
+                      }
+                    }
+                  },
+                  "variant": "muted"
+                },
+                "children": [],
+                "visible": {
+                  "path": "/count"
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "count",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.header.spacer",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "spacer",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "height": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "recipe": {
+              "macro": "Section",
+              "part": "header",
+              "props": {
+                "tint": "neutral",
+                "tree": false,
+                "open": true,
+                "collapsible": false
+              }
+            },
+            "accessibility": {
+              "role": "heading",
+              "level": 3
+            }
+          },
+          {
+            "id": "section.body",
+            "component": "List",
+            "props": {
+              "divided": true,
+              "gap": "none"
+            },
+            "children": [
+              {
+                "id": "section-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "Section",
+              "part": "body",
+              "props": {
+                "tint": "neutral",
+                "tree": false,
+                "open": true,
+                "collapsible": false
+              }
+            },
+            "accessibility": {
+              "role": "list"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.xs"
+        },
+        "recipe": {
+          "macro": "Section",
+          "part": "root",
+          "props": {
+            "tint": "neutral",
+            "tree": false,
+            "open": true,
+            "collapsible": false
+          }
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "count": 3
+          },
+          "bound": {
+            "id": "section",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "section.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "section.header.icon",
+                    "component": "Icon",
+                    "props": {
+                      "name": "nav-issues",
+                      "size": "sm"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "icon",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "In progress",
+                      "variant": "label",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "title",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.count",
+                    "component": "Text",
+                    "props": {
+                      "text": "3",
+                      "variant": "muted"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "count",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.spacer",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "spacer",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm",
+                  "height": "$control.row",
+                  "paddingHorizontal": "$spacing.md",
+                  "borderRadius": "$radius.md"
+                },
+                "accessibility": {
+                  "role": "heading",
+                  "level": 3
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "header",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.body",
+                "component": "List",
+                "props": {
+                  "divided": true,
+                  "gap": "none"
+                },
+                "children": [
+                  {
+                    "id": "section-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "accessibility": {
+                  "role": "list"
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "body",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "Section",
+              "part": "root",
+              "props": {
+                "tint": "neutral",
+                "tree": false,
+                "open": true,
+                "collapsible": false
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "count": 0
+          },
+          "bound": {
+            "id": "section",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "section.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "section.header.icon",
+                    "component": "Icon",
+                    "props": {
+                      "name": "nav-issues",
+                      "size": "sm"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "icon",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "In progress",
+                      "variant": "label",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "title",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.count",
+                    "component": "Text",
+                    "props": {
+                      "text": "0",
+                      "variant": "muted"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "count",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.spacer",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "spacer",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm",
+                  "height": "$control.row",
+                  "paddingHorizontal": "$spacing.md",
+                  "borderRadius": "$radius.md"
+                },
+                "accessibility": {
+                  "role": "heading",
+                  "level": 3
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "header",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.body",
+                "component": "List",
+                "props": {
+                  "divided": true,
+                  "gap": "none"
+                },
+                "children": [
+                  {
+                    "id": "section-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "accessibility": {
+                  "role": "list"
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "body",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "Section",
+              "part": "root",
+              "props": {
+                "tint": "neutral",
+                "tree": false,
+                "open": true,
+                "collapsible": false
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "section",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "section.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "section.header.icon",
+                    "component": "Icon",
+                    "props": {
+                      "name": "nav-issues",
+                      "size": "sm"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "icon",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "In progress",
+                      "variant": "label",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "title",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.spacer",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "spacer",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm",
+                  "height": "$control.row",
+                  "paddingHorizontal": "$spacing.md",
+                  "borderRadius": "$radius.md"
+                },
+                "accessibility": {
+                  "role": "heading",
+                  "level": 3
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "header",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.body",
+                "component": "List",
+                "props": {
+                  "divided": true,
+                  "gap": "none"
+                },
+                "children": [
+                  {
+                    "id": "section-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "accessibility": {
+                  "role": "list"
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "body",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "Section",
+              "part": "root",
+              "props": {
+                "tint": "neutral",
+                "tree": false,
+                "open": true,
+                "collapsible": false
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
       "name": "Section/bound:open",
       "input": {
         "id": "section",
@@ -2101,6 +3964,672 @@
               "props": {
                 "tint": "neutral",
                 "tree": false,
+                "collapsible": false
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Section/bound:loading",
+      "input": {
+        "id": "section",
+        "component": "Section",
+        "props": {
+          "title": "In progress",
+          "icon": "nav-issues",
+          "loading": {
+            "path": "/loading"
+          }
+        },
+        "children": [
+          {
+            "id": "section-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expanded": {
+        "id": "section",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "section.header",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "section.header.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "nav-issues",
+                  "size": "sm"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Section",
+                  "part": "icon",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.header.title",
+                "component": "Text",
+                "props": {
+                  "text": "In progress",
+                  "variant": "label",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "title",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.header.loading",
+                "component": "Spinner",
+                "props": {
+                  "size": "xs",
+                  "label": "$string.loading"
+                },
+                "children": [],
+                "visible": {
+                  "path": "/loading"
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "loading",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.header.spacer",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "spacer",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "height": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "recipe": {
+              "macro": "Section",
+              "part": "header",
+              "props": {
+                "tint": "neutral",
+                "tree": false,
+                "open": true,
+                "collapsible": false
+              }
+            },
+            "accessibility": {
+              "role": "heading",
+              "level": 3
+            }
+          },
+          {
+            "id": "section.body",
+            "component": "List",
+            "props": {
+              "divided": true,
+              "gap": "none"
+            },
+            "children": [
+              {
+                "id": "section-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "Section",
+              "part": "body",
+              "props": {
+                "tint": "neutral",
+                "tree": false,
+                "open": true,
+                "collapsible": false
+              }
+            },
+            "accessibility": {
+              "role": "list"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.xs"
+        },
+        "recipe": {
+          "macro": "Section",
+          "part": "root",
+          "props": {
+            "tint": "neutral",
+            "tree": false,
+            "open": true,
+            "collapsible": false
+          }
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "loading": true
+          },
+          "bound": {
+            "id": "section",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "section.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "section.header.icon",
+                    "component": "Icon",
+                    "props": {
+                      "name": "nav-issues",
+                      "size": "sm"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "icon",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "In progress",
+                      "variant": "label",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "title",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.loading",
+                    "component": "Spinner",
+                    "props": {
+                      "size": "xs",
+                      "label": "Loading"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "loading",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.spacer",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "spacer",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm",
+                  "height": "$control.row",
+                  "paddingHorizontal": "$spacing.md",
+                  "borderRadius": "$radius.md"
+                },
+                "accessibility": {
+                  "role": "heading",
+                  "level": 3
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "header",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.body",
+                "component": "List",
+                "props": {
+                  "divided": true,
+                  "gap": "none"
+                },
+                "children": [
+                  {
+                    "id": "section-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "accessibility": {
+                  "role": "list"
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "body",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "Section",
+              "part": "root",
+              "props": {
+                "tint": "neutral",
+                "tree": false,
+                "open": true,
+                "collapsible": false
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "loading": false
+          },
+          "bound": {
+            "id": "section",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "section.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "section.header.icon",
+                    "component": "Icon",
+                    "props": {
+                      "name": "nav-issues",
+                      "size": "sm"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "icon",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "In progress",
+                      "variant": "label",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "title",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.spacer",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "spacer",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm",
+                  "height": "$control.row",
+                  "paddingHorizontal": "$spacing.md",
+                  "borderRadius": "$radius.md"
+                },
+                "accessibility": {
+                  "role": "heading",
+                  "level": 3
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "header",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.body",
+                "component": "List",
+                "props": {
+                  "divided": true,
+                  "gap": "none"
+                },
+                "children": [
+                  {
+                    "id": "section-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "accessibility": {
+                  "role": "list"
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "body",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "Section",
+              "part": "root",
+              "props": {
+                "tint": "neutral",
+                "tree": false,
+                "open": true,
+                "collapsible": false
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "section",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "section.header",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "section.header.icon",
+                    "component": "Icon",
+                    "props": {
+                      "name": "nav-issues",
+                      "size": "sm"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "icon",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "In progress",
+                      "variant": "label",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "title",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "section.header.spacer",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "Section",
+                      "part": "spacer",
+                      "props": {
+                        "tint": "neutral",
+                        "tree": false,
+                        "open": true,
+                        "collapsible": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.sm",
+                  "height": "$control.row",
+                  "paddingHorizontal": "$spacing.md",
+                  "borderRadius": "$radius.md"
+                },
+                "accessibility": {
+                  "role": "heading",
+                  "level": 3
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "header",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              },
+              {
+                "id": "section.body",
+                "component": "List",
+                "props": {
+                  "divided": true,
+                  "gap": "none"
+                },
+                "children": [
+                  {
+                    "id": "section-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    },
+                    "children": []
+                  }
+                ],
+                "accessibility": {
+                  "role": "list"
+                },
+                "recipe": {
+                  "macro": "Section",
+                  "part": "body",
+                  "props": {
+                    "tint": "neutral",
+                    "tree": false,
+                    "open": true,
+                    "collapsible": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "Section",
+              "part": "root",
+              "props": {
+                "tint": "neutral",
+                "tree": false,
+                "open": true,
                 "collapsible": false
               }
             }
@@ -13777,6 +16306,201 @@
       ]
     },
     {
+      "name": "Badge/bound:variant",
+      "input": {
+        "id": "badge",
+        "component": "Badge",
+        "props": {
+          "text": "Active",
+          "variant": {
+            "path": "/variant"
+          }
+        }
+      },
+      "expanded": {
+        "id": "badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "badge.label",
+            "component": "Text",
+            "props": {
+              "text": "Active",
+              "variant": "caption",
+              "lines": 1
+            },
+            "children": [],
+            "recipe": {
+              "macro": "Badge",
+              "part": "label",
+              "props": {
+                "variant": {
+                  "path": "/variant"
+                }
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.xxs",
+          "height": "$control.badge",
+          "paddingHorizontal": "$spacing.sm",
+          "borderRadius": "$radius.full",
+          "alignSelf": "flex-start"
+        },
+        "recipe": {
+          "macro": "Badge",
+          "part": "root",
+          "props": {
+            "variant": {
+              "path": "/variant"
+            }
+          }
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "variant": "default"
+          },
+          "bound": {
+            "id": "badge",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "badge.label",
+                "component": "Text",
+                "props": {
+                  "text": "Active",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Badge",
+                  "part": "label",
+                  "props": {
+                    "variant": "default"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xxs",
+              "height": "$control.badge",
+              "paddingHorizontal": "$spacing.sm",
+              "borderRadius": "$radius.full",
+              "alignSelf": "flex-start"
+            },
+            "recipe": {
+              "macro": "Badge",
+              "part": "root",
+              "props": {
+                "variant": "default"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "variant": ""
+          },
+          "bound": {
+            "id": "badge",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "badge.label",
+                "component": "Text",
+                "props": {
+                  "text": "Active",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Badge",
+                  "part": "label",
+                  "props": {
+                    "variant": ""
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xxs",
+              "height": "$control.badge",
+              "paddingHorizontal": "$spacing.sm",
+              "borderRadius": "$radius.full",
+              "alignSelf": "flex-start"
+            },
+            "recipe": {
+              "macro": "Badge",
+              "part": "root",
+              "props": {
+                "variant": ""
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "badge",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "badge.label",
+                "component": "Text",
+                "props": {
+                  "text": "Active",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Badge",
+                  "part": "label",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xxs",
+              "height": "$control.badge",
+              "paddingHorizontal": "$spacing.sm",
+              "borderRadius": "$radius.full",
+              "alignSelf": "flex-start"
+            },
+            "recipe": {
+              "macro": "Badge",
+              "part": "root",
+              "props": {}
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
       "name": "Chip/bound:label",
       "input": {
         "id": "chip",
@@ -14001,6 +16725,240 @@
                 "shape": "pill",
                 "selected": true,
                 "tone": "neutral"
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Chip/bound:tone",
+      "input": {
+        "id": "chip",
+        "component": "Chip",
+        "props": {
+          "label": "Drafts",
+          "selected": true,
+          "tone": {
+            "path": "/tone"
+          }
+        }
+      },
+      "expanded": {
+        "id": "chip",
+        "component": "Box",
+        "props": {
+          "pressable": false
+        },
+        "children": [
+          {
+            "id": "chip.label",
+            "component": "Text",
+            "props": {
+              "text": "Drafts",
+              "variant": "caption",
+              "lines": 1
+            },
+            "children": [],
+            "recipe": {
+              "macro": "Chip",
+              "part": "label",
+              "props": {
+                "shape": "pill",
+                "selected": true,
+                "tone": {
+                  "path": "/tone"
+                }
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.xs",
+          "paddingHorizontal": "$spacing.sm",
+          "alignSelf": "flex-start",
+          "height": "$control.pill",
+          "borderRadius": "$radius.full"
+        },
+        "recipe": {
+          "macro": "Chip",
+          "part": "root",
+          "props": {
+            "shape": "pill",
+            "selected": true,
+            "tone": {
+              "path": "/tone"
+            }
+          }
+        },
+        "accessibility": {
+          "role": "none"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "tone": "Bound"
+          },
+          "bound": {
+            "id": "chip",
+            "component": "Box",
+            "props": {
+              "pressable": false
+            },
+            "children": [
+              {
+                "id": "chip.label",
+                "component": "Text",
+                "props": {
+                  "text": "Drafts",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Chip",
+                  "part": "label",
+                  "props": {
+                    "shape": "pill",
+                    "selected": true,
+                    "tone": "Bound"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "paddingHorizontal": "$spacing.sm",
+              "alignSelf": "flex-start",
+              "height": "$control.pill",
+              "borderRadius": "$radius.full"
+            },
+            "accessibility": {
+              "role": "none"
+            },
+            "recipe": {
+              "macro": "Chip",
+              "part": "root",
+              "props": {
+                "shape": "pill",
+                "selected": true,
+                "tone": "Bound"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "tone": ""
+          },
+          "bound": {
+            "id": "chip",
+            "component": "Box",
+            "props": {
+              "pressable": false
+            },
+            "children": [
+              {
+                "id": "chip.label",
+                "component": "Text",
+                "props": {
+                  "text": "Drafts",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Chip",
+                  "part": "label",
+                  "props": {
+                    "shape": "pill",
+                    "selected": true,
+                    "tone": ""
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "paddingHorizontal": "$spacing.sm",
+              "alignSelf": "flex-start",
+              "height": "$control.pill",
+              "borderRadius": "$radius.full"
+            },
+            "accessibility": {
+              "role": "none"
+            },
+            "recipe": {
+              "macro": "Chip",
+              "part": "root",
+              "props": {
+                "shape": "pill",
+                "selected": true,
+                "tone": ""
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "chip",
+            "component": "Box",
+            "props": {
+              "pressable": false
+            },
+            "children": [
+              {
+                "id": "chip.label",
+                "component": "Text",
+                "props": {
+                  "text": "Drafts",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Chip",
+                  "part": "label",
+                  "props": {
+                    "shape": "pill",
+                    "selected": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "paddingHorizontal": "$spacing.sm",
+              "alignSelf": "flex-start",
+              "height": "$control.pill",
+              "borderRadius": "$radius.full"
+            },
+            "accessibility": {
+              "role": "none"
+            },
+            "recipe": {
+              "macro": "Chip",
+              "part": "root",
+              "props": {
+                "shape": "pill",
+                "selected": true
               }
             }
           },
@@ -18392,6 +21350,1415 @@
               "part": "root",
               "props": {
                 "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Row/bound:icon",
+      "input": {
+        "id": "row",
+        "component": "Row",
+        "props": {
+          "title": "r/selfhosted",
+          "meta": "312 posts",
+          "pressable": true,
+          "icon": {
+            "path": "/icon"
+          }
+        }
+      },
+      "expanded": {
+        "id": "row",
+        "component": "Box",
+        "props": {
+          "pressable": true
+        },
+        "children": [
+          {
+            "id": "row.icon",
+            "component": "Icon",
+            "props": {
+              "name": {
+                "path": "/icon"
+              },
+              "size": "sm"
+            },
+            "children": [],
+            "visible": {
+              "path": "/icon"
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "icon",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          {
+            "id": "row.body",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "row.body.title",
+                "component": "Text",
+                "props": {
+                  "text": "r/selfhosted",
+                  "variant": "body",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "title",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "flexGrow": 1,
+              "minWidth": 0,
+              "paddingVertical": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "body",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          {
+            "id": "row.meta",
+            "component": "Text",
+            "props": {
+              "text": "312 posts",
+              "variant": "muted",
+              "lines": 1
+            },
+            "children": [],
+            "recipe": {
+              "macro": "Row",
+              "part": "meta",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.sm",
+          "minHeight": "$control.row",
+          "paddingHorizontal": "$spacing.md",
+          "borderRadius": "$radius.md"
+        },
+        "recipe": {
+          "macro": "Row",
+          "part": "root",
+          "props": {
+            "selected": false,
+            "density": "default",
+            "surface": "flat",
+            "depth": 0
+          }
+        },
+        "accessibility": {
+          "role": "button",
+          "selected": false
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "icon": "Bound"
+          },
+          "bound": {
+            "id": "row",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "row.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "Bound",
+                  "size": "sm"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "icon",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              },
+              {
+                "id": "row.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "row.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "r/selfhosted",
+                      "variant": "body",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "title",
+                      "props": {
+                        "selected": false,
+                        "density": "default",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "Row",
+                  "part": "body",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              },
+              {
+                "id": "row.meta",
+                "component": "Text",
+                "props": {
+                  "text": "312 posts",
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "meta",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "minHeight": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "accessibility": {
+              "role": "button",
+              "selected": false
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "root",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "icon": ""
+          },
+          "bound": {
+            "id": "row",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "row.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "row.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "r/selfhosted",
+                      "variant": "body",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "title",
+                      "props": {
+                        "selected": false,
+                        "density": "default",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "Row",
+                  "part": "body",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              },
+              {
+                "id": "row.meta",
+                "component": "Text",
+                "props": {
+                  "text": "312 posts",
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "meta",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "minHeight": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "accessibility": {
+              "role": "button",
+              "selected": false
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "root",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "row",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "row.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "row.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "r/selfhosted",
+                      "variant": "body",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "title",
+                      "props": {
+                        "selected": false,
+                        "density": "default",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "Row",
+                  "part": "body",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              },
+              {
+                "id": "row.meta",
+                "component": "Text",
+                "props": {
+                  "text": "312 posts",
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "meta",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "minHeight": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "accessibility": {
+              "role": "button",
+              "selected": false
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "root",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Row/bound:chevron",
+      "input": {
+        "id": "row",
+        "component": "Row",
+        "props": {
+          "title": "r/selfhosted",
+          "meta": "312 posts",
+          "pressable": true,
+          "chevron": {
+            "path": "/chevron"
+          }
+        }
+      },
+      "expanded": {
+        "id": "row",
+        "component": "Box",
+        "props": {
+          "pressable": true
+        },
+        "children": [
+          {
+            "id": "row.body",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "row.body.title",
+                "component": "Text",
+                "props": {
+                  "text": "r/selfhosted",
+                  "variant": "body",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "title",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "flexGrow": 1,
+              "minWidth": 0,
+              "paddingVertical": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "body",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          {
+            "id": "row.meta",
+            "component": "Text",
+            "props": {
+              "text": "312 posts",
+              "variant": "muted",
+              "lines": 1
+            },
+            "children": [],
+            "recipe": {
+              "macro": "Row",
+              "part": "meta",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          {
+            "id": "row.chevron",
+            "component": "Icon",
+            "props": {
+              "name": {
+                "call": "map",
+                "args": {
+                  "value": {
+                    "path": "/chevron"
+                  },
+                  "cases": {
+                    "selector": "ui-selector"
+                  },
+                  "default": "ui-chevron-right"
+                }
+              },
+              "size": "sm",
+              "tone": "neutral"
+            },
+            "children": [],
+            "visible": {
+              "call": "not",
+              "args": {
+                "value": {
+                  "call": "eq",
+                  "args": {
+                    "a": {
+                      "call": "fallback",
+                      "args": {
+                        "value": {
+                          "path": "/chevron"
+                        },
+                        "default": "none"
+                      }
+                    },
+                    "b": "none"
+                  }
+                }
+              }
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "chevron",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.sm",
+          "minHeight": "$control.row",
+          "paddingHorizontal": "$spacing.md",
+          "borderRadius": "$radius.md"
+        },
+        "recipe": {
+          "macro": "Row",
+          "part": "root",
+          "props": {
+            "selected": false,
+            "density": "default",
+            "surface": "flat",
+            "depth": 0
+          }
+        },
+        "accessibility": {
+          "role": "button",
+          "selected": false
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "chevron": "Bound"
+          },
+          "bound": {
+            "id": "row",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "row.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "row.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "r/selfhosted",
+                      "variant": "body",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "title",
+                      "props": {
+                        "selected": false,
+                        "density": "default",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "Row",
+                  "part": "body",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              },
+              {
+                "id": "row.meta",
+                "component": "Text",
+                "props": {
+                  "text": "312 posts",
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "meta",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              },
+              {
+                "id": "row.chevron",
+                "component": "Icon",
+                "props": {
+                  "name": "ui-chevron-right",
+                  "size": "sm",
+                  "tone": "neutral"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "chevron",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "minHeight": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "accessibility": {
+              "role": "button",
+              "selected": false
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "root",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "chevron": ""
+          },
+          "bound": {
+            "id": "row",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "row.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "row.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "r/selfhosted",
+                      "variant": "body",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "title",
+                      "props": {
+                        "selected": false,
+                        "density": "default",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "Row",
+                  "part": "body",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              },
+              {
+                "id": "row.meta",
+                "component": "Text",
+                "props": {
+                  "text": "312 posts",
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "meta",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              },
+              {
+                "id": "row.chevron",
+                "component": "Icon",
+                "props": {
+                  "name": "ui-chevron-right",
+                  "size": "sm",
+                  "tone": "neutral"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "chevron",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "minHeight": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "accessibility": {
+              "role": "button",
+              "selected": false
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "root",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "row",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "row.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "row.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "r/selfhosted",
+                      "variant": "body",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "title",
+                      "props": {
+                        "selected": false,
+                        "density": "default",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "Row",
+                  "part": "body",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              },
+              {
+                "id": "row.meta",
+                "component": "Text",
+                "props": {
+                  "text": "312 posts",
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "meta",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "minHeight": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "accessibility": {
+              "role": "button",
+              "selected": false
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "root",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Row/bound:selected",
+      "input": {
+        "id": "row",
+        "component": "Row",
+        "props": {
+          "title": "r/selfhosted",
+          "meta": "312 posts",
+          "pressable": true,
+          "selected": {
+            "path": "/selected"
+          }
+        }
+      },
+      "expanded": {
+        "id": "row",
+        "component": "Box",
+        "props": {
+          "pressable": true
+        },
+        "children": [
+          {
+            "id": "row.body",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "row.body.title",
+                "component": "Text",
+                "props": {
+                  "text": "r/selfhosted",
+                  "variant": "body",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "title",
+                  "props": {
+                    "selected": {
+                      "path": "/selected"
+                    },
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "flexGrow": 1,
+              "minWidth": 0,
+              "paddingVertical": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "body",
+              "props": {
+                "selected": {
+                  "path": "/selected"
+                },
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          {
+            "id": "row.meta",
+            "component": "Text",
+            "props": {
+              "text": "312 posts",
+              "variant": "muted",
+              "lines": 1
+            },
+            "children": [],
+            "recipe": {
+              "macro": "Row",
+              "part": "meta",
+              "props": {
+                "selected": {
+                  "path": "/selected"
+                },
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.sm",
+          "minHeight": "$control.row",
+          "paddingHorizontal": "$spacing.md",
+          "borderRadius": "$radius.md"
+        },
+        "recipe": {
+          "macro": "Row",
+          "part": "root",
+          "props": {
+            "selected": {
+              "path": "/selected"
+            },
+            "density": "default",
+            "surface": "flat",
+            "depth": 0
+          }
+        },
+        "accessibility": {
+          "role": "button",
+          "selected": {
+            "call": "fallback",
+            "args": {
+              "value": {
+                "path": "/selected"
+              },
+              "default": false
+            }
+          }
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "selected": true
+          },
+          "bound": {
+            "id": "row",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "row.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "row.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "r/selfhosted",
+                      "variant": "body",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "title",
+                      "props": {
+                        "selected": true,
+                        "density": "default",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "Row",
+                  "part": "body",
+                  "props": {
+                    "selected": true,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              },
+              {
+                "id": "row.meta",
+                "component": "Text",
+                "props": {
+                  "text": "312 posts",
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "meta",
+                  "props": {
+                    "selected": true,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "minHeight": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "accessibility": {
+              "role": "button",
+              "selected": true
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "root",
+              "props": {
+                "selected": true,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "selected": false
+          },
+          "bound": {
+            "id": "row",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "row.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "row.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "r/selfhosted",
+                      "variant": "body",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "title",
+                      "props": {
+                        "selected": false,
+                        "density": "default",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "Row",
+                  "part": "body",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              },
+              {
+                "id": "row.meta",
+                "component": "Text",
+                "props": {
+                  "text": "312 posts",
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "meta",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "minHeight": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "accessibility": {
+              "role": "button",
+              "selected": false
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "root",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "row",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "row.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "row.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "r/selfhosted",
+                      "variant": "body",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "title",
+                      "props": {
+                        "density": "default",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "Row",
+                  "part": "body",
+                  "props": {
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              },
+              {
+                "id": "row.meta",
+                "component": "Text",
+                "props": {
+                  "text": "312 posts",
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "meta",
+                  "props": {
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "minHeight": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "accessibility": {
+              "role": "button",
+              "selected": false
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "root",
+              "props": {
                 "density": "default",
                 "surface": "flat",
                 "depth": 0

@@ -45,8 +45,9 @@ describe(`defineSurface`, () => {
   })
 
   test(`a bad prop is an issue, never a throw`, () => {
-    // `count` takes a literal: the agents' most common mistake (eval/report.json).
-    const surface = defineSurface(ui.Section({ title: `Devices`, count: call(`len`, { value: bind(`/rows`) }) as unknown as number }))
-    expect(surface.issues.map((i) => i.message)).toEqual([`props.count: expected a number`])
+    // `collapsible` takes a literal (`count` is bindable since VAPP-125: the
+    // agents' most common binding, `len` over the bound rows, is valid).
+    const surface = defineSurface(ui.Section({ title: `Devices`, collapsible: bind(`/fold`) as unknown as boolean, count: call(`len`, { value: bind(`/rows`) }) as unknown as number }))
+    expect(surface.issues.map((i) => i.message)).toEqual([`props.collapsible: expected a boolean`])
   })
 })
