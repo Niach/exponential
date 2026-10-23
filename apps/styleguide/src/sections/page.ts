@@ -106,7 +106,6 @@ export const BAND_ORDER: Record<SectionId, readonly ComponentKind[]> = {
 export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`picker-board`]: `Inputs & pickers`,
   [`picker-issue`]: `Inputs & pickers`,
-  [`picker-action`]: `Inputs & pickers`,
   [`picker-account`]: `Inputs & pickers`,
   [`picker-device`]: `Inputs & pickers`,
   [`picker-assignee`]: `Inputs & pickers`,

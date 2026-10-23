@@ -615,7 +615,7 @@ function openMenu(trigger: HTMLElement) {
 }
 
 // EXP-1323: the fixture's dispatcher case (suggestions in every state, a
-// report, a btw aside card with its caption).
+// report). NEW-8: no captions and no aside cards.
 type Input = Parameters<typeof buildSessionThread>[0]
 const DISPATCHER = fixture.cases.find((entry) => entry.name.startsWith(`EXP-1323: a live`))!
 const MORE = fixture.cases.find((entry) => entry.name.startsWith(`EXP-1323: an ended`))!
@@ -655,8 +655,7 @@ describe(`ThreadConversation EXP-1323`, () => {
     const { onOpenSession } = renderCase(rowsOf(DISPATCHER))
     const card = document.querySelector(`[data-slot="thread-suggestions"]`)!
     expect(card.textContent).toContain(`6 suggested tasks · 3 started`)
-    // A started item IS the child's session card, its caption under it.
-    expect(screen.getByText(`Reading CartLineItem.tsx`)).toBeTruthy()
+    // A started item IS the child's session card.
     fireEvent.click(screen.getByText(`Add width and height to cart thumbnails`))
     expect(onOpenSession).toHaveBeenCalledWith(`c1`)
     expect(card.textContent).toContain(`Sent here`)
@@ -676,11 +675,6 @@ describe(`ThreadConversation EXP-1323`, () => {
     expect(screen.queryByText(`Lazy-loading is in; PR #12 is open.`)).toBeNull()
     fireEvent.click(report)
     expect(onOpenSession).toHaveBeenCalledWith(`c2`)
-  })
-
-  it(`the aside's card keeps its answer as the caption`, () => {
-    renderCase(rowsOf(DISPATCHER))
-    expect(screen.getByText(`It returns the cart store's items and totals.`)).toBeTruthy()
   })
 
   it(`Start, Start all and the ⋯ menu (Do it here, Dismiss) call back with the card and item`, () => {

@@ -20,9 +20,6 @@ export { canSteerSession } from "@/lib/session-account-switch"
 /** The picker's title (the phone sheet, the pin's accessible name). */
 export const PICKER_TITLE = `Move to device`
 
-/** The pin while a move is pending; `{device}` = the target's name. */
-export const MOVING_LABEL = `Moving to {device}…`
-
 /** What a move does, said once where the move is offered. */
 export const NOTE = `The session ends here and continues on that device on the same branch; its conversation goes with it, logins stay on each device.`
 
@@ -34,7 +31,6 @@ export const MOVE_FAILED_TOAST = `Couldn't move the session`
 export const REASON_STEER = `Only people who can steer this session can move it.`
 export const REASON_ENDED = `This session has ended.`
 export const REASON_AGENT = `Agents move from Settings → Agents.`
-export const REASON_ASIDE = `An aside stays on its parent's device.`
 export const REASON_OFFLINE = `This device is offline.`
 export const REASON_VISIBILITY = `This device is shared differently, so the session can't move here.`
 export const REASON_NO_LOGIN = `This device has no signed-in login for this agent.`
@@ -54,16 +50,11 @@ export function deviceCanReceiveSession(version: string | null | undefined): boo
   return true
 }
 
-export function movingLabel(deviceName: string): string {
-  return MOVING_LABEL.replace(`{device}`, deviceName)
-}
-
 /** The pin renders at all: never for an agent's conversation (NEW-2: a
  *  session with `agentId`, persistent; it moves with its agent's device in
- *  Settings → Agents) nor an aside (it stays on its parent's device). */
+ *  Settings → Agents). */
 export function deviceMoveVisible(session: {
   agentId?: string | null
-  aside?: boolean | null
 }): boolean {
   return deviceMoveHiddenReason(session) === null
 }
@@ -71,10 +62,8 @@ export function deviceMoveVisible(session: {
 /** Why the pin is hidden (the server's refusal for the same request). */
 export function deviceMoveHiddenReason(session: {
   agentId?: string | null
-  aside?: boolean | null
 }): string | null {
   if (isPersistent(session)) return REASON_AGENT
-  if (session.aside) return REASON_ASIDE
   return null
 }
 
@@ -126,10 +115,8 @@ export interface SessionDeviceMoveRow {
   name: string
   icon?: string | null
   kind?: string | null
-  /** The session is on it now (selected; picking it cancels a pending move). */
+  /** The session is on it now (selected; picking it does nothing). */
   current: boolean
-  /** The pending move's target. */
-  target: boolean
   reason: string | null
 }
 
@@ -148,7 +135,6 @@ export function sessionDeviceMoveRows(
   devices: readonly SteerDevice[],
   session: {
     deviceId: string | null
-    moveToDeviceId?: string | null
     teamId: string
     shared: boolean
     cli: string | null | undefined
@@ -166,7 +152,6 @@ export function sessionDeviceMoveRows(
       icon: device.icon ?? null,
       kind: device.kind ?? null,
       current,
-      target: Boolean(session.moveToDeviceId) && device.deviceId === session.moveToDeviceId,
       reason: current
         ? null
         : deviceMoveTargetReason(device, { ...session, agent }),
@@ -179,20 +164,18 @@ export function sessionDeviceMoveRows(
       icon: null,
       kind: null,
       current: true,
-      target: false,
       reason: null,
     })
   }
   return rows
 }
 
-/** What a pick does: `move` (a new target), `cancel` (the current device
- *  while moving) or null (nothing to do). */
+/** What a pick does: `move` (another device) or null (the current one).
+ *  NEW-8: nothing is pending on the row (the server never writes
+ *  `move_to_device_id`), so there is no target to show and nothing to cancel. */
 export function deviceMovePick(
   picked: string,
-  session: { deviceId: string | null; moveToDeviceId?: string | null }
-): `move` | `cancel` | null {
-  if (picked === session.deviceId) return session.moveToDeviceId ? `cancel` : null
-  if (picked === session.moveToDeviceId) return null
-  return `move`
+  session: { deviceId: string | null }
+): `move` | null {
+  return picked === session.deviceId ? null : `move`
 }

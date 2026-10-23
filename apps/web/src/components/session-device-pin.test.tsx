@@ -9,8 +9,8 @@ import {
 } from "@/lib/session-device-move"
 
 // EXP-1252: the session composer's Device pin — THE launch line's device
-// picker; a pick = `sessions.send({ sessionId, deviceId })`, the current
-// device while moving = cancel, "Moving to <device>…" while pending.
+// picker; a pick = `sessions.send({ sessionId, deviceId })`; the current
+// device does nothing (NEW-8: nothing is pending on the row).
 
 const TEAM = `t1`
 const deviceRow = (over: Record<string, unknown>) => ({
@@ -68,10 +68,8 @@ import { SessionDevicePin } from "@/components/session-device-pin"
 
 const session = {
   id: `s-1`,
-  kind: `thread`,
-  aside: false,
+  agentId: null as string | null,
   deviceId: `mac`,
-  moveToDeviceId: null as string | null,
   shared: false,
   userId: `me`,
   cli: `claude`,
@@ -120,19 +118,13 @@ describe(`the session Device pin`, () => {
     expect(failed).not.toHaveBeenCalled()
   })
 
-  it(`says Moving to <device>… and cancels on the current device`, async () => {
-    send.mockResolvedValue({ txid: 1 })
-    render(<SessionDevicePin teamId={TEAM} row={{ ...session, moveToDeviceId: `box` } as never} />)
-    expect(trigger().textContent).toContain(`Moving to Box…`)
+  it(`picking the current device sends nothing`, async () => {
+    render(<SessionDevicePin teamId={TEAM} row={session as never} />)
     fireEvent.click(trigger())
     const options = await screen.findAllByText(`Mac`)
     fireEvent.click(options[options.length - 1]!)
-    await waitFor(() =>
-      expect(send).toHaveBeenCalledWith(
-        { teamId: TEAM, sessionId: `s-1`, deviceId: `mac` },
-        expect.anything()
-      )
-    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(send).not.toHaveBeenCalled()
   })
 
   it(`toasts a refused move`, async () => {
@@ -155,11 +147,13 @@ describe(`the session Device pin`, () => {
     expect((await screen.findAllByText(reason)).length).toBeGreaterThan(0)
   })
 
-  it.each([
-    [`agent`, { kind: `agent`, agentId: `11111111-1111-4111-8111-111111111111` }],
-    [`aside`, { aside: true }],
-  ])(`is hidden on an %s`, (_name, over) => {
-    render(<SessionDevicePin teamId={TEAM} row={{ ...session, ...over } as never} />)
+  it(`is hidden on an agent's conversation`, () => {
+    render(
+      <SessionDevicePin
+        teamId={TEAM}
+        row={{ ...session, agentId: `11111111-1111-4111-8111-111111111111` } as never}
+      />
+    )
     expect(screen.queryByTestId(`session-composer-device-pin`)).toBeNull()
   })
 })

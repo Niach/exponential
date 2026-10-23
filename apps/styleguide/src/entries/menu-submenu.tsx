@@ -4,8 +4,8 @@ import {
   MENU_SURFACE_CLASS,
   MenuPanel,
   SearchList,
-  actionPickerItems,
   conceptIcon,
+  getActionIcon,
   type MenuEntry,
 } from "@exp/ui"
 
@@ -28,6 +28,13 @@ const AGENTS = [
   { id: `g4`, name: `Merge conflicts`, icon: `git-branch` },
 ]
 
+/** An agent row = its icon and its name. */
+const AGENT_ITEMS = AGENTS.map((agent) => ({
+  value: agent.id,
+  label: agent.name,
+  icon: getActionIcon(agent),
+}))
+
 /** The "+" menu's first group, straight from the fixture. */
 function plusEntries(): MenuEntry[] {
   return composerMenu.rows.slice(0, 3).map((row): MenuEntry => {
@@ -47,7 +54,7 @@ function AgentList({ density }: { density: `pointer` | `phone` }) {
     <SearchList
       mode="single"
       density={density}
-      items={actionPickerItems(AGENTS)}
+      items={AGENT_ITEMS}
       value={null}
       onChange={noop}
       placeholder="Search agents"

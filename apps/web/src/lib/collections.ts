@@ -47,6 +47,34 @@ const baseUrl =
 
 const columnMapper = snakeCamelMapper()
 
+// NEW-8: the legacy columns the server drops in step 4. The shapes still
+// stream them today; the client schemas leave them out so no reader can
+// depend on them (synced rows are never validated, so present or absent
+// both decode).
+const syncedSessionSchema = selectSyncedSessionSchema.omit({
+  kind: true,
+  dispatch: true,
+  moveToDeviceId: true,
+  handoffRestoredAt: true,
+  caption: true,
+  aside: true,
+  actionId: true,
+  actionName: true,
+  actionInputs: true,
+  spawnedBySessionId: true,
+  name: true,
+  icon: true,
+  color: true,
+  triggers: true,
+  sortOrder: true,
+})
+const syncedSessionIssueSchema = selectSyncedSessionIssueSchema.omit({
+  assignedSessionId: true,
+})
+// A pin of kind `action` never resolves (actions are gone), and its
+// `actionId` is never read.
+const syncedPinSchema = selectPinSchema.omit({ actionId: true })
+
 function getShapeUrl(path: string) {
   return new URL(path, baseUrl).toString()
 }
@@ -280,14 +308,14 @@ export const issueEventCollection = createCollection(
 )
 
 // Subscription rows, for the per-issue subscribe toggle's live state.
-// EXP-778: the caller's personal pins (issues / sessions / actions), the
+// EXP-778: the caller's personal pins (issues / sessions), the
 // sidebar's Pinned group. Static per user; the target resolves from the
 // scoped collections.
 export const pinCollection = createCollection(
   electricCollectionOptions({
     id: `pins`,
     shapeOptions: shapeOptions(`/api/shapes/pins`),
-    schema: selectPinSchema,
+    schema: syncedPinSchema,
     getKey: (item) => item.id,
   })
 )
@@ -346,7 +374,7 @@ export const sessionCollection = createCollection(
   electricCollectionOptions({
     id: `sessions`,
     shapeOptions: shapeOptions(`/api/shapes/sessions`),
-    schema: selectSyncedSessionSchema,
+    schema: syncedSessionSchema,
     getKey: (item) => item.id,
   })
 )
@@ -355,7 +383,7 @@ export const sessionIssueCollection = createCollection(
   electricCollectionOptions({
     id: `session_issues`,
     shapeOptions: shapeOptions(`/api/shapes/session-issues`),
-    schema: selectSyncedSessionIssueSchema,
+    schema: syncedSessionIssueSchema,
     getKey: (item) => item.id,
   })
 )
