@@ -24,7 +24,7 @@ const SECTIONS: DocsSectionType[] = [
 
 type Kind = `ms` | `count` | `bytes` | `mb`
 type Metric = { id: string; kind: string; what: string; optional?: boolean }
-type Finding = { renderer: string; scenario: string; metric: string; value: number; machine: string; issue: string; cause: string }
+type Finding = { renderer: string; scenario: string; metric: string; value: number; machine: string; cause: string }
 
 const benchLink = (file: string) => LINKS.source(`packages/exponential-ui-bench/${file}`)
 const rendererLabel = (id: string) => manifest.renderers.find((r) => r.id === id)?.label ?? id
@@ -170,15 +170,15 @@ export default function NumbersPage({ path }: PageProps) {
         <DocsSection id="weak-points" num="04" label="Weak points">
           <h2>Weak points</h2>
           <p>
-            Where a renderer loses the core's speed, with the number that showed it and the suspected cause. Each one is
-            an issue; the optimisation lands there, with the budget it lowers.
+            Where a renderer loses the core's speed, with the number that showed it and the suspected cause. The
+            optimisation that fixes one lowers its budget in the same change.
           </p>
           {(findings as Finding[]).length === 0 ? (
             <p>None recorded yet.</p>
           ) : (
             <DocsTable
               className="bench-findings"
-              head={[`Renderer`, `Scenario · metric`, `Value`, `Suspected cause`, `Issue`]}
+              head={[`Renderer`, `Scenario · metric`, `Value`, `Suspected cause`]}
               rows={(findings as Finding[]).map((f) => {
                 const kind = ((manifest.scenarios.find((s) => s.id === f.scenario)?.metrics as Metric[] | undefined)?.find((m) => m.id === f.metric)?.kind ?? `ms`) as Kind
                 return [
@@ -191,9 +191,6 @@ export default function NumbersPage({ path }: PageProps) {
                     {kind === `ms` ? ` ms` : ``} <span className="bench-machine-tag">({f.machine})</span>
                   </span>,
                   f.cause,
-                  <a key="i" href={`https://app.exponential.at/t/feedback/boards/apps/issues/${f.issue}`}>
-                    <code>{f.issue}</code>
-                  </a>,
                 ]
               })}
             />

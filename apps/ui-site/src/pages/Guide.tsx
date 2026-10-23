@@ -181,7 +181,7 @@ return <HostSurface host={host} surfaceId="main" theme="orange" fallback={<p>Wai
       body: (
         <>
           <p>
-            <code>@exponential_app/ui-solid/primitives</code> is the React primitive set on Solid, with the same DOM and
+            <code>@exponential_app/ui-solid/primitives</code> is the React primitive set on Solid, module for module, with the same DOM and
             classes (one set of recipes, checked against React in headless Chromium).{` `}
             <code>@exponential_app/ui-solid/styles.css</code> is the same stylesheet as React's;{` `}
             <code>globalsCss(theme)</code> from <code>@exponential_app/ui/web</code> themes them outside a surface.
@@ -200,11 +200,6 @@ const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in
 </Dialog>
 <Button variant="outline" class="ml-2" onClick={() => toast.success("Saved")}>Save</Button>
 <Toaster />`}</DocsCode>
-          <p>
-            Six React modules are the Exponential app's own and have no Solid twin: <code>glass-rows</code>,{` `}
-            <code>typeahead</code>, <code>composer</code>, <code>trace</code>, <code>pill</code> and{` `}
-            <code>segmented-bar</code>.
-          </p>
         </>
       ),
     },

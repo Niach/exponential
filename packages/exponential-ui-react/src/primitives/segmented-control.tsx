@@ -3,7 +3,6 @@ import type { LucideIcon } from "lucide-react"
 import { SEGMENTED_CONTROL_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
-import { GlassTabsRow } from "./glass-rows"
 import { Tabs, TabsList, TabsTrigger } from "./tabs"
 
 interface SegmentedOption<TValue extends string> {
@@ -18,15 +17,13 @@ interface SegmentedControlProps<TValue extends string> {
   value: TValue
   onValueChange: (value: TValue) => void
   options: readonly SegmentedOption<TValue>[]
-  /** Draw as a glass group's first row instead of a floating capsule. */
-  embedded?: boolean
   /** Span the container instead of the capsule's natural `w-fit`, so the
    *  segments (already `flex-1`) share it equally. For narrow slots — a side
    *  panel — where the natural width overflows and clips the last label. */
   fill?: boolean
   /** Disables every segment. */
   disabled?: boolean
-  /** Extra classes on the strip (the `TabsList` / the embedded row). */
+  /** Extra classes on the strip (the `TabsList`). */
   className?: string
 }
 
@@ -34,7 +31,6 @@ function SegmentedControl<TValue extends string>({
   value,
   onValueChange,
   options,
-  embedded = false,
   fill = false,
   disabled = false,
   className,
@@ -53,18 +49,6 @@ function SegmentedControl<TValue extends string>({
       </TabsTrigger>
     )
   })
-
-  if (embedded) {
-    return (
-      <GlassTabsRow
-        value={value}
-        onValueChange={(next) => onValueChange(next as TValue)}
-        className={className}
-      >
-        {triggers}
-      </GlassTabsRow>
-    )
-  }
 
   return (
     <Tabs
