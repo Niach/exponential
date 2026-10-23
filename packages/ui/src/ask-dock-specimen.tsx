@@ -9,8 +9,8 @@ import { ThreadPlanSheet } from "./session-thread-view"
 // rows): the DockCards at rest in their four states: one waiting plan (a
 // single card), the pile (the queued messages, THE Queue, the suggested
 // tasks, a plan, a question: the front card whole, the others peeking out
-// above it), the pile fanned, and a plan card's sheet (the real `ThreadPlanSheet` in the sheet's static frame: the
-// pinned header with "Question 1 of 2", the body, the footer). The
+// above it), the pile fanned, and a plan card's sheet (the real `ThreadPlanSheet` in the sheet's static frame at
+// rest on page 0: the pinned header, the plan as the body, Next in the footer). The
 // styleguide entry and the app's `?dev=ask-dock` capture render it; the
 // natives' specimens draw the same rows.
 

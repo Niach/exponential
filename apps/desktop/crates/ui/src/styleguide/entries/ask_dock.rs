@@ -88,9 +88,9 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let mut all: Vec<DockSource> = super::dock_card::sources().into_iter().take(3).collect();
     all.extend(asks());
     let rows = dock_rows(&all);
-    // The sheet opens on its first question page (web: "Question 1 of 2").
+    // The sheet at rest on page 0, the plan (web `ThreadPlanSheet`, iOS and
+    // Android draw the same page: Next in the footer, no step in the header).
     let plan_row = rich_plan("sg-ask-dock-sheet-plan");
-    crate::plan_card::preset_step("sg-ask-dock-sheet-plan", 1, cx);
     let sheet = crate::dock::sheet_host(|| {
         crate::thread_screen::ask_row_sheet(&plan_row, &crate::thread_screen::ThreadText::default(), &images, window, cx)
     })

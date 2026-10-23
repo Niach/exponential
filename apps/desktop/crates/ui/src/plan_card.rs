@@ -257,14 +257,6 @@ fn set_step(message_id: &str, step: usize, cx: &mut App) {
     cx.refresh_windows();
 }
 
-/// N-12: open a card on page `step` unless it has a draft already (the
-/// styleguide's last-page specimen).
-pub(crate) fn preset_step(message_id: &str, step: usize, cx: &mut App) {
-    if draft(message_id, cx).is_none() {
-        draft_mut(message_id, cx).step = step;
-    }
-}
-
 fn feedback_text(message_id: &str, cx: &App) -> String {
     draft(message_id, cx)
         .and_then(|draft| draft.feedback.as_ref())

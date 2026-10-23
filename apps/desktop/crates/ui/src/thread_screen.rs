@@ -1136,7 +1136,9 @@ pub(crate) fn root_dock(
     }
     sources.extend(composer.read(cx).session_dock_sources(cx));
     let dock_rows = domain::dock::dock_rows(&sources);
-    state.update(cx, |state, _| state.auto_open(&dock_rows, true, true));
+    // Loaded = the Conversation's rows arrived (web `autoOpenReady`, iOS and
+    // Android the same): what already waited when they land stays collapsed.
+    state.update(cx, |state, _| state.auto_open(&dock_rows, true, !rows.is_empty()));
     let sheet = match state.read(cx).sheet_id().map(str::to_string) {
         Some(open) => match dock_rows.iter().find(|row| row.id == open).cloned() {
             Some(dock_row) => {
