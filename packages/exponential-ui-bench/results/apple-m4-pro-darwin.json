@@ -191,59 +191,59 @@
     },
     "react-chromium": {
       "platform": "web",
-      "date": "2026-10-22T23:35:44.662Z",
+      "date": "2026-10-23T04:33:08.723Z",
       "scenarios": {
         "cold-start": {
-          "firstPaintMs": 133.7,
+          "firstPaintMs": 97.8,
           "nodes": 599,
-          "coldStartMs": 211.7,
-          "memoryMb": 26.48
+          "coldStartMs": 168.7,
+          "memoryMb": 21.99
         },
         "card-grid": {
-          "warmPassMs": 7.7
+          "warmPassMs": 0.4
         },
         "list-100k": {
-          "firstPaintMs": 120.4,
-          "scrollToIndexMs": 38.9,
-          "scrollStepMs": 3.02,
+          "firstPaintMs": 106.8,
+          "scrollToIndexMs": 3.8,
+          "scrollStepMs": 2,
           "renderedItems": 30,
-          "memoryMb": 129.37
+          "memoryMb": 121.5
         },
         "streaming": {
           "nodes": 607,
-          "applyMs": 10.21,
-          "p95ApplyMs": 17.3,
-          "totalMs": 2041.2
+          "applyMs": 2.43,
+          "p95ApplyMs": 6.4,
+          "totalMs": 485.3
         },
         "theme-switch": {
-          "themeSwitchMs": 34.3,
-          "modeSwitchMs": 31.4
+          "themeSwitchMs": 22.95,
+          "modeSwitchMs": 7.45
         },
         "resize": {
-          "resizeMs": 24.9
+          "resizeMs": 1.2
         },
         "deep-nesting": {
-          "firstPaintMs": 36.1,
-          "warmPassMs": 3.4,
+          "firstPaintMs": 25.6,
+          "warmPassMs": 0.3,
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 267.7,
+          "firstPaintMs": 148.4,
           "nodes": 10001,
-          "rebindMs": 344.7
+          "rebindMs": 133.4
         },
         "overlay": {
-          "openMs": 3.4,
-          "closeMs": 3.1
+          "openMs": 1.15,
+          "closeMs": 1
         },
         "table-1k": {
-          "firstPaintMs": 39.3,
-          "scrollStepMs": 1.62,
+          "firstPaintMs": 35,
+          "scrollStepMs": 1.46,
           "renderedRows": 36,
-          "sortMs": 4.1
+          "sortMs": 2.3
         }
       },
-      "commit": "ddaca88a6f3"
+      "commit": "056d8a2ba66"
     },
     "solid-chromium": {
       "platform": "web",
