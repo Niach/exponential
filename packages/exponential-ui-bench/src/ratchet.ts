@@ -16,6 +16,8 @@ export type Budgets = {
   floor: number
   /** How far over a measured timing `--write` puts the new budget (1.5 = 50 % headroom). */
   headroom: number
+  /** A machine's own `headroom` (a shared hosted VM drifts far more than a dedicated box). */
+  machineHeadroom?: Record<string, number>
   machines: Record<string, Record<string, Record<string, Record<string, number>>>>
 }
 
@@ -53,8 +55,30 @@ export function check(fragment: Fragment, budgets: Budgets, machine = fragment.m
 /** The verdicts that fail CI: worse, or a deterministic metric that got better. */
 export const failing = (verdicts: Verdict[]) => verdicts.filter((v) => v.status === `worse` || (v.status === `better` && v.kind !== `ms` && v.kind !== `mb`))
 
-/** `--write`: the budgets a fragment's numbers imply (timings × headroom, counts exact). */
+const timing = (kind: Verdict[`kind`]) => kind === `ms` || kind === `mb`
+
+/** The headroom `--write` gives [machine]'s timings: its own, else the file's. */
+export const headroomOf = (budgets: Budgets, machine: string) => budgets.machineHeadroom?.[machine] ?? budgets.headroom
+
+/** Several runs of one renderer on one machine as one fragment: every timing
+ *  at its WORST (highest), every count from the last run given. */
+export function worstOf(runs: Fragment[]): Fragment {
+  const last = runs[runs.length - 1]
+  const scenarios: Fragment[`scenarios`] = {}
+  for (const [scenario, metrics] of Object.entries(last.scenarios)) {
+    scenarios[scenario] = Object.fromEntries(
+      Object.entries(metrics).map(([metric, value]) => {
+        if (!timing(KINDS[scenario]?.[metric] ?? `ms`)) return [metric, value]
+        return [metric, Math.max(value, ...runs.map((r) => r.scenarios[scenario]?.[metric] ?? -Infinity))]
+      })
+    )
+  }
+  return { ...last, scenarios }
+}
+
+/** `--write`: the budgets a fragment's numbers imply (timings × the machine's headroom, counts exact). */
 export function budgetsFor(fragment: Fragment, budgets: Budgets, machine = fragment.machine ?? `unknown`): Budgets {
+  const headroom = headroomOf(budgets, machine)
   const next: Budgets = { ...budgets, machines: { ...budgets.machines } }
   const mine = { ...(next.machines[machine] ?? {}) }
   const byScenario: Record<string, Record<string, number>> = {}
@@ -62,7 +86,7 @@ export function budgetsFor(fragment: Fragment, budgets: Budgets, machine = fragm
     byScenario[scenario] = Object.fromEntries(
       Object.entries(metrics).map(([metric, value]) => {
         const kind = KINDS[scenario]?.[metric] ?? `ms`
-        return [metric, kind === `ms` || kind === `mb` ? Math.ceil(value * budgets.headroom * 10) / 10 : value]
+        return [metric, timing(kind) ? Math.ceil(value * headroom * 10) / 10 : value]
       })
     )
   }

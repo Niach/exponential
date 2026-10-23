@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { budgetsFor, check, failing, type Budgets } from "./ratchet"
+import { budgetsFor, check, failing, headroomOf, worstOf, type Budgets } from "./ratchet"
 import type { Fragment } from "./results"
 
 const budgets: Budgets = { floor: 0.5, headroom: 1.5, machines: { m: { core: { "list-100k": { firstPaintMs: 100, scrollStepMs: 5, renderedItems: 30 } } } } }
@@ -27,5 +27,21 @@ describe(`ratchet`, () => {
     expect(next.machines.m.core[`list-100k`]).toEqual({ firstPaintMs: 120, renderedItems: 31 })
     expect(next.machines.m.core[`cold-start`]).toEqual({ coldStartMs: 15.1 })
     expect(budgets.machines.m.core[`list-100k`].scrollStepMs).toBe(5)
+  })
+
+  it(`a machine's own headroom wins over the file's`, () => {
+    const hosted: Budgets = { ...budgets, machineHeadroom: { hosted: 2.5 } }
+    expect(headroomOf(hosted, `hosted`)).toBe(2.5)
+    expect(headroomOf(hosted, `m`)).toBe(1.5)
+    const next = budgetsFor({ ...fragment({ "list-100k": { firstPaintMs: 80, renderedItems: 31 } }), machine: `hosted` }, hosted)
+    expect(next.machines.hosted.core[`list-100k`]).toEqual({ firstPaintMs: 200, renderedItems: 31 })
+    expect(budgetsFor(fragment({ "list-100k": { firstPaintMs: 80 } }), hosted).machines.m.core[`list-100k`]).toEqual({ firstPaintMs: 120 })
+  })
+
+  it(`several runs: every timing at its worst, the counts of the last run`, () => {
+    const a = fragment({ "list-100k": { firstPaintMs: 80, scrollStepMs: 6, renderedItems: 31 } })
+    const b = fragment({ "list-100k": { firstPaintMs: 95, scrollStepMs: 4, renderedItems: 30 } })
+    expect(worstOf([a, b]).scenarios[`list-100k`]).toEqual({ firstPaintMs: 95, scrollStepMs: 6, renderedItems: 30 })
+    expect(worstOf([b]).scenarios).toEqual(b.scenarios)
   })
 })

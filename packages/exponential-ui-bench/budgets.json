@@ -1,7 +1,11 @@
 {
-  "$comment": "VAPP-105: the benchmark RATCHET per machine × renderer × scenario × metric (src/ratchet.ts). CI fails when a metric comes out WORSE than its budget, and when a deterministic one (count, bytes) comes out better without its budget lowered here; a timing far under its budget (below `floor` × budget) prints a warning asking to lower it. Rewrite after a fix or a new machine: `bun run --filter @exponential-at/ui-bench ratchet .bench/*.json --write` (timings land at measured × `headroom`, counts exact). A machine with no entry is reported, never gated.",
+  "$comment": "VAPP-105: the benchmark RATCHET per machine × renderer × scenario × metric (src/ratchet.ts). CI fails when a metric comes out WORSE than its budget, and when a deterministic one (count, bytes) comes out better without its budget lowered here; a timing far under its budget (below `floor` × budget) prints a warning asking to lower it. Rewrite after a fix or a new machine: `bun run --filter @exponential-at/ui-bench ratchet .bench/*.json --write` (timings land at measured × `headroom`, counts exact; several runs of one renderer on one machine write one budget from the WORST timing of them and the last run's counts). CI budgets come from two green runs. `machineHeadroom` overrides `headroom` per machine: the shared GitHub-hosted VMs drift 50–80 % between runs, so they get 2.5; the dedicated self-hosted boxes (mint, macbook) keep 1.5. A machine with no entry is reported, never gated.",
   "floor": 0.5,
   "headroom": 1.5,
+  "machineHeadroom": {
+    "github-macos-26": 2.5,
+    "github-ubuntu-latest": 2.5
+  },
   "machines": {
     "apple-m4-pro-darwin": {
       "compose-android": {
