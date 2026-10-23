@@ -12,6 +12,9 @@ import { Resvg } from "@resvg/resvg-js"
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs"
 import { resolve, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
+import { BLOG_POSTS } from "../src/blog/posts"
+import { BLOG_INDEX_DESCRIPTION } from "../src/blog/seo"
+import { formatDate } from "../src/blog/types"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, `..`)
@@ -41,7 +44,7 @@ function markDataUri(size: number): string {
   return `data:image/png;base64,${png.toString(`base64`)}`
 }
 
-type Card = { file: string; title: string; subtitle: string }
+type Card = { file: string; title: string; subtitle: string; kicker?: string }
 
 const CARDS: Card[] = [
   {
@@ -69,6 +72,19 @@ const CARDS: Card[] = [
     title: `Exponential`,
     subtitle: `One realtime tracker for issues, user feedback and local AI coding agents.`,
   },
+  /* The blog (EXP-1366): the index card and one per post, from the registry;
+     a post's meta names its file as `ogImage`. */
+  {
+    file: `og-blog.png`,
+    title: `Blog`,
+    subtitle: BLOG_INDEX_DESCRIPTION,
+  },
+  ...BLOG_POSTS.map(({ meta }) => ({
+    file: meta.ogImage.replace(/^\/og\//, ``),
+    kicker: `Blog · ${formatDate(meta.date)}`,
+    title: meta.title,
+    subtitle: meta.description,
+  })),
 ]
 
 function CardEl({ card, mark }: { card: Card; mark: string }) {
@@ -93,11 +109,16 @@ function CardEl({ card, mark }: { card: Card; mark: string }) {
         </span>
       </div>
 
-      {/* Headline */}
+      {/* Headline (a long blog title steps down two sizes) */}
       <div style={{ display: `flex`, flexDirection: `column`, gap: `24px` }}>
+        {card.kicker ? (
+          <span style={{ fontSize: `26px`, fontWeight: 500, color: MUTED, letterSpacing: `0.04em`, textTransform: `uppercase` }}>
+            {card.kicker}
+          </span>
+        ) : null}
         <span
           style={{
-            fontSize: `76px`,
+            fontSize: card.title.length > 60 ? `52px` : card.title.length > 40 ? `62px` : `76px`,
             fontWeight: 700,
             color: FG,
             lineHeight: 1.05,
@@ -109,7 +130,7 @@ function CardEl({ card, mark }: { card: Card; mark: string }) {
         </span>
         <span
           style={{
-            fontSize: `32px`,
+            fontSize: card.subtitle.length > 150 ? `26px` : `32px`,
             fontWeight: 400,
             color: MUTED,
             lineHeight: 1.3,

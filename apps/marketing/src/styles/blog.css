@@ -1,0 +1,408 @@
+/* ─── Blog (EXP-1366): the index cards, the post page, the post components
+   and the home strip. The prose itself wears the docs typography
+   (@exp/site-shell/styles/docs.css `.docs-content`), so an article reads
+   like a docs page; everything here is the frame around it. ─── */
+
+/* ── Index ── */
+.blog-index {
+  padding: 8px 0 72px;
+}
+
+.blog-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.blog-list--compact {
+  grid-template-columns: 1fr;
+}
+
+.blog-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  transition:
+    border-color 140ms,
+    background 140ms;
+}
+
+.blog-card:hover {
+  border-color: var(--glass-stroke-active);
+  background: var(--glass-fill-active);
+}
+
+.blog-card-cover {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  object-position: top left;
+  border-bottom: 1px solid var(--glass-stroke-card);
+  background: var(--bg-elev);
+}
+
+.blog-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 20px 20px;
+}
+
+.blog-card-meta,
+.blog-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--fg-dim);
+}
+
+.blog-eyebrow a {
+  color: var(--fg-muted);
+}
+
+.blog-card-title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: var(--fg);
+}
+
+.blog-card-text {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+}
+
+.blog-card-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+/* ── Post page ── */
+.blog-post {
+  max-width: 760px;
+  padding-top: 40px;
+  padding-bottom: 48px;
+}
+
+.blog-post-head {
+  padding: 0 0 20px;
+}
+
+.blog-post-head h1 {
+  margin: 12px 0 14px;
+  font-size: clamp(30px, 4.4vw, 44px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+}
+
+.blog-lead {
+  margin: 0 0 14px;
+  font-size: 17.5px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+
+.blog-author {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--fg-dim);
+}
+
+.blog-author a {
+  color: var(--fg-muted);
+}
+
+.blog-prose > section:first-of-type {
+  padding-top: 8px;
+}
+
+.blog-prose h2 {
+  scroll-margin-top: 80px;
+}
+
+.blog-post-foot {
+  padding-top: 32px;
+  border-top: 1px solid var(--border);
+}
+
+.blog-post-foot h2 {
+  margin: 0 0 16px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.blog-post-foot-links {
+  margin: 24px 0 0;
+  font-size: 13.5px;
+  color: var(--fg-dim);
+}
+
+.blog-post-foot-links a {
+  color: var(--fg-muted);
+}
+
+/* ── Figures ── */
+.blog-figure-frame {
+  position: relative;
+  width: 100%;
+}
+
+/* A phone capture on its own stays phone-sized; in a row the docs rule
+   (.docs-shot-row > .docs-shot) already caps the column. */
+.blog-figure.docs-embed-phone .blog-figure-frame {
+  max-width: 300px;
+}
+
+.blog-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.blog-concept {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-panel-bg);
+  border: 1px solid var(--glass-stroke-strong);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  pointer-events: none;
+}
+
+/* A live Exponential UI surface sits on the app's own ground, like the docs'
+   UI islands (.ui-demo). */
+.blog-surface-frame {
+  overflow: hidden;
+  border: 1px solid var(--glass-stroke-card);
+  border-radius: var(--radius-section);
+  background-color: var(--glass-bg-top);
+  background-image: linear-gradient(to bottom, var(--glass-bg-top), var(--glass-bg-bottom));
+}
+
+.blog-surface-frame img {
+  border: 0;
+  border-radius: 0;
+}
+
+/* Room above the surface for the concept stamp; the still carries the same
+   room, so the stamp never covers content in either state. */
+.blog-surface[data-live="ready"] .blog-surface-frame {
+  padding: 44px 20px 20px;
+}
+
+/* ── Before / after ── */
+.blog-compare-frame {
+  overflow: hidden;
+  border: 1px solid var(--glass-stroke-card);
+  border-radius: var(--radius-section);
+  background: var(--bg-elev);
+}
+
+.blog-compare-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+.blog-compare-before {
+  position: absolute;
+  inset: 0;
+}
+
+.blog-compare-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--fg);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5);
+  pointer-events: none;
+}
+
+.blog-compare-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--fg);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.5);
+}
+
+.blog-compare-label {
+  position: absolute;
+  bottom: 10px;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-panel-bg);
+  border: 1px solid var(--glass-stroke-strong);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  pointer-events: none;
+}
+
+.blog-compare-label.is-before {
+  left: 10px;
+}
+
+.blog-compare-label.is-after {
+  right: 10px;
+}
+
+.blog-compare-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: ew-resize;
+}
+
+/* ── Status chip + issue link ── */
+.blog-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  vertical-align: 1px;
+  padding: 1px 8px 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-fill-row);
+  border: 1px solid var(--glass-stroke-row);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.blog-status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--neutral);
+}
+
+.blog-status--shipped i {
+  background: var(--st-review);
+}
+
+.blog-status--in-progress i {
+  background: var(--st-progress);
+}
+
+.docs-content a.blog-issue {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-elev);
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+/* ── Home strip ── */
+.home-blog {
+  border-top: 1px solid var(--glass-stroke-section);
+  background: var(--glass-fill-section);
+}
+
+.blog-strip-card {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 0;
+  overflow: hidden;
+  transition:
+    border-color 140ms,
+    background 140ms;
+}
+
+.blog-strip-card:hover {
+  border-color: var(--glass-stroke-active);
+  background: var(--glass-fill-active);
+}
+
+.blog-strip-card .blog-card-cover {
+  height: 100%;
+  aspect-ratio: auto;
+  border-bottom: 0;
+  border-right: 1px solid var(--glass-stroke-card);
+}
+
+.blog-strip-card .blog-card-body {
+  padding: 26px 28px;
+  justify-content: center;
+}
+
+.blog-strip-card .blog-card-title {
+  font-size: 22px;
+}
+
+.blog-strip-all {
+  margin: 18px 0 0;
+  font-size: 13.5px;
+  color: var(--fg-muted);
+}
+
+.blog-strip-all a {
+  border-bottom: 1px solid var(--input);
+}
+
+@media (max-width: 860px) {
+  .blog-list {
+    grid-template-columns: 1fr;
+  }
+
+  .blog-strip-card {
+    grid-template-columns: 1fr;
+  }
+
+  .blog-strip-card .blog-card-cover {
+    aspect-ratio: 3 / 2;
+    border-right: 0;
+    border-bottom: 1px solid var(--glass-stroke-card);
+  }
+}
+
+@media (max-width: 720px) {
+  .blog-post {
+    padding-top: 24px;
+  }
+
+  .blog-surface[data-live="ready"] .blog-surface-frame {
+    padding: 40px 12px 12px;
+  }
+}
