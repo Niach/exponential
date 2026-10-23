@@ -680,6 +680,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_nodes(uint64_t ptr, RustC
 RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_nodes_at(uint64_t ptr, RustBuffer indices, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_PAINT_AT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_PAINT_AT
+RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_paint_at(uint64_t ptr, RustBuffer indices, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_REGISTER_EXTENSION
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_REGISTER_EXTENSION
 void uniffi_exponential_ui_ffi_fn_method_surface_register_extension(uint64_t ptr, RustBuffer extension_json, RustCallStatus *_Nonnull out_status
@@ -2143,6 +2148,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_nodes(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_NODES_AT
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_NODES_AT
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_nodes_at(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_PAINT_AT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_PAINT_AT
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_paint_at(void
     
 );
 #endif

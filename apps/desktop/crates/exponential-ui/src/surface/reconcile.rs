@@ -202,7 +202,7 @@ impl Surface {
 
     fn archive_slot(&mut self, slot: u32) {
         let Some(intr) = self.memo.intrinsics.get(&slot).copied() else { return };
-        let heights: Vec<(i64, f32)> = self.memo.heights.iter().filter(|((i, _), _)| *i == slot).map(|((_, w), h)| (*w, *h)).collect();
+        let heights = self.memo.heights_of(slot).to_vec();
         let n = &self.nodes[slot as usize];
         self.archive.insert(n.id.clone(), Carried { intrinsics: intr, heights, props: n.props.clone(), lines: n.lines });
     }
@@ -325,22 +325,28 @@ impl Surface {
         let mut reusable = std::mem::take(&mut self.free);
         // Lowest slots first (pop from the end).
         reusable.sort_unstable_by(|a, b| b.cmp(a));
-        let mut claimed: HashSet<u32> = HashSet::with_capacity(nodes.len());
+        // Slots claimed by this build (a bitmap: a 10,000-item rebind claims
+        // 10,000).
+        let mut claimed: Vec<bool> = vec![false; self.nodes.len() + nodes.len()];
+        let is_claimed = |claimed: &[bool], s: u32| claimed.get(s as usize).copied().unwrap_or(false);
         let mut map: Vec<u32> = Vec::with_capacity(nodes.len());
         let reclaimable: HashSet<u32> = if pinned.is_some() { candidates.iter().copied().collect() } else { HashSet::new() };
         for (t, n) in nodes.iter().enumerate() {
             let slot = match (t, pinned) {
                 (0, Some(p)) => p,
                 _ => match self.slot_of.get(&n.id).copied() {
-                    Some(s) if !claimed.contains(&s) && self.live[s as usize] && (pinned.is_none() || reclaimable.contains(&s)) => s,
+                    Some(s) if !is_claimed(&claimed, s) && self.live[s as usize] && (pinned.is_none() || reclaimable.contains(&s)) => s,
                     _ => self.alloc(&mut reusable),
                 },
             };
-            claimed.insert(slot);
+            if claimed.len() <= slot as usize {
+                claimed.resize(slot as usize + 1, false);
+            }
+            claimed[slot as usize] = true;
             map.push(slot);
         }
         let mut structure_changed = false;
-        let stale: Vec<u32> = candidates.into_iter().filter(|s| self.live[*s as usize] && !claimed.contains(s)).collect();
+        let stale: Vec<u32> = candidates.into_iter().filter(|s| self.live[*s as usize] && !is_claimed(&claimed, *s)).collect();
         for s in stale {
             self.kill(s);
             structure_changed = true;
@@ -413,7 +419,7 @@ impl Surface {
                     if c.props == n.props && c.lines == n.lines {
                         self.memo.intrinsics.insert(slot, c.intrinsics);
                         for (w, h) in &c.heights {
-                            self.memo.heights.insert((slot, *w), *h);
+                            self.memo.insert_height(slot, *w, *h);
                         }
                         self.memo_versions.insert(slot, 0);
                     }

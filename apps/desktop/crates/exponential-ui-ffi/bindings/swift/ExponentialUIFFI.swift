@@ -84,15 +84,10 @@ fileprivate func readInt<T: FixedWidthInteger>(_ reader: inout (data: Data, offs
     guard reader.data.count >= range.upperBound else {
         throw UniffiInternalError.bufferOverflow
     }
-    if T.self == UInt8.self {
-        let value = reader.data[reader.offset]
-        reader.offset += 1
-        return value as! T
-    }
-    var value: T = 0
-    let _ = withUnsafeMutableBytes(of: &value, { reader.data.copyBytes(to: $0, from: range)})
+    let offset = reader.offset
+    let value = reader.data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: offset, as: T.self) }
     reader.offset = range.upperBound
-    return value.bigEndian
+    return T(bigEndian: value)
 }
 
 // Reads an arbitrary number of bytes, to be used to read
@@ -102,10 +97,7 @@ fileprivate func readBytes(_ reader: inout (data: Data, offset: Data.Index), cou
     guard reader.data.count >= range.upperBound else {
         throw UniffiInternalError.bufferOverflow
     }
-    var value = [UInt8](repeating: 0, count: count)
-    value.withUnsafeMutableBufferPointer({ buffer in
-        reader.data.copyBytes(to: buffer, from: range)
-    })
+    let value = reader.data.withUnsafeBytes { Array($0[range]) }
     reader.offset = range.upperBound
     return value
 }
@@ -605,7 +597,13 @@ fileprivate struct FfiConverterString: FfiConverter {
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> String {
         let len: Int32 = try readInt(&buf)
-        return String(bytes: try readBytes(&buf, count: Int(len)), encoding: String.Encoding.utf8)!
+        let range = buf.offset..<(buf.offset + Int(len))
+        guard buf.data.count >= range.upperBound else {
+            throw UniffiInternalError.bufferOverflow
+        }
+        let value = buf.data.withUnsafeBytes { String(decoding: $0[range], as: UTF8.self) }
+        buf.offset = range.upperBound
+        return value
     }
 
     public static func write(_ value: String, into buf: inout [UInt8]) {
@@ -2244,6 +2242,13 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     func nodesAt(indices: [UInt32])  -> [FfiNode]
     
     /**
+     * [`Self::visual`] and, for a leaf, [`Self::text_style`] of every slot
+     * in `indices`, in that order: one call per step instead of two per
+     * slot. A slot past the end is left out (like [`Self::nodes_at`]).
+     */
+    func paintAt(indices: [UInt32])  -> [FfiPaint]
+    
+    /**
      * Register an extension catalog (its JSON definition), validated.
      */
     func registerExtension(extensionJson: String) throws 
@@ -2724,6 +2729,20 @@ open func nodes() -> [FfiNode]  {
 open func nodesAt(indices: [UInt32]) -> [FfiNode]  {
     return try!  FfiConverterSequenceTypeFfiNode.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_nodes_at(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceUInt32.lower(indices),$0
+    )
+})
+}
+    
+    /**
+     * [`Self::visual`] and, for a leaf, [`Self::text_style`] of every slot
+     * in `indices`, in that order: one call per step instead of two per
+     * slot. A slot past the end is left out (like [`Self::nodes_at`]).
+     */
+open func paintAt(indices: [UInt32]) -> [FfiPaint]  {
+    return try!  FfiConverterSequenceTypeFfiPaint.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_paint_at(
             self.uniffiCloneHandle(),
         FfiConverterSequenceUInt32.lower(indices),$0
     )
@@ -4788,6 +4807,71 @@ public func FfiConverterTypeFfiNode_lower(_ value: FfiNode) -> RustBuffer {
 
 
 /**
+ * VAPP-131 / VAPP-138: what a painter reads per slot after a pass, in ONE
+ * call for a step's added and changed slots ([`Surface::paint_at`]).
+ * `visual` is always there (every slot carries one, the default before
+ * its first restyle); `text_style` only for a live leaf, the only nodes
+ * whose text a painter shapes.
+ */
+public struct FfiPaint: Equatable, Hashable {
+    public var index: UInt32
+    public var visual: FfiVisual
+    public var textStyle: FfiTextStyle?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(index: UInt32, visual: FfiVisual, textStyle: FfiTextStyle?) {
+        self.index = index
+        self.visual = visual
+        self.textStyle = textStyle
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiPaint: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiPaint: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPaint {
+        return
+            try FfiPaint(
+                index: FfiConverterUInt32.read(from: &buf), 
+                visual: FfiConverterTypeFfiVisual.read(from: &buf), 
+                textStyle: FfiConverterOptionTypeFfiTextStyle.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPaint, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.index, into: &buf)
+        FfiConverterTypeFfiVisual.write(value.visual, into: &buf)
+        FfiConverterOptionTypeFfiTextStyle.write(value.textStyle, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPaint_lift(_ buf: RustBuffer) throws -> FfiPaint {
+    return try FfiConverterTypeFfiPaint.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPaint_lower(_ value: FfiPaint) -> RustBuffer {
+    return FfiConverterTypeFfiPaint.lower(value)
+}
+
+
+/**
  * A part's resolved look (VAPP-88): the painted visual plus the flat style
  * map (`width`, `height`, `borderWidth`… as JSON) for the parts the core does
  * not synthesize (a Checkbox `check`, a Switch `thumb`, a Select `trigger`).
@@ -6489,6 +6573,31 @@ fileprivate struct FfiConverterSequenceTypeFfiNode: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiPaint: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiPaint]
+
+    public static func write(_ value: [FfiPaint], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiPaint.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiPaint] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiPaint]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiPaint.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiScroll: FfiConverterRustBuffer {
     typealias SwiftType = [FfiScroll]
 
@@ -7600,6 +7709,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_nodes_at() != 51362) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_paint_at() != 18421) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_register_extension() != 9834) {

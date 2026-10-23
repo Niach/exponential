@@ -296,6 +296,18 @@ fn settings_deltas_scrolls_and_commands_cross_the_facade() {
     assert!(!scrolled.delta.added.is_empty() && !scrolled.delta.removed.is_empty());
     let patched = surface.nodes_at(scrolled.delta.added.clone());
     assert_eq!(patched.len(), scrolled.delta.added.len());
+    // VAPP-131 / VAPP-138: paint_at = visual + a leaf's text_style, in order,
+    // a slot past the end left out.
+    let mut asked: Vec<u32> = scrolled.delta.added.iter().chain(&scrolled.delta.changed).rev().copied().collect();
+    asked.push(u32::MAX);
+    let paints = surface.paint_at(asked.clone());
+    assert_eq!(paints.iter().map(|p| p.index).collect::<Vec<_>>(), asked[..asked.len() - 1]);
+    for p in &paints {
+        assert_eq!(format!("{:?}", p.visual), format!("{:?}", surface.visual(p.index).unwrap()));
+        let leaf = surface.nodes_at(vec![p.index])[0].is_leaf;
+        assert_eq!(format!("{:?}", p.text_style), format!("{:?}", if leaf { surface.text_style(p.index) } else { None }));
+    }
+    assert!(paints.iter().any(|p| p.text_style.is_some()), "the rows' text styles came along");
     assert!(scrolled.scrolls.iter().any(|s| s.scroll_y && s.offset_y == 4000.0));
     let events = surface.command_json(json!({"announce": {"text": "Hi", "live": "polite"}}).to_string()).unwrap();
     assert_eq!(events[0].kind, "announce");

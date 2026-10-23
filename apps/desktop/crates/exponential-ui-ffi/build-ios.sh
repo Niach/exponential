@@ -37,6 +37,8 @@ echo "== swift bindings"
 rm -rf "$HERE/out/swift" && mkdir -p "$HERE/out/swift" "$HERE/bindings/swift"
 cargo run -p exponential-ui-ffi --release --features cli --bin uniffi-bindgen -- generate \
   --library "$TARGET/release/libexponential_ui_ffi.$EXT" --language swift --out-dir "$HERE/out/swift" --config "$HERE/uniffi.toml"
+# VAPP-131: the readers load in place (patch-swift-binding.pl).
+perl "$HERE/patch-swift-binding.pl" "$HERE/out/swift/ExponentialUIFFI.swift"
 cp "$HERE/out/swift/ExponentialUIFFI.swift" "$HERE/bindings/swift/ExponentialUIFFI.swift"
 cp "$HERE/out/swift/ExponentialUIFFIFFI.h" "$HERE/bindings/swift/ExponentialUIFFIFFI.h"
 # uniffi names it <module>FFI.modulemap; an xcframework needs module.modulemap.
