@@ -749,7 +749,7 @@ cd packages/exponential-ui-compose
             package in a host that lends it the functions and sources it names. <code>open</code> applies a
             template onto a surface, which you paint like any other:
           </p>
-          <GuideFile path="react/src/app.ts" />
+          <GuideFile path="react/src/app-host.ts" />
         </>
       ),
     },

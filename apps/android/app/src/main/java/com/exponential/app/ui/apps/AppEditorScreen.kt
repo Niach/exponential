@@ -132,7 +132,7 @@ fun AppEditorScreen(
     }
     // Leaving the editor ends the live editor session (its whole tree); a
     // rotation recreates the screen without leaving it.
-    val activity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
+    val activity = androidx.activity.compose.LocalActivity.current
     DisposableEffect(viewModel) {
         onDispose { if (activity?.isChangingConfigurations != true) viewModel.leave() }
     }
