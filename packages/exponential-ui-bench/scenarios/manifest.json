@@ -68,7 +68,7 @@
         {
           "id": "firstPaintMs",
           "kind": "ms",
-          "what": "From the surface's content and data being handed to the renderer to its first painted frame: reduce + bind + measure + lay out + paint (a renderer without a window: the model's first pass)."
+          "what": "From the surface's content and data being handed to the renderer to its first painted frame: reduce + bind + measure + lay out + paint (a renderer without a window: the model's first pass). Generated data is built before the clock starts and handed over inside it (VAPP-149)."
         },
         {
           "id": "nodes",
@@ -123,7 +123,7 @@
         {
           "id": "firstPaintMs",
           "kind": "ms",
-          "what": "From the surface's content and data being handed to the renderer to its first painted frame: reduce + bind + measure + lay out + paint (a renderer without a window: the model's first pass)."
+          "what": "From the surface's content and data being handed to the renderer to its first painted frame: reduce + bind + measure + lay out + paint (a renderer without a window: the model's first pass). Generated data is built before the clock starts and handed over inside it (VAPP-149)."
         },
         {
           "id": "scrollStepMs",
@@ -252,7 +252,7 @@
         {
           "id": "firstPaintMs",
           "kind": "ms",
-          "what": "From the surface's content and data being handed to the renderer to its first painted frame: reduce + bind + measure + lay out + paint (a renderer without a window: the model's first pass)."
+          "what": "From the surface's content and data being handed to the renderer to its first painted frame: reduce + bind + measure + lay out + paint (a renderer without a window: the model's first pass). Generated data is built before the clock starts and handed over inside it (VAPP-149)."
         },
         {
           "id": "warmPassMs",
@@ -275,7 +275,7 @@
         {
           "id": "firstPaintMs",
           "kind": "ms",
-          "what": "From the surface's content and data being handed to the renderer to its first painted frame: reduce + bind + measure + lay out + paint (a renderer without a window: the model's first pass)."
+          "what": "From the surface's content and data being handed to the renderer to its first painted frame: reduce + bind + measure + lay out + paint (a renderer without a window: the model's first pass). Generated data is built before the clock starts and handed over inside it (VAPP-149)."
         },
         {
           "id": "rebindMs",
@@ -316,7 +316,7 @@
         {
           "id": "firstPaintMs",
           "kind": "ms",
-          "what": "From the surface's content and data being handed to the renderer to its first painted frame: reduce + bind + measure + lay out + paint (a renderer without a window: the model's first pass)."
+          "what": "From the surface's content and data being handed to the renderer to its first painted frame: reduce + bind + measure + lay out + paint (a renderer without a window: the model's first pass). Generated data is built before the clock starts and handed over inside it (VAPP-149)."
         },
         {
           "id": "scrollStepMs",
