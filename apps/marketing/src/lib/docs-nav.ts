@@ -11,17 +11,17 @@ export const DOCS_NAV: DocsNavEntry[] = [
   {
     path: `/docs/getting-started/`,
     label: `Getting started`,
-    blurb: `Sign up, create your first board, connect GitHub, invite your team.`,
+    blurb: `Sign up, create your team and first board, connect GitHub, invite your team.`,
   },
   {
     path: `/docs/issues/`,
     label: `Issues & boards`,
-    blurb: `The board, statuses, markdown, mentions, notifications, and how issues link to PRs.`,
+    blurb: `The board, new issues, statuses, search, markdown, mentions, notifications, and how issues link to PRs.`,
   },
   {
     path: `/docs/coding/`,
     label: `Coding agents`,
-    blurb: `Hand issues to Claude Code or Codex from the desktop IDE: single sessions, batch sessions, steer, review, merge.`,
+    blurb: `Hand issues to Claude Code or Codex on your desktop or server: threads, sessions, steer, review, merge.`,
   },
   {
     path: `/docs/actions/`,
@@ -36,7 +36,7 @@ export const DOCS_NAV: DocsNavEntry[] = [
   {
     path: `/docs/feedback/`,
     label: `Feedback & reporters`,
-    blurb: `The feedback widget, the conversation with each reporter, and triage.`,
+    blurb: `Widget reports as issues, the conversation with each reporter, and triage.`,
   },
   {
     path: `/docs/widget/`,
@@ -51,7 +51,7 @@ export const DOCS_NAV: DocsNavEntry[] = [
   {
     path: `/docs/apps/`,
     label: `Mobile & desktop apps`,
-    blurb: `The desktop IDE and the iOS / Android companions: install, push, steer.`,
+    blurb: `The desktop IDE and the iOS / Android companions (install, push, steer), and your team's Apps.`,
   },
   {
     path: `/docs/self-host/`,

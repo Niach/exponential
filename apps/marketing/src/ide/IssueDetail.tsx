@@ -1,25 +1,54 @@
-/* ─── The Issue face of a top tab (issue_detail.rs, EXP-760/877): the ONE
-   work header (title, face toggle, pin, menu, the glass property tray with
-   Merge PR and the coding action) fixed over a scrolling body — the
-   description, "Add sub-issues", the attachments rail and the Activity
-   timeline (muted event lines, comment CARDS each ending in "Leave a
-   reply…", the composer). Everything caps to the 896px work column. ─── */
-import { useState, type KeyboardEvent } from "react"
+/* ─── The issue detail (issue_detail.rs + issue_header.rs + work_header.rs,
+   EXP-877/1162/1294): ONE scrolling body in the 896px work column (20px
+   gutter), under the compact fixed bar whose right cluster is
+   [Start] [pin] [⋯]. The body: the 24/32 semibold title; the Threads row
+   while a thread works the issue; the property chips (Status · Priority ·
+   Assignee · Labels · Due date · Board — Sm glass pills, unset ones muted);
+   the description; the editor's emoji / image / attach glyphs; "Add
+   sub-issues"; a hairline; then "Activity (N)" — muted event lines and
+   comment CARDS, each closed by its "Leave a reply…" row — and the
+   bottom composer. Start opens Home with this issue as the subject. ─── */
+import { useState, type KeyboardEvent, type ReactNode } from "react"
 import {
   getIssue,
   ISSUE_ACTIVITY,
   ISSUE_BODY,
+  PRIORITY_LABEL,
+  STATUS_LABEL,
   type ActivityItem,
 } from "./data"
 import { useIde } from "./state"
-import { Avatar, StatusIcon } from "./bits"
-import { WorkHeader } from "./WorkHeader"
-import { IcEllipsis, IcImage, IcPaperclip, IcPlus, IcSmile } from "./icons"
+import { ACTIVE_BOARD } from "./Rail"
+import { Avatar, PriorityIcon, RunMark, StatusIcon } from "./bits"
+import {
+  IcAssignee,
+  IcCalDays,
+  IcEllipsis,
+  IcImage,
+  IcIssueRef,
+  IcPaperclip,
+  IcPin,
+  IcPlay,
+  IcPlus,
+  IcSmile,
+  IcSubmit,
+  IcTag,
+} from "./icons"
+
+/* pickers.rs `chip_button`: the Sm glass pill; an unset value is muted. */
+function Chip({ icon, children, muted }: { icon: ReactNode; children: ReactNode; muted?: boolean }) {
+  return (
+    <span className="ide-pill is-sm is-action">
+      {icon}
+      <span className={muted ? `ide-c-muted` : undefined}>{children}</span>
+    </span>
+  )
+}
 
 function Description({ issueId }: { issueId: string }) {
   const body = ISSUE_BODY[issueId]
   if (!body) {
-    return <div className="ide-issue-desc is-empty">Add description...</div>
+    return <div className="ide-issue-desc is-empty">Add description…</div>
   }
   return (
     <div className="ide-issue-desc">
@@ -31,15 +60,15 @@ function Description({ issueId }: { issueId: string }) {
                 {seg.t}
               </code>
             ) : seg.ref ? (
-              /* #issue mention — plain `#EXP-5` in the markdown source,
-                 rendered as a clickable pill when it resolves in the team */
-              <span key={si} className="ide-refpill">
-                <StatusIcon status={getIssue(seg.t).status} size={9} />
-                {`#${seg.t}`}
+              /* EXP-885: a resolved `#EXP-5` is THE issue chip — status
+                 glyph · mono identifier · title. */
+              <span key={si} className="ide-issuechip">
+                <StatusIcon status={getIssue(seg.t).status} size={10.5} />
+                <span className="ide-issuechip-id">{seg.t}</span>
+                <span className="ide-issuechip-title">{getIssue(seg.t).title}</span>
               </span>
             ) : seg.mention ? (
-              /* @mention — `@<email>` in the source, name pill at render */
-              <span key={si} className="ide-mentionpill">{`@${seg.t}`}</span>
+              <span key={si} className="ide-mention">{`@${seg.t}`}</span>
             ) : (
               <span key={si}>{seg.t}</span>
             ),
@@ -50,120 +79,57 @@ function Description({ issueId }: { issueId: string }) {
   )
 }
 
-/* timeline::timeline_row — every feed row rides the 28px gutter; the
-   marker's box (--mk-top/--mk-size) tells the rail where to break. */
-function TimelineRow({
-  marker,
-  markerTop,
-  markerSize,
-  pad,
-  first,
-  last,
-  children,
-}: {
-  marker: React.ReactNode
-  markerTop: number
-  markerSize: number
-  pad?: number
-  first?: boolean
-  last?: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <div
-      className={`ide-tl${first ? ` is-first` : ``}${last ? ` is-last` : ``}`}
-      style={
-        {
-          "--mk-top": `${markerTop}px`,
-          "--mk-size": `${markerSize}px`,
-          ...(pad !== undefined ? { "--tl-pad": `${pad}px` } : {}),
-        } as React.CSSProperties
-      }
-    >
-      <div className="ide-tl-gutter">
-        <div className="ide-tl-marker">{marker}</div>
+/* Events are "<actor> <phrase>" in the fixture; the actor leads in the
+   foreground, the phrase and the time stay muted. */
+const EVENT_ACTOR = /^(.+?) (changed|added|removed|assigned|opened|merged|moved|created) (.*)$/
+
+function ActivityRow({ item, last }: { item: ActivityItem; last: boolean }) {
+  if (item.kind === `event`) {
+    const m = EVENT_ACTOR.exec(item.text)
+    return (
+      <div className={`ide-tl${last ? ` is-last` : ``}`}>
+        <div className="ide-tl-gutter">
+          <span className="ide-tl-dot" />
+        </div>
+        <div className="ide-tl-event">
+          {m ? (
+            <>
+              <span className="ide-tl-actor">{m[1]}</span>
+              {` ${m[2]} ${m[3]} · ${item.time}`}
+            </>
+          ) : (
+            `${item.text} · ${item.time}`
+          )}
+        </div>
       </div>
-      <div className="ide-tl-body">{children}</div>
+    )
+  }
+  return (
+    <div className={`ide-tl is-comment${last ? ` is-last` : ``}`}>
+      <div className="ide-tl-gutter">
+        <Avatar person={{ initials: item.initials, name: item.author }} size={24} />
+      </div>
+      <div className="ide-comment">
+        <div className="ide-comment-head">
+          <span className="ide-comment-author">{item.author}</span>
+          <span className="ide-comment-time">{item.time}</span>
+        </div>
+        <div className="ide-comment-body">{item.body}</div>
+        {/* EXP-741: the card is the thread — the reply row closes it. */}
+        <div className="ide-comment-reply">Leave a reply…</div>
+      </div>
     </div>
   )
 }
 
-/* Events are "<actor> <phrase>" in the fixture; the actor leads in the
-   foreground, the phrase and the time stay muted (timeline.rs event_row). */
-const EVENT_ACTOR = /^(.+?) (changed|added|removed|assigned|opened|merged|moved|created) (.*)$/
-
-function ActivityRow({
-  item,
-  first,
-  last,
-}: {
-  item: ActivityItem
-  first?: boolean
-  last?: boolean
-}) {
-  if (item.kind === `event`) {
-    const m = EVENT_ACTOR.exec(item.text)
-    return (
-      <TimelineRow
-        marker={<span className="ide-event-dot" />}
-        markerTop={7}
-        markerSize={6}
-        first={first}
-        last={last}
-      >
-        <div className="ide-event">
-          {m ? (
-            <>
-              <span className="ide-event-actor">{m[1]}</span>
-              <span className="ide-event-text">{`${m[2]} ${m[3]} · ${item.time}`}</span>
-            </>
-          ) : (
-            <span className="ide-event-text">{`${item.text} · ${item.time}`}</span>
-          )}
-        </div>
-      </TimelineRow>
-    )
-  }
-  return (
-    <TimelineRow
-      marker={<Avatar person={{ initials: item.initials, name: item.author }} size={24} />}
-      markerTop={4}
-      markerSize={24}
-      pad={0}
-      first={first}
-      last={last}
-    >
-      <div className="ide-comment">
-        <div className="ide-comment-main">
-          <div className="ide-comment-head">
-            <span className="ide-comment-author">{item.author}</span>
-            <span className="ide-comment-time">{item.time}</span>
-            <div className="ide-flex1" />
-            <span className="ide-comment-menu">
-              <IcEllipsis size={11} />
-            </span>
-          </div>
-          <div className="ide-comment-body">{item.body}</div>
-          {/* EXP-741: the card is the thread — the reply row closes it. */}
-          <div className="ide-comment-replies">
-            <button className="ide-reply-row" type="button">
-              Leave a reply…
-            </button>
-          </div>
-        </div>
-      </div>
-    </TimelineRow>
-  )
-}
-
 export function IssueDetail({ issueId }: { issueId: string }) {
-  const { interactive } = useIde()
+  const { interactive, start, thread, openThread } = useIde()
   const issue = getIssue(issueId)
   const [draft, setDraft] = useState(``)
   const [extraComments, setExtraComments] = useState<ActivityItem[]>([])
 
-  const baseActivity = ISSUE_ACTIVITY[issue.id] ?? []
-  const activity = [...baseActivity, ...extraComments]
+  const activity = [...(ISSUE_ACTIVITY[issue.id] ?? []), ...extraComments]
+  const issueThread = thread && thread.issueId === issue.id ? thread : null
 
   const submitComment = () => {
     const body = draft.trim()
@@ -181,50 +147,118 @@ export function IssueDetail({ issueId }: { issueId: string }) {
 
   return (
     <div className="ide-issue">
-      <WorkHeader tabKey={`issue:${issue.id}`} />
-      <div className="ide-issue-body">
-        {/* EXP-760: relations are Linear-style group headings BELOW the
-            description ("Sub-issues 1/3", "Blocked by", …) and render
-            nothing at all when the issue has none — which is this fixture.
-            "Add sub-issues" follows them and opens the inline composer. */}
-        <div className="ide-col">
-          <Description issueId={issue.id} />
-          <button className="ide-addsub" type="button">
-            <IcPlus size={10.5} />
-            Add sub-issues
+      {/* The compact fixed bar: its collapsed title shows only once the
+          title row has scrolled under it, so at rest it is the cluster. */}
+      <div className="ide-workbar">
+        <div className="ide-workbar-cluster">
+          <button
+            className={`ide-btn-primary is-lg${interactive ? ` is-click` : ``}`}
+            type="button"
+            title="Start an agent on this issue"
+            onClick={interactive ? () => start(issue.id) : undefined}
+          >
+            <IcPlay size={16} />
+            Start
           </button>
-          <div className="ide-attachrail">
-            <span className="ide-icbtn">
-              <IcSmile size={12} />
+          <span className="ide-ghost-btn" title="Pin">
+            <IcPin size={14} />
+          </span>
+          <span className="ide-ghost-btn" title="More">
+            <IcEllipsis size={14} />
+          </span>
+        </div>
+      </div>
+      <div className="ide-issue-body">
+        <div className="ide-col">
+          <h1 className="ide-issue-title">{issue.title}</h1>
+          {issueThread && (
+            <div className="ide-threads-row">
+              <span className="ide-threads-label">Threads</span>
+              <button
+                className={`ide-pill is-sm is-action${interactive ? ` is-click` : ``}`}
+                type="button"
+                onClick={interactive ? openThread : undefined}
+              >
+                <RunMark needsYou={issueThread.state === `needs_you`} size={12} />
+                <span className="ide-threads-chip">{`#${issue.id} ${issue.title}`}</span>
+              </button>
+            </div>
+          )}
+          <div className="ide-chiprow">
+            <Chip icon={<StatusIcon status={issue.status} size={12} />}>{STATUS_LABEL[issue.status]}</Chip>
+            <Chip icon={<PriorityIcon priority={issue.priority} size={12} />}>
+              {PRIORITY_LABEL[issue.priority]}
+            </Chip>
+            <Chip icon={<IcAssignee size={12} />} muted={!issue.assignee}>
+              {issue.assignee ? issue.assignee.name : `Assignee`}
+            </Chip>
+            <Chip icon={<IcTag size={12} />} muted={!issue.labels?.length}>
+              {issue.labels?.length ? issue.labels.map((l) => l.name).join(`, `) : `Labels`}
+            </Chip>
+            <Chip icon={<IcCalDays size={12} />} muted={!issue.due}>
+              {issue.due ?? `Due date`}
+            </Chip>
+            <Chip icon={<ACTIVE_BOARD.Icon size={12} style={{ color: ACTIVE_BOARD.color }} />}>
+              {ACTIVE_BOARD.name}
+            </Chip>
+          </div>
+          <Description issueId={issue.id} />
+          <div className="ide-editor-tools">
+            <span className="ide-icon-btn" title="Emoji">
+              <IcSmile size={14} />
             </span>
-            <span className="ide-icbtn">
-              <IcImage size={12} />
+            <span className="ide-icon-btn" title="Image">
+              <IcImage size={14} />
             </span>
-            <span className="ide-icbtn">
-              <IcPaperclip size={12} />
+            <span className="ide-icon-btn" title="Attach file">
+              <IcPaperclip size={14} />
             </span>
           </div>
-        </div>
-        <div className="ide-timeline">
-          <div className="ide-col">
-            <div className="ide-activity-head">{`Activity (${activity.length})`}</div>
+          <span className="ide-addsub">
+            <IcPlus size={10.5} />
+            Add sub-issues
+          </span>
+          <div className="ide-rule" />
+          <div className="ide-activity-head">{`Activity (${activity.length})`}</div>
+          <div className="ide-timeline">
             {activity.map((item, i) => (
-              <ActivityRow
-                key={i}
-                item={item}
-                first={i === 0}
-                last={i === activity.length - 1}
-              />
+              <ActivityRow key={i} item={item} last={i === activity.length - 1} />
             ))}
-            <div className="ide-composer">
-              <input
-                className="ide-composer-input"
-                placeholder="Leave a reply…"
-                value={draft}
-                readOnly={!interactive}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={interactive ? onComposerKey : undefined}
-              />
+          </div>
+          <div className="ide-commentbox">
+            <input
+              className="ide-commentbox-input"
+              placeholder="Leave a reply…"
+              value={draft}
+              readOnly={!interactive}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={interactive ? onComposerKey : undefined}
+            />
+            {/* comments.rs composer_row: Insert image · Attach · Link an
+                issue · Emoji, then the round Send. */}
+            <div className="ide-commentbox-row">
+              <span className="ide-icon-btn" title="Insert image">
+                <IcImage size={12.25} />
+              </span>
+              <span className="ide-icon-btn" title="Attach file">
+                <IcPaperclip size={12.25} />
+              </span>
+              <span className="ide-icon-btn" title="Link an issue">
+                <IcIssueRef size={12.25} />
+              </span>
+              <span className="ide-icon-btn" title="Emoji">
+                <IcSmile size={12.25} />
+              </span>
+              <span className="ide-flex1" />
+              <button
+                className={`ide-send${interactive ? ` is-click` : ``}`}
+                type="button"
+                disabled={!draft.trim()}
+                aria-label="Send"
+                onClick={interactive ? submitComment : undefined}
+              >
+                <IcSubmit size={16} />
+              </button>
             </div>
           </div>
         </div>

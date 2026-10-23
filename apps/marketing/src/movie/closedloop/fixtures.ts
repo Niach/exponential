@@ -1,16 +1,16 @@
 // closedloop/fixtures.ts — the ONE fixture world of the ClosedLoop film
 // (EXP-337 five per-flow clips, reordered by EXP-385, calmed by EXP-388):
-// the team works the Acme Shop board in realtime, a coding run on EXP-151
-// starts FROM THE PHONE and spawns in the desktop dock where it's steered
-// live, the PR merges from the Reviews row, a visitor reports the bug
-// through the embedded feedback widget, and the platform lineup closes the
-// loop — which wraps back into the live board when it restarts. Everything
+// the team works the Acme Shop board in realtime, a session on EXP-151
+// starts FROM THE PHONE, runs on the desktop as a thread that is steered
+// live, its PR merges from the thread's Guide › Changes page, a visitor
+// reports the bug through the embedded feedback widget (it lands as an
+// issue), and the platform lineup closes the loop — which wraps back into
+// the live board when it restarts. Everything
 // here is deterministic copy — no divergent content.
 
 import type {
   BoardRow,
   DiffRow,
-  SessionEvent,
   SteerItem,
 } from "../ships/fixtures"
 
@@ -20,33 +20,29 @@ export const CL = {
   brand: "ACME SHOP",
   reporter: "Jamie Lee",
   reporterEmail: "jamie@lee.dev",
-  project: "Acme Shop",
-  team: "Acme", // the rail header names the ACTIVE team (EXP-723)
-  projectColor: "#a1a1aa",
+  board: "Acme Shop",
+  team: "Acme", // the sidebar header names the ACTIVE team
   repo: "acme/shop",
   branch: "exp/EXP-151",
   pr: 218,
-  runConfig: "Storefront",
   user: "Riley Chen",
   initials: "RC",
-  // The machine the run rides on — the session header's phase caption names
-  // it ("Working · Riley's MacBook Pro").
+  // The device the session runs on (the phone's "Starting on …" row).
   machine: "Riley's MacBook Pro",
-  sessionTab: "Fix the dead checkout button",
 } as const
 
-// The rail's Boards group (icons.json pickable glyphs + their accents).
+// The sidebar's Boards section (icons.json pickable glyphs + their accents).
 export const CL_BOARDS = [
-  { name: CL.project, glyph: "code", color: "#818cf8" },
+  { name: CL.board, glyph: "code", color: "#6366f1" },
   { name: "Launch Marketing", glyph: "kanban", color: "#f59e0b" },
   { name: "Product Feedback", glyph: "megaphone", color: "#22c55e" },
 ] as const
 
 export const CL_LABELS = {
-  bug: { name: "bug", dot: "#ef4444" },
-  web: { name: "web", dot: "#f97316" },
-  widget: { name: "widget", dot: "#22c55e" },
-  infra: { name: "infra", dot: "#3b82f6" },
+  bug: { name: "Bug", dot: "#ef4444" },
+  web: { name: "Web", dot: "#f97316" },
+  widget: { name: "Widget", dot: "#22c55e" },
+  infra: { name: "Infra", dot: "#3b82f6" },
 } as const
 
 // ── The acme.shop checkout page (dark third-party site) ──────────────────────
@@ -87,18 +83,8 @@ export const SITE = {
 
 // ── The widget report ─────────────────────────────────────────────────────────
 export const REPORT = {
-  panelTitle: "Send feedback",
-  sentTitle: "Feedback sent",
-  titleLabel: "Title",
   title: "Checkout button does nothing",
-  detailsLabel: "Details",
   details: "Clicked “Pay now” on Safari. No response.",
-  send: "Send feedback",
-  sending: "Sending…",
-  successTitle: "Thanks for the report!",
-  successSub: "Filed as ",
-  successId: "EXP-151",
-  poweredBy: "Powered by Exponential",
 } as const
 
 // ── Board at story start (EXP-151 pops in via insertAt) ──────────────────────
@@ -175,15 +161,6 @@ export const CL_BOARD: BoardRow[] = [
 export const CL_ISSUE = {
   id: NEW_ISSUE_ID,
   title: REPORT.title,
-  descriptionParas: [
-    REPORT.details,
-    "Reported from acme.shop/checkout via the feedback widget · Safari 26.2 on macOS · viewport 1568×980.",
-  ],
-  switcher: "4 / 8",
-  activity: [
-    { actor: "Feedback widget", text: "created this issue", time: "1 hr ago" },
-    { actor: CL.reporter, text: "subscribed as reporter", time: "1 hr ago" },
-  ],
   comments: [
     {
       actor: CL.reporter,
@@ -196,82 +173,39 @@ export const CL_ISSUE = {
   label: CL_LABELS.widget,
   assigneeName: CL.user,
   due: "Jul 19",
-  project: CL.project,
-  projectColor: "#818cf8",
+  board: CL.board,
+  boardColor: "#6366f1",
   // EXP-496: a widget-filed issue carries an Origin chip on every client.
   origin: "Feedback widget",
 } as const
 
-// ── The phone start flow (remote start over the steer rails, EXP-385) ────────
-// Strings mirror the real Agent page — the ONE launcher since EXP-825 (the
-// three-tab Start-coding sheet is gone, EXP-845): a pushed "Agent" detail with
-// the composer card (the chipped issue, the optional-instructions field, the
-// labelled submit pill), the options pills under it and the caller's Past
-// runs. One desktop online = the Device pill is a plain label; after submit
-// the caller shows the "Start sent" capsule toast.
-export const PHONE_START = {
-  navTitle: "Agent",
-  confirm: "Start coding",
-  placeholder: "Additional instructions (optional)…",
-  agent: "Claude Code",
-  planLabel: "Plan",
-  pastLabel: "Past",
-  // EXP-874: the unified past-row byline is device · time, nothing else.
-  pastByline: "MacBook Pro · yesterday",
-  device: "MacBook Pro",
-  toast: "Start sent to MacBook Pro. Watch it in the Agents tab.",
-} as const
-
-// ── The Claude session (real CLI grammar, see ships/surfaces/terminal.tsx) ────
-export const CL_SESSION: SessionEvent[] = [
-  {
-    kind: "tool",
-    tool: "Read",
-    args: "apps/shop/src/checkout/PayButton.tsx",
-    result: "Read 148 lines",
-  },
-  {
-    kind: "prose",
-    text: "The submit handler bails while cart revalidation is pending. On Safari that promise never settles, so every click is swallowed. Fixing the pending state and re-enabling submit:",
-  },
-  {
-    kind: "tool",
-    tool: "Update",
-    args: "apps/shop/src/checkout/PayButton.tsx",
-    result: "Added 18 lines, removed 6 lines",
-  },
-  {
-    kind: "tool",
-    tool: "Write",
-    args: "apps/shop/src/checkout/pay-button.test.tsx",
-    result: "Created file with 42 lines",
-  },
-  { kind: "tool", tool: "Bash", args: "bun run typecheck", result: "0 errors" },
-  {
-    kind: "tool",
-    tool: "Bash",
-    args: "bun test checkout",
-    result: "6 pass · 0 fail",
-  },
-  { kind: "spinner", verb: "Vibing" },
-  {
-    kind: "tool",
-    tool: "Bash",
-    args: "git push -u origin exp/EXP-151",
-    result: "To github.com:acme/shop.git",
-  },
-  { kind: "tool", tool: "mcp__exponential__exponential_pr_open" },
-  { kind: "flash", text: `Opened PR #218: ${REPORT.title}` },
-]
-
-// ── The EXP-151 diff (the PrDiff center screen Reviews rows open) ────────────
-export const CL_PR_HEAD = {
-  identifier: NEW_ISSUE_ID,
+// ── EXP-151 as the desktop issue detail draws it ────────────────────────────
+// SLOP-4: the widget files the reporter's message as the description (its
+// first line is the title) followed by the screenshot; the timeline's first
+// row is the synthesized "Feedback widget created the issue".
+export const CL_DESKTOP_ISSUE = {
   title: REPORT.title,
-  pr: CL.pr,
-  branch: CL.branch,
+  descriptionParas: [REPORT.title, REPORT.details],
+  createdBy: "Feedback widget",
+  createdAgo: "1 hr ago",
+  comments: CL_ISSUE.comments,
+  label: CL_LABELS.widget,
+  assigneeName: CL.user,
+  due: CL_ISSUE.due,
+  board: CL.board,
+  boardColor: "#6366f1",
+  origin: "Feedback widget",
 } as const
 
+// EXP-1341: a thread started on an issue is named "#<identifier> <title>".
+export const CL_THREAD_TITLE = `#${NEW_ISSUE_ID} ${REPORT.title}`
+
+// ── The device the session runs on (the phone's PR row byline) ──────────────
+export const PHONE_START = {
+  device: "MacBook Pro",
+} as const
+
+// ── The EXP-151 diff (the thread's Guide › Changes page) ─────────────────────
 export const CL_DIFF_FILES = [
   { status: "M", path: "apps/shop/src/checkout/PayButton.tsx", selected: true },
   {
@@ -344,38 +278,12 @@ export const CL_DIFF_ROWS: DiffRow[] = [
   },
 ]
 
-// ── Reviews row ───────────────────────────────────────────────────────────────
-export const CL_REVIEW_ROW = {
-  id: NEW_ISSUE_ID,
-  title: REPORT.title,
-  sub: `#${CL.pr} · ${CL.branch}`,
-} as const
-
 // ── The live steer (inside the code-everywhere clip) ─────────────────────────
 // The dock streams the session while the SAME feed mirrors onto the phone's
 // steer activity view; the user types a steer on the phone, it lands in the
 // terminal as a highlighted line, and the agent acknowledges and continues.
 export const CL_STEER_MSG =
   "Also guard double-submits: disable the button while a payment is in flight."
-
-export const CL_STEER_REPLY: SessionEvent[] = [
-  {
-    kind: "prose",
-    text: "Good catch. Adding an in-flight guard and a double-submit test.",
-  },
-  {
-    kind: "tool",
-    tool: "Update",
-    args: "apps/shop/src/checkout/PayButton.tsx",
-    result: "Added 9 lines",
-  },
-  {
-    kind: "tool",
-    tool: "Bash",
-    args: "bun test checkout",
-    result: "7 pass · 0 fail",
-  },
-]
 
 // The phone's steer activity feed (mirrors the session, condensed).
 export const CL_PHONE_FEED: SteerItem[] = [
@@ -416,7 +324,7 @@ export type PhoneBoardProjection = {
   id: string
   title: string
   priority: "none" | "urgent" | "high" | "medium" | "low"
-  status: "backlog" | "in_progress" | "done"
+  status: "backlog" | "in_progress" | "in_review" | "done"
   labelDot?: string
   assignee?: string
   due?: string
@@ -449,4 +357,23 @@ export const COPY = {
   rm2: "Merge. Done.",
   fb1: "A visitor hits a bug.",
   fb2: "It lands on your board.",
+} as const
+
+// ── The widget panel's real copy (packages/widget/src/ui/Panel.tsx) ─────────
+// SLOP-4: ONE form — the reporter types a single message; the issue title is
+// its first line (apps/web lib/reporter-text.ts titleFromReporterMessage),
+// so the message opens with REPORT.title and the description carries the
+// whole text (lib/widget/metadata.ts buildWidgetDescription).
+export const WIDGET_COPY = {
+  panelTitle: "Send feedback",
+  messageLabel: "What happened?",
+  message: `${REPORT.title}\n${REPORT.details}`,
+  emailLabel: "Email (optional)",
+  emailPlaceholder: "you@example.com",
+  addImage: "Add image",
+  send: "Send feedback",
+  sending: "Sending…",
+  successTitle: "Thanks, your report is in.",
+  successSub: `Filed as ${NEW_ISSUE_ID}.`,
+  launcherLabel: "Feedback",
 } as const

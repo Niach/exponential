@@ -35,6 +35,38 @@ export const WEB_PROJECTS: DemoProject[] = [
 
 export const WEB_BOARD = WEB_PROJECTS[0]
 
+/* The team (the header's team switcher): one team across the demos. */
+export const WEB_TEAM = { name: DEMO_BOARD.name }
+
+/* ─── Sidebar Agents + Apps (EXP-1293 / VAPP-110) ───
+   Team agents are definitions drawn like boards: a pickable icon in the
+   agent's colour + its name; the trailing state is the amber dot while it
+   needs you. Apps: the BUILT-IN Devices app first (the nav-devices glyph,
+   no colour), then the team's apps by name. Icons are names from
+   packages/icons/icons.json `pickable`. */
+export type DemoAgentDef = {
+  name: string
+  icon: `bug` | `package`
+  color: string
+  needsYou?: boolean
+}
+
+export const WEB_AGENTS: DemoAgentDef[] = [
+  { name: `Triage`, icon: `bug`, color: `#a855f7`, needsYou: true },
+  { name: `Release`, icon: `package`, color: `#22c55e` },
+]
+
+export type DemoApp = {
+  name: string
+  icon: `devices` | `rocket` | `chart-line`
+  color?: string
+}
+
+export const WEB_APPS: DemoApp[] = [
+  { name: `Devices`, icon: `devices` },
+  { name: `Release checklist`, icon: `rocket`, color: `#f97316` },
+]
+
 /* Group order — the app lists groups by the status rows' contract
    displayOrder (backlog → started → completed), NOT by the IDE's
    activity-first order. */

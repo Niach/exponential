@@ -1,18 +1,25 @@
 # @exp/styleguide
 
-The reference page for the whole product's surface, in **three modes** picked
-from one segmented bar at the top of the sidebar (EXP-941):
+The reference page for the whole product's surface, in **four sections**
+(EXP-1019 / EXP-1029) picked from one segmented bar at the top of the sidebar.
+`src/sections/sections.json` is THE index: the web page and the IDE's twin
+(`apps/desktop/crates/ui/src/styleguide`, which embeds the same file) both read
+it.
 
-| mode | what it holds | where it comes from |
+| section | what it holds | where it comes from |
 | --- | --- | --- |
-| **Views** | every screen in `@exp/view-catalog` (bar the site-owned `exponential-ui-catalog` group), with its web / web-mobile / desktop / iOS / Android shots side by side | photographs in `shots/` (EXP-566) |
-| **Components** | the Exponential app's specialised controls (the generic ones live on [ui.exponential.at](https://ui.exponential.at/components/), VAPP-93) — the REAL `@exp/ui` component wherever one owns the form | rendered live at build time (EXP-698 / EXP-887) |
-| **Style** | the values the controls are made of: colour, shape & size, type, motion, and the icon registry | `@exp/design-tokens` and `packages/icons` |
+| **1 Style** | the values the controls are made of: colour, shape, type, motion and the icon registry | `@exp/design-tokens` and `packages/icons` |
+| **2 General components** | the Exponential app's own controls any screen reuses (the typed pickers, the search list, toasts, the strip chip, feedback states, Trace, CodeBlock …); the generic set (buttons, fields, rows, pills, dialogs, meters and the layout macros Page, Toolbar, SplitView, FieldGroup, FormActions, StatTile) lives on [ui.exponential.at](https://ui.exponential.at/components/), VAPP-93 | rendered live at build time: the REAL `@exp/ui` component (EXP-698 / EXP-887) |
+| **3 Special components** | compositions with ONE owner: a dialog, a tree, a settings surface, the session thread, THE Dock and its cards (`dock-card`, `ask-dock`, `plan-card`) | rendered live, same as section 2 |
+| **4 Views** | every screen in `@exp/view-catalog` (bar the site-owned `exponential-ui-catalog` group), with its web / web-mobile / desktop / iOS / Android shots side by side | photographs in `shots/` (EXP-566) |
 
-Everything the page does happens WITHIN the current mode: the filter, `j`/`k`,
-the summary line. A hash always wins — `#issue-chip` switches to Components and then
-shows the entry — and `1` / `2` / `3` switch modes, with the last one
-remembered in `localStorage`.
+Rule of thumb: a whole screen is a **View** (section 4, a `views.json` entry
+and its shots); a reusable piece of it is an **entry** (section 2 or 3).
+
+Everything the page does happens WITHIN the current section: the filter,
+`j`/`k`, the summary line. A hash always wins — `#issue-chip` switches to its
+section and then shows the entry — and `1` … `4` switch sections, with the
+last one remembered in `localStorage`.
 
 The output is ONE self-contained HTML file plus a copy of `shots/` — no
 runtime dependencies IN THE OUTPUT, `open dist/index.html` works with no
@@ -24,7 +31,7 @@ bun run build:styleguide    # writes apps/styleguide/dist/
 bun run shots:check         # build --check: fails on missing / undeclared shots
 ```
 
-## Views
+## Views (section 4)
 
 Per platform a view is either **captured**, **missing** or **n/a**:
 
@@ -35,22 +42,46 @@ Per platform a view is either **captured**, **missing** or **n/a**:
 - **undeclared** — a file in `shots/` that no view/platform pair claims. Either
   the catalog entry was renamed or the file is stale.
 
-Only this mode has shots at all, so the toolbar's **Fit to height** toggle and
-the 1:1 lightbox hint are hidden in the other two.
+Only the Views section has shots at all, so the toolbar's **Fit to height**
+toggle and the 1:1 lightbox hint are hidden in the other three.
 
-## The spec model
+## The page model
 
-Components and Style are ONE array, `COMPONENTS` in `src/components.tsx`, so
-every gate runs over all of it. A spec carries no mode field: `kind` is the
-sub-group inside a mode and `modeOf(spec)` derives the mode from it, which
-makes a mis-sorted entry impossible rather than merely gated.
+Two lists feed the page (`src/sections/page.ts`, `buildPage`), collapsed into
+one `PageEntry` so the renderer never knows which list an entry came from:
 
-- **Components** kinds: `Inputs & pickers`, `Buttons & chips`, `Lists & rows`,
-  `Surfaces`, `Feedback`.
-- **Style** kinds (`STYLE_KINDS`): `Colour`, `Shape & size`, `Type`, `Motion`,
-  `Icons`.
-- `KIND_ORDER` is the nav order within a mode; `MODES` holds the three
-  `{ id, label, blurb }`.
+- **`COMPONENTS`** (`src/components.tsx`): the older specs and the Style
+  entries. A spec carries a `kind` and no section: `sectionOfSpec` derives it
+  (a Style kind is section 1, an id in `SPECIAL_ENTRY_IDS` is section 3,
+  everything else section 2), so a mis-sorted spec is impossible rather than
+  merely gated.
+- **`ENTRIES`** (`src/entries/index.ts`, the EXP-1029 contract): the
+  registered entries, one file each. Their section is `sections.json`'s and is
+  never re-derived; only their nav band is the page's (`ENTRY_BAND`).
+
+Bands: the control sections draw `Inputs & pickers`, `Buttons & chips`,
+`Lists & rows`, `Surfaces`, `Feedback`; Style draws `STYLE_KINDS` (`Colour`,
+`Shape & size`, `Type`, `Motion`, `Icons`). `BAND_ORDER` is the nav order.
+
+### Adding a registered entry (the five sites)
+
+1. `src/sections/sections.json`: the id in its section's `entries` and its
+   issue in `owners`.
+2. `src/entries/<id>.tsx`: `export const entry: StyleguideEntry` with the
+   section, owner, title, blurb, the four platform rows and `island`
+   rendering the REAL `@exp/ui` component with resting props (a shared
+   specimen in `packages/ui/src/<name>-specimen.tsx` when the app's
+   `?dev=<id>` capture draws the same board).
+3. `src/entries/index.ts`: import it and add it to `ENTRIES`.
+4. `src/sections/page.ts`: its band in `ENTRY_BAND` (gated).
+5. The IDE twin `apps/desktop/crates/ui/src/styleguide/entries/<id>.rs`
+   (registered in that folder's `mod.rs`): the desktop crate embeds
+   `sections.json` and its drift test (`every_registered_id_has_an_entry_file_and_an_owner_in_index_order`) fails until `entries::ENTRIES` lists the same ids in the same order.
+
+If the piece is low-level and generic, it also goes into Exponential UI
+(`packages/exponential-ui` catalog + `fixtures/specimens.json` + its
+`exponential-ui-<name>` view and four shots, then its ui.exponential.at page);
+an Exponential-specific composition stays here only.
 
 ### `leftovers` — what the product still draws by hand
 
@@ -68,7 +99,7 @@ yellow dot to the nav link. `bun test` gates it: every file exists, every note
 is one line of at most 120 characters. Fix the call site, delete the row —
 that is the only way the dot goes away.
 
-## Components
+## Components (sections 2 and 3)
 
 **Generic specimens live on ui.exponential.at (VAPP-93).** Every control that
 is part of the Exponential UI SDK's core catalog — buttons, fields, checkbox,
@@ -79,7 +110,11 @@ rings, tabs, the composer and, in the round-3 vocabulary (VAPP-102), **Row**
 as its part), **Section** (group bands, row lists, collapsible folds),
 **Chip** (pill and entity chip), **Segmented** (segmented control, toggles,
 button group, tab bar) and **Menu** (dropdown and context menus, the Menu ·
-Picker · Typeahead family) — is documented at
+Picker · Typeahead family), and since round 4 the **DockCard** (N-12: the
+Dock's collapsed card + its sheet; the app's `dock-card` entry here shows the
+real Dock around it), **Trace** / **TraceItem**, **CodeBlock**, **ChoiceTiles**,
+**SearchList** and the layout macros **Page**, **Toolbar**, **SplitView**,
+**FieldGroup**, **FormActions** and **StatTile** (VAPP-126) — is documented at
 [`https://ui.exponential.at/components/`](https://ui.exponential.at/components/),
 where it renders live through the SDK beside its four platform shots. Their
 per-platform status tables moved with them, verbatim, to
@@ -98,7 +133,7 @@ tiles, the diff cards, usage bars, the GitHub surfaces, brand marks, the auth
 shell, the decision dialogs — plus toasts (host-owned, no core component) and
 the Style mode. `components.test.tsx` fails if a moved id comes back.
 
-Nothing in this mode is a screenshot. Most entries are **islands**: the REAL
+Nothing in these two sections is a screenshot. Most entries are **islands**: the REAL
 `@exp/ui` component, rendered to static markup inside a declarative shadow root
 and painted by the package's own stylesheet, compiled once per build
 (`@exp/ui/island`). The page shows the control the product ships, not a
@@ -138,7 +173,7 @@ to the site), and `component-styles.ts` contains no colour literal — every
 value is a `var(--…)` declared from the tokens, and every radius is a ladder
 step.
 
-### Adding a component entry
+### Adding a `COMPONENTS` spec (the older path; new entries register as above)
 
 0. **Is it generic?** If it maps onto a core catalog component
    (`packages/exponential-ui/docs/components.generated.json`), it belongs on
@@ -164,7 +199,7 @@ EXP-895's `FileDiffList` slots straight in: a fixture array of files beside the
 spec, `island: () => <FileDiffList files={FIXTURE} />`, four platform rows, done
 — no CSS, no lookalike, no capture lane.
 
-## Style
+## Style (section 1)
 
 A Style entry documents a VALUE, not a control, so it names whichever file
 happens to SPEND the token and is normally a hand-written swatch table driven
@@ -196,5 +231,5 @@ by default it is the repo-root `shots/`.
 Deploys as a Coolify STATIC app serving `apps/styleguide/dist` — no runtime, so
 the build step is the whole deploy.
 
-Keyboard: `1` / `2` / `3` switch mode, `j`/`k` or arrows move within it, `/`
+Keyboard: `1` … `4` switch section, `j`/`k` or arrows move within it, `/`
 focuses the filter, clicking a shot opens it 1:1, `Esc` closes.

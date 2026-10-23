@@ -1,19 +1,15 @@
-/* ─── Files tool window (trunk file tree) + the center file viewer. Files are
-   NOT tabs (EXP-288): the viewer IS the Files tool's center content. ─── */
+/* ─── Files (the footer Computer menu's Files, Screen::Files): the trunk
+   file tree as a 320px pane inside the content card — the "Files" head
+   with its refresh glyph, the branch pin, then 24px rows (chevron · folder
+   or file glyph · text_sm name) — beside the viewer, which says "Open a
+   file from the Files panel." until a file is picked. ─── */
 import { Fragment } from "react"
 import { FILE_TREE, PACKAGE_JSON, type FileNode } from "./data"
 import { useIde } from "./state"
-import { ToolHead } from "./bits"
 import { tintJson } from "./syntax"
-import {
-  IcChevDown,
-  IcChevRight,
-  IcFile,
-  IcFolder,
-  IcFolderOpen,
-  IcGitBranch,
-  IcRefresh,
-} from "./icons"
+import { IcBranch, IcChevDown, IcChevRight, IcFile, IcFiles, IcFolderOpen, IcRefresh } from "./icons"
+
+const VIEWABLE = `package.json`
 
 function TreeRows({ nodes, depth }: { nodes: FileNode[]; depth: number }) {
   const { expandedDirs, toggleDir, selectedFile, selectFile, interactive } = useIde()
@@ -23,40 +19,39 @@ function TreeRows({ nodes, depth }: { nodes: FileNode[]; depth: number }) {
         const isDir = Boolean(n.children)
         const isExpanded = isDir && expandedDirs.has(n.path)
         const isSelected = !isDir && selectedFile === n.path
-        const onClick = interactive
-          ? () => (isDir ? toggleDir(n.path) : selectFile(n.path))
-          : undefined
+        /* The demo carries one file's text (the root package.json); the
+           other files stay inert rather than show the wrong contents. */
+        const openable = isDir || n.path === VIEWABLE
+        const onClick =
+          interactive && openable ? () => (isDir ? toggleDir(n.path) : selectFile(n.path)) : undefined
         return (
           <Fragment key={n.path}>
             <div
-              className={`ide-tree-row${interactive ? ` is-click` : ``}${isSelected ? ` is-selected` : ``}${n.dim ? ` is-dim` : ``}`}
-              style={{ paddingLeft: 10 + depth * 13 }}
+              className={`ide-tree-row${onClick ? ` is-click` : ``}${isSelected ? ` is-selected` : ``}`}
+              style={{ paddingLeft: 8 + depth * 14 }}
               onClick={onClick}
             >
               {isDir ? (
                 isExpanded ? (
-                  <IcChevDown size={10} className="ide-c-dim" />
+                  <IcChevDown size={10.5} className="ide-c-muted" />
                 ) : (
-                  <IcChevRight size={10} className="ide-c-dim" />
+                  <IcChevRight size={10.5} className="ide-c-muted" />
                 )
               ) : (
                 <span className="ide-tree-spacer" />
               )}
               {isDir ? (
                 isExpanded ? (
-                  <IcFolderOpen size={10} className="ide-c-muted" />
+                  <IcFolderOpen size={12.25} className="ide-c-muted" />
                 ) : (
-                  <IcFolder size={10} className="ide-c-muted" />
+                  <IcFiles size={12.25} className="ide-c-muted" />
                 )
               ) : (
-                <IcFile size={10} className="ide-c-muted" />
+                <IcFile size={12.25} className="ide-c-muted" />
               )}
               <span className="ide-tree-name">{n.name}</span>
-              {n.git && <span className={`ide-git-letter ide-git-${n.git}`}>{n.git}</span>}
             </div>
-            {isDir && isExpanded && n.children && (
-              <TreeRows nodes={n.children} depth={depth + 1} />
-            )}
+            {isDir && isExpanded && n.children && <TreeRows nodes={n.children} depth={depth + 1} />}
           </Fragment>
         )
       })}
@@ -66,20 +61,19 @@ function TreeRows({ nodes, depth }: { nodes: FileNode[]; depth: number }) {
 
 export function FilesPanel() {
   return (
-    <div className="ide-filespanel">
-      <ToolHead
-        icon={<IcFolder size={10} className="ide-c-muted" />}
-        title="Files"
-        trailing={
-          <span className="ide-icbtn">
-            <IcRefresh size={11} />
-          </span>
-        }
-      />
+    <div className="ide-pane">
+      <div className="ide-pane-head">
+        <IcFiles size={12.25} className="ide-c-muted" />
+        <span className="ide-pane-title">Files</span>
+        <span className="ide-flex1" />
+        <span className="ide-icon-btn" title="Refresh">
+          <IcRefresh size={12.25} />
+        </span>
+      </div>
       <div className="ide-branchrow">
-        <IcGitBranch size={10} className="ide-c-muted" />
+        <IcBranch size={10.5} className="ide-c-muted" />
         <span>master</span>
-        <IcChevDown size={10} className="ide-c-muted" />
+        <IcChevDown size={10.5} className="ide-c-muted" />
       </div>
       <div className="ide-tree">
         <TreeRows nodes={FILE_TREE} depth={0} />
@@ -88,7 +82,7 @@ export function FilesPanel() {
   )
 }
 
-/* The center pane of the Files tool: the selected file, or the hint. */
+/* The viewer: the selected file, or the hint. */
 export function FileTab() {
   const { selectedFile } = useIde()
   if (!selectedFile) {

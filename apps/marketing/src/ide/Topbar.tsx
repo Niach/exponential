@@ -1,117 +1,89 @@
 /* ─── The work-tabs band (app_title_bar.rs + screens.rs render_tab_strip,
-   EXP-870/877): 44px of bare ground above the cutout panel, 32px chips
-   centred in it. Live sessions of mine LEAD the strip, clustered by agent: the
-   agent's brand mark, its chips, then a chevron that folds the cluster to
-   the mark (the mark unfolds it again). A live session's chip carries its
-   state (spinner while its turn runs, amber waiting on you, green PR open)
-   and cannot be closed. Other tabs follow with their status glyph and ×.
-   The active tab wears the glass ACTIVE fill. ─── */
-import { AGENT_LABEL, getIssue, type AgentKind } from "./data"
-import { isLive, useIde, type RunView, type Tab } from "./state"
+   EXP-877/923/1255): 44px of bare ground above the content card, 8px in
+   from the rail. A FLAT strip of what you opened — issues and threads —
+   each THE strip chip (surface.rs `rich_tab`: 32px, 6px radius, the row
+   hairline at rest, the strong stroke over the glass ACTIVE fill when up):
+   a 14px lead (an issue's status glyph, a thread's session-state glyph),
+   the mono identifier, the title capped at 180px, and the × that shows on
+   hover only. The ghost `+` (New session) closes the strip, tabs or not. ─── */
+import { getIssue } from "./data"
+import { useIde, type Tab, type ThreadState } from "./state"
 import { StatusIcon } from "./bits"
-import { IcChevLeft, IcClaude, IcCodex, IcX } from "./icons"
+import { IcAlert, IcAssistant, IcCircleCheck, IcPlay, IcPlus, IcX } from "./icons"
 
-export function AgentMark({ agent, size = 14 }: { agent: AgentKind; size?: number }) {
-  return agent === `claude` ? (
-    <IcClaude size={size} />
-  ) : (
-    <IcCodex size={size} className="ide-c-fg" />
-  )
+/* session-card.json `icons` + `tones`: the thread chip's lead. */
+export function SessionStateGlyph({ state, size = 14 }: { state: ThreadState; size?: number }) {
+  switch (state) {
+    case `working`:
+      return <IcPlay size={size} className="ide-c-fg" />
+    case `needs_you`:
+      return <IcAlert size={size} className="ide-c-amber" />
+    case `waiting`:
+      return <IcAssistant size={size} className="ide-c-muted" />
+    case `ended`:
+      return <IcCircleCheck size={size} className="ide-c-muted" />
+  }
 }
 
-/* The ONE session dot (queries.rs SessionDotFacts). */
-export function RunDot({ run }: { run: RunView }) {
-  if (run.state === `running`) return <span className="ide-rail-spinner" />
-  return (
-    <span
-      className={`ide-rundot${run.state === `waiting` ? ` is-waiting` : run.state === `ended` ? ` is-ended` : ``}`}
-    />
-  )
-}
-
-function TabChip({ tab, run }: { tab: Tab; run: RunView | null }) {
-  const { active, selectTab, closeTab, interactive } = useIde()
+function TabChip({ tab }: { tab: Tab }) {
+  const { active, selectTab, closeTab, interactive, thread } = useIde()
   const isActive = tab.key === active
   const issue = tab.kind === `issue` ? getIssue(tab.ref) : null
-  const closable = !run || !isLive(run.state)
+  const title = issue ? issue.title : thread ? `#${thread.issueId} ${getIssue(thread.issueId).title}` : ``
   return (
     <div
       className={`ide-tab${isActive ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
       onClick={interactive ? () => selectTab(tab.key) : undefined}
-      title={issue ? `${issue.id} ${issue.title}` : tab.label}
+      title={issue ? `${issue.id} ${issue.title}` : title}
     >
-      {run ? <RunDot run={run} /> : issue ? <StatusIcon status={issue.status} size={11} /> : null}
+      <span className="ide-tab-lead">
+        {issue ? (
+          <StatusIcon status={issue.status} size={14} />
+        ) : thread ? (
+          <SessionStateGlyph state={thread.state} />
+        ) : null}
+      </span>
       {issue && <span className="ide-tab-id">{issue.id}</span>}
-      <span className="ide-tab-title">{issue ? issue.title : (run?.title ?? tab.label)}</span>
-      {closable && (
-        <button
-          className={`ide-tab-x${interactive ? ` is-click` : ``}`}
-          type="button"
-          title="Close tab"
-          onClick={
-            interactive
-              ? (e) => {
-                  e.stopPropagation()
-                  closeTab(tab.key)
-                }
-              : undefined
-          }
-        >
-          <IcX size={11} />
-        </button>
-      )}
+      <span className="ide-tab-title">{title}</span>
+      <button
+        className={`ide-tab-x${interactive ? ` is-click` : ``}`}
+        type="button"
+        title="Close"
+        aria-label="Close"
+        onClick={
+          interactive
+            ? (e) => {
+                e.stopPropagation()
+                closeTab(tab.key)
+              }
+            : undefined
+        }
+      >
+        <IcX size={10.5} />
+      </button>
     </div>
   )
 }
 
 export function Topbar() {
-  const { tabs, runForTab, foldedAgents, toggleAgentFold, interactive } = useIde()
-  const withRuns = tabs.map((tab) => ({ tab, run: runForTab(tab.key) }))
-  const groups = ([`claude`, `codex`] as AgentKind[])
-    .map((agent) => ({
-      agent,
-      items: withRuns.filter(({ run }) => run && isLive(run.state) && run.agent === agent),
-    }))
-    .filter((g) => g.items.length > 0)
-  const rest = withRuns.filter(({ run }) => !run || !isLive(run.state))
+  const { tabs, interactive, setTool } = useIde()
   return (
     <div className="ide-titlebar">
       <div className="ide-tabstrip">
-        {groups.map(({ agent, items }) => {
-          const folded = foldedAgents.has(agent)
-          return (
-            <div key={agent} className="ide-tabgroup">
-              <button
-                className={`ide-tabgroup-mark${interactive ? ` is-click` : ``}`}
-                type="button"
-                title={folded ? `Show ${AGENT_LABEL[agent]} runs` : AGENT_LABEL[agent]}
-                onClick={interactive && folded ? () => toggleAgentFold(agent) : undefined}
-              >
-                <AgentMark agent={agent} />
-              </button>
-              {!folded && (
-                <>
-                  {items.map(({ tab, run }) => (
-                    <TabChip key={tab.key} tab={tab} run={run} />
-                  ))}
-                  <button
-                    className={`ide-tabgroup-fold${interactive ? ` is-click` : ``}`}
-                    type="button"
-                    title="Collapse"
-                    onClick={interactive ? () => toggleAgentFold(agent) : undefined}
-                  >
-                    <IcChevLeft size={12} />
-                  </button>
-                </>
-              )}
-            </div>
-          )
-        })}
-        {rest.map(({ tab, run }) => (
-          <TabChip key={tab.key} tab={tab} run={run} />
+        {tabs.map((tab) => (
+          <TabChip key={tab.key} tab={tab} />
         ))}
+        {/* EXP-1294: the `+` opens Home ("New session"). */}
+        <button
+          className={`ide-strip-new${interactive ? ` is-click` : ``}`}
+          type="button"
+          title="New session"
+          aria-label="New session"
+          onClick={interactive ? () => setTool(`agent`) : undefined}
+        >
+          <IcPlus size={10.5} />
+        </button>
       </div>
-      <div className="ide-flex1" />
     </div>
   )
 }

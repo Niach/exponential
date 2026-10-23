@@ -1,64 +1,33 @@
 /* ─── Shared IDE demo state: context, types, helpers ─── */
 import { createContext, useContext } from "react"
-import type { AgentKind, Change, Commit, FeedRow, FilterTab, RunFile } from "./data"
+import type { Change, Commit, FeedRow, Question } from "./data"
 
-/* The rail destination the main view shows while no top tab is active.
-   Board and Inbox are LIST screens: an issue picked from one opens beside
-   it, with the list folded into the left column (EXP-870). */
-export type Tool =
-  | `issues`
-  | `files`
-  | `source-control`
-  | `inbox`
-  /* EXP-706: a rail SCREEN, not a docked tool window. */
-  | `reviews`
-  /* EXP-825: the Agent page, the composer over the Running/Recent bands. */
-  | `agent`
+/* The rail destination the main view shows while no top tab is active
+   (navigation.rs `Screen`): Home ("Agent"), the Inbox, the Threads page, a
+   board's list, and the footer Computer menu's Files / Source Control. */
+export type Tool = `agent` | `inbox` | `threads` | `board` | `files` | `source-control`
+
 export type IdeView = `board` | `issue` | `files` | `source-control`
 
-/* `issue` = an issue and its run as ONE top tab (EXP-870); `run` = an
-   issue-less session's Run-only tab (a batch). `file`/`sc` are legacy kinds. */
-export type TabKind = `issue` | `file` | `sc` | `run`
-export type Tab = { key: string; kind: TabKind; label: string; ref: string }
+/* A top tab (EXP-923: a flat strip of what you opened): an issue's detail
+   or a thread. `origin` = the Inbox lends its list as a second sidebar to
+   the detail it opened (EXP-1192); nothing else does. */
+export type Tab = { key: string; kind: `issue` | `thread`; ref: string; origin?: `inbox` }
 
-/* Which face of a top tab is up (work_header.rs `Face`): the Diff face is
-   the session's full-page diff (EXP-877), never a side pane. */
-export type Face = `issue` | `run` | `diff`
+/* session-card.json states the demo's thread moves through. */
+export type ThreadState = `working` | `needs_you` | `waiting` | `ended`
 
-/* A run's phase: `running` = the agent's turn is going, `waiting` = its turn
-   ended on a question it holds for (EXP-674), `review` = idle with its PR
-   open, `ended` = stopped (or its PR merged, EXP-498). `idle` = no session. */
-export type CodingState = `idle` | `running` | `waiting` | `review` | `ended`
-/* A coding run targets ONE issue or a BATCH of issues (EXP-106) — one
-   session, one exp/batch-<id8> branch, one combined PR. */
-export type CodingTarget =
-  | { kind: `issue`; id: string }
-  | { kind: `batch`; issueIds: string[] }
-export type ScriptPos = { done: number; chars: number }
-
-/* The two runs the demo knows: the one the composer starts (scripted) and
-   the Codex run already waiting for review. */
-export type RunId = `scripted` | `review`
-
-export type RunView = {
-  id: RunId
-  agent: AgentKind
-  state: CodingState
-  /* The issue the run is on; null for a batch. */
-  issueId: string | null
-  title: string
-  /* The top tab it lives in. */
-  tabKey: string
+export type ThreadView = {
+  issueId: string
+  state: ThreadState
+  /* The rows on screen, in order. */
   rows: FeedRow[]
-  /* Rows fully shown, plus the typing row's character count. */
-  pos: ScriptPos
-  files: RunFile[]
-  /* The model the footer pin names. */
-  model: string
+  /* The prose row still typing out (its text so far), while working. */
+  typing: string | null
+  question: Question | null
 }
 
-export const isLive = (state: CodingState): boolean =>
-  state === `running` || state === `waiting` || state === `review`
+export type ScriptPos = { done: number; chars: number }
 
 export type IdeApi = {
   interactive: boolean
@@ -71,19 +40,8 @@ export type IdeApi = {
   active: string | null
   selectTab: (key: string) => void
   closeTab: (key: string) => void
-  faceOf: (key: string) => Face
-  setFace: (key: string, face: Face) => void
-  /* `fromList` = picked from a list screen: the list folds in beside it. */
-  openIssue: (id: string, fromList?: boolean) => void
-  openFile: (path: string) => void
-  openSourceControl: () => void
+  openIssue: (id: string, origin?: `inbox`) => void
 
-  /* EXP-870: the ListNav is up (the rail is the compact icon column). */
-  listNav: boolean
-  closeListNav: () => void
-
-  filter: FilterTab
-  setFilter: (filter: FilterTab) => void
   collapsedGroups: Set<string>
   toggleGroup: (status: string) => void
 
@@ -91,9 +49,6 @@ export type IdeApi = {
   toggleDir: (path: string) => void
   selectedFile: string | null
   selectFile: (path: string) => void
-
-  viewedBranch: string
-  viewBranch: (name: string) => void
   changes: Change[]
   commits: Commit[]
 
@@ -101,37 +56,19 @@ export type IdeApi = {
   markInboxRead: (id: string) => void
   markAllInboxRead: () => void
 
-  mergedReviews: Set<string>
-  goneReviews: Set<string>
-  mergeReview: (issueId: string) => void
+  /* EXP-1294: Start opens Home with the issue as the composer's subject. */
+  subject: string[]
+  start: (issueId: string) => void
+  removeSubject: (issueId: string) => void
+  /* The send: ONE thread on the device, opened as a tab. */
+  send: (text: string) => void
 
-  coding: CodingState
-  codingTarget: CodingTarget | null
-  codingScript: FeedRow[]
-  scriptPos: ScriptPos
-  /* EXP-825: every play button navigates to the Agent page with its issues
-     already chipped, and the send starts the session (1 chip = a single run,
-     2+ = a batch). */
-  composerOpen: boolean
-  chips: string[]
-  openComposer: (issueIds: string[]) => void
-  closeComposer: () => void
-  toggleChip: (issueId: string) => void
-  submitComposer: () => void
-
-  /* Every run with a tab or a row: live ones auto-own a tab (EXP-870). */
-  runs: RunView[]
-  runForTab: (key: string) => RunView | null
-  openRun: (id: RunId) => void
-  stopRun: (id: RunId) => void
-  /* Keeps the scripted run's older name working. */
-  stopCoding: () => void
-  answerQuestion: (answer: string) => void
-  steer: (id: RunId, text: string) => void
-
-  /* The strip's agent clusters a chevron has folded to their mark. */
-  foldedAgents: Set<string>
-  toggleAgentFold: (agent: AgentKind) => void
+  thread: ThreadView | null
+  threadKey: string
+  openThread: () => void
+  stopThread: () => void
+  answer: (text: string) => void
+  steer: (text: string) => void
 }
 
 export const IdeContext = createContext<IdeApi | null>(null)

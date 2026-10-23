@@ -1,21 +1,19 @@
 // closedloop/segments/reviewmerge.tsx — clip 3 (235f, refocused by EXP-388):
-// ONE surface, one framing. The PR's diff paints into the PrDiff center
-// screen (the screen Reviews rows open — the old Changes tab is gone) beside
-// the board's issue list, exactly as shots/review-diff/desktop.webp frames it;
-// the rail's Reviews entry carries its green open-PR dot. EXP-706 retired the
-// docked Reviews TOOL window (Reviews is a tab-less full-page screen now), so
-// the two-stage merge runs where the product puts it: the diff header's own
-// merge cluster (Merge → Confirm merge → Merging…). The phone beside the window shows the
-// REAL mobile issue detail: its coding/PR card flips "Ready for review" →
-// "Merged" and the status chip lands on Done as the merge completes.
-// PORTRAIT (FEED-20): the phone IS the clip — it shows the mobile Review
-// screen instead (diff cards + the × · Merge · ↗ bottom bar) and the merge
-// runs THERE: tap Merge → "Merge pull request?" → spinner → Merged.
+// ONE surface, one framing. The thread's Guide › Changes page (EXP-895 the
+// ONE diff view: the file tree beside the unified diff cards) paints in the
+// panel, and the thread header carries the ONE merge control while the
+// Guide's PR is open (thread_screen.rs: `Merge PR`, two-click via
+// pr_merge.rs: Merge PR → Confirm merge → Merging…). The PR opened moved
+// EXP-151 to In Review (issue-lifecycle `pr_opened`); the merge moves it to
+// Done (`pr_merged`) and the pill leaves with the open PR. The phone beside
+// the window shows the REAL mobile issue page landing on Done.
+// PORTRAIT: the phone IS the clip — the thread's Guide › Changes page on
+// iOS with its Merge PR capsule; the merge runs THERE.
 // All beats are LOCAL frames.
 
 import React from "react"
 import { AbsoluteFill, interpolate } from "remotion"
-import { C, PAGE_FONT, WIN } from "../../ships/theme"
+import { PAGE_FONT } from "../../ships/theme"
 import {
   Camera,
   Caption,
@@ -26,32 +24,28 @@ import {
   type CursorKey,
 } from "../../ships/rig"
 import {
-  BoardTool,
-} from "../../ships/surfaces/board"
-import {
   CutoutPanel,
-  CompactRail,
-  ListNav,
+  PANEL,
+  Sidebar,
   TitleBar,
-  type ChromeTab,
-} from "../../ships/surfaces/chrome"
+  panelPt,
+} from "../../ships/surfaces/shell"
 import {
-  PrDiffPane,
-  prDiffMergeCenter,
-  type PrMergeState,
-} from "../../ships/surfaces/diffview"
+  ChangesView,
+  ThreadHeader,
+  type ChangesFile,
+  type MergePill,
+} from "../../ships/surfaces/threadview"
 import { PhoneChassis } from "../surfaces/steerphone"
 import { IssueScreen } from "../surfaces/mobileui"
 import { ReviewPhoneScreen } from "../surfaces/reviewphone"
 import {
   CL,
-  CL_BOARD,
-  CL_DIFF_FILES,
+  CL_BOARDS,
   CL_DIFF_ROWS,
-  CL_FILE_STATS,
   CL_ISSUE,
   CL_LABELS,
-  CL_PR_HEAD,
+  CL_THREAD_TITLE,
   COPY,
   NEW_ISSUE_ID,
   PHONE_START,
@@ -59,10 +53,7 @@ import {
 } from "../fixtures"
 import { SEGMENT_DURATIONS } from "../timeline"
 import {
-  CENTER_W,
-  CENTER_X,
   CLAMP_EASE,
-  CONTENT_TOP,
   SegmentShell,
   captionSize,
   type SegmentProps,
@@ -89,7 +80,7 @@ const CAPTIONS = {
 } as const
 
 // ── Camera ────────────────────────────────────────────────────────────────────
-// ONE framing holds reviews sidebar + diff + phone for the whole clip
+// ONE framing holds the sidebar + the Changes page + the phone for the whole clip
 // (EXP-388: no camera moves).
 const CAMERA_KEYS: CamKey[] = [{ f: 0, s: 1.12, x: 850, y: 470 }]
 
@@ -102,16 +93,37 @@ const CAMERA_KEYS_PT: CamKey[] = shotKeys([
   { at: 0, s: 1.8, x: 1444, y: 569 }, // the WHOLE phone: review → Merged
 ])
 
+// ── The Changes page's files (the PR = the session's two edits) ─────────────
+const PB = "apps/shop/src/checkout/PayButton.tsx"
+const TEST = "apps/shop/src/checkout/pay-button.test.tsx"
+const FILES: ChangesFile[] = [
+  {
+    path: PB,
+    status: "M",
+    add: 27,
+    del: 6,
+    unchangedAbove: 20,
+    lines: CL_DIFF_ROWS.slice(0, 18).map((r) => ({ ...r })),
+  },
+  {
+    path: TEST,
+    status: "A",
+    add: 42,
+    del: 0,
+    lines: [
+      { t: "hunk", text: "@@ -0,0 +1,42 @@" },
+      { t: "add", text: 'import { fireEvent, render } from "@testing-library/react"', new: 1 },
+      { t: "add", text: 'import { PayButton } from "./PayButton"', new: 2 },
+    ],
+  },
+]
+
 // ── Cursor ────────────────────────────────────────────────────────────────────
-// Derived from the PrDiff header cluster (EXP-706) so the pointer keeps
-// landing on the capsule as it morphs Merge → Confirm merge.
-const MERGE_BTN = prDiffMergeCenter(CENTER_X, CONTENT_TOP, CENTER_W, `rest`)
-const CONFIRM_BTN = prDiffMergeCenter(
-  CENTER_X,
-  CONTENT_TOP,
-  CENTER_W,
-  `confirm`
-)
+// The merge pill sits left of the header's `…` (right inset 44, 24 + gap 7);
+// the pointer follows its centre as it morphs Merge PR → Confirm merge.
+const PILL_RIGHT = PANEL.w - 2 - 44 - 24 - 7
+const MERGE_BTN = panelPt(PILL_RIGHT - 46, 37)
+const CONFIRM_BTN = panelPt(PILL_RIGHT - 56, 37)
 
 const CURSOR_KEYS: CursorKey[] = [
   { f: 74, x: 900, y: 400 },
@@ -123,12 +135,6 @@ const CURSOR_KEYS: CursorKey[] = [
 ]
 const CURSOR_CLICKS = [B.confirmAt, B.mergingAt]
 
-const TAB_151: ChromeTab = {
-  id: "exp151",
-  identifier: NEW_ISSUE_ID,
-  label: CL_ISSUE.title,
-}
-
 // Phone placement in COMP coordinates inside the camera layer.
 const PHONE_POS = { x: 1490, y: 280, scale: 1 } as const
 
@@ -138,22 +144,16 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
   frame,
   portrait,
 }) => {
-  // EXP-769/791: no dock inside the panel — the bottom bar carries terminal
-  // tabs alone, and none is open here, so the panel runs to its own edge.
-  const paneH = WIN.panel.h
   const capSize = captionSize(portrait)
-
-  const heroStatus =
-    frame >= B.mergedAt ? ("done" as const) : ("in_progress" as const)
-
-  const mergeState: PrMergeState =
+  const merged = frame >= B.mergedAt
+  const mergeState: MergePill | undefined =
     frame < B.confirmAt
-      ? "rest"
+      ? "merge"
       : frame < B.mergingAt
         ? "confirm"
-        : frame < B.rowFadeTo
+        : frame < B.mergedAt
           ? "merging"
-          : "gone"
+          : undefined
   const mergeMorphAt =
     mergeState === "confirm"
       ? B.confirmAt
@@ -170,70 +170,41 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
             <TitleBar
               frame={frame}
               tabs={[
-                frame >= B.mergedAt
-                  ? { ...TAB_151, status: heroStatus }
-                  : // EXP-870/877: the live session rides its issue's tab in the
-                    // Claude group, green while its PR is open; the merge
-                    // ends the run and the tab falls back to the issue chip
-                    { ...TAB_151, liveDot: C.green },
+                // the turn ended with the PR: session-card `waiting`
+                { id: "tab", lead: { kind: "waiting" }, title: CL_THREAD_TITLE },
               ]}
-              activeId="exp151"
+              activeId="tab"
             />
-            {/* EXP-870: the run is a live TAB (the rail's Sessions section
-                is gone); the Agent entry counts it until the merge ends it */}
-            <CompactRail
+            <Sidebar
               frame={frame}
-              active="board"
-              dots={["reviews"]}
-              dotColor={C.green}
-              agentCount={frame >= B.mergedAt ? 0 : 1}
-              boardName={CL.project}
-              userName={CL.user}
-              userInitial={CL.initials}
+              team={CL.team}
+              user={CL.user.split(" ")[0]}
+              initials={CL.initials}
+              selected="thread:exp151"
+              inboxDotAt={0}
+              boards={[...CL_BOARDS]}
+              active={[{ id: "exp151", title: CL_THREAD_TITLE }]}
             />
-            {/* the board's ListNav stays beside the PrDiff main view */}
-            <ListNav title={CL.project}>
-              <BoardTool
-                frame={frame}
-                rows={CL_BOARD}
-                overrides={{
-                  [NEW_ISSUE_ID]: {
-                    status: frame >= B.mergedAt ? "done" : "in_progress",
-                  },
-                }}
-                selectedId={NEW_ISSUE_ID}
-                density="nav"
-              />
-            </ListNav>
-
-            {/* EXP-723: the main view lives in the cutout panel */}
             <CutoutPanel>
-              {/* center: the PrDiff screen (what a Reviews row opens) */}
-              <div
-                style={{
-                  position: "absolute",
-                  left: CENTER_X,
-                  top: CONTENT_TOP,
-                  width: CENTER_W,
-                  height: paneH,
-                  overflow: "hidden",
+              <ThreadHeader
+                frame={frame}
+                title={CL_THREAD_TITLE}
+                issue={{
+                  id: NEW_ISSUE_ID,
+                  title: CL_ISSUE.title,
+                  status: merged ? "done" : "in_review",
                 }}
-              >
-                <PrDiffPane
-                  frame={frame}
-                  paintAt={B.paint}
-                  statsRollAt={B.statsRoll}
-                  scrollY={0}
-                  head={CL_PR_HEAD}
-                  files={CL_DIFF_FILES}
-                  rows={CL_DIFF_ROWS}
-                  fileStats={CL_FILE_STATS}
-                  mergeState={mergeState}
-                  mergeMorphAt={mergeMorphAt}
-                  mergeHover={frame >= B.mergeHover && frame < B.confirmAt}
-                />
-              </div>
-
+                merge={mergeState ? { state: mergeState, at: mergeMorphAt } : undefined}
+                face="guide"
+                width={PANEL.w - 2}
+              />
+              <ChangesView
+                frame={frame}
+                files={FILES}
+                width={PANEL.w - 2}
+                height={PANEL.h - 2}
+                paintAt={B.paint}
+              />
             </CutoutPanel>
 
             <CursorLayer
@@ -280,8 +251,8 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
                       identifier={CL_ISSUE.id}
                       title={CL_ISSUE.title}
                       origin="Feedback widget"
-                      status="in_progress"
-                      statusLabel="In Progress"
+                      status="in_review"
+                      statusLabel="In Review"
                       priorityLabel="No priority"
                       assignee={{ name: CL.user, initials: CL.initials }}
                       due={CL_ISSUE.due}
@@ -289,10 +260,6 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
                       description={REPORT.details}
                       activity={[
                         { text: "Feedback widget created the issue · 1 hr ago" },
-                        {
-                          status: "in_progress",
-                          text: "Riley Chen changed status from Backlog to In Progress · 30 min ago",
-                        },
                       ]}
                       pr={{
                         number: CL.pr,

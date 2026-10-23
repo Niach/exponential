@@ -59,17 +59,20 @@ export function WidgetDocsPage() {
           <DocsSection id="install" num="01" label="Install">
             <h2>Install</h2>
             <p>
-              Create a widget in <strong>Team settings → Widget</strong>{` `}
-              (team owners only; every plan includes at least one). Each
-              config gets a public <code>expw_</code> key, a{` `}
-              <strong>domain allowlist</strong> (submissions are only accepted
+              Create a widget in <strong>Settings → Widget</strong> with{` `}
+              <strong>New widget</strong> (team owners only; every plan
+              includes at least one). Each widget gets a public{` `}
+              <code>expw_</code> key, a list of{` `}
+              <strong>Allowed domains</strong> (submissions are only accepted
               from pages on domains you list), and the{` `}
-              <strong>board</strong> its reports land on. Every submission
-              becomes an issue there.
+              <strong>Board</strong> its reports land on. Every submission
+              becomes an issue there. Each row in the list has a switch to
+              turn the widget on or off.
             </p>
             <p>
-              Then paste the snippet before <code>&lt;/head&gt;</code> on your
-              site. It&apos;s the GA-style async pattern: a tiny queue stub
+              Then copy the snippet from the row&apos;s menu →{` `}
+              <strong>Embed snippet</strong> and paste it before{` `}
+              <code>&lt;/head&gt;</code> on your site. It&apos;s the GA-style async pattern: a tiny queue stub
               loads the real script lazily, so it never blocks your page.
             </p>
             <DocsCode language="html">{WIDGET_SNIPPET}</DocsCode>
@@ -85,8 +88,9 @@ export function WidgetDocsPage() {
             </DocsCallout>
             <p>
               On the cloud, a Free team takes <strong>60 submissions an
-              hour</strong> across all its widgets (settings shows the bar
-              and the upgrade link); the Team plan is unlimited. Self-hosted
+              hour</strong> across all its widgets (settings shows the{` `}
+              <strong>Widget submissions (last hour)</strong> bar and the
+              upgrade link); the Team plan is unlimited. Self-hosted
               has no plan ceiling at all — only the per-IP abuse buckets,
               which apply everywhere.
             </p>
@@ -181,27 +185,31 @@ ExponentialWidget.submit({ message: "The Save button does nothing." });
               The form asks one thing: <strong>what happened?</strong> The
               first line of the answer becomes the issue&apos;s title.
               Everything else is configured per widget in{` `}
-              <strong>Team settings → Widget</strong>:
+              <strong>Settings → Widget</strong>:
             </p>
             <ul>
               <li>
-                <strong>Email</strong>: shown by default and optional; make it
-                required, or hide it entirely for internal tools where nobody
-                wants follow-up emails. With an email, the reporter gets a
+                <strong>Email</strong> (under <strong>Reporter
+                contact</strong>): shown by default and optional; switch on{` `}
+                <strong>Required</strong>, or switch off{` `}
+                <strong>Show</strong> to hide it entirely for internal tools
+                where nobody wants follow-up emails. With an email, the reporter gets a
                 private link to their report and you can{` `}
                 <a href="/docs/feedback/#conversation">reply to them</a>{` `}
                 from the issue.
               </li>
               <li>
-                <strong>Name</strong>: off by default. Turn it on (optionally
-                required) when a plain name is all you need to walk over and
+                <strong>Name</strong>: off by default. Switch on{` `}
+                <strong>Show</strong> (and optionally{` `}
+                <strong>Required</strong>) when a plain name is all you need to walk over and
                 ask &ldquo;what did you mean?&rdquo; without collecting an
                 email.
               </li>
               <li>
                 <strong>Custom fields</strong>: up to 8 extra text inputs
-                (e.g. &ldquo;Which page?&rdquo;, &ldquo;Order number&rdquo;).
-                Responses land in the submission&apos;s custom-data block,
+                (e.g. &ldquo;Which page?&rdquo;, &ldquo;Order number&rdquo;),
+                each optionally <strong>Required</strong>. Responses show
+                under <strong>Custom data</strong> on the issue,
                 alongside your <code>setCustomData</code> payload. A typed
                 response wins over a host-set key of the same name.
               </li>
@@ -212,15 +220,18 @@ ExponentialWidget.submit({ message: "The Save button does nothing." });
                 issue — triage done at the source.
               </li>
               <li>
-                <strong>Appearance</strong>: dark (default), light, or
-                match-the-visitor&apos;s-system theme, plus an accent color
-                — both with a live preview in settings.
+                <strong>Theme</strong>: <strong>Dark</strong> (default),{` `}
+                <strong>Light</strong>, or{` `}
+                <strong>Match visitor&apos;s system</strong>, plus a{` `}
+                <strong>Button color</strong> — both with a live preview in
+                settings.
               </li>
               <li>
                 <strong>Launcher</strong>: the button&apos;s shape and corner,
                 set separately for <strong>desktop</strong> and{` `}
-                <strong>mobile</strong> — a floating pill or an edge tab, in
-                any of six positions — plus its <strong>Icon</strong> and{` `}
+                <strong>mobile</strong> — a <strong>Floating button</strong>
+                {` `}or an <strong>Edge tab</strong>, in any of six positions
+                — plus its <strong>Icon</strong> and{` `}
                 <strong>Button label</strong>. The snippet&apos;s{` `}
                 <code>launcher</code> option overrides all of it per install.
               </li>
@@ -229,7 +240,8 @@ ExponentialWidget.submit({ message: "The Save button does nothing." });
               The settings dialog splits these across{` `}
               <strong>General</strong>, <strong>Form</strong> and{` `}
               <strong>Appearance</strong> tabs, with the real panel previewed
-              beside them.
+              beside them (<strong>Launcher preview</strong> and{` `}
+              <strong>Widget preview</strong>).
             </p>
             <p>
               Visitors attached via <code>identify()</code> skip the email and
@@ -328,6 +340,11 @@ sent.emailDelivered; // true, false (the mail failed), or null (no email given)
               countdown in the launcher&apos;s corner, so the visitor can open
               whatever should be in the picture first. On desktop the
               countdown starts once the share dialog is confirmed.
+            </p>
+            <p>
+              Besides the screenshot, the visitor can attach up to{` `}
+              <strong>3 pictures</strong> of their own (10 MB each): pick
+              them, or drop or paste them anywhere on the form.
             </p>
             <p>
               Before submitting, the visitor can <strong>annotate</strong> the

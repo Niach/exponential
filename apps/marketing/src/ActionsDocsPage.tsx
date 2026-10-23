@@ -57,7 +57,10 @@ export function ActionsDocsPage() {
             <p>
               <strong>Settings → Prompts</strong> lists the team&apos;s
               prompts. <strong>New prompt</strong> opens the editor: icon and
-              name in one row over the body. Opening a row opens it.
+              name in one row over the body, then{` `}
+              <strong>Create prompt</strong>. Opening a row opens the same
+              page, saved with <strong>Save changes</strong>; owners also get{` `}
+              <strong>Delete prompt</strong> there.
             </p>
             <p>
               Owners create, edit and delete prompts. Every member can read
@@ -68,13 +71,19 @@ export function ActionsDocsPage() {
               view="settings-prompts"
               caption="Settings → Prompts"
             />
+
+            <DocShot
+              view="settings-prompt"
+              caption="New prompt: the icon and name over the body, then Create prompt"
+            />
           </DocsSection>
 
           {/* ── 03 The / menu ── */}
           <DocsSection id="composer" num="03" label="The / menu">
             <h2>The / menu</h2>
             <p>
-              In the <strong>Home</strong> composer, type <code>/</code> to
+              In the <strong>Agent</strong> page&apos;s composer, type{` `}
+              <code>/</code> to
               list the team&apos;s prompts. Keep typing to filter, then press
               {` `}
               <strong>Enter</strong> or click one. The prompt becomes the
@@ -84,7 +93,7 @@ export function ActionsDocsPage() {
 
             <DocShot
               view="composer-slash-menu"
-              caption="The Home composer's / menu"
+              caption="The Agent page composer's / menu"
             />
 
             <p>
@@ -107,6 +116,51 @@ export function ActionsDocsPage() {
               Prompts have no triggers. To run work on a schedule or when an
               event happens, give an <strong>agent</strong> a trigger in{` `}
               <strong>Settings → Agents</strong>.
+            </p>
+            <p>
+              An agent is a definition the owners set up there with{` `}
+              <strong>New agent</strong> (or the <strong>+</strong> beside{` `}
+              <strong>Agents</strong> in the sidebar): its icon, color and{` `}
+              <strong>Name</strong>, the <strong>Device</strong> it runs on,
+              the <strong>Account</strong> it uses there (the device&apos;s
+              last used login when left alone), its{` `}
+              <strong>Triggers</strong> and its markdown{` `}
+              <strong>Instructions</strong>. Members can read every agent.
+              Each member talks to an agent in a conversation of their own,
+              from its row in the sidebar or{` `}
+              <strong>Message an agent</strong> in the composer&apos;s{` `}
+              <strong>+</strong> menu; see{` `}
+              <a href="/docs/coding/#watch-steer">Coding agents</a>.
+            </p>
+            <p>
+              <strong>Add</strong> on the Triggers row opens{` `}
+              <strong>New trigger</strong> with two tabs.{` `}
+              <strong>Schedule</strong> picks <strong>Repeat</strong> (every
+              hour, day, week or month), the <strong>Days</strong> or{` `}
+              <strong>Day</strong>, the <strong>Time</strong> and the{` `}
+              <strong>Time zone</strong>, and reads back as &ldquo;Every day
+              at 09:00 (Europe/Vienna)&rdquo;. <strong>On event</strong>{` `}
+              names an event: a built-in one (&ldquo;When an issue is
+              created&rdquo;, &ldquo;When an issue&apos;s status
+              changes&rdquo;, &ldquo;When a pull request opens&rdquo;,
+              &ldquo;When a pull request merges&rdquo;, &ldquo;When a session
+              ends&rdquo;) or any name of your own, which a session emits over
+              MCP. Each trigger has its own switch; a paused one reads{` `}
+              <strong>Paused</strong>. With no trigger the agent{` `}
+              <strong>Waits for messages</strong>. A firing arrives as a
+              message in the conversation of the agent&apos;s owner; the
+              server fires it, so nothing is armed on a device.
+            </p>
+
+            <DocShot
+              view="settings-team-agent"
+              caption="An agent: icon, color and name, Device, Account, two triggers and its instructions"
+            />
+
+            <p>
+              The <strong>Events</strong> list under the agents on{` `}
+              <strong>Settings → Agents</strong> is the team&apos;s stream:
+              every event that fired, where it came from and when.
             </p>
             <p>
               Agents read prompts over MCP too: see{` `}

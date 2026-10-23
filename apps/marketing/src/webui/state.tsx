@@ -3,7 +3,6 @@
    view components read it through useWeb(). */
 import { createContext, useContext } from "react"
 import type { Issue } from "../ide/data"
-import type { DemoAgent } from "./data"
 
 /* Embedding views the docs can request. */
 export type WebView = `board` | `issue` | `run` | `inbox` | `agent`
@@ -46,13 +45,9 @@ export type WebApi = {
   startCoding: (issueId: string) => void
   agentSeedId: string | null
 
-  /* EXP-870 work tabs: the ordinary (closable) tabs, in open order. The live
-     runs' tabs are derived from the sessions and can never be closed. */
+  /* EXP-870/1293 work tabs: the flat, closable chips in open order. */
   tabIds: string[]
   closeTab: (id: string) => void
-  /* EXP-877: agent groups folded down to their brand mark. */
-  foldedAgents: Set<DemoAgent>
-  toggleAgentFold: (agent: DemoAgent, folded?: boolean) => void
 
   collapsedGroups: Set<string>
   toggleGroup: (status: string) => void

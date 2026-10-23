@@ -54,38 +54,84 @@ export function IssuesDocsPage() {
             <h2>The board</h2>
             <p>
               A board is a list of issues grouped by status. Change status,
-              priority, assignee, labels, and due date inline from the row.
-              Click through for the full detail view.
+              priority and assignee inline from the row. Sub-issues sit under
+              their parent, in the parent&apos;s group. Click through for the
+              full detail view.
             </p>
 
             <DocShot view="board" priority />
 
             <p>
+              Right-click a row (long-press on a phone) for everything else:{` `}
+              <strong>Open issue</strong>, <strong>Mark as done</strong>,{` `}
+              <strong>Copy issue ID</strong>, <strong>Status</strong>,{` `}
+              <strong>Assignee</strong>, <strong>Priority</strong>,{` `}
+              <strong>Labels</strong>, <strong>Estimate</strong> (when the team
+              uses estimates), <strong>Set due date</strong>,{` `}
+              <strong>Move to board</strong>, <strong>Add relation</strong>{` `}
+              and <strong>Delete issue</strong>.
+            </p>
+
+            <h3>New issues</h3>
+            <p>
+              <strong>New issue</strong> (the filled button at the top of the
+              sidebar, or the <strong>+</strong> on a status group&apos;s
+              header) opens a <strong>New issue</strong> page: the issue
+              detail in draft mode. Type the title, set the chips (status,
+              priority, assignee, labels, due date, and the board when the
+              team has more than one), write the description, attach files,
+              then <strong>Create</strong>. The draft saves itself as you
+              type, and parked drafts collect under{` `}
+              <strong>Drafts</strong> in the sidebar (on a phone, the
+              Inbox&apos;s Drafts tab). Leaving a new issue
+              with content asks <strong>Save this issue as a draft?</strong>{` `}
+              with <strong>Create issue</strong>, <strong>Save draft</strong>{` `}
+              and <strong>Discard</strong>.
+            </p>
+
+            <DocShot view="issue-create" />
+
+            <h3>Search</h3>
+            <p>
+              The magnifier at the top of the sidebar, or{` `}
+              <strong>Cmd/Ctrl+F</strong> anywhere, opens{` `}
+              <strong>Search issues</strong> across all your boards: it
+              matches identifiers, titles and full text, and picking a result
+              opens it.
+            </p>
+
+            <h3>Bulk edit</h3>
+            <p>
               Need to move many issues at once? Click the checkbox gutter to{` `}
               <strong>bulk select</strong> rows, and the bulk bar
-              sets <strong>status</strong>, <strong>priority</strong>,{` `}
-              <strong>assignee</strong> and <strong>labels</strong>, deletes
-              the selection, or hands the whole thing to an agent as{` `}
+              sets <strong>Status</strong>, <strong>Priority</strong>,{` `}
+              <strong>Assignee</strong> and <strong>Labels</strong>, deletes
+              the selection with <strong>Delete</strong>, or hands the whole
+              thing to an agent with <strong>Start coding</strong> as{` `}
               <a href="/docs/coding/#batch-runs">one thread</a>.
             </p>
+
+            <DocShot view="board-bulk-edit" />
             <h3>Archiving and deleting a board</h3>
             <p>
-              Owners get two ways to put a board away, both under{` `}
-              <strong>Team settings → Boards</strong>:
+              Owners get two ways to put a board away, both at the bottom of
+              the board&apos;s own page in <strong>Settings</strong> (every
+              board is listed under <strong>Boards</strong> there):
             </p>
             <ul>
               <li>
                 <strong>Archive board</strong> hides it and all of its issues
                 from the whole team — sidebar, search, pickers, every issue
-                list — without deleting anything. Archived boards collect in
-                an <strong>Archived boards</strong> card, and{` `}
+                list — without deleting anything. Archived boards collect on
+                the <strong>Settings → Archived boards</strong> page, and{` `}
                 <strong>Unarchive</strong> brings one back exactly as it was.
                 There is no time limit.
               </li>
               <li>
                 <strong>Move to trash</strong> is a{` `}
                 <strong>48-hour soft delete</strong>. The board sits in the{` `}
-                <strong>Trash</strong> card with the time left on it, and{` `}
+                <strong>Trash</strong> card on that same page with the time
+                left on it, and{` `}
                 <strong>Restore</strong> works until the purge sweep runs and
                 deletes it (and its attachments) for good.
               </li>
@@ -105,7 +151,7 @@ export function IssuesDocsPage() {
               <strong>In Progress</strong>, <strong>In Review</strong>,{` `}
               <strong>Done</strong>, <strong>Cancelled</strong>,{` `}
               <strong>Duplicate</strong>) and adds its own under{` `}
-              <strong>Team settings → Statuses</strong>. Any member manages
+              <strong>Settings → Issues → Statuses</strong>. Any member manages
               them; the six builtins are locked (never renamed, recolored or
               deleted) but can be reordered.
             </p>
@@ -120,12 +166,12 @@ export function IssuesDocsPage() {
               status needs a name, a color and a category;{` `}
               <code>started</code> caps at four. No builtin lives in{` `}
               <code>unstarted</code> — it starts empty on every team and reads
-              &ldquo;No statuses yet.&rdquo; until you add one.
+              &ldquo;No statuses yet&rdquo; until you add one.
             </p>
 
             <DocShot
               view="settings-statuses"
-              caption="Team settings → Statuses: the six categories, the locked builtins, and a custom status"
+              caption="Settings → Issues → Statuses: the six categories, the locked builtins, and a custom status"
             />
             <p>
               Priorities are <strong>Urgent</strong>, <strong>High</strong>,
@@ -133,6 +179,17 @@ export function IssuesDocsPage() {
               <strong>Medium</strong>, <strong>Low</strong>, or none. An
               optional <strong>due date</strong> shows on the row with a
               calendar marker as it approaches.
+            </p>
+            <h3>Estimates</h3>
+            <p>
+              Estimates are off until an owner picks an{` `}
+              <strong>Estimate scale</strong> under{` `}
+              <strong>Settings → Issues</strong>: <strong>Not in use</strong>,{` `}
+              <strong>Exponential</strong> (1, 2, 4, 8, 16 points),{` `}
+              <strong>Fibonacci</strong> (1, 2, 3, 5, 8 points),{` `}
+              <strong>Linear</strong> (1, 2, 3, 4, 5 points) or{` `}
+              <strong>T-shirt</strong> (XS, S, M, L, XL). With a scale in use,
+              issues get an <strong>Estimate</strong> property.
             </p>
           </DocsSection>
 
@@ -226,28 +283,40 @@ export function IssuesDocsPage() {
             <h2>Issue detail</h2>
             <p>
               The full-page view puts the description front and center. On web
-              and desktop a fixed header holds the title, with the pin and the{` `}
-              <strong>…</strong> menu (Copy link, Add relation, Delete) on the
-              same line. Under it, a tray holds the properties (status,
-              priority, assignee, labels, due date, board) and ends in{` `}
-              <strong>Start coding</strong>, which opens the composer with
-              the issue chipped. The description follows, then this
-              issue&apos;s relations, then the conversation. Once a thread
-              works the issue, the header names it: one chip per thread,
-              opening it. On web and desktop the content area is a
-              rounded card floating on a darker ground; phones run full-bleed.
+              and desktop the title line carries <strong>Start</strong>, the
+              pin and the <strong>…</strong> menu (<strong>Copy link</strong>,{` `}
+              <strong>Add relation</strong>, <strong>Unmark duplicate</strong>{` `}
+              on a duplicate, <strong>Close PR without merging</strong> while a
+              PR is open,{` `}
+              <strong>Delete issue</strong>). Once a thread works the issue, a{` `}
+              <strong>Threads</strong> row under the title names it: one chip
+              per thread, opening it. Then come the property chips (status,
+              priority, assignee, labels, estimate when the team uses one, due
+              date, board), the description, the sub-issues and relations, and
+              the activity. On web and desktop the content area is a rounded
+              card floating on a darker ground; phones run full-bleed.
+            </p>
+            <p>
+              <strong>Start</strong> opens the composer with the issue as its
+              subject; the send starts a new thread. While a step is missing
+              (GitHub, the board&apos;s repository, a device online) it opens
+              the <strong>Ready to code?</strong> checklist instead.
             </p>
 
             <DocShot view="issue-detail" />
 
             <h3>Relations</h3>
             <p>
-              Related issues sit under the description as plain group
-              headings — <strong>Sub-issues</strong> (with a done/total
-              counter), <strong>Parent</strong>, <strong>Blocked by</strong>,
-              {` `}<strong>Blocks</strong>, <strong>Duplicate of</strong>,{` `}
-              <strong>Duplicated by</strong>, <strong>Related</strong> — and
-              an issue with none shows nothing at all.
+              A sub-issue names its parent in a <strong>Sub-issue of</strong>{` `}
+              line above the title. Under the description,{` `}
+              <strong>Sub-issues</strong> shows a completion ring and a
+              done/total counter over its rows, then one foldable band per
+              remaining side: <strong>Blocked by</strong>,{` `}
+              <strong>Blocking</strong>, <strong>Duplicate of</strong>,{` `}
+              <strong>Duplicated by</strong> and <strong>Related</strong>.
+              Open blockers start expanded (three rows, then{` `}
+              <strong>Show N more</strong>); related issues and duplicates
+              start folded. An issue with no relations shows nothing at all.
             </p>
             <p>
               <strong>Add relation</strong> in the <strong>…</strong> menu
@@ -256,8 +325,9 @@ export function IssuesDocsPage() {
               <strong>Duplicate of</strong> and <strong>Related to</strong>,
               then a picker for the other issue; the issue list&apos;s context
               menu offers the same, and on iOS and Android the list lives in
-              the properties sheet. <strong>Add sub-issues</strong>, right
-              under the groups, opens a small composer that files a new issue
+              the properties sheet under <strong>Relations</strong>.{` `}
+              <strong>Add sub-issues</strong> (or the <strong>+</strong> on the
+              Sub-issues band) opens a small composer that files a new issue
               already parented to this one. Writing <code>#EXP-42</code>{` `}
               in a description or comment links the two issues as related on
               its own, and marking an issue as a duplicate shows up here too.
@@ -267,9 +337,10 @@ export function IssuesDocsPage() {
             <h3>Activity and comments</h3>
             <p>
               The <strong>activity timeline</strong> interleaves comments with
-              events: issue created, status changes, label changes,
-              assignments, priority changes, relations, PR opened, PR merged —
-              each led by its own icon and ending in its time. You follow an
+              events: issue created, title changes, status changes, label
+              changes, assignments, priority and estimate changes, board moves,
+              relations, PR opened, PR merged — each led by its own icon and
+              ending in its time. You follow an
               issue automatically when you create it, comment on it, get
               assigned or get mentioned; there is no subscribe button.
             </p>
@@ -298,7 +369,11 @@ export function IssuesDocsPage() {
             <p>
               The inbox collects everything addressed to you: assignments,
               comments on subscribed issues, @-mentions, PR opened / merged,
-              and status changes.
+              status changes, new feedback filed through the widget, widget
+              reporter replies, a coding session of yours that hit a rate
+              limit, and messages from agents. Its{` `}
+              <strong>My issues</strong> tab lists the issues assigned to you,
+              and <strong>Mark all read</strong> clears the lot.
             </p>
 
             <DocShot view="inbox" />
@@ -323,41 +398,83 @@ export function IssuesDocsPage() {
               comes.
             </p>
             <p>
-              Tune it under <strong>Settings → Notifications</strong>: per-type
-              preferences, the send hour, and an <strong>hourly</strong>{` `}
-              cadence if once a day is too slow. Every digest carries a
-              one-click unsubscribe.
+              Tune it under <strong>Settings → Notifications</strong>:{` `}
+              <strong>Email notifications</strong> on or off, a switch per type
+              (<strong>New feedback</strong>, <strong>Assigned to you</strong>,{` `}
+              <strong>Comments</strong>, <strong>Mentions</strong>,{` `}
+              <strong>Status changes</strong>,{` `}
+              <strong>Pull request opened</strong>,{` `}
+              <strong>Pull request merged</strong>,{` `}
+              <strong>Reporter replies</strong>,{` `}
+              <strong>Blocked sessions</strong>), the delivery as a{` `}
+              <strong>Daily digest</strong> at the hour you pick or an{` `}
+              <strong>Hourly digest</strong>, and{` `}
+              <strong>Messages from teammates&apos; agents</strong>, which,
+              turned off, stops other members&apos; agents from notifying you
+              at all. Every digest carries a one-click unsubscribe.
             </p>
+
+            <DocShot view="settings-notifications" />
           </DocsSection>
 
           {/* ── 07 Branches & PRs ── */}
           <DocsSection id="branches-prs" num="07" label="Branches & PRs">
             <h2>Branches &amp; PRs</h2>
             <p>
-              An issue that gets coded maps to one branch{` `}
-              (<code>exp/&lt;IDENTIFIER&gt;</code>, e.g.{` `}
-              <code>exp/EXP-42</code>) and one linked pull request. The PR
-              state (open, merged) is tracked on the issue automatically.
+              A thread that codes a single issue works on that issue&apos;s
+              branch (<code>exp/&lt;IDENTIFIER&gt;</code>, e.g.{` `}
+              <code>exp/EXP-42</code>); a thread with several issues, or none,
+              gets its own <code>exp/session-…</code> branch. The pull request
+              links every issue the thread holds, and its state (open, merged)
+              is tracked on each issue automatically.
             </p>
             <h3>The base branch</h3>
             <p>
               A board picks the branch its work starts from. The board create
               and settings forms have one <strong>Repository</strong> select
               (<strong>No repository</strong>, the connected repos, or{` `}
-              <strong>Connect another repository…</strong>) and a{` `}
-              <strong>Branch</strong> picker under it. The repository&apos;s
+              <strong>Connect another repository…</strong>) and, once a
+              repository is chosen, a <strong>Branch</strong> picker under
+              it. The repository&apos;s
               own default is tagged, and picking it clears the pin. Without a
               board pin, the team&apos;s per-repository default-branch
               override applies, and without that, GitHub&apos;s default —
               resolved live, never assumed.
             </p>
+            <h3>How status moves</h3>
+            <p>
+              Sessions move an issue&apos;s status, people move the rest:
+            </p>
+            <ul>
+              <li>
+                A coding thread <strong>taking up</strong> an issue in{` `}
+                <strong>Backlog</strong> or <strong>In Review</strong> moves it
+                to <strong>In Progress</strong>. A session that only{` `}
+                <em>files</em> an issue moves nothing.
+              </li>
+              <li>
+                <strong>Opening a PR</strong> moves its issues to{` `}
+                <strong>In Review</strong>; <strong>merging</strong> it moves
+                them to <strong>Done</strong>.
+              </li>
+              <li>
+                A thread that <strong>drops</strong> an issue it was working
+                puts it back from <strong>In Progress</strong> to{` `}
+                <strong>Backlog</strong>, unless a PR is open or another thread
+                still holds it.
+              </li>
+            </ul>
+            <p>
+              Done, Cancelled and Duplicate are yours: no automation moves an
+              issue out of them, and a merge never ends a running session.
+            </p>
             <h3>PR automation</h3>
             <p>
               What a PR event does to the issue is a per-team setting:{` `}
-              <strong>Team settings → Statuses → PR automation</strong>. Out of
-              the box, opening the PR moves the issue to{` `}
-              <strong>In Review</strong> and merging it completes the issue to
-              {` `}
+              <strong>Settings → Issues → PR automation</strong>, with{` `}
+              <strong>When a PR opens, move issues to</strong> and{` `}
+              <strong>When a PR merges, move issues to</strong>. Out of the
+              box they read <strong>In Review</strong> and{` `}
               <strong>Done</strong>. Point either event at any of your
               team&apos;s statuses instead, or set it to{` `}
               <strong>Do nothing</strong> and move issues by hand.
@@ -366,9 +483,7 @@ export function IssuesDocsPage() {
               A thread that took{` `}
               <a href="/docs/coding/#batch-runs">several issues</a> opens{` `}
               <strong>one PR linked to every issue</strong> it worked.
-              Merging that single PR completes them all. Nothing else moves an
-              issue&apos;s status on its own: a merge never ends a running
-              session.
+              Merging that single PR completes them all.
             </p>
           </DocsSection>
         </DocsLayout>

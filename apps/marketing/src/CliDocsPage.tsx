@@ -24,14 +24,14 @@ const COMMANDS: { name: string; desc: string }[] = [
   { name: `exponential logout`, desc: `Sign out and drop the local credentials.` },
   { name: `exponential whoami`, desc: `Show the signed-in account and its instance.` },
   { name: `exponential status`, desc: `Account, this machine's device row, daemon state, auto-update, installed agents, and git in one summary. With no daemon running it says so plainly: the machine is not a device yet.` },
-  { name: `exponential doctor`, desc: `Check git and the agent CLIs, and say what's missing.` },
+  { name: `exponential doctor`, desc: `The device readiness block every client shows for this machine: Git under Required, Claude Code and Codex under Coding agents, Computer use, each with what to do about it. Exits non-zero only when nothing can run a coding session here.` },
   { name: `exponential code <ISSUE> [--device <label|id>] [--agent claude|codex] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Start a coding session for an issue, by identifier ("EXP-42") or id. --device starts it on another of your devices instead.` },
   { name: `exponential run <prompt> [--device <label|id>] [--team <id>] [--prompt <text>] [--agent <a>] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Run one of the team's saved prompts by name or id, as a thread. --prompt adds instructions after its body. The same agent flags apply.` },
   { name: `exponential devices [--team <id>]`, desc: `Your devices (desktop apps and daemons), online or not, with their agents and running sessions. --team adds the servers teammates shared with that team.` },
-  { name: `exponential sessions [--device <d>] [--status running|in_review|ended] [--all] [--limit n]`, desc: `Coding sessions, newest first: yours, or your teams' with --all.` },
-  { name: `exponential sessions show | log [--follow] | message | kill <id>`, desc: `One session's details and screenshots, its transcript, a message to its agent, or stop it. An id prefix is enough.` },
-  { name: `exponential mcp list | login <server> [--paste] | set-secret <server> <NAME> | status`, desc: `The team's MCP servers and the credentials THIS machine holds for them. Values never travel through argv: login runs the OAuth flow locally (or --paste for a machine with no browser), set-secret reads from a no-echo prompt.` },
-  { name: `exponential daemon [--foreground] [--label <name>]`, desc: `Run the remote-start daemon in this terminal.` },
+  { name: `exponential sessions [--device <d>] [--status queued|running|idle|ended] [--agents] [--limit n]`, desc: `The threads you can see, newest first; --agents lists the team agents instead.` },
+  { name: `exponential sessions show | log [--follow] | message | stop | end <id>`, desc: `One session's status, device, branch and issues; its transcript; a message to it (an idle session wakes up; - reads the text from stdin); stop interrupts its current turn and leaves it idle; end ends it and its sub-sessions. An id prefix is enough.` },
+  { name: `exponential mcp list | connect <server> | set-secret <server> | disconnect <server> [--team <id>]`, desc: `Your teams' MCP servers and your connection to each. The server holds your credential, so one connection works on every device, remote start and trigger: connect opens the server's connect page in your signed-in browser, set-secret reads a key from a no-echo prompt (never argv), disconnect deletes your credential.` },
+  { name: `exponential daemon [--foreground] [--label <name>]`, desc: `Run the device daemon in this terminal: it registers the machine and runs the sessions queued for it.` },
   { name: `exponential daemon install | uninstall | status`, desc: `Manage the systemd user unit (Linux) or launchd agent (macOS).` },
   { name: `exponential update [--auto on|off]`, desc: `Self-update from the latest CLI release, or switch automatic updates on or off.` },
   { name: `exponential uninstall [--yes]`, desc: `Remove the daemon service and delete the binary. Signed-in accounts are kept — the data dir is shared with the desktop app.` },
@@ -97,13 +97,15 @@ curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=https://issues.examp
               <code>EXP_DEVICE_LABEL</code>.
             </p>
             <p>
-              You also need <code>git</code>, plus at least one agent CLI —{` `}
-              <strong>Claude Code</strong> or <strong>Codex</strong> — for
-              coding sessions. See{` `}
+              You also need <code>git</code>, plus at least one coding
+              agent — <strong>Claude Code</strong> (its CLI on your{` `}
+              <code>PATH</code>) or <strong>Codex</strong>, which needs no
+              install: the machine downloads its own pinned Codex build the
+              first time you sign in to it. See{` `}
               <a href="/docs/coding/">Coding agents</a> for what each one
-              supports. The installer only warns about missing tools;{` `}
-              <code>exponential doctor</code> is the one that checks them
-              properly.
+              supports. The installer ends by printing the machine&apos;s
+              readiness block, the same one <code>exponential doctor</code>{` `}
+              prints whenever you run it again.
             </p>
             <DocsCallout kind="note" title="~/.local/bin on your PATH">
               The script says so if it isn&apos;t. Add it with{` `}
@@ -211,16 +213,17 @@ exponential run "Release train" --prompt "version 1.4.0"
             <DocsCode language="shell">{`
 exponential devices
 exponential code EXP-42 --device "build box" --agent claude --follow
-exponential run chat --device "build box" --prompt "Why is CI red on master?"
+exponential run "Fix flaky tests" --device "build box" --prompt "Start with the e2e suite"
 exponential sessions --status running
 exponential sessions log 1a2b3c4d --follow
 exponential sessions message 1a2b3c4d "Use the staging database instead"
-exponential sessions kill 1a2b3c4d
+exponential sessions stop 1a2b3c4d
 `}</DocsCode>
             <p>
               A device is picked by its name or id. A start aimed at an
               offline device is refused. <code>--account</code> picks an agent
-              account on the target. Transcripts live only on the device that
+              account on the target, and <code>--follow</code> tails the
+              session&apos;s transcript right after the start. Transcripts live only on the device that
               ran the session, so <code>sessions log</code> streams them
               through the steer relay like the app does. That needs the
               device online, and a live session shows its transcript only to
@@ -261,66 +264,80 @@ exponential daemon install
             <p>
               The machine then shows up under{` `}
               <strong>Devices → My devices</strong> in the web app, with its
-              online state and the agents it has installed. Start a coding
-              session or a <a href="/docs/actions/">prompt</a> there and
-              pick that machine, and it runs on it exactly like it would on
-              the desktop app: the same launcher, the same live activity
-              feed, the same steering from web, iOS, or Android. Threads over
-              several issues, free requests and{` `}
-              <a href="/docs/actions/#triggers">team agents</a> with their
-              schedules and events run there too.
+              online state and the agent logins it holds. Pick it in the
+              Agent page composer&apos;s <strong>Device</strong> picker,
+              start a coding session or a{` `}
+              <a href="/docs/actions/">prompt</a>, and it runs on that machine
+              exactly like it would on the desktop app: the same launcher,
+              the same live transcript, the same steering from web, iOS, or
+              Android. Threads over several issues, free requests and the
+              conversations of{` `}
+              <a href="/docs/actions/#triggers">team agents</a> set to run on
+              it run there too. When the daemon restarts, it claims its
+              unfinished sessions back and carries on.
             </p>
             <p>
               A session you start on the daemon makes no report, exactly like a
               session in the desktop app or an attached CLI: when the agent
               finishes its turn it waits for your next reply, and the daemon
-              keeps its process and worktree alive with no idle timeout. Hit{` `}
-              <strong>Stop</strong> on the session in the web or mobile app when
-              you are done with it. Sessions a{` `}
-              <a href="/docs/actions/#triggers">team agent</a> starts on a
-              schedule or an event are the ones that end themselves when
-              their work is done.
+              keeps its worktree with no idle timeout.{` `}
+              <strong>Stop</strong> in the web or mobile app interrupts the
+              current turn and leaves the session waiting;{` `}
+              <code>exponential sessions end</code> ends it. Sessions another
+              session started (a thread&apos;s child sessions, a thread a{` `}
+              <a href="/docs/actions/#triggers">team agent</a> starts) are the
+              ones that end themselves when their work is done, and a
+              team agent&apos;s own conversation never ends.
             </p>
             <p>
               Sessions belong to you, not to the box — the agent runs under
               your account, with your own agent subscription and your own
-              GitHub access. A machine with no agent CLI installed registers
-              as offline until you install one; the daemon notices without a
+              GitHub access. A machine with no coding agent ready registers
+              as offline until it has one; the daemon notices without a
               restart. A start aimed at a machine that is offline is refused
               on the spot rather than queued.
             </p>
             <h3>Running it from a phone</h3>
             <p>
               Everything you would set at the desk is on the machine&apos;s
-              row and in its <strong>Device settings</strong>, from any client:
+              row on the <strong>Devices</strong> page and in its{` `}
+              <strong>Device settings</strong> (the row&apos;s gear), from any
+              client:
             </p>
             <ul>
               <li>
                 Its <strong>Name</strong>, whether it is your{` `}
                 <strong>Default device</strong> (preselected in every picker,
-                marked with a star in the list), and which team it is{` `}
-                <strong>Shared with</strong> — teammates can then start sessions
-                on it. Withdrawing the share ends their running sessions.
+                marked with a star in the list),
+                and under <strong>Sharing</strong> which teams it is shared
+                with: teammates can then start sessions on it. Withdrawing the
+                share ends their running sessions.
               </li>
               <li>
-                Its launch defaults: <strong>Default agent</strong>, and per
-                agent the <strong>Model</strong>, effort,{` `}
-                <strong>Ultracode</strong> and <strong>Plan mode</strong>{` `}
-                a session starts with.
+                Its readiness: the same rows <code>exponential doctor</code>{` `}
+                prints, with <strong>Sign in</strong> and{` `}
+                <strong>Update</strong> for each coding agent and the{` `}
+                <strong>Computer use</strong> switch (plus its{` `}
+                <strong>Computer use model</strong> while it is on).
               </li>
               <li>
-                Each agent&apos;s <strong>account</strong> and rate-limit{` `}
-                <strong>usage</strong>. <strong>Login</strong> /{` `}
-                <strong>Switch account</strong> runs the agent&apos;s own
-                sign-in on the machine and hands you back the code and link
-                as an answerable card, so a headless box never needs a browser
-                on it.
+                Its launch defaults, one tab per agent: <strong>Model</strong>,{` `}
+                <strong>Thread model</strong>, <strong>Subagent model</strong>,{` `}
+                <strong>Effort</strong>, <strong>Ultracode</strong>,{` `}
+                <strong>Plan mode</strong> and{` `}
+                <strong>Auto-rotate accounts</strong>.
               </li>
               <li>
-                Its <strong>Worktrees</strong>, with{` `}
-                <strong>Prune merged worktrees</strong> and{` `}
-                <strong>Remove worktree</strong>; both are queued and run when
-                the machine is next online.
+                The agent logins it holds, listed under its row with their
+                rate-limit usage. <strong>Sign in</strong> and{` `}
+                <strong>Add account</strong> run the agent&apos;s own sign-in
+                on the machine and hand you back the code and link as an
+                answerable card, so a headless box never needs a browser on
+                it.
+              </li>
+              <li>
+                <strong>Update</strong> for the daemon itself, and{` `}
+                <strong>Remove device</strong>.
               </li>
             </ul>
           </DocsSection>
@@ -349,11 +366,13 @@ exponential update
               auto-update on, commands check once a day and restart
               themselves on the new build, and the daemon updates on its own
               schedule, waiting until no session is running before it
-              restarts. Each machine&apos;s row on the Devices page also shows
-              its version with an Update button that asks the daemon to
-              update right away — while sessions are still running the row
-              reads &quot;Queued&quot; and the update applies as soon
-              as the last one closes. The stored choice is{` `}
+              restarts. A server&apos;s <strong>Device settings</strong> also
+              show its version under <strong>Update</strong>, with an{` `}
+              <strong>Update</strong> button that asks the daemon to update
+              right away. While sessions are still running it reads{` `}
+              <strong>Queued</strong> and the update applies as soon as the
+              last one closes; <strong>Update now…</strong> ends them and
+              restarts on the new version at once. The stored choice is{` `}
               <code>cliAutoUpdate</code> in settings.json.
             </p>
             <p>

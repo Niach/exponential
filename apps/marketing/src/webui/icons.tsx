@@ -10,7 +10,13 @@ import {
   Bell,
   BellOff,
   Bot,
+  Bug,
   CalendarDays,
+  ChartLine,
+  FilePenLine,
+  ListTree,
+  Package,
+  Rocket,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -99,6 +105,14 @@ export const IcSettings = wrap(Settings) // nav-settings
 export const IcPlus = wrap(Plus) // ui-add
 export const IcFilter = wrap(ListFilter)
 export const IcAgent = wrap(MessageCircle) // action-chat (the Agent entry)
+export const IcThreads = wrap(ListTree) // nav-threads
+export const IcDrafts = wrap(FilePenLine) // nav-drafts
+
+/* Pickable agent / app glyphs (icons.json `pickable`). */
+export const IcBug = wrap(Bug)
+export const IcPackage = wrap(Package)
+export const IcRocket = wrap(Rocket)
+export const IcChartLine = wrap(ChartLine)
 
 /* Board glyphs — a board with a repository renders `ui-repository`. */
 export const IcCode = wrap(Code) // ui-repository
