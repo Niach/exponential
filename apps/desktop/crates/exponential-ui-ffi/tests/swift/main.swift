@@ -432,5 +432,49 @@ check(fnCall != nil, "functionCall event \(fnEvents.map { $0.kind })")
 if let fnCall { equal(fnCall.json, ["kind": "functionCall", "componentId": "b", "name": "harness.toast", "args": ["message": "hi"]], "functionCall json") }
 print("host fixtures: \(checks) checks so far")
 
+// --- VAPP-131: the post-processed readers (patch-swift-binding.pl) -----------
+// Every record the facade returns, written with its converter and read back
+// through the patched readInt / readBytes / string reader: the same value,
+// the whole buffer consumed, a truncated buffer still refused.
+func roundTrip<T: Equatable>(_ label: String, _ value: T, _ write: (T, inout [UInt8]) -> Void, _ read: (inout (data: Data, offset: Data.Index)) throws -> T) {
+    var bytes: [UInt8] = []
+    write(value, &bytes)
+    var reader = (data: Data(bytes), offset: 0)
+    let back = try? read(&reader)
+    check(back == value, "round trip \(label)")
+    check(reader.offset == bytes.count, "round trip \(label): \(reader.offset) of \(bytes.count) bytes read")
+    if !bytes.isEmpty {
+        var short = (data: Data(bytes.dropLast()), offset: 0)
+        check((try? read(&short)) == nil, "round trip \(label): a truncated buffer is refused")
+    }
+}
+try! s.setData(path: "/title", valueJson: "\"Grüße ✓ 🎉 \(String(repeating: "ß", count: 3000))\"")
+let rt = try! s.layoutFixed(sizesJson: nil, wrap: true)
+roundTrip("FfiLayout", rt, FfiConverterTypeFfiLayout.write, FfiConverterTypeFfiLayout.read)
+let rtNodes = s.nodes()
+check(rtNodes.contains { $0.propsJson.contains("Grüße ✓ 🎉") }, "a multibyte string lifted from Rust")
+for n in rtNodes { roundTrip("FfiNode \(n.id)", n, FfiConverterTypeFfiNode.write, FfiConverterTypeFfiNode.read) }
+// VAPP-131 / VAPP-138: paint_at = visual + a leaf's text style, in order; a
+// slot past the end is left out.
+let asked = rtNodes.map { $0.index }.reversed() + [UInt32.max]
+let paints = s.paintAt(indices: Array(asked))
+check(paints.map { $0.index } == Array(asked.dropLast()), "paintAt keeps the order, drops a slot past the end")
+for p in paints {
+    check(p.visual == s.visual(index: p.index), "paintAt visual \(p.index)")
+    let leaf = rtNodes.first { $0.index == p.index }!.isLeaf
+    check(p.textStyle == (leaf ? s.textStyle(index: p.index) : nil), "paintAt text style \(p.index)")
+    roundTrip("FfiPaint \(p.index)", p, FfiConverterTypeFfiPaint.write, FfiConverterTypeFfiPaint.read)
+}
+check(paints.contains { $0.textStyle != nil }, "paintAt carries the leaves' text styles")
+roundTrip("FfiSettings", s.settings(), FfiConverterTypeFfiSettings.write, FfiConverterTypeFfiSettings.read)
+for (label, style) in [("ascii", FfiTextStyle(fontSize: -1.5, fontWeight: UInt16.max, lineHeight: Float.greatestFiniteMagnitude, fontFamily: "Inter", letterSpacing: 0.25, textTransform: "uppercase", fontStyle: "italic")),
+                       ("empty", FfiTextStyle(fontSize: 0, fontWeight: 0, lineHeight: 1, fontFamily: "", letterSpacing: nil, textTransform: nil, fontStyle: nil)),
+                       ("multibyte", FfiTextStyle(fontSize: 14, fontWeight: 400, lineHeight: 20, fontFamily: "Noto Sans 日本語 🎉", letterSpacing: nil, textTransform: nil, fontStyle: nil))] {
+    roundTrip("FfiTextStyle \(label)", style, FfiConverterTypeFfiTextStyle.write, FfiConverterTypeFfiTextStyle.read)
+}
+roundTrip("FfiPlacement", FfiPlacement(x: -12.75, y: Double.greatestFiniteMagnitude, side: "début ↗", flipped: true), FfiConverterTypeFfiPlacement.write, FfiConverterTypeFfiPlacement.read)
+roundTrip("UiError", UiError.Invalid(reason: "ungültig: ✗"), FfiConverterTypeUiError.write, FfiConverterTypeUiError.read)
+print("binding readers: \(checks) checks so far")
+
 print("swift binding suite: \(checks) checks, \(failures) failures")
 exit(failures == 0 ? 0 : 1)

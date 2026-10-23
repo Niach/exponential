@@ -10,7 +10,7 @@
 //! sticky header. `fixtures/template-items.json` and
 //! `fixtures/virtual-list.json` lock them.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -50,6 +50,9 @@ fn key_string(v: Option<&Value>) -> Option<String> {
 /// pointer escapes `/`), so dotted keys never collide across nesting levels
 /// (`a.b` + `c` vs `a` + `b.c`). The reference's `instanceSegment`.
 pub fn instance_segment(key: &str) -> String {
+    if !key.contains(['~', '.']) {
+        return key.to_string();
+    }
     key.replace('~', "~0").replace('.', "~1")
 }
 
@@ -58,6 +61,20 @@ pub fn instance_segment(key: &str) -> String {
 /// missing, null, `` or a DUPLICATE of an earlier item's key (more `#`s
 /// until unique); without a pointer, the index. `templateItemKeys`.
 pub fn template_item_keys(items: &[Value], key_pointer: Option<&str>) -> Vec<String> {
+    // VAPP-132: every item's own key first; when they are all present and
+    // distinct (the usual case) that IS the answer, without the sequential
+    // walk's set of owned keys.
+    if let Some(p) = key_pointer {
+        let pointer = if p.starts_with('/') { std::borrow::Cow::Borrowed(p) } else { std::borrow::Cow::Owned(format!("/{p}")) };
+        let own: Option<Vec<String>> = items.iter().map(|item| key_string(get_pointer(item, &pointer))).collect();
+        if let Some(own) = own {
+            let mut distinct: rustc_hash::FxHashSet<&str> = rustc_hash::FxHashSet::with_capacity_and_hasher(own.len(), Default::default());
+            if own.iter().all(|k| distinct.insert(k.as_str())) {
+                drop(distinct);
+                return own;
+            }
+        }
+    }
     let mut seen: HashSet<String> = HashSet::with_capacity(items.len());
     let pointer = key_pointer.map(|k| if k.starts_with('/') { k.to_string() } else { format!("/{k}") });
     items
@@ -329,7 +346,7 @@ pub fn sticky_header_by(offset: impl Fn(usize) -> f64, extent: impl Fn(usize) ->
 #[derive(Debug, Clone)]
 pub struct ListWindow {
     /// Measured (laid out) heights per item key.
-    heights: HashMap<String, f32>,
+    heights: rustc_hash::FxHashMap<String, f32>,
     /// The sum of the measured heights: unmeasured rows are estimated at the
     /// AVERAGE measured height (the estimate only until the first pass).
     measured_sum: f64,
@@ -364,7 +381,7 @@ pub struct VisibleRange {
 
 impl ListWindow {
     pub fn new(estimated_item_height: f32, overscan: usize, gap: f32) -> ListWindow {
-        ListWindow { heights: HashMap::new(), measured_sum: 0.0, estimated_item_height, overscan, gap, scroll_offset: 0.0, version: 0, cache: None }
+        ListWindow { heights: Default::default(), measured_sum: 0.0, estimated_item_height, overscan, gap, scroll_offset: 0.0, version: 0, cache: None }
     }
 
     /// Remember one row's laid-out height. Returns true when it changed.

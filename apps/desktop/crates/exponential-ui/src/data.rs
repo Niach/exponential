@@ -50,11 +50,18 @@ pub fn absolute_path(path: &str, scope: &str) -> String {
 }
 
 pub fn get_pointer<'a>(data: &'a Value, pointer: &str) -> Option<&'a Value> {
+    if pointer.is_empty() || pointer == "/" {
+        return Some(data);
+    }
+    // VAPP-132: [`pointer_tokens`] without its allocations (a read per
+    // bound item); a token is unescaped only when it holds a `~`.
     let mut cur = data;
-    for token in pointer_tokens(pointer) {
+    for raw in pointer.strip_prefix('/').unwrap_or(pointer).split('/') {
+        let token: std::borrow::Cow<str> = if raw.contains('~') { unescape(raw).into() } else { raw.into() };
+        let token = token.as_ref();
         cur = match cur {
             Value::Array(items) => items.get(token.parse::<usize>().ok()?)?,
-            Value::Object(map) => map.get(&token)?,
+            Value::Object(map) => map.get(token)?,
             _ => return None,
         };
     }

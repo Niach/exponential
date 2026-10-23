@@ -23,8 +23,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (dry run: nothing is published without the secrets)"
+        description: "Version to build (semver, must match the core crate)"
         required: true
+      dry_run:
+        description: "Dry run: build, verify and upload the artifacts, publish nothing, create no release (VAPP-109)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -32,8 +36,19 @@ permissions:
 
 env:
   VERSION: ${{ github.event.inputs.version || '' }}
+  # A dispatched dry run keeps every publish step off even when the secrets
+  # are set; a tag push always publishes.
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
 
 jobs:
+  pick:
+    # The xcframework builds on the same Mac as exponential-ui.yml (the
+    # MacBook when it is awake, macos-26 otherwise): the xcframework size
+    # budget in release/size-budget.json is recorded on that machine, and the
+    # hosted image's toolchain produces slices ~25% larger (VAPP-109 dry run).
+    uses: ./.github/workflows/pick-runner.yml
+    secrets: inherit
+
   version:
     runs-on: ubuntu-latest
     outputs:
@@ -66,9 +81,10 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for p in ui ui-react ui-solid ui-element; do
-            if [ -n "$NODE_AUTH_TOKEN" ]; then (cd dist-npm/$p && npm publish --access public --provenance); \
+            if [ -n "$NODE_AUTH_TOKEN" ] && [ "$DRY_RUN" != "true" ]; then (cd dist-npm/$p && npm publish --access public --provenance); \
             else (cd dist-npm/$p && npm pack --pack-destination ../); fi
           done
+          [ "$DRY_RUN" != "true" ] || echo "::notice::dry run: packed, not published"
           [ -n "$NODE_AUTH_TOKEN" ] || echo "::warning::NPM_TOKEN is not set (the @exponential-at org must exist first): packed, not published"
       - uses: actions/upload-artifact@v4
         with:
@@ -87,30 +103,40 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          if [ -n "$CARGO_REGISTRY_TOKEN" ]; then cargo publish --locked -p exponential-ui; \
-          else cargo publish --locked -p exponential-ui --dry-run; echo "::warning::CARGO_REGISTRY_TOKEN is not set: dry run only"; fi
+          if [ -n "$CARGO_REGISTRY_TOKEN" ] && [ "$DRY_RUN" != "true" ]; then cargo publish --locked -p exponential-ui; \
+          else cargo publish --locked -p exponential-ui --dry-run; [ "$DRY_RUN" = "true" ] && echo "::notice::dry run: cargo publish --dry-run only" || echo "::warning::CARGO_REGISTRY_TOKEN is not set: dry run only"; fi
 
   swift:
-    needs: version
-    runs-on: macos-26
+    needs: [version, pick]
+    runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: apps/desktop
       - name: Build the xcframework
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
       - uses: oven-sh/setup-bun@v2
       - name: Size gate (xcframework slices, VAPP-106)
         env:
-          EXPONENTIAL_UI_SIZE_MACHINE: github-macos-26  # EXP-1371
+          # EXP-1371: the MacBook (pick-runner) and GitHub's macos-26 fallback
+          # link different sizes; each has its own budgets ($machines).
+          EXPONENTIAL_UI_SIZE_MACHINE: ${{ runner.environment == 'github-hosted' && 'github-macos-26' || '' }}
         run: bun packages/exponential-ui/release/size.ts xcframework --check
       - name: Zip + checksum
         id: zip
         run: |
           bash packages/exponential-ui-swift/release/zip-xcframework.sh dist-swift | tee zip.log
-          echo "checksum=$(tail -1 zip.log)" >> "$GITHUB_OUTPUT"
+          # The script's last line is "checksum <64 hex>": keep the hex only
+          # (dry run #2 passed the whole line and the package script refused it).
+          sum="$(tail -1 zip.log | awk '{print $NF}')"
+          [[ "$sum" =~ ^[0-9a-f]{64}$ ]] || { echo "no checksum in zip.log: $(tail -1 zip.log)"; exit 1; }
+          echo "checksum=$sum" >> "$GITHUB_OUTPUT"
       - name: The distribution package
         env:
           URL: https://github.com/${{ github.repository }}/releases/download/ui-v${{ needs.version.outputs.version }}/ExponentialUIFFI.xcframework.zip
@@ -160,6 +186,7 @@ jobs:
           PASS: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           SIGNED: ${{ secrets.SIGNING_KEY != '' }}
         run: |
+          if [ "$DRY_RUN" = "true" ]; then echo "::notice::dry run: the Central bundle is an artifact, not uploaded"; exit 0; fi
           if [ -z "$USER" ] || [ "$SIGNED" != "true" ]; then echo "::warning::Maven Central credentials or the signing key are not set: the bundle is an artifact, not uploaded"; exit 0; fi
           curl --fail -X POST "https://central.sonatype.com/api/v1/publisher/upload?publishingType=AUTOMATIC&name=exponential-ui-${{ needs.version.outputs.version }}" \
             -H "Authorization: Bearer $(printf '%s:%s' "$USER" "$PASS" | base64 -w0)" \
@@ -185,7 +212,14 @@ jobs:
           cp artifacts/npm/*.tgz out/ 2>/dev/null || true
           cp LICENSE NOTICE out/
           (cd out && sha256sum * > SHA256SUMS)
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        if: env.DRY_RUN == 'true'
+        with:
+          name: release-files
+          path: out/
       - name: GitHub release
+        if: env.DRY_RUN != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ui-v${{ needs.version.outputs.version }}
@@ -197,6 +231,7 @@ jobs:
     # After the release: the distribution package's binaryTarget url points
     # at the zip this release just uploaded.
     needs: [version, release]
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

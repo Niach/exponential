@@ -18,6 +18,8 @@ for LANG in swift kotlin; do
   cargo run -q -p exponential-ui-ffi --release --features cli --bin uniffi-bindgen -- generate \
     --library "$LIB" --language "$LANG" --out-dir "$HERE/out/$LANG" --config "$HERE/uniffi.toml"
 done
+# VAPP-131: the readers load in place (patch-swift-binding.pl).
+perl "$HERE/patch-swift-binding.pl" "$HERE/out/swift/ExponentialUIFFI.swift"
 cp "$HERE/out/swift/ExponentialUIFFI.swift" "$HERE/bindings/swift/ExponentialUIFFI.swift"
 cp "$HERE/out/swift/ExponentialUIFFIFFI.h" "$HERE/bindings/swift/ExponentialUIFFIFFI.h"
 # uniffi names it <module>FFI.modulemap; an xcframework needs module.modulemap.

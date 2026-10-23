@@ -216,6 +216,18 @@ pub struct FfiLayout {
     pub sticky: Vec<FfiSticky>,
 }
 
+/// VAPP-131 / VAPP-138: what a painter reads per slot after a pass, in ONE
+/// call for a step's added and changed slots ([`Surface::paint_at`]).
+/// `visual` is always there (every slot carries one, the default before
+/// its first restyle); `text_style` only for a live leaf, the only nodes
+/// whose text a painter shapes.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct FfiPaint {
+    pub index: u32,
+    pub visual: FfiVisual,
+    pub text_style: Option<FfiTextStyle>,
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct FfiTextStyle {
     pub font_size: f32,
@@ -1456,6 +1468,23 @@ impl Surface {
     pub fn text_style(&self, index: u32) -> Option<FfiTextStyle> {
         self.shield("text_style", || None, || {
             self.core().text_style(index).map(text_style)
+        })
+    }
+
+    /// [`Self::visual`] and, for a leaf, [`Self::text_style`] of every slot
+    /// in `indices`, in that order: one call per step instead of two per
+    /// slot. A slot past the end is left out (like [`Self::nodes_at`]).
+    pub fn paint_at(&self, indices: Vec<u32>) -> Vec<FfiPaint> {
+        self.shield("paint_at", || Vec::new(), || {
+            let inner = self.core();
+            indices
+                .iter()
+                .filter_map(|&i| {
+                    let v = inner.visual(i)?;
+                    let leaf = inner.layout_node(i).is_some_and(|n| n.kind == exponential_ui::layout_tree::NodeKind::Leaf);
+                    Some(FfiPaint { index: i, visual: visual(v), text_style: if leaf { inner.text_style(i).map(text_style) } else { None } })
+                })
+                .collect()
         })
     }
 
