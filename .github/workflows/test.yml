@@ -25,6 +25,33 @@ jobs:
     uses: ./.github/workflows/pick-runner.yml
     secrets: inherit
 
+  # EXP-1364: the desktop + android jobs (the slowest after the web gate) run
+  # only when the PR touches what they build or read; workflow_dispatch runs
+  # everything. Shared = the generated contract/tokens/icons/emoji, the
+  # Exponential UI fixtures, the licence notices.
+  changes:
+    needs: pick
+    runs-on: ubuntu-latest
+    outputs:
+      desktop: ${{ steps.f.outputs.desktop }}
+      android: ${{ steps.f.outputs.android }}
+    steps:
+      - id: f
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PR" ]; then
+            echo "desktop=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" -q '.[].filename')"
+          shared='^(packages/(domain-contract|exponential-ui|icons|design-tokens|emoji|licenses)/|\.github/workflows/(test|pick-runner)\.yml$)'
+          desktop="$shared|^(apps/desktop/|packages/ui/exponential-ui/|packages/electric-protocol/)"
+          android="$shared|^(apps/android/|packages/exponential-ui-compose/)"
+          echo "desktop=$(grep -qE "$desktop" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          echo "android=$(grep -qE "$android" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+
   web:
     needs: pick
     uses: ./.github/workflows/web-tests.yml
@@ -152,7 +179,8 @@ jobs:
         run: cd apps/web && bunx vitest run src/lib/**/*.real-db.test.ts
 
   desktop:
-    needs: pick
+    needs: [pick, changes]
+    if: needs.changes.outputs.desktop == 'true'
     runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
@@ -185,7 +213,8 @@ jobs:
         run: git diff --exit-code -- packages/licenses/inventory/rust.json packages/licenses/inventory/rust-excluded.json
 
   android:
-    needs: pick
+    needs: [pick, changes]
+    if: needs.changes.outputs.android == 'true'
     runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
@@ -228,3 +257,20 @@ jobs:
         run: bun run --filter @exp/licenses collect:android
       - name: Fail if the committed inventory drifted
         run: git diff --exit-code -- packages/licenses/inventory/android.json
+
+  # EXP-1364: the ONE required status check on master (branch protection).
+  # Green = every job passed or was path-skipped; a fork PR (pick skipped,
+  # nothing ran) stays red.
+  gate:
+    needs: [pick, changes, web, push-relay-image, marketing, migrations, desktop, android]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          PICK: ${{ needs.pick.result }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          [ "$PICK" = success ] || { echo "::error::nothing ran (a fork PR, or the runner pick failed)"; exit 1; }
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; *) echo "::error::a job ended $r"; exit 1 ;; esac
+          done

@@ -21,7 +21,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-box",
-      "description": "A styled container laid out by the whitelisted style object; the primitive every macro expands into.",
+      "description": "A styled container laid out by the whitelisted style object; what every macro expands into.",
       "children": "many",
       "slots": [],
       "events": [
@@ -206,7 +206,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-card",
-      "description": "A bordered content card with an optional title and description; use it for grouped content, not page headers.",
+      "description": "A bordered card with an optional title and description, for grouped content, not page headers.",
       "children": "many",
       "slots": [],
       "events": [],
@@ -303,7 +303,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-list",
-      "description": "A windowed scrolling list; required for anything longer than a screen, children may come from a data template.",
+      "description": "A windowed scrolling list for anything longer than a screen; children may come from a data template.",
       "children": "many",
       "slots": [
         "section"
@@ -518,7 +518,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-sidebar",
-      "description": "A two-column shell: a navigation column (`sidebar` slot) beside the children, hidden below a breakpoint or when `collapsed`; give narrow screens another way in.",
+      "description": "A two-column shell: a navigation column (`sidebar` slot) beside the children, hidden narrow or `collapsed`.",
       "children": "many",
       "slots": [
         "sidebar"
@@ -583,7 +583,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-app-bar",
-      "description": "A top bar with a title, an optional subtitle and back button, and `leading`/`trailing` slots for controls.",
+      "description": "A top bar: title, optional subtitle and back button, `leading`/`trailing` slots.",
       "children": "none",
       "slots": [
         "leading",
@@ -641,7 +641,7 @@
       "group": "list",
       "lite": true,
       "specimenId": "exponential-ui-section",
-      "description": "A band header over hairline-divided rows: title, optional caption, count and glyph, foldable, tinted; no title = just the rows.",
+      "description": "A band header over hairline-divided rows: title, caption, count and glyph, foldable, tinted; no title = just the rows.",
       "children": "many",
       "slots": [
         "leading",
@@ -991,7 +991,7 @@
       "group": "text",
       "lite": true,
       "specimenId": "exponential-ui-code-block",
-      "description": "Source code in a mono block with built-in syntax colouring, optional line numbers and a copy button.",
+      "description": "Source code in a mono block: syntax colouring, optional line numbers, a copy button.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -1716,7 +1716,7 @@
       "group": "navigation",
       "lite": true,
       "specimenId": "exponential-ui-segmented",
-      "description": "ONE row of segments selecting one or many values: a pill track, bare toggles, joined outline buttons or a bottom bar.",
+      "description": "ONE row of segments picking one or many values: a pill track, toggles, joined outline buttons or a bottom bar.",
       "children": "none",
       "slots": [],
       "events": [
@@ -1758,7 +1758,7 @@
           "bindable": false,
           "responsive": false,
           "default": "segmented",
-          "description": "The segmented track, bare `toggles`, joined `outline` buttons, or a full-width `bar` with icons over labels."
+          "description": "A pill track, bare `toggles`, joined `outline` buttons, or a full-width `bar` with icons over labels."
         },
         {
           "name": "size",
@@ -2103,7 +2103,7 @@
       "group": "navigation",
       "lite": true,
       "specimenId": "exponential-ui-breadcrumb",
-      "description": "The path to the current page; every item but the last is a link that fires `select` with its value.",
+      "description": "The path to the current page; every item but the last is a link firing `select`.",
       "children": "none",
       "slots": [],
       "events": [
@@ -2369,6 +2369,102 @@
       "macro": null
     },
     {
+      "name": "DockCard",
+      "kind": "macro",
+      "group": "overlay",
+      "lite": false,
+      "specimenId": "exponential-ui-dock-card",
+      "description": "A floating one-row card whose children open in a bottom sheet with a pinned footer.",
+      "children": "many",
+      "slots": [
+        "footer"
+      ],
+      "events": [
+        "press",
+        "change"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "label",
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "The tinted header word."
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "The one line under the header."
+        },
+        {
+          "name": "caption",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Muted text after the label."
+        },
+        {
+          "name": "meta",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Muted text at the header's end."
+        },
+        {
+          "name": "icon",
+          "type": "icon",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "The glyph before the label."
+        },
+        {
+          "name": "tone",
+          "type": "neutral | primary | success | warning | danger | info",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "neutral",
+          "description": "The glyph's and the label's tone."
+        },
+        {
+          "name": "open",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Whether the sheet shows; bind it."
+        }
+      ],
+      "accessibility": {
+        "role": "button",
+        "notes": "trigger = button named `label: title` ($a11y); the sheet is a Drawer (dialog, modal).",
+        "keys": [
+          "Enter, Space: open the sheet",
+          "As Drawer once open"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "DockCard",
+        "label": "Plan ready",
+        "caption": "Ask dock",
+        "meta": "3 questions",
+        "title": "Fold the composer into the Dock",
+        "icon": "coding-plan",
+        "tone": "primary"
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe DockCard/<part>."
+    },
+    {
       "name": "AlertDialog",
       "kind": "macro",
       "group": "overlay",
@@ -2566,7 +2662,7 @@
       "group": "overlay",
       "lite": false,
       "specimenId": "exponential-ui-menu",
-      "description": "A menu of actions, checkboxes, groups and one-level submenus, opened by pressing its child or by right-click / long-press.",
+      "description": "A menu of actions, checkboxes, groups and submenus, opened by pressing its child or right-click / long-press.",
       "children": "one",
       "slots": [],
       "events": [
@@ -2846,7 +2942,7 @@
       "group": "feedback",
       "lite": true,
       "specimenId": "exponential-ui-chip",
-      "description": "A small labelled token: a pill for a filter, label or state, or a rect naming an entity with a glyph or picture; removable.",
+      "description": "A small token: a pill (filter, label, state) or a rect naming an entity with a glyph or image; removable.",
       "children": "none",
       "slots": [
         "leading"
@@ -2964,7 +3060,7 @@
       "group": "feedback",
       "lite": true,
       "specimenId": "exponential-ui-empty-state",
-      "description": "What a screen or list says when empty: a title of at most four words (`No <noun> yet`, `All caught up`); `page` adds the icon disc, a next-step sentence and an action, `list` is one muted line.",
+      "description": "What an empty screen or list says: a short title; `page` adds the icon disc, a sentence and an action, `list` one muted line.",
       "children": "none",
       "slots": [],
       "events": [
@@ -3345,7 +3441,7 @@
       "group": "data",
       "lite": false,
       "specimenId": "exponential-ui-table",
-      "description": "A data table of typed columns over rows: sorting, selection, widths, alignment, windowed; a `slot` column renders a component per cell.",
+      "description": "A data table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
       "children": "none",
       "slots": [
         "*"
@@ -4861,7 +4957,7 @@
       "group": "input",
       "lite": true,
       "specimenId": "exponential-ui-select",
-      "description": "A dropdown picker of one or many options; `searchable` makes it a filtering combobox, `source` a host list.",
+      "description": "A dropdown picker of one or many options; `searchable` = a filtering combobox, `source` = a host list.",
       "children": "none",
       "slots": [],
       "events": [
@@ -5507,7 +5603,7 @@
       "group": "input",
       "lite": true,
       "specimenId": "exponential-ui-file-upload",
-      "description": "A drop zone with a browse button; files reach the host via `upload`, which lists them back in `files`.",
+      "description": "A drop zone with a browse button; files reach the host via `upload`, listed back in `files`.",
       "children": "none",
       "slots": [],
       "events": [
@@ -5682,7 +5778,7 @@
       "group": "list",
       "lite": true,
       "specimenId": "exponential-ui-row",
-      "description": "THE list row: a lead glyph or slot, a mono identifier, a title with a subtitle, trailing meta or value, a slot and a chevron; flat or a card, nestable.",
+      "description": "THE list row: a lead glyph or slot, a mono identifier, title and subtitle, trailing meta or value, a slot and a chevron; flat or card, nestable.",
       "children": "none",
       "slots": [
         "leading",
@@ -5801,7 +5897,7 @@
           "bindable": false,
           "responsive": false,
           "default": 0,
-          "description": "Nesting depth under a tree Section (0 = root); the guides are computed from the rows around it."
+          "description": "Nesting depth under a tree Section (0 = root); the guides come from the rows around it."
         }
       ],
       "accessibility": {

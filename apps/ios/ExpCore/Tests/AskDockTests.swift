@@ -29,7 +29,8 @@ final class AskDockTests: XCTestCase {
             kind: try XCTUnwrap((raw["kind"] as? String).flatMap(AskDock.Kind.init(rawValue:))),
             text: try XCTUnwrap(raw["text"] as? String),
             sessionName: raw["sessionName"] as? String,
-            createdAt: try XCTUnwrap((raw["createdAt"] as? NSNumber)?.doubleValue)
+            createdAt: try XCTUnwrap((raw["createdAt"] as? NSNumber)?.doubleValue),
+            questions: (raw["questions"] as? NSNumber)?.intValue
         )
     }
 
@@ -40,13 +41,7 @@ final class AskDockTests: XCTestCase {
         XCTAssertEqual(copy["question"], AskDock.Copy.question)
         XCTAssertEqual(copy["back"], AskDock.Copy.back)
         XCTAssertEqual(copy["feedbackPlaceholder"], AskDock.Copy.feedbackPlaceholder)
-        let ids = try XCTUnwrap(f["testIds"] as? [String: String])
-        XCTAssertEqual(ids["dock"], AskDock.TestIds.dock)
-        XCTAssertEqual(ids["row"], AskDock.TestIds.row)
-        XCTAssertEqual(ids["back"], AskDock.TestIds.back)
-        XCTAssertEqual(ids["card"], AskDock.TestIds.card)
-        XCTAssertEqual((f["bodyMaxHeightFraction"] as? NSNumber)?.doubleValue, AskDock.bodyMaxHeightFraction)
-        XCTAssertEqual((f["stackGap"] as? NSNumber)?.doubleValue, AskDock.stackGap)
+        XCTAssertEqual(copy["cancel"], AskDock.Copy.cancel)
         let options = try list("planOptions").map { raw in
             AskDock.PlanOption(
                 key: try XCTUnwrap(raw["key"] as? String),
@@ -58,41 +53,7 @@ final class AskDockTests: XCTestCase {
         }
         XCTAssertEqual(options, AskDock.planOptions)
         XCTAssertTrue(AskDock.planOptions.contains { $0.key == AskDock.planRejectKey && $0.decision == "rejected" })
-        let icons = try XCTUnwrap(f["icons"] as? [String: String])
-        XCTAssertEqual(icons["plan"], "coding-plan")
-        XCTAssertEqual(icons["question"], "ui-help")
-        XCTAssertEqual(icons["back"], "ui-back")
-        XCTAssertEqual(icons["open"], "ui-chevron-right")
-    }
-
-    func testCases() throws {
-        let all = try list("cases")
-        XCTAssertFalse(all.isEmpty)
-        for c in all {
-            let name = c["name"] as? String ?? ""
-            let input = try XCTUnwrap(c["input"] as? [String: Any])
-            let got = AskDock.dock(
-                pending: try XCTUnwrap(input["pending"] as? [[String: Any]]).map(pending),
-                focusedId: input["focusedId"] as? String
-            )
-            let e = try XCTUnwrap(c["expected"] as? [String: Any])
-            let expected = AskDock.Layout(
-                mode: try XCTUnwrap((e["mode"] as? String).flatMap(AskDock.Mode.init(rawValue:))),
-                composerHidden: try XCTUnwrap(e["composerHidden"] as? Bool),
-                back: try XCTUnwrap(e["back"] as? Bool),
-                cardId: e["cardId"] as? String,
-                rows: try XCTUnwrap(e["rows"] as? [[String: Any]]).map { r in
-                    AskDock.Row(
-                        id: try XCTUnwrap(r["id"] as? String),
-                        kind: try XCTUnwrap((r["kind"] as? String).flatMap(AskDock.Kind.init(rawValue:))),
-                        label: try XCTUnwrap(r["label"] as? String),
-                        title: try XCTUnwrap(r["title"] as? String),
-                        caption: r["caption"] as? String
-                    )
-                }
-            )
-            XCTAssertEqual(got, expected, name)
-        }
+        XCTAssertEqual(f["icons"] as? [String: String], ["plan": AskDock.Icons.plan, "question": AskDock.Icons.question])
     }
 
     func testTitleCases() throws {
@@ -124,6 +85,9 @@ final class AskDockTests: XCTestCase {
                 id: id,
                 sessionId: try XCTUnwrap(raw["sessionId"] as? String),
                 plan: try XCTUnwrap(raw["plan"] as? String),
+                questions: (raw["questions"] as? [Any] ?? []).map { _ in
+                    ThreadPlanQuestion(id: "q", prompt: "?", options: [])
+                },
                 decision: raw["decision"] as? String,
                 fresh: raw["fresh"] as? Bool ?? false
             ))

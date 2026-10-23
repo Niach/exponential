@@ -1,13 +1,13 @@
 package com.exponential.app.domain
 
 /**
- * THE ask dock ×4 (fixtures/ask-dock.json; TS reference
+ * THE ask cards ×4 (fixtures/ask-dock.json; TS reference
  * `packages/domain-contract/src/ask-dock.ts`, desktop `domain::ask_dock`,
- * iOS ExpCore `AskDock.swift`): the question/plan cards waiting on the
- * viewer take the composer's slot, in the session view AND the thread. One
- * pending card = the big card; several = compact cards stacked, a tap
- * focuses one (the back arrow returns to the stack). `AskDockTest` replays
- * the fixture and compares whole objects.
+ * iOS ExpCore `AskDock.swift`): N-12: a question or plan card waiting on the
+ * viewer is a DockCard of THE Dock ([Dock], fixtures/dock.json); the composer
+ * never leaves. This file keeps the cards' own words: the label and title,
+ * the plan options, a thread's waiting cards. `AskDockTest` replays the
+ * fixture and compares whole objects.
  */
 object AskDock {
 
@@ -16,28 +16,14 @@ object AskDock {
         const val QUESTION = "Question"
         const val BACK = "Back to all cards"
         const val FEEDBACK_PLACEHOLDER = "Tell the agent what to change…"
+        const val CANCEL = "Cancel"
     }
 
     /** Icon CONCEPT names (icons.json). */
     object Icons {
         const val PLAN = "coding-plan"
         const val QUESTION = "ui-help"
-        const val BACK = "ui-back"
-        const val OPEN = "ui-chevron-right"
     }
-
-    object TestIds {
-        const val DOCK = "ask-dock"
-        const val ROW = "ask-dock-row"
-        const val BACK = "ask-dock-back"
-        const val CARD = "ask-dock-card"
-    }
-
-    /** The big card's body cap, a fraction of the viewport height. */
-    const val BODY_MAX_HEIGHT_FRACTION = 0.4f
-
-    /** The stack's gap (dp). */
-    const val STACK_GAP = 6
 
     enum class Kind(val wire: String) { Plan("plan"), Question("question") }
 
@@ -49,30 +35,10 @@ object AskDock {
         val text: String,
         /** The asking session's name in a thread; null in the session view. */
         val sessionName: String?,
-        /** Stack order, oldest first. */
+        /** Order, oldest first. */
         val createdAt: Long,
-    )
-
-    data class Row(
-        val id: String,
-        val kind: Kind,
-        val label: String,
-        val title: String,
-        val caption: String?,
-    )
-
-    enum class Mode(val wire: String) { None("none"), Single("single"), Stack("stack"), Focused("focused") }
-
-    data class View(
-        val mode: Mode,
-        /** Whether the composer yields its slot to the dock. */
-        val composerHidden: Boolean,
-        /** The back arrow (only a focused card out of a stack). */
-        val back: Boolean,
-        /** The big card's id (single | focused), else null. */
-        val cardId: String?,
-        /** The compact cards (stack only), oldest first. */
-        val rows: List<Row>,
+        /** A plan's question count (a question: null). */
+        val questions: Int? = null,
     )
 
     data class PlanOption(
@@ -130,34 +96,17 @@ object AskDock {
 
     fun label(kind: Kind): String = if (kind == Kind.Plan) Copy.PLAN_READY else Copy.QUESTION
 
-    fun askDock(pending: List<Pending>, focusedId: String?): View {
-        val sorted = pending.sortedWith(compareBy<Pending>({ it.createdAt }, { it.id }))
-        if (sorted.isEmpty()) return View(Mode.None, composerHidden = false, back = false, cardId = null, rows = emptyList())
-        if (sorted.size == 1) return View(Mode.Single, composerHidden = true, back = false, cardId = sorted[0].id, rows = emptyList())
-        val focused = sorted.firstOrNull { it.id == focusedId }
-        if (focused != null) return View(Mode.Focused, composerHidden = true, back = true, cardId = focused.id, rows = emptyList())
-        return View(
-            Mode.Stack,
-            composerHidden = true,
-            back = false,
-            cardId = null,
-            rows = sorted.map { p ->
-                val title = askDockTitle(p.text)
-                Row(p.id, p.kind, label(p.kind), title.ifEmpty { label(p.kind) }, p.sessionName)
-            },
-        )
-    }
-
     /** A thread's waiting cards, Conversation order: every plan row with no
      *  decision and every unanswered question row, of ANY session in the
-     *  tree; [sessionName] names the asking session (null = unnamed). */
+     *  tree; [sessionName] names the asking session (null = unnamed);
+     *  a plan carries its question count. */
     fun threadPendingAsks(
         rows: List<SessionTree.ThreadRow>,
         sessionName: (String) -> String?,
     ): List<Pending> = rows.mapIndexedNotNull { index, row ->
         when {
             row is SessionTree.ThreadRow.Plan && row.decision == null ->
-                Pending(row.id, Kind.Plan, row.plan, sessionName(row.sessionId), index.toLong())
+                Pending(row.id, Kind.Plan, row.plan, sessionName(row.sessionId), index.toLong(), row.questions.size)
             row is SessionTree.ThreadRow.Question && !row.answered ->
                 Pending(row.id, Kind.Question, row.question, sessionName(row.sessionId), index.toLong())
             else -> null

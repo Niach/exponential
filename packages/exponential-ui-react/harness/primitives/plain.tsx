@@ -5,6 +5,7 @@
 // utilities); every specimen is static.
 import type { CSSProperties, ReactElement } from "react"
 import { CircleAlert, Inbox, Plus, Sparkles } from "lucide-react"
+import { DockCard, DockPile } from "../../src/primitives/dock-card"
 import {
   Alert,
   AlertDescription,
@@ -370,5 +371,29 @@ export const SPECIMENS: Record<string, () => ReactElement> = {
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
+  ),
+  // N-12: THE DockCard (one opening, one with a trailing action, one hidden
+  // behind the front) and THE pile (fixed heights: collapsed and fanned).
+  "plain/dock-card": () => (
+    <div style={{ display: `flex`, flexDirection: `column`, gap: 8, width: 420 }}>
+      <DockCard tint="plan" icon={Sparkles} label="Plan ready" caption="Ask dock" meta="3 questions" title="Fold the composer into the Dock" onOpen={() => {}} openLabel="Plan ready: Fold the composer into the Dock" />
+      <DockCard tint="warning" icon={CircleAlert} label="Usage limit" title="Claude's 5-hour window is used up" trailing={<button type="button">Switch account</button>} />
+      <DockCard tint="muted" icon={Inbox} label="2 queued" title="also check the watchdog" onOpen={() => {}} hidden />
+    </div>
+  ),
+  "plain/dock-pile": () => (
+    <div style={{ display: `flex`, flexDirection: `column`, gap: 24, width: 420 }}>
+      {[false, true].map((expanded) => (
+        <DockPile
+          key={String(expanded)}
+          expanded={expanded}
+          items={[`2 queued`, `3 to do`, `Question`, `Plan ready`].map((label, i, all) => ({
+            id: label,
+            height: 62,
+            node: <DockCard tint={i === 3 ? `plan` : `muted`} icon={i === 3 ? Sparkles : Inbox} label={label} title={`Card ${i + 1}`} onOpen={() => {}} hidden={!expanded && i < all.length - 1} />,
+          }))}
+        />
+      ))}
+    </div>
   ),
 }

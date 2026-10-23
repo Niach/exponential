@@ -124,6 +124,7 @@ final class PlanCardTests: XCTestCase {
         XCTAssertEqual(copy["back"] as? String, PlanCard.Copy.back)
         XCTAssertEqual(copy["next"] as? String, PlanCard.Copy.next)
         XCTAssertEqual(copy["decide"] as? String, PlanCard.Copy.decide)
+        XCTAssertEqual(copy["cancel"] as? String, PlanCard.Copy.cancel)
         XCTAssertEqual(PlanCard.Copy.stepLabel(step: 2, count: 3), "Question 2 of 3")
 
         XCTAssertTrue(PlanCard.stepperApplies(kind: "plan", decision: nil, questionCount: 2))

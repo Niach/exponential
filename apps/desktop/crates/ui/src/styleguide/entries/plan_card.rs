@@ -6,9 +6,10 @@
 //! the thread's REAL cards (`crate::thread_screen::ask_row_card`): the
 //! pending plan (pictures inline, a pending upload that renders nothing,
 //! the inline Exponential UI surface, a picture-tile question and a
-//! multi-choice list question; NEW-6: the stepper, one question at a time,
-//! then the same card on its LAST step carrying THE decision block), the
-//! answered multi question closed with its picks, and a decided plan.
+//! multi-choice list question; N-12: in the transcript a pending card is
+//! read-only, its pages and decision live in THE Dock's sheet, see the
+//! `ask-dock` entry), the answered multi question closed with its picks,
+//! and a decided plan.
 //! The fixture's attachments are local stand-in pictures (no backend).
 
 use domain::rows::MessageRow;
@@ -18,7 +19,7 @@ use gpui_component::{v_flex, ActiveTheme as _};
 use serde_json::{Map, Value};
 
 use crate::markdown::ImageCache;
-use crate::thread_screen::{CardChrome, ThreadText};
+use crate::thread_screen::ThreadText;
 
 pub(crate) const ID: &str = "plan-card";
 pub(crate) const OWNER: &str = "EXP-1280";
@@ -127,38 +128,8 @@ fn caption(text: &str, cx: &App) -> Div {
 }
 
 fn demo(label: &str, row: &SessionThreadRow, images: &Entity<ImageCache>, window: &mut Window, cx: &mut App) -> Div {
-    let card = crate::thread_screen::ask_row_card(row, &ThreadText::default(), images, CardChrome::default(), window, cx);
-    let mut column = v_flex().w_full().gap_2().child(caption(label, cx)).children(card);
-    // NEW-6: a stepped pending plan again on its LAST step (the decision
-    // block), under its own id so the two steps keep their own drafts.
-    if let Some(last) = last_step(row, cx) {
-        column = column.children(crate::thread_screen::ask_row_card(
-            &last,
-            &ThreadText::default(),
-            images,
-            CardChrome::default(),
-            window,
-            cx,
-        ));
-    }
-    column
-}
-
-/// The last-step twin of a stepped pending plan (`None` for any other row).
-fn last_step(row: &SessionThreadRow, cx: &mut App) -> Option<SessionThreadRow> {
-    let SessionThreadRow::Plan { id, questions, decision: None, .. } = row else {
-        return None;
-    };
-    if !domain::plan_card::stepper().steps(questions.len()) {
-        return None;
-    }
-    let twin = format!("{id}-last");
-    crate::plan_card::preset_step(&twin, questions.len() - 1, cx);
-    let mut last = row.clone();
-    if let SessionThreadRow::Plan { id, .. } = &mut last {
-        *id = twin;
-    }
-    Some(last)
+    let card = crate::thread_screen::ask_row_card(row, &ThreadText::default(), images, window, cx);
+    v_flex().w_full().gap_2().child(caption(label, cx)).children(card)
 }
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {

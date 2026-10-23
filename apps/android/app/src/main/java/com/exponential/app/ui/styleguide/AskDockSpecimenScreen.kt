@@ -14,56 +14,112 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.AskDock
+import com.exponential.app.domain.Dock
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.TaskQueue
+import com.exponential.app.domain.TaskQueueItem
+import com.exponential.app.domain.TaskQueueItemKind
+import com.exponential.app.domain.TaskQueueItemState
+import com.exponential.app.domain.TaskQueueSection
+import com.exponential.app.ui.components.DockCard
+import com.exponential.app.ui.components.DockPile
+import com.exponential.app.ui.components.DockSheetSpecimenFrame
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.thread.ThreadAskDock
+import com.exponential.app.ui.thread.PlanAskCard
 
 /** The capture's anchor (shot `sg_ask-dock`). */
 const val AskDockSpecimenScreenTestId = "ask-dock-specimen-screen"
 
 private val LONG_PLAN = listOf(
-    "## Plan: one ask dock ×4",
+    "## Plan: one Dock ×4",
     "",
-    "1. Add `fixtures/ask-dock.json` + the TS model, mirrored ×4.",
-    "2. Move waiting cards out of the transcript into the composer's slot.",
-    "3. Stack several cards; a tap grows one into the big card.",
+    "1. Add `fixtures/dock.json` + the TS model, mirrored ×4.",
+    "2. Float the waiting cards above the composer; the transcript is the one scroll.",
+    "3. Pile several cards like the toasts; a tap opens one as a sheet.",
     "4. Share THE plan options: Yes · Yes, and start with a fresh context · No.",
     "5. Styleguide entry + scoped shots on every platform.",
     "6. Open the PR with the Guide.",
 ).joinToString("\n")
 
-private fun plan(id: String, text: String, sessionId: String) =
-    SessionTree.ThreadRow.Plan(id = id, sessionId = sessionId, plan = text, decision = null, fresh = false)
-
-private val STACK: List<SessionTree.ThreadRow> = listOf(
-    plan("p1", LONG_PLAN, "a"),
-    plan("p2", "1. Group the thread list by state\n2. Drop the per-row counters", "b"),
-    SessionTree.ThreadRow.Question(
-        id = "q1",
-        sessionId = "c",
-        question = "Ship both fixes in one PR, or split them?",
-        options = listOf(
-            SessionTree.ThreadRow.QuestionChoice("One PR", null),
-            SessionTree.ThreadRow.QuestionChoice("Split them", null),
-        ),
+private val QUESTIONS = listOf(
+    SessionTree.ThreadRow.PlanQuestion(
+        id = "q-scope",
+        prompt = "Which cards move into the Dock first?",
+        multi = false,
         custom = true,
-        answer = null,
-        answered = false,
+        options = listOf(
+            SessionTree.ThreadRow.QuestionChoice("Plan and question cards", "The rest follows as its own issue"),
+            SessionTree.ThreadRow.QuestionChoice("Everything", "Plan, question, tasks, queued messages, banners"),
+        ),
+    ),
+    SessionTree.ThreadRow.PlanQuestion(
+        id = "q-eui",
+        prompt = "Should DockCard also go into Exponential UI?",
+        multi = false,
+        custom = false,
+        options = listOf(
+            SessionTree.ThreadRow.QuestionChoice("Yes, as DockCard", null),
+            SessionTree.ThreadRow.QuestionChoice("Styleguide only for now", null),
+        ),
     ),
 )
 
-private val NAMES = mapOf("a" to "Ask dock", "b" to "Thread list", "c" to "Dock polish")
-private val sessionName: (String) -> String? = { NAMES[it] }
+private val RICH_PLAN = SessionTree.ThreadRow.Plan(
+    id = "p1",
+    sessionId = "a",
+    plan = LONG_PLAN,
+    decision = null,
+    fresh = false,
+    questions = QUESTIONS,
+)
+
+private val ASKS: List<Dock.Source> = listOf(
+    Dock.Source.Ask("p1", AskDock.Kind.Plan, LONG_PLAN, "Ask dock", 2, 10),
+    Dock.Source.Ask("q1", AskDock.Kind.Question, "Ship both fixes in one PR, or split them?", "Dock polish", 0, 30),
+)
+
+private fun item(i: Int, label: String, description: String?, state: TaskQueueItemState) =
+    TaskQueueItem("task:$i", TaskQueueItemKind.Task, state, "", label, description)
+
+private val STATE: List<Dock.Source> = listOf(
+    Dock.Source.Queued(
+        listOf(
+            Dock.QueuedMessage("m1", "also check the watchdog once the root is idle"),
+            Dock.QueuedMessage("m2", "then open the PR"),
+        ),
+    ),
+    Dock.Source.Tasks(
+        TaskQueue(
+            todo = TaskQueueSection(
+                "3 to do",
+                "",
+                listOf(
+                    item(0, "Measuring on the Galaxy A54", "2m 35s", TaskQueueItemState.Running),
+                    item(1, "Rerun the web captures", null, TaskQueueItemState.Pending),
+                    item(2, "Open the PR with the numbers", null, TaskQueueItemState.Pending),
+                ),
+            ),
+            completed = TaskQueueSection("2 completed", "", emptyList()),
+        ),
+    ),
+    Dock.Source.Suggestions("m4", "3 suggested tasks", "1 started", "Lazy-load the markdown editor", 2),
+)
 
 /**
- * THE ask dock specimen (ask-dock.json ×4; web `AskDockSpecimen`): the REAL
- * [ThreadAskDock] in its three states — one waiting plan (the big card), two
- * plans + a question (the stack), one card focused out of the stack (the back
- * arrow). A capture-only screen, shot `sg_ask-dock`.
+ * THE Dock specimen (dock.json + ask-dock.json ×4): EXACTLY the rows of the
+ * canonical web `AskDockSpecimen` (packages/ui ask-dock-specimen.tsx), its
+ * four cases drawn by the REAL [DockCard] / [DockPile] /
+ * [DockSheetSpecimenFrame]: one waiting plan, the pile (the queued messages,
+ * THE Queue, the suggested tasks, a plan, a question), the pile fanned and
+ * the plan's sheet ([PlanAskCard] in sheet mode). A capture-only screen, shot
+ * `sg_ask-dock`.
  */
 @Composable
 fun AskDockSpecimenScreen() {
+    val single = Dock.dockRows(ASKS.take(1))
+    val pile = Dock.dockRows(STATE + ASKS)
     AppBackground {
         Box(modifier = Modifier.fillMaxSize().testTag(AskDockSpecimenScreenTestId)) {
             Column(
@@ -75,19 +131,18 @@ fun AskDockSpecimenScreen() {
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 SpecimenCase("One waiting plan") {
-                    ThreadAskDock(STACK.take(1), sessionName, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> })
+                    DockCard(row = single[0], onOpen = {})
                 }
-                SpecimenCase("Two plans and a question") {
-                    ThreadAskDock(STACK, sessionName, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> })
+                SpecimenCase("A plan, a question, the suggested tasks, the Queue and the queued messages, piled") {
+                    DockPile(rows = pile, expanded = false, onExpandedChange = {}, onOpen = {})
                 }
-                SpecimenCase("Focused out of the stack") {
-                    ThreadAskDock(
-                        STACK,
-                        sessionName,
-                        onAnswer = { _, _, _ -> },
-                        onDecidePlan = { _, _, _ -> },
-                        initialFocusedId = "p2",
-                    )
+                SpecimenCase("The pile fanned (hover or a tap)") {
+                    DockPile(rows = pile, expanded = true, onExpandedChange = {}, onOpen = {})
+                }
+                SpecimenCase("The plan's sheet") {
+                    DockSheetSpecimenFrame(row = single[0], height = 420.dp) { scope ->
+                        PlanAskCard(RICH_PLAN, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> }, sheet = scope)
+                    }
                 }
             }
         }

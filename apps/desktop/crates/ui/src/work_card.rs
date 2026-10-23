@@ -291,7 +291,7 @@ pub(crate) fn work_card(props: WorkCardProps<'_>, cx: &App) -> AnyElement {
         .rounded(px(theme::tokens::radius::LG))
         .border_1()
         .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+        .bg(crate::dock::card_fill())
         .child(header(card, cx))
         .children(segment_bar(card, cx));
     for (index, row) in card.rows.iter().enumerate() {
@@ -492,7 +492,7 @@ fn session_card_framed(
             this.rounded(px(theme::tokens::radius::LG))
                 .border_1()
                 .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+                .bg(crate::dock::card_fill())
                 .hover(|this| this.border_color(theme::tokens::glass::STROKE_STRONG.to_hsla()))
         })
         .when(!framed, |this| this.hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla())))

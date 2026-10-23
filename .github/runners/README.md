@@ -7,10 +7,11 @@ fork never runs any workflow (the same job skips, everything needs it).
 
 | Label | Machine | Takes |
 |---|---|---|
-| `exp-linux` | the Mint, 2 Docker runners (`linux/`) | test: desktop, android · build-web amd64 · build-desktop Linux · build-android · exponential-ui rust |
+| `exp-linux` | the Mint, 4 Docker runners (`linux/`) | test: desktop, android · build-desktop Linux · build-android · exponential-ui rust |
 | `exp-mac` | the MacBook, native (`mac/`) | test-ios · exponential-ui swift, swift-ios |
 
-Stays on GitHub: the exponential-ui compose leg (its snapshots are pixel-exact
+Stays on GitHub: build-web (pushing an image from the Mint goes through a
+home upload link), the exponential-ui compose leg (its snapshots are pixel-exact
 to the ubuntu image they are recorded on), the web unit shards (4 free parallel runners beat one
 machine), every signed Apple artifact (build-ios, the desktop .app, release-ui:
 App Store review rejects a beta-macOS host and the signing steps rewrite the
@@ -27,13 +28,14 @@ expired = every job falls back to GitHub-hosted.
 
 ```bash
 cd .github/runners/linux
-RUNNER_TOKEN=<token> docker compose up -d --build   # first start only
+RUNNER_TOKEN=<token> docker compose up -d --build   # a runner's first start
 docker compose up -d --build                        # later: rebuild/upgrade
 ```
 
 `<token>` = `gh api -X POST repos/Niach/exponential/actions/runners/registration-token -q .token`
-(valid one hour). `RUNNER_CPUS` in a `.env` next to `compose.yaml` caps the
-jobs (default 6). The caches (sccache, cargo, rustup, gradle, bun, tool
+(valid one hour). `RUNNER_CPUS` in a `.env` next to `compose.yaml` caps EACH
+runner (default 6; the Mint: 16 of its 32 cores, so two heavy jobs at once
+still leave the desktop room). The caches (sccache, cargo, rustup, gradle, bun, tool
 cache) are named volumes; `docker compose down -v` drops them and the
 registration.
 
