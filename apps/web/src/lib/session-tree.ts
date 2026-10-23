@@ -48,7 +48,6 @@ export function toTreeSession(row: SessionRow): TreeSession {
     teamId: row.teamId,
     parentId: row.parentId,
     rootId: row.rootId ?? row.id,
-    kind: row.kind,
     agentId: row.agentId ?? null,
     appId: row.appId ?? null,
     userId: row.userId,
@@ -60,17 +59,10 @@ export function toTreeSession(row: SessionRow): TreeSession {
     shared: row.shared,
     title: row.title,
     guide: row.guide ?? null,
-    actionName: row.actionName,
-    name: row.name,
-    icon: row.icon,
-    color: row.color,
-    sortOrder: row.sortOrder,
     startedAt: iso(row.startedAt),
     endedAt: iso(row.endedAt),
     createdAt: iso(row.createdAt) ?? new Date(0).toISOString(),
     updatedAt: iso(row.updatedAt) ?? new Date(0).toISOString(),
-    caption: row.caption ?? null,
-    aside: row.aside ?? false,
   }
 }
 

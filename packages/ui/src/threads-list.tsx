@@ -232,11 +232,10 @@ function GroupRows({
           return (
             <SessionRow
               key={row.sessionId}
-              size={row.caption ? `big` : `small`}
+              size="small"
               agent={cliByRoot.get(row.sessionId) ?? null}
               markState={threadRunMarkState(row)}
               title={row.title}
-              caption={row.caption}
               unread={row.unread}
               depth={row.depth}
               guide={guides[index]}
@@ -259,7 +258,6 @@ function GroupRows({
             lead={rowLead(row, cliByRoot.get(row.sessionId) ?? null, word, prs)}
             title={row.title}
             unread={row.unread}
-            caption={row.caption}
             className={enter}
             word={word ? (THREAD_ROW_WORDS[word] ?? null) : null}
             wordIcon={word === `stack` ? <PrStackIcon className="size-3 shrink-0" /> : undefined}

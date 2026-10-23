@@ -16,7 +16,7 @@ export async function deriveSessionTitles(
 ): Promise<Map<string, string>> {
   if (rows.length === 0) return new Map()
   const ids = rows.map((row) => row.id)
-  const needsLinks = rows.some((row) => !row.name?.trim() && !row.title?.trim())
+  const needsLinks = rows.some((row) => !row.title?.trim())
   const [links, inputs] = needsLinks
     ? await Promise.all([
         database
