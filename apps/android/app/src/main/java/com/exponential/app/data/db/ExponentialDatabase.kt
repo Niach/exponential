@@ -441,8 +441,12 @@ import androidx.room.TypeConverters
     // v94 (VAPP-110): the `apps` + `app_versions` tables (two new shapes) +
     //      sessions.app_id. Explicit [MIGRATION_93_94] adds the column,
     //      creates the tables empty and refetches only the sessions shape.
+    // v95 (NEW-8): messages are keyed through their conversation:
+    //      `messages.session_id` dropped, `conversation_id` NOT NULL + indexed.
+    //      Explicit [MIGRATION_94_95] rebuilds the table empty and refetches
+    //      only the messages shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 94,
+    version = 95,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

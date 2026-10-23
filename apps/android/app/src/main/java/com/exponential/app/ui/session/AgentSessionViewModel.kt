@@ -28,6 +28,7 @@ import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.keyedMessages
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.data.steer.SteerConnectionStore
@@ -631,7 +632,7 @@ class AgentSessionViewModel @AssistedInject constructor(
      */
     val composerReplies: StateFlow<SessionTree.ComposerReplies?> = dbFlow
         .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
-        .map { rows -> SessionTree.composerReplies(codingSessionId, rows.map(SessionTree::message)) }
+        .map { rows -> SessionTree.composerReplies(codingSessionId, rows.map { SessionTree.message(it, codingSessionId) }) }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -694,7 +695,9 @@ class AgentSessionViewModel @AssistedInject constructor(
             } else {
                 combine(
                     dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(root) },
-                    dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeByRoot(root) },
+                    dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { db ->
+                        db.keyedMessages(db.messageDao().observeByRoot(root))
+                    },
                     dbFlow.scopedQuery(emptyList<SessionIssueEntity>()) { it.sessionIssueDao().observeByRoot(root) },
                     issues,
                     session,
@@ -707,7 +710,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                         listOf(rootRow, mine).distinctBy { it.id },
                         links.map(SessionTree::sessionIssue),
                         linked.map { SessionTree.issue(it) },
-                        messages.map(SessionTree::message),
+                        messages,
                     )
                     val title = titles.getValue(rootRow.id)
                     val name = titles.getValue(mine.id)
@@ -1224,7 +1227,7 @@ class AgentSessionViewModel @AssistedInject constructor(
      */
     val toolAsks: StateFlow<List<SessionTree.ThreadRow>> = dbFlow
         .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
-        .map { rows -> SessionTree.toolPostedAsks(rows.map(SessionTree::message)) }
+        .map { rows -> SessionTree.toolPostedAsks(rows.map { SessionTree.message(it, codingSessionId) }) }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

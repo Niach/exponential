@@ -879,15 +879,17 @@ data class SessionIssueEntity(
 // `messageCardKind`); unknown kinds render nothing.
 @Entity(
     tableName = "messages",
-    indices = [Index("session_id"), Index("root_id"), Index("team_id")],
+    indices = [Index("conversation_id"), Index("root_id"), Index("team_id")],
 )
 @Serializable
 data class MessageEntity(
     @PrimaryKey val id: String,
-    // NEW-3: the conversation the row lives in (`session_id` = the step-1 shim).
+    // NEW-8: the conversation the row lives in; its session (if any) comes
+    // from the `conversations` row ([com.exponential.app.domain.MessageConversation]),
+    // never from a legacy `messages.session_id` (not stored; the shape
+    // decoder drops it).
     @ColumnInfo(name = "conversation_id") @SerialName("conversation_id") @JsonNames("conversationId")
-    val conversationId: String? = null,
-    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String = "",
+    val conversationId: String = "",
     @ColumnInfo(name = "root_id") @SerialName("root_id") @JsonNames("rootId") val rootId: String = "",
     @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
     // Contract `messageAuthorKind`: user | agent | system.
