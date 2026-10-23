@@ -7,6 +7,8 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 First release (FEED-128).
 
+- VAPP-146: picking the Select option that holds the current value fires nothing when that value is `""` (it fired a change); `fixtures/interactions-round1.json` `select` replays against React.
+- VAPP-147: the natives read the shared cached `nativeRecipeProps` (the package's own copy is gone).
 - VAPP-152: a streamed `updateComponents` re-binds only the nodes it changed: the new tree shares its unchanged nodes with the last (`share`), each listed node follows its own id, and a binding reads the data model only where it evaluates one (a data write no longer re-binds every node). The node sheet is painted in `<style>` batches (`nodeSheetBatches`). Streaming `applyMs` 13.8 → 2.4 ms on the Linux bench machine.
 - VAPP-148: `scrollToIndex` reuses the measured extents (one pass over the rows per measurement, React's VAPP-139); list-100k `scrollToIndexMs` 71.8 → 8.9 ms on the Linux bench machine.
 

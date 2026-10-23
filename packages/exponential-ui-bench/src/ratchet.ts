@@ -7,6 +7,10 @@
 // its budget FAILS, as it must land with its new budget in the same change.
 // A metric with no budget (a new scenario, a new machine) is reported, never
 // gated, so a first run on a new machine passes and writes the numbers.
+// `machineTimings` (per machine) and `rendererTimings` (per renderer, on
+// every machine) make timings `warn`: recorded and reported, a worse one a
+// warning, never a failure (runners without CPU isolation, an emulator on a
+// shared VM); counts and bytes still gate.
 import manifest from "../scenarios/manifest.json"
 import type { Fragment } from "./results"
 
@@ -16,6 +20,12 @@ export type Budgets = {
   floor: number
   /** How far over a measured timing `--write` puts the new budget (1.5 = 50 % headroom). */
   headroom: number
+  /** A machine's own `headroom` (a shared hosted VM drifts far more than a dedicated box). */
+  machineHeadroom?: Record<string, number>
+  /** A machine's timings (`mint`): `gate` (default) or only `warn` (a worse timing never fails; counts still gate). */
+  machineTimings?: Record<string, `gate` | `warn`>
+  /** A renderer's timings on EVERY machine (`compose-android`): `gate` (default) or only `warn`. */
+  rendererTimings?: Record<string, `gate` | `warn`>
   machines: Record<string, Record<string, Record<string, Record<string, number>>>>
 }
 
@@ -28,14 +38,21 @@ export interface Verdict {
   budget?: number
   kind: `ms` | `count` | `bytes` | `mb`
   status: `ok` | `worse` | `better` | `unbudgeted`
+  /** A timing on a `warn` machine: reported, never failing. */
+  warnOnly?: boolean
 }
 
 const KINDS: Record<string, Record<string, Verdict[`kind`]>> = Object.fromEntries(manifest.scenarios.map((s) => [s.id, Object.fromEntries(s.metrics.map((m) => [m.id, m.kind as Verdict[`kind`]]))]))
+
+/** How [renderer]'s timings on [machine] count: `warn` when the machine's or the renderer's mode says so, else `gate`. */
+export const timingMode = (budgets: Budgets, machine: string, renderer: string): `gate` | `warn` =>
+  budgets.machineTimings?.[machine] === `warn` || budgets.rendererTimings?.[renderer] === `warn` ? `warn` : `gate`
 
 /** Compare one fragment with the budgets of its machine. */
 export function check(fragment: Fragment, budgets: Budgets, machine = fragment.machine ?? `unknown`): Verdict[] {
   const out: Verdict[] = []
   const mine = budgets.machines[machine]?.[fragment.renderer] ?? {}
+  const warnTimings = timingMode(budgets, machine, fragment.renderer) === `warn`
   for (const [scenario, metrics] of Object.entries(fragment.scenarios)) {
     for (const [metric, value] of Object.entries(metrics)) {
       const kind = KINDS[scenario]?.[metric] ?? `ms`
@@ -44,17 +61,39 @@ export function check(fragment: Fragment, budgets: Budgets, machine = fragment.m
       if (budget === undefined) status = `unbudgeted`
       else if (value > budget) status = `worse`
       else if (kind === `ms` || kind === `mb` ? value < budget * budgets.floor : value < budget) status = `better`
-      out.push({ machine, renderer: fragment.renderer, scenario, metric, value, budget, kind, status })
+      out.push({ machine, renderer: fragment.renderer, scenario, metric, value, budget, kind, status, ...(warnTimings && (kind === `ms` || kind === `mb`) ? { warnOnly: true } : {}) })
     }
   }
   return out
 }
 
-/** The verdicts that fail CI: worse, or a deterministic metric that got better. */
-export const failing = (verdicts: Verdict[]) => verdicts.filter((v) => v.status === `worse` || (v.status === `better` && v.kind !== `ms` && v.kind !== `mb`))
+/** The verdicts that fail CI: worse (but a `warn` machine's timing), or a deterministic metric that got better. */
+export const failing = (verdicts: Verdict[]) => verdicts.filter((v) => (v.status === `worse` && !v.warnOnly) || (v.status === `better` && v.kind !== `ms` && v.kind !== `mb`))
 
-/** `--write`: the budgets a fragment's numbers imply (timings × headroom, counts exact). */
+const timing = (kind: Verdict[`kind`]) => kind === `ms` || kind === `mb`
+
+/** The headroom `--write` gives [machine]'s timings: its own, else the file's. */
+export const headroomOf = (budgets: Budgets, machine: string) => budgets.machineHeadroom?.[machine] ?? budgets.headroom
+
+/** Several runs of one renderer on one machine as one fragment: every timing
+ *  at its WORST (highest), every count from the last run given. */
+export function worstOf(runs: Fragment[]): Fragment {
+  const last = runs[runs.length - 1]
+  const scenarios: Fragment[`scenarios`] = {}
+  for (const [scenario, metrics] of Object.entries(last.scenarios)) {
+    scenarios[scenario] = Object.fromEntries(
+      Object.entries(metrics).map(([metric, value]) => {
+        if (!timing(KINDS[scenario]?.[metric] ?? `ms`)) return [metric, value]
+        return [metric, Math.max(value, ...runs.map((r) => r.scenarios[scenario]?.[metric] ?? -Infinity))]
+      })
+    )
+  }
+  return { ...last, scenarios }
+}
+
+/** `--write`: the budgets a fragment's numbers imply (timings × the machine's headroom, counts exact). */
 export function budgetsFor(fragment: Fragment, budgets: Budgets, machine = fragment.machine ?? `unknown`): Budgets {
+  const headroom = headroomOf(budgets, machine)
   const next: Budgets = { ...budgets, machines: { ...budgets.machines } }
   const mine = { ...(next.machines[machine] ?? {}) }
   const byScenario: Record<string, Record<string, number>> = {}
@@ -62,7 +101,7 @@ export function budgetsFor(fragment: Fragment, budgets: Budgets, machine = fragm
     byScenario[scenario] = Object.fromEntries(
       Object.entries(metrics).map(([metric, value]) => {
         const kind = KINDS[scenario]?.[metric] ?? `ms`
-        return [metric, kind === `ms` || kind === `mb` ? Math.ceil(value * budgets.headroom * 10) / 10 : value]
+        return [metric, timing(kind) ? Math.ceil(value * headroom * 10) / 10 : value]
       })
     )
   }
@@ -80,6 +119,7 @@ export function describe(v: Verdict): string {
   const value = fmt(v.value, v.kind)
   switch (v.status) {
     case `worse`:
+      if (v.warnOnly) return `::warning title=bench worse (timings warn on ${v.machine})::${where} = ${value} > budget ${fmt(v.budget!, v.kind)} (${v.machine})`
       return `::error title=bench worse::${where} = ${value} > budget ${fmt(v.budget!, v.kind)} (${v.machine})`
     case `better`:
       return v.kind === `ms` || v.kind === `mb`

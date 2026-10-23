@@ -6,7 +6,7 @@
 // a note and writes nothing.
 import { spawnSync } from "node:child_process"
 import { join } from "node:path"
-import { fragmentPath, REPO_ROOT } from "../src/results"
+import { fragmentPath, readFragment, REPO_ROOT, writeFragment } from "../src/results"
 
 if (process.platform !== `linux`) {
   console.log(`gpui bench: headless gpui runs on Linux only (skipped on ${process.platform})`)
@@ -22,4 +22,6 @@ if (r.status !== 0) {
   console.error(`gpui bench failed (${r.status ?? r.signal})`)
   process.exit(r.status ?? 1)
 }
+// The Rust example writes no machine: stamp it.
+writeFragment(readFragment(out), out)
 console.log(`gpui → ${out}`)

@@ -68,7 +68,9 @@ export function fragmentPath(renderer: string): string {
   return process.env.EXPONENTIAL_UI_BENCH_OUT || join(SCRATCH, `${renderer}.json`)
 }
 
+/** Every fragment names its machine (the ratchet reads budgets by it; a fragment without one is checked against nothing). */
 export function writeFragment(fragment: Fragment, path = fragmentPath(fragment.renderer)): string {
+  fragment.machine ??= machineInfo().id
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, `${JSON.stringify(fragment, null, 2)}\n`)
   return path

@@ -4,10 +4,13 @@
 // round1.test.ts: Radio's roving tab stop, the plain Select keyboard), and
 // every keyboard/pointer script below runs on BOTH harnesses, React's and
 // Solid's, with the `__xuiLog` entries and the resulting control state
-// compared entry for entry.
+// compared entry for entry. fixtures/interactions-round1.json `select`
+// (VAPP-146: "" is an ordinary option value) replays on both, checked
+// against the fixture.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { join } from "node:path"
+import { readFileSync } from "node:fs"
 import type { Browser, Page } from "playwright"
 import { bunHarness, launchChromium, openPage, type Query, type RunningHarness } from "../../exponential-ui/conformance/browser-page"
 
@@ -307,4 +310,41 @@ describe(`interaction parity with React (the same script, the same __xuiLog)`, (
       async (page) => ({ value: await page.locator(`textarea`).inputValue(), disabled: await page.getAttribute(`.xui-Composer-send`, `disabled`) })
     )
   })
+})
+
+interface SelectCase {
+  name: string
+  value: string | null
+  presses: number[]
+  expect: { value: string | null; shows: string; changes: string[] }
+}
+const selectCases = (JSON.parse(readFileSync(join(import.meta.dirname, `..`, `..`, `exponential-ui`, `fixtures`, `interactions-round1.json`), `utf8`)) as { select: SelectCase[] }).select
+
+describe(`fixtures/interactions-round1.json select (React and Solid)`, () => {
+  const node = {
+    id: `root`,
+    component: `Box`,
+    children: [
+      { id: `s`, component: `Select`, props: { label: `Status`, name: `s`, options: [{ label: `Any`, value: `` }, { label: `Open`, value: `open` }, { label: `Done`, value: `done` }], value: { path: `/v` } }, on: on(`change`) },
+      { id: `v`, component: `Text`, props: { text: { call: `fallback`, args: { value: { path: `/v` }, default: `<unset>` } } } },
+    ],
+  }
+  for (const c of selectCases)
+    it(`Select: ${c.name}`, async () => {
+      const out = await bothAgree(
+        tree(node, c.value === null ? {} : { v: c.value }),
+        async (page) => {
+          for (const i of c.presses) {
+            await page.click(`.xui-Select-trigger`)
+            await page.waitForSelector(`[role="option"]`)
+            await page.waitForTimeout(150)
+            await page.click(`[data-xui-overlay="Select"] [role="option"] >> nth=${i}`)
+            await page.waitForTimeout(150)
+          }
+        },
+        async (page) => ({ shows: await page.textContent(`.xui-Select-trigger`), value: await page.textContent(`[data-xui-id="v"]`), errors: await page.$$eval(`[data-xui-error]`, (l) => l.length) })
+      )
+      expect((out.log as { action: string; context: { value: string } }[]).filter((l) => l.action === `change`).map((l) => l.context.value)).toEqual(c.expect.changes)
+      expect(out.state).toEqual({ shows: c.expect.shows, value: c.expect.value === null ? `<unset>` : c.expect.value, errors: 0 })
+    })
 })

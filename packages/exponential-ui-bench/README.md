@@ -79,8 +79,17 @@ in the style of the Compose conformance budgets:
   runners are noisy; a better timing alone never fails);
 - a metric with **no budget** (a new machine, a new scenario) is a notice.
 
-Record budgets after a green run from the `bench-results` artifact (or a
-local `.bench/`): `ratchet .bench/*.json --write` puts timings at measured ×
-`headroom` and counts exact. The CI machines are `github-ubuntu-latest`
-(React, Solid, the web component, the core, gpui, Compose JVM and the emulator) and `github-macos-26`
-(SwiftUI on macOS and the iPhone Simulator).
+Record CI budgets from the `bench-*` artifacts of TWO green runs (or a
+local `.bench/`): `ratchet <run-1 fragments> <run-2 fragments> --write` puts
+every timing at its worst of the runs × the machine's headroom and the counts
+exact (the last run's), at `headroom` 1.5 (`machineHeadroom` can override it
+per machine). Counts and bytes gate everywhere; `machineTimings` makes `mint`'s
+timings warnings only (four runners share one 32-core box without CPU
+isolation) and `rendererTimings` does the same for `compose-android` everywhere
+(an emulator, swiftshader software rendering, a shared VM; real Android
+timings come from a real device); every other timing gates. The CI machines are named by the runner that
+actually ran the job, one id per runner class: `github-ubuntu-latest` (React,
+Solid, the web component, Compose JVM and the emulator always; the core and
+gpui when `pick` falls back to GitHub), `mint` (the core and gpui on the
+self-hosted Linux runners), `github-macos-26` and `macbook` (SwiftUI on macOS
+and the iPhone Simulator, hosted or on the self-hosted Mac).

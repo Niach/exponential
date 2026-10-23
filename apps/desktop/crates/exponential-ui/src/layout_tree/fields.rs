@@ -338,8 +338,10 @@ impl Builder<'_, '_> {
         let options: Vec<Value> = owner.props.get("options").and_then(Value::as_array).map(|a| a.iter().filter(|o| o.is_object()).cloned().collect()).unwrap_or_default();
         let multiple = bool_prop(&owner.props, "multiple");
         let value = owner.props.get("value").map(js).unwrap_or_default();
-        let chosen: Vec<String> = if multiple { value.split(',').filter(|s| !s.is_empty()).map(str::to_string).collect() } else { vec![value.clone()].into_iter().filter(|v| !v.is_empty()).collect() };
         let label_of = |v: &str| options.iter().find(|o| o.get("value").map(js).as_deref() == Some(v)).and_then(|o| o.get("label")).map(js);
+        // VAPP-146: "" is an ordinary single value: an option holding it (an
+        // unseeded value reads as "") is the one chosen.
+        let chosen: Vec<String> = if multiple { value.split(',').filter(|s| !s.is_empty()).map(str::to_string).collect() } else { vec![value.clone()].into_iter().filter(|v| !v.is_empty() || label_of(v).is_some()).collect() };
         let shown: Vec<String> = chosen.iter().map(|v| label_of(v).unwrap_or_else(|| v.clone())).collect();
         let placeholder = str_prop(&owner.props, "placeholder").map(str::to_string).unwrap_or_else(|| self.string("choose"));
         let (text, is_placeholder) = if shown.is_empty() { (placeholder, true) } else { (shown.join(", "), false) };

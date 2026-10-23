@@ -47,8 +47,7 @@
 // 5. A painter that is not ported yet stays `Pending` (natives/pending.tsx).
 
 import { createMemo, type JSX } from "solid-js"
-import { displayString } from "@exponential-at/ui"
-import { nativeRecipeProps } from "../recipe-props"
+import { displayString, nativeRecipeProps } from "@exponential-at/ui"
 import { PLACED, arr, bool, builtinIconName, failingCheck, failingChecks, formatFileSize, num, objects, partClass, phrase, propAttribute, str } from "@exponential-at/ui/web"
 import type { UiNode } from "@exponential-at/ui"
 import { useInstance, useSurfaceContext } from "../context"

@@ -3,12 +3,14 @@
 // Checks every fragment against budgets.json (src/ratchet.ts says the rules);
 // exit 1 when a metric is worse than its budget or a deterministic one got
 // better without its budget. `--write` rewrites budgets.json from the
-// fragments (timings × headroom, counts exact), the way the Compose
-// conformance budget is rewritten after a fix.
+// fragments (timings × the machine's headroom, counts exact), the way the
+// Compose conformance budget is rewritten after a fix. Several runs of one
+// renderer on one machine (two CI runs' artifacts) write ONE budget: every
+// timing at its worst, the counts of the last file given.
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { BENCH_ROOT, fragmentsOf, readFragment, type Fragment } from "../src/results"
-import { budgetsFor, check, describe, failing, type Budgets } from "../src/ratchet"
+import { budgetsFor, check, describe, failing, worstOf, type Budgets } from "../src/ratchet"
 
 const args = process.argv.slice(2)
 const write = args.includes(`--write`)
@@ -29,14 +31,17 @@ const fragments: Fragment[] = files.flatMap((f) => {
 })
 
 let failed = 0
+const runs = new Map<string, Fragment[]>()
 for (const fragment of fragments) {
   const m = machine ?? fragment.machine ?? `unknown`
   const verdicts = check(fragment, budgets, m)
   for (const v of verdicts) console.log(describe(v))
   failed += failing(verdicts).length
-  if (write) budgets = budgetsFor(fragment, budgets, m)
+  const key = `${m}\u0000${fragment.renderer}`
+  runs.set(key, [...(runs.get(key) ?? []), fragment])
 }
 if (write) {
+  for (const [key, list] of runs) budgets = budgetsFor(worstOf(list), budgets, key.split(`\u0000`)[0])
   writeFileSync(budgetsPath, `${JSON.stringify(budgets, null, 2)}\n`)
   console.log(`wrote ${budgetsPath}`)
   process.exit(0)

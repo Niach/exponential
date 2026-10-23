@@ -145,6 +145,39 @@ final class Round1ModelTests: XCTestCase {
         }
     }
 
+    /// VAPP-146: "" is an ordinary option value (the trigger shows the
+    /// option holding it; picking the option that holds the value fires
+    /// nothing), through the core's popup and the native `selectPick`.
+    func testSelectCasesTakeAnEmptyOptionValueThroughTheModel() throws {
+        let f = try Fixtures.json("interactions-round1.json")
+        let cases = f["select"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        let options: [J] = [["label": "Any", "value": ""], ["label": "Open", "value": "open"], ["label": "Done", "value": "done"]]
+        for native in [false, true] {
+            for c in cases {
+                let name = "\(c["name"]?.string ?? "?")\(native ? " (selectPick)" : "")"
+                let host = Round1Host()
+                let m = try model(root([obj(["id": "s", "component": "Select", "props": obj(["label": "Status", "name": "s", "options": options, "value": obj(["path": "/v"])]), "on": obj(["change": obj(["event": obj(["name": "change"])])])])]), host: host)
+                if let v = c["value"], !v.isNull { m.setData(path: "/v", value: v) }
+                for i in c["presses"]?.array?.compactMap(\.number).map({ Int($0) }) ?? [] {
+                    if native {
+                        m.selectPick(try XCTUnwrap(m.index(of: "s.trigger"), name), value: JSONValue(any: options[i]["value"]!))
+                    } else {
+                        m.press(id: "s.trigger")
+                        XCTAssertNotNil(m.index(of: "s.item.\(i)"), "\(name): option \(i)")
+                        m.press(id: "s.item.\(i)")
+                    }
+                }
+                let expect = c["expect"] ?? .null
+                // The open/close `change {open}` is not a pick.
+                let changes = host.actions.filter { $0.name == "change" }.compactMap { ($0.payload?["value"] ?? $0.context["value"])?.string }
+                XCTAssertEqual(changes, expect["changes"]?.array?.compactMap(\.string), "\(name): changes")
+                XCTAssertEqual(m.data["v"] ?? .null, expect["value"] ?? .null, "\(name): /v")
+                XCTAssertEqual(m.node(id: "s.trigger")?.props["text"]?.displayText, expect["shows"]?.string, "\(name): the trigger shows")
+            }
+        }
+    }
+
     // MARK: - bind-time.json presses (two-way binding through the core)
 
     func testBindTimePressesWriteTheBoundPathThroughTheModel() throws {

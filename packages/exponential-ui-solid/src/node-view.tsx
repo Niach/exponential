@@ -17,14 +17,13 @@
 
 import { ErrorBoundary, For, Show, createComputed, createEffect, createMemo, on, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { UNKNOWN_COMPONENT, catalogView, instanceSegment, isResponsiveValue, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential-at/ui"
+import { UNKNOWN_COMPONENT, catalogView, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential-at/ui"
 import type { ExtensionDef, UiNode } from "@exponential-at/ui"
 import { absolutePath, ariaAttributes, cssValue, dynamicStyleEntries, getPointer, isMacroComponent, nodeClass, partClass, propAttribute, queryToken, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, styleDirection, type ResolveContext } from "@exponential-at/ui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, resolveContextOf, useInstance, useScope, useSurfaceContext, type SurfaceContextValue } from "./context"
 import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
 import { NATIVES } from "./natives"
-import { nativeRecipeProps } from "./recipe-props"
 import { css, type SolidStyle, type StyleInput } from "./style"
 
 /** What a painter receives: React's `NativeProps` as a Solid props object.

@@ -1,7 +1,13 @@
 {
-  "$comment": "VAPP-105: the benchmark RATCHET per machine × renderer × scenario × metric (src/ratchet.ts). CI fails when a metric comes out WORSE than its budget, and when a deterministic one (count, bytes) comes out better without its budget lowered here; a timing far under its budget (below `floor` × budget) prints a warning asking to lower it. Rewrite after a fix or a new machine: `bun run --filter @exponential-at/ui-bench ratchet .bench/*.json --write` (timings land at measured × `headroom`, counts exact). A machine with no entry is reported, never gated.",
+  "$comment": "VAPP-105: the benchmark RATCHET per machine × renderer × scenario × metric (src/ratchet.ts). CI fails when a metric comes out WORSE than its budget, and when a deterministic one (count, bytes) comes out better without its budget lowered here; a timing far under its budget (below `floor` × budget) prints a warning asking to lower it. Rewrite after a fix or a new machine: `bun run --filter @exponential-at/ui-bench ratchet .bench/*.json --write` (timings land at measured × `headroom`, counts exact; several runs of one renderer on one machine write one budget from the WORST timing of them and the last run's counts). CI budgets come from two green runs (each timing from the worse one). Counts and bytes gate on every machine. `machineTimings` sets a machine's timings to `warn`: `mint` (the four self-hosted Linux runners share one 32-core box, 16 cores each, and run jobs concurrently; gpui swings up to 2× between runs) reports a worse timing as a warning, never a failure, until the runners get CPU isolation. `rendererTimings` does the same per renderer on every machine: `compose-android` runs on an emulator with swiftshader software rendering on a shared VM, so its timings swing over 2× between runs (real Android timings come from a real-device run); its timing budgets stay as warning thresholds, its counts and bytes gate. Every other timing on the GitHub-hosted labels and `macbook` (one job at a time) gates. `machineHeadroom` (optional) overrides `headroom` per machine. A machine with no entry is reported, never gated.",
   "floor": 0.5,
   "headroom": 1.5,
+  "machineTimings": {
+    "mint": "warn"
+  },
+  "rendererTimings": {
+    "compose-android": "warn"
+  },
   "machines": {
     "apple-m4-pro-darwin": {
       "compose-android": {
@@ -446,6 +452,510 @@
           "modeSwitchMs": 13.8,
           "restyled": 609,
           "themeSwitchMs": 35.8
+        }
+      }
+    },
+    "github-ubuntu-latest": {
+      "compose-android": {
+        "cold-start": {
+          "coldStartMs": 3131.7,
+          "firstPaintMs": 492.5,
+          "nodes": 604,
+          "memoryMb": 347.8
+        },
+        "card-grid": {
+          "warmPassMs": 2,
+          "upcallsPerPass": 1,
+          "measureCallsPerPass": 29
+        },
+        "list-100k": {
+          "firstPaintMs": 1142.1,
+          "scrollStepMs": 44.3,
+          "scrollToIndexMs": 52.7,
+          "renderedItems": 30,
+          "measureCallsPerStep": 78.04,
+          "ffiCallsPerStep": 82.04,
+          "ffiBytesPerStep": 47674.64,
+          "memoryMb": 174.4
+        },
+        "streaming": {
+          "applyMs": 17.5,
+          "p95ApplyMs": 34.1,
+          "totalMs": 3495,
+          "nodes": 607,
+          "ffiBytesTotal": 5336991
+        },
+        "theme-switch": {
+          "themeSwitchMs": 196,
+          "modeSwitchMs": 25.5,
+          "restyled": 609
+        },
+        "resize": {
+          "resizeMs": 55.5,
+          "upcallsPerResize": 1
+        },
+        "deep-nesting": {
+          "firstPaintMs": 50.2,
+          "warmPassMs": 1.4,
+          "depth": 48
+        },
+        "template-10k": {
+          "firstPaintMs": 8409,
+          "rebindMs": 8335.4,
+          "nodes": 10001
+        },
+        "overlay": {
+          "openMs": 3.9,
+          "closeMs": 3.2
+        },
+        "table-1k": {
+          "firstPaintMs": 174.4,
+          "scrollStepMs": 69.2,
+          "sortMs": 117.6,
+          "renderedRows": 30
+        }
+      },
+      "compose-jvm": {
+        "cold-start": {
+          "coldStartMs": 3814.1,
+          "firstPaintMs": 108.1,
+          "nodes": 604,
+          "memoryMb": 130.7
+        },
+        "card-grid": {
+          "warmPassMs": 0.7,
+          "upcallsPerPass": 1,
+          "measureCallsPerPass": 29
+        },
+        "list-100k": {
+          "firstPaintMs": 332.5,
+          "scrollStepMs": 8.9,
+          "scrollToIndexMs": 9.7,
+          "renderedItems": 30,
+          "measureCallsPerStep": 78.04,
+          "ffiCallsPerStep": 82.04,
+          "ffiBytesPerStep": 47674.64,
+          "memoryMb": 121.7
+        },
+        "streaming": {
+          "applyMs": 7,
+          "p95ApplyMs": 15.9,
+          "totalMs": 1397.7,
+          "nodes": 607,
+          "ffiBytesTotal": 5336991
+        },
+        "theme-switch": {
+          "themeSwitchMs": 45.6,
+          "modeSwitchMs": 9.6,
+          "restyled": 609
+        },
+        "resize": {
+          "resizeMs": 18.2,
+          "upcallsPerResize": 1
+        },
+        "deep-nesting": {
+          "firstPaintMs": 9.4,
+          "warmPassMs": 0.4,
+          "depth": 48
+        },
+        "template-10k": {
+          "firstPaintMs": 864.2,
+          "rebindMs": 851.6,
+          "nodes": 10001
+        },
+        "overlay": {
+          "openMs": 0.9,
+          "closeMs": 0.5
+        },
+        "table-1k": {
+          "firstPaintMs": 71.1,
+          "scrollStepMs": 15.2,
+          "sortMs": 47.8,
+          "renderedRows": 30
+        }
+      },
+      "element-chromium": {
+        "cold-start": {
+          "firstPaintMs": 512.7,
+          "nodes": 612,
+          "coldStartMs": 628.2,
+          "memoryMb": 41.9
+        },
+        "card-grid": {
+          "warmPassMs": 1.5
+        },
+        "list-100k": {
+          "firstPaintMs": 269.6,
+          "scrollToIndexMs": 23.3,
+          "scrollStepMs": 16.6,
+          "renderedItems": 30,
+          "memoryMb": 130
+        },
+        "streaming": {
+          "nodes": 607,
+          "applyMs": 5.9,
+          "p95ApplyMs": 17.9,
+          "totalMs": 1166.4
+        },
+        "theme-switch": {
+          "themeSwitchMs": 90.4,
+          "modeSwitchMs": 26.2
+        },
+        "resize": {
+          "resizeMs": 5.4
+        },
+        "deep-nesting": {
+          "firstPaintMs": 101.7,
+          "warmPassMs": 1.1,
+          "depth": 48
+        },
+        "template-10k": {
+          "firstPaintMs": 1618.2,
+          "nodes": 10001,
+          "rebindMs": 1714.8
+        },
+        "overlay": {
+          "openMs": 2.4,
+          "closeMs": 1.8
+        },
+        "table-1k": {
+          "firstPaintMs": 104.3,
+          "scrollStepMs": 7.5,
+          "renderedRows": 36,
+          "sortMs": 21.5
+        }
+      },
+      "react-chromium": {
+        "cold-start": {
+          "firstPaintMs": 440.7,
+          "nodes": 612,
+          "coldStartMs": 749.7,
+          "memoryMb": 39.6
+        },
+        "card-grid": {
+          "warmPassMs": 2.5
+        },
+        "list-100k": {
+          "firstPaintMs": 239.1,
+          "scrollToIndexMs": 14.6,
+          "scrollStepMs": 8,
+          "renderedItems": 30,
+          "memoryMb": 151.3
+        },
+        "streaming": {
+          "nodes": 607,
+          "applyMs": 6.6,
+          "p95ApplyMs": 19.1,
+          "totalMs": 1308.6
+        },
+        "theme-switch": {
+          "themeSwitchMs": 101.2,
+          "modeSwitchMs": 35.2
+        },
+        "resize": {
+          "resizeMs": 6.4
+        },
+        "deep-nesting": {
+          "firstPaintMs": 97.9,
+          "warmPassMs": 1.5,
+          "depth": 48
+        },
+        "template-10k": {
+          "firstPaintMs": 699,
+          "nodes": 10001,
+          "rebindMs": 665.6
+        },
+        "overlay": {
+          "openMs": 4.1,
+          "closeMs": 3.8
+        },
+        "table-1k": {
+          "firstPaintMs": 117.5,
+          "scrollStepMs": 6.2,
+          "renderedRows": 36,
+          "sortMs": 8.4
+        }
+      },
+      "solid-chromium": {
+        "cold-start": {
+          "firstPaintMs": 506.1,
+          "nodes": 612,
+          "coldStartMs": 641.5,
+          "memoryMb": 43.1
+        },
+        "card-grid": {
+          "warmPassMs": 1.7
+        },
+        "list-100k": {
+          "firstPaintMs": 270.9,
+          "scrollToIndexMs": 23.3,
+          "scrollStepMs": 16.3,
+          "renderedItems": 30,
+          "memoryMb": 211.2
+        },
+        "streaming": {
+          "nodes": 607,
+          "applyMs": 5.6,
+          "p95ApplyMs": 17.8,
+          "totalMs": 1118.9
+        },
+        "theme-switch": {
+          "themeSwitchMs": 87.9,
+          "modeSwitchMs": 27.5
+        },
+        "resize": {
+          "resizeMs": 5.3
+        },
+        "deep-nesting": {
+          "firstPaintMs": 98.2,
+          "warmPassMs": 1.1,
+          "depth": 48
+        },
+        "template-10k": {
+          "firstPaintMs": 1635.5,
+          "nodes": 10001,
+          "rebindMs": 1708.5
+        },
+        "overlay": {
+          "openMs": 2.7,
+          "closeMs": 2
+        },
+        "table-1k": {
+          "firstPaintMs": 97.7,
+          "scrollStepMs": 7.4,
+          "renderedRows": 36,
+          "sortMs": 22.4
+        }
+      }
+    },
+    "macbook": {
+      "swift-ios-simulator": {
+        "card-grid": {
+          "measureCallsPerPass": 1,
+          "upcallsPerPass": 1,
+          "warmPassMs": 0.3
+        },
+        "cold-start": {
+          "coldStartMs": 65.6,
+          "firstPaintMs": 32.6,
+          "memoryMb": 46.4,
+          "nodes": 604
+        },
+        "deep-nesting": {
+          "depth": 48,
+          "firstPaintMs": 2.4,
+          "warmPassMs": 0.2
+        },
+        "list-100k": {
+          "ffiBytesPerStep": 24816,
+          "ffiCallsPerStep": 43,
+          "firstPaintMs": 105.8,
+          "measureCallsPerStep": 40,
+          "memoryMb": 128.7,
+          "renderedItems": 30,
+          "scrollStepMs": 3.3,
+          "scrollToIndexMs": 3.9
+        },
+        "overlay": {
+          "closeMs": 0.1,
+          "openMs": 0.4
+        },
+        "resize": {
+          "resizeMs": 4.4,
+          "upcallsPerResize": 1
+        },
+        "streaming": {
+          "applyMs": 2.7,
+          "ffiBytesTotal": 9190883,
+          "nodes": 607,
+          "p95ApplyMs": 6.1,
+          "totalMs": 536.3
+        },
+        "table-1k": {
+          "firstPaintMs": 13.2,
+          "renderedRows": 30,
+          "scrollStepMs": 4.7,
+          "sortMs": 9.2
+        },
+        "template-10k": {
+          "firstPaintMs": 212.5,
+          "nodes": 10001,
+          "rebindMs": 279.2
+        },
+        "theme-switch": {
+          "modeSwitchMs": 4.8,
+          "restyled": 609,
+          "themeSwitchMs": 25.5
+        }
+      },
+      "swift-macos": {
+        "card-grid": {
+          "measureCallsPerPass": 1,
+          "upcallsPerPass": 1,
+          "warmPassMs": 0.2
+        },
+        "cold-start": {
+          "coldStartMs": 158,
+          "firstPaintMs": 29.5,
+          "memoryMb": 56.1,
+          "nodes": 604
+        },
+        "deep-nesting": {
+          "depth": 48,
+          "firstPaintMs": 2.1,
+          "warmPassMs": 0.2
+        },
+        "list-100k": {
+          "ffiBytesPerStep": 24816,
+          "ffiCallsPerStep": 43,
+          "firstPaintMs": 95.4,
+          "measureCallsPerStep": 40,
+          "memoryMb": 156,
+          "renderedItems": 30,
+          "scrollStepMs": 3,
+          "scrollToIndexMs": 3.7
+        },
+        "overlay": {
+          "closeMs": 0.1,
+          "openMs": 0.3
+        },
+        "resize": {
+          "resizeMs": 4.2,
+          "upcallsPerResize": 1
+        },
+        "streaming": {
+          "applyMs": 2.5,
+          "ffiBytesTotal": 9190883,
+          "nodes": 607,
+          "p95ApplyMs": 5.4,
+          "totalMs": 489.6
+        },
+        "table-1k": {
+          "firstPaintMs": 10.8,
+          "renderedRows": 30,
+          "scrollStepMs": 4,
+          "sortMs": 7.8
+        },
+        "template-10k": {
+          "firstPaintMs": 203.7,
+          "nodes": 10001,
+          "rebindMs": 253.1
+        },
+        "theme-switch": {
+          "modeSwitchMs": 4.7,
+          "restyled": 609,
+          "themeSwitchMs": 22.5
+        }
+      }
+    },
+    "mint": {
+      "core": {
+        "cold-start": {
+          "allocations": 200069,
+          "coldStartMs": 21.3,
+          "firstPaintMs": 15.1,
+          "memoryMb": 30.4,
+          "nodes": 609
+        },
+        "card-grid": {
+          "upcallsPerPass": 1,
+          "warmPassMs": 0.3
+        },
+        "list-100k": {
+          "firstPaintMs": 22.7,
+          "memoryMb": 137.6,
+          "renderedItems": 30,
+          "scrollStepMs": 2.6,
+          "scrollToIndexMs": 2.8
+        },
+        "streaming": {
+          "applyMs": 1.9,
+          "nodes": 607,
+          "p95ApplyMs": 4.7,
+          "totalMs": 364.2
+        },
+        "theme-switch": {
+          "modeSwitchMs": 4.6,
+          "restyled": 609,
+          "themeSwitchMs": 11.5
+        },
+        "resize": {
+          "resizeMs": 5.4,
+          "upcallsPerResize": 1
+        },
+        "deep-nesting": {
+          "depth": 48,
+          "firstPaintMs": 1.8,
+          "warmPassMs": 0.2
+        },
+        "template-10k": {
+          "firstPaintMs": 68.5,
+          "nodes": 10001,
+          "rebindMs": 90.9
+        },
+        "overlay": {
+          "closeMs": 0.1,
+          "openMs": 0.2
+        },
+        "table-1k": {
+          "firstPaintMs": 2.7,
+          "renderedRows": 30,
+          "scrollStepMs": 3.3,
+          "sortMs": 3.6
+        }
+      },
+      "gpui": {
+        "cold-start": {
+          "coldStartMs": 66.8,
+          "firstPaintMs": 44.3,
+          "memoryMb": 87.8,
+          "nodes": 609
+        },
+        "card-grid": {
+          "upcallsPerPass": 1,
+          "warmPassMs": 4.6
+        },
+        "list-100k": {
+          "firstPaintMs": 26.4,
+          "memoryMb": 187.6,
+          "renderedItems": 30,
+          "scrollStepMs": 5.5,
+          "scrollToIndexMs": 5.3
+        },
+        "streaming": {
+          "applyMs": 7.9,
+          "nodes": 607,
+          "p95ApplyMs": 14.5,
+          "totalMs": 1564.9
+        },
+        "theme-switch": {
+          "modeSwitchMs": 66,
+          "restyled": 609,
+          "themeSwitchMs": 94.5
+        },
+        "resize": {
+          "resizeMs": 76,
+          "upcallsPerResize": 1
+        },
+        "deep-nesting": {
+          "depth": 48,
+          "firstPaintMs": 11,
+          "warmPassMs": 3.6
+        },
+        "template-10k": {
+          "firstPaintMs": 885.4,
+          "nodes": 10001,
+          "rebindMs": 877.8
+        },
+        "overlay": {
+          "closeMs": 0.8,
+          "openMs": 1.5
+        },
+        "table-1k": {
+          "firstPaintMs": 216.9,
+          "renderedRows": 25,
+          "scrollStepMs": 197.1,
+          "sortMs": 204.7
         }
       }
     }
