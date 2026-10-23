@@ -1317,6 +1317,13 @@
   border-color: var(--bc-agent);
 }
 
+.ct-node--bridge > .ct-row > .ct-dot,
+.ct-dot--bridge {
+  background: var(--bc-muted);
+  border-color: var(--bc-muted);
+  border-radius: 2px;
+}
+
 .ct-node--surface > .ct-row > .ct-dot,
 .ct-dot--surface {
   background: repeating-linear-gradient(45deg, var(--bc-dim) 0 1px, transparent 1px 3px);

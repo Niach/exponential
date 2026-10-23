@@ -1,7 +1,9 @@
 /* The scene tree of a compositor built for agents: outputs, workspaces,
    toplevels, surfaces, and inside a painted (A2UI) window the components
-   themselves, each addressable by path. A native client stops at its
-   surface. A highlight walks the path to one button to show addressing. */
+   themselves, each addressable by path. A native client is pixels below its
+   surface plus whatever tree its toolkit offers once the launcher switches
+   it on (AT-SPI, the DevTools protocol). A highlight walks the path to one
+   button to show addressing. */
 import type { ReactNode } from "react"
 
 type Node = {
@@ -13,7 +15,7 @@ type Node = {
   target?: boolean
   /** Where reach ends for a native client. */
   stop?: boolean
-  kind?: `output` | `space` | `window` | `surface` | `component` | `layer`
+  kind?: `output` | `space` | `window` | `surface` | `bridge` | `component` | `layer`
   children?: Node[]
 }
 
@@ -50,7 +52,27 @@ const TREE: Node = {
               label: `toplevel firefox`,
               note: `xdg_toplevel · seat: agent 1`,
               kind: `window`,
-              children: [{ label: `wl_surface`, note: `buffer 1904×1024 · opaque below here · AT-SPI: 41 nodes`, kind: `surface`, stop: true }],
+              children: [
+                { label: `wl_surface`, note: `buffer 1904×1024`, kind: `surface`, stop: true },
+                {
+                  label: `AT-SPI`,
+                  note: `41 nodes · switched on at launch`,
+                  kind: `bridge`,
+                  children: [
+                    { label: `document "Payouts"`, kind: `bridge` },
+                    { label: `button "Export CSV"`, note: `action: press`, kind: `bridge` },
+                  ],
+                },
+              ],
+            },
+            {
+              label: `toplevel slack`,
+              note: `electron · seat: agent 1`,
+              kind: `window`,
+              children: [
+                { label: `wl_surface`, note: `buffer 1280×800`, kind: `surface`, stop: true },
+                { label: `DOM via DevTools protocol`, note: `per-app grant · localhost`, kind: `bridge`, children: [{ label: `textbox "Message #finance"`, kind: `bridge` }] },
+              ],
             },
             {
               label: `toplevel "Expenses"`,
@@ -108,7 +130,7 @@ function Branch({ node }: { node: Node }) {
         <span className="ct-label">{node.label}</span>
         {node.note ? <em className="ct-note">{node.note}</em> : null}
         {node.target ? <b className="ct-badge ct-badge--target">target · a2ui://expenses/save</b> : null}
-        {node.stop ? <b className="ct-badge ct-badge--stop">reach ends · pixels</b> : null}
+        {node.stop ? <b className="ct-badge ct-badge--stop">pixels</b> : null}
       </div>
       {node.children?.length ? (
         <ul>
@@ -123,7 +145,7 @@ function Branch({ node }: { node: Node }) {
 
 export function CompositorTree() {
   return (
-    <div className="ct" role="img" aria-label="The compositor's tree: two outputs, their workspaces and windows; a native Firefox window stops at its surface, while the painted Expenses window continues into its components down to a Save button that an agent addresses by path; a panel layer with workspaces, a clock and a tray">
+    <div className="ct" role="img" aria-label="The compositor's tree: two outputs, their workspaces and windows; a native Firefox window is pixels plus an AT-SPI tree and an Electron window pixels plus its DOM over the DevTools protocol, while the painted Expenses window continues into its components down to a Save button that an agent addresses by path; a panel layer with workspaces, a clock and a tray">
       <ul className="ct-root">
         <Branch node={TREE} />
       </ul>
@@ -132,7 +154,10 @@ export function CompositorTree() {
           <i className="ct-dot ct-dot--component" /> component: id, role, value, action
         </span>
         <span>
-          <i className="ct-dot ct-dot--surface" /> native surface: pixels, AT-SPI if the app offers it
+          <i className="ct-dot ct-dot--surface" /> native surface: pixels
+        </span>
+        <span>
+          <i className="ct-dot ct-dot--bridge" /> the toolkit's own tree, switched on by the launcher
         </span>
         <span>
           <i className="ct-dot ct-dot--walk" /> an agent's address, root to leaf

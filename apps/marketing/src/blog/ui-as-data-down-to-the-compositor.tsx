@@ -21,7 +21,7 @@ export const meta: PostMeta = {
   date: `2026-10-24`,
   author: { name: `Danny`, url: `https://github.com/Niach` },
   cover: STILLS.watch,
-  readingMinutes: 4,
+  readingMinutes: 5,
   ogImage: `/og/og-blog-ui-as-data-down-to-the-compositor.png`,
   sources: [`src/blog/ui-as-data-down-to-the-compositor.tsx`, `src/blog/surfaces.ts`, `src/components/blog`, `src/styles/blog-concepts.css`, `public/blog`, `../../shots/exponential-ui-demo`],
 }
@@ -95,15 +95,19 @@ export function Post() {
         <p>
           A compositor written for this owns one tree from the outputs down: outputs, workspaces, toplevels,
           surfaces, and inside a painted window the components themselves, each with an id, a role, a value and its
-          actions. An agent addresses a node by path and acts on it. Below its surface a native application offers
-          pixels and whatever AT-SPI tree it exposes; the full depth exists only for windows painted from A2UI.
-          What the compositor adds is joining the two into one tree, with per-seat input and per-window capture:
-          an agent's seat never moves your pointer, and a covered window or one on a screen you are not looking at
-          still captures. The risks are plain: multi-seat is in the protocol but poorly exercised by toolkits, X
-          clients through Xwayland see one seat, and a compositor is years of edge cases, which argues for a
-          library such as Smithay rather than a blank page.
+          actions. An agent addresses a node by path and acts on it. A native window is pixels below its surface,
+          but the desktop is the parent of every process, so it switches on whatever tree the toolkit offers at
+          launch: AT-SPI for GTK, Qt, Firefox and Java, the accessibility flag or the DevTools protocol for Electron,
+          an in-process probe for Qt. macOS needs private APIs and entitlements for the same reach; here it is an
+          environment variable. The compositor joins those subtrees into one tree, with per-seat input and
+          per-window capture: an agent's seat never moves your pointer, and a covered window still captures.
         </p>
-        <ConceptFigure id="tree" still="compositor-tree" caption="The tree an agent addresses: a native window ends at its surface, a painted window continues to its components.">
+        <p>
+          The risks are plain: a tree is only as good as the app's labels, canvas apps and games stay pixels,
+          multi-seat is poorly exercised by toolkits, X clients through Xwayland see one seat, and a compositor is
+          years of edge cases, which argues for a library such as Smithay rather than a blank page.
+        </p>
+        <ConceptFigure id="tree" still="compositor-tree" caption="The tree an agent addresses: a native window gives pixels plus the tree its toolkit offers, a painted window continues to its components.">
           <CompositorTree />
         </ConceptFigure>
       </Section>
