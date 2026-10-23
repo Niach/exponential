@@ -4,11 +4,12 @@
    prerender refuses a post whose shell, title or reading time disagrees. */
 import type { ComponentType } from "react"
 import type { PostMeta } from "./types"
+import * as fourLayers from "./one-renderer-four-layers"
 import * as whereWeAre from "./where-we-are"
 
 export type BlogPost = { meta: PostMeta; Post: ComponentType }
 
-const POSTS: BlogPost[] = [whereWeAre].map((m) => ({ meta: m.meta, Post: m.Post }))
+const POSTS: BlogPost[] = [whereWeAre, fourLayers].map((m) => ({ meta: m.meta, Post: m.Post }))
 
 export const BLOG_POSTS: BlogPost[] = [...POSTS].sort((a, b) => (a.meta.date < b.meta.date ? 1 : a.meta.date > b.meta.date ? -1 : 0))
 
