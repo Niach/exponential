@@ -340,7 +340,7 @@
           "coldStartMs": 175.9,
           "firstPaintMs": 47.3,
           "memoryMb": 52.1,
-          "nodes": 591
+          "nodes": 604
         },
         "deep-nesting": {
           "depth": 48,
@@ -385,7 +385,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 13.8,
-          "restyled": 596,
+          "restyled": 609,
           "themeSwitchMs": 35.8
         }
       }
