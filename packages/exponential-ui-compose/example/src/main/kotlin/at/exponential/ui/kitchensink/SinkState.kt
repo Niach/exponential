@@ -26,6 +26,9 @@ import kotlinx.coroutines.launch
 /** The logcat tag of every example line (passes, actions, the bench series). */
 const val LOG_TAG = "ExponentialUI"
 
+/** The view id prefix of the eval specimens (VAPP-127, `eval/eval-specimens.json`). */
+const val EVAL_PREFIX = "exponential-ui-eval-"
+
 /**
  * The example's state: ONE surface model (the kitchen sink, or the bench
  * tree), the theme / mode the chrome picks, and the host's echo line. The
@@ -88,7 +91,8 @@ class SinkState(context: Context, val options: LaunchOptions, private val scope:
         if (options.bench > 0) {
             model.setNested(benchTreeJson(options.bench.toUInt()))
         } else if (specimen != null) {
-            model.setNested(specimen)
+            model.setNested(specimen.first)
+            specimen.second?.let { model.setData("", it) }
         } else {
             var json = assets.open("kitchen-sink.json").bufferedReader().use { it.readText() }
             if (options.rtl) json = json.replace("\"direction\": \"ltr\"", "\"direction\": \"rtl\"")
@@ -97,12 +101,16 @@ class SinkState(context: Context, val options: LaunchOptions, private val scope:
         }
     }
 
-    /** The nested node of the specimen [id] (`fixtures/specimens.json`, copied into the assets). */
-    private fun specimenNode(id: String): String? {
-        val fixture = JsonValue.parse(assets.open("specimens.json").bufferedReader().use { it.readText() })
-        val node = fixture["specimens"]?.array?.firstOrNull { it["id"]?.string == id }?.get("node")
-        if (node == null) Log.w(LOG_TAG, "specimen $id: not in specimens.json")
-        return node?.json
+    /** The nested node of the specimen [id] and its data model, if any (`fixtures/specimens.json`;
+     *  an `exponential-ui-eval-<corpus id>` = a recorded eval surface, `eval/eval-specimens.json`, VAPP-127;
+     *  both copied into the assets). */
+    private fun specimenNode(id: String): Pair<String, JsonValue?>? {
+        val file = if (id.startsWith(EVAL_PREFIX)) "eval-specimens.json" else "specimens.json"
+        val fixture = JsonValue.parse(assets.open(file).bufferedReader().use { it.readText() })
+        val entry = fixture["specimens"]?.array?.firstOrNull { it["id"]?.string == id }
+        val node = entry?.get("node")
+        if (node == null) Log.w(LOG_TAG, "specimen $id: not in $file")
+        return node?.let { it.json to entry["data"] }
     }
 
     /** Switch the theme (a built-in id or `brand`). */

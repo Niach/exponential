@@ -14,8 +14,9 @@
 //
 //   bun eval/render.ts [--only <id,id>] [--theme exponential] [--mode dark]
 //
-// The natives go through the shots pipeline's specimen lane once a corpus
-// surface is a view (follow-up on VAPP-108); this is the stack-free door.
+// The natives paint the same tree + data (eval-specimens.json) through the
+// shots pipeline's `eval` lane, measured by natives.ts (VAPP-127); this is the
+// web's stack-free door.
 
 import pixelmatch from "pixelmatch"
 import { chromium, type Browser } from "playwright"
@@ -24,9 +25,9 @@ import { spawn } from "node:child_process"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { reduceSurface } from "../src/reducer"
-import type { FlatComponent, UiNode } from "../src/types"
+import type { UiNode } from "../src/types"
 import corpus from "./corpus.json" with { type: "json" }
-import { parseReply, surfaceOf, widthsOf, type Corpus } from "./lib"
+import { nestedSurface, parseReply, surfaceOf, widthsOf, type AuthoredSurface, type Corpus } from "./lib"
 import { REPORT_PATH, buildReport, readFixture, readReport } from "./score"
 
 const argv = process.argv.slice(2)
@@ -80,6 +81,9 @@ export interface RendererMeasure {
   distinctGaps: number[]
   /** Left inset of the first text run from the root's edge (px). */
   textInset: number | null
+  /** VAPP-127: the first text's left inset inside the innermost box that holds it (px): the padding the
+   *  author chose, the same at every width (textInset moves with a centred column). */
+  textPadding: number | null
   /** Any node wider than the viewport. */
   overflowsX: boolean
   picture: string
@@ -117,6 +121,7 @@ export function measureFrames(frames: Frame[], root: UiNode, width: number): Omi
     gaps,
     distinctGaps: [...new Set(gaps)].sort((a, b) => a - b),
     textInset: textFrame && rootFrame ? Math.round(textFrame.x - rootFrame.x) : null,
+    textPadding: textFrame ? textPadding(frames, textFrame) : null,
     overflowsX: frames.some((f) => f.x + f.w > width + 1),
   }
 }
@@ -125,9 +130,17 @@ export function measureFrames(frames: Frame[], root: UiNode, width: number): Omi
 export function compareMeasures(reference: Omit<RendererMeasure, `picture`>, candidate: Omit<RendererMeasure, `picture`>, name: string): string[] {
   const out: string[] = []
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
-  for (const key of [`height`, `nodes`, `gaps`, `textInset`, `overflowsX`] as const)
+  for (const key of [`height`, `nodes`, `gaps`, `textInset`, `textPadding`, `overflowsX`] as const)
     if (!same(reference[key], candidate[key])) out.push(`${key}: ${REFERENCE} ${JSON.stringify(reference[key])}, ${name} ${JSON.stringify(candidate[key])}`)
   return out
+}
+
+/** The text's inset from the innermost frame that contains it and starts left of it. */
+function textPadding(frames: Frame[], text: Frame): number | null {
+  const holders = frames.filter((f) => f !== text && f.x < text.x - 0.5 && f.y <= text.y + 0.5 && f.x + f.w >= text.x + text.w - 0.5 && f.y + f.h >= text.y + text.h - 0.5)
+  if (!holders.length) return null
+  const inner = holders.reduce((a, b) => (b.w * b.h < a.w * a.h ? b : a))
+  return Math.round(text.x - inner.x)
 }
 
 function textNode(node: UiNode): UiNode | undefined {
@@ -156,44 +169,11 @@ async function serveHarness(renderer: Renderer): Promise<{ base: string; stop: (
   throw new Error(`the ${renderer} harness did not come up on :${port}`)
 }
 
-/** The flat components + data → the harness `?view=tree` query (a nested
- *  tree, the data model). */
-function treeQuery(components: FlatComponent[], data: Record<string, unknown>, width: number): string {
-  const { root, templates } = reduceSurface(components, { catalogId: `https://ui.exponential.at/catalogs/core/v1`, expand: false })
-  const nested = JSON.stringify(withTemplates(root, templates ?? {}))
-  return `?view=tree&tree=${encodeURIComponent(nested)}&data=${encodeURIComponent(JSON.stringify(data))}&width=${width}&theme=${theme}&mode=${mode}`
-}
-
-/** The harness takes ONE nested tree: template nodes ride along under
- *  their owner as `template` children (what reduceNested lifts back out). */
-function withTemplates(node: UiNode, templates: Record<string, UiNode>): unknown {
-  const out: Record<string, unknown> = { id: node.id, component: node.component, props: node.props }
-  if (node.style) out.style = node.style
-  if (node.on) out.on = node.on
-  if (node.visible !== undefined) out.visible = node.visible
-  if (node.accessibility) out.accessibility = node.accessibility
-  if (node.template) {
-    out.template = node.template
-    const t = templates[node.template.component]
-    if (t) out.children = [withTemplates(t, templates)]
-  } else if (node.children.length) out.children = node.children.map((c) => withTemplates(c, templates))
-  if (node.slots) out.slots = Object.fromEntries(Object.entries(node.slots).map(([k, v]) => [k, withTemplates(v, templates)]))
-  return out
-}
-
-function dataModel(writes: { path: string; value: unknown }[]): Record<string, unknown> {
-  const data: Record<string, unknown> = {}
-  for (const w of writes) {
-    const parts = w.path.split(`/`).filter(Boolean)
-    if (!parts.length) {
-      Object.assign(data, w.value as Record<string, unknown>)
-      continue
-    }
-    let cursor: Record<string, unknown> = data
-    for (const p of parts.slice(0, -1)) cursor = (cursor[p] ??= {}) as Record<string, unknown>
-    cursor[parts[parts.length - 1]] = w.value
-  }
-  return data
+/** The authored surface → the harness `?view=tree` query (one nested tree,
+ *  the data model: lib.ts nestedSurface, the natives' specimens too). */
+function treeQuery(surface: AuthoredSurface, width: number): string {
+  const { tree, data } = nestedSurface(surface)
+  return `?view=tree&tree=${encodeURIComponent(JSON.stringify(tree))}&data=${encodeURIComponent(JSON.stringify(data))}&width=${width}&theme=${theme}&mode=${mode}`
 }
 
 /** What conformance/parity.ts injects before a picture: a spinner's frame or a blinking caret is no difference. */
@@ -246,13 +226,12 @@ async function main(): Promise<void> {
         continue
       }
       const surface = surfaceOf(parseReply(fixture.text).messages)
-      const data = dataModel(surface.data)
       const dir = join(OUT, entry.id)
       mkdirSync(dir, { recursive: true })
       const { root } = reduceSurface(surface.components, { catalogId: surface.catalogId })
       const measures: RenderMeasure[] = []
       for (const width of widthsOf(entry)) {
-        const query = treeQuery(surface.components, data, width)
+        const query = treeQuery(surface, width)
         const painted = {} as Record<Renderer, { measure: RendererMeasure; png: Buffer; errors: string[] }>
         for (const renderer of RENDERERS) {
           const relative = `eval/out/${entry.id}/${renderer}-${width}.png`

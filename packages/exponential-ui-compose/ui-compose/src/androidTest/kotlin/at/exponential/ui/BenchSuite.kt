@@ -102,14 +102,15 @@ class BenchSuite(
         return SurfaceModel("bench", options, NoHost, CoroutineScope(Dispatchers.Unconfined)) { shaper() }
     }
 
-    /** The surface and the data handed over (no viewport yet, so no pass). */
-    private fun load(m: SurfaceModel, s: JsonValue) {
+    /** The surface and the data handed over (no viewport yet, so no pass);
+     *  `items` = the generated rows, built before the clock (VAPP-149). */
+    private fun load(m: SurfaceModel, s: JsonValue, items: JsonValue?) {
         val surface = s["surface"]!!
         surface["nested"]?.let { m.setNested(it.orderedJson) }
         surface["components"]?.let { m.setComponents(it.orderedJson) }
         s["data"]?.let { data ->
             val gen = data["generate"]
-            if (gen != null) m.setData(gen["path"]!!.string!!, generateItems(gen)) else m.setData("", data)
+            if (gen != null) m.setData(gen["path"]!!.string!!, items!!) else m.setData("", data)
         }
     }
 
@@ -124,8 +125,10 @@ class BenchSuite(
     /** First paint: the content loaded and the viewport set (the first pass). */
     private fun firstPaint(m: SurfaceModel, s: JsonValue): Double {
         val (w, h) = viewport(s)
+        // VAPP-149: the rows are generated OUTSIDE the timed window (firstPaintMs times the renderer).
+        val items = s["data"]?.get("generate")?.let { generateItems(it) }
         return ms {
-            load(m, s)
+            load(m, s, items)
             m.setViewport(w, h)
         }
     }

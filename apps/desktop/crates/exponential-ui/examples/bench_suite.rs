@@ -201,16 +201,17 @@ impl Bench {
     fn new(sc: &Value, started: Option<Instant>) -> Bench {
         let (w, h) = (sc["viewport"]["width"].as_f64().unwrap() as f32, sc["viewport"]["height"].as_f64().unwrap() as f32);
         let mode = if sc["mode"].as_str() == Some("dark") { Mode::Dark } else { Mode::Light };
+        // VAPP-149: the generated rows are built BEFORE the clock starts and
+        // handed over inside it (firstPaintMs times the renderer, not the
+        // harness's string formatting).
+        let generated = sc["data"].get("generate").map(|spec| (spec["path"].as_str().unwrap(), Value::Array(generate_items(spec))));
         let t = started.unwrap_or_else(Instant::now);
         let options = SurfaceOptions { theme: builtin_theme(sc["theme"].as_str().unwrap()), catalog_id: sc["catalogId"].as_str().unwrap().to_string(), mode, ..SurfaceOptions::default() };
         let mut surface = Surface::new(sc["id"].as_str().unwrap_or("bench"), options);
-        match &sc["data"] {
-            Value::Null => {}
-            data if data.get("generate").is_some() => {
-                let spec = &data["generate"];
-                surface.set_data(spec["path"].as_str().unwrap(), Some(Value::Array(generate_items(spec)))).expect("generated data");
-            }
-            data => surface.set_data("", Some(data.clone())).expect("literal data"),
+        match (&sc["data"], generated) {
+            (_, Some((path, items))) => surface.set_data(path, Some(items)).expect("generated data"),
+            (Value::Null, None) => {}
+            (data, None) => surface.set_data("", Some(data.clone())).expect("literal data"),
         }
         if let Some(nested) = sc["surface"].get("nested") {
             let tree: NestedNode = serde_json::from_value(nested.clone()).expect("nested tree");
