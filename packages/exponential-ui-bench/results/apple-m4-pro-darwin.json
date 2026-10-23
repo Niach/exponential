@@ -135,59 +135,59 @@
     },
     "element-chromium": {
       "platform": "web",
-      "date": "2026-10-23T03:54:36.144Z",
+      "date": "2026-10-23T06:06:13.713Z",
       "scenarios": {
         "cold-start": {
-          "firstPaintMs": 122.5,
-          "nodes": 599,
-          "coldStartMs": 152.6,
-          "memoryMb": 28.44
+          "firstPaintMs": 121.4,
+          "nodes": 612,
+          "coldStartMs": 150.9,
+          "memoryMb": 29.18
         },
         "card-grid": {
           "warmPassMs": 0.4
         },
         "list-100k": {
-          "firstPaintMs": 164.3,
-          "scrollToIndexMs": 65.6,
-          "scrollStepMs": 3.84,
+          "firstPaintMs": 155.5,
+          "scrollToIndexMs": 55.9,
+          "scrollStepMs": 3.66,
           "renderedItems": 30,
-          "memoryMb": 102.69
+          "memoryMb": 106.01
         },
         "streaming": {
           "nodes": 607,
-          "applyMs": 6.77,
-          "p95ApplyMs": 15.9,
-          "totalMs": 1354.7
+          "applyMs": 6.42,
+          "p95ApplyMs": 15.5,
+          "totalMs": 1284.7
         },
         "theme-switch": {
-          "themeSwitchMs": 25.25,
-          "modeSwitchMs": 6.95
+          "themeSwitchMs": 23,
+          "modeSwitchMs": 6.25
         },
         "resize": {
-          "resizeMs": 1.4
+          "resizeMs": 1.2
         },
         "deep-nesting": {
-          "firstPaintMs": 30.3,
+          "firstPaintMs": 27.9,
           "warmPassMs": 0.3,
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 335.5,
+          "firstPaintMs": 324.7,
           "nodes": 10001,
-          "rebindMs": 365.3
+          "rebindMs": 352.4
         },
         "overlay": {
-          "openMs": 0.9,
-          "closeMs": 0.7
+          "openMs": 0.8,
+          "closeMs": 0.6
         },
         "table-1k": {
-          "firstPaintMs": 32.6,
-          "scrollStepMs": 1.71,
+          "firstPaintMs": 31.4,
+          "scrollStepMs": 1.61,
           "renderedRows": 36,
-          "sortMs": 5
+          "sortMs": 5.5
         }
       },
-      "commit": "94ad89a76c8"
+      "commit": "1be83106541"
     },
     "react-chromium": {
       "platform": "web",
@@ -247,59 +247,59 @@
     },
     "solid-chromium": {
       "platform": "web",
-      "date": "2026-10-23T03:52:48.932Z",
+      "date": "2026-10-23T06:04:31.441Z",
       "scenarios": {
         "cold-start": {
-          "firstPaintMs": 127.3,
-          "nodes": 599,
-          "coldStartMs": 161.5,
-          "memoryMb": 29.46
+          "firstPaintMs": 121.5,
+          "nodes": 612,
+          "coldStartMs": 153.1,
+          "memoryMb": 30.26
         },
         "card-grid": {
           "warmPassMs": 0.4
         },
         "list-100k": {
-          "firstPaintMs": 165.4,
-          "scrollToIndexMs": 67,
-          "scrollStepMs": 3.79,
+          "firstPaintMs": 155.1,
+          "scrollToIndexMs": 58.5,
+          "scrollStepMs": 3.55,
           "renderedItems": 30,
-          "memoryMb": 105.05
+          "memoryMb": 96.85
         },
         "streaming": {
           "nodes": 607,
-          "applyMs": 6.7,
-          "p95ApplyMs": 15.5,
-          "totalMs": 1339.7
+          "applyMs": 5.71,
+          "p95ApplyMs": 13.8,
+          "totalMs": 1141.2
         },
         "theme-switch": {
-          "themeSwitchMs": 24.9,
-          "modeSwitchMs": 6.75
+          "themeSwitchMs": 22.65,
+          "modeSwitchMs": 6.3
         },
         "resize": {
-          "resizeMs": 1.3
+          "resizeMs": 1.1
         },
         "deep-nesting": {
-          "firstPaintMs": 27.8,
+          "firstPaintMs": 26.4,
           "warmPassMs": 0.3,
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 322.6,
+          "firstPaintMs": 308.1,
           "nodes": 10001,
-          "rebindMs": 346.2
+          "rebindMs": 337.6
         },
         "overlay": {
-          "openMs": 0.85,
+          "openMs": 0.8,
           "closeMs": 0.7
         },
         "table-1k": {
-          "firstPaintMs": 31.7,
-          "scrollStepMs": 1.66,
+          "firstPaintMs": 31.1,
+          "scrollStepMs": 1.6,
           "renderedRows": 36,
-          "sortMs": 5
+          "sortMs": 4.8
         }
       },
-      "commit": "94ad89a76c8"
+      "commit": "1be83106541"
     },
     "swift-ios-simulator": {
       "date": "2026-10-22T14:01:10Z",
