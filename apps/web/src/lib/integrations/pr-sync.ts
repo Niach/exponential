@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   boards,
@@ -656,10 +656,12 @@ export async function livePullRequestsForIssue(
     .from(pullRequestIssues)
     .where(inArray(pullRequestIssues.pullRequestId, rows.map((row) => row.pr.id)))
     .groupBy(pullRequestIssues.pullRequestId)
+  // NEW-48: a session_issues row sits on the session that HOLDS the issue
+  // (NEW-1), so the PR that session opened is the issue's own.
   const assignees = await db
-    .select({ sessionId: sessionIssues.assignedSessionId })
+    .select({ sessionId: sessionIssues.sessionId })
     .from(sessionIssues)
-    .where(and(eq(sessionIssues.issueId, issueId), isNotNull(sessionIssues.assignedSessionId)))
+    .where(eq(sessionIssues.issueId, issueId))
   const linked = new Map(counts.map((row) => [row.pullRequestId, Number(row.n)]))
   const assigned = new Set(assignees.map((row) => row.sessionId))
   return rows.map(({ pr }) => ({

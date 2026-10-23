@@ -53,6 +53,7 @@ const { endSession } = await import(`@/lib/sessions/lifecycle`)
 const {
   applyPullRequestBase,
   applyPullRequestMerged,
+  livePullRequestsForIssue,
   loadPullRequest,
   recordPullRequestOpened,
 } = await import(
@@ -114,13 +115,13 @@ async function world() {
   const thread = async (issueIds: string[], text = `go`) =>
     (await sendSession({ userId: owner, input: { teamId, deviceId, issueIds, text } })).sessionId
   let prNumber = 0
-  const openPr = async (opts: { rootId: string; head: string; base?: string; issueIds: string[] }) => {
+  const openPr = async (opts: { rootId: string; sessionId?: string; head: string; base?: string; issueIds: string[] }) => {
     prNumber += 1
     return (
       await recordPullRequestOpened({
         teamId,
         rootSessionId: opts.rootId,
-        sessionId: opts.rootId,
+        sessionId: opts.sessionId ?? opts.rootId,
         repositoryId: repo!.id,
         repoFullName: fullName,
         number: prNumber,
@@ -223,6 +224,22 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
       linkIssues(tx, { sessionId: rootId, issueIds: [reviewed.id], source: `agent`, addedBy: w.owner, addedBySessionId: rootId, filed: true })
     )
     expect(await w.status(reviewed.id)).toMatchObject({ status: `in_review` })
+  })
+
+  it(`NEW-48: the PR the issue's holder opened ranks as assigned, the thread-level PR does not`, async () => {
+    const w = await world()
+    const named = await w.issue(`Held by the child`)
+    const other = await w.issue(`The root's`)
+    const rootId = await w.thread([named.id, other.id])
+    const child = (await sendSession({ userId: w.owner, input: { parentId: rootId, text: `take it` } })).sessionId
+    await db.transaction((tx) =>
+      forwardIssues(tx, { sessionId: child, issueIds: [named.id], source: `user`, addedBy: w.owner, addedBySessionId: null })
+    )
+    const own = await w.openPr({ rootId, sessionId: child, head: `exp/child`, issueIds: [named.id] })
+    const thread = await w.openPr({ rootId, head: `exp/root`, issueIds: [named.id, other.id] })
+    const ranked = await livePullRequestsForIssue(named.id)
+    expect(ranked.find((c) => c.pr.id === own.id)).toMatchObject({ assigned: true, linkedIssues: 1 })
+    expect(ranked.find((c) => c.pr.id === thread.id)).toMatchObject({ assigned: false, linkedIssues: 2 })
   })
 
   it(`a PR closes its session's share of the thread`, async () => {
