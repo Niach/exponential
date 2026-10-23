@@ -263,8 +263,7 @@
                   "$ref": "#/$defs/FunctionCall"
                 }
               ],
-              "description": "Cross-axis alignment of the children.",
-              "default": "stretch"
+              "description": "Unset: `center` in a row, `stretch` in a column."
             },
             "justify": {
               "oneOf": [
@@ -344,7 +343,7 @@
                   "$ref": "#/$defs/FunctionCall"
                 }
               ],
-              "description": "Main-axis distribution of the children.",
+              "description": "Main-axis distribution.",
               "default": "start"
             },
             "wrap": {
@@ -665,7 +664,7 @@
             },
             "sectionBy": {
               "type": "string",
-              "description": "Groups consecutive template items by this field; slot `section` = each header (scope {value, count})."
+              "description": "Groups consecutive items by this field; slot `section` = each header ({value, count})."
             },
             "stickyHeaders": {
               "type": "boolean",
@@ -2048,7 +2047,7 @@
                 "polite",
                 "assertive"
               ],
-              "description": "Announces text changes to screen readers (`assertive` interrupts).",
+              "description": "Announces changes (`assertive` interrupts).",
               "default": "off"
             },
             "style": {
@@ -4020,7 +4019,7 @@
                 "outline",
                 "bar"
               ],
-              "description": "A pill track, bare `toggles`, joined `outline` buttons, or a full-width `bar` with icons over labels.",
+              "description": "Pill track, bare toggles, joined outline buttons, or a full-width icon `bar`.",
               "default": "segmented"
             },
             "size": {
@@ -6812,7 +6811,7 @@
                 "warning",
                 "error"
               ],
-              "description": "The severity, picking icon and tone (`error` interrupts screen readers).",
+              "description": "Severity: icon and tone (`error` interrupts readers).",
               "default": "info"
             },
             "open": {
@@ -9269,7 +9268,7 @@
                   "$ref": "#/$defs/FunctionCall"
                 }
               ],
-              "description": "One per line, bar group or pie ring; coloured $color.chart1..8 unless toned."
+              "description": "One per line, bar group or pie ring."
             },
             "title": {
               "type": "string",
@@ -13291,7 +13290,7 @@
                   "$ref": "#/$defs/FunctionCall"
                 }
               ],
-              "description": "A trailing disclosure (`right`) or picker (`selector`) glyph.",
+              "description": "Trailing disclosure or picker glyph.",
               "default": "none"
             },
             "selected": {
@@ -13332,7 +13331,7 @@
             },
             "depth": {
               "type": "number",
-              "description": "Nesting depth under a tree Section (0 = root); the guides come from the rows around it.",
+              "description": "Depth under a tree Section (0 = root).",
               "default": 0
             },
             "slots": {

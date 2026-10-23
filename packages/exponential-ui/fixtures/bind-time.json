@@ -11,8 +11,7 @@
           "direction": {
             "path": "/direction"
           },
-          "gap": "sm",
-          "align": "center"
+          "gap": "sm"
         },
         "children": [
           {
@@ -54,7 +53,18 @@
           },
           "flexWrap": "nowrap",
           "gap": "$spacing.sm",
-          "alignItems": "center",
+          "alignItems": {
+            "call": "map",
+            "args": {
+              "value": {
+                "path": "/direction"
+              },
+              "cases": {
+                "horizontal": "center"
+              },
+              "default": "stretch"
+            }
+          },
           "justifyContent": "start"
         },
         "recipe": {
@@ -121,7 +131,7 @@
               "flexDirection": "column",
               "flexWrap": "nowrap",
               "gap": "$spacing.sm",
-              "alignItems": "center",
+              "alignItems": "stretch",
               "justifyContent": "start"
             },
             "recipe": {
@@ -153,7 +163,7 @@
               "flexDirection": "column",
               "flexWrap": "nowrap",
               "gap": "$spacing.sm",
-              "alignItems": "center",
+              "alignItems": "stretch",
               "justifyContent": "start"
             },
             "recipe": {
@@ -208,7 +218,15 @@
           "flexWrap": "nowrap",
           "gap": "$spacing.sm",
           "alignItems": {
-            "path": "/align"
+            "call": "coalesce",
+            "args": {
+              "values": [
+                {
+                  "path": "/align"
+                },
+                "center"
+              ]
+            }
           },
           "justifyContent": "start"
         },
@@ -221,7 +239,7 @@
       "datasets": [
         {
           "data": {
-            "align": "center"
+            "align": "Bound"
           },
           "bound": {
             "id": "stack",
@@ -242,7 +260,7 @@
               "flexDirection": "row",
               "flexWrap": "nowrap",
               "gap": "$spacing.sm",
-              "alignItems": "center",
+              "alignItems": "Bound",
               "justifyContent": "start"
             },
             "recipe": {
@@ -276,7 +294,7 @@
               "flexDirection": "row",
               "flexWrap": "nowrap",
               "gap": "$spacing.sm",
-              "alignItems": "",
+              "alignItems": "center",
               "justifyContent": "start"
             },
             "recipe": {
@@ -308,6 +326,7 @@
               "flexDirection": "row",
               "flexWrap": "nowrap",
               "gap": "$spacing.sm",
+              "alignItems": "center",
               "justifyContent": "start"
             },
             "recipe": {
@@ -328,7 +347,6 @@
         "props": {
           "direction": "horizontal",
           "gap": "sm",
-          "align": "center",
           "justify": {
             "path": "/justify"
           }
@@ -3543,7 +3561,7 @@
         "style": {
           "display": "flex",
           "flexDirection": "column",
-          "gap": "$spacing.xs"
+          "gap": "$spacing.sm"
         },
         "recipe": {
           "macro": "Section",
@@ -3694,7 +3712,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",
@@ -3753,7 +3771,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",
@@ -3810,7 +3828,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",
@@ -4011,7 +4029,7 @@
         "style": {
           "display": "flex",
           "flexDirection": "column",
-          "gap": "$spacing.xs"
+          "gap": "$spacing.sm"
         },
         "recipe": {
           "macro": "Section",
@@ -4186,7 +4204,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",
@@ -4338,7 +4356,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",
@@ -4488,7 +4506,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",
@@ -4689,7 +4707,7 @@
         "style": {
           "display": "flex",
           "flexDirection": "column",
-          "gap": "$spacing.xs"
+          "gap": "$spacing.sm"
         },
         "recipe": {
           "macro": "Section",
@@ -4859,7 +4877,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",
@@ -5030,7 +5048,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",
@@ -5180,7 +5198,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",
@@ -5371,7 +5389,7 @@
         "style": {
           "display": "flex",
           "flexDirection": "column",
-          "gap": "$spacing.xs"
+          "gap": "$spacing.sm"
         },
         "recipe": {
           "macro": "Section",
@@ -5524,7 +5542,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",
@@ -5645,7 +5663,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",
@@ -5790,7 +5808,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",
@@ -5983,7 +6001,7 @@
         "style": {
           "display": "flex",
           "flexDirection": "column",
-          "gap": "$spacing.xs"
+          "gap": "$spacing.sm"
         },
         "recipe": {
           "macro": "Section",
@@ -6153,7 +6171,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",
@@ -6305,7 +6323,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",
@@ -6455,7 +6473,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",
@@ -29502,7 +29520,7 @@
         "style": {
           "display": "flex",
           "flexDirection": "column",
-          "gap": "$spacing.xs"
+          "gap": "$spacing.sm"
         },
         "recipe": {
           "macro": "Section",
@@ -29742,7 +29760,7 @@
             "style": {
               "display": "flex",
               "flexDirection": "column",
-              "gap": "$spacing.xs"
+              "gap": "$spacing.sm"
             },
             "recipe": {
               "macro": "Section",

@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-23-exponential-ui-ergonomics",
+    date: "2026-10-23",
+    title: "Apps: live counts and icons, six layout components, and better defaults",
+    summary: "App packages bind a count, an icon, a tone or a selection to their data, build screens from Page, Toolbar, SplitView, FieldGroup, FormActions and StatTile, and get centred control rows and the Section's own spacing without tuning.",
+    body: r#"- **Live data props**: a Section count, a row's icon, chevron and selection, a chip's tone, an image's alt text, a slider's range and more now take a binding, so an app's counts and states follow its data.
+- **Layout components**: Page, Toolbar, SplitView (list and detail, one at a time on phones), FieldGroup, FormActions and StatTile join the catalog, drawn from the existing parts on every platform.
+- **Better defaults**: a horizontal Stack centres its controls unless told otherwise, a Section keeps one small gap under its band, and the built-in Devices app shows its device count in the band.
+- **Agents**: the catalog prompt names the layout components, asks for one primary button per screen and for List rows instead of Markdown bullets."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_70: ChangelogEntry = ChangelogEntry {
     id: "2026-10-22-exponential-apps",
     date: "2026-10-22",
     title: "Exponential apps: build small apps with the editor session, previewed live and kept in versions",

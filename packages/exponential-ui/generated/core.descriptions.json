@@ -28,10 +28,10 @@
           "description": "The space between children."
         },
         "align": {
-          "description": "Cross-axis alignment of the children."
+          "description": "Unset: `center` in a row, `stretch` in a column."
         },
         "justify": {
-          "description": "Main-axis distribution of the children."
+          "description": "Main-axis distribution."
         },
         "wrap": {
           "description": "Lets children wrap onto new lines."
@@ -43,8 +43,7 @@
       "description": "A flex container that lays its children out in one direction with a gap.",
       "example": {
         "direction": "horizontal",
-        "gap": "sm",
-        "align": "center"
+        "gap": "sm"
       }
     },
     "Grid": {
@@ -109,7 +108,7 @@
           "description": "Draws a hairline between items."
         },
         "sectionBy": {
-          "description": "Groups consecutive template items by this field; slot `section` = each header (scope {value, count})."
+          "description": "Groups consecutive items by this field; slot `section` = each header ({value, count})."
         },
         "stickyHeaders": {
           "description": "Pins the current section header."
@@ -331,7 +330,7 @@
           "description": "Animates a highlight across the text while work runs."
         },
         "live": {
-          "description": "Announces text changes to screen readers (`assertive` interrupts)."
+          "description": "Announces changes (`assertive` interrupts)."
         },
         "style": {
           "description": "Extra Box styles for the text box."
@@ -638,7 +637,7 @@
           "description": "The selected value (comma-joined when multiple); bind it."
         },
         "variant": {
-          "description": "A pill track, bare `toggles`, joined `outline` buttons, or a full-width `bar` with icons over labels."
+          "description": "Pill track, bare toggles, joined outline buttons, or a full-width icon `bar`."
         },
         "size": {
           "description": "Control height class."
@@ -998,7 +997,7 @@
           "description": "Detail under the notice."
         },
         "type": {
-          "description": "The severity, picking icon and tone (`error` interrupts screen readers)."
+          "description": "Severity: icon and tone (`error` interrupts readers)."
         },
         "open": {
           "description": "Whether it shows; bind it so the host learns of a dismissal."
@@ -1318,7 +1317,7 @@
           "description": "The x-axis labels, or the pie slices; omit for a sparkline."
         },
         "series": {
-          "description": "One per line, bar group or pie ring; coloured $color.chart1..8 unless toned."
+          "description": "One per line, bar group or pie ring."
         },
         "title": {
           "description": "A title above the chart."
@@ -2171,7 +2170,7 @@
           "description": "The lead glyph (the `leading` slot replaces it)."
         },
         "chevron": {
-          "description": "A trailing disclosure (`right`) or picker (`selector`) glyph."
+          "description": "Trailing disclosure or picker glyph."
         },
         "selected": {
           "description": "Draws it as the active row."
@@ -2186,7 +2185,7 @@
           "description": "Makes it a press target that fires `press` (an `on.press` implies it)."
         },
         "depth": {
-          "description": "Nesting depth under a tree Section (0 = root); the guides come from the rows around it."
+          "description": "Depth under a tree Section (0 = root)."
         }
       },
       "description": "THE list row: a lead glyph or slot, a mono identifier, title and subtitle, trailing meta or value, a slot and a chevron; flat or card, nestable.",

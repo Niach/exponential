@@ -1009,10 +1009,9 @@
         "align": {
           "type": "enum",
           "enum": "align",
-          "default": "stretch",
           "responsive": true,
           "bindable": true,
-          "description": "Cross-axis alignment of the children."
+          "description": "Unset: `center` in a row, `stretch` in a column."
         },
         "justify": {
           "type": "enum",
@@ -1020,7 +1019,7 @@
           "default": "start",
           "responsive": true,
           "bindable": true,
-          "description": "Main-axis distribution of the children."
+          "description": "Main-axis distribution."
         },
         "wrap": {
           "type": "boolean",
@@ -1035,8 +1034,7 @@
       },
       "example": {
         "direction": "horizontal",
-        "gap": "sm",
-        "align": "center"
+        "gap": "sm"
       }
     },
     "Grid": {
@@ -1147,7 +1145,7 @@
         },
         "sectionBy": {
           "type": "string",
-          "description": "Groups consecutive template items by this field; slot `section` = each header (scope {value, count})."
+          "description": "Groups consecutive items by this field; slot `section` = each header ({value, count})."
         },
         "stickyHeaders": {
           "type": "boolean",
@@ -1551,7 +1549,7 @@
           "type": "enum",
           "enum": "live",
           "default": "off",
-          "description": "Announces text changes to screen readers (`assertive` interrupts)."
+          "description": "Announces changes (`assertive` interrupts)."
         },
         "style": {
           "type": "style",
@@ -2051,7 +2049,7 @@
           "type": "enum",
           "enum": "segmentedVariant",
           "default": "segmented",
-          "description": "A pill track, bare `toggles`, joined `outline` buttons, or a full-width `bar` with icons over labels."
+          "description": "Pill track, bare toggles, joined outline buttons, or a full-width icon `bar`."
         },
         "size": {
           "type": "enum",
@@ -2672,7 +2670,7 @@
           "type": "enum",
           "enum": "alertType",
           "default": "info",
-          "description": "The severity, picking icon and tone (`error` interrupts screen readers)."
+          "description": "Severity: icon and tone (`error` interrupts readers)."
         },
         "open": {
           "type": "boolean",
@@ -3205,7 +3203,7 @@
           },
           "required": true,
           "bindable": true,
-          "description": "One per line, bar group or pie ring; coloured $color.chart1..8 unless toned."
+          "description": "One per line, bar group or pie ring."
         },
         "title": {
           "type": "string",
@@ -4651,7 +4649,7 @@
           "enum": "rowChevron",
           "default": "none",
           "bindable": true,
-          "description": "A trailing disclosure (`right`) or picker (`selector`) glyph."
+          "description": "Trailing disclosure or picker glyph."
         },
         "selected": {
           "type": "boolean",
@@ -4679,7 +4677,7 @@
         "depth": {
           "type": "number",
           "default": 0,
-          "description": "Nesting depth under a tree Section (0 = root); the guides come from the rows around it."
+          "description": "Depth under a tree Section (0 = root)."
         }
       },
       "events": [

@@ -106,8 +106,7 @@
                 "component": "Stack",
                 "props": {
                   "direction": "horizontal",
-                  "gap": "sm",
-                  "align": "center"
+                  "gap": "sm"
                 },
                 "children": [
                   {
@@ -160,8 +159,7 @@
                 "component": "Stack",
                 "props": {
                   "direction": "vertical",
-                  "gap": "sm",
-                  "align": "center"
+                  "gap": "sm"
                 },
                 "children": [
                   {

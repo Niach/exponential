@@ -15149,7 +15149,7 @@
     ]
   },
   "Section\/collapsible=false" : {
-    "height" : 56,
+    "height" : 60,
     "nodes" : [
       {
         "component" : "Box",
@@ -15157,7 +15157,7 @@
           0,
           0,
           390,
-          56
+          60
         ],
         "id" : "section"
       },
@@ -15207,7 +15207,7 @@
         "component" : "List",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15217,7 +15217,7 @@
         "component" : "Text",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15226,7 +15226,7 @@
     ]
   },
   "Section\/collapsible=true" : {
-    "height" : 56,
+    "height" : 60,
     "nodes" : [
       {
         "component" : "Box",
@@ -15234,7 +15234,7 @@
           0,
           0,
           390,
-          56
+          60
         ],
         "id" : "section"
       },
@@ -15294,7 +15294,7 @@
         "component" : "List",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15304,7 +15304,7 @@
         "component" : "Text",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15313,7 +15313,7 @@
     ]
   },
   "Section\/example" : {
-    "height" : 56,
+    "height" : 60,
     "nodes" : [
       {
         "component" : "Box",
@@ -15321,7 +15321,7 @@
           0,
           0,
           390,
-          56
+          60
         ],
         "id" : "section"
       },
@@ -15371,7 +15371,7 @@
         "component" : "List",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15381,7 +15381,7 @@
         "component" : "Text",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15390,7 +15390,7 @@
     ]
   },
   "Section\/loading=false" : {
-    "height" : 56,
+    "height" : 60,
     "nodes" : [
       {
         "component" : "Box",
@@ -15398,7 +15398,7 @@
           0,
           0,
           390,
-          56
+          60
         ],
         "id" : "section"
       },
@@ -15448,7 +15448,7 @@
         "component" : "List",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15458,7 +15458,7 @@
         "component" : "Text",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15467,7 +15467,7 @@
     ]
   },
   "Section\/loading=true" : {
-    "height" : 56,
+    "height" : 60,
     "nodes" : [
       {
         "component" : "Box",
@@ -15475,7 +15475,7 @@
           0,
           0,
           390,
-          56
+          60
         ],
         "id" : "section"
       },
@@ -15535,7 +15535,7 @@
         "component" : "List",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15545,7 +15545,7 @@
         "component" : "Text",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15611,7 +15611,7 @@
     ]
   },
   "Section\/open=true" : {
-    "height" : 56,
+    "height" : 60,
     "nodes" : [
       {
         "component" : "Box",
@@ -15619,7 +15619,7 @@
           0,
           0,
           390,
-          56
+          60
         ],
         "id" : "section"
       },
@@ -15669,7 +15669,7 @@
         "component" : "List",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15679,7 +15679,7 @@
         "component" : "Text",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15688,7 +15688,7 @@
     ]
   },
   "Section\/tint=danger" : {
-    "height" : 56,
+    "height" : 60,
     "nodes" : [
       {
         "component" : "Box",
@@ -15696,7 +15696,7 @@
           0,
           0,
           390,
-          56
+          60
         ],
         "id" : "section"
       },
@@ -15746,7 +15746,7 @@
         "component" : "List",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15756,7 +15756,7 @@
         "component" : "Text",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15765,7 +15765,7 @@
     ]
   },
   "Section\/tint=info" : {
-    "height" : 56,
+    "height" : 60,
     "nodes" : [
       {
         "component" : "Box",
@@ -15773,7 +15773,7 @@
           0,
           0,
           390,
-          56
+          60
         ],
         "id" : "section"
       },
@@ -15823,7 +15823,7 @@
         "component" : "List",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15833,7 +15833,7 @@
         "component" : "Text",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15842,7 +15842,7 @@
     ]
   },
   "Section\/tint=neutral" : {
-    "height" : 56,
+    "height" : 60,
     "nodes" : [
       {
         "component" : "Box",
@@ -15850,7 +15850,7 @@
           0,
           0,
           390,
-          56
+          60
         ],
         "id" : "section"
       },
@@ -15900,7 +15900,7 @@
         "component" : "List",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15910,7 +15910,7 @@
         "component" : "Text",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15919,7 +15919,7 @@
     ]
   },
   "Section\/tint=primary" : {
-    "height" : 56,
+    "height" : 60,
     "nodes" : [
       {
         "component" : "Box",
@@ -15927,7 +15927,7 @@
           0,
           0,
           390,
-          56
+          60
         ],
         "id" : "section"
       },
@@ -15977,7 +15977,7 @@
         "component" : "List",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15987,7 +15987,7 @@
         "component" : "Text",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -15996,7 +15996,7 @@
     ]
   },
   "Section\/tint=success" : {
-    "height" : 56,
+    "height" : 60,
     "nodes" : [
       {
         "component" : "Box",
@@ -16004,7 +16004,7 @@
           0,
           0,
           390,
-          56
+          60
         ],
         "id" : "section"
       },
@@ -16054,7 +16054,7 @@
         "component" : "List",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -16064,7 +16064,7 @@
         "component" : "Text",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -16073,7 +16073,7 @@
     ]
   },
   "Section\/tint=warning" : {
-    "height" : 56,
+    "height" : 60,
     "nodes" : [
       {
         "component" : "Box",
@@ -16081,7 +16081,7 @@
           0,
           0,
           390,
-          56
+          60
         ],
         "id" : "section"
       },
@@ -16131,7 +16131,7 @@
         "component" : "List",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -16141,7 +16141,7 @@
         "component" : "Text",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -16150,7 +16150,7 @@
     ]
   },
   "Section\/tree=false" : {
-    "height" : 56,
+    "height" : 60,
     "nodes" : [
       {
         "component" : "Box",
@@ -16158,7 +16158,7 @@
           0,
           0,
           390,
-          56
+          60
         ],
         "id" : "section"
       },
@@ -16208,7 +16208,7 @@
         "component" : "List",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -16218,7 +16218,7 @@
         "component" : "Text",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -16227,7 +16227,7 @@
     ]
   },
   "Section\/tree=true" : {
-    "height" : 56,
+    "height" : 60,
     "nodes" : [
       {
         "component" : "Box",
@@ -16235,7 +16235,7 @@
           0,
           0,
           390,
-          56
+          60
         ],
         "id" : "section"
       },
@@ -16285,7 +16285,7 @@
         "component" : "List",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -16295,7 +16295,7 @@
         "component" : "Text",
         "frame" : [
           0,
-          36,
+          40,
           390,
           20
         ],
@@ -18101,9 +18101,9 @@
       {
         "component" : "Text",
         "frame" : [
-          175,
           0,
-          40,
+          0,
+          390,
           20
         ],
         "id" : "stack-child"

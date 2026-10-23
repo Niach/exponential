@@ -902,7 +902,6 @@
         "align": {
           "type": "enum",
           "enum": "align",
-          "default": "stretch",
           "responsive": true,
           "bindable": true
         },

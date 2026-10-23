@@ -156,8 +156,8 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Menu-separator{align-self:stretch;flex-shrink:0}
 .xui-Menu-label{display:flex;align-items:center}
 .xui-Menu-trigger{display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;flex-shrink:0;cursor:pointer}
-[data-xui-overlay-root].xui-el{flex-direction:row;align-self:flex-start;align-items:stretch}
-[data-xui-overlay-root="stretch"].xui-el{align-self:stretch}
+[data-xui-overlay-root].xui-el{flex-direction:row;align-self:auto;align-items:flex-start}
+[data-xui-overlay-root="stretch"].xui-el{align-items:stretch}
 [data-xui-overlay-root="none"].xui-el{display:contents}
 .xui-trigger{display:flex;flex-direction:row;align-items:stretch;flex:1 1 auto;min-width:0}
 .xui-Tooltip-anchor{display:flex;flex-direction:row;flex:1 1 auto;min-width:0}

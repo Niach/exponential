@@ -83,8 +83,7 @@
         "component": "Stack",
         "props": {
           "direction": "horizontal",
-          "gap": "sm",
-          "align": "center"
+          "gap": "sm"
         },
         "children": [
           {
@@ -104,8 +103,7 @@
         "component": "Stack",
         "props": {
           "direction": "horizontal",
-          "gap": "sm",
-          "align": "center"
+          "gap": "sm"
         },
         "children": [
           {
@@ -125,8 +123,7 @@
         "component": "Stack",
         "props": {
           "direction": "vertical",
-          "gap": "sm",
-          "align": "center"
+          "gap": "sm"
         },
         "children": [
           {
@@ -146,8 +143,7 @@
         "component": "Stack",
         "props": {
           "direction": "horizontal",
-          "gap": "none",
-          "align": "center"
+          "gap": "none"
         },
         "children": [
           {
@@ -167,8 +163,7 @@
         "component": "Stack",
         "props": {
           "direction": "horizontal",
-          "gap": "xs",
-          "align": "center"
+          "gap": "xs"
         },
         "children": [
           {
@@ -188,8 +183,7 @@
         "component": "Stack",
         "props": {
           "direction": "horizontal",
-          "gap": "sm",
-          "align": "center"
+          "gap": "sm"
         },
         "children": [
           {
@@ -209,8 +203,7 @@
         "component": "Stack",
         "props": {
           "direction": "horizontal",
-          "gap": "md",
-          "align": "center"
+          "gap": "md"
         },
         "children": [
           {
@@ -230,8 +223,7 @@
         "component": "Stack",
         "props": {
           "direction": "horizontal",
-          "gap": "lg",
-          "align": "center"
+          "gap": "lg"
         },
         "children": [
           {
@@ -251,8 +243,7 @@
         "component": "Stack",
         "props": {
           "direction": "horizontal",
-          "gap": "xl",
-          "align": "center"
+          "gap": "xl"
         },
         "children": [
           {
@@ -357,7 +348,6 @@
         "props": {
           "direction": "horizontal",
           "gap": "sm",
-          "align": "center",
           "justify": "start"
         },
         "children": [
@@ -379,7 +369,6 @@
         "props": {
           "direction": "horizontal",
           "gap": "sm",
-          "align": "center",
           "justify": "center"
         },
         "children": [
@@ -401,7 +390,6 @@
         "props": {
           "direction": "horizontal",
           "gap": "sm",
-          "align": "center",
           "justify": "end"
         },
         "children": [
@@ -423,7 +411,6 @@
         "props": {
           "direction": "horizontal",
           "gap": "sm",
-          "align": "center",
           "justify": "between"
         },
         "children": [
@@ -445,7 +432,6 @@
         "props": {
           "direction": "horizontal",
           "gap": "sm",
-          "align": "center",
           "justify": "around"
         },
         "children": [
@@ -467,7 +453,6 @@
         "props": {
           "direction": "horizontal",
           "gap": "sm",
-          "align": "center",
           "justify": "evenly"
         },
         "children": [
@@ -489,7 +474,6 @@
         "props": {
           "direction": "horizontal",
           "gap": "sm",
-          "align": "center",
           "wrap": true
         },
         "children": [
@@ -511,7 +495,6 @@
         "props": {
           "direction": "horizontal",
           "gap": "sm",
-          "align": "center",
           "wrap": false
         },
         "children": [

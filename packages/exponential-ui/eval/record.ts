@@ -22,7 +22,7 @@ import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { catalogPrompt } from "../src/prompt"
+import { catalogPrompt } from "../src/entries/prompt"
 import type { PromptOptions } from "../src/prompt"
 import corpus from "./corpus.json" with { type: "json" }
 import type { Corpus, EvalFixture } from "./lib"

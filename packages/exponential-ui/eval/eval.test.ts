@@ -215,7 +215,7 @@ describe(`the parser and the rubric`, () => {
   test(`the rubric counts what it says`, () => {
     const components = [
       { id: `root`, component: `Stack`, children: [`row`, `box`, `md`, `list`, `empty`, `form`, `lone`] },
-      { id: `row`, component: `Stack`, direction: `horizontal`, children: [`t`, `b1`] },
+      { id: `row`, component: `Stack`, direction: `horizontal`, align: `stretch`, children: [`t`, `b1`] },
       { id: `t`, component: `Text`, text: `x` },
       { id: `b1`, component: `Button`, label: `Go` },
       { id: `box`, component: `Box`, style: { padding: 12, gap: `$spacing.md`, "@media (min-width: $breakpoint.md)": { paddingTop: 7 } } },
