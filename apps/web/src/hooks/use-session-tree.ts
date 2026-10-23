@@ -85,10 +85,10 @@ export function titleShapesReady(input: {
  *  still flip while the title shapes load: only those are held. A name or
  *  a stored title never flips; otherwise the links decide whether the
  *  session has OWN issues (a root's links, a child's assigned ones), which
- *  then wait for the issues; with none, an action names it; with no
- *  action it waits for its first prompt (the messages). */
+ *  then wait for the issues; with none it waits for its first prompt (the
+ *  messages). */
 export function unsettledTitleRoots(input: {
-  sessions: readonly Pick<TreeSession, `id` | `rootId` | `name` | `actionName` | `title`>[]
+  sessions: readonly Pick<TreeSession, `id` | `rootId` | `title`>[]
   sessionIssues: readonly Pick<TreeSessionIssue, `sessionId`>[]
   linksReady: boolean
   issuesReady: boolean
@@ -98,7 +98,7 @@ export function unsettledTitleRoots(input: {
   const holding = new Set(input.sessionIssues.map((link) => link.sessionId))
   const held = new Set<string>()
   for (const session of input.sessions) {
-    if (session.name?.trim() || session.title?.trim()) continue
+    if (session.title?.trim()) continue
     if (!input.linksReady) {
       held.add(session.id)
       continue
@@ -108,7 +108,6 @@ export function unsettledTitleRoots(input: {
       if (!input.issuesReady) held.add(session.id)
       continue
     }
-    if (session.actionName?.trim()) continue
     if (!input.messagesReady) held.add(session.id)
   }
   return held
@@ -227,8 +226,8 @@ export function useThreadsList(teamId: string | readonly string[] | null | undef
       now: nowIso,
     })
     // EXP-1316: a row holds its title only while ITS ladder still waits on
-    // a shape (an issue-linked row until the issues land); a row named by
-    // its agent, action or stored title shows at once.
+    // a shape (an issue-linked row until the issues land); a row with a
+    // stored title shows at once.
     const held = unsettledTitleRoots({
       sessions: tree,
       sessionIssues: context.sessionIssues,

@@ -922,8 +922,6 @@ export async function notifySessionBlocked(
         id: sessions.id,
         rootId: sessions.rootId,
         title: sessions.title,
-        actionName: sessions.actionName,
-        name: sessions.name,
         userId: sessions.userId,
         teamId: sessions.teamId,
         teamSlug: teams.slug,
@@ -1005,8 +1003,6 @@ export function fireAndForgetSessionMessageNotify(args: { messageId: string }): 
           sessionId: sessions.id,
           rootId: sessions.rootId,
           title: sessions.title,
-          actionName: sessions.actionName,
-          name: sessions.name,
           teamId: sessions.teamId,
           teamSlug: teams.slug,
           shared: sessions.shared,
@@ -1037,8 +1033,6 @@ export function fireAndForgetSessionMessageNotify(args: { messageId: string }): 
         id: row.sessionId,
         rootId: row.rootId,
         title: row.title,
-        actionName: row.actionName,
-        name: row.name,
       })
       const source = row.body.trim()
       await deliverToTeam({

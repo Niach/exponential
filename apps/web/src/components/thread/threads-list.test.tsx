@@ -56,15 +56,12 @@ describe(`ThreadsListView EXP-1323`, () => {
     expect(onOpenThread).toHaveBeenCalled()
   })
 
-  it(`bolds unread rows and shows captions`, () => {
+  it(`bolds unread rows`, () => {
     renderList(groups)
     const rows = groups.flatMap((group) => group.rows)
     const unread = rows.filter((row) => row.unread && row.title)
     for (const row of unread) {
       expect(screen.getAllByText(row.title).some((el) => el.dataset.unread === `true`)).toBe(true)
-    }
-    for (const row of rows.filter((row) => row.caption)) {
-      expect(screen.getAllByText(row.caption!).length).toBeGreaterThan(0)
     }
   })
 })

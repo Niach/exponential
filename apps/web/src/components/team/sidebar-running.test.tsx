@@ -52,7 +52,6 @@ function row(
     parentId?: string | null
     rootId?: string
     unread?: boolean
-    caption?: string | null
   } = {}
 ) {
   return {
@@ -67,7 +66,6 @@ function row(
     busy: over.busy ?? false,
     needsYou: over.needsYou ?? false,
     unread: over.unread ?? false,
-    caption: over.caption ?? null,
     activityAt: T0,
   }
 }
@@ -150,7 +148,7 @@ describe(`SidebarRunningSection`, () => {
 })
 
 // EXP-1323: a live tree nests its children (TreeGuides), a child opens its
-// session in the thread, bold = unread, the caption under the title.
+// session in the thread, bold = unread.
 describe(`SidebarRunningSection — nested children`, () => {
   const nested: ThreadsListGroup[] = [
     {
@@ -163,19 +161,18 @@ describe(`SidebarRunningSection — nested children`, () => {
           depth: 1,
           parentId: `t-run`,
           rootId: `t-run`,
-          caption: `Reading CartLineItem.tsx`,
         }),
       ],
     },
   ]
 
-  it(`nests the child under its root with its caption; bold marks unread`, () => {
+  it(`nests the child under its root; bold marks unread`, () => {
     renderSection(nested)
     const root = screen.getByTestId(`sidebar-running-t-run`)
     const child = screen.getByTestId(`sidebar-running-s-child`)
     expect(root.querySelector(`[data-unread]`)).toBeTruthy()
     expect(child.querySelector(`[data-unread]`)).toBeNull()
-    expect(child.textContent).toContain(`Reading CartLineItem.tsx`)
+    expect(child.textContent).toContain(`Cart thumbnails`)
     expect(child.style.paddingLeft).toBe(`22px`)
     expect(child.querySelector(`svg`)).toBeTruthy()
   })
