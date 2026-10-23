@@ -2823,6 +2823,39 @@
       }
     },
     {
+      "id": "exponential-ui-dock-card",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · DockCard",
+      "blurb": "N-12: THE DockCard: a one-row floating card (a tinted label, a caption, trailing meta, one title line, the open chevron) that opens its children in a bottom sheet with a pinned footer. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/dock-card/.",
+      "order": 28,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-dock-card",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-dock-card"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-dock-card",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-dock-card",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "exponential-ui-popover",
       "group": "exponential-ui-catalog",
       "title": "Exponential UI · Popover",
@@ -4359,7 +4392,7 @@
       "id": "composer-dialog-menu",
       "group": "coding",
       "title": "Composer + menu in a dialog",
-      "blurb": "N-6: the launcher composer\u2019s \"+\" menu inside its DIALOG window on desktop. A dialog is a small OS window and a drawn menu cannot leave its window, so the menu opens in a menu window of its own (`menu_window`) laid over the dialog and overhangs its edges, the Implement issue submenu beside it \u2014 the same drawn menu as composer-menu, where it would otherwise have been clipped.",
+      "blurb": "N-6: the launcher composer’s \"+\" menu inside its DIALOG window on desktop. A dialog is a small OS window and a drawn menu cannot leave its window, so the menu opens in a menu window of its own (`menu_window`) laid over the dialog and overhangs its edges, the Implement issue submenu beside it — the same drawn menu as composer-menu, where it would otherwise have been clipped.",
       "order": 28,
       "desktop": {
         "drive": {
@@ -4851,6 +4884,44 @@
         "ios": "The ExpUI ask dock specimen, the web island line for line, shot sg_ask-dock.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:ask-dock`: the IDE styleguide entry `ask_dock.rs` drawn full-window, the web island line for line."
+      }
+    },
+    {
+      "id": "dock-card",
+      "group": "coding",
+      "title": "Dock card",
+      "blurb": "N-12: THE DockCard ×4 (dock.json): one card, a banner with its action, the pile (the front card whole, the rest peeking out above it), the pile fanned and the sheet's face (the pinned header, the scrolling body, the pinned footer). ONE gray: every card and the sheet wear the opaque card fill.",
+      "order": 29,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=dock-card",
+        "anchor": {
+          "testId": "dock-card-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_dock-card",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_dock-card",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:dock-card"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=dock-card` on the Agent route: `@exp/ui` `DockCardSpecimen`, the styleguide entry's board line for line the natives' specimen.",
+        "web-mobile": "Inherits web: the phone frame draws the same specimen at full width.",
+        "ios": "The iOS dock-card specimen, the web board line for line, shot sg_dock-card.",
+        "android": "See ios: DockCardSpecimenScreen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:dock-card`: the IDE styleguide entry `dock_card.rs` drawn full-window."
       }
     },
     {

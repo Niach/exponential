@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.components.picker.InlinePickerRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -62,12 +63,10 @@ fun GlassComposer(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(if (opaque) GlassTokens.OpaqueCardFill else GlassTokens.CardFill, shape)
-            .border(
-                GlassTokens.Hairline,
-                if (opaque) GlassTokens.StrokeStrong else GlassTokens.StrokeCard,
-                shape,
-            )
+            // N-12: ONE gray ×4: the card composite under the card hairline,
+            // floating or not ([opaque] keeps its API; the look is one).
+            .background(GlassTokens.OpaqueCardFill, shape)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
             .padding(
                 horizontal = GlassComposerDefaults.HorizontalPadding,
                 vertical = GlassComposerDefaults.VerticalPadding,
@@ -77,9 +76,12 @@ fun GlassComposer(
         strip?.invoke(this)
         field()
         if (footer != null) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
+            // N-14: the footer is a ROW host: a pin opened inline (the
+            // composer inside a sheet) discloses its rows under the WHOLE
+            // row, as wide as it; collapsed the row is exactly as before.
+            InlinePickerRow(
                 verticalAlignment = Alignment.CenterVertically,
+                scroll = false,
                 content = footer,
             )
         } else if (tools != null || submit != null) {

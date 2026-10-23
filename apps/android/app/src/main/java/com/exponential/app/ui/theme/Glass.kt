@@ -188,10 +188,12 @@ fun Modifier.glassGroup(): Modifier {
 }
 
 /**
- * Frosted elevated card — iOS `.glassCard()`. [opaque] swaps the translucent
- * tint for [GlassTokens.OpaqueCardFill] so the card can float over scrolling
- * content without the rows underneath ghosting through it (EXP-357).
+ * Frosted elevated card — iOS `.glassCard()`. N-12 (owner 2026-10-22): ONE
+ * gray ×4: the fill is always [GlassTokens.OpaqueCardFill] (web
+ * `bg-glass-card-opaque`), never the translucent wash, so every card reads the
+ * same tone wherever it sits. [opaque] keeps its API; the look is one.
  */
+@Suppress("UNUSED_PARAMETER")
 fun Modifier.glassCard(
     opaque: Boolean = false,
     /**
@@ -204,7 +206,7 @@ fun Modifier.glassCard(
     val shape = RoundedCornerShape(cornerRadius)
     return this
         .clip(shape)
-        .background(if (opaque) GlassTokens.OpaqueCardFill else GlassTokens.CardFill, shape)
+        .background(GlassTokens.OpaqueCardFill, shape)
         .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
 }
 

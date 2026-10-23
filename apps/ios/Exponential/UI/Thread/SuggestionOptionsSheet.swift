@@ -4,12 +4,13 @@ import SwiftUI
 
 /// EXP-1323: a suggested task's Options on a phone — THE Menu in its SHEET
 /// presentation (web `ThreadSuggestionsCard`'s Menu), titled with the item:
-/// Start on… (the runnable devices) · Start with… (contract `codingModel`,
+/// Do it here · Start on… (the runnable devices) · Start with… (contract `codingModel`,
 /// never a default row) · File as issue · Dismiss. A submenu swaps the
 /// sheet's rows in place; a pick hands the action back and the host runs it
 /// once the sheet has dismissed (the `ThreadMenuSheet` rule).
 struct SuggestionOptionsSheet: View {
     enum Action: Equatable {
+        case here
         case startOn(deviceId: String)
         case startWith(model: String)
         case file
@@ -22,11 +23,33 @@ struct SuggestionOptionsSheet: View {
         let icon: String
     }
 
+    let title: String
+    /// The runnable devices; nil while they load.
+    let devices: [Device]?
+    let onPick: (Action) -> Void
+
+    var body: some View {
+        GlassSheetChrome(title: title) {
+            SuggestionOptionsRows(devices: devices, onPick: onPick)
+                .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
+                .padding(.bottom, 16)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("thread-suggestion-options-sheet")
+        }
+    }
+}
+
+/// N-6 + N-14: THE Menu's rows alone — the sheet's body, or (inside a sheet
+/// host, THE Dock sheet) the same rows disclosed INLINE under the item row.
+/// A submenu (Start on… / Start with…) swaps the rows in place.
+struct SuggestionOptionsRows: View {
+    typealias Action = SuggestionOptionsSheet.Action
+    typealias Device = SuggestionOptionsSheet.Device
+
     private enum Level {
         case root, devices, models
     }
 
-    let title: String
     /// The runnable devices; nil while they load.
     let devices: [Device]?
     let onPick: (Action) -> Void
@@ -36,38 +59,33 @@ struct SuggestionOptionsSheet: View {
     private typealias Copy = SessionTree.SuggestionsCopy
 
     var body: some View {
-        GlassSheetChrome(title: title) {
-            VStack(spacing: 0) {
-                switch level {
-                case .root:
-                    submenuRow(Copy.startOn, icon: AppIcons.uiDevice, enabled: !(devices ?? []).isEmpty, id: "start-on") {
-                        level = .devices
+        VStack(spacing: 0) {
+            switch level {
+            case .root:
+                row(Copy.here, icon: AppIcons.uiSend, id: "here") { onPick(.here) }
+                submenuRow(Copy.startOn, icon: AppIcons.uiDevice, enabled: !(devices ?? []).isEmpty, id: "start-on") {
+                    level = .devices
+                }
+                submenuRow(Copy.startWith, icon: AppIcons.uiProperties, enabled: true, id: "start-with") {
+                    level = .models
+                }
+                row(Copy.file, icon: AppIcons.uiIssue, id: "file") { onPick(.file) }
+                row(Copy.dismiss, icon: AppIcons.uiClose, id: "dismiss") { onPick(.dismiss) }
+            case .devices:
+                backRow(Copy.startOn)
+                ForEach(devices ?? []) { device in
+                    row(device.name, icon: device.icon, id: "device-\(device.id)") {
+                        onPick(.startOn(deviceId: device.id))
                     }
-                    submenuRow(Copy.startWith, icon: AppIcons.uiProperties, enabled: true, id: "start-with") {
-                        level = .models
-                    }
-                    row(Copy.file, icon: AppIcons.uiIssue, id: "file") { onPick(.file) }
-                    row(Copy.dismiss, icon: AppIcons.uiClose, id: "dismiss") { onPick(.dismiss) }
-                case .devices:
-                    backRow(Copy.startOn)
-                    ForEach(devices ?? []) { device in
-                        row(device.name, icon: device.icon, id: "device-\(device.id)") {
-                            onPick(.startOn(deviceId: device.id))
-                        }
-                    }
-                case .models:
-                    backRow(Copy.startWith)
-                    ForEach(DomainContract.codingModelValues, id: \.self) { model in
-                        row(LaunchVocabulary.modelLabel(model), icon: nil, id: "model-\(model)") {
-                            onPick(.startWith(model: model))
-                        }
+                }
+            case .models:
+                backRow(Copy.startWith)
+                ForEach(DomainContract.codingModelValues, id: \.self) { model in
+                    row(LaunchVocabulary.modelLabel(model), icon: nil, id: "model-\(model)") {
+                        onPick(.startWith(model: model))
                     }
                 }
             }
-            .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
-            .padding(.bottom, 16)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("thread-suggestion-options-sheet")
         }
     }
 

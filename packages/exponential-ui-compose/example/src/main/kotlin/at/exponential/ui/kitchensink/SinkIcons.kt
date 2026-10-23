@@ -161,6 +161,8 @@ val sinkIcons: Map<String, ImageVector> = mapOf(
     "trace-out" to Icons.AutoMirrored.Outlined.ExitToApp,
     "trace-failed" to Icons.Outlined.Close,
     "trace-task-done" to Icons.Outlined.CheckCircle,
+    // N-12: the DockCard specimen's plan glyph.
+    "coding-plan" to Icons.AutoMirrored.Outlined.List,
 )
 
 /**

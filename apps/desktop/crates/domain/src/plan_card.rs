@@ -61,6 +61,8 @@ pub struct PlanCardCopy {
     pub next: String,
     /// NEW-6: the decision block's prompt.
     pub decide: String,
+    /// N-12: the footer's way back out of the feedback field.
+    pub cancel: String,
 }
 
 impl PlanCardCopy {

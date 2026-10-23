@@ -174,7 +174,7 @@ pub(crate) fn edge_fade_top_scrim() -> Div {
 
 /// EXP-1162 — the BOTTOM edge strip (`edgeBottom`): the top strip mirrored,
 /// fading upwards from the pane's bottom edge (the issue face's end; the
-/// run's composer wears [`composer_edge_fade`]). Same contract as
+/// run's Dock wears [`dock_edge_fade`]). Same contract as
 /// [`edge_fade_top`]. EXP-1256: that edge IS the card's bottom edge, so the
 /// strip keeps off the hairlines AND rounds its bottom corners to the card's
 /// inner radius.
@@ -187,24 +187,17 @@ pub(crate) fn edge_fade_bottom() -> Div {
     )
 }
 
-/// EXP-1191 — the height of the run transcript's bottom fade (px): the
-/// Claude-app edge, taller than the contract's 32px `edgeBottom` so the last
-/// lines dissolve rather than clip.
-pub(crate) const COMPOSER_EDGE_FADE_H: f32 = 48.;
-
-/// EXP-1191 — the run transcript's COMPOSER edge: its last lines fade softly
-/// into the panel just above the composer (SDK
-/// `controls::edge_fade_bottom_soft`, the two-layer eased ramp). Paint-only,
-/// like the top strip; the caller's box must be `relative()`. EXP-1256: it
-/// ends mid-card (on the composer), so it keeps off the card's side
-/// hairlines and stays square.
-pub(crate) fn composer_edge_fade() -> Div {
-    sdk::edge_fade_bottom_soft(
-        panel_fill_at(EDGE_BOTTOM_RAMP_T),
-        COMPOSER_EDGE_FADE_H,
-        PANEL_BORDER,
-        0.,
-    )
+/// N-12 — THE Dock's edge fade behind its band: the panel's ground under
+/// the band, fading out `above` px over it (web `-top-10`, the ground at
+/// 72% from the bottom). Paint-only; the band's box is its parent.
+pub(crate) fn dock_edge_fade(above: f32) -> Div {
+    div()
+        .absolute()
+        .left(px(PANEL_BORDER))
+        .right(px(PANEL_BORDER))
+        .top(px(-above))
+        .bottom_0()
+        .bg(crate::dock::fade_gradient(panel_fill_at(EDGE_BOTTOM_RAMP_T)))
 }
 
 // ---------------------------------------------------------------------------
