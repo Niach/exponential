@@ -8,11 +8,11 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock|plan-card>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "plan-card"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card"]
 
     var body: some View {
         ZStack {
@@ -26,6 +26,7 @@ struct ThreadCardsScreen: View {
                     case "code-block": codeBlockSpecimens
                     case "thread-strip": ThreadStripSpecimens()
                     case "ask-dock": AskDockSpecimens()
+                    case "dock-card": DockCardSpecimens()
                     case "plan-card": PlanCardSpecimens()
                     default: workCards
                     }
@@ -309,24 +310,10 @@ private struct ThreadStripSpecimens: View {
                 ThreadFoldSheet(fold: fold) { _ in }
                     .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
             }
-            caption("THE composer: options under the card, the \"+\" rows")
-            SessionComposerOptionsLine(
-                controls: SessionComposerFooter.Controls(
-                    planModeActive: false, modelValue: "opus", agent: "claude", onPickModel: { _ in },
-                    usageFraction: 0.42, usageSeverity: .normal, onUsage: {},
-                    devicePin: Self.devicePin(moveTo: nil)
-                ),
-                plan: .constant(true)
-            )
+            caption("THE composer row: + · the device glyph · the model · Plan … the ring beside Send")
+            composerRow(moveTo: nil)
             caption("EXP-1252: moving to another device")
-            SessionComposerOptionsLine(
-                controls: SessionComposerFooter.Controls(
-                    planModeActive: false, modelValue: "opus", agent: "claude", onPickModel: { _ in },
-                    usageFraction: 0.42, usageSeverity: .normal, onUsage: {},
-                    devicePin: Self.devicePin(moveTo: "studio")
-                ),
-                plan: .constant(true)
-            )
+            composerRow(moveTo: "studio")
             caption("EXP-1211: the agent's quick replies above the composer")
             VStack(spacing: 0) {
                 // fixtures/session-thread.json `repliesCases[1].expected`.
@@ -364,6 +351,28 @@ private struct ThreadStripSpecimens: View {
         .accessibilityIdentifier("thread-strip-specimens")
     }
 
+    /// N-12: THE composer card's one tool row (`SessionComposerFooter`)
+    /// beside the Send glyph, in the card's glass.
+    private func composerRow(moveTo: String?) -> some View {
+        HStack(spacing: GlassComposerTokens.toolSpacing) {
+            SessionComposerFooter(
+                controls: SessionComposerFooter.Controls(
+                    planModeActive: false, modelValue: "opus", agent: "claude", onPickModel: { _ in },
+                    usageFraction: 0.42, usageSeverity: .normal, onUsage: {},
+                    devicePin: Self.devicePin(moveTo: moveTo),
+                    plan: .constant(true)
+                ),
+                attachEnabled: true,
+                onPhoto: {},
+                onFile: {},
+                attachMenuOpen: .constant(false)
+            )
+            GlassComposerSubmitButton(AppIcons.uiSubmit, accessibilityLabel: "Send", action: {})
+        }
+        .padding(8)
+        .glassCard(isOpaque: true)
+    }
+
     /// EXP-1252: the Device pin specimen — this laptop, a shared studio
     /// machine (refused: shared differently) and an offline one.
     private static func devicePin(moveTo: String?) -> SessionDevicePin {
@@ -398,65 +407,181 @@ private struct ThreadStripSpecimens: View {
     }
 }
 
-/// THE ask dock specimen (`sg_ask-dock`, web styleguide `ask-dock`, the IDE's
-/// `styleguide:ask-dock`): one plan = THE big card; two plans + a question
-/// of three sessions = the stack; the same tree with one card focused = the
-/// big card with the back arrow. Real `AskDockView` + `ThreadAskCard`.
+/// N-12: THE Dock specimen (`sg_ask-dock`, web `AskDockSpecimen`, the IDE's
+/// `styleguide:ask-dock`; web `packages/ui/src/ask-dock-specimen.tsx` is THE
+/// canonical one), line for line: one waiting plan (a single DockCard), the
+/// pile (the queued messages, THE Queue, the suggested tasks, a plan, a
+/// question: the front card whole, the others peeking out above it), the
+/// pile fanned, and the plan's sheet (page 0 of the stepped plan: the plan,
+/// Next in the footer, in the sheet's static frame). Real `DockCard` /
+/// `DockPile` / `DockSheetSpecimenFrame`.
 private struct AskDockSpecimens: View {
-    // The web `AskDockSpecimen` rows (packages/ui/src/ask-dock-specimen.tsx), line for line.
     private static let longPlan = [
-        "## Plan: one ask dock ×4",
+        "## Plan: one Dock ×4",
         "",
-        "1. Add `fixtures/ask-dock.json` + the TS model, mirrored ×4.",
-        "2. Move waiting cards out of the transcript into the composer's slot.",
-        "3. Stack several cards; a tap grows one into the big card.",
+        "1. Add `fixtures/dock.json` + the TS model, mirrored ×4.",
+        "2. Float the waiting cards above the composer; the transcript is the one scroll.",
+        "3. Pile several cards like the toasts; a tap opens one as a sheet.",
         "4. Share THE plan options: Yes · Yes, and start with a fresh context · No.",
         "5. Styleguide entry + scoped shots on every platform.",
         "6. Open the PR with the Guide.",
     ].joined(separator: "\n")
 
-    private static let single: [ThreadRow] = [
-        .plan(ThreadPlanRow(id: "p1", sessionId: "c1", plan: longPlan)),
+    private static let questions = [
+        ThreadPlanQuestion(id: "q-scope", prompt: "Which cards move into the Dock first?", custom: true, options: [
+            TreeQuestionOption(label: "Plan and question cards", description: "The rest follows as its own issue"),
+            TreeQuestionOption(label: "Everything", description: "Plan, question, tasks, queued messages, banners"),
+        ]),
+        ThreadPlanQuestion(id: "q-eui", prompt: "Should DockCard also go into Exponential UI?", custom: false, options: [
+            TreeQuestionOption(label: "Yes, as DockCard"),
+            TreeQuestionOption(label: "Styleguide only for now"),
+        ]),
     ]
 
-    private static let stack: [ThreadRow] = [
-        .plan(ThreadPlanRow(id: "p1", sessionId: "c1", plan: longPlan)),
-        .plan(ThreadPlanRow(
-            id: "p2", sessionId: "c2",
-            plan: "1. Group the thread list by state\n2. Drop the per-row counters"
-        )),
-        .question(ThreadQuestionRow(
-            id: "q1", sessionId: "c3", question: "Ship both fixes in one PR, or split them?",
-            options: [TreeQuestionOption(label: "One PR"), TreeQuestionOption(label: "Split them")],
-            custom: true, answered: false
-        )),
+    private static let asks: [Dock.Source] = [
+        .plan(id: "p1", text: longPlan, sessionName: "Ask dock", questions: 2, createdAt: 10),
+        .question(id: "q1", text: "Ship both fixes in one PR, or split them?", sessionName: "Dock polish", createdAt: 30),
     ]
 
-    private static let names = ["c1": "Ask dock", "c2": "Thread list", "c3": "Dock polish"]
+    private static let state: [Dock.Source] = [
+        .queued(["also check the watchdog once the root is idle", "then open the PR"]),
+        .tasks(Dock.QueueSummary(
+            todoTitle: "3 to do",
+            items: [
+                .init(label: "Measuring on the Galaxy A54", description: "2m 35s"),
+                .init(label: "Rerun the web captures", description: nil),
+                .init(label: "Open the PR with the numbers", description: nil),
+            ],
+            completedTitle: "2 completed"
+        )),
+        .suggestions(
+            id: "m4", label: "3 suggested tasks", caption: "1 started",
+            title: "Lazy-load the markdown editor", open: 2
+        ),
+    ]
 
     var body: some View {
+        let single = Dock.rows([Self.asks[0]])
+        let rows = Dock.rows(Self.state + Self.asks)
         VStack(alignment: .leading, spacing: 24) {
-            section("One waiting plan", rows: Self.single)
-            section("Two plans and a question", rows: Self.stack)
-            section("Focused out of the stack", rows: Self.stack, focused: "p2")
+            section("One waiting plan") {
+                DockCard(row: single[0], onOpen: {})
+            }
+            section("A plan, a question, the suggested tasks, the Queue and the queued messages, piled") {
+                DockPile(rows: rows, expanded: .constant(false), onOpen: { _ in })
+            }
+            section("The pile fanned (hover or a tap)") {
+                DockPile(rows: rows, expanded: .constant(true), onOpen: { _ in })
+            }
+            section("The plan's sheet") {
+                PlanSheetSpecimen(row: single[0], card: ThreadPlanRow(
+                    id: "p1", sessionId: "a", plan: Self.longPlan, questions: Self.questions
+                ))
+            }
         }
+        .accessibilityIdentifier("ask-dock-specimen")
     }
 
-    private func section(_ title: String, rows: [ThreadRow], focused: String? = nil) -> some View {
-        let pending = AskDock.threadPendingAsks(rows) { Self.names[$0] }
-        return VStack(alignment: .leading, spacing: 8) {
+    private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.caption.weight(.medium))
+                .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            AskDockView(pending: pending, initialFocusedId: focused) { id, onBack, cap in
-                if let row = rows.first(where: { $0.id == id }) {
-                    ThreadAskCard(
-                        row: row,
-                        onBack: onBack,
-                        bodyMaxHeight: cap
-                    )
+            content()
+        }
+    }
+}
+
+/// N-12: THE DockCard (`sg_dock-card`, web styleguide `dock-card`, the IDE's
+/// `dock_card.rs`), line for line: one card (a question), a banner with its
+/// action, five cards piled, fanned, and the sheet's static frame (the
+/// pinned header, the scrolling body, the pinned footer). The ask-dock
+/// specimen shows the plan and question cards on it; this one is the
+/// primitive. Real `DockCard` / `DockPile` / `DockSheetSpecimenFrame`.
+private struct DockCardSpecimens: View {
+    private static let sources: [Dock.Source] = [
+        .queued(["also check the watchdog once the root is idle", "then open the PR"]),
+        .tasks(Dock.QueueSummary(
+            todoTitle: "3 to do",
+            items: [
+                .init(label: "Measuring on the Galaxy A54", description: "2m 35s"),
+                .init(label: "Rerun the web captures", description: nil),
+                .init(label: "Open the PR with the numbers", description: nil),
+            ],
+            completedTitle: "2 completed"
+        )),
+        .suggestions(
+            id: "m4", label: "3 suggested tasks", caption: "1 started",
+            title: "Lazy-load the markdown editor", open: 2
+        ),
+        .banner(
+            id: "wall", icon: "ui-usage", label: "Usage limit",
+            text: "Claude's 5-hour window is used up until 14:00", tone: .warning, action: "Switch account"
+        ),
+        .question(id: "q1", text: "Ship both fixes in one PR, or split them?", sessionName: "Dock polish", createdAt: 30),
+    ]
+
+    private static func action(_ row: Dock.Row) -> AnyView? {
+        guard row.kind == .banner else { return nil }
+        return AnyView(GlassPill("Switch account", mode: .action {}))
+    }
+
+    var body: some View {
+        let rows = Dock.rows(Self.sources)
+        let question = rows.first { $0.kind == .question }!
+        let banner = rows.first { $0.kind == .banner }!
+        VStack(alignment: .leading, spacing: 12) {
+            caption("One card: the label, the caption, the meta, the title, the chevron")
+            DockCard(row: question, onOpen: {})
+            caption("A banner: never opens; its action word trails")
+            DockCard(row: banner, action: Self.action(banner))
+            caption("Five cards piled: the front one whole, the rest peeking out above it")
+            DockPile(rows: rows, expanded: .constant(false), onOpen: { _ in }, renderAction: Self.action)
+            caption("The pile fanned (hover or a tap): every card, 6px apart")
+            DockPile(rows: rows, expanded: .constant(true), onOpen: { _ in }, renderAction: Self.action)
+            caption("The sheet: the pinned header, the scrolling body, the pinned footer")
+            DockSheetSpecimenFrame(row: question, height: 300) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Ship both fixes in one PR, or split them?")
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                    Text(PlanCard.Copy.chooseOne)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
+            } footer: {
+                GlassPill(PlanCard.Copy.answer, mode: .action {}, primary: true)
             }
+        }
+        .accessibilityIdentifier("dock-card-specimen")
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+    }
+}
+
+/// The plan sheet at rest: page 0 of the stepped plan (the plan, no meta,
+/// Next in the footer; web `ThreadPlanSheet` at its first page), the
+/// sheet's face without presenting.
+private struct PlanSheetSpecimen: View {
+    let row: Dock.Row
+    let card: ThreadPlanRow
+
+    var body: some View {
+        DockSheetSpecimenFrame(row: row, height: 420) {
+            AgentMarkdownText(
+                text: PlanCard.renderableMarkdown(card.plan),
+                context: nil,
+                options: [.autolinkBareURLs],
+                imageMaxHeight: nil,
+                imageCornerRadius: PlanCard.Card.pictureRadius,
+                imageStroke: PlanCard.Card.pictureStroke
+            )
+        } footer: {
+            PlanCardFooter(onNext: {})
         }
     }
 }

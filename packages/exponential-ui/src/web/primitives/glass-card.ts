@@ -9,7 +9,9 @@
 // call site, because those genuinely differ per surface. `Card` in card.tsx
 // derives its recipe from this constant; the natives already own the
 // primitive (desktop `surface::glass_card`, iOS `GlassCard`, Android
-// `Modifier.glassCard()`).
-export const GLASS_CARD_CLASS = `rounded-xl border border-glass-stroke-card bg-glass-card`
+// `Modifier.glassCard()`). N-12 (owner 2026-10-22): ONE gray ×4: the fill
+// is the opaque card composite (`bg-glass-card-opaque`), never the
+// translucent wash, so every card reads the same tone wherever it sits.
+export const GLASS_CARD_CLASS = `rounded-xl border border-glass-stroke-card bg-glass-card-opaque`
 
 export const GLASS_CARD_CLASSES = { root: GLASS_CARD_CLASS } as const

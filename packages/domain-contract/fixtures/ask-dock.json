@@ -1,29 +1,16 @@
 {
-  "$comment": "THE ask dock x4 (web packages/ui ask-dock.tsx, desktop crates/ui ask_dock.rs, iOS ExpUI AskDock.swift, Android ui/session/AskDock.kt): the question/plan cards WAITING on the viewer leave the transcript and take the COMPOSER's slot, in the session view AND the thread alike (a thread with one pending card looks exactly like a session). `none` = nothing waits, the composer shows. `single` = THE big card (AskCard + AskPrompt: label, the full body inside the dock, the options, the inline field), composer hidden. `stack` (2+) = compact AskCards (icon + label + the one-line `title`, truncating, + the `caption` session name, + the `open` chevron) stacked `stackGap` apart, oldest first; a tap FOCUSES one: it grows in place into the big card (the dock's height animates over motion `resize` with the standard easing, the new content fades in with the motion-enter recipe at `enter`, decelerate; reduce motion = no height animation, opacity only), only that card answers, and a `back` arrow (ghost icon-xs button, LEADING the card's header row, before the kind icon) returns to the stack; answering returns to the stack (or the last card's `single`). The big card's BODY never exceeds `bodyMaxHeightFraction` of the viewport height: it scrolls inside, the options stay below it. Answered cards stay in the transcript CLOSED. The plan card's options are ONE list x4 (`planOptions`, the claude adapter's ExitPlanMode menu): Yes (primary) / Yes, and start with a fresh context / No, keep planning (opens the feedback field); `sessions.answer` carries `decision` + `fresh`; a decided card names `planDecisionLabel`. A thread feeds the dock `threadPendingAsks` (its plan rows with no decision + unanswered question rows of ANY session in the tree, Conversation order, the asking session's TAB name as caption, nested tabs included, the root = null: `threadSessionNames`); the session view feeds it its one answerable card (caption null). Model = pure `askDock`, `askDockTitle`, `planDecisionLabel`, `threadPendingAsks` (src/ask-dock.ts); mirrors compare the WHOLE expected object. EXP-1280: the plan/question cards are the RICH cards of plan-card.json (pictures inline, choice questions, an inline surface); the dock's big card shows the whole card, the compact rows stay the first plain line of the text; `planOptions` + `sessions.answer` (now with `answers` + `surfaceData`) are unchanged.",
+  "$comment": "THE ask cards x4 (web packages/ui session-thread-view.tsx + ask-card.tsx + dock.tsx, desktop crates/ui ask_dock.rs + dock.rs, iOS ExpUI AskDock.swift + Dock.swift, Android ui/session/AskDock.kt + ui/components/Dock.kt). N-12: a question or plan card WAITING on the viewer is a DockCard of THE Dock (fixtures/dock.json): the collapsed row = the kind icon (`icons`), the tinted `label` (`copy.planReady` / `copy.question`), the asking session's name as the caption (a thread: `threadPendingAsks` + `threadSessionNames`, nested tabs included, the root = null; the session view: null), a plan's question count as the meta, the first plain line of the text (`askDockTitle`) as the title and the open chevron; the composer stays under it. A tap opens THE sheet (dock.json `sheet`): the card's whole body scrolls inside it, the footer carries the decision (plan-card.json `stepper`). THE plan options x4 (`planOptions`, the claude adapter's ExitPlanMode menu): Yes (`approve`, the primary footer button) / Yes, and start with a fresh context (`approve-fresh`, in the primary button's menu) / No, keep planning (`reject`, the secondary footer button; picking it opens the feedback field, `feedbackPlaceholder`, and `copy.cancel` takes it back); `sessions.answer` carries `decision` + `fresh` (+ EXP-1280 `answers` + `surfaceData`); a decided card names `planDecisionLabel`. Answered cards stay in the transcript CLOSED. Model = pure `askDockTitle`, `askDockLabel`, `planDecisionLabel`, `threadPendingAsks` (every plan row with no decision + every unanswered question row of ANY session in the tree, Conversation order, `questions` = a plan's question count), `threadSessionNames` (src/ask-dock.ts); mirrors compare the WHOLE expected object. The dock itself (the pile, the sheet, the order) is dock.json.",
   "copy": {
     "planReady": "Plan ready",
     "question": "Question",
     "back": "Back to all cards",
-    "feedbackPlaceholder": "Tell the agent what to change…"
+    "feedbackPlaceholder": "Tell the agent what to change…",
+    "cancel": "Cancel"
   },
   "icons": {
     "plan": "coding-plan",
-    "question": "ui-help",
-    "back": "ui-back",
-    "open": "ui-chevron-right"
+    "question": "ui-help"
   },
-  "testIds": {
-    "dock": "ask-dock",
-    "row": "ask-dock-row",
-    "back": "ask-dock-back",
-    "card": "ask-dock-card"
-  },
-  "motion": {
-    "resize": "standard",
-    "enter": "standard"
-  },
-  "bodyMaxHeightFraction": 0.4,
-  "stackGap": 6,
   "planOptions": [
     {
       "key": "approve",
@@ -43,241 +30,6 @@
       "description": "Your feedback goes back with it",
       "decision": "rejected",
       "fresh": false
-    }
-  ],
-  "cases": [
-    {
-      "name": "nothing waits: the composer shows",
-      "input": {
-        "pending": [],
-        "focusedId": null
-      },
-      "expected": {
-        "mode": "none",
-        "composerHidden": false,
-        "back": false,
-        "cardId": null,
-        "rows": []
-      }
-    },
-    {
-      "name": "one plan = the big card, exactly the session view's",
-      "input": {
-        "pending": [
-          {
-            "id": "p1",
-            "kind": "plan",
-            "text": "## Plan\n\n1. Lift the partition",
-            "sessionName": "Fix the strip",
-            "createdAt": 10
-          }
-        ],
-        "focusedId": null
-      },
-      "expected": {
-        "mode": "single",
-        "composerHidden": true,
-        "back": false,
-        "cardId": "p1",
-        "rows": []
-      }
-    },
-    {
-      "name": "one question ignores a stale focus",
-      "input": {
-        "pending": [
-          {
-            "id": "q1",
-            "kind": "question",
-            "text": "Which branch?",
-            "sessionName": null,
-            "createdAt": 10
-          }
-        ],
-        "focusedId": "gone"
-      },
-      "expected": {
-        "mode": "single",
-        "composerHidden": true,
-        "back": false,
-        "cardId": "q1",
-        "rows": []
-      }
-    },
-    {
-      "name": "two plans and a question stack oldest first",
-      "input": {
-        "pending": [
-          {
-            "id": "q1",
-            "kind": "question",
-            "text": "Ship **both** fixes in one PR?",
-            "sessionName": "Dock polish",
-            "createdAt": 30
-          },
-          {
-            "id": "p1",
-            "kind": "plan",
-            "text": "# Plan: fold the composer\n\n- [ ] Read the `askDock` fixture\n- [ ] Wire it x4",
-            "sessionName": "Ask dock",
-            "createdAt": 10
-          },
-          {
-            "id": "p2",
-            "kind": "plan",
-            "text": "\n```ts\nconst x = 1\n```\n> See [the issue](/t/acme/issues/EXP-1) first",
-            "sessionName": "Thread list",
-            "createdAt": 20
-          }
-        ],
-        "focusedId": null
-      },
-      "expected": {
-        "mode": "stack",
-        "composerHidden": true,
-        "back": false,
-        "cardId": null,
-        "rows": [
-          {
-            "id": "p1",
-            "kind": "plan",
-            "label": "Plan ready",
-            "title": "Plan: fold the composer",
-            "caption": "Ask dock"
-          },
-          {
-            "id": "p2",
-            "kind": "plan",
-            "label": "Plan ready",
-            "title": "See the issue first",
-            "caption": "Thread list"
-          },
-          {
-            "id": "q1",
-            "kind": "question",
-            "label": "Question",
-            "title": "Ship both fixes in one PR?",
-            "caption": "Dock polish"
-          }
-        ]
-      }
-    },
-    {
-      "name": "a tap focuses one card: the back arrow shows",
-      "input": {
-        "pending": [
-          {
-            "id": "p1",
-            "kind": "plan",
-            "text": "1. One",
-            "sessionName": "A",
-            "createdAt": 10
-          },
-          {
-            "id": "p2",
-            "kind": "plan",
-            "text": "1. Two",
-            "sessionName": "B",
-            "createdAt": 20
-          }
-        ],
-        "focusedId": "p2"
-      },
-      "expected": {
-        "mode": "focused",
-        "composerHidden": true,
-        "back": true,
-        "cardId": "p2",
-        "rows": []
-      }
-    },
-    {
-      "name": "the focused card got answered: back to the stack",
-      "input": {
-        "pending": [
-          {
-            "id": "p1",
-            "kind": "plan",
-            "text": "1. One",
-            "sessionName": "A",
-            "createdAt": 10
-          },
-          {
-            "id": "q1",
-            "kind": "question",
-            "text": "Two?",
-            "sessionName": "B",
-            "createdAt": 20
-          }
-        ],
-        "focusedId": "p9"
-      },
-      "expected": {
-        "mode": "stack",
-        "composerHidden": true,
-        "back": false,
-        "cardId": null,
-        "rows": [
-          {
-            "id": "p1",
-            "kind": "plan",
-            "label": "Plan ready",
-            "title": "One",
-            "caption": "A"
-          },
-          {
-            "id": "q1",
-            "kind": "question",
-            "label": "Question",
-            "title": "Two?",
-            "caption": "B"
-          }
-        ]
-      }
-    },
-    {
-      "name": "an empty body falls back to the label; ties order by id",
-      "input": {
-        "pending": [
-          {
-            "id": "b",
-            "kind": "question",
-            "text": "   \n",
-            "sessionName": null,
-            "createdAt": 5
-          },
-          {
-            "id": "a",
-            "kind": "plan",
-            "text": "",
-            "sessionName": null,
-            "createdAt": 5
-          }
-        ],
-        "focusedId": null
-      },
-      "expected": {
-        "mode": "stack",
-        "composerHidden": true,
-        "back": false,
-        "cardId": null,
-        "rows": [
-          {
-            "id": "a",
-            "kind": "plan",
-            "label": "Plan ready",
-            "title": "Plan ready",
-            "caption": null
-          },
-          {
-            "id": "b",
-            "kind": "question",
-            "label": "Question",
-            "title": "Question",
-            "caption": null
-          }
-        ]
-      }
     }
   ],
   "titleCases": [
@@ -387,7 +139,8 @@
           "kind": "plan",
           "text": "1. One",
           "sessionName": "Ask dock",
-          "createdAt": 1
+          "createdAt": 1,
+          "questions": 0
         },
         {
           "id": "q1",
@@ -401,7 +154,8 @@
           "kind": "plan",
           "text": "1. Two",
           "sessionName": "Thread list",
-          "createdAt": 5
+          "createdAt": 5,
+          "questions": 0
         }
       ]
     }

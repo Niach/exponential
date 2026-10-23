@@ -1851,6 +1851,52 @@
         "change"
       ]
     },
+    "DockCard": {
+      "kind": "macro",
+      "group": "overlay",
+      "lite": false,
+      "children": "many",
+      "slots": [
+        "footer"
+      ],
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "caption": {
+          "type": "string",
+          "bindable": true
+        },
+        "meta": {
+          "type": "string",
+          "bindable": true
+        },
+        "icon": {
+          "type": "icon"
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone",
+          "default": "neutral"
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        }
+      },
+      "events": [
+        "press",
+        "change"
+      ]
+    },
     "AlertDialog": {
       "kind": "macro",
       "group": "overlay",

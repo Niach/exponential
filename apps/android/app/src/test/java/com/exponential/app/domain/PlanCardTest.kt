@@ -93,6 +93,7 @@ class PlanCardTest {
         assertEquals(copy.str("back"), PlanCard.Copy.BACK)
         assertEquals(copy.str("next"), PlanCard.Copy.NEXT)
         assertEquals(copy.str("decide"), PlanCard.Copy.DECIDE)
+        assertEquals(copy.str("cancel"), PlanCard.Copy.CANCEL)
         val specimen = copy.getValue("specimen").jsonObject
         assertEquals(
             specimen.mapValues { it.value.jsonPrimitive.content },

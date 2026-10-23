@@ -82,6 +82,8 @@ enum BuiltinIcons {
         case "trace-completed", "list-checks": "checklist.checked"
         case "trace-task-running", "circle-dot": "smallcircle.filled.circle"
         case "trace-task-pending", "circle": "circle"
+        // N-12: the DockCard specimen's plan glyph (a host registry draws it in the app).
+        case "coding-plan", "clipboard-list": "list.clipboard"
         case "trace-task-done": "checkmark.circle"
         case "trace-background", "repeat": "repeat"
         default: nil

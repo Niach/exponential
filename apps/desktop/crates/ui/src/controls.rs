@@ -60,6 +60,10 @@ pub(crate) fn ide_chrome() -> &'static Chrome {
             fill_section: t::glass::FILL_SECTION.to_hsla(),
             fill_row: t::glass::FILL_ROW.to_hsla(),
             fill_card: t::glass::FILL_CARD.to_hsla(),
+            fill_card_opaque: exponential_ui_gpui::chrome::composite(
+                t::POPOVER.to_hsla(),
+                t::glass::FILL_CARD.to_hsla(),
+            ),
             fill_panel: t::glass::FILL_PANEL.to_hsla(),
             fill_active: t::glass::FILL_ACTIVE.to_hsla(),
             stroke_row: t::glass::STROKE_ROW.to_hsla(),

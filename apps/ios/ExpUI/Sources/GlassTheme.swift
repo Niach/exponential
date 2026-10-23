@@ -9,13 +9,14 @@ import SwiftUI
 // MARK: - Glass Modifiers
 
 /// A BORDERED panel around free content — the outermost chrome on a page that
-/// is not already inside a group. Radius `xl`, `fillCard`, `strokeCard`.
+/// is not already inside a group. Radius `xl`, `opaqueCardFill`, `strokeCard`.
+/// N-12 (owner 2026-10-22): ONE gray ×4 — the fill is ALWAYS the opaque card
+/// composite (web `bg-glass-card-opaque`), never the translucent wash, so a
+/// card reads the same tone wherever it sits.
 public struct GlassCard: ViewModifier {
     public var cornerRadius: CGFloat = GlassTokens.cardRadius
-    /// Lays the opaque card surface beneath the glass tint — for cards that
-    /// FLOAT over scrolling content (the bulk-selection bar, the start
-    /// notices), where the low-alpha fill alone lets the feed bleed through.
-    /// The same switch `GlassButton` carries.
+    /// Kept for the call sites; N-12 made every card opaque, so it no longer
+    /// changes the look.
     public var isOpaque: Bool = false
 
     public init(cornerRadius: CGFloat = GlassTokens.cardRadius, isOpaque: Bool = false) {
@@ -25,8 +26,7 @@ public struct GlassCard: ViewModifier {
 
     public func body(content: Content) -> some View {
         content
-            .background(GlassTokens.fillCard)
-            .background(isOpaque ? DesignTokens.Palette.card : Color.clear)
+            .background(GlassTokens.opaqueCardFill)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)

@@ -38,7 +38,8 @@ import SwiftUI
 /// Failed actions toast (`Couldn't link the issue`, feedback-states).
 ///
 /// EXP-1323: a suggested tasks card acts through `sessions.startSuggestion`
-/// & co. (its Options = THE Menu's sheet, `SuggestionOptionsSheet`); the
+/// & co. (its ⋯ = THE Menu's sheet, `SuggestionOptionsSheet`); N-12: while
+/// any item is open the card rides THE Dock and opens as its sheet; the
 /// live root's relay state draws THE bottom strip (Tasks + status lines,
 /// the session view's own) above the composer; opening the screen stamps
 /// the viewer's read of the root (`sessions.markRead`).
@@ -75,6 +76,8 @@ struct ThreadScreen: View {
     @State private var pendingFoldPick: ThreadStripFold.Row?
     /// The question / plan answer in flight.
     @State private var answeringId: String?
+    /// N-12: THE Dock's open sheet (a card id).
+    @State private var dockOpenId: String?
     /// The Conversation follows its newest row (EXP-1316 1n).
     @State private var atBottom = true
     /// The composer expanded on a pinned reader: the keyboard's inset re-pins.
@@ -100,12 +103,6 @@ struct ThreadScreen: View {
     // EXP-1323: suggested tasks
     /// In-flight suggestion actions (`ThreadSuggestionActions.key`).
     @State private var suggestionPending: Set<String> = []
-    /// The item whose Options sheet is up.
-    @State private var suggestionOptions: SuggestionOptionsTarget?
-    /// The Options sheet's Start on… rows (loaded as it opens).
-    @State private var suggestionDevices: [SuggestionOptionsSheet.Device]?
-    /// The sheet's pick, run once the sheet has dismissed.
-    @State private var pendingSuggestionAction: (target: SuggestionOptionsTarget, action: SuggestionOptionsSheet.Action)?
     /// EXP-1323: the live tail's claim on the root's socket owner
     /// (`attachSteerModel`, paired with `steerSessions.detach`).
     @State private var liveModel: AgentSessionModel?
@@ -293,13 +290,6 @@ struct ThreadScreen: View {
                 pendingFoldPick = row
                 foldTarget = nil
             }
-        }
-        .sheet(item: $suggestionOptions, onDismiss: runPendingSuggestionAction) { target in
-            SuggestionOptionsSheet(title: target.title, devices: suggestionDevices) { action in
-                pendingSuggestionAction = (target, action)
-                suggestionOptions = nil
-            }
-            .task { await loadSuggestionDevices(teamId: rows?.root.teamId) }
         }
         .sheet(isPresented: $linkSheetOpen) {
             if let rows {
@@ -533,24 +523,21 @@ struct ThreadScreen: View {
                     withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
                 }
                 .safeAreaInset(edge: .bottom) {
-                    VStack(spacing: 0) {
-                        // THE ask dock (fixtures/ask-dock.json): every card
-                        // of the tree still waiting on this reader takes the
-                        // composer's slot — one = the big card, several =
-                        // the stack; the composer is back once none waits.
-                        let asks = canEdit
-                            ? AskDock.threadPendingAsks(view.rows, sessionName: AskDock.threadSessionNames(view.tabs))
-                            : []
-                        if !asks.isEmpty {
-                            askDock(asks, rows: rows, view: view)
+                    // N-12: THE Dock over the Conversation's bottom edge: the
+                    // tree's waiting cards, the live root's Queue, queued
+                    // messages and banners, then THE composer (always).
+                    let dockRows = conversationDockRows(rows: rows, view: view)
+                    DockView(
+                        rows: dockRows,
+                        openId: $dockOpenId,
+                        renderSheet: { row, close in conversationDockSheet(row, rows: rows, view: view, close: close) },
+                        renderAction: { row in
+                            row.id == "banner:closed" ? liveModel.map(SessionDock.reconnect) : nil
                         }
+                    ) {
                         // EXP-1211: the agent's quick replies, directly above
-                        // the composer; hidden with it while the dock shows.
-                        if asks.isEmpty {
-                            SessionComposerReplies(sessionId: view.composer.sessionId)
-                        }
-                        // Hidden, never unmounted, while the dock holds the
-                        // slot: its draft survives until the composer is back.
+                        // the composer.
+                        SessionComposerReplies(sessionId: view.composer.sessionId)
                         ThreadComposer(
                             sessionId: view.composer.sessionId,
                             root: rows.root,
@@ -564,12 +551,15 @@ struct ThreadScreen: View {
                                 pinOnInset = atBottom
                             }
                         )
-                        .frame(height: asks.isEmpty ? nil : 0, alignment: .top)
-                        .clipped()
-                        .opacity(asks.isEmpty ? 1 : 0)
-                        .allowsHitTesting(asks.isEmpty)
-                        .accessibilityHidden(!asks.isEmpty)
                     }
+                    .floatingBarEdge(!dockRows.isEmpty)
+                    // AUTO-OPEN: a plan or question that arrives while the
+                    // Conversation is in front opens its sheet; the rows
+                    // already there when it loaded stay collapsed. The pager
+                    // keeps this page alive beside the others, so a card
+                    // arriving while an issue, session or Guide page is in
+                    // front stays collapsed (dock.json: the view IN FRONT).
+                    .dockAutoOpen(dockRows, enabled: page == .conversation, ready: !view.rows.isEmpty) { dockOpenId = $0 }
                     // EXP-1316 (Android 247c806b33): the floating composer's
                     // MEASURED height (capsule or open card, + its edge) is
                     // the conversation's bottom inset; a pinned conversation
@@ -607,26 +597,51 @@ struct ThreadScreen: View {
 
     private static let coordSpace = "thread-conversation-scroll"
 
-    /// THE ask dock in the composer's slot: the waiting cards' big card or
-    /// stack (`AskDockView`), each card THE thread card (`ThreadAskCard`)
-    /// with the asking session's tab name as its caption.
-    private func askDock(_ asks: [AskDock.Pending], rows: ThreadRows, view: SessionThreadView) -> some View {
-        AskDockView(pending: asks) { id, onBack, cap in
-            if let row = view.rows.first(where: { $0.id == id }) {
-                ThreadAskCard(
-                    row: row,
-                    canAnswer: canEdit,
-                    answeringId: answeringId,
-                    markdownContext: askMarkdownContext(rows: rows),
-                    onBack: onBack,
-                    bodyMaxHeight: cap,
-                    onSubmit: submitAnswer
-                )
-            }
+    /// N-12: the Conversation's DockCards: every card of the tree still
+    /// waiting on this reader, the suggested tasks with an open item, then
+    /// the live root's own (`SessionDock`).
+    private func conversationDockRows(rows: ThreadRows, view: SessionThreadView) -> [Dock.Row] {
+        guard canEdit else { return [] }
+        let asks = AskDock.threadPendingAsks(view.rows, sessionName: AskDock.threadSessionNames(view.tabs))
+        let live = liveModel.map { SessionDock.sources($0, session: rows.root) } ?? []
+        return Dock.rows(asks.map(\.dockSource) + Dock.suggestionSources(view.rows) + live)
+    }
+
+    /// A card's sheet: an ask = THE plan / question sheet, the root's Queue
+    /// and queued messages their lists.
+    private func conversationDockSheet(
+        _ row: Dock.Row, rows: ThreadRows, view: SessionThreadView, close: @escaping () -> Void
+    ) -> AnyView? {
+        if case let .suggestions(id, _, _, startAll, items)? = view.rows.first(where: { $0.id == row.id }) {
+            return AnyView(ThreadSuggestionsSheet(
+                row: row,
+                rowId: id,
+                startAll: startAll,
+                items: items,
+                actions: suggestionActions,
+                onOpenSession: { sessionId in
+                    close()
+                    openSession(sessionId)
+                },
+                onOpenIssue: { [deps, accountId, issueOutlet] issueId in
+                    close()
+                    openIssueInnermost(issueId, outlet: issueOutlet, deps: deps, accountId: accountId)
+                },
+                onClose: close
+            ))
         }
-        .padding(.vertical, 8)
-        .transcriptColumn()
-        .floatingBarEdge()
+        if let card = view.rows.first(where: { $0.id == row.id }) {
+            return card.dockSheet(
+                row,
+                canAnswer: canEdit,
+                busy: answeringId == card.id,
+                markdownContext: askMarkdownContext(rows: rows),
+                // The answered card leaves the Dock, and its sheet with it.
+                onSubmit: submitAnswer,
+                onClose: close
+            )
+        }
+        return liveModel.flatMap { SessionDock.sheet(row, model: $0, close: close) }
     }
 
     /// The Conversation's markdown context (attachments through the
@@ -918,12 +933,8 @@ struct ThreadScreen: View {
                     try await api.startAllSuggestions(accountId: accountId, messageId: rowId)
                 }
             },
-            onHere: { rowId, itemId in startSuggestion(rowId, itemId, where: .here) },
-            onDismiss: { rowId, itemId in dismissSuggestion(rowId, itemId) },
-            onOptions: { rowId, item in
-                UIApplication.endEditing()
-                suggestionOptions = SuggestionOptionsTarget(rowId: rowId, itemId: item.id, title: item.title)
-            },
+            onMenu: { rowId, itemId, action in runSuggestionMenu(rowId, itemId, action) },
+            devices: { [teamId = rows?.root.teamId] in await loadSuggestionDevices(teamId: teamId) },
             pending: suggestionPending
         )
     }
@@ -969,31 +980,31 @@ struct ThreadScreen: View {
         }
     }
 
-    private func runPendingSuggestionAction() {
-        guard let pending = pendingSuggestionAction else { return }
-        pendingSuggestionAction = nil
-        let target = pending.target
-        switch pending.action {
+    /// A pick of the item's ⋯ menu (run once its sheet has dismissed).
+    private func runSuggestionMenu(_ rowId: String, _ itemId: String, _ action: SuggestionOptionsSheet.Action) {
+        switch action {
+        case .here:
+            startSuggestion(rowId, itemId, where: .here)
         case let .startOn(deviceId):
-            startSuggestion(target.rowId, target.itemId, where: .child, deviceId: deviceId)
+            startSuggestion(rowId, itemId, where: .child, deviceId: deviceId)
         case let .startWith(model):
-            startSuggestion(target.rowId, target.itemId, where: .child, model: model)
+            startSuggestion(rowId, itemId, where: .child, model: model)
         case .file:
-            runSuggestion(ThreadSuggestionActions.key(target.rowId, target.itemId), verb: "file", thing: "the issue") { api, accountId in
-                try await api.fileSuggestion(accountId: accountId, messageId: target.rowId, itemId: target.itemId)
+            runSuggestion(ThreadSuggestionActions.key(rowId, itemId), verb: "file", thing: "the issue") { api, accountId in
+                try await api.fileSuggestion(accountId: accountId, messageId: rowId, itemId: itemId)
             }
         case .dismiss:
-            dismissSuggestion(target.rowId, target.itemId)
+            dismissSuggestion(rowId, itemId)
         }
     }
 
     /// Start on…'s rows: the machines a start can reach right now with an
     /// agent to run (the composer's pool).
-    private func loadSuggestionDevices(teamId: String?) async {
+    private func loadSuggestionDevices(teamId: String?) async -> [SuggestionOptionsSheet.Device] {
         let devices = await DeviceQueries.onlineStartTargets(
             db: deps.db, accountId: accountId, teamId: teamId, userId: deps.auth.userId
         )
-        suggestionDevices = devices.filter(\.hasRunnableAgent).map {
+        return devices.filter(\.hasRunnableAgent).map {
             SuggestionOptionsSheet.Device(
                 id: $0.deviceId, name: $0.deviceLabel, icon: DeviceIconDisplay.iconName(for: $0)
             )
@@ -1249,14 +1260,6 @@ struct ThreadScreen: View {
     }
 }
 
-/// EXP-1323: the suggested task whose Options sheet is up.
-struct SuggestionOptionsTarget: Identifiable {
-    let rowId: String
-    let itemId: String
-    let title: String
-    var id: String { ThreadSuggestionActions.key(rowId, itemId) }
-}
-
 /// What the strip's menu sheet is open for — an issue tab (`issueId`), the
 /// "+" (nil) or the Guide's `…` (`guide`, EXP-1307).
 struct ThreadMenuTarget: Identifiable {
@@ -1449,9 +1452,11 @@ struct ThreadComposer: View {
                         SessionComposerCard(
                             draft: draft,
                             placeholder: placeholder,
-                            // EXP-1334: the model / Plan / usage ride UNDER
-                            // the card (`SessionComposerOptionsLine`).
-                            controls: nil,
+                            // N-12: THE composer row ×4: the device glyph,
+                            // the model, Plan and the ring ride IN the card;
+                            // NEW-7: a message to an agent runs on ITS device
+                            // and login, so the root's picks hide.
+                            controls: steerModel.flatMap { draft.agentId == nil ? controls($0) : nil },
                             attach: $attach,
                             sendEnabled: !draft.steerSending,
                             showsStop: !busySessionIds.isEmpty && !draft.hasContent,
@@ -1472,11 +1477,6 @@ struct ThreadComposer: View {
                             fieldIdentifier: "thread-composer-field",
                             onPlus: openPlusMenu
                         )
-                        // NEW-7: a message to an agent runs on ITS device and
-                        // login: the options line hides.
-                        if let steerModel, draft.agentId == nil {
-                            SessionComposerOptionsLine(controls: controls(steerModel), plan: planBinding)
-                        }
                         }
                     }
                 }
@@ -1621,7 +1621,10 @@ struct ThreadComposer: View {
             ended: row?.status == DomainContract.sessionStatusEnded,
             planModeFallback: model.sessionConfig == nil && row?.planMode == true,
             // EXP-1252: the root's Device pin (move to another device).
-            devicePin: model.devicePin
+            devicePin: model.devicePin,
+            // N-12: the Plan switch rides the card's row (`row?.dispatch`
+            // roots have none).
+            plan: row?.dispatch == true ? nil : planBinding
         )
     }
 

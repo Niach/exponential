@@ -257,6 +257,14 @@ describe(`AgentSessionView Queue`, () => {
       ],
     })
     render(<AgentSessionView session={session} />)
+    // N-12: THE Queue is a DockCard (its collapsed line names the running
+    // work); its sheet holds the Trace.
+    const card = screen.getByTestId(`dock-card`)
+    expect(card.dataset.kind).toBe(`tasks`)
+    expect(card.textContent).toContain(`3 to do`)
+    expect(card.textContent).toContain(`2 completed`)
+    expect(card.textContent).toContain(`Measuring on the Galaxy A54`)
+    fireEvent.click(card)
     const queue = screen.getByTestId(`session-task-queue`)
     const todo = screen.getByTestId(`session-task-queue-todo`)
     expect(todo.textContent).toContain(`3 to do`)
@@ -278,6 +286,7 @@ describe(`AgentSessionView Queue`, () => {
     snapshot = snap({ taskList: [{ content: `Ship it`, status: `completed` }] })
     render(<AgentSessionView session={session} />)
     expect(screen.queryByTestId(`session-task-queue`)).toBeNull()
+    expect(screen.queryByTestId(`dock-card`)).toBeNull()
   })
 })
 
@@ -314,11 +323,17 @@ describe(`AgentSessionView tool-posted cards (EXP-1280)`, () => {
     messages = [planMessage()]
     snapshot = snap({ feed: [{ id: 1, seq: 1, kind: `narration`, text: `Planned.` }, proposeCall] })
     render(<AgentSessionView session={session} composer={<div data-testid="composer" />} />)
-    const dock = screen.getByTestId(`ask-dock`)
-    expect(screen.queryByTestId(`composer`)).toBeNull()
-    expect(dock.textContent).toContain(`Which layout?`)
-    fireEvent.click(within(dock).getByTestId(`plan-card-question`).querySelector(`[data-testid="plan-card-option"]`)!)
-    fireEvent.click(dock.querySelector(`[data-slot="plan-card-decide"]`)!)
+    // N-12: the card is a DockCard above the composer (which stays); its
+    // sheet carries the question and the decision footer.
+    const dock = screen.getByTestId(`dock`)
+    expect(screen.getByTestId(`composer`)).toBeTruthy()
+    const card = within(dock).getByTestId(`dock-card`)
+    expect(card.dataset.kind).toBe(`plan`)
+    fireEvent.click(card)
+    const sheet = screen.getByTestId(`dock-sheet`)
+    expect(sheet.textContent).toContain(`Which layout?`)
+    fireEvent.click(within(sheet).getByTestId(`plan-card-question`).querySelector(`[data-testid="plan-card-option"]`)!)
+    fireEvent.click(sheet.querySelector(`[data-slot="plan-card-decide"][data-decision="approved"]`)!)
     expect(answerMutate).toHaveBeenCalledWith(
       { messageId: `m-plan`, decision: `approved`, answers: { q: [`Two`] } },
       expect.anything()
@@ -337,7 +352,7 @@ describe(`AgentSessionView tool-posted cards (EXP-1280)`, () => {
       feed: [proposeCall, { id: 4, seq: 4, kind: `narration`, text: `Implementing.` }],
     })
     render(<AgentSessionView session={session} composer={<div data-testid="composer" />} />)
-    expect(screen.queryByTestId(`ask-dock`)).toBeNull()
+    expect(screen.queryByTestId(`dock-card`)).toBeNull()
     expect(screen.getByTestId(`composer`)).toBeTruthy()
     const cards = screen.getAllByTestId(`session-tool-card`)
     expect(cards).toHaveLength(1)

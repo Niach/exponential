@@ -3,31 +3,21 @@ import ExpUI
 import SwiftUI
 
 /// EXP-1323/1324: a thread's live tail (web/Android `tail`, desktop's
-/// transcript bottom): THE Queue (`fixtures/task-queue.json` — the task list,
-/// background work, open waits) and, while the live root works a turn, ONE
-/// status line — the agent's mark, the state word and the live caption
-/// (`WorkingIndicatorRow`, the session view's own trailing row). Both read
-/// the live root's `AgentSessionModel`; nothing once it is over.
+/// transcript bottom): while the live root works a turn, ONE status line —
+/// the agent's mark, the state word and the live caption
+/// (`WorkingIndicatorRow`, the session view's own trailing row). N-12: THE
+/// Queue left for THE Dock (`SessionDock`). Nothing once the root is over.
 struct ThreadLiveTail: View {
     let model: AgentSessionModel
     /// The live root's agent (its brand mark); nil = claude.
     var agent: String?
 
     var body: some View {
-        if !model.isOver {
-            VStack(alignment: .leading, spacing: DesignTokens.Transcript.gapBlock) {
-                TaskQueueView(
-                    todoOpen: Bindable(model).queueTodoOpen,
-                    completedOpen: Bindable(model).queueCompletedOpen,
-                    build: { model.taskQueue(now: $0) }
-                )
-                if model.agentWorking {
-                    WorkingIndicatorRow(
-                        agent: agent,
-                        caption: { model.workingCaption(now: $0) }
-                    )
-                }
-            }
+        if !model.isOver, model.agentWorking {
+            WorkingIndicatorRow(
+                agent: agent,
+                caption: { model.workingCaption(now: $0) }
+            )
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("thread-live-tail")
@@ -49,7 +39,8 @@ struct ThreadLiveTail: View {
 /// picture is the Guide's inline tile; an event is one muted line.
 /// EXP-1323: a child's `report` is ONE event line `Report from <name> ›`
 /// opening that session; a `suggestions` card is THE suggested tasks card
-/// (`ThreadSuggestionsCard`); the host's live tail (`tail`) closes the rows.
+/// (`ThreadSuggestionsCard`; N-12: while an item is open it rides THE Dock
+/// instead); the host's live tail (`tail`) closes the rows.
 /// EXP-1300: an AGENT channel (web `AgentChannel`, Android
 /// `ThreadCommentRow`) leaves its own root card out and draws EVERY message
 /// as a comment row (`ChannelMessageRow`: the agent's icon or the person's
@@ -92,6 +83,12 @@ struct ThreadConversationView: View {
         case let .question(card): !card.answered
         default: false
         }
+    }
+
+    /// N-12: a suggestions row THE Dock holds (any item still open,
+    /// `Dock.suggestionSources`).
+    static func isDocked(_ row: ThreadRow) -> Bool {
+        !Dock.suggestionSources([row]).isEmpty
     }
 
     static let queuedWord = UserMessageCaption.queuedWord
@@ -211,17 +208,21 @@ struct ThreadConversationView: View {
         case let .report(_, sessionId, text, _):
             ThreadReportLine(text: text) { onOpenSession(sessionId) }
         case let .suggestions(id, _, header, startAll, items):
-            ThreadSuggestionsCard(
-                rowId: id,
-                header: header,
-                startAll: startAll,
-                items: items,
-                actions: canAnswer ? suggestions : nil,
-                onOpenSession: onOpenSession,
-                onOpenIssue: { issueId in
-                    openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
-                }
-            )
+            // N-12: a row with an open item rides THE Dock (`ThreadScreen`)
+            // for a reader who may act on it; it stays here once none is.
+            if !(canAnswer && suggestions != nil && Self.isDocked(row)) {
+                ThreadSuggestionsCard(
+                    rowId: id,
+                    header: header,
+                    startAll: startAll,
+                    items: items,
+                    actions: canAnswer ? suggestions : nil,
+                    onOpenSession: onOpenSession,
+                    onOpenIssue: { issueId in
+                        openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
+                    }
+                )
+            }
         case .question, .plan:
             // THE ask dock (fixtures/ask-dock.json): a card still waiting on
             // this reader rides the composer's slot (`ThreadScreen`); here
@@ -341,17 +342,16 @@ struct ThreadReportLine: View {
 }
 
 /// EXP-1323: what a suggested tasks card can do (`sessions.startSuggestion`
-/// / `startAllSuggestions` / `dismissSuggestion`; Options = the host's THE
-/// Menu sheet: Start on… · Start with… · File as issue · Dismiss).
+/// / `startAllSuggestions` / `dismissSuggestion`; the ⋯ = THE Menu's sheet:
+/// Do it here · Start on… · Start with… · File as issue · Dismiss).
 struct ThreadSuggestionActions {
     /// Start the item as a child on the defaults.
     var onStart: (_ rowId: String, _ itemId: String) -> Void
     var onStartAll: (_ rowId: String) -> Void
-    /// Do it here: the item goes to the posting session.
-    var onHere: (_ rowId: String, _ itemId: String) -> Void
-    var onDismiss: (_ rowId: String, _ itemId: String) -> Void
-    /// Options: the host opens THE Menu's sheet for the item.
-    var onOptions: (_ rowId: String, _ item: SuggestionRow) -> Void
+    /// A pick of the item's ⋯ menu (run once its sheet has dismissed).
+    var onMenu: (_ rowId: String, _ itemId: String, _ action: SuggestionOptionsSheet.Action) -> Void
+    /// Start on…'s rows (the runnable devices), loaded as the menu opens.
+    var devices: () async -> [SuggestionOptionsSheet.Device] = { [] }
     /// In-flight keys (`key(rowId, itemId)`; Start all = `key(rowId)`).
     var pending: Set<String> = []
 
@@ -362,10 +362,11 @@ struct ThreadSuggestionActions {
 
 /// EXP-1323: THE suggested tasks card ×4 in the Work card's shell (web
 /// `ThreadSuggestionsCard`): a header (`3 suggested tasks`, `· 2 started`,
-/// Start all while more than one is open), then hairline-divided items.
-/// Open = title, text, × · and under the text (phones stack them) Options ·
-/// Do it here · Start; started = the child's session card (its caption
-/// under the name) opening it; here = `Sent here`; filed = `Filed EXP-9`.
+/// Start all while more than one is open), then hairline-divided items
+/// (`ThreadSuggestionItems`). N-12: while any item is open the row is a
+/// DockCard and the items are its sheet (`ThreadSuggestionsSheet`); in the
+/// Conversation the card stays for the rows with no open item (and for a
+/// read-only reader).
 struct ThreadSuggestionsCard: View {
     let rowId: String
     let header: String
@@ -376,13 +377,12 @@ struct ThreadSuggestionsCard: View {
     var onOpenIssue: (String) -> Void = { _ in }
 
     private typealias Copy = SessionTree.SuggestionsCopy
-    private var muted: Color { .white.opacity(TextOpacity.tertiary) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 AppIcon(AppIcons.uiChecklist, size: 13)
-                    .foregroundStyle(muted)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 Text(header)
                     .fontWeight(.medium)
                     .lineLimit(1)
@@ -401,14 +401,16 @@ struct ThreadSuggestionsCard: View {
             }
             .padding(.horizontal, 12)
             .frame(minHeight: WorkCards.Geometry.header)
-            ForEach(items) { item in
-                GlassDivider()
-                itemRow(item)
-            }
+            GlassDivider()
+            ThreadSuggestionItems(
+                rowId: rowId, items: items, actions: actions,
+                onOpenSession: onOpenSession, onOpenIssue: onOpenIssue
+            )
         }
         .font(.caption)
         .foregroundStyle(.white)
-        .background(GlassTokens.fillRow)
+        // N-12: ONE gray ×4: THE card composite under the card hairline.
+        .background(GlassTokens.opaqueCardFill)
         .clipShape(RoundedRectangle(cornerRadius: GlassTokens.groupRadius))
         .overlay(
             RoundedRectangle(cornerRadius: GlassTokens.groupRadius)
@@ -416,6 +418,95 @@ struct ThreadSuggestionsCard: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("thread-suggestions")
+    }
+}
+
+/// N-12: THE suggestions sheet (the DockCard opened, web
+/// `ThreadSuggestionsSheet`): the items as the card lists them; the footer =
+/// Start all while more than one is open.
+struct ThreadSuggestionsSheet: View {
+    let row: Dock.Row
+    let rowId: String
+    let startAll: Bool
+    let items: [SuggestionRow]
+    var actions: ThreadSuggestionActions?
+    var onOpenSession: (String) -> Void = { _ in }
+    var onOpenIssue: (String) -> Void = { _ in }
+    let onClose: () -> Void
+
+    private typealias Copy = SessionTree.SuggestionsCopy
+
+    var body: some View {
+        DockSheetChrome(row: row, onClose: onClose) {
+            ThreadSuggestionItems(
+                rowId: rowId, items: items, actions: actions,
+                onOpenSession: onOpenSession, onOpenIssue: onOpenIssue
+            )
+            .font(.caption)
+            .foregroundStyle(.white)
+            // The rows pad themselves (web `px-1` + the rows' `px-3`).
+            .padding(.horizontal, -12)
+            .accessibilityIdentifier("thread-suggestions-sheet")
+        } footer: {
+            if startAll, let actions {
+                GlassPill(
+                    Copy.startAll,
+                    mode: .action { actions.onStartAll(rowId) },
+                    primary: true,
+                    enabled: !actions.pending.contains(ThreadSuggestionActions.key(rowId))
+                )
+                .accessibilityIdentifier("thread-suggestions-start-all")
+            }
+        }
+    }
+}
+
+/// The suggested tasks' items, hairline-divided (web `SuggestionItemRow`):
+/// open = the title and text, the ⋯ (THE Menu's sheet) and Start on one row;
+/// started = the child's session card (its caption under the name) opening
+/// it; here = `Sent here`; filed = `Filed EXP-9`.
+struct ThreadSuggestionItems: View {
+    let rowId: String
+    let items: [SuggestionRow]
+    var actions: ThreadSuggestionActions?
+    var onOpenSession: (String) -> Void = { _ in }
+    var onOpenIssue: (String) -> Void = { _ in }
+
+    /// The item whose ⋯ sheet is up, the devices it lists, its pick.
+    @State private var menuItem: SuggestionRow?
+    @State private var devices: [SuggestionOptionsSheet.Device]?
+    @State private var picked: (itemId: String, action: SuggestionOptionsSheet.Action)?
+    /// N-6 + N-14: inside a sheet host (THE Dock sheet) the ⋯ discloses
+    /// THE Menu's rows INLINE under its item row — one item's at a time.
+    @Environment(\.pickerPresentation) private var hostPresentation
+    @State private var inlineItemId: String?
+
+    private typealias Copy = SessionTree.SuggestionsCopy
+    private var muted: Color { .white.opacity(TextOpacity.tertiary) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                if index > 0 { GlassDivider() }
+                itemRow(item)
+            }
+        }
+        .sheet(item: $menuItem, onDismiss: runPick) { item in
+            SuggestionOptionsSheet(title: item.title, devices: devices) { action in
+                picked = (item.id, action)
+                menuItem = nil
+            }
+            .task {
+                guard let actions else { return }
+                devices = await actions.devices()
+            }
+        }
+    }
+
+    private func runPick() {
+        guard let picked else { return }
+        self.picked = nil
+        actions?.onMenu(rowId, picked.itemId, picked.action)
     }
 
     @ViewBuilder
@@ -462,83 +553,69 @@ struct ThreadSuggestionsCard: View {
         }
     }
 
+    /// One row on every width (web `flex items-start gap-3`): the words,
+    /// then the ⋯ (ghost) and Start (primary).
     private func openRow(_ item: SuggestionRow) -> some View {
-        let busy = actions?.pending.contains(ThreadSuggestionActions.key(rowId, item.id)) ?? false
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.title)
-                        .fontWeight(.medium)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if !item.text.isEmpty {
-                        Text(item.text)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+        VStack(alignment: .leading, spacing: 0) {
+            openRowLine(item)
+            if hostPresentation == .inline, inlineItemId == item.id {
+                SuggestionOptionsRows(devices: devices) { action in
+                    inlineItemId = nil
+                    actions?.onMenu(rowId, item.id, action)
                 }
-                Spacer(minLength: 0)
-                if let actions {
-                    Button {
-                        actions.onDismiss(rowId, item.id)
-                    } label: {
-                        AppIcon(AppIcons.uiClose, size: 12)
-                            .foregroundStyle(muted)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(busy)
-                    .accessibilityLabel(Copy.dismiss)
-                    .accessibilityIdentifier("thread-suggestion-dismiss")
+                .frame(maxHeight: GlassPickerTokens.inlineMaxHeight)
+                .padding(.bottom, 6)
+                .task {
+                    guard let actions else { return }
+                    devices = await actions.devices()
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("thread-suggestion-options-inline")
+            }
+        }
+    }
+
+    private func openRowLine(_ item: SuggestionRow) -> some View {
+        let busy = actions?.pending.contains(ThreadSuggestionActions.key(rowId, item.id)) ?? false
+        return HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if !item.text.isEmpty {
+                    Text(item.text)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             if let actions {
-                // Phones STACK the buttons (web `flex-col`, Android
-                // full-width pills): Options · Do it here · Start, each a
-                // full-width pill.
-                // The pill's capsule hugs its label (the SDK `PillView`), so a
-                // bare `.frame(maxWidth:)` only centres a short pill in the
-                // row: spacers in the leading/trailing slots make the capsule
-                // itself span the row with the label centred, like web's
-                // full-width buttons.
-                VStack(alignment: .leading, spacing: 6) {
-                    GlassPill(
-                        Copy.options,
-                        mode: .action { actions.onOptions(rowId, item) },
+                HStack(spacing: 6) {
+                    GhostIconButton(
+                        AppIcons.uiMore,
+                        accessibilityLabel: Copy.options,
+                        size: 24,
+                        glyphSize: 14,
                         enabled: !busy
                     ) {
-                        // Both slots nest the same way so the HStack splits
-                        // the slack evenly and "Options ˅" sits centred.
-                        HStack(spacing: 0) { Spacer(minLength: 0) }
-                    } trailing: {
-                        HStack(spacing: 4) {
-                            AppIcon(AppIcons.uiChevronDown, size: 10)
-                            Spacer(minLength: 0)
+                        UIApplication.endEditing()
+                        if hostPresentation == .inline {
+                            inlineItemId = inlineItemId == item.id ? nil : item.id
+                        } else {
+                            menuItem = item
                         }
                     }
-                    .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("thread-suggestion-options")
-                    GlassPill(Copy.here, mode: .action { actions.onHere(rowId, item.id) }, enabled: !busy) {
-                        Spacer(minLength: 0)
-                    } trailing: {
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .accessibilityIdentifier("thread-suggestion-here")
                     GlassPill(
                         Copy.start,
                         mode: .action { actions.onStart(rowId, item.id) },
                         primary: true,
                         enabled: !busy
-                    ) {
-                        Spacer(minLength: 0)
-                    } trailing: {
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: .infinity)
+                    )
                     .accessibilityIdentifier("thread-suggestion-start")
                 }
+                .fixedSize()
             }
         }
         .padding(.horizontal, 12)
@@ -619,38 +696,23 @@ struct ThreadCardAnswer {
     var surfaceData: CardJSON? = nil
 }
 
-/// A thread's question or plan card — THE session view's `QuestionCard`
-/// (EXP-1316; EXP-1334: a CHILD's own ask lands here too, answered by message
-/// id straight back to it), drawn inline once answered (closed) and as THE
-/// ask dock's big card while it waits (`caption` / `onBack` /
-/// `bodyMaxHeight`). A question offers its options AND THE `custom` field
-/// (`copy.custom`, the typed text IS the answer) unless the card says
-/// `custom: false`, answered with ONE Answer button; a pending plan ends on
-/// THE decision block (NEW-6 N-1, `PlanCardDecision`: `copy.decide` over the
-/// `AskDock.planOptions` rows, the feedback field once the reject row is
-/// picked, the small primary button named after the pick) and steps through
-/// 2+ questions one at a time ("Question n of m", Back / Next; the last step
-/// carries the decision block); a decided one names `planDecisionLabel` and
-/// lists every question closed. EXP-1280 (plan-card.json): the rich card adds
-/// the inline surface and the question blocks under the body
-/// (`PlanCardForm.swift`); approving waits until every question is answered
-/// (`PlanCard.answerIssue`), and the answer carries `answers` +
-/// `surfaceData`.
+/// A thread's question or plan card IN THE TRANSCRIPT — THE session view's
+/// `QuestionCard` (EXP-1316; EXP-1334: a CHILD's own ask lands here too):
+/// closed once answered (a decided plan names `planDecisionLabel` and lists
+/// every question closed), read-only while it waits on someone else. N-12: a
+/// card this reader may answer waits in THE Dock instead and opens as its
+/// sheet (`ThreadPlanSheet` / `ThreadQuestionSheet`, ThreadDockSheets.swift).
+/// EXP-1280 (plan-card.json): the rich card adds the inline surface and the
+/// question blocks under the body (`PlanCardForm.swift`).
 struct ThreadAskCard: View {
     let row: ThreadRow
     var canAnswer = true
     var answeringId: String?
     var markdownContext: AgentMarkdownContext?
     var caption: String?
-    var onBack: (() -> Void)?
-    var bodyMaxHeight: CGFloat?
     var onSubmit: (ThreadCardAnswer) -> Void = { _ in }
 
     @State private var draft = PlanCardDraft()
-    /// NEW-6 (N-1): the stepper's current question (0-based, local UI state)
-    /// and the decision block's pick (an ask-dock `planOptions` key).
-    @State private var step = 0
-    @State private var choice = AskDock.planOptions.first?.key ?? ""
 
     var body: some View {
         switch row {
@@ -695,8 +757,6 @@ struct ThreadAskCard: View {
             onAnswer: { _, _ in },
             markdownContext: markdownContext,
             caption: caption,
-            onBack: onBack,
-            bodyMaxHeight: bodyMaxHeight,
             form: questionForm(card),
             hidesOptions: true,
             hidesResolution: Self.formShowsAnswer(card),
@@ -799,8 +859,6 @@ struct ThreadAskCard: View {
             onAnswer: { _, _ in },
             markdownContext: markdownContext,
             caption: caption,
-            onBack: onBack,
-            bodyMaxHeight: bodyMaxHeight,
             form: planForm(card),
             // NEW-6 (N-1): the decision block lives in the form.
             hidesOptions: true,
@@ -809,56 +867,22 @@ struct ThreadAskCard: View {
         )
     }
 
-    /// A plan's form: the surface, then the questions — all of them, or
-    /// (NEW-6 N-1, a pending plan with 2+) the current one between its step
-    /// line and Back / Next — then, on the last step of a pending card, THE
-    /// decision block.
+    /// A plan's form: the surface, then every question (closed once
+    /// decided, inert while it waits on someone else).
     private func planForm(_ card: ThreadPlanRow) -> AnyView? {
         let decided = card.decision != nil
-        let busy = answeringId == card.id
-        let editable = canAnswer && !decided
-        let stepped = PlanCard.stepperApplies(kind: "plan", decision: card.decision, questionCount: card.questions.count)
-        let count = card.questions.count
-        let current = min(step, max(count - 1, 0))
-        let lastStep = !stepped || current == count - 1
-        let showsDecision = !decided && lastStep && !busy && canAnswer
-        guard card.surface != nil || !card.questions.isEmpty || showsDecision else { return nil }
-        let issue = decided ? nil : PlanCard.answerIssue(
-            questions: card.questions,
-            input: PlanCard.AnswerInput(planAnswers: draft.planAnswers(card.questions), decision: "approved")
-        )
+        guard card.surface != nil || !card.questions.isEmpty else { return nil }
         return AnyView(VStack(alignment: .leading, spacing: PlanCard.Card.blockGap) {
             if let surface = card.surface {
                 // Decided: the person's stamped `surfaceData` over the
                 // agent's initial values (web `data={row.surfaceData}`).
                 PlanCardSurfaceView(
-                    surface: surface, handle: draft.surface, editable: editable,
+                    surface: surface, handle: draft.surface, editable: false,
                     data: decided ? card.surfaceData : nil
                 )
             }
-            if stepped, card.questions.indices.contains(current) {
-                VStack(alignment: .leading, spacing: PlanCard.Card.optionsGap) {
-                    PlanCardStepLine(step: current, count: count)
-                    questionBlock(card.questions[current], card: card, editable: editable)
-                    PlanCardStepButtons(step: current, count: count) { next in step = next }
-                }
-            } else {
-                ForEach(card.questions) { question in
-                    questionBlock(question, card: card, editable: editable)
-                }
-            }
-            if showsDecision {
-                PlanCardDecision(
-                    picked: choice,
-                    onPick: { choice = $0 },
-                    approveIssue: issue.map(PlanCard.Copy.issue),
-                    feedback: $draft.feedback,
-                    onDecide: { option in
-                        let approved = option.decision == PlanDecision.approved.rawValue
-                        if approved, issue != nil { return }
-                        submitPlan(card, decision: approved ? .approved : .rejected, fresh: approved && option.fresh)
-                    }
-                )
+            ForEach(card.questions) { question in
+                questionBlock(question, card: card, editable: false)
             }
         })
     }
@@ -882,21 +906,5 @@ struct ThreadAskCard: View {
             },
             onType: { draft.type(question.id, text: $0, multi: question.multi) }
         )
-    }
-
-    private func submitPlan(_ card: ThreadPlanRow, decision: PlanDecision, fresh: Bool) {
-        let answers = draft.planAnswers(card.questions)
-        // NEW-6 (N-1): the feedback rides the reject only (its field shows
-        // only then).
-        let typed = decision == .rejected ? draft.feedback.trimmingCharacters(in: .whitespacesAndNewlines) : ""
-        let feedback: String? = typed.isEmpty ? nil : typed
-        onSubmit(ThreadCardAnswer(
-            messageId: card.id,
-            decision: decision,
-            fresh: fresh,
-            feedback: feedback,
-            answers: answers.isEmpty ? nil : .plan(answers),
-            surfaceData: card.surface == nil ? nil : draft.surface.snapshot()
-        ))
     }
 }

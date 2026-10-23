@@ -22,17 +22,18 @@ import {
 } from "@exp/domain-contract/session-tree"
 import {
   ASK_DOCK_COPY,
-  askDock,
-  PLAN_OPTIONS,
   planDecisionLabel,
   threadPendingAsks,
+  type PlanOption,
 } from "@exp/domain-contract/ask-dock"
+import { dockRows, suggestionSources, type DockRow, type DockSource } from "@exp/domain-contract/dock"
 import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
 import {
   answerIssue,
   joinAnswers,
   PLAN_CARD_COPY,
   PLAN_CARD_TEST_IDS,
+  stepLabel,
   stepperApplies,
 } from "@exp/domain-contract/plan-card"
 import { AskAnsweredLine, AskCard, AskPrompt } from "./ask-card"
@@ -40,17 +41,15 @@ import {
   closedPicks,
   PlanCardCaption,
   PlanCardCustomField,
-  PlanCardDecision,
+  PlanCardFooter,
   PlanCardOptions,
   PlanCardQuestionBlock,
-  PlanCardStepButtons,
-  PlanCardStepLine,
   PlanCardSurface,
   questionAnswer,
   stripPendingUploads,
   useSurfaceDataRef,
 } from "./plan-card"
-import { AskDock, AskDockBody } from "./ask-dock"
+import { Dock, DockSheetBody, DockSheetFooter, useDockAutoOpen, useDockSheetMeta } from "./dock"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { stripTabClass } from "./entity-chip"
@@ -102,8 +101,8 @@ const CloseIcon = conceptIcon(`ui-close`)
 const SubagentIcon = conceptIcon(`coding-subagent`)
 const ReportIcon = conceptIcon(`notification-reporter-reply`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
-const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 const SuggestionsIcon = conceptIcon(`ui-checklist`)
+const MoreIcon = conceptIcon(`ui-more`)
 
 // EXP-1316: THE strip tab box, shared with the issue chips' `tab` size.
 const tabClass = stripTabClass
@@ -1011,10 +1010,13 @@ export function suggestionKey(rowId: string, itemId?: string): string {
 
 /** EXP-1323: THE suggested tasks card ×4 = the Work card's shell: a header
  *  (`3 suggested tasks`, `· 2 started`, Start all while more than one is
- *  open), then hairline-divided items. Open = title, text, × · Options ·
- *  Do it here · Start (phones stack the buttons under the text); started =
- *  the child's session card (its caption under the name) opening it; here =
- *  `Sent here`; filed = `Filed EXP-9`. */
+ *  open), then hairline-divided items. N-12: while any item is open the row
+ *  is a DockCard (`ThreadDock`) and this list is its sheet
+ *  (`ThreadSuggestionsSheet`); in the Conversation the card stays for the
+ *  rows with no open item. Open = title, text, Start and the ⋯ menu (Do it
+ *  here · Start on… · Start with… · File as issue · Dismiss), one row on
+ *  every width; started = the child's session card (its caption under the
+ *  name) opening it; here = `Sent here`; filed = `Filed EXP-9`. */
 export function ThreadSuggestionsCard({
   row,
   actions,
@@ -1030,7 +1032,7 @@ export function ThreadSuggestionsCard({
   return (
     <div
       data-slot="thread-suggestions"
-      className="min-w-0 overflow-clip rounded-lg border border-glass-stroke-card bg-glass-row text-xs"
+      className="min-w-0 overflow-clip rounded-lg border border-glass-stroke-card bg-glass-card-opaque text-xs"
     >
       <div className="flex min-h-9 min-w-0 items-center gap-2 px-3 py-1.5">
         <SuggestionsIcon className="size-3.5 shrink-0 text-muted-foreground" />
@@ -1142,6 +1144,12 @@ function SuggestionItemRow({
   const entries: MenuEntry[] = actions
     ? [
         {
+          kind: `item`,
+          id: `here`,
+          label: SUGGESTIONS_COPY.here,
+          onSelect: () => actions.onHere(rowId, item.id),
+        },
+        {
           kind: `submenu`,
           label: SUGGESTIONS_COPY.startOn,
           disabled: (actions.devices?.length ?? 0) === 0,
@@ -1167,11 +1175,13 @@ function SuggestionItemRow({
         { kind: `separator` },
         {
           kind: `item`,
+          id: `file`,
           label: SUGGESTIONS_COPY.file,
           onSelect: () => actions.onFile(rowId, item.id),
         },
         {
           kind: `item`,
+          id: `dismiss`,
           label: SUGGESTIONS_COPY.dismiss,
           onSelect: () => actions.onDismiss(rowId, item.id),
         },
@@ -1181,34 +1191,14 @@ function SuggestionItemRow({
     <div
       data-slot="thread-suggestion"
       data-state={item.state}
-      className="flex min-w-0 flex-col gap-2 px-3 py-2.5 md:flex-row md:items-start md:gap-3"
+      className="flex min-w-0 items-start gap-3 px-3 py-2.5"
     >
-      <div className="flex min-w-0 flex-1 items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-medium text-foreground">{item.title}</div>
-          {item.text && <div className="mt-0.5 text-muted-foreground">{item.text}</div>}
-        </div>
-        {actions && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label={SUGGESTIONS_COPY.dismiss}
-            title={SUGGESTIONS_COPY.dismiss}
-            data-testid="thread-suggestion-dismiss"
-            className="shrink-0 text-muted-foreground hover:text-foreground"
-            disabled={busy}
-            onClick={() => actions.onDismiss(rowId, item.id)}
-          >
-            <CloseIcon className="size-3" />
-          </Button>
-        )}
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium text-foreground">{item.title}</div>
+        {item.text && <div className="mt-0.5 text-muted-foreground">{item.text}</div>}
       </div>
       {actions && (
-        <div
-          data-slot="thread-suggestion-actions"
-          className="flex shrink-0 flex-col gap-1.5 md:flex-row md:items-center"
-        >
+        <div data-slot="thread-suggestion-actions" className="flex shrink-0 items-center gap-1.5">
           <Menu
             entries={entries}
             align="end"
@@ -1218,26 +1208,18 @@ function SuggestionItemRow({
             trigger={
               <Button
                 type="button"
-                variant="outline"
-                size="xs"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={SUGGESTIONS_COPY.options}
+                title={SUGGESTIONS_COPY.options}
                 data-testid="thread-suggestion-options"
+                className="text-muted-foreground hover:text-foreground"
                 disabled={busy}
               >
-                {SUGGESTIONS_COPY.options}
-                <ChevronDownIcon />
+                <MoreIcon className="size-3.5" />
               </Button>
             }
           />
-          <Button
-            type="button"
-            variant="outline"
-            size="xs"
-            data-testid="thread-suggestion-here"
-            disabled={busy}
-            onClick={() => actions.onHere(rowId, item.id)}
-          >
-            {SUGGESTIONS_COPY.here}
-          </Button>
           <Button
             type="button"
             size="xs"
@@ -1250,6 +1232,57 @@ function SuggestionItemRow({
         </div>
       )}
     </div>
+  )
+}
+
+/** N-12: THE suggestions sheet (a DockCard opened): the items as the card
+ *  lists them (`SuggestionItemRow`); the footer = Start all while more than
+ *  one is open. */
+export function ThreadSuggestionsSheet({
+  row,
+  actions,
+  onOpenSession,
+  renderIssueRef,
+}: {
+  row: Extract<ThreadRow, { type: `suggestions` }>
+  actions?: ThreadSuggestionActions
+  onOpenSession?: (sessionId: string) => void
+  renderIssueRef?: (issueId: string, identifier: string | null) => ReactNode
+}) {
+  const pending = actions?.pending
+  return (
+    <>
+      <DockSheetBody className="px-1">
+        <div data-slot="thread-suggestions" data-testid="thread-suggestions-sheet" className="divide-y divide-glass-stroke text-xs">
+          {row.items.map((item) => (
+            <SuggestionItemRow
+              key={item.id}
+              rowId={row.id}
+              sessionId={row.sessionId}
+              item={item}
+              actions={actions}
+              onOpenSession={onOpenSession}
+              renderIssueRef={renderIssueRef}
+            />
+          ))}
+        </div>
+      </DockSheetBody>
+      {row.startAll && actions && (
+        <DockSheetFooter>
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              data-testid="thread-suggestions-start-all"
+              pending={pending?.has(suggestionKey(row.id)) ?? false}
+              onClick={() => actions.onStartAll(row.id)}
+            >
+              {SUGGESTIONS_COPY.startAll}
+            </Button>
+          </div>
+        </DockSheetFooter>
+      )}
+    </>
   )
 }
 
@@ -1284,38 +1317,77 @@ export type ThreadQuestionAnswer = {
   surfaceData?: Record<string, unknown>
 }
 
-/** The big card's body: capped and scrolling inside THE ask dock. */
-function DockBody({ docked, children }: { docked: boolean; children: ReactNode }) {
-  return docked ? <AskDockBody>{children}</AskDockBody> : <>{children}</>
-}
-
 /** A closed card's free answers (not an option) as THE answered line. */
 function freeAnswers(options: readonly { label: string }[], picks: readonly string[]): string[] {
   return picks.filter((pick) => !options.some((option) => option.label === pick))
 }
 
-/** EXP-1316/1280: a question row = THE question card ×4 (plan-card.json):
- *  the question, the inline surface, the options (THE option rows or the
- *  picture tiles, multi aware), the `custom` free-text row and its Answer
- *  button; closed once answered (the picks highlighted, the rest inert). */
+/** EXP-1316/1280: a question row IN THE TRANSCRIPT = THE question card ×4
+ *  (plan-card.json): the question, the inline surface, the options (THE
+ *  option rows or the picture tiles, multi aware), the `custom` free-text
+ *  row and its Answer button; closed once answered (the picks highlighted,
+ *  the rest inert). N-12: a card the viewer may answer lives in THE Dock
+ *  instead (`ThreadDock`) and opens as `ThreadQuestionSheet`. */
 function ThreadQuestionCard({
   row,
   renderText,
   attachmentSrc,
   busy,
   onAnswer,
-  docked = false,
-  onBack,
 }: {
   row: Extract<ThreadRow, { type: `question` }>
   renderText: (text: string) => ReactNode
   attachmentSrc: (attachmentId: string) => string
   busy: boolean
   onAnswer?: (input: ThreadQuestionAnswer) => void
-  /** In THE ask dock: the body scrolls inside its cap. */
-  docked?: boolean
-  onBack?: () => void
 }) {
+  const form = useQuestionForm(row, busy, onAnswer)
+  return (
+    <AskCard
+      data-slot="thread-question"
+      data-testid={PLAN_CARD_TEST_IDS.card}
+      data-kind="question"
+      data-answered={row.answered || undefined}
+    >
+      <div className="text-sm text-foreground/90">{renderText(stripPendingUploads(row.question))}</div>
+      {row.surface && (
+        <PlanCardSurface
+          surface={row.surface}
+          data={row.answered ? row.surfaceData : null}
+          disabled={!form.interactive}
+          dataRef={form.surfaceData}
+          testKey={row.id}
+        />
+      )}
+      <QuestionOptions row={row} form={form} attachmentSrc={attachmentSrc} />
+      {row.answered ? (
+        form.free.length > 0 || form.shown.length === 0 ? (
+          <AskAnsweredLine answer={form.free.length > 0 ? joinAnswers(form.free) : row.answer} />
+        ) : null
+      ) : busy ? (
+        <AskPrompt options={[]} answerable={false} locked={{ labels: form.labels }} onAnswer={noop} />
+      ) : onAnswer ? (
+        <Button
+          type="button"
+          size="sm"
+          className="mt-2"
+          data-testid="thread-question-answer"
+          disabled={form.issue !== null}
+          onClick={form.send}
+        >
+          {PLAN_CARD_COPY.answer}
+        </Button>
+      ) : null}
+    </AskCard>
+  )
+}
+
+/** The question card's form (the transcript card and the sheet share it). */
+function useQuestionForm(
+  row: Extract<ThreadRow, { type: `question` }>,
+  busy: boolean,
+  onAnswer: ((input: ThreadQuestionAnswer) => void) | undefined
+) {
   const [picked, setPicked] = useState<string[]>([])
   const [customText, setCustomText] = useState(``)
   const surfaceData = useSurfaceDataRef()
@@ -1341,62 +1413,7 @@ function ThreadQuestionCard({
       ...(row.surface && surfaceData.current ? { surfaceData: surfaceData.current } : {}),
     })
   }
-  return (
-    <AskCard
-      onBack={onBack}
-      data-slot="thread-question"
-      data-testid={PLAN_CARD_TEST_IDS.card}
-      data-kind="question"
-      data-answered={row.answered || undefined}
-    >
-      <DockBody docked={docked}>
-        <div className="text-sm text-foreground/90">{renderText(stripPendingUploads(row.question))}</div>
-        {row.surface && (
-          <PlanCardSurface
-            surface={row.surface}
-            data={row.answered ? row.surfaceData : null}
-            disabled={!interactive}
-            dataRef={surfaceData}
-            testKey={row.id}
-          />
-        )}
-        {row.multi && !row.answered && row.options.length > 0 && (
-          <div className="mt-2">
-            <PlanCardCaption>{PLAN_CARD_COPY.chooseAny}</PlanCardCaption>
-          </div>
-        )}
-        <PlanCardOptions
-          options={row.options}
-          multi={row.multi}
-          picked={shown}
-          onPick={interactive ? setPicked : undefined}
-          attachmentSrc={attachmentSrc}
-          label={row.question}
-        />
-        {interactive && row.custom && (
-          <PlanCardCustomField value={customText} onChange={setCustomText} label={row.question} />
-        )}
-      </DockBody>
-      {row.answered ? (
-        free.length > 0 || shown.length === 0 ? (
-          <AskAnsweredLine answer={free.length > 0 ? joinAnswers(free) : row.answer} />
-        ) : null
-      ) : busy ? (
-        <AskPrompt options={[]} answerable={false} locked={{ labels }} onAnswer={noop} />
-      ) : onAnswer ? (
-        <Button
-          type="button"
-          size="sm"
-          className="mt-2"
-          data-testid="thread-question-answer"
-          disabled={issue !== null}
-          onClick={send}
-        >
-          {PLAN_CARD_COPY.answer}
-        </Button>
-      ) : null}
-    </AskCard>
-  )
+  return { interactive, shown, labels, issue, free, send, surfaceData, pick: setPicked, customText, setCustomText }
 }
 
 const noop = () => {}
@@ -1412,39 +1429,103 @@ export type ThreadPlanDecision = {
   surfaceData?: Record<string, unknown>
 }
 
-/** EXP-1316/1280: a plan row = THE plan card ×4 (plan-card.json): the
- *  markdown (pictures inline, a pending upload renders nothing), the inline
- *  surface, the questions, then THE decision block (`PlanCardDecision`:
- *  `copy.decide` over the `PLAN_OPTIONS` rows, the feedback field once the
- *  reject row is picked, the small primary button). NEW-6 (N-1): a pending
- *  plan with `stepper.minQuestions`+ questions steps through them one at a
- *  time ("Question n of m", Back / Next) and the LAST step carries the
- *  decision block. Approving waits on every question (`answerIssue`);
- *  rejecting never does. Closed once decided: every question with its
- *  picks highlighted, the decision label + the feedback. */
-function ThreadPlanCard({
+/** N-12: THE question sheet (a DockCard opened): the question, the inline
+ *  surface, the options and the free-text row in the body; the footer =
+ *  Answer (plan-card.json). */
+export function ThreadQuestionSheet({
   row,
   renderText,
   attachmentSrc,
   busy,
-  onDecide,
-  docked = false,
-  onBack,
+  onAnswer,
 }: {
-  row: Extract<ThreadRow, { type: `plan` }>
+  row: Extract<ThreadRow, { type: `question` }>
   renderText: (text: string) => ReactNode
   attachmentSrc: (attachmentId: string) => string
   busy: boolean
-  onDecide?: (input: ThreadPlanDecision) => void
-  docked?: boolean
-  onBack?: () => void
+  onAnswer?: (input: ThreadQuestionAnswer) => void
 }) {
+  const form = useQuestionForm(row, busy, onAnswer)
+  return (
+    <>
+      <DockSheetBody>
+        <div data-testid={PLAN_CARD_TEST_IDS.card} data-kind="question" className="text-sm text-foreground/90">
+          {renderText(stripPendingUploads(row.question))}
+        </div>
+        {row.surface && (
+          <PlanCardSurface
+            surface={row.surface}
+            data={row.answered ? row.surfaceData : null}
+            disabled={!form.interactive}
+            dataRef={form.surfaceData}
+            testKey={row.id}
+          />
+        )}
+        <QuestionOptions row={row} form={form} attachmentSrc={attachmentSrc} />
+      </DockSheetBody>
+      <DockSheetFooter>
+        <div className="flex items-center justify-end gap-2">
+          {busy ? (
+            <AskPrompt options={[]} answerable={false} locked={{ labels: form.labels }} onAnswer={noop} />
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              data-testid="thread-question-answer"
+              disabled={form.issue !== null || !form.interactive}
+              onClick={form.send}
+            >
+              {PLAN_CARD_COPY.answer}
+            </Button>
+          )}
+        </div>
+      </DockSheetFooter>
+    </>
+  )
+}
+
+/** The question's options block with the real picture urls. */
+function QuestionOptions({
+  row,
+  form,
+  attachmentSrc,
+}: {
+  row: Extract<ThreadRow, { type: `question` }>
+  form: ReturnType<typeof useQuestionForm>
+  attachmentSrc: (attachmentId: string) => string
+}) {
+  return (
+    <>
+      {row.multi && !row.answered && row.options.length > 0 && (
+        <div className="mt-2">
+          <PlanCardCaption>{PLAN_CARD_COPY.chooseAny}</PlanCardCaption>
+        </div>
+      )}
+      <PlanCardOptions
+        options={row.options}
+        multi={row.multi}
+        picked={form.shown}
+        onPick={form.interactive ? form.pick : undefined}
+        attachmentSrc={attachmentSrc}
+        label={row.question}
+      />
+      {form.interactive && row.custom && (
+        <PlanCardCustomField value={form.customText} onChange={form.setCustomText} label={row.question} />
+      )}
+    </>
+  )
+}
+
+/** The plan card's form (the transcript card and the sheet share it). */
+function usePlanForm(
+  row: Extract<ThreadRow, { type: `plan` }>,
+  busy: boolean,
+  onDecide: ((input: ThreadPlanDecision) => void) | undefined
+) {
   const decided = row.decision === `approved` || row.decision === `rejected`
   const [picks, setPicks] = useState<Record<string, string[]>>({})
   const [custom, setCustom] = useState<Record<string, string>>({})
   const [feedback, setFeedback] = useState(``)
-  const [choice, setChoice] = useState<string>(PLAN_OPTIONS[0]?.key ?? ``)
-  const [step, setStep] = useState(0)
   const surfaceData = useSurfaceDataRef()
   const interactive = !decided && !busy && onDecide !== undefined
   const answers = useMemo(() => {
@@ -1459,11 +1540,7 @@ function ThreadPlanCard({
     { kind: `plan`, plan: row.plan, questions: row.questions },
     { decision: `approved`, answers }
   )
-  const stepped = !decided && stepperApplies({ kind: `plan`, plan: row.plan, questions: row.questions })
-  const count = row.questions.length
-  const current = Math.min(step, Math.max(count - 1, 0))
-  const lastStep = !stepped || current === count - 1
-  const decide = (option: (typeof PLAN_OPTIONS)[number]) => {
+  const decide = (option: PlanOption) => {
     if (!interactive) return
     if (option.decision === `approved` && approveIssue) return
     const note = option.decision === `rejected` ? feedback.trim() : ``
@@ -1475,7 +1552,7 @@ function ThreadPlanCard({
       ...(row.surface && surfaceData.current ? { surfaceData: surfaceData.current } : {}),
     })
   }
-  const block = (question: (typeof row.questions)[number], className?: string) => {
+  const block = (question: (typeof row.questions)[number], attachmentSrc: (id: string) => string, className?: string) => {
     const picked = decided ? (row.answers?.[question.id] ?? []) : (picks[question.id] ?? [])
     const free = decided ? freeAnswers(question.options, picked) : []
     return (
@@ -1492,51 +1569,54 @@ function ThreadPlanCard({
       />
     )
   }
+  return { decided, interactive, approveIssue, feedback, setFeedback, decide, block, surfaceData }
+}
+
+/** EXP-1316/1280: a plan row IN THE TRANSCRIPT = THE plan card ×4
+ *  (plan-card.json): the markdown (pictures inline, a pending upload renders
+ *  nothing), the inline surface, every question; closed once decided (the
+ *  picks highlighted, the decision label + the feedback). N-12: a pending
+ *  card the viewer may decide lives in THE Dock (`ThreadDock`) and opens as
+ *  `ThreadPlanSheet`; a read-only viewer sees it here without controls. */
+function ThreadPlanCard({
+  row,
+  renderText,
+  attachmentSrc,
+  busy,
+  onDecide,
+}: {
+  row: Extract<ThreadRow, { type: `plan` }>
+  renderText: (text: string) => ReactNode
+  attachmentSrc: (attachmentId: string) => string
+  busy: boolean
+  onDecide?: (input: ThreadPlanDecision) => void
+}) {
+  const form = usePlanForm(row, busy, onDecide)
   return (
     <AskCard
       plan
       label={ASK_DOCK_COPY.planReady}
-      onBack={onBack}
       data-slot="thread-plan"
       data-testid={PLAN_CARD_TEST_IDS.card}
       data-kind="plan"
       data-decision={row.decision ?? undefined}
     >
-      <DockBody docked={docked}>
-        <div className="text-sm">{renderText(stripPendingUploads(row.plan))}</div>
-        {row.surface && (
-          <PlanCardSurface
-            surface={row.surface}
-            data={decided ? row.surfaceData : null}
-            disabled={!interactive}
-            dataRef={surfaceData}
-            testKey={row.id}
-          />
-        )}
-        {!stepped && row.questions.map((question) => block(question))}
-      </DockBody>
-      {stepped && row.questions[current] && (
-        <>
-          <PlanCardStepLine step={current} count={count} />
-          {block(row.questions[current], `mt-1`)}
-          <PlanCardStepButtons step={current} count={count} onStep={setStep} />
-        </>
-      )}
-      {!decided && lastStep && !busy && (
-        <PlanCardDecision
-          picked={choice}
-          onPick={setChoice}
-          approveIssue={approveIssue}
-          feedback={feedback}
-          onFeedback={setFeedback}
-          onDecide={onDecide ? decide : undefined}
+      <div className="text-sm">{renderText(stripPendingUploads(row.plan))}</div>
+      {row.surface && (
+        <PlanCardSurface
+          surface={row.surface}
+          data={form.decided ? row.surfaceData : null}
+          disabled={!form.interactive}
+          dataRef={form.surfaceData}
+          testKey={row.id}
         />
       )}
-      {busy && !decided && <AskPrompt options={[]} answerable={false} locked={{ labels: [] }} onAnswer={noop} />}
-      {decided && (
+      {row.questions.map((question) => form.block(question, attachmentSrc))}
+      {busy && !form.decided && <AskPrompt options={[]} answerable={false} locked={{ labels: [] }} onAnswer={noop} />}
+      {form.decided && (
         <AskAnsweredLine answer={planDecisionLabel(row.decision as `approved` | `rejected`, row.fresh)} />
       )}
-      {decided && row.feedback && (
+      {form.decided && row.feedback && (
         <div data-testid={PLAN_CARD_TEST_IDS.feedback} className="mt-1 text-xs text-muted-foreground">
           {PLAN_CARD_COPY.feedbackLine.replace(`{feedback}`, () => row.feedback ?? ``)}
         </div>
@@ -1545,13 +1625,93 @@ function ThreadPlanCard({
   )
 }
 
+/** N-12: THE plan sheet (a DockCard opened, plan-card.json `stepper`): page
+ *  0 = the plan, the surface and (below `minQuestions` questions) the
+ *  questions; else one page per question, "Question n of m" as the header's
+ *  meta; the footer = Back / Next, the last page THE decision
+ *  (`PlanCardFooter`). The page is local, never synced. */
+export function ThreadPlanSheet({
+  row,
+  renderText,
+  attachmentSrc,
+  busy,
+  onDecide,
+}: {
+  row: Extract<ThreadRow, { type: `plan` }>
+  renderText: (text: string) => ReactNode
+  attachmentSrc: (attachmentId: string) => string
+  busy: boolean
+  onDecide?: (input: ThreadPlanDecision) => void
+}) {
+  const form = usePlanForm(row, busy, onDecide)
+  const [step, setStep] = useState(0)
+  const [rejecting, setRejecting] = useState(false)
+  const stepped = !form.decided && stepperApplies({ kind: `plan`, plan: row.plan, questions: row.questions })
+  const count = row.questions.length
+  const pages = stepped ? 1 + count : 1
+  const page = Math.min(step, pages - 1)
+  const last = page === pages - 1
+  const question = stepped && page > 0 ? row.questions[page - 1] : undefined
+  useDockSheetMeta(question ? <span data-testid={PLAN_CARD_TEST_IDS.step}>{stepLabel(page, count)}</span> : null)
+  return (
+    <>
+      <DockSheetBody>
+        <div data-testid={PLAN_CARD_TEST_IDS.card} data-kind="plan" data-page={page}>
+          {question ? (
+            form.block(question, attachmentSrc, `mt-0`)
+          ) : (
+            <>
+              <div className="text-sm">{renderText(stripPendingUploads(row.plan))}</div>
+              {row.surface && (
+                <PlanCardSurface
+                  surface={row.surface}
+                  data={form.decided ? row.surfaceData : null}
+                  disabled={!form.interactive}
+                  dataRef={form.surfaceData}
+                  testKey={row.id}
+                />
+              )}
+              {!stepped && row.questions.map((q) => form.block(q, attachmentSrc))}
+            </>
+          )}
+        </div>
+      </DockSheetBody>
+      <DockSheetFooter>
+        <PlanCardFooter
+          onBack={page > 0 ? () => setStep(page - 1) : undefined}
+          onNext={!last ? () => setStep(page + 1) : undefined}
+          decision={
+            last && form.interactive
+              ? {
+                  approveIssue: form.approveIssue,
+                  rejecting,
+                  onRejecting: setRejecting,
+                  feedback: form.feedback,
+                  onFeedback: form.setFeedback,
+                  onDecide: form.decide,
+                  busy,
+                }
+              : undefined
+          }
+        />
+        {busy && !form.decided && (
+          <AskPrompt options={[]} answerable={false} locked={{ labels: [] }} onAnswer={noop} />
+        )}
+      </DockSheetFooter>
+    </>
+  )
+}
 
 const defaultAttachmentSrc = (attachmentId: string) => `/api/attachments/${attachmentId}`
 
-/** THE ask dock in a thread (fixtures/ask-dock.json): the tree's waiting
- *  cards (`threadPendingAsks`) in the composer's slot: one = the big card,
- *  several = the stack, a tap focuses one (the back arrow returns). */
-export function ThreadAskDock({
+/** N-12: THE Dock in a thread or a session (fixtures/dock.json): the tree's
+ *  waiting cards (`threadPendingAsks`) plus the host's other `sources`
+ *  (THE Queue, the queued messages, banners) as DockCards above the
+ *  composer; an ask opens as its sheet (`ThreadPlanSheet` /
+ *  `ThreadQuestionSheet`), the rest through `renderSheet`. A plan or
+ *  question that arrives while the view is in front opens itself
+ *  (`autoOpen`). */
+export function ThreadDock({
   rows,
   sessionName,
   renderText,
@@ -1559,7 +1719,19 @@ export function ThreadAskDock({
   pending,
   onAnswer,
   onDecide,
-  initialFocusedId = null,
+  sources,
+  renderSheet,
+  renderAction,
+  suggestions,
+  onOpenSession,
+  renderIssueRef,
+  composer,
+  onHeight,
+  phoneClearance,
+  autoOpen = true,
+  autoOpenReady = true,
+  initialOpenId = null,
+  initialExpanded,
   className,
 }: {
   rows: readonly ThreadRow[]
@@ -1570,47 +1742,87 @@ export function ThreadAskDock({
   pending?: ReadonlySet<string>
   onAnswer: (rowId: string, input: ThreadQuestionAnswer) => void
   onDecide: (rowId: string, input: ThreadPlanDecision) => void
-  /** The card focused on mount (the styleguide's focused state). */
-  initialFocusedId?: string | null
+  /** The host's other cards (THE Queue, the queued messages, banners). */
+  sources?: readonly DockSource[]
+  /** Those cards' sheets. */
+  renderSheet?: (row: DockRow, close: () => void) => ReactNode
+  renderAction?: (row: DockRow) => ReactNode
+  /** EXP-1323: the suggested-tasks cards' actions (absent = read-only, and
+   *  the rows stay in the Conversation). */
+  suggestions?: ThreadSuggestionActions
+  onOpenSession?: (sessionId: string) => void
+  renderIssueRef?: (issueId: string, identifier: string | null) => ReactNode
+  composer?: ReactNode
+  onHeight?: (height: number) => void
+  phoneClearance?: boolean
+  autoOpen?: boolean
+  /** The host's data has loaded (the relay live, the rows in): cards shown
+   *  before that, and shortly after, never open themselves. */
+  autoOpenReady?: boolean
+  /** The sheet open on mount (the styleguide's open state). */
+  initialOpenId?: string | null
+  initialExpanded?: boolean
   className?: string
 }) {
-  const [focusedId, setFocusedId] = useState<string | null>(initialFocusedId)
-  const view = askDock({ pending: threadPendingAsks(rows, sessionName), focusedId })
+  const asks = useMemo<DockSource[]>(
+    () =>
+      threadPendingAsks(rows, sessionName).map((ask) =>
+        ask.kind === `plan`
+          ? { kind: `plan`, id: ask.id, text: ask.text, sessionName: ask.sessionName, questions: ask.questions ?? 0, createdAt: ask.createdAt }
+          : { kind: `question`, id: ask.id, text: ask.text, sessionName: ask.sessionName, createdAt: ask.createdAt }
+      ),
+    [rows, sessionName]
+  )
+  const suggested = useMemo<DockSource[]>(() => (suggestions ? suggestionSources(rows) : []), [rows, suggestions])
+  const dockedRows = useMemo(() => dockRows([...asks, ...suggested, ...(sources ?? [])]), [asks, suggested, sources])
+  const [openId, setOpenId] = useState<string | null>(initialOpenId)
+  useDockAutoOpen(dockedRows, autoOpen, setOpenId, autoOpenReady)
   return (
-    <AskDock
-      view={view}
+    <Dock
+      rows={dockedRows}
+      openId={openId}
+      onOpenChange={setOpenId}
       className={className}
-      onFocus={setFocusedId}
-      onBack={() => setFocusedId(null)}
-      renderCard={(id, chrome) => {
-        const row = rows.find((r) => r.id === id)
+      composer={composer}
+      onHeight={onHeight}
+      phoneClearance={phoneClearance}
+      initialExpanded={initialExpanded}
+      renderAction={renderAction}
+      renderSheet={(dockRow, close) => {
+        const row = rows.find((r) => r.id === dockRow.id)
         if (row?.type === `plan`) {
           return (
-            <ThreadPlanCard
+            <ThreadPlanSheet
               row={row}
               renderText={renderText}
               attachmentSrc={attachmentSrc}
               busy={pending?.has(row.id) ?? false}
-              docked
-              onBack={chrome.onBack}
               onDecide={(input) => onDecide(row.id, input)}
             />
           )
         }
         if (row?.type === `question`) {
           return (
-            <ThreadQuestionCard
+            <ThreadQuestionSheet
               row={row}
               renderText={renderText}
               attachmentSrc={attachmentSrc}
               busy={pending?.has(row.id) ?? false}
-              docked
-              onBack={chrome.onBack}
               onAnswer={(input) => onAnswer(row.id, input)}
             />
           )
         }
-        return null
+        if (row?.type === `suggestions`) {
+          return (
+            <ThreadSuggestionsSheet
+              row={row}
+              actions={suggestions}
+              onOpenSession={onOpenSession}
+              renderIssueRef={renderIssueRef}
+            />
+          )
+        }
+        return renderSheet?.(dockRow, close) ?? null
       }}
     />
   )
@@ -1720,4 +1932,16 @@ export function ChannelMessageRow({
       </div>
     </div>
   )
+}
+
+/** N-12: the Conversation rows THE Dock holds (they leave the transcript):
+ *  the waiting asks and the suggestion rows with an open item. */
+export function threadDockedIds(
+  rows: readonly ThreadRow[],
+  sessionName: (sessionId: string) => string | null,
+  withSuggestions = true
+): Set<string> {
+  const ids = new Set(threadPendingAsks(rows, sessionName).map((ask) => ask.id))
+  if (withSuggestions) for (const source of suggestionSources(rows)) ids.add(source.id)
+  return ids
 }

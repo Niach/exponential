@@ -1,5 +1,6 @@
 // EXP-1252: the session composer's Device pin — THE launch options line's
 // pin (`@exp/ui` DevicePicker in its `inline` variant), placed before Model.
+// N-12: inside the composer card, its glyph alone (icon-only trigger).
 // A pick sends `sessions.send({ sessionId, deviceId })` with no text: the
 // source device hands the SAME session over after its current turn. While
 // `moveToDeviceId` is set the pin reads "Moving to <device>…"; picking the
@@ -128,6 +129,10 @@ export function SessionDevicePin({
     }
   }
 
+  // N-12: the pin is its glyph alone (the name in the picker and the
+  // tooltip); a pending move names the target there instead.
+  const current = rows.find((entry) => entry.id === row.deviceId) ?? null
+  const shown = target ?? current
   const picker = (
     <DevicePicker
       triggerVariant="inline"
@@ -145,15 +150,14 @@ export function SessionDevicePin({
       disabled={blocked !== null}
       width="sm"
       trigger={
-        target ? (
-          <PickerTrigger
-            variant="inline"
-            label={PICKER_TITLE}
-            value={movingLabel(target.name)}
-            icon={getDeviceIcon(target)}
-            disabled={blocked !== null}
-          />
-        ) : undefined
+        <PickerTrigger
+          variant="inline"
+          iconOnly
+          label={PICKER_TITLE}
+          value={target ? movingLabel(target.name) : (current?.name ?? row.deviceId)}
+          icon={getDeviceIcon(shown ?? { kind: null })}
+          disabled={blocked !== null}
+        />
       }
       data-testid="session-composer-device"
     />
