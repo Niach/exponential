@@ -67,10 +67,12 @@ export function WindowedList(props: WindowedListProps): JSX.Element {
   const extents = (): number[] => {
     const est = estimated()
     const count = props.count
+    // Read once (VAPP-148): a props read per row was most of the pass.
+    const key = props.itemKey
     // §5: a fixed estimate gives way to the mean of the measured rows.
-    if (typeof est === `number`) return itemExtents(Array.from({ length: count }, (_, i) => extentsByKey.get(props.itemKey(i))), est)
+    if (typeof est === `number`) return itemExtents(Array.from({ length: count }, (_, i) => extentsByKey.get(key(i))), est)
     const out = new Array<number>(count)
-    for (let i = 0; i < count; i++) out[i] = extentsByKey.get(props.itemKey(i)) ?? est(i)
+    for (let i = 0; i < count; i++) out[i] = extentsByKey.get(key(i)) ?? est(i)
     return out
   }
 
