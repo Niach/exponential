@@ -64,7 +64,7 @@ if [ "$WHICH" = kotlin ] || [ "$WHICH" = all ]; then
   }
   JNA_JAR="${JNA_JAR:-$(fetch net.java.dev.jna jna "$JNA_VERSION" jar)}"
   STDLIB="$(fetch org.jetbrains.kotlin kotlin-stdlib "$KOTLIN_VERSION" jar)"
-  ANNOTATIONS="$(deps org.jetbrains.kotlin kotlin-stdlib "$KOTLIN_VERSION" | while read -r g a v; do fetch "$g" "$a" "$v" jar; done | paste -sd:)"
+  ANNOTATIONS="$(deps org.jetbrains.kotlin kotlin-stdlib "$KOTLIN_VERSION" | while read -r g a v; do fetch "$g" "$a" "$v" jar; done | paste -sd: -)"
   if [ -n "${KOTLINC:-}" ]; then
     "$KOTLINC" -cp "$JNA_JAR" "$HERE/bindings/kotlin/at/exponential/ui/ffi/exponential_ui_ffi.kt" "$HERE/tests/kotlin/FacadeTest.kt" -d "$OUT/kotlin-suite.jar"
   else
