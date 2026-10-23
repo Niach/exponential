@@ -134,7 +134,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v67_issue_draft_thread", "v68_session_tree",
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
-             "v74_agents_events_prompts", "v75_conversations", "v76_apps"]
+             "v74_agents_events_prompts", "v75_conversations", "v76_apps",
+             "v77_message_conversation"]
         )
     }
 
@@ -190,7 +191,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v67_issue_draft_thread", "v68_session_tree",
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
-             "v74_agents_events_prompts", "v75_conversations", "v76_apps"]
+             "v74_agents_events_prompts", "v75_conversations", "v76_apps",
+             "v77_message_conversation"]
         )
     }
 
@@ -717,7 +719,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v67_issue_draft_thread", "v68_session_tree",
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
-             "v74_agents_events_prompts", "v75_conversations", "v76_apps"]
+             "v74_agents_events_prompts", "v75_conversations", "v76_apps",
+             "v77_message_conversation"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -821,7 +824,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v67_issue_draft_thread", "v68_session_tree",
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
-             "v74_agents_events_prompts", "v75_conversations", "v76_apps"]
+             "v74_agents_events_prompts", "v75_conversations", "v76_apps",
+             "v77_message_conversation"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1905,7 +1909,7 @@ final class DatabaseMigrationTests: XCTestCase {
         )
         XCTAssertEqual(
             try columnNames(pool, "messages"),
-            ["id", "session_id", "root_id", "team_id", "author_kind", "author_id",
+            ["id", "root_id", "team_id", "author_kind", "author_id",
              "body", "card", "answered_at", "consumed_at", "created_at", "updated_at",
              "author_session_id", "conversation_id"]
         )
@@ -3201,6 +3205,45 @@ final class DatabaseMigrationTests: XCTestCase {
                 sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
             )
             XCTAssertEqual(reset, ["sessions"])
+        }
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // NEW-8: v77 drops `messages.session_id` (a message's session is its
+    // conversation's), dropping only rows without a conversation and then
+    // resetting ONLY the messages cursor.
+    func testMessageSessionIdDropped() throws {
+        let pool = try makePool("new8-message-conversation")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v76_apps")
+        try pool.write { db in
+            for shape in ["sessions", "messages"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+            for (id, conversation) in [("m-kept", "c-1"), ("m-orphan", nil)] as [(String, String?)] {
+                try db.execute(sql: """
+                    INSERT INTO "messages" ("id", "session_id", "root_id", "team_id", "author_kind",
+                        "created_at", "updated_at", "conversation_id")
+                    VALUES (?, 's1', 's1', 't', 'user', 'x', 'x', ?)
+                    """, arguments: [id, conversation])
+            }
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertFalse(try columnNames(pool, "messages").contains("session_id"))
+        try pool.read { db in
+            XCTAssertEqual(try String.fetchAll(db, sql: "SELECT \"id\" FROM \"messages\""), ["m-kept"])
+            XCTAssertTrue(try db.indexes(on: "messages").contains { $0.columns == ["conversation_id"] })
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["messages"])
         }
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }

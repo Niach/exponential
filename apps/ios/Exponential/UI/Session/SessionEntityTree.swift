@@ -52,8 +52,9 @@ extension TreeIssue {
 }
 
 extension TreeMessage {
-    /// A synced `messages` row, its `card` jsonb parsed tolerantly.
-    init(messageRow row: MessageEntity) {
+    /// A synced `messages` row keyed to its conversation's session (NEW-8),
+    /// its `card` jsonb parsed tolerantly.
+    init(messageRow row: SessionMessage) {
         self.init(
             id: row.id,
             sessionId: row.sessionId,

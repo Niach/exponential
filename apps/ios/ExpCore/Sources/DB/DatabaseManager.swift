@@ -2659,6 +2659,43 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v77 (NEW-8): a message lives in a CONVERSATION; its session is the
+        // conversation's (`SessionQueries.keyedMessagesSQL`). The local
+        // `messages.session_id` goes (index first, then the column), and
+        // `conversation_id` gets an index. A pre-NEW-3 row without a
+        // conversation can never be keyed: it is dropped, and the messages
+        // cursor resets only when one was.
+        migrator.registerMigration("v77_message_conversation") { db in
+            guard try db.tableExists("messages") else { return }
+            let existing = Set(try db.columns(in: "messages").map(\.name))
+            if !existing.contains("conversation_id") {
+                try db.alter(table: "messages") { t in
+                    t.add(column: "conversation_id", .text)
+                }
+            }
+            try db.execute(sql: "DELETE FROM \"messages\" WHERE \"conversation_id\" IS NULL")
+            let dropped = db.changesCount > 0
+            if existing.contains("session_id") {
+                for index in try db.indexes(on: "messages") where index.columns.contains("session_id") {
+                    try db.execute(sql: "DROP INDEX IF EXISTS \"\(index.name)\"")
+                }
+                try db.alter(table: "messages") { t in
+                    t.drop(column: "session_id")
+                }
+            }
+            try db.execute(sql: """
+                CREATE INDEX IF NOT EXISTS "messages_on_conversation_id"
+                ON "messages"("conversation_id")
+                """)
+            if dropped, try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'messages'
+                    """)
+            }
+        }
+
         return migrator
     }
 

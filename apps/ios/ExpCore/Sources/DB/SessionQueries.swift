@@ -67,20 +67,32 @@ public enum SessionQueries {
 
     // MARK: - Conversation
 
+    /// NEW-8: every message keyed to the session of its conversation
+    /// (contract `message-conversation.json`): the INNER join holds back a
+    /// message whose conversation has not synced, a dm/channel conversation
+    /// (`session_id` NULL) keys nothing, and the row's own legacy session is
+    /// never read. Observations tracking it wait on BOTH shapes.
+    public static let keyedMessagesSQL = """
+        SELECT "messages".*, "conversations"."session_id" AS "conversation_session_id"
+        FROM "messages"
+        JOIN "conversations" ON "conversations"."id" = "messages"."conversation_id"
+        WHERE "conversations"."session_id" IS NOT NULL AND "conversations"."session_id" <> ''
+        """
+
     /// A root's conversation (every session of its tree), oldest first.
-    public static func messages(db: Database, rootId: String) throws -> [MessageEntity] {
-        try MessageEntity
-            .filter(Column("root_id") == rootId)
-            .order(Column("created_at").asc, Column("id").asc)
-            .fetchAll(db)
+    public static func messages(db: Database, rootId: String) throws -> [SessionMessage] {
+        try SessionMessage.fetchAll(db, sql: """
+            \(keyedMessagesSQL) AND "messages"."root_id" = ?
+            ORDER BY "messages"."created_at" ASC, "messages"."id" ASC
+            """, arguments: [rootId])
     }
 
-    /// One session's own messages, oldest first.
-    public static func messages(db: Database, sessionId: String) throws -> [MessageEntity] {
-        try MessageEntity
-            .filter(Column("session_id") == sessionId)
-            .order(Column("created_at").asc, Column("id").asc)
-            .fetchAll(db)
+    /// One session's own messages (its conversation's), oldest first.
+    public static func messages(db: Database, sessionId: String) throws -> [SessionMessage] {
+        try SessionMessage.fetchAll(db, sql: """
+            \(keyedMessagesSQL) AND "conversations"."session_id" = ?
+            ORDER BY "messages"."created_at" ASC, "messages"."id" ASC
+            """, arguments: [sessionId])
     }
 
     // MARK: - Issues

@@ -38,7 +38,8 @@ struct ThreadRows: Sendable {
     let sessionIssues: [SessionIssueEntity]
     /// The root's linked issues in link order.
     let issues: [IssueEntity]
-    let messages: [MessageEntity]
+    /// NEW-8: keyed through their conversations (`SessionMessage`).
+    let messages: [SessionMessage]
     let pullRequests: [PullRequestEntity]
     /// Per pull request id, the issues it closes (`pull_request_issues`).
     let pullRequestIssueIds: [String: [String]]

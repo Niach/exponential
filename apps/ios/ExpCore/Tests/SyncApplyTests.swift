@@ -425,7 +425,8 @@ final class SyncApplyTests: XCTestCase {
     }
 
     // NEW-3: a session's conversation row lands (the shape allowlist), and a
-    // message carries its `conversation_id` beside the kept `session_id`.
+    // message carries its `conversation_id`; NEW-8: a legacy `session_id` on
+    // the wire is ignored, the session is the conversation's.
     func testConversationAndMessageConversationIdApply() async throws {
         let conversation = try JSONDecoder().decode(ConversationEntity.self, from: Data("""
             {"id":"c-1","team_id":"ws1","kind":"session","session_id":"s1","title":null,
@@ -450,7 +451,9 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(stored.0, conversation)
         XCTAssertEqual(stored.0?.kind, DomainContract.conversationKindSession)
         XCTAssertEqual(stored.1?.conversationId, "c-1")
-        XCTAssertEqual(stored.1?.sessionId, "s1")
+        let keyed = try await pool.read { try SessionQueries.messages(db: $0, sessionId: "s1") }
+        XCTAssertEqual(keyed.map(\.id), ["m-c"])
+        XCTAssertEqual(keyed.first?.sessionId, "s1")
     }
 
     // EXP-1291: the four child shapes round-trip — a message's card (jsonb)
@@ -458,7 +461,7 @@ final class SyncApplyTests: XCTestCase {
     // defaulted source, a PR→issue link — and a partial answers a card.
     func testSessionChildShapesApply() async throws {
         let messageJson = """
-            {"id":"m1","session_id":"s2","root_id":"s1","team_id":"ws1",
+            {"id":"m1","conversation_id":"c-s2","root_id":"s1","team_id":"ws1",
              "author_kind":"agent","author_id":null,"body":"",
              "card":{"kind":"question","question":"Which board?","options":["A","B"]},
              "answered_at":null,"consumed_at":null,
@@ -934,13 +937,20 @@ final class SyncApplyTests: XCTestCase {
             try AgentDefinitionEntity(
                 id: "def-z", teamId: "ws2", name: "Zed", sortOrder: 0, createdAt: at, updatedAt: at
             ).save(db)
+            // NEW-8: messages key through their conversations.
+            try ConversationEntity(
+                id: "c-new", teamId: "ws1", sessionId: "t-new", createdAt: at, updatedAt: at
+            ).save(db)
+            try ConversationEntity(
+                id: "c-child", teamId: "ws1", sessionId: "t-child", createdAt: at, updatedAt: at
+            ).save(db)
             try MessageEntity(
-                id: "m2", sessionId: "t-child", rootId: "t-new", teamId: "ws1",
+                id: "m2", conversationId: "c-child", rootId: "t-new", teamId: "ws1",
                 authorKind: DomainContract.messageAuthorKindAgent, body: "Done",
                 createdAt: "2026-10-13T10:05:00Z", updatedAt: "2026-10-13T10:05:00Z"
             ).save(db)
             try MessageEntity(
-                id: "m1", sessionId: "t-new", rootId: "t-new", teamId: "ws1",
+                id: "m1", conversationId: "c-new", rootId: "t-new", teamId: "ws1",
                 authorKind: DomainContract.messageAuthorKindUser, authorId: "u1", body: "Go",
                 createdAt: at, updatedAt: at
             ).save(db)
