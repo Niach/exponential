@@ -164,7 +164,11 @@ const TABLE_COLUMNS = [
 // The scenarios
 // ---------------------------------------------------------------------------
 
-const sink = kitchenSink as unknown as NestedNode
+// VAPP-126: the sink's closing Layout macros card stays out of the bench: the
+// macros expand into parts the sink already paints (no renderer code to
+// measure), and the workload, so its counts and timing budgets, stays the one
+// the ratchet was recorded on.
+const sink = ((n: NestedNode): NestedNode => ({ ...n, children: (n.children ?? []).filter((c) => c.id !== `macros-demo`) }))(kitchenSink as unknown as NestedNode)
 const sinkData = Object.fromEntries(Object.entries(kitchenSinkData as Record<string, unknown>).filter(([k]) => k !== `$comment`))
 
 export const SCENARIOS: readonly ScenarioDef[] = [

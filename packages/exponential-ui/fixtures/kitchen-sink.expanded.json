@@ -9691,6 +9691,1038 @@
           ]
         },
         "children": []
+      },
+      {
+        "id": "macros-demo",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "macros-demo.header",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "macros-demo.header.title",
+                "component": "Text",
+                "props": {
+                  "text": "Layout macros",
+                  "variant": "title"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Card",
+                  "part": "title",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "paddingTop": "$spacing.lg",
+              "paddingHorizontal": "$spacing.lg"
+            },
+            "recipe": {
+              "macro": "Card",
+              "part": "header",
+              "props": {}
+            }
+          },
+          {
+            "id": "macros-demo.body",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "macros-page",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "macros-page.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "macros-page.header.back",
+                        "component": "Button",
+                        "props": {
+                          "icon": "ui-back",
+                          "variant": "ghost",
+                          "size": "icon",
+                          "label": "$string.back"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "AppBar",
+                          "part": "back",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "macros-page.header.body",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "macros-page.header.body.title",
+                            "component": "Text",
+                            "props": {
+                              "text": "Settings",
+                              "variant": "title",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "AppBar",
+                              "part": "title",
+                              "props": {}
+                            },
+                            "accessibility": {
+                              "role": "heading",
+                              "level": 1
+                            }
+                          },
+                          {
+                            "id": "macros-page.header.body.subtitle",
+                            "component": "Text",
+                            "props": {
+                              "text": "Acme",
+                              "variant": "muted",
+                              "lines": 1
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "AppBar",
+                              "part": "subtitle",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "AppBar",
+                          "part": "body",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "macros-page-more",
+                        "component": "Button",
+                        "props": {
+                          "icon": "ui-more",
+                          "label": "More",
+                          "variant": "ghost",
+                          "size": "icon"
+                        },
+                        "children": []
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "height": "$control.appBar",
+                      "paddingHorizontal": "$spacing.md",
+                      "width": "100%"
+                    },
+                    "recipe": {
+                      "macro": "AppBar",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "banner"
+                    }
+                  },
+                  {
+                    "id": "macros-page.body",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "macros-toolbar",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "macros-search",
+                            "component": "Input",
+                            "props": {
+                              "name": "q",
+                              "label": "Search",
+                              "type": "search",
+                              "placeholder": "Search"
+                            },
+                            "children": [],
+                            "style": {
+                              "width": 240
+                            }
+                          },
+                          {
+                            "id": "macros-filter",
+                            "component": "Button",
+                            "props": {
+                              "label": "Filter",
+                              "variant": "outline"
+                            },
+                            "children": []
+                          },
+                          {
+                            "id": "macros-toolbar.spacer",
+                            "component": "Box",
+                            "props": {},
+                            "children": [],
+                            "style": {
+                              "flexGrow": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "Toolbar",
+                              "part": "spacer",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "macros-new",
+                            "component": "Button",
+                            "props": {
+                              "label": "New issue",
+                              "variant": "default"
+                            },
+                            "children": []
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "flexWrap": "wrap",
+                          "alignItems": "flex-end",
+                          "gap": "$spacing.sm",
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "Toolbar",
+                          "part": "root",
+                          "props": {}
+                        },
+                        "accessibility": {
+                          "role": "group"
+                        }
+                      },
+                      {
+                        "id": "macros-fields",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "starts",
+                            "component": "Input",
+                            "props": {
+                              "label": "Starts",
+                              "name": "starts",
+                              "value": "09:00"
+                            },
+                            "children": []
+                          },
+                          {
+                            "id": "ends",
+                            "component": "Input",
+                            "props": {
+                              "label": "Ends",
+                              "name": "ends",
+                              "value": "10:00"
+                            },
+                            "children": []
+                          }
+                        ],
+                        "style": {
+                          "display": "grid",
+                          "gridTemplateColumns": "repeat(1, minmax(0, 1fr))",
+                          "gap": "$spacing.md",
+                          "alignItems": "start",
+                          "@media (min-width: $breakpoint.md)": {
+                            "gridTemplateColumns": "repeat(2, minmax(0, 1fr))"
+                          }
+                        },
+                        "recipe": {
+                          "macro": "FieldGroup",
+                          "part": "root",
+                          "props": {}
+                        },
+                        "accessibility": {
+                          "role": "group"
+                        }
+                      },
+                      {
+                        "id": "macros-actions",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "macros-actions.cancel",
+                            "component": "Button",
+                            "props": {
+                              "label": "$string.cancel",
+                              "variant": "outline"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "FormActions",
+                              "part": "cancel",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "macros-actions.submit",
+                            "component": "Button",
+                            "props": {
+                              "label": "Save",
+                              "variant": "default",
+                              "submit": true
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "FormActions",
+                              "part": "submit",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "flexWrap": "wrap",
+                          "justifyContent": "flex-end",
+                          "alignItems": "center",
+                          "gap": "$spacing.sm",
+                          "width": "100%"
+                        },
+                        "recipe": {
+                          "macro": "FormActions",
+                          "part": "root",
+                          "props": {}
+                        },
+                        "accessibility": {
+                          "role": "group"
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "flexGrow": 1,
+                      "minHeight": 0,
+                      "overflowY": "auto",
+                      "gap": "$spacing.lg",
+                      "padding": "$spacing.lg"
+                    },
+                    "recipe": {
+                      "macro": "Page",
+                      "part": "body",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "main"
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minHeight": 0,
+                  "width": "100%",
+                  "height": 200
+                },
+                "recipe": {
+                  "macro": "Page",
+                  "part": "root",
+                  "props": {}
+                }
+              },
+              {
+                "id": "macros-split",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "macros-split.list",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "macros-split-list",
+                        "component": "List",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "macros-split-r1",
+                            "component": "Box",
+                            "props": {
+                              "pressable": true
+                            },
+                            "children": [
+                              {
+                                "id": "macros-split-r1.body",
+                                "component": "Box",
+                                "props": {},
+                                "children": [
+                                  {
+                                    "id": "macros-split-r1.body.title",
+                                    "component": "Text",
+                                    "props": {
+                                      "text": "Inbox",
+                                      "variant": "body",
+                                      "lines": 1
+                                    },
+                                    "children": [],
+                                    "recipe": {
+                                      "macro": "Row",
+                                      "part": "title",
+                                      "props": {
+                                        "selected": true,
+                                        "density": "default",
+                                        "surface": "flat",
+                                        "depth": 0
+                                      }
+                                    }
+                                  }
+                                ],
+                                "style": {
+                                  "display": "flex",
+                                  "flexDirection": "column",
+                                  "gap": "$spacing.xxs",
+                                  "flexGrow": 1,
+                                  "minWidth": 0,
+                                  "paddingVertical": "$spacing.xs"
+                                },
+                                "recipe": {
+                                  "macro": "Row",
+                                  "part": "body",
+                                  "props": {
+                                    "selected": true,
+                                    "density": "default",
+                                    "surface": "flat",
+                                    "depth": 0
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "row",
+                              "alignItems": "center",
+                              "gap": "$spacing.sm",
+                              "minHeight": "$control.row",
+                              "paddingHorizontal": "$spacing.md",
+                              "borderRadius": "$radius.md"
+                            },
+                            "recipe": {
+                              "macro": "Row",
+                              "part": "root",
+                              "props": {
+                                "selected": true,
+                                "density": "default",
+                                "surface": "flat",
+                                "depth": 0
+                              }
+                            },
+                            "accessibility": {
+                              "role": "button",
+                              "selected": true
+                            }
+                          },
+                          {
+                            "id": "macros-split-r2",
+                            "component": "Box",
+                            "props": {
+                              "pressable": true
+                            },
+                            "children": [
+                              {
+                                "id": "macros-split-r2.body",
+                                "component": "Box",
+                                "props": {},
+                                "children": [
+                                  {
+                                    "id": "macros-split-r2.body.title",
+                                    "component": "Text",
+                                    "props": {
+                                      "text": "Drafts",
+                                      "variant": "body",
+                                      "lines": 1
+                                    },
+                                    "children": [],
+                                    "recipe": {
+                                      "macro": "Row",
+                                      "part": "title",
+                                      "props": {
+                                        "selected": false,
+                                        "density": "default",
+                                        "surface": "flat",
+                                        "depth": 0
+                                      }
+                                    }
+                                  }
+                                ],
+                                "style": {
+                                  "display": "flex",
+                                  "flexDirection": "column",
+                                  "gap": "$spacing.xxs",
+                                  "flexGrow": 1,
+                                  "minWidth": 0,
+                                  "paddingVertical": "$spacing.xs"
+                                },
+                                "recipe": {
+                                  "macro": "Row",
+                                  "part": "body",
+                                  "props": {
+                                    "selected": false,
+                                    "density": "default",
+                                    "surface": "flat",
+                                    "depth": 0
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "row",
+                              "alignItems": "center",
+                              "gap": "$spacing.sm",
+                              "minHeight": "$control.row",
+                              "paddingHorizontal": "$spacing.md",
+                              "borderRadius": "$radius.md"
+                            },
+                            "recipe": {
+                              "macro": "Row",
+                              "part": "root",
+                              "props": {
+                                "selected": false,
+                                "density": "default",
+                                "surface": "flat",
+                                "depth": 0
+                              }
+                            },
+                            "accessibility": {
+                              "role": "button",
+                              "selected": false
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "width": 200,
+                      "flexShrink": 0,
+                      "minHeight": 0,
+                      "overflowY": "auto",
+                      "@media (max-width: $breakpoint.md)": {
+                        "width": "100%",
+                        "flexShrink": 1,
+                        "display": {
+                          "call": "cond",
+                          "args": {
+                            "if": {
+                              "path": "/ui/splitOpen"
+                            },
+                            "then": "none",
+                            "else": "flex"
+                          }
+                        }
+                      }
+                    },
+                    "recipe": {
+                      "macro": "SplitView",
+                      "part": "list",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "navigation"
+                    }
+                  },
+                  {
+                    "id": "macros-split.divider",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "alignSelf": "stretch",
+                      "flexShrink": 0,
+                      "width": 1,
+                      "height": "auto",
+                      "@media (max-width: $breakpoint.md)": {
+                        "display": "none"
+                      }
+                    },
+                    "recipe": {
+                      "macro": "Separator",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "separator"
+                    }
+                  },
+                  {
+                    "id": "macros-split.detail",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "macros-split.detail.backBar",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "macros-split.detail.backBar.back",
+                            "component": "Button",
+                            "props": {
+                              "icon": "ui-back",
+                              "variant": "ghost",
+                              "size": "icon",
+                              "label": "$string.back"
+                            },
+                            "children": [],
+                            "recipe": {
+                              "macro": "SplitView",
+                              "part": "back",
+                              "props": {}
+                            },
+                            "on": {
+                              "press": {
+                                "functionCall": {
+                                  "call": "set",
+                                  "args": {
+                                    "path": "/ui/splitOpen",
+                                    "value": false
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "none",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "height": "$control.appBar",
+                          "paddingHorizontal": "$spacing.sm",
+                          "@media (max-width: $breakpoint.md)": {
+                            "display": "flex"
+                          }
+                        },
+                        "recipe": {
+                          "macro": "SplitView",
+                          "part": "backBar",
+                          "props": {}
+                        }
+                      },
+                      {
+                        "id": "macros-split-detail",
+                        "component": "Text",
+                        "props": {
+                          "text": "The open item."
+                        },
+                        "children": []
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "flexGrow": 1,
+                      "minWidth": 0,
+                      "minHeight": 0,
+                      "@media (max-width: $breakpoint.md)": {
+                        "display": {
+                          "call": "cond",
+                          "args": {
+                            "if": {
+                              "path": "/ui/splitOpen"
+                            },
+                            "then": "flex",
+                            "else": "none"
+                          }
+                        }
+                      }
+                    },
+                    "recipe": {
+                      "macro": "SplitView",
+                      "part": "detail",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "main"
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "stretch",
+                  "width": "100%",
+                  "flexGrow": 1,
+                  "minHeight": 0,
+                  "height": 160
+                },
+                "recipe": {
+                  "macro": "SplitView",
+                  "part": "root",
+                  "props": {}
+                }
+              },
+              {
+                "id": "macros-tiles",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "macros-tile-1",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "macros-tile-1.card",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "macros-tile-1.card.body",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "macros-tile-1.card.header",
+                                "component": "Box",
+                                "props": {},
+                                "children": [
+                                  {
+                                    "id": "macros-tile-1.card.header.label",
+                                    "component": "Text",
+                                    "props": {
+                                      "text": "Active users",
+                                      "variant": "muted",
+                                      "lines": 1
+                                    },
+                                    "children": [],
+                                    "style": {
+                                      "flexGrow": 1,
+                                      "flexShrink": 1,
+                                      "minWidth": 0
+                                    },
+                                    "recipe": {
+                                      "macro": "StatTile",
+                                      "part": "label",
+                                      "props": {}
+                                    }
+                                  },
+                                  {
+                                    "id": "macros-tile-1.card.header.delta",
+                                    "component": "Text",
+                                    "props": {
+                                      "text": "+12 %",
+                                      "variant": "caption",
+                                      "tone": "success"
+                                    },
+                                    "children": [],
+                                    "recipe": {
+                                      "macro": "StatTile",
+                                      "part": "delta",
+                                      "props": {}
+                                    }
+                                  }
+                                ],
+                                "style": {
+                                  "display": "flex",
+                                  "flexDirection": "row",
+                                  "alignItems": "center",
+                                  "gap": "$spacing.sm"
+                                },
+                                "recipe": {
+                                  "macro": "StatTile",
+                                  "part": "header",
+                                  "props": {}
+                                }
+                              },
+                              {
+                                "id": "macros-tile-1.card.value",
+                                "component": "Text",
+                                "props": {
+                                  "text": "1,284",
+                                  "variant": "title",
+                                  "lines": 1
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "StatTile",
+                                  "part": "value",
+                                  "props": {}
+                                }
+                              },
+                              {
+                                "id": "macros-tile-1.card.trend",
+                                "component": "Chart",
+                                "props": {
+                                  "kind": "sparkline",
+                                  "series": [
+                                    {
+                                      "name": "",
+                                      "values": [
+                                        3,
+                                        4,
+                                        3,
+                                        5,
+                                        6,
+                                        8
+                                      ],
+                                      "tone": "primary"
+                                    }
+                                  ],
+                                  "height": 32,
+                                  "showAxes": false,
+                                  "showGrid": false,
+                                  "showLegend": false
+                                },
+                                "children": [],
+                                "style": {
+                                  "width": "100%"
+                                },
+                                "recipe": {
+                                  "macro": "Sparkline",
+                                  "part": "root",
+                                  "props": {
+                                    "tone": "primary"
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "column",
+                              "gap": "$spacing.md",
+                              "padding": "$spacing.lg"
+                            },
+                            "recipe": {
+                              "macro": "Card",
+                              "part": "body",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "borderRadius": "$radius.xl",
+                          "overflow": "hidden"
+                        },
+                        "recipe": {
+                          "macro": "Card",
+                          "part": "root",
+                          "props": {}
+                        },
+                        "accessibility": {
+                          "role": "group"
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group",
+                      "label": "Active users"
+                    }
+                  },
+                  {
+                    "id": "macros-tile-2",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "macros-tile-2.card",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "macros-tile-2.card.body",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "macros-tile-2.card.header",
+                                "component": "Box",
+                                "props": {},
+                                "children": [
+                                  {
+                                    "id": "macros-tile-2.card.header.label",
+                                    "component": "Text",
+                                    "props": {
+                                      "text": "Error rate",
+                                      "variant": "muted",
+                                      "lines": 1
+                                    },
+                                    "children": [],
+                                    "style": {
+                                      "flexGrow": 1,
+                                      "flexShrink": 1,
+                                      "minWidth": 0
+                                    },
+                                    "recipe": {
+                                      "macro": "StatTile",
+                                      "part": "label",
+                                      "props": {}
+                                    }
+                                  },
+                                  {
+                                    "id": "macros-tile-2.card.header.delta",
+                                    "component": "Text",
+                                    "props": {
+                                      "text": "-0.01",
+                                      "variant": "caption",
+                                      "tone": "danger"
+                                    },
+                                    "children": [],
+                                    "recipe": {
+                                      "macro": "StatTile",
+                                      "part": "delta",
+                                      "props": {}
+                                    }
+                                  }
+                                ],
+                                "style": {
+                                  "display": "flex",
+                                  "flexDirection": "row",
+                                  "alignItems": "center",
+                                  "gap": "$spacing.sm"
+                                },
+                                "recipe": {
+                                  "macro": "StatTile",
+                                  "part": "header",
+                                  "props": {}
+                                }
+                              },
+                              {
+                                "id": "macros-tile-2.card.value",
+                                "component": "Text",
+                                "props": {
+                                  "text": "0.04 %",
+                                  "variant": "title",
+                                  "lines": 1
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "StatTile",
+                                  "part": "value",
+                                  "props": {}
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "column",
+                              "gap": "$spacing.md",
+                              "padding": "$spacing.lg"
+                            },
+                            "recipe": {
+                              "macro": "Card",
+                              "part": "body",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "borderRadius": "$radius.xl",
+                          "overflow": "hidden"
+                        },
+                        "recipe": {
+                          "macro": "Card",
+                          "part": "root",
+                          "props": {}
+                        },
+                        "accessibility": {
+                          "role": "group"
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "minWidth": 0
+                    },
+                    "recipe": {
+                      "macro": "StatTile",
+                      "part": "root",
+                      "props": {}
+                    },
+                    "accessibility": {
+                      "role": "group",
+                      "label": "Error rate"
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "grid",
+                  "gridTemplateColumns": "repeat(1, minmax(0, 1fr))",
+                  "gap": "$spacing.md",
+                  "@media (min-width: $breakpoint.md)": {
+                    "gridTemplateColumns": "repeat(2, minmax(0, 1fr))"
+                  }
+                },
+                "recipe": {
+                  "macro": "Grid",
+                  "part": "root",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.md",
+              "padding": "$spacing.lg"
+            },
+            "recipe": {
+              "macro": "Card",
+              "part": "body",
+              "props": {}
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "borderRadius": "$radius.xl",
+          "overflow": "hidden"
+        },
+        "recipe": {
+          "macro": "Card",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "group",
+          "label": "Layout macros"
+        }
       }
     ],
     "style": {

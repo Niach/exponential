@@ -5481,6 +5481,12 @@ public struct FfiVisual: Equatable, Hashable {
      */
     public var transitionMs: Float?
     public var transitionEasing: [Float]?
+    /**
+     * `visibility: hidden`, or (VAPP-126) `display: none`: the core lays the
+     * box out at zero size with its subtree; the painter paints nothing,
+     * takes no taps and leaves the a11y tree (a zero frame alone let an icon
+     * button's glyph draw past it on SwiftUI).
+     */
     public var visibilityHidden: Bool
     public var pointerEventsNone: Bool
     public var userSelect: String?
@@ -5536,7 +5542,13 @@ public struct FfiVisual: Equatable, Hashable {
         /**
          * The duration changes animate with (0 under reduced motion) and the
          * cubic bezier `[x1, y1, x2, y2]`.
-         */transitionMs: Float?, transitionEasing: [Float]?, visibilityHidden: Bool, pointerEventsNone: Bool, userSelect: String?, cursor: String?, 
+         */transitionMs: Float?, transitionEasing: [Float]?, 
+        /**
+         * `visibility: hidden`, or (VAPP-126) `display: none`: the core lays the
+         * box out at zero size with its subtree; the painter paints nothing,
+         * takes no taps and leaves the a11y tree (a zero frame alone let an icon
+         * button's glyph draw past it on SwiftUI).
+         */visibilityHidden: Bool, pointerEventsNone: Bool, userSelect: String?, cursor: String?, 
         /**
          * A Chart's series colours, resolved.
          */seriesColors: [String]?, 

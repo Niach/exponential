@@ -78,6 +78,15 @@ function syncInPlace(target: Record<string, unknown>, source: Record<string, unk
     if (isPlainObject(current) && isPlainObject(value)) syncInPlace(current, value)
     else target[key] = structuredClone(value)
   }
+  // VAPP-126: a key the source added lands at the END of the target; re-insert
+  // in the source's order (same values, nested identity kept) so ONE run emits
+  // what the next run would (a new component sits where the source puts it).
+  const order = Object.keys(source)
+  if (Object.keys(target).some((k, i) => k !== order[i])) {
+    const values = order.map((k) => target[k])
+    for (const key of order) delete target[key]
+    order.forEach((k, i) => (target[k] = values[i]))
+  }
 }
 syncInPlace(coreCatalog as unknown as Record<string, unknown>, sourceCatalog as unknown as Record<string, unknown>)
 /** The runtime catalog + its text, split from the source (src/catalog.described.ts). */
@@ -605,6 +614,18 @@ const SPECIMEN_CHILDREN: Record<string, NestedNode[]> = {
   Sidebar: [text(`main`, `Pick a board on the left.`)],
   AlertDialog: [],
   Menu: [button(`trigger`, `More`, `outline`)],
+  // VAPP-126: the layout macros, each with the content the eval's corpus gave it.
+  Page: [text(`p1`, `General`, `label`), card(`c1`, `Team name`, `Acme`), card(`c2`, `Timezone`, `Europe/Vienna`)],
+  Toolbar: [
+    { id: `search`, component: `Input`, props: { label: `Search`, name: `q`, type: `search`, placeholder: `Search issues` }, style: { width: 240 } },
+    button(`filter`, `Filter`, `outline`),
+  ],
+  SplitView: [{ id: `detail`, component: `Page`, props: { title: `APP-9`, subtitle: `Fix crash when uploading HEIC photos` }, children: [text(`body`, `Uploading a HEIC photo from the iOS share sheet crashes the app.`), text(`meta`, `Opened 2 days ago by Ada.`, `muted`)] }],
+  FieldGroup: [
+    { id: `starts`, component: `Input`, props: { label: `Starts`, name: `starts`, value: `09:00` } },
+    { id: `ends`, component: `Input`, props: { label: `Ends`, name: `ends`, value: `10:30` } },
+  ],
+  FormActions: [],
   Form: [
     { id: `title`, component: `Input`, props: { label: `Title`, name: `title`, placeholder: `What changed?` } },
     { id: `notify`, component: `Switch`, props: { label: `Notify watchers`, name: `notify`, checked: true } },
@@ -630,6 +651,23 @@ function traceLines(size: string): NestedNode[] {
 /** EXP-1324: components whose specimen is hand-written (TraceItem's `open`
  *  would otherwise read as an overlay's). */
 const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> = {
+  // VAPP-126: the layout macros show their example and the one variant that
+  // changes the picture (SplitView's `open` is no overlay: on a wide surface
+  // both panes show; StatTile's tones differ only in the change's colour).
+  Page: [
+    { label: `example`, node: { id: `page`, component: `Page`, props: { title: `Settings`, subtitle: `Acme`, back: true } } },
+    { label: `padded · false`, node: { id: `page`, component: `Page`, props: { title: `Members`, padded: false } } },
+  ],
+  SplitView: [{ label: `example`, node: { id: `split-view`, component: `SplitView`, props: { width: 280 } } }],
+  FormActions: [
+    { label: `example`, node: { id: `form-actions`, component: `FormActions`, props: { submit: `Save`, cancel: true } } },
+    { label: `destructive · true`, node: { id: `form-actions`, component: `FormActions`, props: { submit: `Delete team`, cancel: true, destructive: true } } },
+  ],
+  StatTile: [
+    { label: `example`, node: { id: `stat-tile`, component: `StatTile`, props: { label: `Active users`, value: `1,284`, delta: `+12 %`, tone: `success`, trend: [3, 4, 3, 5, 6, 8] } } },
+    { label: `tone · danger`, node: { id: `stat-tile`, component: `StatTile`, props: { label: `Error rate`, value: `0.42 %`, delta: `+0.1 %`, tone: `danger`, trend: [2, 2, 3, 2, 4, 5] } } },
+    { label: `no trend`, node: { id: `stat-tile`, component: `StatTile`, props: { label: `Open issues`, value: `37` } } },
+  ],
   Trace: [`default`, `sm`].map((size) => ({ label: size === `sm` ? `size · sm` : `example`, node: { id: `trace`, component: `Trace`, props: { size }, children: traceLines(size) } })),
   TraceItem: [
     { label: `example`, node: { id: `item`, component: `TraceItem`, props: { title: `Ran bun test`, icon: `trace-terminal`, description: `4s`, collapsible: true, open: true }, children: [{ id: `out`, component: `CodeBlock`, props: { code: `\u001b[32m✓\u001b[0m 12 tests passed\nDone in 4.1s`, language: `ansi`, title: `Output`, size: `sm` } }] } },
@@ -644,6 +682,7 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
 const SPECIMEN_STYLES: Record<string, Record<string, unknown>> = {
   Resizable: { height: 160 },
   ScrollArea: { height: 160 },
+  SplitView: { height: 160 },
 }
 
 /** Slots a specimen fills (triggers and footers of the overlays). */
@@ -658,6 +697,9 @@ const SPECIMEN_SLOTS: Record<string, Record<string, NestedNode>> = {
   Sidebar: { sidebar: { id: `nav`, component: `Stack`, props: { gap: `xs` }, children: [{ id: `n1`, component: `Row`, props: { title: `Inbox`, icon: `nav-inbox`, selected: true, pressable: true }, slots: { trailing: { id: `n1-count`, component: `Badge`, props: { text: `3`, variant: `secondary` } } } }, { id: `n2`, component: `Row`, props: { title: `Issues`, icon: `nav-issues`, pressable: true } }] } },
   AppBar: { trailing: { id: `more`, component: `Button`, props: { icon: `ui-more`, label: `More`, variant: `ghost`, size: `icon` } } },
   AlertDialog: { trigger: button(`trigger`, `Delete board`, `destructive`) },
+  Page: { trailing: { id: `more`, component: `Button`, props: { icon: `ui-more`, label: `More`, variant: `ghost`, size: `icon` } } },
+  Toolbar: { trailing: button(`new`, `New issue`) },
+  SplitView: { list: { id: `rows`, component: `List`, props: { divided: true, gap: `none` }, children: [{ id: `r1`, component: `Row`, props: { title: `Fix crash when uploading HEIC photos`, identifier: `APP-9`, selected: true, pressable: true } }, { id: `r2`, component: `Row`, props: { title: `Offline queue for issue edits`, identifier: `APP-21`, pressable: true } }, { id: `r3`, component: `Row`, props: { title: `Reduce cold start below 800 ms`, identifier: `APP-18`, pressable: true } }] } },
 }
 
 /** A case node with the specimen's children + slots in place of `Child`. */
@@ -1013,7 +1055,8 @@ function promptBudget() {
     $comment: `${HEADER} The size of catalogPrompt() on record: prompt.test.ts fails when the full prompt passes budgetTokens (cut descriptions before components) or when these numbers drift from the catalog without being regenerated. tokens = chars / ${4}, an estimate. VAPP-108: \`index\` = sections rules + index + functions + style (the components then come one at a time through componentPrompt, \`perComponent\`), \`rules\` = the rules alone.`,
     // EXP-1259: SearchList joined the catalog (descriptions trimmed first).
     // EXP-1324: Trace + TraceItem (descriptions trimmed first).
-    budgetTokens: 7000,
+    // VAPP-126 (a named budget exception, see the Guide): the six layout macros: +1,396 chars / +349 tokens, the budget set to the measured total (7,349), no slack.
+    budgetTokens: 7349,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },

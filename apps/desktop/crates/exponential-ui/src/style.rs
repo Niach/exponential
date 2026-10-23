@@ -156,6 +156,11 @@ pub struct Visual {
     /// `visibility: hidden`: the box stays, nothing paints, out of the a11y tree.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub visibility_hidden: bool,
+    /// VAPP-126: `display: none` (a base style or a matching media block).
+    /// The node stays in the tree, laid out at zero size with its subtree;
+    /// a painter clips it, so a control inside draws nothing past the box.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub display_none: bool,
     /// `pointerEvents: none`: presses pass through.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub pointer_events_none: bool,
@@ -698,6 +703,7 @@ pub fn visual(r: &Map<String, Value>, kind: BoxKind) -> Visual {
         transform: r.get("transform").and_then(Value::as_str).and_then(parse_transform),
         transition,
         visibility_hidden: r.get("visibility").and_then(Value::as_str) == Some("hidden"),
+        display_none: r.get("display").and_then(Value::as_str) == Some("none"),
         pointer_events_none: r.get("pointerEvents").and_then(Value::as_str) == Some("none"),
         user_select: str_of("userSelect"),
         cursor: str_of("cursor"),

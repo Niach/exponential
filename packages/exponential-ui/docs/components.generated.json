@@ -578,6 +578,56 @@
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Sidebar/<part>."
     },
     {
+      "name": "SplitView",
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "specimenId": "exponential-ui-split-view",
+      "description": "List (`list` slot) + detail (children); phones show one at a time, the detail with a back button.",
+      "children": "many",
+      "slots": [
+        "list"
+      ],
+      "events": [
+        "back"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "open",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "On phones, the detail shows instead of the list; bind it to the open item."
+        },
+        {
+          "name": "width",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": 320,
+          "description": "The list column width in px."
+        }
+      ],
+      "accessibility": {
+        "role": "none",
+        "notes": "Layout only: the `list` part is a navigation landmark, the `detail` part the main landmark; the phone back button is labelled `back` ($a11y).",
+        "keys": [
+          "Enter, Space on back"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "SplitView",
+        "open": true,
+        "width": 320
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe SplitView/<part>."
+    },
+    {
       "name": "AppBar",
       "kind": "macro",
       "group": "layout",
@@ -634,6 +684,109 @@
         "back": true
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe AppBar/<part>."
+    },
+    {
+      "name": "Page",
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "specimenId": "exponential-ui-page",
+      "description": "A screen: an AppBar row (back, title, trailing actions) over a padded scrolling body.",
+      "children": "many",
+      "slots": [
+        "leading",
+        "trailing"
+      ],
+      "events": [
+        "back"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "title",
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "The screen title."
+        },
+        {
+          "name": "subtitle",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "A muted line under the title."
+        },
+        {
+          "name": "back",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Shows a back button that fires `back`."
+        },
+        {
+          "name": "padded",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": true,
+          "description": "Pads the body; off for edge-to-edge lists."
+        }
+      ],
+      "accessibility": {
+        "role": "none",
+        "notes": "Layout only: its header is the AppBar (banner, the title heading level 1), its body the main landmark ($a11y).",
+        "keys": [
+          "Enter, Space on back"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "Page",
+        "title": "Settings",
+        "back": true
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Page/<part>."
+    },
+    {
+      "name": "Toolbar",
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "specimenId": "exponential-ui-toolbar",
+      "description": "Controls in one row, bottoms aligned, wrapping on phones; `trailing` = the end action.",
+      "children": "many",
+      "slots": [
+        "trailing"
+      ],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "gap",
+          "type": "none | xs | sm | md | lg | xl",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "sm",
+          "description": "The space between controls."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group of controls in reading order; the trailing action last",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "Toolbar",
+        "gap": "sm"
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Toolbar/<part>."
     },
     {
       "name": "Section",
@@ -3802,6 +3955,83 @@
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Sparkline/<part>."
     },
     {
+      "name": "StatTile",
+      "kind": "macro",
+      "group": "data",
+      "lite": true,
+      "specimenId": "exponential-ui-stat-tile",
+      "description": "A dashboard tile: label, big value, toned change, trend sparkline.",
+      "children": "none",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "label",
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "What is measured."
+        },
+        {
+          "name": "value",
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "The formatted value."
+        },
+        {
+          "name": "delta",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "The change (`+12 %`)."
+        },
+        {
+          "name": "tone",
+          "type": "neutral | primary | success | warning | danger | info",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": "neutral",
+          "description": "The change's tone."
+        },
+        {
+          "name": "trend",
+          "type": "[number]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Recent values (sparkline)."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group labelled by its label; the sparkline is an img with the generated summary",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "StatTile",
+        "label": "Active users",
+        "value": "1,284",
+        "delta": "+12 %",
+        "tone": "success",
+        "trend": [
+          3,
+          4,
+          3,
+          5,
+          6,
+          8
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe StatTile/<part>."
+    },
+    {
       "name": "Button",
       "kind": "native",
       "group": "action",
@@ -4098,6 +4328,96 @@
         "name": "profile"
       },
       "macro": null
+    },
+    {
+      "name": "FieldGroup",
+      "kind": "macro",
+      "group": "input",
+      "lite": true,
+      "specimenId": "exponential-ui-field-group",
+      "description": "Fields side by side (Starts / Ends) that stack on phones.",
+      "children": "many",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "columns",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": 2,
+          "description": "Columns from md up (1-4)."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group of fields; each field keeps its own label",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "FieldGroup",
+        "columns": 2
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe FieldGroup/<part>."
+    },
+    {
+      "name": "FormActions",
+      "kind": "macro",
+      "group": "input",
+      "lite": true,
+      "specimenId": "exponential-ui-form-actions",
+      "description": "The end-aligned button row: children, Cancel, then THE submit (the one primary).",
+      "children": "many",
+      "slots": [],
+      "events": [
+        "cancel"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "submit",
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "The submit label."
+        },
+        {
+          "name": "cancel",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "An outline Cancel firing `cancel`."
+        },
+        {
+          "name": "destructive",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "A dangerous submit."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group: Cancel, then the submit (the last in focus order)",
+        "keys": [
+          "Enter, Space on a button"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "FormActions",
+        "submit": "Save",
+        "cancel": true
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe FormActions/<part>."
     },
     {
       "name": "Input",

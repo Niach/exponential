@@ -63,14 +63,16 @@ describe(`components`, () => {
     const plan = [`ChoiceTiles`]
     // N-12: THE DockCard (the Dock's floating card + its bottom sheet).
     const dock = [`DockCard`]
+    // VAPP-126: the layout macros the ergonomics eval's corpus kept rebuilding.
+    const layout = [`Page`, `Toolbar`, `SplitView`, `FieldGroup`, `FormActions`, `StatTile`]
     // Round 4 (VAPP-103): the names round 3 folded are REMOVED, not aliased.
     const removed = [`Band`, `RowList`, `ToggleGroup`, `ButtonGroup`, `TabBar`, `Sheet`, `HoverCard`, `DropdownMenu`, `ContextMenu`, `Pill`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`]
-    for (const name of [...expected, ...round1, ...round2, ...round3, ...batch, ...trace, ...plan, ...dock]) expect(coreCatalog.components[name], name).toBeDefined()
+    for (const name of [...expected, ...round1, ...round2, ...round3, ...batch, ...trace, ...plan, ...dock, ...layout]) expect(coreCatalog.components[name], name).toBeDefined()
     for (const name of removed) expect(coreCatalog.components[name], name).toBeUndefined()
     for (const def of Object.values(coreCatalog.components)) expect(`deprecated` in def).toBe(false)
     const hidden = [`TreeGuides`] // round 3: a Row part, never authored
-    expect(Object.keys(coreCatalog.components)).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + 1) // + the Unknown placeholder
-    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length - hidden.length)
+    expect(Object.keys(coreCatalog.components)).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + 1) // + the Unknown placeholder
+    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length - hidden.length)
   })
 
   test(`kinds follow the issue's table`, () => {

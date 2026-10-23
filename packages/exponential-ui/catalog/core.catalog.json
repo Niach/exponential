@@ -1286,6 +1286,36 @@
         "collapseBelow": "md"
       }
     },
+    "SplitView": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "many",
+      "slots": [
+        "list"
+      ],
+      "description": "List (`list` slot) + detail (children); phones show one at a time, the detail with a back button.",
+      "props": {
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "description": "On phones, the detail shows instead of the list; bind it to the open item."
+        },
+        "width": {
+          "type": "number",
+          "default": 320,
+          "description": "The list column width in px."
+        }
+      },
+      "events": [
+        "back"
+      ],
+      "example": {
+        "open": true,
+        "width": 320
+      }
+    },
     "AppBar": {
       "kind": "macro",
       "group": "layout",
@@ -1320,6 +1350,68 @@
       "example": {
         "title": "Settings",
         "back": true
+      }
+    },
+    "Page": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "many",
+      "slots": [
+        "leading",
+        "trailing"
+      ],
+      "description": "A screen: an AppBar row (back, title, trailing actions) over a padded scrolling body.",
+      "props": {
+        "title": {
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "description": "The screen title."
+        },
+        "subtitle": {
+          "type": "string",
+          "bindable": true,
+          "description": "A muted line under the title."
+        },
+        "back": {
+          "type": "boolean",
+          "default": false,
+          "description": "Shows a back button that fires `back`."
+        },
+        "padded": {
+          "type": "boolean",
+          "default": true,
+          "description": "Pads the body; off for edge-to-edge lists."
+        }
+      },
+      "events": [
+        "back"
+      ],
+      "example": {
+        "title": "Settings",
+        "back": true
+      }
+    },
+    "Toolbar": {
+      "kind": "macro",
+      "group": "layout",
+      "lite": true,
+      "children": "many",
+      "slots": [
+        "trailing"
+      ],
+      "description": "Controls in one row, bottoms aligned, wrapping on phones; `trailing` = the end action.",
+      "props": {
+        "gap": {
+          "type": "enum",
+          "enum": "gap",
+          "default": "sm",
+          "description": "The space between controls."
+        }
+      },
+      "example": {
+        "gap": "sm"
       }
     },
     "Section": {
@@ -3216,6 +3308,61 @@
         ]
       }
     },
+    "StatTile": {
+      "kind": "macro",
+      "group": "data",
+      "lite": true,
+      "children": "none",
+      "description": "A dashboard tile: label, big value, toned change, trend sparkline.",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "description": "What is measured."
+        },
+        "value": {
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "description": "The formatted value."
+        },
+        "delta": {
+          "type": "string",
+          "bindable": true,
+          "description": "The change (`+12 %`)."
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone",
+          "default": "neutral",
+          "bindable": true,
+          "description": "The change's tone."
+        },
+        "trend": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "bindable": true,
+          "description": "Recent values (sparkline)."
+        }
+      },
+      "example": {
+        "label": "Active users",
+        "value": "1,284",
+        "delta": "+12 %",
+        "tone": "success",
+        "trend": [
+          3,
+          4,
+          3,
+          5,
+          6,
+          8
+        ]
+      }
+    },
     "Button": {
       "kind": "native",
       "group": "action",
@@ -3389,6 +3536,55 @@
       ],
       "example": {
         "name": "profile"
+      }
+    },
+    "FieldGroup": {
+      "kind": "macro",
+      "group": "input",
+      "lite": true,
+      "children": "many",
+      "description": "Fields side by side (Starts / Ends) that stack on phones.",
+      "props": {
+        "columns": {
+          "type": "number",
+          "default": 2,
+          "description": "Columns from md up (1-4)."
+        }
+      },
+      "example": {
+        "columns": 2
+      }
+    },
+    "FormActions": {
+      "kind": "macro",
+      "group": "input",
+      "lite": true,
+      "children": "many",
+      "description": "The end-aligned button row: children, Cancel, then THE submit (the one primary).",
+      "props": {
+        "submit": {
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "description": "The submit label."
+        },
+        "cancel": {
+          "type": "boolean",
+          "default": false,
+          "description": "An outline Cancel firing `cancel`."
+        },
+        "destructive": {
+          "type": "boolean",
+          "default": false,
+          "description": "A dangerous submit."
+        }
+      },
+      "events": [
+        "cancel"
+      ],
+      "example": {
+        "submit": "Save",
+        "cancel": true
       }
     },
     "Input": {
