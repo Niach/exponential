@@ -25,8 +25,8 @@
     "gzip": 43008
   },
   "@exponential-at/ui/conformance": {
-    "bytes": 1945968,
-    "gzip": 174017
+    "bytes": 1944225,
+    "gzip": 172032
   },
   "@exponential-at/ui/host": {
     "bytes": 323584,

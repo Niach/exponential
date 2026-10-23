@@ -7,7 +7,7 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 First release.
 
-- Budget exception (VAPP-125, the merge train's named exception): `@exponential-at/ui/conformance` 1,888,256 → 1,945,968 B, gzip 172,032 → 174,017 (+57,712 / +1,985: the bound fixture cases of the 19 newly bindable props the entry bundles). No renderer entry moved past its budget.
+- Budget exception (VAPP-125, the merge train's named exception): `@exponential-at/ui/conformance` 1,888,256 → 1,944,225 B (+55,969: the bound fixture cases of the 18 newly bindable props the entry bundles; gzip 171,938 stays within its 172,032 budget). No renderer entry moved past its budget.
 - VAPP-125: the data-shaped props take a binding or a call: `Section.count` / `caption` / `loading`, `Image.alt`, `Row.icon` / `selected` / `chevron`, `Chip.tone`, `Icon.name` / `tone`, `Button.icon`, `Slider.min` / `max`, `Badge.variant`, `CodeBlock.variant`, `Stack.direction` / `align` / `justify`. Literal props expand and paint exactly as before; the ergonomics eval goes from 18/30 to 29/30 validator-clean surfaces (27 issues to 1). `Breadcrumb.items` stays a literal list: the macro lays its items out at expand time (like `Meter.segments` and `Stepper.steps`), a bound list would paint an empty nav.
 - `@exponential-at/ui/web/primitives` (FEED-131): the primitives' class recipes, framework-free and shared by the React and Solid primitive sets (cva recipes under their shadcn names, plain strings as `<MODULE>_CLASSES`, `cn`). New runtime dependencies: `class-variance-authority`, `clsx`, `tailwind-merge`.
 - The web-parity check covers the primitive specimens (`fixtures/primitive-specimens.json`, group `primitive`), compared over the whole page body.
