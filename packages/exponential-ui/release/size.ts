@@ -278,9 +278,20 @@ export function readSizes(): SizesFile {
   return existsSync(SIZES) ? (JSON.parse(readFileSync(SIZES, `utf8`)) as SizesFile) : { $comment: ``, measured: {} }
 }
 
-export function readBudget(): Record<string, Budget> {
-  const file = JSON.parse(readFileSync(BUDGET, `utf8`)) as Record<string, Budget | string>
-  return Object.fromEntries(Object.entries(file).filter(([k]) => !k.startsWith(`$`))) as Record<string, Budget>
+// EXP-1371: native slices depend on the toolchain that links them (GitHub's
+// macos-26 image builds the xcframework ~25 % larger than the MacBook runner),
+// so `$machines.<name>` overrides budgets for one build machine, picked by
+// EXPONENTIAL_UI_SIZE_MACHINE. Unset = the base budgets (the MacBook's).
+export function readBudget(machine = process.env.EXPONENTIAL_UI_SIZE_MACHINE): Record<string, Budget> {
+  return budgetFor(JSON.parse(readFileSync(BUDGET, `utf8`)), machine)
+}
+
+export function budgetFor(file: Record<string, unknown>, machine?: string): Record<string, Budget> {
+  const base = Object.fromEntries(Object.entries(file).filter(([k]) => !k.startsWith(`$`))) as Record<string, Budget>
+  const machines = (file.$machines ?? {}) as Record<string, Record<string, Budget>>
+  if (!machine) return base
+  if (!machines[machine]) throw new Error(`size-budget.json has no $machines.${machine}`)
+  return { ...base, ...machines[machine] }
 }
 
 /** Every entry over its budget, as a message. */
