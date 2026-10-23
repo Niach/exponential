@@ -332,61 +332,61 @@
       },
       "swift-macos": {
         "card-grid": {
-          "measureCallsPerPass": 29,
+          "measureCallsPerPass": 1,
           "upcallsPerPass": 1,
           "warmPassMs": 0.5
         },
         "cold-start": {
-          "coldStartMs": 202.8,
-          "firstPaintMs": 62.3,
+          "coldStartMs": 175.9,
+          "firstPaintMs": 47.3,
           "memoryMb": 52.1,
           "nodes": 591
         },
         "deep-nesting": {
           "depth": 48,
-          "firstPaintMs": 8.9,
+          "firstPaintMs": 5.2,
           "warmPassMs": 0.3
         },
         "list-100k": {
-          "ffiBytesPerStep": 33633,
-          "ffiCallsPerStep": 275,
-          "firstPaintMs": 512.2,
-          "measureCallsPerStep": 78,
-          "memoryMb": 243.8,
+          "ffiBytesPerStep": 24411,
+          "ffiCallsPerStep": 179,
+          "firstPaintMs": 144.4,
+          "measureCallsPerStep": 40,
+          "memoryMb": 152.9,
           "renderedItems": 30,
-          "scrollStepMs": 10.8,
-          "scrollToIndexMs": 16.3
+          "scrollStepMs": 7.6,
+          "scrollToIndexMs": 11.2
         },
         "overlay": {
-          "closeMs": 0.9,
-          "openMs": 2.2
+          "closeMs": 0.2,
+          "openMs": 0.8
         },
         "resize": {
-          "resizeMs": 5.4,
+          "resizeMs": 4.9,
           "upcallsPerResize": 1
         },
         "streaming": {
           "applyMs": 7.2,
           "ffiBytesTotal": 8942883,
           "nodes": 607,
-          "p95ApplyMs": 13.7,
-          "totalMs": 1437
+          "p95ApplyMs": 13.4,
+          "totalMs": 1432.5
         },
         "table-1k": {
-          "firstPaintMs": 90.2,
+          "firstPaintMs": 18,
           "renderedRows": 30,
-          "scrollStepMs": 34.9,
-          "sortMs": 71
+          "scrollStepMs": 9,
+          "sortMs": 17
         },
         "template-10k": {
-          "firstPaintMs": 1916,
+          "firstPaintMs": 626.4,
           "nodes": 10001,
-          "rebindMs": 3851
+          "rebindMs": 874.1
         },
         "theme-switch": {
           "modeSwitchMs": 13.8,
           "restyled": 596,
-          "themeSwitchMs": 49.3
+          "themeSwitchMs": 35.8
         }
       }
     }
