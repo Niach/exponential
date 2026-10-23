@@ -64,25 +64,19 @@ public enum LaunchVocabulary {
     }
 
     /// The model the session composer's pill shows (web `session-composer.tsx`
-    /// `fallbackModel`): the live relay model, else the row's own pick, else —
-    /// a dispatcher root — the device's `threadModel` for the row's agent, else
-    /// the device's session `model`, else the contract defaults.
+    /// `fallbackModel`): the live relay model, else the row's own pick, else
+    /// the device's session `model` for the row's agent, else the contract
+    /// defaults.
     public static func composerModel(
         live: String?,
         rowModel: String?,
         cli: String?,
-        dispatch: Bool,
         launchDefaults: DeviceLaunchDefaults?
     ) -> String {
         if let live, !live.isEmpty { return live }
         if let rowModel, !rowModel.isEmpty { return rowModel }
         let agent = cli ?? "claude"
-        let defaults = launchDefaults?.agents?[agent]
-        if dispatch {
-            if let value = defaults?.threadModel, !value.isEmpty { return value }
-            return defaultThreadModel(for: agent)
-        }
-        if let value = defaults?.model, !value.isEmpty { return value }
+        if let value = launchDefaults?.agents?[agent]?.model, !value.isEmpty { return value }
         return defaultModel(for: agent)
     }
 

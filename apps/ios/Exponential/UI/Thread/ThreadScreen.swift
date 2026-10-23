@@ -1638,14 +1638,12 @@ struct ThreadComposer: View {
             usageFraction: model.sessionUsage?.percent.map { Double($0) / 100 },
             usageSeverity: AgentUsagePresentation.severity(model.sessionUsage?.percent.map(Double.init)),
             onUsage: { showUsageSheet = true },
-            showsPlan: row?.dispatch != true,
             ended: row?.status == DomainContract.sessionStatusEnded,
             planModeFallback: model.sessionConfig == nil && row?.planMode == true,
             // EXP-1252: the root's Device pin (move to another device).
             devicePin: model.devicePin,
-            // N-12: the Plan switch rides the card's row (`row?.dispatch`
-            // roots have none).
-            plan: row?.dispatch == true ? nil : planBinding
+            // N-12: the Plan switch rides the card's row.
+            plan: planBinding
         )
     }
 
@@ -1674,10 +1672,10 @@ struct ThreadComposer: View {
         )
     }
 
-    /// The synced row's option fields a pick settles against; nil for a
-    /// dispatcher root (its picks are work picks the row never echoes).
+    /// The synced row's option fields a pick settles against; nil = no row
+    /// yet.
     private var settledRow: ThreadComposerPicks.Row? {
-        guard let root, !root.dispatch else { return nil }
+        guard let root else { return nil }
         return ThreadComposerPicks.Row(
             planMode: steerModel?.planModeActive ?? root.planMode,
             effort: root.effort,
@@ -1858,12 +1856,8 @@ struct ThreadComposer: View {
         let rows = (try? await McpServersApi(trpc: deps.trpc).list(accountId: accountId, teamId: teamId)) ?? []
         mcpServers = rows
         guard picks.mcpServerIds == nil else { return }
-        // The session's own pick (server-only); a dispatcher's work picks
-        // never read back, so its row seeds EMPTY like web's (no preselect:
-        // the row shows what the server has, nothing it never got).
-        picks.mcpServerIds = root?.dispatch == true
-            ? []
-            : ((try? await deps.sessionsApi.mcpPicks(accountId: accountId, sessionId: sessionId)) ?? [])
+        // The session's own pick (server-only), seeded once like web's.
+        picks.mcpServerIds = (try? await deps.sessionsApi.mcpPicks(accountId: accountId, sessionId: sessionId)) ?? []
     }
 
     /// Implement issue = link it into this thread (the dispatcher wakes).

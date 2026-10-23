@@ -42,8 +42,6 @@ public enum EmptyStateCopy {
         .boards,
         .issues,
         .noTeam,
-        .actions,
-        .actionUnavailable,
         .runNotFound,
         .threadNotFound,
         .noSelectionIssue,
@@ -102,14 +100,6 @@ public extension EmptyStateCopy.State {
     static let noTeam = Self(
         id: "no-team", size: .page, icon: "ui-team",
         title: "No team yet", description: "Create a team, or join one with an invite link.", action: nil
-    )
-    static let actions = Self(
-        id: "actions", size: .page, icon: "nav-actions",
-        title: "No actions yet", description: "Create one on the web or desktop app.", action: nil
-    )
-    static let actionUnavailable = Self(
-        id: "action-unavailable", size: .page, icon: "action-default",
-        title: "Action unavailable", description: "It may still be syncing, or it was deleted.", action: nil
     )
     static let runNotFound = Self(
         id: "run-not-found", size: .page, icon: "action-run",

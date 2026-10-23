@@ -1747,7 +1747,6 @@ struct AgentSessionView: View {
                 usageFraction: usageFraction(model),
                 usageSeverity: usageSeverity(model),
                 onUsage: { showUsageSheet = true },
-                showsPlan: model.session?.dispatch != true,
                 // An ended row takes no `/model`: the pin is a label.
                 ended: model.session?.isLive == false,
                 planModeFallback: model.sessionConfig == nil && model.session?.planMode == true,
@@ -1784,11 +1783,11 @@ struct AgentSessionView: View {
         }
     }
 
-    /// N-12: THE Plan switch (`sessions.configure`, live mid-run); none on a
-    /// dispatcher root, an agent without plan mode or an ended row.
+    /// N-12: THE Plan switch (`sessions.configure`, live mid-run); none on
+    /// an agent without plan mode or an ended row.
     private func planBinding(_ model: AgentSessionModel) -> Binding<Bool>? {
         let row = model.session ?? session
-        guard row.dispatch != true, row.isLive, LaunchVocabulary.supportsPlanMode(model.catalogAgent) else { return nil }
+        guard row.isLive, LaunchVocabulary.supportsPlanMode(model.catalogAgent) else { return nil }
         return Binding(
             get: { planPick ?? (model.planModeActive || (model.sessionConfig == nil && row.planMode == true)) },
             set: { on in

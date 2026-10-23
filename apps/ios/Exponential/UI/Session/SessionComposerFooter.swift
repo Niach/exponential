@@ -15,8 +15,7 @@ import SwiftUI
 /// reports; read-only: EXP-790 keeps plan mode launch-time) · spacer · the usage
 /// ring (hidden until context data lands; opens the Usage sheet, EXP-1150).
 /// Rides `GlassComposer`'s `tools:` slot, so the send button stays the card's
-/// own. A thread's box carries the same controls for its ROOT session, minus
-/// the plan chip on a dispatcher root.
+/// own. A thread's box carries the same controls for its ROOT session.
 struct SessionComposerFooter: View {
     /// The session view's own controls: the plan chip, the model pill and
     /// the usage ring.
@@ -32,9 +31,6 @@ struct SessionComposerFooter: View {
         let usageFraction: Double?
         let usageSeverity: AgentUsageSeverity
         let onUsage: () -> Void
-        /// A dispatcher root (`sessions.dispatch`) has no plan mode of its
-        /// own: its children take the launch's picks, so no plan chip.
-        var showsPlan: Bool = true
         /// The session's row ENDED: the model pin is a read-only label (web
         /// disables the picker on `status === 'ended'`).
         var ended: Bool = false
@@ -42,10 +38,10 @@ struct SessionComposerFooter: View {
         /// `planMode` pick stands in for the read-out (web parity).
         var planModeFallback: Bool = false
         /// EXP-1252: the Device pin before Model (`AgentSessionModel.devicePin`);
-        /// nil = hidden (agents, asides).
+        /// nil = hidden (agents).
         var devicePin: SessionDevicePin? = nil
         /// N-12: the Plan switch (`sessions.configure`, live mid-run); nil =
-        /// none (a dispatcher root, codex, an ended row).
+        /// none (codex, an ended row).
         var plan: Binding<Bool>? = nil
 
         /// Codex has no mid-run model prompt and an ended row takes no
@@ -54,7 +50,7 @@ struct SessionComposerFooter: View {
 
         /// The plan read-out shows only while plan mode is in force (or the
         /// row says so before the relay does) — never a muted "off" label.
-        var showsPlanLabel: Bool { showsPlan && (planModeActive || planModeFallback) }
+        var showsPlanLabel: Bool { planModeActive || planModeFallback }
     }
 
     /// nil = the bare box (the `+` alone).
@@ -173,8 +169,7 @@ struct SessionModelPill: View {
 
 /// EXP-1252: the session's Device pin — what it needs to draw and act.
 struct SessionDevicePin {
-    /// The current device's name, or `Moving to <target>…` while a move is
-    /// pending (`SessionDeviceMove.pinLabel`).
+    /// The current device's name.
     let label: String
     /// The current device's glyph (`DeviceIconDisplay`); nil = none known.
     let icon: String?
@@ -187,7 +182,7 @@ struct SessionDevicePin {
     let blockedReason: String?
     /// A request is in flight.
     var sending: Bool = false
-    /// Another device = move, the current one while moving = cancel.
+    /// Another device = move; the current one does nothing.
     let onPick: (String) -> Void
 }
 

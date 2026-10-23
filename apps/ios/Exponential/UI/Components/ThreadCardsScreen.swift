@@ -311,9 +311,7 @@ private struct ThreadStripSpecimens: View {
                     .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
             }
             caption("THE composer row: + · the device glyph · the model · Plan … the ring beside Send")
-            composerRow(moveTo: nil)
-            caption("EXP-1252: moving to another device")
-            composerRow(moveTo: "studio")
+            composerRow()
             caption("EXP-1211: the agent's quick replies above the composer")
             VStack(spacing: 0) {
                 // fixtures/session-thread.json `repliesCases[1].expected`.
@@ -353,13 +351,13 @@ private struct ThreadStripSpecimens: View {
 
     /// N-12: THE composer card's one tool row (`SessionComposerFooter`)
     /// beside the Send glyph, in the card's glass.
-    private func composerRow(moveTo: String?) -> some View {
+    private func composerRow() -> some View {
         HStack(spacing: GlassComposerTokens.toolSpacing) {
             SessionComposerFooter(
                 controls: SessionComposerFooter.Controls(
                     planModeActive: false, modelValue: "opus", agent: "claude", onPickModel: { _ in },
                     usageFraction: 0.42, usageSeverity: .normal, onUsage: {},
-                    devicePin: Self.devicePin(moveTo: moveTo),
+                    devicePin: Self.devicePin(),
                     plan: .constant(true)
                 ),
                 attachEnabled: true,
@@ -375,7 +373,7 @@ private struct ThreadStripSpecimens: View {
 
     /// EXP-1252: the Device pin specimen — this laptop, a shared studio
     /// machine (refused: shared differently) and an offline one.
-    private static func devicePin(moveTo: String?) -> SessionDevicePin {
+    private static func devicePin() -> SessionDevicePin {
         let devices = [
             SteerDevice(deviceId: "laptop", deviceLabel: "MacBook Pro", agents: ["claude"], kind: "desktop", online: true, version: "0.14.73"),
             SteerDevice(deviceId: "studio", deviceLabel: "Mac Studio", agents: ["claude"], kind: "desktop", online: true, version: "0.14.73"),
@@ -386,7 +384,7 @@ private struct ThreadStripSpecimens: View {
             devices: devices, currentDeviceId: "laptop", sessionTeamId: "t1", sessionShared: false, agent: "claude"
         )
         return SessionDevicePin(
-            label: SessionDeviceMove.pinLabel(currentDeviceName: "MacBook Pro", moveToDeviceId: moveTo, devices: devices),
+            label: "MacBook Pro",
             icon: DeviceIconDisplay.iconName(for: devices[0]),
             rows: rows.map(DevicePickerDevice.init(moveRow:)),
             currentDeviceId: "laptop",
