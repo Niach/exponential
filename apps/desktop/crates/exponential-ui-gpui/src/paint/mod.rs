@@ -114,6 +114,9 @@ pub struct PaintStyle {
     pub transition: Option<Transition>,
     /// `visibility: hidden`.
     pub invisible: bool,
+    /// VAPP-126: `display: none` (laid out at zero size, clipped; the subtree
+    /// is no tab stop).
+    pub display_none: bool,
     /// `pointerEvents: none`.
     pub pointer_none: bool,
     pub cursor: Option<CursorStyle>,
@@ -217,6 +220,7 @@ impl PaintStyle {
             transform: v.transform.as_deref().map(Affine::of).unwrap_or_default(),
             transition: v.transition.filter(|t| t.duration_ms > 0.0),
             invisible: v.visibility_hidden,
+            display_none: v.display_none,
             pointer_none: v.pointer_events_none,
             cursor: v.cursor.as_deref().and_then(cursor_of),
             italic: v.font_style.as_deref() == Some("italic"),

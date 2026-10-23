@@ -602,3 +602,23 @@ fn a_panicking_painter_paints_nothing_and_reaches_the_host(cx: &mut TestAppConte
     assert_eq!(calls.get(), 2);
     assert_eq!(log.0.borrow().paint_errors.len(), 2);
 }
+
+/// VAPP-126 (review #1187): a `display: none` subtree (the kitchen sink's
+/// SplitView back bar: `display: none` on a wide surface, inside a detail
+/// pane that is `display: none` on a phone) is laid out at zero size and
+/// clipped; its Button is no tab stop, as on the web.
+#[gpui::test]
+fn a_display_none_subtree_is_no_tab_stop(cx: &mut TestAppContext) {
+    init(cx);
+    let (view, cx) = open(cx, SurfaceViewOptions::default());
+    load_kitchen(&view, cx);
+    draw(cx);
+    let (back, new_issue, order, hidden) = view.read_with(cx, |v, _| {
+        let back = v.index_of("macros-split.detail.backBar.back").expect("the SplitView back button");
+        let new_issue = v.index_of("macros-new").expect("the Toolbar's trailing button");
+        (back, new_issue, v.focus_order(), v.surface().layout_node(back).unwrap().hidden)
+    });
+    assert!(!hidden, "the back button is laid out (zero size), not hidden");
+    assert!(!order.contains(&back), "a display:none button is no tab stop");
+    assert!(order.contains(&new_issue), "a visible button in the same card is");
+}

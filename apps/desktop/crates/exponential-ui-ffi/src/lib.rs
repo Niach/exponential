@@ -415,6 +415,10 @@ pub struct FfiVisual {
     /// cubic bezier `[x1, y1, x2, y2]`.
     pub transition_ms: Option<f32>,
     pub transition_easing: Option<Vec<f32>>,
+    /// `visibility: hidden`, or (VAPP-126) `display: none`: the core lays the
+    /// box out at zero size with its subtree; the painter paints nothing,
+    /// takes no taps and leaves the a11y tree (a zero frame alone let an icon
+    /// button's glyph draw past it on SwiftUI).
     pub visibility_hidden: bool,
     pub pointer_events_none: bool,
     pub user_select: Option<String>,
@@ -670,7 +674,7 @@ fn visual(v: &exponential_ui::style::Visual) -> FfiVisual {
         transform_json: v.transform.as_ref().map(|t| serde_json::to_string(t).unwrap_or_default()),
         transition_ms: v.transition.map(|t| t.duration_ms),
         transition_easing: v.transition.map(|t| t.easing.to_vec()),
-        visibility_hidden: v.visibility_hidden,
+        visibility_hidden: v.visibility_hidden || v.display_none,
         pointer_events_none: v.pointer_events_none,
         user_select: v.user_select.clone(),
         cursor: v.cursor.clone(),
