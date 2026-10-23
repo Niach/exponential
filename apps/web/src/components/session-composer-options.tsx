@@ -12,11 +12,8 @@ import { trpc } from "@/lib/trpc-client"
 // EXP-1334: a live session's "+" options + its Plan switch, changeable
 // MID-SESSION through `sessions.configure` (the row moves, the host device
 // applies it). The synced row is the read; a pick shows at once (optimistic)
-// and stays until the row confirms it. A DISPATCHER's picks are its WORK
-// picks (server-only `work_launch`, inherited by the children it spawns), so
-// they never come back on the synced row: the local pick is the read there.
-// The MCP pick is server-only for every session: seeded once from
-// `sessions.mcpPicks` (a dispatcher's work picks never read back: empty).
+// and stays until the row confirms it. The MCP pick is server-only for every
+// session: seeded once from `sessions.mcpPicks`.
 
 interface Overrides {
   planMode?: boolean
@@ -44,10 +41,9 @@ export function useSessionComposerOptions({
   const [over, setOver] = useState<Overrides>({})
   const [mcpServerIds, setMcpServerIds] = useState<string[]>([])
   const ended = row === null || row.status === `ended`
-  const dispatch = row?.dispatch === true
   const mcp = useMcpServers(teamId, !ended)
   useEffect(() => {
-    if (ended || dispatch) return
+    if (ended) return
     let live = true
     trpc.sessions.mcpPicks
       .query({ sessionId }, SKIP_ERROR_TOAST)
@@ -58,7 +54,7 @@ export function useSessionComposerOptions({
     return () => {
       live = false
     }
-  }, [sessionId, ended, dispatch])
+  }, [sessionId, ended])
   const team = useTeamById(teamId)
   const teamSlug = team?.slug ?? null
 
@@ -79,28 +75,27 @@ export function useSessionComposerOptions({
             () => true,
             () => false
           )
-        // The synced row now says it (a dispatcher's never will). A slow
-        // sync keeps the pick in place: the row effect below drops it once
-        // the row lands, so the switch never flips back and forward.
-        if (!dispatch && synced) setOver((current) => dropSettled(current, picks))
+        // The synced row now says it. A slow sync keeps the pick in place:
+        // the row effect below drops it once the row lands, so the switch
+        // never flips back and forward.
+        if (synced) setOver((current) => dropSettled(current, picks))
       } catch (error) {
         setOver((current) => dropSettled(current, picks))
         if (nextMcp) setMcpServerIds(previousMcp)
         failedAction(`change`, `the session options`, error)
       }
     },
-    [sessionId, dispatch, mcpServerIds]
+    [sessionId, mcpServerIds]
   )
 
   // A sync past the wait still settles its pick: whenever the row reads what
-  // an override says, the override goes (a dispatcher's row never reflects
-  // its work picks, so its overrides stay the read).
+  // an override says, the override goes.
   const rowPlanMode = row?.planMode
   const rowEffort = row?.effort
   const rowUltracode = row?.ultracode
   const rowComputerUse = row?.computerUse
   useEffect(() => {
-    if (dispatch || !row) return
+    if (!row) return
     setOver((current) =>
       dropSettled(current, {
         planMode: rowPlanMode ?? false,
@@ -112,7 +107,7 @@ export function useSessionComposerOptions({
     // The row's four option fields are the deps (the row object moves on
     // every sync).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispatch, row === null, rowPlanMode, rowEffort, rowUltracode, rowComputerUse])
+  }, [row === null, rowPlanMode, rowEffort, rowUltracode, rowComputerUse])
 
   const effort = over.effort !== undefined ? over.effort : (row?.effort ?? null)
   const ultracode = over.ultracode ?? row?.ultracode ?? false

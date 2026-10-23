@@ -12,9 +12,9 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@exp/ui"
-import type { Board, Issue, Pin } from "@/db/schema"
+import type { Board, Issue } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
-import { useTeamPins } from "@/hooks/use-pins"
+import { useTeamPins, type Pin } from "@/hooks/use-pins"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
 

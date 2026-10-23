@@ -40,8 +40,32 @@ export {
   type AgentTriggerLike,
 } from "@exp/domain-contract/agent-settings"
 
-export type SessionRow = z.infer<typeof selectSyncedSessionSchema>
-export type SessionIssueRow = z.infer<typeof selectSyncedSessionIssueSchema>
+/** NEW-8: the legacy session columns step 4 drops. The server still serves
+ *  them today; the client never reads them (an agent's name/icon/colour/sort
+ *  come from its `agents` definition via `agentId`). */
+export type LegacySessionColumn =
+  | `kind`
+  | `dispatch`
+  | `moveToDeviceId`
+  | `handoffRestoredAt`
+  | `caption`
+  | `aside`
+  | `actionId`
+  | `actionName`
+  | `actionInputs`
+  | `spawnedBySessionId`
+  | `name`
+  | `icon`
+  | `color`
+  | `triggers`
+  | `sortOrder`
+/** A synced `sessions` row as the client reads it (no legacy columns). */
+export type SessionRow = Omit<z.infer<typeof selectSyncedSessionSchema>, LegacySessionColumn>
+/** A synced `session_issues` row; NEW-8: `assignedSessionId` is never read. */
+export type SessionIssueRow = Omit<
+  z.infer<typeof selectSyncedSessionIssueSchema>,
+  `assignedSessionId`
+>
 /** A synced `messages` row. NEW-8: its legacy `sessionId` is never read on
  *  the client; the conversation decides (`keyMessageRows`). */
 export type SyncedMessageRow = Omit<z.infer<typeof selectSyncedMessageSchema>, `sessionId`>

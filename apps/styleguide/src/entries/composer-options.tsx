@@ -10,8 +10,7 @@ import type { StyleguideEntry } from "./types.ts"
 // its glyph alone · Model · Plan sit IN the card's tool row after the "+"
 // (the only tool: no inline image/file/#/emoji tools) and the context ring
 // beside Send ⇄ Stop; nothing under the card. EXP-1252: the session's Device
-// pin is THE launch pin; a pick MOVES the session to that device after its
-// turn, the tooltip reads "Moving to <device>…" while pending. Effort,
+// pin is THE launch pin; a pick MOVES the session to that device. Effort,
 // Ultracode, MCP servers, Computer use and Add file live in the "+" menu.
 
 function Caption({ children }: { children: string }) {
@@ -23,7 +22,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1252`,
   title: `Composer options`,
-  blurb: `The one composer's options (EXP-1334: the start, the thread and the session view render the same composer), as the real components they are made of. Before a start the muted line UNDER the card: DevicePicker, AccountPicker, ModelPicker, the Plan switch, RepositoryPicker (only while a chat has several to choose from), each collapsing to plain text once there is one thing it could say. N-12, the iOS row ×4: in a session the pins sit IN the card's tool row after the "+" (the only tool): the Device pin as its glyph alone (EXP-1252: THE launch DevicePicker; a pick moves the session to that device after its current turn, the tooltip reads Moving to <device>… while pending, picking the current device cancels; hidden for agents and asides), the model pin (a pick sends /model <alias>, shown at once until the run confirms), the Plan switch (live mid-session through sessions.configure); the context ring (16px, its usage popover on click) sits beside Send ⇄ Stop; nothing under the card. Effort, Ultracode, MCP servers, Computer use and Add file are rows of the "+" menu (composer-menu.json ×4).`,
+  blurb: `The one composer's options (EXP-1334: the start, the thread and the session view render the same composer), as the real components they are made of. Before a start the muted line UNDER the card: DevicePicker, AccountPicker, ModelPicker, the Plan switch, RepositoryPicker (only while a chat has several to choose from), each collapsing to plain text once there is one thing it could say. N-12, the iOS row ×4: in a session the pins sit IN the card's tool row after the "+" (the only tool): the Device pin as its glyph alone (EXP-1252: THE launch DevicePicker; a pick moves the session to that device: a queued one re-targets, a live one ends here and continues there; hidden for agents), the model pin (a pick sends /model <alias>, shown at once until the run confirms), the Plan switch (live mid-session through sessions.configure); the context ring (16px, its usage popover on click) sits beside Send ⇄ Stop; nothing under the card. Effort, Ultracode, MCP servers, Computer use and Add file are rows of the "+" menu (composer-menu.json ×4).`,
   status: {
     web: {
       state: `ok`,
@@ -56,8 +55,6 @@ export const entry: StyleguideEntry = {
       <ComposerOptionsSpecimen phase="start" />
       <Caption>A running session: the pins in the card's tool row — the device glyph · model · Plan (live mid-run)</Caption>
       <ComposerSessionRowSpecimen phase="running" />
-      <Caption>A move pending (EXP-1252): the device glyph's tooltip names the target until the handoff</Caption>
-      <ComposerSessionRowSpecimen phase="running" moving />
       <Caption>An idle thread = its root session: the same row</Caption>
       <ComposerSessionRowSpecimen phase="idle" />
       <Caption>The one composer in a session: the "+", the pins, the context ring beside Stop; nothing under the card</Caption>

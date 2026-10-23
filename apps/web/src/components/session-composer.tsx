@@ -48,10 +48,7 @@ import { useSteerCommand } from "@/hooks/use-steer-command"
 import { usePrompts } from "@/hooks/use-prompts"
 import { planModeToggle, sessionModel } from "@/lib/agent-feed"
 import { contextPercent, severity } from "@/lib/agent-usage"
-import {
-  defaultModelFor,
-  defaultThreadModelFor,
-} from "@/lib/coding-launch-prefs"
+import { defaultModelFor } from "@/lib/coding-launch-prefs"
 import {
   acquireSteerSession,
   mergeHeldIntoDraft,
@@ -97,15 +94,14 @@ import { cn } from "@/lib/utils"
 const MODEL_PICK_CONFIRM_MS = 20_000
 
 /** The model a session runs on before its relay says: the row's own pick,
- *  else (a dispatcher) the device's thread model, else the defaults. */
+ *  else the device's default, else the defaults. */
 function fallbackModel(
   row: SessionRow | null,
-  deviceAgents: Record<string, { model?: string; threadModel?: string }> | undefined
+  deviceAgents: Record<string, { model?: string }> | undefined
 ): string {
   const agent = row?.cli ?? `claude`
   if (row?.model) return row.model
   const defaults = deviceAgents?.[agent]
-  if (row?.dispatch) return defaults?.threadModel || defaultThreadModelFor(agent)
   return defaults?.model || defaultModelFor(agent)
 }
 
@@ -298,10 +294,9 @@ export function SessionComposer({
       ? choices
       : [{ value: model, label: modelLabel(model) }, ...choices]
   }, [agent, model])
-  // The Plan switch: a pick leads, then the run's live mode (never a
-  // dispatcher's: its plan mode is a WORK pick its children get), then the
+  // The Plan switch: a pick leads, then the run's live mode, then the
   // synced row.
-  const livePlan = row?.dispatch ? null : planModeToggle(config)
+  const livePlan = planModeToggle(config)
   const planOn = options.planPending
     ? options.planMode
     : (livePlan?.active ?? options.planMode)

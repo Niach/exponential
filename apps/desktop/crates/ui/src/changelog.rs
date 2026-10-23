@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-23-conversations-on-every-client",
+    date: "2026-10-23",
+    title: "Every app reads threads through conversations, and actions are retired",
+    summary: "Web, the IDE, iOS and Android now load a thread's messages through its conversation and stop syncing the retired actions, ready for the server cleanup that follows.",
+    body: r#"- **Threads**: messages load through their conversation on every platform, so direct messages and channels can follow without another app update.
+- **Actions**: the apps no longer sync actions (prompts replaced them); an action pinned in the sidebar disappears.
+- **Devices**: moving a session to another device takes effect at once; the Moving to pin and its cancel are gone.
+- **Session cards**: the old caption line under a session's name is gone."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_72: ChangelogEntry = ChangelogEntry {
     id: "2026-10-23-release-train",
     date: "2026-10-23",
     title: "Release 2026-10-23: the Dock, Apps and the inline pickers on every platform, with the train's fixes",

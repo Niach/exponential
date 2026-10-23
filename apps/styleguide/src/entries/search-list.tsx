@@ -3,8 +3,8 @@ import searchList from "@exp/domain-contract/fixtures/search-list.json"
 import {
   Button,
   SearchList,
-  actionPickerItems,
   conceptIcon,
+  getActionIcon,
   issueSearchItems,
 } from "@exp/ui"
 
@@ -44,6 +44,13 @@ const AGENTS = [
   { id: `g3`, name: `Triage`, icon: `wrench` },
   { id: `g4`, name: `Merge conflicts`, icon: `git-branch` },
 ]
+
+/** An agent row = its icon and its name. */
+const AGENT_ITEMS = AGENTS.map((agent) => ({
+  value: agent.id,
+  label: agent.name,
+  icon: getActionIcon(agent),
+}))
 
 function Surface({
   width,
@@ -138,7 +145,7 @@ export const entry: StyleguideEntry = {
         <SearchList
           mode="single"
           density="pointer"
-          items={actionPickerItems(AGENTS)}
+          items={AGENT_ITEMS}
           value={null}
           onChange={noop}
           placeholder="Search agents"
