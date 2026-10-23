@@ -91,7 +91,7 @@ bun run --filter @exponential-at/ui eval          # score the fixtures → eval/
 bun run --filter @exponential-at/ui eval:render   # web renders, React + Solid + element, at every width (Playwright)
 bun run --filter @exponential-at/ui eval:parity   # the Devices template vs the native page`}</DocsCode>
           <p>
-            Recorded by: {Object.entries(a.recordedBy).map(([k, v]) => `${v} ${k === `api` ? `over the API` : `by the session's own model from the same prompt`}`).join(`, `)}.
+            Recorded by: {Object.entries(a.recordedBy).map(([k, v]) => `${v} ${k === `api` ? `over the API` : k === `claude-cli` ? `through the Claude Code CLI (real usage)` : `by the session's own model from the same prompt`}`).join(`, `)}.
           </p>
         </DocsSection>
 

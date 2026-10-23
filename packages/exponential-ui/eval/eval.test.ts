@@ -11,8 +11,10 @@ import { describe, expect, test } from "bun:test"
 import corpus from "./corpus.json" with { type: "json" }
 import report from "./report.json" with { type: "json" }
 import { RUBRICS, aggregate, authoredDepth, parseReply, rubricScores, scoreFixture, spacingStats, surfaceOf, type Corpus } from "./lib"
-import { readFixture, scoreAll } from "./score"
-import type { ParityRow } from "./parity"
+import specimens from "./eval-specimens.json" with { type: "json" }
+import { buildSpecimens, readFixture, scoreAll } from "./score"
+import type { NativeMeasure, NativesReport } from "./natives"
+import type { ParityRow, SurfaceParityRow } from "./parity"
 import { CANDIDATES, RENDERERS, type Candidate, type RenderMeasure } from "./render"
 
 /** Where a renderer differs from React on the corpus, by surface and
@@ -45,6 +47,12 @@ describe(`the report`, () => {
     expect(report.rows).toEqual(JSON.parse(JSON.stringify(rows)))
     expect(report.aggregate).toEqual(JSON.parse(JSON.stringify(aggregate(rows))))
     expect(report.prompt.full.chars).toBe(report.prompt.full.chars)
+  })
+
+  test(`eval/eval-specimens.json is every fixture as a native specimen (rerun \`bun run eval\`)`, () => {
+    expect(specimens).toEqual(JSON.parse(JSON.stringify(buildSpecimens())))
+    expect(specimens.specimens.map((s) => s.corpusId)).toEqual(prompts.map((p) => p.id))
+    for (const s of specimens.specimens) expect(s.id).toBe(`exponential-ui-eval-${s.corpusId}`)
   })
 
   test(`the numbers the issue quotes`, () => {
@@ -96,6 +104,61 @@ describe(`the report`, () => {
         expect(m.equal, `${p.id}@${m.width}`).toBe(!RENDER_FINDINGS[p.id])
       }
     }
+  })
+})
+
+/** Where a native paints a corpus surface with other spacing than React (VAPP-127, natives.ts): narrow-width
+ *  overflows (a table or a terminal wider than the phone: the web renders those at 1280 only) and a padding
+ *  the narrower layout changes. A finding stays on record until the surface or the renderer changes. */
+const NATIVE_FINDINGS: Record<string, string> = {
+  "issue-list-filters/android": `overflowsX at 411`,
+  "api-keys/android": `overflowsX at 411`,
+  "api-keys/ios": `overflowsX at 440`,
+  "terminal-output/android": `overflowsX at 411`,
+  "terminal-output/ios": `overflowsX at 440`,
+  "pricing/ios": `textPadding: web 24, native 8`,
+  "team-switcher/android": `textPadding: web 165, native 159`,
+  "team-switcher/ios": `textPadding: web 165, native 163`,
+}
+
+describe(`the natives (VAPP-127: the shots pipeline's eval lane + natives.ts)`, () => {
+  const natives = (report as { natives?: NativesReport }).natives!
+
+  test(`every surface was painted and measured on android, ios and desktop`, () => {
+    for (const p of prompts) {
+      for (const platform of [`android`, `ios`, `desktop`] as const) {
+        const m = natives.surfaces[p.id]?.[platform] as NativeMeasure | undefined
+        expect(m, `${p.id}/${platform}`).toBeDefined()
+        expect(m!.picture).toBe(`eval/out/${p.id}/${platform}.webp`)
+        expect(m!.nodes, `${p.id}/${platform}`).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  test(`the spacing equals React's everywhere but the findings on record`, () => {
+    const found: Record<string, string> = {}
+    for (const [id, byPlatform] of Object.entries(natives.surfaces))
+      for (const [platform, m] of Object.entries(byPlatform)) if (m!.differences.length) found[`${id}/${platform}`] = m!.differences.join(`; `)
+    expect(found).toEqual(NATIVE_FINDINGS)
+  })
+})
+
+describe(`every appView surface against its app screen (VAPP-127, parity.ts surfaces)`, () => {
+  const rows = (report.parity as { surfaces: SurfaceParityRow[] }).surfaces
+
+  test(`each surface naming an appView is compared on the web and on every native whose app shot exists`, () => {
+    for (const p of prompts.filter((p) => p.appView)) {
+      const mine = rows.filter((r) => r.surface === p.id)
+      expect(mine.map((r) => r.platform), p.id).toContain(`web`)
+      expect(mine.map((r) => r.platform), p.id).toContain(`desktop`)
+      for (const r of mine) {
+        expect(r.appView).toBe(p.appView!)
+        expect(r.sharedGaps).toBeGreaterThanOrEqual(0)
+        expect(r.sharedGaps).toBeLessThanOrEqual(1)
+      }
+    }
+    // The phones only where the app screen has a phone shot (settings pages are web + desktop).
+    expect(rows.filter((r) => r.platform === `android`).length).toBeGreaterThanOrEqual(10)
   })
 })
 

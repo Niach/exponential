@@ -8,7 +8,8 @@ import android.content.Intent
  *
  * - `--es shot <view>`: hide the chrome (theme row, host echo stays); `bench` renders [bench] nodes;
  *   an `exponential-ui-<component>` id (or `exponential-ui-demo`) renders that `fixtures/specimens.json`
- *   entry instead of the kitchen sink (VAPP-93, the ui.exponential.at shots).
+ *   entry instead of the kitchen sink (VAPP-93, the ui.exponential.at shots); an `exponential-ui-eval-<id>`
+ *   id the recorded eval surface of `eval/eval-specimens.json`, its data model included (VAPP-127).
  * - `--es theme exponential|neutral|playful|orange|brand` (default `exponential`; `brand` = the
  *   `theme-extends.json` acceptance theme: `extends: neutral`, a new primary, the button radius).
  * - `--es mode light|dark` (default `dark`).
@@ -17,6 +18,8 @@ import android.content.Intent
  * - `--es overlays painted`: every layer painted inside the surface.
  * - `--es dump <path>`: two seconds after the first layout, write the WHOLE surface (not the viewport) as a PNG.
  * - `--es a11yDump <path>`: two seconds after the first layout, write the accessibility walk (one label per line).
+ * - `--es frames <path>`: two seconds after the first layout, write every visible node's frame (dp, surface
+ *   coordinates) as JSON `{surface, width, frames: [{id, x, y, w, h}]}` (VAPP-127: the eval's native boxes).
  * - `--ei bench <n>`: render `benchTreeJson(n)` instead of the kitchen sink.
  * - `--ez benchLoop true`: run the timed pass series after the first layout (logcat tag `ExponentialUI`);
  *   a tap on the host line runs it again.
@@ -30,6 +33,7 @@ data class LaunchOptions(
     val painted: Boolean = false,
     val dump: String? = null,
     val a11yDump: String? = null,
+    val frames: String? = null,
     val bench: Int = 0,
     val benchLoop: Boolean = false,
 ) {
@@ -47,6 +51,7 @@ data class LaunchOptions(
                 painted = x.getString("overlays") == "painted",
                 dump = x.getString("dump"),
                 a11yDump = x.getString("a11yDump"),
+                frames = x.getString("frames"),
                 bench = if (bench == 0 && x.getString("shot") == "bench") 200 else bench,
                 benchLoop = x.getBoolean("benchLoop", false) || x.getString("benchLoop") == "true",
             )
