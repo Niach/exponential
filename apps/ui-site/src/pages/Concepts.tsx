@@ -105,8 +105,8 @@ export default function ConceptsPage({ path }: PageProps) {
             <a href={LINKS.a2ui}>A2UI</a> is the open protocol for this. The agent sends UI as <strong>data</strong>,
             never as code: components from a catalog both sides agree on, a data model, and the actions it wants
             back. A client renders that with its own components. Exponential UI is a set of A2UI clients: one
-            catalog, a TypeScript reference and a Rust core, and native renderers for React, SwiftUI, Jetpack Compose
-            and gpui. It speaks A2UI v0.9 (the pinned v0.9.1 spec, vendored byte for byte).
+            catalog, a TypeScript reference and a Rust core, and native renderers for React, Solid, web
+            components, SwiftUI, Jetpack Compose and gpui. It speaks A2UI v0.9 (the pinned v0.9.1 spec, vendored byte for byte).
           </p>
           <DocsTable
             head={[`Word`, `What it is`]}
@@ -243,7 +243,7 @@ export default function ConceptsPage({ path }: PageProps) {
             A <strong>theme</strong> is data, never code: one JSON file of <strong>tokens</strong> (colours per
             mode, radius, spacing, type, control heights, shadows, motion) and <strong>recipes</strong> (per
             component part, a style for each combination of variant and state). Every renderer loads it at
-            runtime, so a theme can come from a URL, a app or a server.
+            runtime, so a theme can come from a URL, an app or a server.
           </p>
           <DocsCode language="json">{THEME}</DocsCode>
           <p>
@@ -267,7 +267,7 @@ export default function ConceptsPage({ path }: PageProps) {
           <DocsCode language="json">{EXTENSION}</DocsCode>
           <p>
             The model learns the new components from the same prompt (<code>catalogPrompt({`{extensions}`})</code>
-            ), and the client advertises the extension's id. The Exponential app's issue rows, run rows and chips
+            ), and the client advertises the extension's id. The Exponential app's issue rows, session rows and chips
             are the first extension, painted by the app's own components on all four clients. See{` `}
             <a href={guidePath(`extensions`)}>Write an extension</a>.
           </p>
@@ -306,7 +306,7 @@ export default function ConceptsPage({ path }: PageProps) {
         <DocsSection id="apps" num="10" label="Apps">
           <h2>Apps</h2>
           <p>
-            A <strong>app</strong> is an app built on all of the above and shipped as data: a declarative package
+            An <strong>app</strong> is built on all of the above and shipped as data: a declarative package
             of templates (components, initial data, bindings), the functions it may call and its theme. Any host
             runs it with <code>createAppHost</code>, and its <code>functions</code> list becomes the policy for its
             surfaces: listed names are allowed, everything else is denied.
@@ -315,7 +315,7 @@ export default function ConceptsPage({ path }: PageProps) {
           <p>
             Against an Exponential instance, a connector does the MCP OAuth grant and serves the instance's issues,
             boards, teams and members as <code>exp:</code> sources. Apps run on the apps platform; to build one,
-            see <a href={guidePath(`apps`)}>Build and embed a app</a>.
+            see <a href={guidePath(`apps`)}>Build and embed an app</a>.
           </p>
         </DocsSection>
 

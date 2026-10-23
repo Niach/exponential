@@ -15,7 +15,6 @@ const SECTIONS: DocsSectionType[] = [
   { id: `report`, num: `04`, label: `The report` },
   { id: `runners`, num: `05`, label: `Our runners and CI` },
   { id: `real-font`, num: `06`, label: `The real-font harness` },
-  { id: `listing`, num: `07`, label: `A2UI listing` },
 ]
 
 /** The manifest's prose marks code with backticks; render those as code. */
@@ -239,22 +238,6 @@ export default function ConformancePage({ path }: PageProps) {
             ]}
           />
           <DocsCode>{`bun run --filter @exponential_app/ui conformance -- --only kitchen-sink/playful/dark/390/ltr`}</DocsCode>
-          <p>
-            Next: the comparison becomes suite <code>real-font</code> in the manifest, so <code>conformance:check</code> stays the one verdict.
-          </p>
-        </DocsSection>
-
-        <DocsSection id="listing" num="07" label="A2UI listing">
-          <h2>A2UI listing</h2>
-          <p>
-            Once two platforms pass, Exponential UI gets an entry on the A2UI ecosystem's renderers page, as a pull
-            request to google/A2UI:
-          </p>
-          <blockquote className="content-quote">
-            <strong>Exponential UI</strong> (React, SwiftUI, Jetpack Compose, gpui): native renderers of the A2UI
-            v0.9 basic catalog plus a core catalog, runtime themes, extension catalogs and a host API (transports,
-            functions, bindings, policy). Apache-2.0. https://ui.exponential.at
-          </blockquote>
         </DocsSection>
       </DocsLayout>
     </>

@@ -124,7 +124,7 @@ export const PACKAGES: readonly PackageRow[] = [
   },
   {
     name: `exponential-ui-gpui`,
-    registry: `crates.io (later)`,
+    registry: `git`,
     what: `The gpui painter. It stays a git dependency until gpui itself is on crates.io.`,
     install: `a git dependency on github.com/Niach/exponential`,
   },
