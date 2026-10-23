@@ -43,7 +43,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     input::{InputEvent, InputState, Textarea, TextareaState},
-    h_flex, menu::DropdownMenu as _, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use serde_json::{json, Value};
 
@@ -393,9 +393,26 @@ impl CardSurfaceHost {
         MediaOptions {
             base_url: self.instance.clone(),
             schemes: Some(schemes),
+            allow_private: self.own_private_host(),
             ..Default::default()
         }
     }
+
+    /// VAPP-107: private, loopback and link-local hosts are denied by
+    /// default; a self-hosted LAN instance (`http://192.168.1.20:3000`,
+    /// `http://localhost:3000`) still serves the card's surface and its
+    /// pictures, so the card opts EXACTLY its own API host in — never the
+    /// whole LAN (`*`).
+    fn own_private_host(&self) -> Option<Vec<String>> {
+        own_host(self.instance.as_deref()?).map(|host| vec![host])
+    }
+}
+
+/// The instance url's host as the URL policy compares it (the WHATWG host,
+/// lowercased; an IPv6 host keeps its brackets).
+fn own_host(instance: &str) -> Option<String> {
+    let host = url::Url::parse(instance).ok()?.host_str()?.to_lowercase();
+    (!host.is_empty()).then_some(host)
 }
 
 /// Whether a surface media `src` may load: an own attachment (relative) or
@@ -412,6 +429,7 @@ impl HostPlugin for CardSurfaceHost {
     fn url_policy(&self) -> Option<UrlPolicy> {
         Some(UrlPolicy {
             base_url: self.instance.clone(),
+            allow_private: self.own_private_host(),
             ..Default::default()
         })
     }
@@ -1008,6 +1026,9 @@ fn plan_footer(facts: &PlanFacts, page: usize, window: &Window, cx: &mut App) ->
         );
         if let Some(fresh) = fresh {
             let (label, fresh_decide) = (fresh.label.clone(), decide.clone());
+            // THE IDE menu (in-window: the Dock sheet is a layer of the
+            // window, a sheet host), opening above the footer.
+            use crate::controls::PointerMenuButtonExt as _;
             split = split.child(
                 Button::new(SharedString::from(format!("thread-plan-{message_id}-fresh")))
                     .primary()
@@ -1019,12 +1040,13 @@ fn plan_footer(facts: &PlanFacts, page: usize, window: &Window, cx: &mut App) ->
                     .icon(Icon::new(registry::UI_CHEVRON_DOWN).with_size(px(14.)))
                     .tooltip(label.clone())
                     .disabled(blocked.is_some())
-                    .dropdown_menu(move |menu, _, _| {
+                    .pointer_menu(move |menu, _, _| {
                         let fresh_decide = fresh_decide.clone();
                         menu.item(crate::controls::pointer_label_item(label.clone(), false).on_click(move |_, _, cx| {
                             fresh_decide("approved", true, cx);
                         }))
-                    }),
+                    })
+                    .anchor(gpui::Anchor::BottomRight),
             );
         }
         trailing = trailing
@@ -1382,5 +1404,25 @@ mod tests {
         assert!(!card_media_allowed("http://example.com/x.png"));
         assert!(!card_media_allowed("file:///etc/passwd"));
         assert!(!card_media_allowed("/api/other"));
+    }
+
+    /// VAPP-107: a self-hosted LAN instance still serves the card its own
+    /// attachments and links; the opt-in is exactly its own host, never
+    /// the rest of the LAN.
+    #[test]
+    fn a_lan_instance_opts_exactly_its_own_host_in() {
+        use exponential_ui::host::decide_url;
+        let host = CardSurfaceHost { instance: Some("http://192.168.1.20:3000".into()), token: None };
+        let media = |src: &str| media_request(src, &host.options()).map(|request| request.url);
+        assert_eq!(media("/api/attachments/a1").as_deref(), Some("http://192.168.1.20:3000/api/attachments/a1"));
+        assert_eq!(media("http://192.168.1.21:3000/api/attachments/a1"), None, "a neighbour on the LAN stays denied");
+        assert_eq!(media("http://127.0.0.1/x.png"), None);
+        let policy = host.url_policy();
+        assert!(decide_url(policy.as_ref(), "/api/attachments/a1").allowed);
+        assert!(!decide_url(policy.as_ref(), "http://10.0.0.1/").allowed);
+        let local = CardSurfaceHost { instance: Some("http://localhost:3000".into()), token: None };
+        assert_eq!(local.own_private_host(), Some(vec!["localhost".to_string()]));
+        let cloud = CardSurfaceHost { instance: Some("https://app.exponential.at".into()), token: None };
+        assert!(!decide_url(cloud.url_policy().as_ref(), "http://192.168.1.20/").allowed);
     }
 }

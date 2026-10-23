@@ -55,6 +55,8 @@ pub(crate) struct GlassComposer {
     strip: Option<AnyElement>,
     tools: Vec<AnyElement>,
     submit: Option<AnyElement>,
+    /// N-14: the bottom row is a ROW host ([`GlassComposer::row_host`]).
+    row_host: Option<ElementId>,
 }
 
 /// EXP-790: what the composer's one round button does right now.
@@ -83,7 +85,17 @@ impl GlassComposer {
             strip: None,
             tools: Vec::new(),
             submit: None,
+            row_host: None,
         }
+    }
+
+    /// N-14 (`picker-presentation.json`): the bottom row (the tools, the
+    /// pins, the submit) is a ROW host — an inline pin opened in it
+    /// discloses its rows UNDER THE WHOLE ROW, as wide as it, and the pins
+    /// never move ([`crate::picker::InlinePickerRow`]).
+    pub(crate) fn row_host(mut self, id: impl Into<ElementId>) -> Self {
+        self.row_host = Some(id.into());
+        self
     }
 
     /// A row INSIDE the card, above everything else — the issue composer's
@@ -124,6 +136,7 @@ pub(crate) fn glass_composer(composer: GlassComposer) -> Div {
         strip,
         tools,
         submit,
+        row_host,
     } = composer;
     let card = v_flex()
         .w_full()
@@ -142,17 +155,19 @@ pub(crate) fn glass_composer(composer: GlassComposer) -> Div {
     // some window sizes; a column stretches its child to the definite
     // slot width instead.
     let field = v_flex().flex_1().w_full().min_w_0().child(field);
-    card.child(field).child(
-        h_flex()
-            .w_full()
-            .gap_1()
-            .px_1()
-            .pb_1()
-            .items_center()
-            .children(tools)
-            .child(div().flex_1())
-            .children(submit),
-    )
+    let row = h_flex()
+        .w_full()
+        .gap_1()
+        .px_1()
+        .pb_1()
+        .items_center()
+        .children(tools)
+        .child(div().flex_1())
+        .children(submit);
+    match row_host {
+        Some(id) => card.child(crate::picker::InlinePickerRow::new(id, row)),
+        None => card.child(row),
+    }
 }
 
 /// One leading tool of the composer's bottom row: a muted 24px ghost glyph
@@ -391,6 +406,8 @@ pub(crate) fn session_composer_card(props: SessionComposerBox, cx: &App) -> AnyE
         Some(hook) => hook(field_wrap),
         None => field_wrap,
     };
+    // N-14: THE one row is a row host: an opened pin (the device pin, the
+    // model pin) discloses its rows under the whole row.
     let mut composer = GlassComposer::new(
         gpui_component::v_flex()
             .w_full()
@@ -399,7 +416,8 @@ pub(crate) fn session_composer_card(props: SessionComposerBox, cx: &App) -> AnyE
             .child(field_wrap.child(mention))
             .into_any_element(),
     )
-    .strip(strip);
+    .strip(strip)
+    .row_host(ElementId::Name(format!("{:?}-row", submit.id).into()));
     for tool in tools {
         composer = composer.tool(tool);
     }

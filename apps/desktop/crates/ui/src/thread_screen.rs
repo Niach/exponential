@@ -1140,13 +1140,14 @@ pub(crate) fn root_dock(
     let sheet = match state.read(cx).sheet_id().map(str::to_string) {
         Some(open) => match dock_rows.iter().find(|row| row.id == open).cloned() {
             Some(dock_row) => {
-                let content = match rows.iter().find(|row| row.id() == open) {
+                // THE sheet is a sheet host: its pickers open inline.
+                let content = crate::dock::sheet_host(|| match rows.iter().find(|row| row.id() == open) {
                     Some(SessionThreadRow::Suggestions { id, start_all, items, .. }) => {
                         Some(suggestions_sheet(id, *start_all, items, suggestions.unwrap_or_default(), text.team_id(), cx))
                     }
                     Some(row) => ask_row_sheet(row, text, images, window, cx),
                     None => composer.update(cx, |composer, cx| composer.render_session_dock_sheet(&dock_row, window, cx)),
-                };
+                });
                 content.map(|content| crate::dock::sheet(state, &dock_row, content, window, cx))
             }
             None => {
@@ -1556,9 +1557,14 @@ fn suggestion_item_row(
                         .flex_shrink_0()
                         .gap_1p5()
                         .items_center()
-                        .child(crate::controls::PointerMenu::for_button(options, move |menu, window, cx| {
-                            suggestion_menu(menu, &menu_message, &menu_item, menu_team.as_deref(), window, cx)
-                        }))
+                        // THE IDE menu, in-window (inside the Dock sheet
+                        // too: a layer of the window), hung off its right edge.
+                        .child(
+                            crate::controls::PointerMenu::for_button(options, move |menu, window, cx| {
+                                suggestion_menu(menu, &menu_message, &menu_item, menu_team.as_deref(), window, cx)
+                            })
+                            .anchor(gpui::Anchor::TopRight),
+                        )
                         .child(
                             Button::new(id("start"))
                                 .primary()
