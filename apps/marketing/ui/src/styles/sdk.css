@@ -1085,62 +1085,72 @@ button.sdk-chip {
   white-space: pre-wrap;
 }
 
-/* ─── Home demo ─── */
+/* ─── Home demo: the Exponential chat in an iPhone frame ─── */
 .sdk-home-demo {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
-  gap: 18px;
-  align-items: start;
+  grid-template-columns: auto minmax(0, 520px);
+  justify-content: center;
+  gap: 48px;
+  align-items: center;
   text-align: left;
 }
-.sdk-home-chat {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+/* An iPhone 15 Pro at 1:1 CSS px (390 × 844), scaled as a whole by zoom so
+   the app's own rem sizes stay the phone's. */
+.sdk-phone {
+  position: relative;
+  width: 390px;
+  height: 844px;
   padding: 12px;
+  box-sizing: content-box;
+  border-radius: 64px;
+  background: #050505;
   border: 1px solid var(--glass-stroke-card);
-  border-radius: var(--radius-card);
-  background: var(--glass-fill-card);
-  min-width: 0;
+  box-shadow:
+    0 0 0 2px #1c1c1f,
+    0 40px 90px -30px rgb(0 0 0 / 70%);
+  zoom: 0.8;
 }
-.sdk-home-prompt {
-  display: flex;
-  gap: 8px;
-}
-.sdk-home-prompt .sdk-input {
-  flex: 1;
-}
-.sdk-home-prompt .btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-.sdk-home-stage {
-  min-height: 470px;
-  border-radius: var(--radius-section);
-  background: #0a0a0a;
-  border: 1px solid var(--glass-stroke-row);
+.sdk-phone-screen {
+  position: absolute;
+  inset: 12px;
   overflow: hidden;
+  border-radius: 52px;
+  background: oklch(0.141 0.005 285.823);
 }
-.sdk-home-idle {
-  height: 470px;
+.sdk-phone-screen .ui-demo {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  zoom: 1;
 }
-.sdk-home-status {
+.sdk-phone-island {
+  position: absolute;
+  top: 23px;
+  left: 50%;
+  z-index: 3;
+  width: 122px;
+  height: 35px;
+  border-radius: 20px;
+  background: #000;
+  transform: translateX(-50%);
+}
+.sdk-phone-status {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 2;
+  height: 54px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--fg-dim);
-}
-.sdk-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--fg-dim);
-}
-.sdk-dot.is-live {
-  background: var(--st-review);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--st-review) 25%, transparent);
+  padding: 0 34px 0 50px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  pointer-events: none;
 }
 .sdk-home-shots {
   display: grid;
@@ -1346,6 +1356,7 @@ button.sdk-chip {
   }
   .sdk-home-demo {
     grid-template-columns: 1fr;
+    justify-items: center;
   }
   .sdk-home-shots {
     grid-template-columns: 1fr 1fr 1.6fr;

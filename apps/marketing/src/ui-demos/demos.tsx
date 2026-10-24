@@ -18,6 +18,7 @@
    the four clients draw. */
 
 import type { ReactElement } from "react"
+import { PhoneChat } from "../../ui/src/sdk/PhoneChat"
 import {
   BUILTIN_STATUS_COLOR_CLASS,
   IssueChip,
@@ -66,6 +67,11 @@ export const UI_DEMOS_SOURCE: Record<string, () => ReactElement> = {
      one). A prompt or an agent subject REPLACES the issue chips with one
      chip of its own; the two never share the row, so the demo shows one
      subject kind only. */
+  /* /ui/ home — the Exponential app's phone chat answering with a generated
+     Exponential UI surface (ui/src/sdk/PhoneChat.tsx): the LAST frame,
+     which the page then replays live inside the same shadow root. */
+  "ui-phone-chat": () => <PhoneChat />,
+
   "subject-chips": () => (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-1 text-lg leading-tight font-semibold">
       <span className="shrink-0">{IMPLEMENT_HEADLINE}</span>
