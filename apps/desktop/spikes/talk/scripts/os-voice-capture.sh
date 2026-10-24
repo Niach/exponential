@@ -12,7 +12,7 @@
 set -euo pipefail
 MONITOR="$1"; OUT="$2"; mkdir -p "$OUT"
 case "$(uname -s)" in
-  Darwin) SPEAK() { say -v "$2" "$1"; } ;;
+  Darwin) SPEAK() { case "$2" in de) v=Anna ;; *) v=Samantha ;; esac; say -v "$v" "$1"; } ;;
   *)      SPEAK() { spd-say -w -l "$2" "$1"; } ;;
 esac
 python3 -c 'import json,sys; [print(p["id"], p["lang"], p.get("spoken", p["ref"])) for p in json.load(sys.stdin)["phrases"]]' | while read -r id lang ref; do

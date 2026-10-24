@@ -102,7 +102,7 @@ manual = json.load(open(os.path.join(OUT, "manual.json"))) if os.path.exists(os.
 numbers = {
     "$comment": "NEW-52 exponentialTalk spike numbers. Synthetic clips: the 20 phrases of data/phrases.json spoken by Kokoro (en) and Qwen3-TTS 1.7B (de + en); no human recordings yet (scripts/record.sh). WER is scored against the spoken form; identifiers like 'E X P twelve forty two' count word by word, which penalises engines that normalise them to 'exp1242'.",
     "machine": sys.argv[1] if len(sys.argv) > 1 else platform.node(),
-    "platform": platform.platform(),
+    "os": platform.system(),
     "asr": [x for x in [
         asr("nemotron-3.5-asr-streaming-0.6b Q8_0, transcribe.cpp CUDA", "nemotron-kokoro-en.jsonl", "nemotron"),
         asr("nemotron-3.5-asr-streaming-0.6b Q8_0, transcribe.cpp CUDA", "nemotron-qwen17b-en.jsonl", "nemotron"),

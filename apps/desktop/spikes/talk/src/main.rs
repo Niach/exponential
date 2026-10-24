@@ -75,19 +75,13 @@ fn find(dir: &Path, needle: &str, exclude: &str) -> Result<String> {
 }
 
 fn transducer(dir: &Path, int8: bool) -> Result<OnlineModelConfig> {
-    let exclude = if int8 { "\u{0}" } else { ".int8" };
+    let pick = |needle: &str| if int8 { pick_int8(dir, needle) } else { find(dir, needle, ".int8") };
     let mut cfg = OnlineModelConfig::default();
     cfg.transducer = OnlineTransducerModelConfig {
-        encoder: Some(find(dir, if int8 { "encoder" } else { "encoder" }, exclude)?),
-        decoder: Some(find(dir, "decoder", exclude)?),
-        joiner: Some(find(dir, "joiner", exclude)?),
+        encoder: Some(pick("encoder")?),
+        decoder: Some(pick("decoder")?),
+        joiner: Some(pick("joiner")?),
     };
-    if int8 {
-        // the int8 encoder is the one WITH `.int8`; re-pick it explicitly
-        cfg.transducer.encoder = Some(pick_int8(dir, "encoder")?);
-        cfg.transducer.decoder = Some(pick_int8(dir, "decoder")?);
-        cfg.transducer.joiner = Some(pick_int8(dir, "joiner")?);
-    }
     cfg.tokens = Some(dir.join("tokens.txt").to_string_lossy().into_owned());
     cfg.num_threads = threads();
     cfg.provider = Some(env::var("TALK_PROVIDER").unwrap_or_else(|_| "cpu".into()));

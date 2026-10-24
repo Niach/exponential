@@ -1,7 +1,7 @@
 {
   "$comment": "NEW-52 exponentialTalk spike numbers. Synthetic clips: the 20 phrases of data/phrases.json spoken by Kokoro (en) and Qwen3-TTS 1.7B (de + en); no human recordings yet (scripts/record.sh). WER is scored against the spoken form; identifiers like 'E X P twelve forty two' count word by word, which penalises engines that normalise them to 'exp1242'.",
   "machine": "mint (Linux Mint 22, i9 32 threads, RTX 4090 24 GB, PipeWire, Arctis Nova 7)",
-  "platform": "Linux-6.17.0-42-generic-x86_64-with-glibc2.39",
+  "os": "Linux",
   "asr": [
     {
       "engine": "nemotron-3.5-asr-streaming-0.6b Q8_0, transcribe.cpp CUDA",
@@ -167,7 +167,7 @@
     },
     "os_voice_linux": {
       "engine": "speech-dispatcher 0.12 + espeak-ng (the Linux OS voice)",
-      "result": "spoke all 20 phrases through the headset; Danny: 'sounds really bad'. Not usable as the Linux fallback voice. Time to first audio not captured: the speech-dispatcher stream could not be routed to a recordable sink in the time box."
+      "result": "spoke all 20 phrases through the headset; the owner judged it unusable on first listen. Not usable as the Linux fallback voice. Time to first audio not captured: the speech-dispatcher stream could not be routed to a recordable sink in the time box."
     },
     "vad_knob": {
       "min_silence_0_5_s": "end-of-utterance lag 500 ms on every clip",
