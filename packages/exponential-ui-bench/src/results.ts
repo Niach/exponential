@@ -53,7 +53,11 @@ export function machineInfo(): MachineInfo {
   return { id, cpu: cpu.trim(), cores: cpus().length, memoryGb: Math.round(totalmem() / 2 ** 30), os }
 }
 
+/** `EXPONENTIAL_UI_BENCH_COMMIT` (CI: the PR's head sha; EXP-1386: HEAD there
+ *  is the merge ref), else the checkout's HEAD; short either way. */
 export function gitCommit(): string | undefined {
+  const pinned = process.env.EXPONENTIAL_UI_BENCH_COMMIT
+  if (pinned) return pinned.slice(0, 7)
   try {
     return execSync(`git rev-parse --short HEAD`, { cwd: REPO_ROOT, stdio: [`ignore`, `pipe`, `ignore`] }).toString().trim()
   } catch {
