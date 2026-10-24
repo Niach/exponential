@@ -186,13 +186,17 @@ fun ThreadScreen(
     }
     val messagesById = remember(messages) { messages.associateBy { it.id } }
     val issueTitles = remember(syncedIssues) { syncedIssues.associate { it.id to it.title } }
-    val metaFor: (SessionTree.ThreadRow.MessageRow) -> ThreadRowMeta? = { row ->
-        val user = row.authorId?.let { users[it] }
-        ThreadRowMeta(
-            authorName = if (row.author == "user") userDisplayName(user, row.authorId) else "",
-            time = messagesById[row.id]?.createdAt?.let(::clockTime).orEmpty(),
-            user = user,
-        )
+    // #EXP-1380: one instance per change of its inputs, so the transcript's
+    // rows skip recomposition while the screen's other state moves.
+    val metaFor: (SessionTree.ThreadRow.MessageRow) -> ThreadRowMeta? = remember(users, messagesById) {
+        { row ->
+            val user = row.authorId?.let { users[it] }
+            ThreadRowMeta(
+                authorName = if (row.author == "user") userDisplayName(user, row.authorId) else "",
+                time = messagesById[row.id]?.createdAt?.let(::clockTime).orEmpty(),
+                user = user,
+            )
+        }
     }
     val rootRow = root
     // NEW-2: the agent's DEFINITION row names the header (its coloured icon +

@@ -324,10 +324,12 @@ class ChatsTest {
         assertEquals(team.str("meta"), Chats.Copy.TEAM_META)
         assertEquals(team.str("switch"), Chats.Copy.TEAM_SWITCH)
         assertEquals(copy.str("inbox"), Chats.Copy.INBOX)
+        assertEquals(copy.str("loadEarlier"), Chats.Copy.LOAD_EARLIER)
+        assertEquals(copy.str("working"), Chats.Copy.WORKING)
         assertEquals(
             setOf(
                 "title", "tabs", "filters", "preview", "time", "menu", "confirmDelete", "toasts", "dividers",
-                "superseded", "boardChips", "team", "inbox",
+                "superseded", "boardChips", "team", "inbox", "loadEarlier", "working",
             ),
             copy.keys,
         )
@@ -353,7 +355,15 @@ class ChatsTest {
         assertEquals(ids.str("boardChip"), Chats.TestIds.BOARD_CHIP)
         assertEquals(ids.str("surfaceCard"), Chats.TestIds.SURFACE_CARD)
         assertEquals(ids.str("divider"), Chats.TestIds.DIVIDER)
-        assertEquals(8, ids.size)
+        assertEquals(ids.str("loadEarlier"), Chats.TestIds.LOAD_EARLIER)
+        assertEquals(ids.str("jumpToBottom"), Chats.TestIds.JUMP_TO_BOTTOM)
+        assertEquals(10, ids.size)
+
+        val transcript = fixture.getValue("transcript").jsonObject
+        assertEquals(transcript.getValue("window").jsonPrimitive.int, Chats.Transcript.WINDOW)
+        assertEquals(transcript.getValue("windowStep").jsonPrimitive.int, Chats.Transcript.WINDOW_STEP)
+        assertEquals(transcript.getValue("followSlack").jsonPrimitive.int, Chats.Transcript.FOLLOW_SLACK)
+        assertEquals(3, transcript.size)
 
         val sends = fixture.getValue("agentMenu").jsonObject.getValue("sends").jsonObject
         assertEquals(sends.str("compact"), Chats.agentMenuSend(Chats.AgentMenuEntry.Compact))

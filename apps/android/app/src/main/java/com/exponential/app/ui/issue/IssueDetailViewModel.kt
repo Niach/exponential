@@ -593,12 +593,17 @@ class IssueDetailViewModel @AssistedInject constructor(
         if (db == null) {
             flowOf(emptyList())
         } else {
+            val roots = db.sessionDao().observeRootsOfIssue(issueId)
             combine(
-                db.sessionDao().observeRootsOfIssue(issueId),
+                roots,
                 db.sessionDao().observeAll(),
                 db.sessionIssueDao().observeAll(),
                 db.issueDao().observeAll(),
-                db.keyedMessages(db.messageDao().observeAll()),
+                // #EXP-1380: only the card-less rows the roots' titles read,
+                // never every synced message.
+                roots.map { rows -> rows.map { it.id }.sorted() }.distinctUntilChanged().flatMapLatest { ids ->
+                    if (ids.isEmpty()) flowOf(emptyList()) else db.keyedMessages(db.messageDao().observeTitleRows(ids))
+                },
             ) { roots: List<SessionEntity>, all: List<SessionEntity>, links: List<SessionIssueEntity>,
                 issues: List<IssueEntity>, messages: List<SessionTree.Message> ->
                 val treeIssues = issues.map(SessionTree::issue)

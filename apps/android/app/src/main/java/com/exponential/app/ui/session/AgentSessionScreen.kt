@@ -2131,7 +2131,11 @@ internal fun LazyListState.isNearBottom(slackPx: Float): Boolean {
     val info = layoutInfo
     val last = info.visibleItemsInfo.lastOrNull() ?: return true
     if (last.index < info.totalItemsCount - 1) return false
-    return last.offset + last.size - info.viewportEndOffset <= slackPx
+    // #EXP-1383: measured from the CONTENT's end — the bottom content
+    // padding (the floating composer band, ~150dp) is not slack; counting
+    // it kept a reader "at the bottom" for a screen-third, re-pinned short
+    // flicks and hid the jump button.
+    return last.offset + last.size - (info.viewportEndOffset - info.afterContentPadding) <= slackPx
 }
 
 /** EXP-356: conversation tabs — Main plus one chip per RUNNING subagent

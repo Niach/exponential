@@ -50,11 +50,32 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+/** #EXP-1380: every session id a card of [messages] names (`sessionId` on
+ *  the card or on one of its items), sorted — the sessions outside the tree
+ *  a chat's cards draw (their rows + titles). */
+internal fun referencedSessionIds(messages: List<SessionTree.Message>): List<String> {
+    val out = sortedSetOf<String>()
+    fun take(element: kotlinx.serialization.json.JsonElement?) {
+        val obj = element as? JsonObject ?: return
+        (obj["sessionId"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+            ?.takeIf { it.isNotEmpty() }?.let(out::add)
+    }
+    for (message in messages) {
+        val card = message.card ?: continue
+        take(card)
+        for (value in card.values) (value as? kotlinx.serialization.json.JsonArray)?.forEach(::take)
+    }
+    return out.toList()
+}
 
 /** The thing a chat menu call names (`Couldn't stop the chat`). */
 private const val CHAT_THING = "the chat"
@@ -152,29 +173,69 @@ class ThreadViewModel @Inject constructor(
     val guide: StateFlow<String?> = root.map { it?.guide }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    private val clock: Flow<Long> = flow {
-        while (true) {
-            emit(System.currentTimeMillis())
-            delay(1_000)
+    /** #EXP-1380 (chats.json PERF): the tree's messages, keyed through
+     *  their conversations — the transcript reads THIS tree, never every
+     *  synced message. */
+    private val treeMessages: Flow<List<SessionTree.Message>> =
+        dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { it.keyedMessages(it.messageDao().observeByRoot(rootId)) }
+            // One query + one card parse per change, shared by the view and
+            // the referenced-session lookup.
+            .flowOn(Dispatchers.Default)
+            .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    /** EXP-1341: the sessions the tree's cards name outside the tree (an
+     *  agent channel's `thread_started` → another root): their rows + the
+     *  card-less messages their titles read, by id. */
+    private val referencedIds: Flow<List<String>> = combine(treeMessages, tree) { messages, treeRows ->
+        val inTree = treeRows.mapTo(HashSet()) { it.id }
+        referencedSessionIds(messages).filter { it !in inTree }
+    }
+        .distinctUntilChanged()
+
+    private val referencedSessions: Flow<List<SessionEntity>> = referencedIds.flatMapLatest { ids ->
+        if (ids.isEmpty()) flowOf(emptyList()) else dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeByIds(ids) }
+    }
+
+    private val referencedTitleMessages: Flow<List<SessionTree.Message>> = referencedIds.flatMapLatest { ids ->
+        if (ids.isEmpty()) {
+            flowOf(emptyList())
+        } else {
+            dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { it.keyedMessages(it.messageDao().observeTitleRows(ids)) }
         }
     }
 
-    /** EXP-1341: EVERY link + message, so a card naming another tree (an
-     *  agent channel's `thread_started`) resolves its shared title too;
-     *  [SessionTree.buildSessionThread] scopes both to this tree itself. */
-    private val linksFlow = dbFlow.scopedQuery(emptyList()) { it.sessionIssueDao().observeAll() }
-    private val titleMessages = dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { it.keyedMessages(it.messageDao().observeAll()) }
+    /** chats.json PERF: the clock ticks only while a session the chat paints
+     *  a CARD for is live (a child, a `thread_started` root: their elapsed
+     *  ladder). The root never has a card, so an idle agent chat or a lone
+     *  thread builds once per change, never once a second. */
+    private val clock: Flow<Unit> = combine(tree, referencedSessions) { treeRows, refs ->
+        treeRows.any { it.id != rootId && !it.isEnded } || refs.any { it.id != rootId && !it.isEnded }
+    }
+        .distinctUntilChanged()
+        .flatMapLatest { live ->
+            if (!live) {
+                flowOf(Unit)
+            } else {
+                flow {
+                    while (true) {
+                        emit(Unit)
+                        delay(1_000)
+                    }
+                }
+            }
+        }
 
-    /** Every synced session: the tree, plus the roots an agent channel's
-     *  `thread_started` cards point at (another tree each). */
-    private val allSessions: StateFlow<List<SessionEntity>> =
-        dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /** EXP-1341: the links + issues the tree's (and its named sessions')
+     *  titles and chips read. */
+    private val linksFlow = dbFlow.scopedQuery(emptyList()) { it.sessionIssueDao().observeAll() }
+
+    /** The OTHER roots the chat's cards name (an agent channel's
+     *  `thread_started`), refreshed with every [view] build. */
+    @Volatile private var otherRootIds: Set<String> = emptySet()
 
     /** Whether [sessionId] is ANOTHER root (an agent channel's
      *  `thread_started` card): it opens as a thread, not a raw session. */
-    fun isOtherRoot(sessionId: String): Boolean =
-        sessionId != rootId && allSessions.value.firstOrNull { it.id == sessionId }?.isRoot == true
+    fun isOtherRoot(sessionId: String): Boolean = sessionId != rootId && sessionId in otherRootIds
     private val allIssues = dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }
 
     /** EXP-1334: the `parent` relations a linked sub-issue folds by. */
@@ -191,25 +252,43 @@ class ThreadViewModel @Inject constructor(
     val syncedIssues: StateFlow<List<IssueEntity>> =
         allIssues.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** THE thread view (tabs, rows, composer target); null until the root syncs. */
+    /** The previous build's rows by id: an unchanged row keeps its INSTANCE,
+     *  so the transcript's items skip recomposition (chats.json PERF). */
+    private var lastRows: Map<String, SessionTree.ThreadRow> = emptyMap()
+
+    /** THE thread view (tabs, rows, composer target); null until the root
+     *  syncs. #EXP-1380: built off the main thread over the tree's own rows
+     *  (+ the sessions its cards name), re-built per change and, while a
+     *  session is live, per clock tick. */
     val view: StateFlow<SessionTree.ThreadView?> = combine(
-        combine(root, allSessions) { r, t -> r to t },
+        combine(root, tree, referencedSessions) { r, t, refs -> Triple(r, t, refs) },
         combine(linksFlow, allIssues, issueParents) { l, i, p -> l to i.map { SessionTree.issue(it, p[it.id]) } },
-        titleMessages,
+        // A named session's title rows may already be the tree's own: once each.
+        combine(treeMessages, referencedTitleMessages) { own, titles ->
+            if (titles.isEmpty()) own else (own + titles).distinctBy { it.id }
+        },
         pullRequests,
         clock,
-    ) { (rootRow, treeRows), (links, issueRows), messageRows, prs, now ->
+    ) { (rootRow, treeRows, refs), (links, issueRows), messageRows, prs, _ ->
         val r = rootRow ?: return@combine null
-        SessionTree.buildSessionThread(
+        otherRootIds = refs.filter { it.isRoot && it.id != rootId }.mapTo(HashSet()) { it.id }
+        val sessions = if (refs.isEmpty()) treeRows else (treeRows + refs).distinctBy { it.id }
+        val built = SessionTree.buildSessionThread(
             root = SessionTree.session(r),
-            sessions = treeRows.map(SessionTree::session),
+            sessions = sessions.map(SessionTree::session),
             sessionIssues = links.map(SessionTree::sessionIssue),
             issues = issueRows,
             messages = messageRows,
             pullRequests = prs.mapNotNull(SessionTree::pullRequest),
-            now = SessionTree.nowIso(now),
+            now = SessionTree.nowIso(System.currentTimeMillis()),
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        val previous = lastRows
+        val rows = built.rows.map { row -> previous[row.id]?.takeIf { it == row } ?: row }
+        lastRows = rows.associateBy { it.id }
+        built.copy(rows = rows)
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _sending = MutableStateFlow(false)
     /** A [send] is in flight. */
