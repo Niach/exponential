@@ -105,7 +105,8 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON prompts FOR EACH RO
 -- VAPP-110: apps (rename, a new head version, trash).
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON apps FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 -- NEW-3: conversations.
-CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON conversations FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- #EXP-1380: a digest-only write (the trigger below) is no edit of the row.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON conversations FOR EACH ROW WHEN (OLD.digest IS NOT DISTINCT FROM NEW.digest) EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON user_notification_prefs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON email_deliveries FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON widget_configs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -488,6 +489,114 @@ CREATE OR REPLACE TRIGGER sync_session_conversation_mirrors
   FOR EACH ROW
   WHEN (OLD.shared IS DISTINCT FROM NEW.shared OR OLD.user_id IS DISTINCT FROM NEW.user_id)
   EXECUTE FUNCTION sync_session_conversation_mirrors();
+
+-- #EXP-1380: THE list digest of a conversation (`conversations.digest`):
+-- exactly the messages the list's rules read (the title's first prompt, the
+-- preview, the waiting question/plan, the newest agent time and the newest
+-- 100 non-event agent times), so the web list never syncs a transcript.
+-- Mirrors domain-contract `conversationDigest` (chats.ts; chats.test.ts
+-- locks that the rules answer the same over it). Times are millisecond ISO
+-- strings (two messages inside one millisecond order by the microsecond
+-- here, by id there); text is cut to 500 characters.
+CREATE OR REPLACE FUNCTION conversation_digest_ms(at timestamptz)
+RETURNS text AS $$
+  SELECT to_char(at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+$$ LANGUAGE sql IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION conversation_digest_message(m messages)
+RETURNS jsonb AS $$
+  SELECT jsonb_build_object(
+    'id', m.id,
+    'authorKind', m.author_kind::text,
+    'authorSessionId', m.author_session_id,
+    'body', left(m.body, 500),
+    'card', CASE WHEN m.card IS NULL OR jsonb_typeof(m.card) <> 'object' THEN NULL ELSE jsonb_strip_nulls(jsonb_build_object(
+      'kind', m.card->>'kind',
+      'question', CASE WHEN jsonb_typeof(m.card->'question') = 'string' THEN left(m.card->>'question', 500) END,
+      'plan', CASE WHEN jsonb_typeof(m.card->'plan') = 'string' THEN left(m.card->>'plan', 500) END,
+      'title', CASE WHEN jsonb_typeof(m.card->'title') = 'string' THEN left(m.card->>'title', 500) END)) END,
+    'answeredAt', CASE WHEN m.answered_at IS NULL THEN NULL ELSE conversation_digest_ms(m.answered_at) END,
+    'createdAt', conversation_digest_ms(m.created_at))
+$$ LANGUAGE sql STABLE;
+
+CREATE OR REPLACE FUNCTION conversation_digest(conv uuid)
+RETURNS jsonb AS $$
+  -- Each part walks idx_messages_conversation_created and stops early.
+  SELECT jsonb_build_object(
+    'first', (
+      SELECT conversation_digest_message(m) FROM messages m
+      WHERE m.conversation_id = conv
+        AND (m.card IS NULL OR jsonb_typeof(m.card) <> 'object')
+        AND (m.author_kind = 'user'
+          OR (m.author_session_id IS NOT NULL AND m.author_session_id IS DISTINCT FROM
+            (SELECT c.session_id FROM conversations c WHERE c.id = conv)))
+        AND EXISTS (
+          SELECT 1 FROM regexp_split_to_table(m.body, E'\n') AS line
+          WHERE btrim(line, E' \t\r\f\v') <> '' AND btrim(line, E' \t\r\f\v') NOT LIKE '![%')
+      ORDER BY m.created_at, m.id LIMIT 1),
+    'preview', (
+      SELECT conversation_digest_message(m) FROM messages m
+      WHERE m.conversation_id = conv AND m.author_kind IN ('user', 'agent')
+        AND CASE WHEN m.card IS NULL OR jsonb_typeof(m.card) <> 'object' THEN m.body ~ '\S'
+          ELSE m.card->>'kind' IN ('question', 'plan', 'ask', 'picture', 'surface') END
+      ORDER BY m.created_at DESC, m.id DESC LIMIT 1),
+    'waiting', (
+      SELECT conversation_digest_message(m) FROM messages m
+      WHERE m.conversation_id = conv AND m.author_kind IN ('user', 'agent')
+        AND m.answered_at IS NULL AND jsonb_typeof(m.card) = 'object'
+        AND m.card->>'kind' IN ('question', 'plan', 'ask')
+      ORDER BY m.created_at DESC, m.id DESC LIMIT 1),
+    'agentAt', (
+      SELECT conversation_digest_ms(m.created_at) FROM messages m
+      WHERE m.conversation_id = conv AND m.author_kind = 'agent'
+      ORDER BY m.created_at DESC LIMIT 1),
+    'agentTimes', COALESCE((
+      SELECT jsonb_agg(conversation_digest_ms(t.created_at) ORDER BY t.created_at, t.id) FROM (
+        SELECT m.created_at, m.id FROM messages m
+        WHERE m.conversation_id = conv AND m.author_kind = 'agent'
+          AND (m.card->>'kind') IS DISTINCT FROM 'event'
+        ORDER BY m.created_at DESC, m.id DESC LIMIT 100) t), '[]'::jsonb))
+$$ LANGUAGE sql STABLE;
+
+-- Statement-level, so a bulk insert refreshes each conversation once; an
+-- unchanged digest writes nothing (no shape churn).
+CREATE OR REPLACE FUNCTION refresh_conversation_digests()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    UPDATE conversations c SET digest = d.digest
+      FROM (SELECT x.id, conversation_digest(x.id) AS digest
+            FROM (SELECT DISTINCT conversation_id AS id FROM new_rows) x) d
+      WHERE c.id = d.id AND c.digest IS DISTINCT FROM d.digest;
+  ELSIF TG_OP = 'UPDATE' THEN
+    UPDATE conversations c SET digest = d.digest
+      FROM (SELECT x.id, conversation_digest(x.id) AS digest
+            FROM (SELECT conversation_id AS id FROM new_rows
+                  UNION SELECT conversation_id FROM old_rows) x) d
+      WHERE c.id = d.id AND c.digest IS DISTINCT FROM d.digest;
+  ELSE
+    UPDATE conversations c SET digest = d.digest
+      FROM (SELECT x.id, conversation_digest(x.id) AS digest
+            FROM (SELECT DISTINCT conversation_id AS id FROM old_rows) x) d
+      WHERE c.id = d.id AND c.digest IS DISTINCT FROM d.digest;
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER refresh_conversation_digests_insert
+  AFTER INSERT ON messages REFERENCING NEW TABLE AS new_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION refresh_conversation_digests();
+CREATE OR REPLACE TRIGGER refresh_conversation_digests_update
+  AFTER UPDATE ON messages REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION refresh_conversation_digests();
+CREATE OR REPLACE TRIGGER refresh_conversation_digests_delete
+  AFTER DELETE ON messages REFERENCING OLD TABLE AS old_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION refresh_conversation_digests();
+
+-- Backfill (idempotent, every boot): conversations from before the column
+-- (a digest is never NULL once computed, an empty one included).
+UPDATE conversations SET digest = conversation_digest(id) WHERE digest IS NULL;
 
 -- The pre-EXP-1291 run/thread functions (their tables are gone, so are
 -- their triggers): dropped so no stale body lingers.

@@ -33,8 +33,6 @@ import {
 } from "@exp/domain-contract/trace"
 import { expToolGroupCaption } from "@exp/domain-contract/exp-tool-group"
 import { linkSegments } from "@/lib/linkify"
-import { useAppLinkClick } from "@/hooks/use-app-link-click"
-import { splitIssueRefs } from "@/lib/issue-refs"
 import { Check, X } from "lucide-react"
 import {
   AskCard,
@@ -49,6 +47,8 @@ import {
   conceptIcon,
   EditedFilesCard,
   JumpToBottomButton,
+  JUMP_TO_BOTTOM_GAP,
+  LoadEarlierButton,
   useIsMobile,
   Button,
   Pill,
@@ -106,7 +106,6 @@ import {
   FEED_WINDOW_STEP,
   isAnswerLocked,
   liveToolRowId,
-  looksLikeMarkdown,
   nestedWorkflowId,
   orphanWorkflowIds,
   pendingAnswerable,
@@ -149,6 +148,7 @@ import { trpc } from "@/lib/trpc-client"
 import { useSessionMessages } from "@/hooks/use-session-tree"
 import { useAnswerMessage } from "@/components/thread/agent-channel"
 import { renderThreadText } from "@/components/thread/thread-markdown"
+import { FeedText } from "@/components/feed-text"
 import { workingCaption } from "@/lib/working-caption"
 import {
   COMMENT_CALL_TOOL,
@@ -236,7 +236,6 @@ const TRANSCRIPT_STALL_MS = 8_000
 /** N-12: the transcript's last row clears THE Dock's band by this much. */
 const DOCK_GAP = 16
 /** N-12: the jump circle sits this far above the band (EXP-1191: 12px). */
-const JUMP_GAP = 12
 /** N-12: the relay's own waiting card is the newest ask in the Dock. */
 const RELAY_ASK_ORDER = Number.MAX_SAFE_INTEGER
 
@@ -970,18 +969,7 @@ export function AgentSessionView({
                 className={cn(`flex min-h-full flex-col justify-end py-2`, TRANSCRIPT_COLUMN)}
                 style={{ paddingBottom: dockHeight + DOCK_GAP }}
               >
-                {canLoadEarlier ? (
-                  <div className="flex justify-center pb-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs text-muted-foreground"
-                      onClick={loadEarlier}
-                    >
-                      Load earlier
-                    </Button>
-                  </div>
-                ) : null}
+                {canLoadEarlier ? <LoadEarlierButton onClick={loadEarlier} /> : null}
                 {renderToolCards([...toolCardAnchors.unanchored, ...surfaceAnchors.unanchored], `head`)}
                 {rows.map((row, index) => (
                   <Fragment key={row.kind === `single` ? `row-${row.item.id}` : `row-${row.id}`}>
@@ -1043,7 +1031,7 @@ export function AgentSessionView({
           <JumpToBottomButton
             visible={!atBottom && feed.length > 0}
             className="absolute left-1/2 z-30 -translate-x-1/2"
-            style={{ bottom: dockHeight + JUMP_GAP }}
+            style={{ bottom: dockHeight + JUMP_TO_BOTTOM_GAP }}
             onClick={jumpToBottom}
           />
           {/* N-12: THE Dock over the transcript's bottom edge: the waiting
@@ -1555,108 +1543,6 @@ function LaneRows({
 /** Read-only editors never emit — one shared handler keeps every feed bubble
  *  out of the "new function identity per render" trap. */
 const noop = () => {}
-
-/** The shared read-only markdown renderer — the same TipTap pipeline the issue
- *  and comment bodies use, in its compact `chat` presentation, so a feed bubble
- *  draws headings, lists, code and IMAGES exactly like the rest of the product
- *  (EXP-440). `linkify` is on because agent text carries bare URLs. */
-function FeedMarkdown({
-  text,
-  ariaLabel,
-  hardBreaks,
-}: {
-  text: string
-  ariaLabel: string
-  /** Chat text is line-broken by hand — a single newline is a real break. */
-  hardBreaks?: boolean
-}) {
-  const onLinkClick = useAppLinkClick()
-  return (
-    // EXP-1188: links to this instance route in-app, sources open a tab.
-    <div onClickCapture={onLinkClick}>
-      <MarkdownEditor
-        markdown={text}
-        editable={false}
-        onChange={noop}
-        appearance="chat"
-        linkify
-        hardBreaks={hardBreaks}
-        ariaLabel={ariaLabel}
-        // EXP-760: agents narrate BARE identifiers ("landed EXP-758"), so the
-        // steering feed — and only it — chips those too. Descriptions and
-        // comments keep the `#IDENT` contract.
-        bareIssueRefs
-      />
-    </div>
-  )
-}
-
-/** Feed text: markdown when it carries any (EXP-440), else the plain
- *  linkified rendering — most narration is one prose line, and spinning up a
- *  TipTap instance per line would be pure overhead. */
-function FeedText({
-  text,
-  ariaLabel,
-  hardBreaks,
-}: {
-  text: string
-  ariaLabel: string
-  hardBreaks?: boolean
-}) {
-  const onLinkClick = useAppLinkClick()
-  if (looksLikeMarkdown(text)) {
-    return (
-      <FeedMarkdown text={text} ariaLabel={ariaLabel} hardBreaks={hardBreaks} />
-    )
-  }
-  return (
-    <div className="whitespace-pre-wrap break-words" onClickCapture={onLinkClick}>
-      <IssueRefText text={text} />
-    </div>
-  )
-}
-
-/** Linkified prose whose issue identifiers — `#EXP-758` AND the bare
- *  `EXP-758` agents actually write — render as chips (EXP-760). Only a
- *  RESOLVED, same-team issue chips; everything else stays prose and goes
- *  through the URL linkifier, exactly as `MarkerText` splits around its image
- *  markers. */
-function IssueRefText({ text }: { text: string }) {
-  const issueRefs = useIssueRefs()
-  return (
-    <>
-      {splitIssueRefs(text, { bare: true }).map((segment, i) => {
-        const resolved = segment.identifier
-          ? (issueRefs?.resolve(segment.identifier) ?? null)
-          : null
-        if (resolved)
-          return (
-            <IssueChip
-              key={i}
-              issue={resolved}
-              onClick={() => issueRefs?.open(resolved.identifier)}
-            />
-          )
-        return linkSegments(segment.text).map((part, j) =>
-          part.href ? (
-            // break-all: the EXP-430 sign-in URL has no break points.
-            <a
-              key={`${i}-${j}`}
-              href={part.href}
-              target="_blank"
-              rel="noreferrer"
-              className="break-all text-primary underline underline-offset-2 hover:opacity-80"
-            >
-              {part.text}
-            </a>
-          ) : (
-            <Fragment key={`${i}-${j}`}>{part.text}</Fragment>
-          ),
-        )
-      })}
-    </>
-  )
-}
 
 // memo: a live feed re-renders on every incoming frame, and a bubble that
 // rendered markdown owns a TipTap editor — re-running that for unchanged text

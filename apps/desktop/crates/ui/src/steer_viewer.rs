@@ -1327,6 +1327,9 @@ impl SteerSessionView {
     /// not worth a cache to earn.
     fn sync_list(&mut self, cx: &mut gpui::Context<Self>) {
         self.refresh_derived();
+        // #EXP-1383 FOLLOW: an arrival keeps a reader inside the slack on
+        // the tail (the chats' rule).
+        crate::chat_transcript::rearm_near_tail(&self.list);
         self.reanchor_window();
         if std::mem::take(&mut self.extend_window) {
             self.grow_window();
@@ -7362,14 +7365,16 @@ impl SteerSessionView {
         composer_visible: bool,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let following = list.is_following_tail();
+        // #EXP-1383 (chats.json FOLLOW + JUMP): the run view reads the same
+        // `followSlack` as the chats.
+        let following = crate::chat_transcript::near_tail(list);
         let shown = has_rows && !following;
         let target = list.clone();
         let list = list.clone();
         let entity_id = cx.entity_id();
         let probe = gpui::canvas(
             move |_, _, cx| {
-                if list.is_following_tail() != following {
+                if crate::chat_transcript::near_tail(&list) != following {
                     cx.defer(move |cx| cx.notify(entity_id));
                 }
             },

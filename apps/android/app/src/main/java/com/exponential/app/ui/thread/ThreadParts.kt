@@ -14,6 +14,7 @@ import com.exponential.app.ui.theme.fullBleed
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.RowScope
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.TranscriptLoadEarlierButton
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.PillSize
@@ -36,6 +37,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
+import com.exponential.app.domain.Chats
 import androidx.compose.ui.platform.LocalDensity
 import com.exponential.app.ui.components.JumpToBottomButton
 import com.exponential.app.ui.session.isNearBottom
@@ -1045,31 +1047,55 @@ fun ThreadConversation(
     // chats.json: a row ARRIVES when its id was not in the transcript the
     // screen first painted (history, a reopen or a scroll never animate).
     val arrivals = rememberLiveArrivals(rootId, shown)
-    // EXP-1316 (1n): the session feed's scroll — the thread opens at the
-    // newest row and follows new rows while the reader sits at the bottom
-    // (~96dp slack); a drag up stops following and shows THE jump-to-bottom
+    // chats.json FOLLOW + JUMP (#EXP-1383): the chat opens at the newest row
+    // and follows new rows while the reader sits within `followSlack` of the
+    // bottom; a drag further up stops following and shows THE jump-to-bottom
     // button. Only user drags flip follow-mode.
     var follow by rememberSaveable(rootId) { mutableStateOf(true) }
-    val followSlackPx = with(LocalDensity.current) { 96.dp.toPx() }
+    val followSlackPx = with(LocalDensity.current) { Chats.Transcript.FOLLOW_SLACK.dp.toPx() }
     val jumpScope = rememberCoroutineScope()
+    // chats.json WINDOW (#EXP-1380): the newest `transcript.window` rows; a
+    // pinned start ([windowFrom], set once the reader leaves the tail or
+    // presses Load earlier) keeps every arrival (the window never shrinks).
+    var windowFrom by rememberSaveable(rootId) { mutableStateOf<String?>(null) }
+    val windowStart = remember(shown, windowFrom) { transcriptWindowStart(shown, windowFrom) }
+    val painted = remember(shown, windowStart) { if (windowStart == 0) shown else shown.subList(windowStart, shown.size) }
+    val header = if (windowStart > 0) 1 else 0
+    // Load earlier keeps the reader's place: the row that was first on screen
+    // returns to the same offset once the rows above it land.
+    var anchor by remember(rootId) { mutableStateOf<Pair<String, Int>?>(null) }
+    LaunchedEffect(windowStart, anchor) {
+        val (key, offset) = anchor ?: return@LaunchedEffect
+        val index = painted.indexOfFirst { it.id == key }
+        if (index >= 0) {
+            state.scrollToItem(index + header)
+            val now = state.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }?.offset
+            if (now != null) state.scrollBy((now - offset).toFloat())
+        }
+        anchor = null
+    }
     LaunchedEffect(state, followSlackPx) {
         snapshotFlow { state.isScrollInProgress to state.isNearBottom(followSlackPx) }
             .distinctUntilChanged()
             .collect { (dragging, nearBottom) -> if (dragging) follow = nearBottom }
     }
+    // Leaving the tail pins the window's start: rows never vanish above a
+    // reader while new ones arrive below.
+    LaunchedEffect(follow) {
+        if (!follow && windowFrom == null) windowFrom = shown.getOrNull(windowStart)?.id
+    }
     // The floating band's height lands after the first layout: a follower
     // re-pins to the true end when it does (the session view's rule).
     // EXP-1316: re-pin whenever a follower could still scroll forward (a
     // row grew after its first layout, the band changed height).
+    // #EXP-1380: always via the LAST item, never a long scrollBy from the
+    // top — that composed every row on the way down (the OOM on long chats).
     LaunchedEffect(state) {
         snapshotFlow { follow && !state.isScrollInProgress && state.canScrollForward }
-            .collect { behind -> if (behind) state.scrollBy(1_000_000f) }
+            .collect { behind -> if (behind) state.pinToEnd() }
     }
-    LaunchedEffect(shown.size, follow, jumpBottomInset) {
-        if (follow && shown.isNotEmpty()) {
-            state.scrollToItem(shown.lastIndex)
-            state.scrollBy(1_000_000f)
-        }
+    LaunchedEffect(painted.size, follow, jumpBottomInset) {
+        if (follow && painted.isNotEmpty()) state.pinToEnd()
     }
     // EXP-760 ×4 (web `thread-markdown.tsx`): every conversation text chips
     // BARE identifiers too (`FB-8`; agents omit the `#`) when the screen
@@ -1082,7 +1108,19 @@ fun ThreadConversation(
             contentPadding = contentPadding,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(shown, key = { it.id }) { row ->
+            if (header > 0) {
+                // THE Load earlier ×4 (the run view's, muted small text).
+                item(key = "load-earlier") {
+                    TranscriptLoadEarlierButton(
+                        onClick = {
+                            val first = state.layoutInfo.visibleItemsInfo.firstOrNull { it.key != "load-earlier" }
+                            anchor = (first?.key as? String)?.let { it to first.offset }
+                            windowFrom = shown[maxOf(0, windowStart - Chats.Transcript.WINDOW_STEP)].id
+                        },
+                    )
+                }
+            }
+            items(painted, key = { it.id }) { row ->
                 Box(Modifier.liveArrival(arrivals(row.id))) {
                 when (row) {
                     // Thread 58cb32df (chats.json TRANSCRIPT): phones paint the
@@ -1136,17 +1174,44 @@ fun ThreadConversation(
         }
         JumpToBottomButton(
             visible = !follow && shown.isNotEmpty(),
+            // #EXP-1383 (owner 2026-10-24: "exactly as in sessions"): the run
+            // view's tap — animate to the newest row (the pinned window still
+            // ends on it), finish on the true end, then drop the pin and
+            // resume following.
             onClick = {
                 jumpScope.launch {
-                    state.animateScrollToItem(shown.lastIndex)
-                    state.scrollBy(1_000_000f)
+                    val last = state.layoutInfo.totalItemsCount - 1
+                    if (last >= 0) {
+                        state.animateScrollToItem(last)
+                        state.scrollBy(100_000f)
+                    }
+                    windowFrom = null
                     follow = true
                 }
             },
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = jumpBottomInset + 8.dp),
+            // The run view's placement: centred 12dp above the composer's
+            // rung ([jumpBottomInset] = the floating band, whose top 8dp is
+            // the bar's own padding), so band + 4dp.
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = jumpBottomInset + 4.dp),
         )
         }
     }
+}
+
+/** #EXP-1380: the index the painted window starts at — [windowFrom]'s row
+ *  when pinned (and still there), else the newest `transcript.window`. */
+internal fun transcriptWindowStart(rows: List<SessionTree.ThreadRow>, windowFrom: String?): Int {
+    val pinned = windowFrom?.let { id -> rows.indexOfFirst { it.id == id } }?.takeIf { it >= 0 }
+    return pinned ?: maxOf(0, rows.size - Chats.Transcript.WINDOW)
+}
+
+/** Scroll to the very end through the LAST item (only the rows on screen
+ *  compose; a long scrollBy from far up composes every row it passes). */
+private suspend fun LazyListState.pinToEnd() {
+    val last = layoutInfo.totalItemsCount - 1
+    if (last < 0) return
+    scrollToItem(last)
+    scrollBy(100_000f)
 }
 
 /** A person's message: the right-aligned bubble, `name · HH:mm` under it;

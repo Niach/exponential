@@ -6,6 +6,7 @@ import {
   DockCard,
   EmptyState,
   JumpToBottomButton,
+  JUMP_TO_BOTTOM_GAP,
   SkeletonRows,
   useIsMobile,
 } from "@exp/ui"
@@ -13,6 +14,7 @@ import type { User } from "@/db/schema"
 import { dockRows } from "@exp/domain-contract/dock"
 import { useAgentHintDock } from "@/components/agent-session"
 import { SessionComposer } from "@/components/session-composer"
+import { SessionLiveTail } from "@/components/agent-session"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AgentChannel, AgentComposer } from "@/components/thread/agent-channel"
 import { AgentHeaderMenu } from "@/components/thread/chat-menu"
@@ -175,6 +177,9 @@ function AgentChannelPage() {
             className="mx-auto flex min-h-full w-full max-w-4xl flex-col justify-end px-4 pt-8 pb-8 md:px-6"
           >
             <AgentChannel
+              // #EXP-1380: another agent = a fresh transcript window (the pinned
+              // oldest row belongs to THIS chat).
+              key={agentId}
               agent={agent}
               conversation={conversation}
               messages={messages}
@@ -184,12 +189,23 @@ function AgentChannelPage() {
               onOpenSession={openSession}
               layout={isMobile ? `bubbles` : `transcript`}
               onSurfaceReply={permissions.isMember ? sendSurfaceReply : undefined}
+              scrollRef={follow.scrollRef}
+              tail={
+                // #EXP-1380 (chats.json WORKING): the run view's ONE status
+                // line while the conversation works.
+                conversation && conversation.status !== `ended` ? (
+                  <SessionLiveTail session={conversation} />
+                ) : undefined
+              }
             />
           </div>
         </div>
+        {/* #EXP-1383 (owner: "exactly as in sessions"): the run view's
+            circle, placement and layer; the composer sits right below. */}
         <JumpToBottomButton
           visible={!follow.atBottom && messages.length > 0}
-          className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
+          className="absolute left-1/2 z-30 -translate-x-1/2"
+          style={{ bottom: JUMP_TO_BOTTOM_GAP }}
           onClick={follow.jumpToBottom}
         />
       </div>

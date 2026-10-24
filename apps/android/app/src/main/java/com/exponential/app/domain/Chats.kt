@@ -77,6 +77,10 @@ object Chats {
 
         const val INBOX = "Inbox"
 
+        /** #EXP-1380: the transcript's window button and its status line. */
+        const val LOAD_EARLIER = "Load earlier"
+        const val WORKING = "Working…"
+
         /** A divider kind's words (`copy.dividers`). */
         fun divider(kind: String): String = if (kind == DIVIDER_KIND_COMPACT) DIVIDER_COMPACT else DIVIDER_NEW
 
@@ -110,6 +114,17 @@ object Chats {
         const val BOARD_CHIP = "board-chip"
         const val SURFACE_CARD = "surface-card"
         const val DIVIDER = "transcript-divider"
+        const val LOAD_EARLIER = "transcript-load-earlier"
+        const val JUMP_TO_BOTTOM = "jump-to-bottom"
+    }
+
+    /** #EXP-1380 `transcript`: a chat paints its newest [WINDOW] rows, `Load
+     *  earlier` widens by [WINDOW_STEP]; the tail is followed within
+     *  [FOLLOW_SLACK] px of the bottom. */
+    object Transcript {
+        const val WINDOW = 100
+        const val WINDOW_STEP = 100
+        const val FOLLOW_SLACK = 32
     }
 
     /** `agentMenu.sends`: what Compact / New conversation send (one path

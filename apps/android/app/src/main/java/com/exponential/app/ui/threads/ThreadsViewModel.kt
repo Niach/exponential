@@ -68,7 +68,14 @@ class ThreadsViewModel @Inject constructor(
         sessions,
         dbFlow.scopedQuery(emptyList()) { it.sessionIssueDao().observeAll() }.map { it.map(SessionTree::sessionIssue) },
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }.map { it.map(SessionTree::issue) },
-        dbFlow.scopedQuery(emptyList()) { it.keyedMessages(it.messageDao().observeAll()) },
+        // #EXP-1380: the ACTIVE team's messages only — every list row,
+        // preview, unread count and bubble ring is of that team, and another
+        // team's long transcripts never load here.
+        activeTeam.flatMapLatest { team ->
+            dbFlow.scopedQuery(emptyList()) {
+                it.keyedMessages(if (team == null) it.messageDao().observeAll() else it.messageDao().observeByTeam(team))
+            }
+        },
         // EXP-1323: the viewer's read marks (bold rows + the nav dot).
         dbFlow.scopedQuery(emptyList()) { it.sessionReadDao().observeAll() }.map { it.map(SessionTree::sessionRead) },
     ) { s, links, issues, messages, reads -> Inputs(s, links, issues, messages, reads) }

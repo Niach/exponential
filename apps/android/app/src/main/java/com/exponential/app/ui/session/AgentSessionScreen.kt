@@ -4,6 +4,7 @@ import com.exponential.app.domain.TaskQueue
 import androidx.compose.runtime.Stable
 import androidx.compose.foundation.shape.CircleShape
 import com.exponential.app.data.api.AnswerInput
+import com.exponential.app.ui.components.TranscriptLoadEarlierButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
 import android.net.Uri
@@ -1738,12 +1739,14 @@ private fun ActivityFeed(
     )
 
     // Only user drags flip follow-mode; programmatic scrolls keep it.
-    // EXP-529 batch: "at the bottom" carries ~96dp of slack — the pixel-exact
+    // EXP-529 batch: "at the bottom" carries slack — the pixel-exact
     // canScrollForward check dropped follow-mode (and surfaced the "Jump to
     // bottom" chip) while the list sat a few px shy of the true bottom, which
     // visually IS the bottom. Near-bottom counts as bottom, so the chip only
     // appears after a real scroll-up and hides again within the same slack.
-    val followSlackPx = with(LocalDensity.current) { 96.dp.toPx() }
+    // #EXP-1383: the chats' slack (chats.json `transcript.followSlack`), so
+    // the run view and a chat show THE jump button at the same scroll.
+    val followSlackPx = with(LocalDensity.current) { Chats.Transcript.FOLLOW_SLACK.dp.toPx() }
     val jumpScope = rememberCoroutineScope()
     LaunchedEffect(listState, followSlackPx) {
         snapshotFlow { listState.isScrollInProgress to listState.isNearBottom(followSlackPx) }
@@ -1848,7 +1851,8 @@ private fun ActivityFeed(
             } else {
             if (canLoadEarlier) {
                 item(key = "load-earlier") {
-                    TextButton(
+                    // THE Load earlier ×4 (chats.json WINDOW), shared with the chats.
+                    TranscriptLoadEarlierButton(
                         onClick = {
                             if (windowStart > 0) {
                                 windowFrom = feed[maxOf(0, windowStart - FEED_WINDOW_STEP)].id
@@ -1861,8 +1865,7 @@ private fun ActivityFeed(
                                 onLoadEarlier()
                             }
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Load earlier") }
+                    )
                 }
             }
             // EXP-787: the row's space comes from the row BEFORE it — the one
@@ -2131,7 +2134,11 @@ internal fun LazyListState.isNearBottom(slackPx: Float): Boolean {
     val info = layoutInfo
     val last = info.visibleItemsInfo.lastOrNull() ?: return true
     if (last.index < info.totalItemsCount - 1) return false
-    return last.offset + last.size - info.viewportEndOffset <= slackPx
+    // #EXP-1383: measured from the CONTENT's end — the bottom content
+    // padding (the floating composer band, ~150dp) is not slack; counting
+    // it kept a reader "at the bottom" for a screen-third, re-pinned short
+    // flicks and hid the jump button.
+    return last.offset + last.size - (info.viewportEndOffset - info.afterContentPadding) <= slackPx
 }
 
 /** EXP-356: conversation tabs — Main plus one chip per RUNNING subagent

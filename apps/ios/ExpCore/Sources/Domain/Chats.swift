@@ -75,6 +75,24 @@ public enum Chats {
             }
         }
         public static let inbox = "Inbox"
+        /// #EXP-1380: the transcript window's ghost button.
+        public static let loadEarlier = "Load earlier"
+        /// #EXP-1380: the transcript's ONE status line while the chat works.
+        public static let working = "Working…"
+    }
+
+    /// Fixture `transcript` (#EXP-1380 WINDOW + FOLLOW ×4): a chat paints
+    /// its newest `window` rows, `Load earlier` widens by `windowStep`, the
+    /// tail is followed within `followSlack` px of the bottom.
+    public enum Transcript {
+        public static let window = 100
+        public static let windowStep = 100
+        public static let followSlack: Double = 32
+
+        /// The index of the first painted row: the newest `limit` of `count`.
+        public static func windowStart(count: Int, limit: Int) -> Int {
+            max(0, count - max(0, limit))
+        }
     }
 
     /// Fixture `testIds`.
@@ -87,6 +105,8 @@ public enum Chats {
         public static let boardChip = "board-chip"
         public static let surfaceCard = "surface-card"
         public static let divider = "transcript-divider"
+        public static let loadEarlier = "transcript-load-earlier"
+        public static let jumpToBottom = "jump-to-bottom"
     }
 
     /// Fixture `shell`.

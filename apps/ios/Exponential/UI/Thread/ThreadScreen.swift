@@ -531,7 +531,13 @@ struct ThreadScreen: View {
                                     agent: view.liveSessionId.flatMap { rows.session(id: $0)?.cli }
                                 )
                             },
-                            onReply: { text in reply(text, sessionId: view.composer.sessionId) }
+                            onReply: { text in reply(text, sessionId: view.composer.sessionId) },
+                            following: atBottom,
+                            onLoadEarlier: { anchor in
+                                // The widened window lays out first; then the
+                                // row the reader saw on top stays on top.
+                                DispatchQueue.main.async { scroller.scrollTo(anchor, anchor: .top) }
+                            }
                         )
                         .padding(.vertical, 12)
                         .transcriptColumn()
@@ -544,20 +550,17 @@ struct ThreadScreen: View {
                                 anchorBottom = bottom
                             }
                     }
-                    .background(
-                        GeometryReader { content in
-                            Color.clear.preference(
-                                key: FeedBottomOverflowKey.self,
-                                value: content.frame(in: .named(Self.coordSpace)).maxY - geo.size.height
-                            )
-                        }
-                    )
+                    // #EXP-1380: the content-frame preference only feeds the
+                    // pre-iOS-18 pin path; on 18+ the scroll geometry does,
+                    // and the lazy rows are never measured as a whole.
+                    .modifier(LegacyFeedOverflow(viewport: geo.size.height, space: Self.coordSpace))
                 }
                 .coordinateSpace(name: Self.coordSpace)
                 .scrollDismissesKeyboard(.interactively)
                 .modifier(FollowPinTracker(
                     atBottom: $atBottom,
-                    slack: AgentSessionLayout.followSlack,
+                    // chats.json FOLLOW ×4: `transcript.followSlack`.
+                    slack: CGFloat(Chats.Transcript.followSlack),
                     repin: { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
                 ))
                 .onAppear {
@@ -586,7 +589,29 @@ struct ThreadScreen: View {
                     guard atBottom else { return }
                     withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
                 }
-                .safeAreaInset(edge: .bottom) {
+                // #EXP-1383 (owner 2026-10-24: "exactly as in sessions"):
+                // the run view's jump button, placed the run view's way
+                // (AgentSessionView.feedBody): an overlay on the SCROLL VIEW
+                // inside the Dock's safe-area inset (spacing 0), centred 12pt
+                // above the Dock's top edge, only while scrolled away from
+                // the newest row of a non-empty transcript.
+                .overlay(alignment: .bottom) {
+                    ZStack {
+                        if !atBottom, !view.rows.isEmpty {
+                            JumpToBottomButton {
+                                atBottom = true
+                                withAnimation(motion.standard) {
+                                    scroller.scrollTo(Self.bottomId, anchor: .bottom)
+                                }
+                            }
+                            .jumpToBottomTransition(motion)
+                            .padding(.bottom, JumpToBottomButton.bottomGap)
+                            .accessibilityIdentifier(Chats.TestIds.jumpToBottom)
+                        }
+                    }
+                    .animation(motion.standard, value: atBottom)
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
                     // N-12: THE Dock over the Conversation's bottom edge: the
                     // tree's waiting cards, the live root's Queue, queued
                     // messages and banners, then THE composer (always).
@@ -639,22 +664,6 @@ struct ThreadScreen: View {
                         guard pinOnInset || atBottom else { return }
                         atBottom = true
                         repin(scroller)
-                    }
-                    .overlay(alignment: .top) {
-                        ZStack {
-                            if !atBottom {
-                                JumpToBottomButton {
-                                    atBottom = true
-                                    withAnimation(motion.standard) {
-                                        scroller.scrollTo(Self.bottomId, anchor: .bottom)
-                                    }
-                                }
-                                .jumpToBottomTransition(motion)
-                                .accessibilityIdentifier("thread-jump-to-bottom")
-                            }
-                        }
-                        .alignmentGuide(.top) { $0[.bottom] + JumpToBottomButton.bottomGap }
-                        .animation(motion.standard, value: atBottom)
                     }
                 }
             }
@@ -1420,6 +1429,29 @@ struct ThreadScreen: View {
 
 /// What the strip's menu sheet is open for — an issue tab (`issueId`), the
 /// "+" (nil) or the Guide's `…` (`guide`, EXP-1307).
+/// #EXP-1380: the pre-iOS-18 `FollowPinTracker` input (the content's
+/// overflow below the viewport); iOS 18+ reads the scroll geometry and
+/// skips the GeometryReader entirely.
+private struct LegacyFeedOverflow: ViewModifier {
+    let viewport: CGFloat
+    let space: String
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content
+        } else {
+            content.background(
+                GeometryReader { frame in
+                    Color.clear.preference(
+                        key: FeedBottomOverflowKey.self,
+                        value: frame.frame(in: .named(space)).maxY - viewport
+                    )
+                }
+            )
+        }
+    }
+}
+
 struct ThreadMenuTarget: Identifiable {
     let issueId: String?
     var guide = false

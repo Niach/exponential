@@ -16,6 +16,8 @@ export const CONVERSATION_COLUMNS = [
   `kind`,
   `session_id`,
   `title`,
+  // #EXP-1380: the list's digest of the messages (trigger-written).
+  `digest`,
   `created_at`,
   `updated_at`,
 ]
