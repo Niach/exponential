@@ -117,6 +117,16 @@ impl ScreenLayout {
         let y = bottom as f32 / scale - height - gap;
         Some((x, y))
     }
+
+    /// The primary monitor's width in the toolkit's logical pixels (the
+    /// room the banner may take, EXP-1372). `None` when the numbers make
+    /// no sense.
+    pub fn primary_logical_width(&self, logical_root_width: f32) -> Option<f32> {
+        if logical_root_width <= 0. || self.root.0 == 0 {
+            return None;
+        }
+        Some(self.primary.width as f32 * logical_root_width / self.root.0 as f32)
+    }
 }
 
 /// The screen layout the banner is placed by (X11 only; `None` elsewhere
@@ -317,5 +327,21 @@ mod tests {
         let elsewhere = ScreenLayout { work_area: Some(ScreenRect { x: 0, y: -100, width: 1, height: 50 }), ..right };
         assert_eq!(elsewhere.banner_origin(5120., 560., 64., 16.), right.banner_origin(5120., 560., 64., 16.));
         assert_eq!(right.banner_origin(0., 560., 64., 16.), None);
+    }
+
+    #[test]
+    fn the_banners_room_is_the_primary_monitor() {
+        // EXP-1372: two 5K monitors at scale 2 = 2560 logical each, not
+        // the 5120 of the whole X screen.
+        let layout = ScreenLayout {
+            root: (10240, 2880),
+            primary: ScreenRect { x: 5120, y: 0, width: 5120, height: 2880 },
+            work_area: None,
+        };
+        assert_eq!(layout.primary_logical_width(5120.), Some(2560.));
+        // A 1920 monitor beside a 2560 one at scale 1.
+        let mixed = ScreenLayout { root: (4480, 1440), primary: ScreenRect { x: 0, y: 0, width: 1920, height: 1080 }, ..layout };
+        assert_eq!(mixed.primary_logical_width(4480.), Some(1920.));
+        assert_eq!(layout.primary_logical_width(0.), None);
     }
 }
