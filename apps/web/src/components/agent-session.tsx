@@ -1,4 +1,5 @@
 import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
+import { commandDivider } from "@exp/domain-contract/chats"
 import type { DockRow, DockSource } from "@exp/domain-contract/dock"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import type { ReactNode } from "react"
@@ -36,6 +37,9 @@ import {
   AskPrompt,
   ThreadDock,
   ThreadConversation,
+  TranscriptDivider,
+  useLiveArrivals,
+  ChatBubble,
   ASK_CARD_COPY,
   conceptIcon,
   EditedFilesCard,
@@ -46,9 +50,6 @@ import {
   IssueChip as IssueChipView,
   AgentWorkingMark,
   SessionInlineResultTile,
-  RunStatusRow,
-  type RunMarkState,
-  type RunStatusRowTone,
   sessionResultPicture,
   WORK_COLUMN_CLASS,
   DETAIL_FADE_BOTTOM_CLASS,
@@ -85,7 +86,6 @@ import { useSessionDevice } from "@/hooks/use-session-device"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useNow } from "@/hooks/use-now"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
-import { staleActivityMinutes } from "@/lib/stale-activity"
 import {
   activeQuestionIds,
   answerKey,
@@ -100,7 +100,6 @@ import {
   FEED_WINDOW,
   FEED_WINDOW_STEP,
   isAnswerLocked,
-  lastToolLine,
   liveToolRowId,
   looksLikeMarkdown,
   nestedWorkflowId,
@@ -140,6 +139,8 @@ import {
   type WorkflowState,
 } from "@/lib/agent-feed"
 import { anchorToolCards, isToolPostedCard } from "@/lib/agent-feed"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { trpc } from "@/lib/trpc-client"
 import { useSessionMessages } from "@/hooks/use-session-tree"
 import { useAnswerMessage } from "@/components/thread/agent-channel"
 import { renderThreadText } from "@/components/thread/thread-markdown"
@@ -171,7 +172,6 @@ import { SessionAccountSwitchButton } from "@/components/session-account-switch"
 import { EntityRefChips } from "@/components/entity-preview/entity-ref-chips"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import {
-  SESSION_CARD_COPY,
   buildSessionThread,
   sessionState,
   toTreeMessage,
@@ -272,25 +272,6 @@ const TRANSCRIPT_GAP_CLASS = {
 function transcriptGapClass(prev: RowClass | null, cur: RowClass): string {
   const token = transcriptGapToken(prev, cur)
   return token === null ? `` : TRANSCRIPT_GAP_CLASS[token]
-}
-
-/** The status row's mark + tone per session state (the session card's
- *  state, `sessionState`, so the row and the card never disagree). */
-const STATE_MARK: Record<ReturnType<typeof sessionState>, RunMarkState | undefined> = {
-  queued: undefined,
-  working: `working`,
-  waiting: undefined,
-  needs_you: `needs_input`,
-  blocked: undefined,
-  ended: `ended`,
-}
-const STATE_TONE: Record<ReturnType<typeof sessionState>, RunStatusRowTone> = {
-  queued: `muted`,
-  working: `muted`,
-  waiting: `muted`,
-  needs_you: `amber`,
-  blocked: `amber`,
-  ended: `muted`,
 }
 
 // ── Wire protocol ────────────────────────────────────────────────────────────
@@ -465,11 +446,25 @@ export function AgentSessionView({
     [feed, toolCards]
   )
   const { answer: answerCard, pending: cardsPending } = useAnswerMessage()
+  // Thread 58cb32df (chats.json SURFACE CARD): an agent's inline preview
+  // (`session_self_show`) sits right after the call that posted it, like a
+  // tool-posted card; a `reply` press sends its text as the next message.
+  const surfaceCards = useMemo(() => surfaceCardRows(session, sessionMessages), [session, sessionMessages])
+  const surfaceAnchors = useMemo(
+    () => anchorShowCards(feed, surfaceCards.map((row) => row.id)),
+    [feed, surfaceCards]
+  )
+  const surfaceArrived = useLiveArrivals(surfaceCards.map((row) => row.id))
+  const replyFromSurface = (text: string) => {
+    trpc.sessions.send
+      .mutate({ teamId: session.teamId, sessionId: session.id, text }, SKIP_ERROR_TOAST)
+      .catch((error) => failedAction(`send`, `the message`, error))
+  }
+  // FEED-140: a waiting tool-posted card STAYS inline (the dock holds it too).
   const renderToolCards = (ids: readonly string[], keyPrefix: string): ReactNode =>
     ids
-      .filter((id) => !dockedToolCards.some((row) => row.id === id))
       .map((id) => {
-        const row = toolCards.find((r) => r.id === id)
+        const row = toolCards.find((r) => r.id === id) ?? surfaceCards.find((r) => r.id === id)
         if (!row) return null
         return (
           <div key={`${keyPrefix}-${id}`} className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="session-tool-card">
@@ -480,6 +475,8 @@ export function AgentSessionView({
               onAnswer={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
               onDecide={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
               pending={cardsPending}
+              onSurfaceReply={sessionEnded ? undefined : replyFromSurface}
+              arrived={surfaceArrived}
             />
           </div>
         )
@@ -564,7 +561,6 @@ export function AgentSessionView({
     deviceId: session.deviceId,
     userId: session.userId,
   })
-  const usageNow = useNow(30_000)
   const isMobile = useIsMobile()
   /** EXP-550: no live stream AND the host machine is offline — PAUSED on
    *  that machine, not starting and not gone. */
@@ -575,15 +571,6 @@ export function AgentSessionView({
       phase.kind === `connecting` ||
       phase.kind === `idle` ||
       phase.kind === `closed`)
-  /** FEED-26: when the feed last changed while live. */
-  const [lastActivityAt, setLastActivityAt] = useState(() => Date.now())
-  useEffect(() => {
-    setLastActivityAt(Date.now())
-  }, [feed, compacting, live])
-  const staleMinutes =
-    live && !paused && !awaitingInput && !compactingNow
-      ? staleActivityMinutes(usageNow.getTime(), lastActivityAt)
-      : null
   const deviceName = device.label || `Desktop`
   const pausedTitle = `${device.label ?? `The device`} is offline`
   const pausedBody = `The agent is paused on that machine and continues when it comes back online.`
@@ -632,24 +619,16 @@ export function AgentSessionView({
     [rows, workflows]
   )
 
-  /** The status row over the feed: the session card's state (the synced
-   *  row), sharpened by what the live feed already knows. */
-  const state = useMemo(() => {
-    const base = sessionState(toTreeSession(session))
-    if (base === `ended` || base === `blocked`) return base
-    if (awaitingInput) return `needs_you` as const
-    if (working) return `working` as const
-    return base
-  }, [session, awaitingInput, working])
-  const starting = state === `queued` && !paused
-  const statusCaption = starting
-    ? STARTING_COPY.label.replace(`{device}`, deviceName)
-    : paused
-      ? pausedTitle
-      : staleMinutes !== null && state === `working`
-        ? `No activity for ${staleMinutes} min`
-        : SESSION_CARD_COPY.states[state]
-  const statusToolLine = live && !sessionEnded ? lastToolLine(feed) : null
+  /** N-11: before the run's first turn (the session card's `queued`, not
+   *  paused) the empty column reads "Starting on <device>"; there is no
+   *  status row over the feed, the live row at its bottom is the working
+   *  signal (needs-you = the Dock's card, blocked/paused = Dock banners). */
+  const starting =
+    !paused &&
+    !awaitingInput &&
+    !working &&
+    sessionState(toTreeSession(session)) === `queued`
+  const startingCaption = STARTING_COPY.label.replace(`{device}`, deviceName)
 
   const ownerName =
     teamUsers.find((user) => user.id === session.userId)?.name ?? null
@@ -665,7 +644,9 @@ export function AgentSessionView({
     index: number,
     list: readonly (typeof rows)[number][]
   ): ReactNode => {
-    if (row === dockedRow) return null
+    // FEED-140 (chats.json): the docked card STAYS inline at its place with
+    // its actions (the dock holds it too); only the keyboard is the dock's.
+    const docked = row === dockedRow
     // EXP-787: each row carries the space ABOVE it, from the row before it.
     const gap = transcriptGapClass(
       index === 0 ? null : rowClass(list[index - 1]),
@@ -735,7 +716,7 @@ export function AgentSessionView({
           canAnswer={canAnswer}
           answerStates={answerStates}
           onAnswer={answerQuestion}
-          pendingId={pendingCard?.id ?? null}
+          pendingId={docked ? null : (pendingCard?.id ?? null)}
           onSend={sendMessage}
         />
       )
@@ -743,7 +724,19 @@ export function AgentSessionView({
     const item = row.item
     switch (item.kind) {
       case `narration`:
-        return wrap(<NarrationBubble text={item.text} />)
+        // Thread 58cb32df (chats.json TRANSCRIPT): phones paint the agent's
+        // text as THE chat bubble (left, bg-card, its time bottom-right).
+        return wrap(
+          isMobile ? (
+            <ChatBubble>
+              <div className={TRANSCRIPT_BODY_TEXT}>
+                <FeedText text={item.text} ariaLabel="Agent message" hardBreaks />
+              </div>
+            </ChatBubble>
+          ) : (
+            <NarrationBubble text={item.text} />
+          )
+        )
       case `thought`:
         // EXP-1324: the reasoning line; still open only while the run lives.
         return wrap(
@@ -775,6 +768,17 @@ export function AgentSessionView({
         return wrap(<ToolRow item={item} flush live={item.id === liveRowId} />)
       }
       case `user_message`: {
+        // Thread 58cb32df (chats.json TRANSCRIPT): `/new` and `/compact`
+        // are THE divider pill, never a bubble.
+        const divider = commandDivider(item.text)
+        if (divider) {
+          return wrap(
+            <TranscriptDivider
+              kind={divider}
+              at={item.at ? new Date(item.at).toISOString() : null}
+            />
+          )
+        }
         // EXP-724: a steered slash command renders as a compact pill.
         const command = parseSteerCommand(item.text, agentCommands)
         return wrap(
@@ -816,7 +820,7 @@ export function AgentSessionView({
             canAnswer={canAnswer}
             answerState={answerStates[answerKey(item)]}
             onAnswer={answerQuestion}
-            hotkeys={pendingCard?.id === item.id}
+            hotkeys={!docked && pendingCard?.id === item.id}
             onSend={sendMessage}
           />
         )
@@ -878,19 +882,6 @@ export function AgentSessionView({
             </div>
           </div>
         )}
-        {/* The session's state over its work: the mark, the state word and
-            the newest tool line while live. */}
-        <div className="shrink-0 pt-4">
-          <RunStatusRow
-            className={TRANSCRIPT_COLUMN}
-            agent={session.cli}
-            markState={paused ? undefined : STATE_MARK[state]}
-            starting={starting}
-            caption={statusCaption}
-            tone={paused ? `muted` : STATE_TONE[state]}
-            toolLine={statusToolLine}
-          />
-        </div>
         {/* The activity feed (bottom-anchored, follow-scroll) */}
         <div className="relative min-h-0 flex-1">
           <div
@@ -912,13 +903,20 @@ export function AgentSessionView({
                 />
               </CenteredState>
             ) : feedPlaceholder && starting ? (
-              /* EXP-1271: the status row above says "Starting on …". */
-              null
+              /* N-11: no status row over the feed; before the first turn the
+                 column holds the placeholder rows over "Starting on …". */
+              <div
+                className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-2 py-4`)}
+                data-testid="transcript-placeholder"
+              >
+                <SkeletonRows rowHeight={36} className="-mx-3" />
+                <span className="text-xs text-muted-foreground">{startingCaption}</span>
+              </div>
             ) : waitingForRoom && stalled ? (
               <CenteredState>
                 <EmptyState
                   title="No live transcript"
-                  description="The device holding this session isn't publishing right now. Its conversation stays in the thread."
+                  description="The device holding this session isn't publishing right now. Its conversation stays in the chat."
                 />
               </CenteredState>
             ) : feedPlaceholder &&
@@ -977,12 +975,15 @@ export function AgentSessionView({
                     </Button>
                   </div>
                 ) : null}
-                {renderToolCards(toolCardAnchors.unanchored, `head`)}
+                {renderToolCards([...toolCardAnchors.unanchored, ...surfaceAnchors.unanchored], `head`)}
                 {rows.map((row, index) => (
                   <Fragment key={row.kind === `single` ? `row-${row.item.id}` : `row-${row.id}`}>
                     {renderTranscriptRow(row, index, rows)}
                     {renderToolCards(
-                      rowItemIds(row).flatMap((id) => toolCardAnchors.anchors.get(id) ?? []),
+                      rowItemIds(row).flatMap((id) => [
+                        ...(toolCardAnchors.anchors.get(id) ?? []),
+                        ...(surfaceAnchors.anchors.get(id) ?? []),
+                      ]),
                       `after`
                     )}
                   </Fragment>
@@ -1075,7 +1076,8 @@ const noSessionName = () => null
 
 /** A card still waiting on a person. */
 function cardWaiting(row: ThreadRow): boolean {
-  if (row.type === `plan`) return row.decision !== `approved` && row.decision !== `rejected`
+  // FEED-140: a `superseded` plan is decided (never in the dock).
+  if (row.type === `plan`) return row.decision === null
   return row.type === `question` && !row.answered
 }
 
@@ -1096,6 +1098,48 @@ function toolCardRows(session: SessionRow, messages: readonly MessageRowLike[]):
 }
 
 type MessageRowLike = Parameters<typeof toTreeMessage>[0]
+
+/** Thread 58cb32df: this session's `surface` cards as THE thread rows. */
+function surfaceCardRows(session: SessionRow, messages: readonly MessageRowLike[]): ThreadRow[] {
+  const cards = messages.filter((message) => (message.card as { kind?: unknown } | null)?.kind === `surface`)
+  if (cards.length === 0) return []
+  return buildSessionThread({
+    root: toTreeSession(session),
+    sessions: [],
+    sessionIssues: [],
+    issues: [],
+    messages: cards.map(toTreeMessage),
+    pullRequests: [],
+    now: new Date().toISOString(),
+  }).rows.filter((row) => row.type === `surface`)
+}
+
+/** The settled `show` calls a surface card follows, paired newest back
+ *  (the `anchorToolCards` rule for `session_self_show`). */
+function anchorShowCards(
+  feed: readonly { id: number; kind: string; name?: string; settled?: boolean; failed?: boolean }[],
+  cardIds: readonly string[]
+): { anchors: Map<number, string[]>; unanchored: string[] } {
+  const calls = feed.filter(
+    (item) =>
+      item.kind === `tool` &&
+      item.settled === true &&
+      item.failed !== true &&
+      expToolDisplay(item.name ?? ``)?.name === `session_self_show`
+  )
+  const anchors = new Map<number, string[]>()
+  const unanchored: string[] = []
+  for (let k = 0; k < cardIds.length; k++) {
+    const card = cardIds[cardIds.length - 1 - k]!
+    const call = calls[calls.length - 1 - k]
+    if (!call) {
+      unanchored.unshift(card)
+      continue
+    }
+    anchors.set(call.id, [...(anchors.get(call.id) ?? []), card])
+  }
+  return { anchors, unanchored }
+}
 
 /** The feed item ids a transcript row draws. */
 function rowItemIds(row: { kind: string; item?: { id: number }; items?: readonly { id: number }[] }): number[] {

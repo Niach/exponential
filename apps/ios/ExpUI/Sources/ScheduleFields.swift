@@ -6,8 +6,10 @@ import SwiftUI
 // `ScheduleFields.kt`). Nobody speaks cron: a schedule trigger STORES a 5-field
 // cron, these rows edit it. Rendered INSIDE the caller's `Section` (the trigger
 // card, whose first row is the Schedule · On event strip), every row an
-// existing control: Repeat · Days (weekly) | Day (monthly) · Minute (hourly) |
-// Time · Time zone · Cron (a custom, MCP-written expression only).
+// existing control: Repeat · Days (weekly) | Day (monthly) · Every (minutes,
+// EXP-1363) · Minute (hourly) | Time · Time zone (daily, weekly, monthly and
+// custom only) · Cron (a custom, MCP-written expression only). Every option
+// list scrolls inside its sheet (GlassSheetChrome).
 public struct ScheduleFields: View {
     @Binding var draft: ScheduleDraft
 
@@ -27,13 +29,17 @@ public struct ScheduleFields: View {
             case "monthly": dayRow
             default: EmptyView()
             }
-            if schedule.repeat == "hourly" {
-                minuteRow
-            } else {
-                timeRow
+            switch schedule.repeat {
+            case "minutes": everyRow
+            case "hourly": minuteRow
+            default: timeRow
             }
         }
-        timeZoneRow
+        // EXP-1363: a minutes or hourly schedule shows no zone (and keeps
+        // whatever zone is stored).
+        if SchedulePicker.showsTimeZone(draft.schedule) {
+            timeZoneRow
+        }
         if draft.schedule == nil {
             cronRow
         }
@@ -87,6 +93,20 @@ public struct ScheduleFields: View {
             label: SchedulePicker.dayOfMonthLabel
         )
         .accessibilityIdentifier(Ids.day)
+    }
+
+    /// EXP-1363: the `minutes` repeat's interval (`copy.every`).
+    private var everyRow: some View {
+        GlassPickerRow(
+            Copy.rowEvery,
+            selection: Binding(
+                get: { draft.schedule?.every ?? SchedulePicker.defaultEvery },
+                set: { draft.schedule?.every = $0 }
+            ),
+            options: SchedulePicker.everyValues,
+            label: SchedulePicker.everyLabel
+        )
+        .accessibilityIdentifier(Ids.every)
     }
 
     private var minuteRow: some View {

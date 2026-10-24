@@ -590,6 +590,10 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         for (message_id, question_id) in &view.open_cards {
             let Some(row) = messages.get(message_id.as_str()).copied() else { continue };
             let (Some(_), Some(card)) = (&row.answered_at, &row.card) else { continue };
+            // FEED-140: a plan the agent replaced answers nothing.
+            if card_superseded(card) {
+                continue;
+            }
             answers.push((
                 row,
                 PickupAction::Answer {
@@ -696,6 +700,7 @@ pub fn is_pending_input(message: &MessageRow) -> bool {
 pub fn is_answered_tool_card(message: &MessageRow) -> bool {
     let Some(card) = message.card.as_ref() else { return false };
     matches!(message.card_kind(), Some("plan" | "question"))
+        && !card_superseded(card)
         && message.answered_at.as_deref().is_some_and(|at| !at.is_empty())
         && message.consumed_at.as_deref().is_none_or(str::is_empty)
         && message.author_session_id.as_deref() == Some(message.session_id.as_str())
@@ -717,6 +722,15 @@ fn card_approved(card: &serde_json::Value) -> bool {
         && card.get("decision").and_then(serde_json::Value::as_str) == Some("approved")
 }
 
+/// FEED-140: a plan card the SERVER closed because the agent posted a newer
+/// plan (`fixtures/ask-dock.json` decision `superseded`). Nobody answered
+/// it: it is never delivered — not as an approval, not as an answer, never
+/// as a wake — and it holds no plan open.
+fn card_superseded(card: &serde_json::Value) -> bool {
+    card.get("kind").and_then(serde_json::Value::as_str) == Some("plan")
+        && card.get("decision").and_then(serde_json::Value::as_str) == Some("superseded")
+}
+
 /// EXP-1280: a plan card approved "in a fresh context" (`card.fresh`).
 fn card_fresh(card: &serde_json::Value) -> bool {
     card_approved(card) && card.get("fresh").and_then(serde_json::Value::as_bool) == Some(true)
@@ -732,6 +746,7 @@ fn is_open_own_plan_card(message: &MessageRow) -> bool {
         return false;
     };
     message.card_kind() == Some("plan")
+        && !card_superseded(card)
         && message.consumed_at.as_deref().is_none_or(str::is_empty)
         && message.author_session_id.as_deref() == Some(message.session_id.as_str())
         && card.get("questionId").and_then(serde_json::Value::as_str).is_none_or(str::is_empty)
@@ -4829,6 +4844,60 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    fn superseded_plan() -> serde_json::Value {
+        serde_json::json!({"kind": "plan", "plan": "1. Old", "decision": "superseded"})
+    }
+
+    /// FEED-140: a plan card the server resolved `superseded` (the agent
+    /// posted a newer plan) is never the agent's next turn — not on a live
+    /// engine, not as a wake — and holds no plan open; the newer approved
+    /// card beside it still delivers.
+    #[test]
+    fn a_superseded_plan_card_is_never_delivered() {
+        let superseded = tool_card("p-old", "l1", superseded_plan());
+        assert!(!is_answered_tool_card(&superseded));
+        assert!(!is_open_own_plan_card(&superseded));
+        assert!(!card_approved(&superseded_plan()) && !card_fresh(&superseded_plan()));
+
+        let live = Pass::new(
+            vec![session("l1", "idle", DEV, "t")],
+            vec![superseded.clone(), tool_card("p-new", "l1", approved_plan())],
+        )
+        .live("l1", LiveView::default())
+        .run();
+        let delivered: Vec<&str> = live
+            .iter()
+            .filter_map(|action| match action {
+                PickupAction::DeliverAnswer { message_id, .. } => Some(message_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(delivered, vec!["p-new"], "{live:?}");
+
+        let alone = Pass::new(vec![session("l1", "idle", DEV, "t")], vec![superseded.clone()])
+            .live("l1", LiveView::default())
+            .run();
+        assert!(alone.is_empty(), "{alone:?}");
+
+        // No engine here: a superseded card wakes nothing.
+        let asleep = Pass::new(vec![session("s1", "idle", DEV, "t")], vec![tool_card("p-old", "s1", superseded_plan())]).run();
+        assert!(!asleep.iter().any(|action| matches!(action, PickupAction::Resume { .. })), "{asleep:?}");
+    }
+
+    /// FEED-140: an engine-posted plan card (`questionId`, an open ask)
+    /// resolved `superseded` is no answer to that ask.
+    #[test]
+    fn a_superseded_open_card_answers_no_ask() {
+        let mut row = tool_card("c1", "s1", superseded_plan());
+        row.card.as_mut().unwrap()["questionId"] = serde_json::json!("q-1");
+        let view = LiveView {
+            open_cards: HashMap::from([("c1".to_string(), "q-1".to_string())]),
+            ..LiveView::default()
+        };
+        let actions = Pass::new(vec![session("s1", "running", DEV, "t")], vec![row]).live("s1", view).run();
+        assert!(actions.is_empty(), "{actions:?}");
     }
 
     /// FEED-129: a Resume carries EVERY pending message (inputs oldest

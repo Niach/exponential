@@ -39,7 +39,7 @@ object EmptyStateCopy {
         "thread-not-found",
         Size.Page,
         "work-faces",
-        "Thread not found",
+        "Chat not found",
         "It may still be syncing, or it was deleted.",
         "Go to Agent",
     )

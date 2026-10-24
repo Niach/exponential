@@ -656,6 +656,11 @@ struct State {
     /// result with tokens is always the real turn and settles even when a
     /// future CLI stops answering `/clear` at all.
     skip_local_command_result: bool,
+    /// The turn in flight is a person's `/new` (contract `steerCommands`):
+    /// the adapter sent claude's own `/clear` in its place, and that local
+    /// command's `result` settles the turn WITHOUT reaching the feed as a
+    /// reply — the divider the `/new` row draws is all anyone sees.
+    new_conversation: bool,
     cancelled: bool,
     /// Bumped by every cancel. A `session/prompt` records the epoch when its
     /// handler was DISPATCHED, so a cancel that lands between the dispatch and
@@ -1562,11 +1567,19 @@ impl ClaudeSession {
             .and_then(|meta| meta.get(FRESH_CONTEXT_META_KEY))
             .and_then(Value::as_bool)
             == Some(true);
+        // `/new` = a fresh conversation in the SAME session: claude's own
+        // `/clear` goes in its place, never the `/new` line as a prompt. The
+        // host holds a mid-turn `/new` until the turn ends, so this lands
+        // between turns.
+        let new_conversation = super::is_new_conversation_command(&text);
         let (tx, rx) = flume::bounded(1);
         let clear_first;
         {
             let mut state = self.lock();
-            clear_first = fresh && state.turns.is_empty() && !state.continuation_running;
+            clear_first = fresh
+                && !new_conversation
+                && state.turns.is_empty()
+                && !state.continuation_running;
             if clear_first {
                 // The `/clear` reports a `result` of its own: not this turn's.
                 state.skip_local_command_result = true;
@@ -1578,6 +1591,7 @@ impl ClaudeSession {
             state.local_only_command = wire::LOCAL_ONLY_COMMANDS
                 .iter()
                 .any(|command| text.trim() == *command);
+            state.new_conversation = new_conversation;
             // EXP-780: from here on, a `task_started` belongs to THIS turn.
             state.turn_seq = state.turn_seq.wrapping_add(1);
             // EXP-850 §5: the working caption counts THIS turn's output.
@@ -1590,6 +1604,17 @@ impl ClaudeSession {
         }
         if clear_first {
             self.inject_prompt(cx, "/clear");
+        }
+        if new_conversation {
+            // The `/clear` IS this turn: its `result` settles it.
+            self.inject_prompt(cx, "/clear");
+            self.deliver_pending_interrupt();
+            let outcome = rx.recv_async().await.unwrap_or(TurnOutcome::EndTurn);
+            return match outcome {
+                TurnOutcome::Cancelled => Ok(PromptResponse::new(StopReason::Cancelled)),
+                TurnOutcome::AuthRequired => Err(Error::auth_required()),
+                _ => Ok(PromptResponse::new(StopReason::EndTurn)),
+            };
         }
         self.send(claude_user_message(&request.prompt, &text))?;
         // EXP-758: a cancel that raced this turn's lazy spawn had no child to
@@ -3860,14 +3885,17 @@ impl ClaudeSession {
             }
         }
 
-        let (local_only, delivered) = {
+        let (local_only, delivered, new_conversation) = {
             let state = self.lock();
-            (state.local_only_command, state.delivered_text)
+            (state.local_only_command, state.delivered_text, state.new_conversation)
         };
         // EXP-784: a limited turn's result REPEATS the notice; the slot has
         // it (or gets it here, for a CLI that sent no assistant frame). An
         // API failure's result repeats ITS row the same way.
-        if wire::is_rate_limit_result(&result) {
+        if new_conversation {
+            // A `/new`'s `/clear`: whatever the CLI said about it is no
+            // reply of the agent's.
+        } else if wire::is_rate_limit_result(&result) {
             self.on_rate_limit_notice(cx, &result.result);
         } else if result.is_error
             && !delivered
@@ -3896,6 +3924,7 @@ impl ClaudeSession {
         let mut state = self.lock();
         state.delivered_text = false;
         state.local_only_command = false;
+        state.new_conversation = false;
         // EXP-1224 (A): the `result` of a turn the CLI started on its own (or
         // one with no prompt behind it at all) settles no prompt — the front
         // of `turns` is a prompt sent DURING it, still owed its own `result`.

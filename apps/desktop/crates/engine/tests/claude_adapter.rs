@@ -2017,6 +2017,67 @@ async fn a_fresh_context_prompt_clears_the_conversation_first() {
     assert!(texts.iter().any(|text| text == "implementing"), "the real turn ran: {texts:?}");
 }
 
+/// `/new` (contract `steerCommands`): a fresh conversation in the SAME
+/// session. claude's own `/clear` goes in its place (the `/new` line never
+/// reaches the model), its local `result` settles the `/new` turn without
+/// reaching the feed as a reply, and the next prompt runs in the new
+/// conversation, whose id is re-published for the run record.
+#[tokio::test]
+async fn a_new_command_clears_the_conversation_instead_of_prompting() {
+    let _session = one_session_at_a_time();
+    let work = workdir("new-conversation");
+    let run = drive_turns(
+        "new-conversation",
+        &work.0,
+        &["/new", "Plan approved. Go ahead."],
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+    let users: Vec<String> = run
+        .stdin
+        .iter()
+        .filter(|line| line["type"] == "user")
+        .map(|line| {
+            let content = &line["message"]["content"];
+            content
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| content[0]["text"].as_str().unwrap_or_default().to_string())
+        })
+        .collect();
+    assert_eq!(users, vec!["/clear".to_string(), "Plan approved. Go ahead.".to_string()]);
+    let texts: Vec<String> = run
+        .updates
+        .iter()
+        .filter_map(|notification| match &notification.update {
+            SessionUpdate::AgentMessageChunk(chunk) => Some(chunk_text(chunk)),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !texts.iter().any(|text| text.contains("Cleared the conversation")),
+        "the /clear result is no reply: {texts:?}"
+    );
+    assert!(texts.iter().any(|text| text == "implementing"), "the real turn ran: {texts:?}");
+    let natives: Vec<&str> = run
+        .updates
+        .iter()
+        .filter_map(|notification| {
+            notification
+                .meta
+                .as_ref()?
+                .get(engine::NATIVE_SESSION_META_KEY)?
+                .as_str()
+        })
+        .collect();
+    assert!(
+        natives.contains(&"22222222-3333-4444-5555-666666666666"),
+        "the new conversation's id is re-published: {natives:?}"
+    );
+}
+
 #[tokio::test]
 async fn steering_the_mode_and_the_effort_reaches_the_cli_and_echoes_back() {
     let _session = one_session_at_a_time();

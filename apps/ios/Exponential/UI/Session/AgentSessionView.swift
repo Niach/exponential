@@ -954,7 +954,15 @@ struct AgentSessionView: View {
         case let .single(item):
             switch item {
             case let .narration(_, text, _, _):
-                NarrationBubble(text: text, context: markdownContext)
+                // EXP-1373 (chats.json TRANSCRIPT): phones paint the agent's
+                // text on the left in a card-fill bubble.
+                AgentChatBubble(time: nil) {
+                    AgentMarkdownText(
+                        text: text,
+                        context: markdownContext,
+                        options: [.autolinkBareURLs, .hardLineBreaks]
+                    )
+                }
             case let .apiError(_, message, errorType, _):
                 ApiErrorRow(message: message, errorType: errorType)
             case let .tool(
@@ -971,7 +979,13 @@ struct AgentSessionView: View {
                 // EXP-724: a steered slash command is a control action, not
                 // prose — it renders as a compact pill instead of a bubble.
                 // NEW-2: the contract catalog alone (agent commands hidden).
-                if let command = SlashCommands.command(
+                if let divider = Chats.commandDivider(text) {
+                    // EXP-1373: `/new` and `/compact` = the centred divider.
+                    TranscriptDividerPill(
+                        icon: AppIcons.conceptOrName(divider.icon) ?? divider.icon,
+                        text: divider.label
+                    )
+                } else if let command = SlashCommands.command(
                     for: text,
                     agent: model?.catalogAgent
                 ) {

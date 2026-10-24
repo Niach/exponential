@@ -1402,6 +1402,14 @@ impl SessionCtx {
         id
     }
 
+    /// Is any line HELD on the host (not yet sent to the agent)?
+    fn holds_prompts(&self) -> bool {
+        self.prompt_queue
+            .lock()
+            .map(|queue| queue.iter().any(|message| message.held.is_some()))
+            .unwrap_or(false)
+    }
+
     /// EXP-873: the agent took these sent messages in (their replays
     /// arrived) — the bar loses them.
     fn consume_queued(&self, ids: &[String]) {
@@ -1785,7 +1793,11 @@ where
                     .and_then(serde_json::Value::as_str)
                 {
                     if notify_ctx.ids().native.as_deref() != Some(native) {
-                        notify_ctx.set_ids(None, Some(native.to_string()));
+                        // codex's ACP id IS its thread id: a `/new` thread
+                        // is the one a resume's `session/load` reopens.
+                        let acp = matches!(notify_ctx.agent, coding::CodingAgent::Codex)
+                            .then(|| native.to_string());
+                        notify_ctx.set_ids(acp, Some(native.to_string()));
                         crate::lifecycle::record_session_ids(&notify_ctx);
                     }
                 }
@@ -2530,16 +2542,33 @@ fn gate_or_start(
     message_id: Option<String>,
 ) {
     if ctx.compaction_open() {
-        let accepted = ctx.enqueue_prompt(announce, prompt, message_id.clone());
-        if !accepted {
-            if let Some(id) = &message_id {
-                ctx.forget_message(id);
-            }
-        }
+        hold_prompt(ctx, announce, prompt, message_id);
         return;
     }
     drain_queue(cx, ctx, session_id, turns);
+    // `/new` (a fresh conversation, contract `steerCommands`) is applied
+    // BETWEEN turns: mid-turn it is held until the turn ends. Whatever
+    // arrives behind a held `/new` belongs to the new conversation and waits
+    // with it — after the drain, a held line can only be that barrier.
+    let hold = (crate::adapters::is_new_conversation_command(&announce)
+        && !ctx.turn_signal.is_idle())
+        || ctx.holds_prompts();
+    if hold {
+        hold_prompt(ctx, announce, prompt, message_id);
+        return;
+    }
     send_prompt(cx, ctx, session_id, announce, prompt, turns, message_id);
+}
+
+/// Hold one message on the host ([`SessionCtx::enqueue_prompt`]); a refused
+/// one is forgotten.
+fn hold_prompt(ctx: &Arc<SessionCtx>, announce: String, prompt: TurnPrompt, message_id: Option<String>) {
+    let accepted = ctx.enqueue_prompt(announce, prompt, message_id.clone());
+    if !accepted {
+        if let Some(id) = &message_id {
+            ctx.forget_message(id);
+        }
+    }
 }
 
 /// One answer for a parked ask from the SESSION view — a relay `answer`
@@ -2684,7 +2713,24 @@ fn drain_queue(
             return;
         }
         let mut kept = std::collections::VecDeque::new();
+        // A held `/new` is a barrier: it starts only between turns, and
+        // every line behind it waits for the turn it opens to end (they
+        // belong to the new conversation).
+        let mut barrier = false;
         for message in queue.drain(..) {
+            if barrier {
+                kept.push_back(message);
+                continue;
+            }
+            if message.held.is_some()
+                && crate::adapters::is_new_conversation_command(&message.announce)
+            {
+                barrier = true;
+                if !idle {
+                    kept.push_back(message);
+                    continue;
+                }
+            }
             match message.held {
                 None => kept.push_back(message),
                 Some(prompt) if !idle && replays => {

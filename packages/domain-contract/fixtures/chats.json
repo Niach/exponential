@@ -1,0 +1,1905 @@
+{
+  "$comment": "Thread 58cb32df (owner 2026-10-23, #EXP-1373, #FEED-140): CHATS. The product says chats, never threads, in every user-facing string ×4 (routes, DB, MCP and code keep `thread`/`session`); threads-list.json `copy.title` and the rail/nav labels read `copy.title` here. PHONE SHELL (iOS, Android, web-mobile; `shell`): ONE active team drives every phone screen (no team bands anywhere on a phone: chats, inbox, my issues, the board all filter to it); the team is switched ONLY on the Team tab (and silently by a push notification or deep link that names another team: the shell switches first, then opens the target, no prompt). The bottom bar = the glass tab capsule (iOS: the system Liquid Glass tab bar; Android + web-mobile: its look-alike on the FAB chrome recipe, fab-chrome.tsx) with `shell.tabs` in order, each an icon over its label (`copy.tabs`), the selected one on the glass-active pill; the Team tab's icon is the active team's avatar and its label the team name; a dot on Chats = chatsUnread. Beside it, unchanged, the two-armed new chat / new issue capsule. The Chats header (iOS: the large inline nav title; Android + web-mobile: the large in-content headline) carries two trailing circles: search and the INBOX (concept nav-inbox, a sky dot while any notification is unread), which pushes the inbox-only page (no segments: My issues and Drafts moved to the board). Agent rows leave the list: the agents are the header's BUBBLES. The board header = the board switcher pill + search (the settings gear moved to the Team tab), and under it the board chips `shell.boardChips` (All issues · My issues · Drafts; Drafts only while the viewer has drafts; a count after My issues and Drafts) as select Pills; My issues = the viewer's assigned issues of the active team across its boards, grouped by status like the board. The Team tab = the team avatar (84) + name + `copy.team.meta`, a glass group of the viewer's teams (the active one checked, a team with an unread notification an amber dot; a tap switches), then the settings rows the old settings root held (same order, same destinations), then the account row (the viewer's avatar) and the rest of the old root. LIST (phones; `chatList`, `listCases`): the depth-0 rows of partitionThreads(active team) flattened (no bands, no nesting) and sorted by activityAt desc, ties by id. A row = the 52 lead DISC (bg muted) holding the lead (`lead`: needs_you = the brand mark with the amber badge, working = the working mark, else the root's PR glyph open emerald / merged violet, else the bare brand mark; the threadRowMarkState + threadRowLeadPr rules), the title (semibold while unreadCount > 0) and the trailing time (`chatTimeLabel`, `timeCases`: the viewer's local day; today HH:mm, yesterday `copy.time.yesterday`, under 7 days the short weekday, else `Mon D` and `, YYYY` from another year; amber while needsYou, foreground while unread, else muted) on line 1; line 2 = the preview (`chatPreview`, `previewCases`; muted, up to two lines) then the row word (threadRowWord, with its glyph) then the unread badge (unreadCount; amber with black text while needsYou, else foreground with background text; none at 0). Preview rules: the root conversation's own user/agent messages that are plain text or a question / plan / ask / picture / surface card; while needsYou, the newest WAITING question/plan/ask reads `copy.preview.question|plan`; else while busy `copy.preview.working` (italic); else the newest such message: a person's builtin command line = its divider copy, a person's text `copy.preview.you`, a picture `copy.preview.picture`, a surface its title or `copy.preview.surface`, a question/plan as above, an agent's text as is; none = `copy.preview.empty`. Text = `plainLine` (images dropped, links to their text, emphasis/code marks and line prefixes stripped, whitespace collapsed). unreadCount = agent messages of the ROOT conversation (event cards excluded) newer than the viewer's read of the root. Filter chips (`filters`) above the list, select Pills: All, Needs you, Running, Unread, labelled by `chatFilterLabel` (a count after a non-zero one); a chip filters by the row's group (needs_you / running) or unreadCount > 0. A row hairline (glass-stroke) runs under the text column only. BUBBLES (`agentBubbles`, `bubbleCases`): listAgents(active team) in order, a 66 circle each (the agent's icon in its colour on bg muted inside a 3px background gap) with the name under it; ring = amber while the viewer's conversation needs them, foreground while it has an agent message newer than their read, else a glass-stroke hairline; a tap opens the agent's chat, a long-press its agent menu. The row scrolls sideways. MENUS ×4 (`threadMenuEntries`, `menuCases`; `agentMenuEntries`, `agentMenuCases`): a chat row (phone list, web/IDE Chats page rows, the rail's chat rows) opens its menu by right-click on pointers and by long-press on touch, through each platform's ONE menu host (web menu.tsx `menuProps('thread', id)` + MenuGestureHost, desktop PointerContextMenu, iOS GlassLongPressMenu, Android combinedClickable + the glass menu sheet); phones present it as the sheet look with the chat's title as its header. Live root → Stop (coding-stop) and Stop and delete (ui-delete, destructive); ended root → Delete (destructive); a viewer who cannot steer the chat gets no menu. The chat's header `...` menu holds the same entries. Stop = `sessions.end` on the root (the whole tree ends, deepest first; a later message still resumes the root, FEED-134); Stop and delete = `sessions.delete` (the server ends what is live, then deletes); Delete = `sessions.delete`. Delete asks first ×4: `copy.confirmDelete` (title, body, destructive confirm = `copy.menu.delete`). After a delete the chat's screen closes back to the list. A failure = a toast (`copy.toasts.*`). The agent menu (the agent chat's header `...`, a bubble's long-press, the rail's agent row right-click): Compact conversation, New conversation, Stop while busy (= `sessions.stop`, the TURN interrupt), Agent settings for team owners; Compact and New conversation SEND the builtin lines `agentMenu.sends` (one path with the typed `/compact` and `/new`). STOP (FEED-134 follow-up): a thread's header Stop pill = the menu's Stop (ends the tree; shown while the root is not ended); the composer's stop button (while busy, empty input) = `sessions.stop`, the turn interrupt; an agent chat has no Stop pill, only the composer button and the menu's Stop. `sessions.stop` returns `delivered` (false when the relay reached no device for a live, non-queued session) and a false one toasts `copy.toasts.stopNotDelivered`. TRANSCRIPT ×4 (session-thread.json buildSessionThread rows): a person's message whose body is exactly `/new`, or `/compact` alone or followed by a space, is a `divider` row {kind new|compact}, painted as the centred glass pill `copy.dividers.<kind> · HH:mm` (icon ui-clean / coding-compact), never a bubble. Phones paint the conversation as CHAT BUBBLES: the person's on the right (UserMessageBubble, max 80%), the agent's text on the left in a bg-card bubble (max 94%, top-left corner 6px, its time bottom-right), cards inside the agent column; web wide and the IDE keep their transcript. A WAITING plan or question card (FEED-140) is ALWAYS visible inline at its place in the conversation with its actions (Approve / answer), on every platform, besides the dock; a second `plan` from the agent while one waits SUPERSEDES the waiting one (the old card resolves with decision `superseded` and paints collapsed as `copy.superseded`), it is never refused. SURFACE CARD ×4 (`surfaceCard`): message card kind `surface` {surface: {root, data}, title?} = an agent's inline Exponential UI preview, posted by MCP `exponential_session_self {op: \"show\", surface, title?}` (validated like a plan card's surface: the core catalog, `surfaceMaxBytes`, `surfaceMaxComponents`), painted inside the agent's bubble/column by the platform's renderer exactly like the plan card's surface (theme exponential, dark), max width the column, its own rounded glass frame. It answers nothing: a press whose action event is named `replyEvent` with a non-empty `context.text` posts that text as the person's next message (`surfaceReply`, `replyCases`); every other event is ignored. ENTER (owner 2026-10-23: \"it should animate into the view, very elegant\"; `surfaceCard.enter`, motion tokens only): a surface card that ARRIVES while its chat is open (its id was not in the transcript the screen first painted; history, a reopen or a scroll never animates) plays once: the frame fades in from `frame.fromOpacity`, rises from `fromTranslateY` px and scales from `fromScale` over `frame.duration` with `frame.ease`; its hairline starts at the primary colour at `glow.fromOpacity` and settles to the normal stroke over `glow.duration`; after `children.startAfterMs` the surface ROOT's first-level children enter one by one (opacity + `fromTranslateY` px rise at `children.duration`, `staggerMs` apart, children past `maxStaggered` share the last delay). Under reduce motion: a plain opacity fade of the frame, no rise, scale, glow or stagger. Phones also bring every NEW bubble in (live arrival only) with an opacity + 6px rise at `standard` / `decelerate`. Mirrors: TS src/chats.ts (the reference), iOS ExpCore Chats.swift, Android domain/Chats.kt replay every case group; desktop domain::chats replays menuCases, agentMenuCases, replyCases and the divider cases (no phone list on the IDE).",
+  "copy": {
+    "title": "Chats",
+    "tabs": {
+      "board": "Board",
+      "devices": "Devices",
+      "chats": "Chats",
+      "team": "Team"
+    },
+    "filters": {
+      "all": "All",
+      "needs_you": "Needs you",
+      "running": "Running",
+      "unread": "Unread"
+    },
+    "preview": {
+      "working": "working…",
+      "question": "Question: {text}",
+      "plan": "Plan: {text}",
+      "you": "You: {text}",
+      "picture": "Picture",
+      "surface": "Preview",
+      "empty": "No messages yet"
+    },
+    "time": {
+      "yesterday": "Yesterday",
+      "weekdaysShort": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri",
+        "Sat",
+        "Sun"
+      ],
+      "monthsShort": [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec"
+      ]
+    },
+    "menu": {
+      "stop": "Stop",
+      "stopAndDelete": "Stop and delete",
+      "delete": "Delete",
+      "compact": "Compact conversation",
+      "newConversation": "New conversation",
+      "settings": "Agent settings"
+    },
+    "confirmDelete": {
+      "title": "Delete this chat?",
+      "body": "Its messages and sessions are deleted for everyone. Pull requests stay on GitHub."
+    },
+    "toasts": {
+      "stopFailed": "Couldn't stop the chat",
+      "deleteFailed": "Couldn't delete the chat",
+      "stopNotDelivered": "The device didn't get the stop"
+    },
+    "dividers": {
+      "new": "New conversation",
+      "compact": "Conversation compacted"
+    },
+    "superseded": "Replaced by a newer plan",
+    "boardChips": {
+      "all": "All issues",
+      "mine": "My issues",
+      "drafts": "Drafts"
+    },
+    "team": {
+      "meta": "{members} members · {boards} boards",
+      "switch": "Teams"
+    },
+    "inbox": "Inbox"
+  },
+  "shell": {
+    "tabs": [
+      "board",
+      "devices",
+      "chats",
+      "team"
+    ],
+    "tabIcons": {
+      "board": "nav-issues",
+      "devices": "nav-devices",
+      "chats": "nav-threads"
+    },
+    "boardChips": [
+      "all",
+      "mine",
+      "drafts"
+    ],
+    "chatsHeader": [
+      "nav-search",
+      "nav-inbox"
+    ],
+    "leadDisc": 52,
+    "bubble": 66,
+    "bubbleRing": 3
+  },
+  "filters": [
+    "all",
+    "needs_you",
+    "running",
+    "unread"
+  ],
+  "testIds": {
+    "chatRow": "chat-row",
+    "chatFilter": "chat-filter",
+    "agentBubble": "agent-bubble",
+    "inboxButton": "chats-inbox",
+    "tabTeam": "tab-team",
+    "boardChip": "board-chip",
+    "surfaceCard": "surface-card",
+    "divider": "transcript-divider"
+  },
+  "agentMenu": {
+    "sends": {
+      "compact": "/compact",
+      "newConversation": "/new"
+    }
+  },
+  "surfaceCard": {
+    "replyEvent": "reply",
+    "surfaceMaxBytes": 65536,
+    "surfaceMaxComponents": 200,
+    "enter": {
+      "frame": {
+        "fromOpacity": 0,
+        "fromTranslateY": 12,
+        "fromScale": 0.98,
+        "duration": "slow",
+        "ease": "decelerate"
+      },
+      "children": {
+        "fromOpacity": 0,
+        "fromTranslateY": 6,
+        "duration": "standard",
+        "ease": "decelerate",
+        "staggerMs": 45,
+        "maxStaggered": 8,
+        "startAfterMs": 90
+      },
+      "glow": {
+        "fromOpacity": 0.35,
+        "duration": "slow",
+        "ease": "decelerate"
+      }
+    }
+  },
+  "previewCases": [
+    {
+      "name": "a person's text",
+      "input": {
+        "rootId": "r",
+        "needsYou": false,
+        "busy": false,
+        "messages": [
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "m1",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "body": "Done.",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "m2",
+            "sessionId": "r",
+            "authorKind": "user",
+            "body": "ship **it**\nnow",
+            "createdAt": "2026-10-23T09:05:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "you",
+        "text": "You: ship it now"
+      }
+    },
+    {
+      "name": "an agent's markdown, plain",
+      "input": {
+        "rootId": "r",
+        "needsYou": false,
+        "busy": false,
+        "messages": [
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "m1",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "body": "## Done\n- Merged [#212](https://x/212) and `fixed` the *scroll* ![shot](/api/attachments/a1)",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "agent",
+        "text": "Done Merged #212 and fixed the scroll"
+      }
+    },
+    {
+      "name": "busy reads working",
+      "input": {
+        "rootId": "r",
+        "needsYou": false,
+        "busy": true,
+        "messages": [
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "m1",
+            "sessionId": "r",
+            "authorKind": "user",
+            "body": "go",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "working",
+        "text": "working…"
+      }
+    },
+    {
+      "name": "needs you: the waiting question beats busy and newer text",
+      "input": {
+        "rootId": "r",
+        "needsYou": true,
+        "busy": true,
+        "messages": [
+          {
+            "authorId": null,
+            "card": {
+              "kind": "question",
+              "question": "Lazy-load the editor or ship a snapshot?"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "q",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "body": "",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "m2",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "body": "thinking",
+            "createdAt": "2026-10-23T09:01:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "question",
+        "text": "Question: Lazy-load the editor or ship a snapshot?"
+      }
+    },
+    {
+      "name": "needs you: a waiting plan",
+      "input": {
+        "rootId": "r",
+        "needsYou": true,
+        "busy": false,
+        "messages": [
+          {
+            "authorId": null,
+            "card": {
+              "kind": "plan",
+              "plan": "# Plan\nLazy-load the markdown editor"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "p",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "body": "",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "plan",
+        "text": "Plan: Plan Lazy-load the markdown editor"
+      }
+    },
+    {
+      "name": "needs you without a waiting card (a usage wall) falls through",
+      "input": {
+        "rootId": "r",
+        "needsYou": true,
+        "busy": false,
+        "messages": [
+          {
+            "authorId": null,
+            "card": {
+              "kind": "question",
+              "question": "Old?"
+            },
+            "answeredAt": "2026-10-23T09:02:00.000Z",
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "q",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "body": "",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "m",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "body": "Hit the limit",
+            "createdAt": "2026-10-23T09:03:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "agent",
+        "text": "Hit the limit"
+      }
+    },
+    {
+      "name": "a picture",
+      "input": {
+        "rootId": "r",
+        "needsYou": false,
+        "busy": false,
+        "messages": [
+          {
+            "authorId": null,
+            "card": {
+              "kind": "picture",
+              "attachmentId": "a1"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "p",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "body": "",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "picture",
+        "text": "Picture"
+      }
+    },
+    {
+      "name": "a surface: its title, else the copy",
+      "input": {
+        "rootId": "r",
+        "needsYou": false,
+        "busy": false,
+        "messages": [
+          {
+            "authorId": null,
+            "card": {
+              "kind": "surface",
+              "title": "Launch path",
+              "surface": {
+                "root": {}
+              }
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "s",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "body": "",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "surface",
+        "text": "Launch path"
+      }
+    },
+    {
+      "name": "an untitled surface",
+      "input": {
+        "rootId": "r",
+        "needsYou": false,
+        "busy": false,
+        "messages": [
+          {
+            "authorId": null,
+            "card": {
+              "kind": "surface",
+              "surface": {
+                "root": {}
+              }
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "s",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "body": "",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "surface",
+        "text": "Preview"
+      }
+    },
+    {
+      "name": "a builtin command reads its divider",
+      "input": {
+        "rootId": "r",
+        "needsYou": false,
+        "busy": false,
+        "messages": [
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "c",
+            "sessionId": "r",
+            "authorKind": "user",
+            "body": "/compact keep the plan",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "compact",
+        "text": "Conversation compacted"
+      }
+    },
+    {
+      "name": "events, session cards, children's and system messages are skipped",
+      "input": {
+        "rootId": "r",
+        "needsYou": false,
+        "busy": false,
+        "messages": [
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "a",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "body": "Real one",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": {
+              "kind": "event",
+              "event": "pr_opened"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "e",
+            "sessionId": "r",
+            "authorKind": "system",
+            "body": "",
+            "createdAt": "2026-10-23T09:05:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": {
+              "kind": "session",
+              "sessionId": "c1"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "k",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "body": "",
+            "createdAt": "2026-10-23T09:06:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "c",
+            "sessionId": "c1",
+            "authorKind": "agent",
+            "body": "child text",
+            "createdAt": "2026-10-23T09:07:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "agent",
+        "text": "Real one"
+      }
+    },
+    {
+      "name": "no messages",
+      "input": {
+        "rootId": "r",
+        "needsYou": false,
+        "busy": false,
+        "messages": []
+      },
+      "expected": {
+        "kind": "empty",
+        "text": "No messages yet"
+      }
+    }
+  ],
+  "timeCases": [
+    {
+      "name": "same day",
+      "at": "2026-10-23T21:40:00.000Z",
+      "now": "2026-10-23T22:00:00.000Z",
+      "utcOffsetMinutes": 0,
+      "expected": "21:40"
+    },
+    {
+      "name": "the offset moves it to the next local day",
+      "at": "2026-10-23T22:30:00.000Z",
+      "now": "2026-10-24T06:00:00.000Z",
+      "utcOffsetMinutes": 120,
+      "expected": "00:30"
+    },
+    {
+      "name": "yesterday",
+      "at": "2026-10-22T10:00:00.000Z",
+      "now": "2026-10-23T09:00:00.000Z",
+      "utcOffsetMinutes": 0,
+      "expected": "Yesterday"
+    },
+    {
+      "name": "yesterday by local midnight, not 24 hours",
+      "at": "2026-10-22T23:50:00.000Z",
+      "now": "2026-10-23T00:10:00.000Z",
+      "utcOffsetMinutes": 0,
+      "expected": "Yesterday"
+    },
+    {
+      "name": "within the week: short weekday",
+      "at": "2026-10-19T10:00:00.000Z",
+      "now": "2026-10-23T09:00:00.000Z",
+      "utcOffsetMinutes": 0,
+      "expected": "Mon"
+    },
+    {
+      "name": "seven days back: month day",
+      "at": "2026-10-16T10:00:00.000Z",
+      "now": "2026-10-23T09:00:00.000Z",
+      "utcOffsetMinutes": 0,
+      "expected": "Oct 16"
+    },
+    {
+      "name": "another year",
+      "at": "2025-12-31T10:00:00.000Z",
+      "now": "2026-10-23T09:00:00.000Z",
+      "utcOffsetMinutes": 0,
+      "expected": "Dec 31, 2025"
+    },
+    {
+      "name": "a negative offset",
+      "at": "2026-10-23T02:00:00.000Z",
+      "now": "2026-10-23T12:00:00.000Z",
+      "utcOffsetMinutes": -300,
+      "expected": "Yesterday"
+    }
+  ],
+  "listCases": [
+    {
+      "name": "filter all: one flat list by activity, other teams and agents out, no children",
+      "input": {
+        "groups": [
+          {
+            "key": "needs_you",
+            "title": "Needs you",
+            "rows": [
+              {
+                "sessionId": "a",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "a",
+                "title": "Needs you one",
+                "deviceId": "dev-mac",
+                "busy": true,
+                "needsYou": true,
+                "unread": false,
+                "activityAt": "2026-10-23T09:10:00.000Z"
+              }
+            ]
+          },
+          {
+            "key": "running",
+            "title": "Running",
+            "rows": [
+              {
+                "sessionId": "b",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "b",
+                "title": "Running one",
+                "deviceId": null,
+                "busy": true,
+                "needsYou": false,
+                "unread": false,
+                "activityAt": "2026-10-23T09:25:00.000Z"
+              },
+              {
+                "sessionId": "b1",
+                "teamId": "t1",
+                "depth": 1,
+                "parentId": "b",
+                "rootId": "b",
+                "title": "Child",
+                "deviceId": null,
+                "busy": true,
+                "needsYou": false,
+                "unread": false,
+                "activityAt": "2026-10-23T09:25:00.000Z"
+              }
+            ]
+          },
+          {
+            "key": "recent",
+            "title": "Recent",
+            "rows": [
+              {
+                "sessionId": "c",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "c",
+                "title": "Open PR",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": false,
+                "unread": true,
+                "activityAt": "2026-10-23T08:30:00.000Z"
+              },
+              {
+                "sessionId": "d",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "d",
+                "title": "Merged",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": false,
+                "unread": false,
+                "activityAt": "2026-10-22T10:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "authorId": null,
+            "card": {
+              "kind": "question",
+              "question": "Snapshot?"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "ma",
+            "sessionId": "a",
+            "authorKind": "agent",
+            "body": "",
+            "createdAt": "2026-10-23T09:10:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "mb",
+            "sessionId": "b",
+            "authorKind": "user",
+            "body": "go",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "mc1",
+            "sessionId": "c",
+            "authorKind": "agent",
+            "body": "Opened PR #212",
+            "createdAt": "2026-10-23T08:20:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "mc2",
+            "sessionId": "c",
+            "authorKind": "agent",
+            "body": "Waiting for review",
+            "createdAt": "2026-10-23T08:30:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "md",
+            "sessionId": "d",
+            "authorKind": "user",
+            "body": "ship it",
+            "createdAt": "2026-10-22T10:00:00.000Z"
+          }
+        ],
+        "reads": [
+          {
+            "sessionId": "c",
+            "readAt": "2026-10-23T08:25:00.000Z"
+          },
+          {
+            "sessionId": "a",
+            "readAt": "2026-10-23T09:15:00.000Z"
+          }
+        ],
+        "prStates": {
+          "c": [
+            "open"
+          ],
+          "d": [
+            "merged"
+          ]
+        },
+        "words": {
+          "c": "readyToMerge"
+        },
+        "now": "2026-10-23T10:00:00.000Z",
+        "utcOffsetMinutes": 0,
+        "filter": "all"
+      },
+      "expected": {
+        "rows": [
+          {
+            "sessionId": "b",
+            "teamId": "t1",
+            "title": "Running one",
+            "deviceId": null,
+            "group": "running",
+            "lead": "working",
+            "preview": {
+              "kind": "working",
+              "text": "working…"
+            },
+            "activityAt": "2026-10-23T09:25:00.000Z",
+            "time": "09:25",
+            "unreadCount": 0,
+            "needsYou": false,
+            "busy": true,
+            "word": null
+          },
+          {
+            "sessionId": "a",
+            "teamId": "t1",
+            "title": "Needs you one",
+            "deviceId": "dev-mac",
+            "group": "needs_you",
+            "lead": "needs_you",
+            "preview": {
+              "kind": "question",
+              "text": "Question: Snapshot?"
+            },
+            "activityAt": "2026-10-23T09:10:00.000Z",
+            "time": "09:10",
+            "unreadCount": 0,
+            "needsYou": true,
+            "busy": true,
+            "word": null
+          },
+          {
+            "sessionId": "c",
+            "teamId": "t1",
+            "title": "Open PR",
+            "deviceId": null,
+            "group": "recent",
+            "lead": "open",
+            "preview": {
+              "kind": "agent",
+              "text": "Waiting for review"
+            },
+            "activityAt": "2026-10-23T08:30:00.000Z",
+            "time": "08:30",
+            "unreadCount": 1,
+            "needsYou": false,
+            "busy": false,
+            "word": "readyToMerge"
+          },
+          {
+            "sessionId": "d",
+            "teamId": "t1",
+            "title": "Merged",
+            "deviceId": null,
+            "group": "recent",
+            "lead": "merged",
+            "preview": {
+              "kind": "you",
+              "text": "You: ship it"
+            },
+            "activityAt": "2026-10-22T10:00:00.000Z",
+            "time": "Yesterday",
+            "unreadCount": 0,
+            "needsYou": false,
+            "busy": false,
+            "word": null
+          }
+        ],
+        "counts": {
+          "needs_you": 1,
+          "running": 1,
+          "unread": 1
+        }
+      }
+    },
+    {
+      "name": "filter needs_you: one flat list by activity, other teams and agents out, no children",
+      "input": {
+        "groups": [
+          {
+            "key": "needs_you",
+            "title": "Needs you",
+            "rows": [
+              {
+                "sessionId": "a",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "a",
+                "title": "Needs you one",
+                "deviceId": "dev-mac",
+                "busy": true,
+                "needsYou": true,
+                "unread": false,
+                "activityAt": "2026-10-23T09:10:00.000Z"
+              }
+            ]
+          },
+          {
+            "key": "running",
+            "title": "Running",
+            "rows": [
+              {
+                "sessionId": "b",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "b",
+                "title": "Running one",
+                "deviceId": null,
+                "busy": true,
+                "needsYou": false,
+                "unread": false,
+                "activityAt": "2026-10-23T09:25:00.000Z"
+              },
+              {
+                "sessionId": "b1",
+                "teamId": "t1",
+                "depth": 1,
+                "parentId": "b",
+                "rootId": "b",
+                "title": "Child",
+                "deviceId": null,
+                "busy": true,
+                "needsYou": false,
+                "unread": false,
+                "activityAt": "2026-10-23T09:25:00.000Z"
+              }
+            ]
+          },
+          {
+            "key": "recent",
+            "title": "Recent",
+            "rows": [
+              {
+                "sessionId": "c",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "c",
+                "title": "Open PR",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": false,
+                "unread": true,
+                "activityAt": "2026-10-23T08:30:00.000Z"
+              },
+              {
+                "sessionId": "d",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "d",
+                "title": "Merged",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": false,
+                "unread": false,
+                "activityAt": "2026-10-22T10:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "authorId": null,
+            "card": {
+              "kind": "question",
+              "question": "Snapshot?"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "ma",
+            "sessionId": "a",
+            "authorKind": "agent",
+            "body": "",
+            "createdAt": "2026-10-23T09:10:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "mb",
+            "sessionId": "b",
+            "authorKind": "user",
+            "body": "go",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "mc1",
+            "sessionId": "c",
+            "authorKind": "agent",
+            "body": "Opened PR #212",
+            "createdAt": "2026-10-23T08:20:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "mc2",
+            "sessionId": "c",
+            "authorKind": "agent",
+            "body": "Waiting for review",
+            "createdAt": "2026-10-23T08:30:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "md",
+            "sessionId": "d",
+            "authorKind": "user",
+            "body": "ship it",
+            "createdAt": "2026-10-22T10:00:00.000Z"
+          }
+        ],
+        "reads": [
+          {
+            "sessionId": "c",
+            "readAt": "2026-10-23T08:25:00.000Z"
+          },
+          {
+            "sessionId": "a",
+            "readAt": "2026-10-23T09:15:00.000Z"
+          }
+        ],
+        "prStates": {
+          "c": [
+            "open"
+          ],
+          "d": [
+            "merged"
+          ]
+        },
+        "words": {
+          "c": "readyToMerge"
+        },
+        "now": "2026-10-23T10:00:00.000Z",
+        "utcOffsetMinutes": 0,
+        "filter": "needs_you"
+      },
+      "expected": {
+        "rows": [
+          {
+            "sessionId": "a",
+            "teamId": "t1",
+            "title": "Needs you one",
+            "deviceId": "dev-mac",
+            "group": "needs_you",
+            "lead": "needs_you",
+            "preview": {
+              "kind": "question",
+              "text": "Question: Snapshot?"
+            },
+            "activityAt": "2026-10-23T09:10:00.000Z",
+            "time": "09:10",
+            "unreadCount": 0,
+            "needsYou": true,
+            "busy": true,
+            "word": null
+          }
+        ],
+        "counts": {
+          "needs_you": 1,
+          "running": 1,
+          "unread": 1
+        }
+      }
+    },
+    {
+      "name": "filter running: one flat list by activity, other teams and agents out, no children",
+      "input": {
+        "groups": [
+          {
+            "key": "needs_you",
+            "title": "Needs you",
+            "rows": [
+              {
+                "sessionId": "a",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "a",
+                "title": "Needs you one",
+                "deviceId": "dev-mac",
+                "busy": true,
+                "needsYou": true,
+                "unread": false,
+                "activityAt": "2026-10-23T09:10:00.000Z"
+              }
+            ]
+          },
+          {
+            "key": "running",
+            "title": "Running",
+            "rows": [
+              {
+                "sessionId": "b",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "b",
+                "title": "Running one",
+                "deviceId": null,
+                "busy": true,
+                "needsYou": false,
+                "unread": false,
+                "activityAt": "2026-10-23T09:25:00.000Z"
+              },
+              {
+                "sessionId": "b1",
+                "teamId": "t1",
+                "depth": 1,
+                "parentId": "b",
+                "rootId": "b",
+                "title": "Child",
+                "deviceId": null,
+                "busy": true,
+                "needsYou": false,
+                "unread": false,
+                "activityAt": "2026-10-23T09:25:00.000Z"
+              }
+            ]
+          },
+          {
+            "key": "recent",
+            "title": "Recent",
+            "rows": [
+              {
+                "sessionId": "c",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "c",
+                "title": "Open PR",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": false,
+                "unread": true,
+                "activityAt": "2026-10-23T08:30:00.000Z"
+              },
+              {
+                "sessionId": "d",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "d",
+                "title": "Merged",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": false,
+                "unread": false,
+                "activityAt": "2026-10-22T10:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "authorId": null,
+            "card": {
+              "kind": "question",
+              "question": "Snapshot?"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "ma",
+            "sessionId": "a",
+            "authorKind": "agent",
+            "body": "",
+            "createdAt": "2026-10-23T09:10:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "mb",
+            "sessionId": "b",
+            "authorKind": "user",
+            "body": "go",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "mc1",
+            "sessionId": "c",
+            "authorKind": "agent",
+            "body": "Opened PR #212",
+            "createdAt": "2026-10-23T08:20:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "mc2",
+            "sessionId": "c",
+            "authorKind": "agent",
+            "body": "Waiting for review",
+            "createdAt": "2026-10-23T08:30:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "md",
+            "sessionId": "d",
+            "authorKind": "user",
+            "body": "ship it",
+            "createdAt": "2026-10-22T10:00:00.000Z"
+          }
+        ],
+        "reads": [
+          {
+            "sessionId": "c",
+            "readAt": "2026-10-23T08:25:00.000Z"
+          },
+          {
+            "sessionId": "a",
+            "readAt": "2026-10-23T09:15:00.000Z"
+          }
+        ],
+        "prStates": {
+          "c": [
+            "open"
+          ],
+          "d": [
+            "merged"
+          ]
+        },
+        "words": {
+          "c": "readyToMerge"
+        },
+        "now": "2026-10-23T10:00:00.000Z",
+        "utcOffsetMinutes": 0,
+        "filter": "running"
+      },
+      "expected": {
+        "rows": [
+          {
+            "sessionId": "b",
+            "teamId": "t1",
+            "title": "Running one",
+            "deviceId": null,
+            "group": "running",
+            "lead": "working",
+            "preview": {
+              "kind": "working",
+              "text": "working…"
+            },
+            "activityAt": "2026-10-23T09:25:00.000Z",
+            "time": "09:25",
+            "unreadCount": 0,
+            "needsYou": false,
+            "busy": true,
+            "word": null
+          }
+        ],
+        "counts": {
+          "needs_you": 1,
+          "running": 1,
+          "unread": 1
+        }
+      }
+    },
+    {
+      "name": "filter unread: one flat list by activity, other teams and agents out, no children",
+      "input": {
+        "groups": [
+          {
+            "key": "needs_you",
+            "title": "Needs you",
+            "rows": [
+              {
+                "sessionId": "a",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "a",
+                "title": "Needs you one",
+                "deviceId": "dev-mac",
+                "busy": true,
+                "needsYou": true,
+                "unread": false,
+                "activityAt": "2026-10-23T09:10:00.000Z"
+              }
+            ]
+          },
+          {
+            "key": "running",
+            "title": "Running",
+            "rows": [
+              {
+                "sessionId": "b",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "b",
+                "title": "Running one",
+                "deviceId": null,
+                "busy": true,
+                "needsYou": false,
+                "unread": false,
+                "activityAt": "2026-10-23T09:25:00.000Z"
+              },
+              {
+                "sessionId": "b1",
+                "teamId": "t1",
+                "depth": 1,
+                "parentId": "b",
+                "rootId": "b",
+                "title": "Child",
+                "deviceId": null,
+                "busy": true,
+                "needsYou": false,
+                "unread": false,
+                "activityAt": "2026-10-23T09:25:00.000Z"
+              }
+            ]
+          },
+          {
+            "key": "recent",
+            "title": "Recent",
+            "rows": [
+              {
+                "sessionId": "c",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "c",
+                "title": "Open PR",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": false,
+                "unread": true,
+                "activityAt": "2026-10-23T08:30:00.000Z"
+              },
+              {
+                "sessionId": "d",
+                "teamId": "t1",
+                "depth": 0,
+                "parentId": null,
+                "rootId": "d",
+                "title": "Merged",
+                "deviceId": null,
+                "busy": false,
+                "needsYou": false,
+                "unread": false,
+                "activityAt": "2026-10-22T10:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "authorId": null,
+            "card": {
+              "kind": "question",
+              "question": "Snapshot?"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "ma",
+            "sessionId": "a",
+            "authorKind": "agent",
+            "body": "",
+            "createdAt": "2026-10-23T09:10:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "mb",
+            "sessionId": "b",
+            "authorKind": "user",
+            "body": "go",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "mc1",
+            "sessionId": "c",
+            "authorKind": "agent",
+            "body": "Opened PR #212",
+            "createdAt": "2026-10-23T08:20:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "mc2",
+            "sessionId": "c",
+            "authorKind": "agent",
+            "body": "Waiting for review",
+            "createdAt": "2026-10-23T08:30:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "md",
+            "sessionId": "d",
+            "authorKind": "user",
+            "body": "ship it",
+            "createdAt": "2026-10-22T10:00:00.000Z"
+          }
+        ],
+        "reads": [
+          {
+            "sessionId": "c",
+            "readAt": "2026-10-23T08:25:00.000Z"
+          },
+          {
+            "sessionId": "a",
+            "readAt": "2026-10-23T09:15:00.000Z"
+          }
+        ],
+        "prStates": {
+          "c": [
+            "open"
+          ],
+          "d": [
+            "merged"
+          ]
+        },
+        "words": {
+          "c": "readyToMerge"
+        },
+        "now": "2026-10-23T10:00:00.000Z",
+        "utcOffsetMinutes": 0,
+        "filter": "unread"
+      },
+      "expected": {
+        "rows": [
+          {
+            "sessionId": "c",
+            "teamId": "t1",
+            "title": "Open PR",
+            "deviceId": null,
+            "group": "recent",
+            "lead": "open",
+            "preview": {
+              "kind": "agent",
+              "text": "Waiting for review"
+            },
+            "activityAt": "2026-10-23T08:30:00.000Z",
+            "time": "08:30",
+            "unreadCount": 1,
+            "needsYou": false,
+            "busy": false,
+            "word": "readyToMerge"
+          }
+        ],
+        "counts": {
+          "needs_you": 1,
+          "running": 1,
+          "unread": 1
+        }
+      }
+    }
+  ],
+  "bubbleCases": [
+    {
+      "name": "amber needs you, white unread, none read (another member's conversation never counts)",
+      "input": {
+        "agents": [
+          {
+            "agentId": "ag1",
+            "teamId": "t1",
+            "name": "Triage",
+            "icon": "bug",
+            "color": "#a855f7",
+            "busy": false,
+            "needsYou": true
+          },
+          {
+            "agentId": "ag2",
+            "teamId": "t1",
+            "name": "Designer",
+            "icon": "bot",
+            "color": "#6366f1",
+            "busy": false,
+            "needsYou": false
+          },
+          {
+            "agentId": "ag3",
+            "teamId": "t1",
+            "name": "Release",
+            "icon": "package",
+            "color": "#22c55e",
+            "busy": false,
+            "needsYou": false
+          }
+        ],
+        "sessions": [
+          {
+            "teamId": "t1",
+            "parentId": null,
+            "userId": "u-me",
+            "deviceId": null,
+            "status": "running",
+            "busy": false,
+            "needsInput": true,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "startedAt": "2026-10-23T08:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-23T08:00:00.000Z",
+            "updatedAt": "2026-10-23T08:00:00.000Z",
+            "rootId": "g1",
+            "id": "g1",
+            "agentId": "ag1"
+          },
+          {
+            "teamId": "t1",
+            "parentId": null,
+            "userId": "u-me",
+            "deviceId": null,
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "startedAt": "2026-10-23T08:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-23T08:00:00.000Z",
+            "updatedAt": "2026-10-23T08:00:00.000Z",
+            "rootId": "g2",
+            "id": "g2",
+            "agentId": "ag2"
+          },
+          {
+            "teamId": "t1",
+            "parentId": null,
+            "userId": "u-me",
+            "deviceId": null,
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "startedAt": "2026-10-23T08:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-23T08:00:00.000Z",
+            "updatedAt": "2026-10-23T08:00:00.000Z",
+            "rootId": "g3",
+            "id": "g3",
+            "agentId": "ag3"
+          },
+          {
+            "teamId": "t1",
+            "parentId": null,
+            "userId": "u-other",
+            "deviceId": null,
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "startedAt": "2026-10-23T08:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-23T08:00:00.000Z",
+            "updatedAt": "2026-10-23T08:00:00.000Z",
+            "rootId": "gx",
+            "id": "gx",
+            "agentId": "ag3"
+          }
+        ],
+        "messages": [
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "x2",
+            "sessionId": "g2",
+            "authorKind": "agent",
+            "body": "new",
+            "createdAt": "2026-10-23T09:00:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "x3",
+            "sessionId": "g3",
+            "authorKind": "agent",
+            "body": "old",
+            "createdAt": "2026-10-23T08:00:00.000Z"
+          },
+          {
+            "authorId": null,
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-23T08:00:00.000Z",
+            "authorSessionId": null,
+            "id": "xx",
+            "sessionId": "gx",
+            "authorKind": "agent",
+            "body": "someone else's",
+            "createdAt": "2026-10-23T09:30:00.000Z"
+          }
+        ],
+        "reads": [
+          {
+            "sessionId": "g3",
+            "readAt": "2026-10-23T08:30:00.000Z"
+          }
+        ],
+        "me": "u-me"
+      },
+      "expected": [
+        {
+          "agentId": "ag1",
+          "teamId": "t1",
+          "name": "Triage",
+          "icon": "bug",
+          "color": "#a855f7",
+          "busy": false,
+          "needsYou": true,
+          "ring": "needs_you"
+        },
+        {
+          "agentId": "ag2",
+          "teamId": "t1",
+          "name": "Designer",
+          "icon": "bot",
+          "color": "#6366f1",
+          "busy": false,
+          "needsYou": false,
+          "ring": "unread"
+        },
+        {
+          "agentId": "ag3",
+          "teamId": "t1",
+          "name": "Release",
+          "icon": "package",
+          "color": "#22c55e",
+          "busy": false,
+          "needsYou": false,
+          "ring": null
+        }
+      ]
+    }
+  ],
+  "menuCases": [
+    {
+      "name": "a live chat",
+      "input": {
+        "rootStatus": "idle",
+        "canSteer": true
+      },
+      "expected": [
+        "stop",
+        "stopAndDelete"
+      ]
+    },
+    {
+      "name": "a running chat",
+      "input": {
+        "rootStatus": "running",
+        "canSteer": true
+      },
+      "expected": [
+        "stop",
+        "stopAndDelete"
+      ]
+    },
+    {
+      "name": "a queued chat",
+      "input": {
+        "rootStatus": "queued",
+        "canSteer": true
+      },
+      "expected": [
+        "stop",
+        "stopAndDelete"
+      ]
+    },
+    {
+      "name": "an ended chat",
+      "input": {
+        "rootStatus": "ended",
+        "canSteer": true
+      },
+      "expected": [
+        "delete"
+      ]
+    },
+    {
+      "name": "a viewer who cannot steer it",
+      "input": {
+        "rootStatus": "idle",
+        "canSteer": false
+      },
+      "expected": []
+    }
+  ],
+  "agentMenuCases": [
+    {
+      "name": "idle, member",
+      "input": {
+        "busy": false,
+        "isOwner": false
+      },
+      "expected": [
+        "compact",
+        "newConversation"
+      ]
+    },
+    {
+      "name": "busy, member",
+      "input": {
+        "busy": true,
+        "isOwner": false
+      },
+      "expected": [
+        "compact",
+        "newConversation",
+        "stop"
+      ]
+    },
+    {
+      "name": "busy, owner",
+      "input": {
+        "busy": true,
+        "isOwner": true
+      },
+      "expected": [
+        "compact",
+        "newConversation",
+        "stop",
+        "settings"
+      ]
+    },
+    {
+      "name": "idle, owner",
+      "input": {
+        "busy": false,
+        "isOwner": true
+      },
+      "expected": [
+        "compact",
+        "newConversation",
+        "settings"
+      ]
+    }
+  ],
+  "replyCases": [
+    {
+      "name": "reply with text",
+      "event": {
+        "name": "reply",
+        "context": {
+          "text": " Ship the snapshot "
+        }
+      },
+      "expected": {
+        "text": "Ship the snapshot"
+      }
+    },
+    {
+      "name": "reply without text",
+      "event": {
+        "name": "reply",
+        "context": {
+          "text": "  "
+        }
+      },
+      "expected": null
+    },
+    {
+      "name": "reply without context",
+      "event": {
+        "name": "reply"
+      },
+      "expected": null
+    },
+    {
+      "name": "another event",
+      "event": {
+        "name": "open",
+        "context": {
+          "text": "x"
+        }
+      },
+      "expected": null
+    },
+    {
+      "name": "text not a string",
+      "event": {
+        "name": "reply",
+        "context": {
+          "text": 3
+        }
+      },
+      "expected": null
+    }
+  ],
+  "dividerCases": [
+    {
+      "body": "/new",
+      "expected": "new"
+    },
+    {
+      "body": " /new ",
+      "expected": "new"
+    },
+    {
+      "body": "/new please",
+      "expected": null
+    },
+    {
+      "body": "/compact",
+      "expected": "compact"
+    },
+    {
+      "body": "/compact keep the plan",
+      "expected": "compact"
+    },
+    {
+      "body": "/compaction",
+      "expected": null
+    },
+    {
+      "body": "hello /new",
+      "expected": null
+    },
+    {
+      "body": "/model opus",
+      "expected": null
+    }
+  ],
+  "plainCases": [
+    {
+      "text": "**bold** and __under__ and ~~gone~~",
+      "expected": "bold and under and gone"
+    },
+    {
+      "text": "# Title\n> quote\n- item\n1. first",
+      "expected": "Title quote item first"
+    },
+    {
+      "text": "see [the PR](https://github.com/x/1) ![img](/api/attachments/a)",
+      "expected": "see the PR"
+    },
+    {
+      "text": "`code` *em* _em_ snake_case_name 2*3",
+      "expected": "code em em snake_case_name 2*3"
+    },
+    {
+      "text": "  spaced\n\n\nout  ",
+      "expected": "spaced out"
+    }
+  ]
+}

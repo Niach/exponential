@@ -40,6 +40,13 @@ struct IssuesHomeView: View {
     // a full resync's wipe, "No team yet") plus the getting-started checklist
     // while the snapshot lands. Android parity: `activeAccountBoardsSynced`.
     @State private var boardsSynced = false
+    /// EXP-1373 (chats.json `shell.boardChips`): All issues · My issues ·
+    /// Drafts (only while there are drafts) under the header; My issues =
+    /// the viewer's assigned issues of the ACTIVE team across its boards,
+    /// grouped by status like the board.
+    @State private var chip: Chats.Shell.BoardChip = .all
+    @State private var myIssues: MyIssuesViewModel?
+    @State private var drafts: DraftsViewModel?
 
     /// What the switcher parked for after it closes.
     private enum SwitcherAction {
@@ -59,8 +66,16 @@ struct IssuesHomeView: View {
         ZStack {
             AppBackground()
 
-            if let current = currentBoard {
-                IssueListView(boardId: current.boardId, showsSettingsButton: true)
+            if shownChip == .mine, let myIssues {
+                MyIssuesListContent(model: myIssues)
+                    .environment(\.accountId, deps.auth.activeAccountId ?? "")
+                    .tabBarBottomInset()
+            } else if shownChip == .drafts, let drafts {
+                DraftsListContent(viewModel: drafts)
+                    .environment(\.accountId, deps.auth.activeAccountId ?? "")
+                    .tabBarBottomInset()
+            } else if let current = currentBoard {
+                IssueListView(boardId: current.boardId)
                     .environment(\.accountId, current.accountId)
                     // Remount on switch so the list view model rebinds to the
                     // selected board (it captures boardId at creation).
@@ -75,9 +90,34 @@ struct IssuesHomeView: View {
                 emptyStateHint
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if currentBoard != nil || shownChip != .all {
+                boardChips
+            }
+        }
         .environment(\.gettingStarted, gettingStartedContext)
         .onAppear {
             gettingStartedContext.onCreateBoard = { Task { await beginCreateBoard() } }
+            if let accountId = deps.auth.activeAccountId {
+                if myIssues == nil {
+                    myIssues = MyIssuesViewModel(accountId: accountId, db: deps.db, auth: deps.auth)
+                }
+                if drafts == nil {
+                    drafts = DraftsViewModel(accountId: accountId, db: deps.db, api: deps.issueDraftsApi)
+                }
+            }
+            myIssues?.teamId = teamState.activeTeamId
+            drafts?.teamId = teamState.activeTeamId
+            myIssues?.startObserving()
+            drafts?.startObserving()
+        }
+        .onDisappear {
+            myIssues?.stopObserving()
+            drafts?.stopObserving()
+        }
+        .onChange(of: teamState.activeTeamId) { _, teamId in
+            myIssues?.teamId = teamId
+            drafts?.teamId = teamId
         }
         // The GitHub install state is a server-only read (§refreshGithubStatus)
         // — a transient failure at bind would otherwise leave the step
@@ -97,16 +137,28 @@ struct IssuesHomeView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        // EXP-1373: the board switcher pill leads, search trails (the
+        // settings gear moved to the Team tab).
+        .ownChromeToolbarItem(placement: .topBarLeading) {
+            switcherControl
+        }
         .toolbar {
+            // The pill IS the title: the board list's own title stands down.
             ToolbarItem(placement: .principal) {
-                switcherControl
+                Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
             }
-            // With a board mounted, IssueListView owns the trailing group so
-            // the order is filter → settings (EXP-331); the gear only renders
-            // from here on the board-less branches (syncing / empty state).
-            if currentBoard == nil {
+            // With the board list mounted, IssueListView owns search.
+            if currentBoard == nil || shownChip != .all {
                 ToolbarItem(placement: .topBarTrailing) {
-                    SettingsToolbarLink()
+                    NavigationLink(value: AppRoute.search) {
+                        AppIcon(AppIcons.navSearch, size: AppIcon.Size.medium)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Search")
+                    .accessibilityIdentifier("board-search")
                 }
             }
         }
@@ -122,6 +174,7 @@ struct IssuesHomeView: View {
                 liveRunsByTeam: teamState.liveRunsByTeam,
                 activeTeamId: teamState.activeTeamId,
                 onSelect: { accountId, boardId in
+                    chip = .all
                     showSwitcher = false
                     onSelectBoard(accountId, boardId)
                 },
@@ -135,7 +188,8 @@ struct IssuesHomeView: View {
                 onCreateTeam: {
                     pendingSwitcherAction = .createTeam
                     showSwitcher = false
-                }
+                },
+                activeAccountId: deps.auth.activeAccountId
             )
         }
         .sheet(item: $createTarget) { target in
@@ -163,6 +217,44 @@ struct IssuesHomeView: View {
             Task { await beginCreateBoard() }
         case .createTeam:
             showTeamSetup = true
+        }
+    }
+
+    // MARK: - Board chips (EXP-1373)
+
+    private var draftCount: Int { drafts?.rows.count ?? 0 }
+
+    /// Drafts only while there are drafts; a stale Drafts pick falls back.
+    private var chips: [Chats.Shell.BoardChip] {
+        Chats.Shell.boardChips.filter { $0 != .drafts || draftCount > 0 }
+    }
+
+    private var shownChip: Chats.Shell.BoardChip {
+        chips.contains(chip) ? chip : .all
+    }
+
+    private func chipLabel(_ chip: Chats.Shell.BoardChip) -> String {
+        switch chip {
+        case .all: chip.label
+        case .mine: myIssues.map { "\(chip.label) \($0.count)" } ?? chip.label
+        case .drafts: "\(chip.label) \(draftCount)"
+        }
+    }
+
+    private var boardChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(chips, id: \.self) { option in
+                    GlassPill(
+                        chipLabel(option),
+                        size: .md,
+                        mode: .select(isSelected: shownChip == option) { chip = option }
+                    )
+                    .accessibilityIdentifier("\(Chats.TestIds.boardChip)-\(option.rawValue)")
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
         }
     }
 
@@ -231,6 +323,8 @@ struct IssuesHomeView: View {
             AppIcon(AppIcons.navTeamSwitcher, size: GlassPillTokens.glyphMd)
                 .foregroundStyle(.white.opacity(hasAnyBoards ? TextOpacity.secondary : TextOpacity.quaternary))
         }
+        // Its ideal width, never squeezed by the bar (the pill IS the title).
+        .fixedSize()
         // MUST stay on the tappable element: the styleguide/screenshot suites
         // reach the switcher via `app.buttons["Switch board"]`.
         .accessibilityLabel("Switch board")
@@ -369,20 +463,4 @@ struct IssuesHomeView: View {
     }
 }
 
-/// The nav-bar Settings gear — one definition shared by IssuesHomeView's
-/// board-less branches and IssueListView's Root-mode trailing group, so the
-/// glyph and hit target stay identical wherever it renders (EXP-331).
-struct SettingsToolbarLink: View {
-    var body: some View {
-        NavigationLink(value: AppRoute.settings) {
-            AppIcon(AppIcons.navSettings, size: AppIcon.Size.medium)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .frame(width: 32, height: 32)
-                .contentShape(Circle())
-        }
-        // Icon-only: without an explicit label VoiceOver reads the raw asset
-        // name, and the screenshot suites had no stable way to find it.
-        .accessibilityLabel("Settings")
-        .accessibilityIdentifier("nav-settings-link")
-    }
-}
+

@@ -172,10 +172,11 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
   },
   {
     name: `session_self`,
-    blurb: `Your own session: ask a person one question (card), plan (plan mode's card), suggest replies or tasks, compact your context, report_bug when Exponential itself misbehaves.`,
+    blurb: `Your own session: ask a person one question (card), plan (plan mode's card), suggest replies or tasks, compact your context, report_bug when Exponential itself misbehaves, show an inline Exponential UI preview in the chat (a Button whose press event is {name:"reply", context:{text}} sends that text as the user's reply).`,
     ops: {
       ask: `sessions_ask`,
       plan: `plan_propose`,
+      show: `surface_show`,
       suggest: `sessions_suggest`,
       compact: `sessions_compact`,
       report_bug: `report_bug`,

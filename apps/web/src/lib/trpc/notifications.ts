@@ -1,7 +1,8 @@
 import { z } from "zod"
-import { and, eq, isNull } from "drizzle-orm"
+import { and, eq, isNull, or, sql } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { notifications } from "@/db/schema"
+import { issues, notifications } from "@/db/schema"
+import { assertTeamMember } from "@/lib/auth/membership"
 import { notificationTypeValues } from "@/lib/domain"
 import { emailEnabled } from "@/lib/email-enabled"
 import { digestValues } from "@/lib/notification-email-policy"
@@ -63,21 +64,35 @@ export const notificationsRouter = router({
       })
     }),
 
-  markAllRead: authedProcedure.mutation(async ({ ctx }) => {
-    return await ctx.db.transaction(async (tx) => {
-      const txId = await generateTxId(tx)
-      await tx
-        .update(notifications)
-        .set({ readAt: new Date() })
-        .where(
-          and(
-            eq(notifications.userId, ctx.session.user.id),
-            isNull(notifications.readAt)
+  // Chats (phones show ONE active team): `teamId` = only that team's rows
+  // (an issue-less row carries `team_id`, an issue row's team is its
+  // issue's); omitted = every row of the caller (the desktop's input-less
+  // call).
+  markAllRead: authedProcedure
+    .input(z.object({ teamId: z.string().uuid().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const teamId = input?.teamId
+      if (teamId) await assertTeamMember(ctx.session.user.id, teamId)
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        await tx
+          .update(notifications)
+          .set({ readAt: new Date() })
+          .where(
+            and(
+              eq(notifications.userId, ctx.session.user.id),
+              isNull(notifications.readAt),
+              teamId
+                ? or(
+                    eq(notifications.teamId, teamId),
+                    sql`EXISTS (SELECT 1 FROM ${issues} WHERE ${issues.id} = ${notifications.issueId} AND ${issues.teamId} = ${teamId})`
+                  )
+                : undefined
+            )
           )
-        )
-      return { txId }
-    })
-  }),
+        return { txId }
+      })
+    }),
 
   // Email-notification prefs (user_notification_prefs is server-only — read
   // via tRPC, never synced). The row is auto-created with a random

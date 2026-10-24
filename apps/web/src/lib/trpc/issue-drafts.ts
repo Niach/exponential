@@ -135,7 +135,7 @@ export const issueDraftsRouter = router({
         if (!thread || thread.teamId !== board.teamId || thread.agentId) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
-            message: `The thread must belong to this team`,
+            message: `The chat must belong to this team`,
           })
         }
         threadRootId = thread.rootId

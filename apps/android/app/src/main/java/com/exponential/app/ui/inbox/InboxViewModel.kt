@@ -144,13 +144,37 @@ internal fun buildInboxState(
     return InboxState(entries = entries, totalUnread = entries.sumOf { it.unread }, loaded = true)
 }
 
+/** Thread 58cb32df: the notifications of [teamId] (null = all): an issue
+ *  row's team = its board's, an issue-less row's its own `team_id`. */
+internal fun activeTeamNotifications(
+    notifications: List<NotificationEntity>,
+    issues: List<IssueEntity>,
+    boards: List<com.exponential.app.data.db.BoardEntity>,
+    teamId: String?,
+): List<NotificationEntity> {
+    if (teamId == null) return notifications
+    val boardTeam = boards.associate { it.id to it.teamId }
+    val issueTeam = issues.associate { it.id to boardTeam[it.boardId] }
+    return notifications.filter { n ->
+        val team = n.teamId ?: n.issueId?.let(issueTeam::get)
+        team == null || team == teamId
+    }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class InboxViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val holder: DatabaseHolder,
     private val notificationsApi: NotificationsApi,
+    selection: com.exponential.app.data.TeamSelection,
 ) : ViewModel() {
+
+    /** Thread 58cb32df (chats.json): the inbox page lists the ACTIVE team's
+     *  rows only (an issue's team = its board's; an issue-less row carries
+     *  its own); null = every team, before one resolves. */
+    private val activeTeam = selection.selectedId
+    private val boardsFlow = accountDatabaseFlow(auth, holder).scopedQuery(emptyList()) { it.boardDao().observeAll() }
 
     // Reactive account scoping: all queries re-scope on account switch (no
     // constructor-time DB/user snapshot).
@@ -170,8 +194,10 @@ class InboxViewModel @Inject constructor(
         notificationsFlow,
         issuesFlow,
         teamsFlow,
-    ) { notifications, issues, teams ->
-        buildInboxState(notifications, issues, teams)
+        boardsFlow,
+        activeTeam,
+    ) { notifications, issues, teams, boards, team ->
+        buildInboxState(activeTeamNotifications(notifications, issues, boards, team), issues, teams)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxState())
 
     fun markGroupRead(group: InboxGroup) = markRead(group.notifications)
@@ -192,10 +218,12 @@ class InboxViewModel @Inject constructor(
         }
     }
 
+    /** Mark all read = the ACTIVE team's rows (thread 58cb32df:
+     *  `notifications.markAllRead({ teamId })`; no team yet = every team). */
     fun markAllRead() {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching { notificationsApi.markAllRead(accountId) }
+            runCatching { notificationsApi.markAllRead(accountId, activeTeam.value) }
         }
     }
 }

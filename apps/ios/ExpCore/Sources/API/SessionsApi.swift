@@ -166,6 +166,25 @@ public struct SessionsSendResult: Decodable, Sendable, Equatable {
     }
 }
 
+/// `sessions.stop`'s answer (chats.json STOP): `delivered` false = the relay
+/// reached no device for a live, non-queued session (toast
+/// `Chats.Copy.Toasts.stopNotDelivered`); nil = an older server that does not
+/// say. Decoded leniently: any shape reads, a missing / non-bool field is nil.
+public struct SessionsStopResult: Decodable, Sendable, Equatable {
+    public let delivered: Bool?
+
+    public init(delivered: Bool?) {
+        self.delivered = delivered
+    }
+
+    private enum CodingKeys: String, CodingKey { case delivered }
+
+    public init(from decoder: Decoder) throws {
+        let container = try? decoder.container(keyedBy: CodingKeys.self)
+        delivered = (try? container?.decodeIfPresent(Bool.self, forKey: .delivered)) ?? nil
+    }
+}
+
 // MARK: - Other inputs
 
 /// A plan card's decision (`sessions.answer({decision})`).
@@ -319,10 +338,23 @@ public final class SessionsApi: Sendable {
         try await trpc.mutation(accountId: accountId, path: "sessions.send", input: input)
     }
 
-    /// Interrupt the session's current turn (it stays live, goes idle).
-    public func stop(accountId: String, sessionId: String) async throws {
-        try await trpc.mutationVoid(
+    /// Interrupt the session's current turn (it stays live, goes idle): the
+    /// TURN interrupt (composer stop, agent menu Stop). `delivered == false`
+    /// → toast `Chats.Copy.Toasts.stopNotDelivered`.
+    @discardableResult
+    public func stop(accountId: String, sessionId: String) async throws -> SessionsStopResult {
+        try await trpc.mutation(
             accountId: accountId, path: "sessions.stop", input: SessionIdInput(sessionId: sessionId)
+        )
+    }
+
+    /// Thread 58cb32df (chats.json): delete a ROOT chat (not an agent
+    /// conversation, not an app session); the server ends what is live, then
+    /// deletes the tree and its messages. FORBIDDEN / NOT_FOUND / BAD_REQUEST
+    /// throw like any refusal.
+    public func delete(accountId: String, sessionId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "sessions.delete", input: SessionIdInput(sessionId: sessionId)
         )
     }
 

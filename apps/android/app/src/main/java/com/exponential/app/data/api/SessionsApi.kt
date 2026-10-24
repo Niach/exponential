@@ -173,6 +173,16 @@ data class SessionsSendResult(
 @Serializable
 private data class SessionIdInput(val sessionId: String)
 
+/** Thread 58cb32df: `sessions.stop`'s answer. [delivered] = false when the
+ *  relay reached no device for a live, non-queued session (chats.json
+ *  `copy.toasts.stopNotDelivered`); absent on an older server = delivered. */
+@Serializable
+data class SessionStopResult(val txid: Long? = null, val delivered: Boolean = true)
+
+/** Thread 58cb32df: `sessions.delete`'s answer. */
+@Serializable
+data class SessionDeleteResult(val txid: Long? = null)
+
 @Serializable
 private data class MessageIdInput(val messageId: String)
 
@@ -238,6 +248,8 @@ data class SessionConfigureInput(
 @Serializable
 data class SessionMcpPicks(val mcpServerIds: List<String> = emptyList())
 
+private val stopJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; explicitNulls = false }
+
 @Singleton
 class SessionsApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -252,8 +264,33 @@ class SessionsApi @Inject constructor(private val trpc: TrpcClient) {
         )
 
     /** Interrupt the current turn (the session stays live, goes idle). */
-    suspend fun stop(accountId: String, sessionId: String) =
-        unit(accountId, "sessions.stop", sessionId)
+    suspend fun stop(accountId: String, sessionId: String): SessionStopResult {
+        val raw = trpc.mutation(
+            accountId,
+            path = "sessions.stop",
+            input = SessionIdInput(sessionId),
+            inputSerializer = SessionIdInput.serializer(),
+            outputSerializer = JsonElement.serializer(),
+        )
+        // Lenient: an older server answers nothing (or a bare txid).
+        return runCatching { stopJson.decodeFromJsonElement(SessionStopResult.serializer(), raw) }
+            .getOrDefault(SessionStopResult())
+    }
+
+    /** Thread 58cb32df (chats.json): delete a ROOT chat — the server ends what
+     *  is live, then deletes the tree and its messages. FORBIDDEN / NOT_FOUND /
+     *  BAD_REQUEST (not a root chat) surface as a [TrpcException]. */
+    suspend fun delete(accountId: String, sessionId: String): SessionDeleteResult {
+        val raw = trpc.mutation(
+            accountId,
+            path = "sessions.delete",
+            input = SessionIdInput(sessionId),
+            inputSerializer = SessionIdInput.serializer(),
+            outputSerializer = JsonElement.serializer(),
+        )
+        return runCatching { stopJson.decodeFromJsonElement(SessionDeleteResult.serializer(), raw) }
+            .getOrDefault(SessionDeleteResult())
+    }
 
     /** End a session (agents refuse); ending a ROOT ends its whole tree. */
     suspend fun end(accountId: String, sessionId: String) =

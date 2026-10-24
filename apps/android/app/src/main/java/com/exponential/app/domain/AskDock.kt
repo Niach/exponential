@@ -17,6 +17,8 @@ object AskDock {
         const val BACK = "Back to all cards"
         const val FEEDBACK_PLACEHOLDER = "Tell the agent what to change…"
         const val CANCEL = "Cancel"
+        /** FEED-140: a waiting plan the agent replaced with a newer one. */
+        const val SUPERSEDED = "Replaced by a newer plan"
     }
 
     /** Icon CONCEPT names (icons.json). */
@@ -58,8 +60,13 @@ object AskDock {
         PlanOption("reject", "No, keep planning", "Your feedback goes back with it", "rejected", false),
     )
 
+    /** FEED-140: the decision of a plan a newer `plan` call replaced. */
+    const val DECISION_SUPERSEDED = "superseded"
+
     /** The option a decided plan card names as its answer. */
     fun planDecisionLabel(decision: String, fresh: Boolean): String {
+        // FEED-140: a plan the agent replaced with a newer one.
+        if (decision == DECISION_SUPERSEDED) return Copy.SUPERSEDED
         val wantsFresh = decision == "approved" && fresh
         return PLAN_OPTIONS.firstOrNull { it.decision == decision && it.fresh == wantsFresh }?.label ?: ""
     }

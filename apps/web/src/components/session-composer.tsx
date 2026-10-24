@@ -67,6 +67,7 @@ import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
 import { onStopRetraction, stopSessionTurn } from "@/lib/session-stop"
+import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { cn } from "@/lib/utils"
 
 // EXP-1293 Threads v2: THE reply box ×4 = the home's composer box (the
@@ -376,9 +377,11 @@ export function SessionComposer({
 
   const stop = async () => {
     try {
+      // Chats STOP: the composer's stop = the TURN interrupt; an
+      // undelivered one toasts inside `stopSessionTurn`.
       await stopSessionTurn(sessionId)
     } catch {
-      toast.error(`Couldn't stop the session`)
+      toast.error(CHATS_COPY.toasts.stopFailed)
     }
   }
 

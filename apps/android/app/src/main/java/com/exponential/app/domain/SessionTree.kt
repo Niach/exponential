@@ -195,7 +195,7 @@ object SessionTree {
     }
 
     object ListCopy {
-        const val TITLE = "Threads"
+        const val TITLE = "Chats"
         const val AGENTS = "Agents"
         val GROUPS: Map<ThreadsGroupKey, String> = mapOf(
             ThreadsGroupKey.NeedsYou to "Needs you",
@@ -522,6 +522,18 @@ object SessionTree {
         ) : ThreadRow
 
         data class Event(override val id: String, val event: String, val text: String) : ThreadRow
+
+        /** Thread 58cb32df (chats.json): a person's `/new` or `/compact` line,
+         *  painted as the centred divider pill; [kind] = `new` | `compact`. */
+        data class Divider(override val id: String, val kind: String, val at: String) : ThreadRow
+
+        /** Thread 58cb32df (chats.json): an agent's inline Exponential UI preview. */
+        data class Surface(
+            override val id: String,
+            val sessionId: String,
+            val title: String?,
+            val surface: CardSurface,
+        ) : ThreadRow
     }
 
     /** EXP-1323: one suggested task's state (dismissed items drop). */
@@ -894,6 +906,11 @@ object SessionTree {
                     else -> DomainContract.messageAuthorKindSystem
                 }
                 if (message.body.isBlank()) continue
+                val divider = if (author == DomainContract.messageAuthorKindUser) Chats.commandDivider(message.body) else null
+                if (divider != null) {
+                    rows.add(ThreadRow.Divider(message.id, divider, message.createdAt))
+                    continue
+                }
                 rows.add(
                     ThreadRow.MessageRow(
                         id = message.id,
@@ -950,6 +967,17 @@ object SessionTree {
                         byId[id]?.let { target -> sessionCard(target, titles[target.id] ?: "", now).name }
                     }
                     if (text != null) rows.add(ThreadRow.Event(message.id, card.text("event"), text))
+                }
+                DomainContract.messageCardKindSurface -> {
+                    val surface = cardSurface(card["surface"]) ?: continue
+                    rows.add(
+                        ThreadRow.Surface(
+                            id = message.id,
+                            sessionId = message.sessionId,
+                            title = card.str("title")?.trim()?.takeIf { it.isNotEmpty() },
+                            surface = surface,
+                        ),
+                    )
                 }
                 // NEW-1: a child's ask mirrored into its parent: the child's own
                 // card already surfaces in the Conversation, the mirror draws nothing.

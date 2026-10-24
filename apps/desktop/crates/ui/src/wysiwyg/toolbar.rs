@@ -227,7 +227,7 @@ impl WysiwygDescription {
         let Some((from, to, content)) = wipe else {
             return chrome.children(items).into_any_element();
         };
-        gpui_component::animation::EffectTransition::new(theme::motion::FAST)
+        gpui_component::animation::EffectTransition::new(theme::motion::movement(theme::motion::FAST))
             .ease(theme::motion::standard())
             .width(px(from), px(to))
             .apply(

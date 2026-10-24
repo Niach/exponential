@@ -20,7 +20,8 @@ import { db } from "@/db/connection"
 import { attachments, messages, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { busAsk } from "@/lib/sessions/bus"
-import { postOwnAskCard } from "@/lib/sessions/messages"
+import { postAgentMessage, postOwnAskCard } from "@/lib/sessions/messages"
+import type { Tx } from "@/lib/sessions/tx"
 import { mintGuideUploadToken } from "@/lib/storage/guide-upload-token"
 import {
   rollbackSessionImage,
@@ -241,6 +242,53 @@ export function buildQuestionCard(input: SessionsAskInput): Extract<MessageCard,
   }
 }
 
+export const SURFACE_CARD_TITLE_MAX = 200
+
+/** Chats (fixtures/chats.json `surfaceCard`): `exponential_session_self
+ *  {op: "show"}`'s card, an inline preview validated like a plan card's
+ *  surface (pure; BAD_REQUEST names the fix). */
+export function buildSurfaceCard(input: {
+  surface: CardSurfaceInput
+  title?: string
+}): Extract<MessageCard, { kind: `surface` }> {
+  const surface = validateCardSurface(input.surface)
+  if (!surface) throw bad(`surface is required: an Exponential UI core tree {root, data?}`)
+  const title = input.title?.trim() || null
+  if (title && title.length > SURFACE_CARD_TITLE_MAX) {
+    throw bad(`title is ${title.length} characters; the cap is ${SURFACE_CARD_TITLE_MAX}`)
+  }
+  return { kind: `surface`, surface, title }
+}
+
+/** Posts a surface card as an AGENT message in the caller's own session
+ *  (answers nothing, wakes nothing). → the message id. */
+export async function postSurfaceCard(args: {
+  sessionId: string
+  card: Extract<MessageCard, { kind: `surface` }>
+}): Promise<{ messageId: string }> {
+  const messageId = await db.transaction(async (tx) => {
+    const [session] = await tx
+      .select({
+        id: sessions.id,
+        rootId: sessions.rootId,
+        teamId: sessions.teamId,
+        shared: sessions.shared,
+        userId: sessions.userId,
+        status: sessions.status,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, args.sessionId))
+      .limit(1)
+    if (!session) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+    if (session.status === `ended`) {
+      throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `This session has ended` })
+    }
+    await generateTxId(tx)
+    return postAgentMessage(tx, session, ``, args.card)
+  })
+  return { messageId }
+}
+
 /** One signed upload per picture label of the card. */
 export function mintCardUploads(args: {
   userId: string
@@ -267,10 +315,38 @@ export function mintCardUploads(args: {
 }
 
 /**
+ * FEED-140: a new `plan` SUPERSEDES the plan this session posted that still
+ * waits: the old card closes with decision `superseded` (answered AND
+ * consumed, so the device never feeds it to the agent as an answer; plan
+ * mode and needs-you stay as they are: the new card waits next).
+ */
+export async function supersedeWaitingPlans(tx: Tx, sessionId: string): Promise<string[]> {
+  const now = new Date()
+  const superseded = await tx
+    .update(messages)
+    .set({
+      card: sql`${messages.card} || '{"decision": "superseded"}'::jsonb`,
+      answeredAt: now,
+      consumedAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(messages.sessionId, sessionId),
+        eq(messages.authorSessionId, sessionId),
+        isNull(messages.answeredAt),
+        sql`${messages.card}->>'kind' = 'plan'`
+      )
+    )
+    .returning({ id: messages.id })
+  return superseded.map((row) => row.id)
+}
+
+/**
  * Posts a built plan/question card on the caller's OWN session (the MCP
  * layer resolved it). A live session only; ONE open plan at a time (a
- * second while one this session posted waits = CONFLICT). → the card's
- * message id + the picture uploads + what to do next.
+ * second SUPERSEDES the waiting one, FEED-140). → the card's message id +
+ * the picture uploads + what to do next.
  */
 export async function postAskCard(args: {
   userId: string
@@ -296,27 +372,8 @@ export async function postAskCard(args: {
     if (session.status === `ended`) {
       throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `This session has ended` })
     }
-    if (args.card.kind === `plan`) {
-      const [open] = await tx
-        .select({ id: messages.id })
-        .from(messages)
-        .where(
-          and(
-            eq(messages.sessionId, session.id),
-            eq(messages.authorSessionId, session.id),
-            isNull(messages.answeredAt),
-            sql`${messages.card}->>'kind' = 'plan'`
-          )
-        )
-        .limit(1)
-      if (open) {
-        throw new TRPCError({
-          code: `CONFLICT`,
-          message: `A plan is already waiting for an answer (message ${open.id}): end your turn; the answer arrives as your next message.`,
-        })
-      }
-    }
     await generateTxId(tx)
+    if (args.card.kind === `plan`) await supersedeWaitingPlans(tx, session.id)
     const messageId = await postOwnAskCard(tx, session, args.card)
     // NEW-1: the card reaches the session's parent and watchers (one row,
     // two views); a parent may answer what it knows.

@@ -18,6 +18,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -165,15 +168,22 @@ fun AgentConversationScreen(
             containerColor = Color.Transparent,
             modifier = Modifier.testTag("agent-channel-page"),
             topBar = {
-                HeaderEdgeChrome {
-                    AgentChannelHeader(
-                        name = if (row == null) "" else name,
-                        icon = row?.icon,
-                        color = row?.color,
-                        onBack = onBack,
-                        modifier = Modifier.statusBarsPadding(),
-                    )
-                }
+                // Thread 58cb32df: THE chat header (back · the agent's disc ·
+                // its name over `Agent`); no menu before the conversation exists.
+                ChatHeader(
+                    title = if (row == null) "" else name,
+                    subtitle = if (row == null) null else "Agent",
+                    lead = {
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(com.exponential.app.ui.theme.DesignTokens.Palette.Muted),
+                            contentAlignment = Alignment.Center,
+                        ) { AgentGlyph(icon = row?.icon, color = row?.color, size = 22.dp) }
+                    },
+                    onBack = onBack,
+                )
             },
         ) { padding ->
             val bottomInset = padding.calculateBottomPadding()

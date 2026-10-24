@@ -12,7 +12,7 @@ package com.exponential.app.domain
 data class Schedule(
     /** One of [SchedulePicker.REPEAT_VALUES]. */
     val repeat: String,
-    /** 0..59. */
+    /** 0..59; unused by `minutes`. */
     val minute: Int,
     /** 0..23; unused by `hourly`. */
     val hour: Int,
@@ -20,10 +20,15 @@ data class Schedule(
     val weekdays: List<Int>,
     /** 1..[SchedulePicker.DAY_OF_MONTH_MAX]; monthly only. */
     val dayOfMonth: Int,
+    /** EXP-1363: one of [SchedulePicker.EVERY_VALUES]; minutes only (a read
+     *  carries the default otherwise). */
+    val every: Int = SchedulePicker.DEFAULT_EVERY,
 )
 
 object SchedulePicker {
 
+    /** EXP-1363: every [Schedule.every] minutes (a minute step cron). */
+    const val REPEAT_MINUTES = "minutes"
     const val REPEAT_HOURLY = "hourly"
     const val REPEAT_DAILY = "daily"
     const val REPEAT_WEEKLY = "weekly"
@@ -31,8 +36,15 @@ object SchedulePicker {
     /** The Repeat row's value while the stored cron is custom (never stored). */
     const val REPEAT_CUSTOM = "custom"
 
-    val REPEAT_VALUES: List<String> = listOf(REPEAT_HOURLY, REPEAT_DAILY, REPEAT_WEEKLY, REPEAT_MONTHLY)
+    val REPEAT_VALUES: List<String> = listOf(REPEAT_MINUTES, REPEAT_HOURLY, REPEAT_DAILY, REPEAT_WEEKLY, REPEAT_MONTHLY)
     const val DAY_OF_MONTH_MAX = 28
+    /** EXP-1363: the `minutes` repeat's intervals (the fixture's `everyValues`). */
+    val EVERY_VALUES: List<Int> = listOf(5, 10, 15, 20, 30)
+    const val DEFAULT_EVERY = 10
+
+    /** EXP-1363: a minutes or hourly schedule has no Time zone row and no
+     *  zone in its summary (a stored zone is kept as is). */
+    fun showsTimeZone(repeat: String?): Boolean = repeat != REPEAT_MINUTES && repeat != REPEAT_HOURLY
 
     object Copy {
         const val ROW_REPEAT = "Repeat"
@@ -42,9 +54,11 @@ object SchedulePicker {
         const val ROW_TIME = "Time"
         const val ROW_TIME_ZONE = "Time zone"
         const val ROW_CRON = "Cron"
+        const val ROW_EVERY = "Every"
 
         /** The Repeat row's options by [REPEAT_VALUES]. */
         val REPEAT: Map<String, String> = linkedMapOf(
+            REPEAT_MINUTES to "Every few minutes",
             REPEAT_HOURLY to "Every hour",
             REPEAT_DAILY to "Every day",
             REPEAT_WEEKLY to "Every week",
@@ -62,7 +76,10 @@ object SchedulePicker {
         const val MINUTE_OF_HOUR = ":{minute}"
         const val TIME_ZONE_PLACEHOLDER = "Search time zones"
         const val CRON_PLACEHOLDER = "0 9 * * 1-5"
+        /** An Every row option / value. */
+        const val EVERY = "{n} minutes"
 
+        const val SUMMARY_MINUTES = "Every {n} minutes"
         const val SUMMARY_HOURLY = "Every hour at :{minute}"
         const val SUMMARY_DAILY = "Every day at {time}"
         const val SUMMARY_WEEKLY = "{days} at {time}"
@@ -82,6 +99,7 @@ object SchedulePicker {
     const val TEST_ID_TIME = "schedule-time"
     const val TEST_ID_TIME_ZONE = "schedule-time-zone"
     const val TEST_ID_CRON = "schedule-cron"
+    const val TEST_ID_EVERY = "schedule-every"
 
     /** A new schedule: daily at 09:00 (the fixture's `defaults`). */
     fun defaults(): Schedule = Schedule(
@@ -90,7 +108,11 @@ object SchedulePicker {
         hour = 9,
         weekdays = listOf(1, 2, 3, 4, 5),
         dayOfMonth = 1,
+        every = DEFAULT_EVERY,
     )
+
+    /** `N minutes`, an Every row option. */
+    fun everyLabel(every: Int): String = Copy.EVERY.replace("{n}", every.toString())
 
     private fun pad2(value: Int): String = value.toString().padStart(2, '0')
 
@@ -113,6 +135,7 @@ object SchedulePicker {
     fun cronFromSchedule(schedule: Schedule): String {
         val minute = schedule.minute.toString()
         return when (schedule.repeat) {
+            REPEAT_MINUTES -> "*/${schedule.every} * * * *"
             REPEAT_HOURLY -> "$minute * * * *"
             REPEAT_WEEKLY -> {
                 val days = schedule.weekdays.map(::toCronWeekday).distinct().sorted()
@@ -123,6 +146,7 @@ object SchedulePicker {
         }
     }
 
+    private val STEP = Regex("^\\*/(\\d{1,2})$")
     private val PLAIN_NUMBER = Regex("^\\d{1,2}$")
     private val WEEKDAY_PART = Regex("^(\\d)(?:-(\\d))?$")
     private val WHITESPACE = Regex("\\s+")
@@ -155,6 +179,15 @@ object SchedulePicker {
         if (fields.size != 5 || fields[0].isEmpty()) return null
         val (minuteField, hourField, domField, monthField, dowField) = fields
         if (monthField != "*") return null
+        STEP.matchEntire(minuteField)?.let { step ->
+            val every = step.groupValues[1].toInt()
+            val plain = hourField == "*" && domField == "*" && dowField == "*"
+            return if (plain && every in EVERY_VALUES) {
+                Schedule(repeat = REPEAT_MINUTES, minute = 0, hour = 0, weekdays = emptyList(), dayOfMonth = 1, every = every)
+            } else {
+                null
+            }
+        }
         val minute = plainNumber(minuteField, 0, 59) ?: return null
         // Only the repeat's own fields are populated: `weekdays` [] unless
         // weekly, `dayOfMonth` 1 unless monthly (the rows seed defaults).
@@ -189,12 +222,19 @@ object SchedulePicker {
     /** A Triggers row's text for a stored schedule (the fixture's `summaryCases`). */
     fun scheduleSummary(cron: String, tz: String? = null): String {
         val schedule = scheduleFromCron(cron)
+        if (schedule != null && !showsTimeZone(schedule.repeat)) {
+            // EXP-1363: a zone means nothing for a minutes or hourly schedule.
+            return if (schedule.repeat == REPEAT_MINUTES) {
+                Copy.SUMMARY_MINUTES.replace("{n}", schedule.every.toString())
+            } else {
+                Copy.SUMMARY_HOURLY.replace("{minute}", pad2(schedule.minute))
+            }
+        }
         val text = if (schedule == null) {
             Copy.SUMMARY_CUSTOM.replace("{cron}", cron.trim().replace(WHITESPACE, " "))
         } else {
             val time = timeLabel(schedule.hour, schedule.minute)
             when (schedule.repeat) {
-                REPEAT_HOURLY -> Copy.SUMMARY_HOURLY.replace("{minute}", pad2(schedule.minute))
                 REPEAT_WEEKLY -> if (schedule.weekdays.size == 1) {
                     Copy.SUMMARY_WEEKLY_ONE.replace("{weekday}", weekdaysLabel(schedule.weekdays)).replace("{time}", time)
                 } else {

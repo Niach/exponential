@@ -24,10 +24,27 @@ struct BoardSwitcherSheet: View {
     /// nothing worth switching to should offer.
     let onCreateBoard: () -> Void
     let onCreateTeam: () -> Void
+    /// EXP-1373 (chats.json `shell`): ONE active team on a phone — the
+    /// switcher lists that team's boards alone (the team switches on the
+    /// Team tab only); nil = every server's teams.
+    var activeAccountId: String? = nil
+
+    private var groups: [ServerBoardGroup] {
+        let all = boardLoader?.groups ?? []
+        guard let activeAccountId, let activeTeamId else { return all }
+        return all.compactMap { group in
+            guard group.accountId == activeAccountId else { return nil }
+            let blocks = group.teamBlocks.filter { $0.team.id == activeTeamId }
+            return blocks.isEmpty ? nil : ServerBoardGroup(
+                accountId: group.accountId, hostname: group.hostname,
+                userEmail: group.userEmail, teamBlocks: blocks
+            )
+        }
+    }
 
     var body: some View {
         GlassSheetChrome(title: "Switch board") {
-            let groups = boardLoader?.groups ?? []
+            let groups = groups
             LazyVStack(alignment: .leading, spacing: 18) {
                 if groups.isEmpty {
                     emptyHint
@@ -35,13 +52,15 @@ struct BoardSwitcherSheet: View {
                     ForEach(groups) { group in
                         serverSection(group)
                     }
-                    // At the very bottom, under every server's teams.
-                    plainActionRow(
-                        icon: AppIcons.uiAdd,
-                        title: "New team",
-                        identifier: "board-switcher-new-team",
-                        action: onCreateTeam
-                    )
+                    if activeAccountId == nil {
+                        // At the very bottom, under every server's teams.
+                        plainActionRow(
+                            icon: AppIcons.uiAdd,
+                            title: "New team",
+                            identifier: "board-switcher-new-team",
+                            action: onCreateTeam
+                        )
+                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -59,7 +78,7 @@ struct BoardSwitcherSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             // The hostname/email header only disambiguates when several
             // accounts are signed in — with a single account it's noise.
-            if (boardLoader?.groups.count ?? 0) > 1 {
+            if groups.count > 1 {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(group.hostname)

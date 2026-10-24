@@ -12,9 +12,21 @@ import SwiftUI
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "chat-transcript", "chat-menus", "schedule-picker"]
 
     var body: some View {
+        if kind == "chat-list" {
+            // A whole phone screen (its own nav bar and bottom bar).
+            ChatListSpecimens()
+                .preferredColorScheme(.dark)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("thread-cards-screen")
+        } else {
+            cards
+        }
+    }
+
+    private var cards: some View {
         ZStack {
             AppBackground()
             ScrollView {
@@ -28,6 +40,10 @@ struct ThreadCardsScreen: View {
                     case "ask-dock": AskDockSpecimens()
                     case "dock-card": DockCardSpecimens()
                     case "plan-card": PlanCardSpecimens()
+                    case "phone-tab-bar": PhoneTabBarSpecimens()
+                    case "chat-transcript": ChatTranscriptSpecimens()
+                    case "chat-menus": ChatMenuSpecimens()
+                    case "schedule-picker": SchedulePickerSpecimens()
                     default: workCards
                     }
                 }

@@ -1,11 +1,12 @@
 {
-  "$comment": "THE ask cards x4 (web packages/ui session-thread-view.tsx + ask-card.tsx + dock.tsx, desktop crates/ui ask_dock.rs + dock.rs, iOS ExpUI AskDock.swift + Dock.swift, Android ui/session/AskDock.kt + ui/components/Dock.kt). N-12: a question or plan card WAITING on the viewer is a DockCard of THE Dock (fixtures/dock.json): the collapsed row = the kind icon (`icons`), the tinted `label` (`copy.planReady` / `copy.question`), the asking session's name as the caption (a thread: `threadPendingAsks` + `threadSessionNames`, nested tabs included, the root = null; the session view: null), a plan's question count as the meta, the first plain line of the text (`askDockTitle`) as the title and the open chevron; the composer stays under it. A tap opens THE sheet (dock.json `sheet`): the card's whole body scrolls inside it, the footer carries the decision (plan-card.json `stepper`). THE plan options x4 (`planOptions`, the claude adapter's ExitPlanMode menu): Yes (`approve`, the primary footer button) / Yes, and start with a fresh context (`approve-fresh`, in the primary button's menu) / No, keep planning (`reject`, the secondary footer button; picking it opens the feedback field, `feedbackPlaceholder`, and `copy.cancel` takes it back); `sessions.answer` carries `decision` + `fresh` (+ EXP-1280 `answers` + `surfaceData`); a decided card names `planDecisionLabel`. Answered cards stay in the transcript CLOSED. Model = pure `askDockTitle`, `askDockLabel`, `planDecisionLabel`, `threadPendingAsks` (every plan row with no decision + every unanswered question row of ANY session in the tree, Conversation order, `questions` = a plan's question count), `threadSessionNames` (src/ask-dock.ts); mirrors compare the WHOLE expected object. The dock itself (the pile, the sheet, the order) is dock.json.",
+  "$comment": "THE ask cards x4 (web packages/ui session-thread-view.tsx + ask-card.tsx + dock.tsx, desktop crates/ui ask_dock.rs + dock.rs, iOS ExpUI AskDock.swift + Dock.swift, Android ui/session/AskDock.kt + ui/components/Dock.kt). N-12: a question or plan card WAITING on the viewer is a DockCard of THE Dock (fixtures/dock.json): the collapsed row = the kind icon (`icons`), the tinted `label` (`copy.planReady` / `copy.question`), the asking session's name as the caption (a thread: `threadPendingAsks` + `threadSessionNames`, nested tabs included, the root = null; the session view: null), a plan's question count as the meta, the first plain line of the text (`askDockTitle`) as the title and the open chevron; the composer stays under it. A tap opens THE sheet (dock.json `sheet`): the card's whole body scrolls inside it, the footer carries the decision (plan-card.json `stepper`). THE plan options x4 (`planOptions`, the claude adapter's ExitPlanMode menu): Yes (`approve`, the primary footer button) / Yes, and start with a fresh context (`approve-fresh`, in the primary button's menu) / No, keep planning (`reject`, the secondary footer button; picking it opens the feedback field, `feedbackPlaceholder`, and `copy.cancel` takes it back); `sessions.answer` carries `decision` + `fresh` (+ EXP-1280 `answers` + `surfaceData`); a decided card names `planDecisionLabel`. Answered cards stay in the transcript CLOSED. Model = pure `askDockTitle`, `askDockLabel`, `planDecisionLabel`, `threadPendingAsks` (every plan row with no decision + every unanswered question row of ANY session in the tree, Conversation order, `questions` = a plan's question count), `threadSessionNames` (src/ask-dock.ts); mirrors compare the WHOLE expected object. The dock itself (the pile, the sheet, the order) is dock.json. FEED-140 (thread 58cb32df): decision `superseded` = a waiting plan the agent replaced with a newer `plan` call (the server resolves the old card, never refuses the new one); planDecisionLabel reads `copy.superseded`, the card paints closed and collapsed to that line; a superseded card never sits in the dock.",
   "copy": {
     "planReady": "Plan ready",
     "question": "Question",
     "back": "Back to all cards",
     "feedbackPlaceholder": "Tell the agent what to change…",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "superseded": "Replaced by a newer plan"
   },
   "icons": {
     "plan": "coding-plan",
@@ -74,6 +75,11 @@
       "decision": "rejected",
       "fresh": true,
       "expected": "No, keep planning"
+    },
+    {
+      "decision": "superseded",
+      "fresh": false,
+      "expected": "Replaced by a newer plan"
     }
   ],
   "threadCases": [

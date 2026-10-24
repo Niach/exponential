@@ -572,6 +572,33 @@ pub(crate) fn pointer_menu_item(
         .on_click(move |_, window, cx| on_select(window, cx))
 }
 
+/// [`pointer_menu_item`]'s DESTRUCTIVE twin (thread 58cb32df: a chat's
+/// Stop and delete / Delete): the same row geometry (icon size, gap,
+/// inset) as its neighbours, glyph and label in the danger tint.
+pub(crate) fn danger_pointer_menu_item(
+    icon: crate::icons::ExpIcon,
+    label: impl Into<SharedString>,
+    on_select: impl Fn(&mut Window, &mut App) + 'static,
+) -> PopupMenuItem {
+    let label = label.into();
+    let on_select = host_bound(on_select);
+    PopupMenuItem::element(move |_, cx| {
+        let danger = cx.theme().danger;
+        pointer_row_fill(
+            gpui_component::h_flex()
+                .flex_1()
+                .min_w_0()
+                .gap(px(t::menu::pointer::ITEM_GAP))
+                .items_center()
+                .text_color(danger)
+                .child(Icon::new(icon.clone()).size(px(t::menu::pointer::ICON_SIZE)).flex_shrink_0().text_color(danger))
+                .child(div().flex_1().min_w_0().truncate().child(label.clone())),
+            false,
+        )
+    })
+    .on_click(move |_, window, cx| on_select(window, cx))
+}
+
 /// A pointer row with a switch on the right (Ultracode, Computer use): a
 /// click anywhere on the row flips it.
 pub(crate) fn pointer_toggle_item(

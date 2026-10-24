@@ -188,7 +188,7 @@ fun AgentsScreen(
                 // No relay → nothing here can take a start.
                 EmptyState(
                     title = "Remote start unavailable",
-                    description = "Start sessions from the desktop app. Live sessions show up in Threads.",
+                    description = "Start sessions from the desktop app. Live sessions show up in Chats.",
                     icon = ExpIcons.navDevices,
                 )
             } else if (steerOn) {

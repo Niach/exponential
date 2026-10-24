@@ -21,10 +21,13 @@ pub struct ScheduleRowsCopy {
     pub time: String,
     pub time_zone: String,
     pub cron: String,
+    /// EXP-1363: the minutes repeat's interval row.
+    pub every: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ScheduleRepeatCopy {
+    pub minutes: String,
     pub hourly: String,
     pub daily: String,
     pub weekly: String,
@@ -35,6 +38,7 @@ pub struct ScheduleRepeatCopy {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScheduleSummaryCopy {
+    pub minutes: String,
     pub hourly: String,
     pub daily: String,
     pub weekly: String,
@@ -68,6 +72,8 @@ pub struct SchedulePickerCopy {
     pub minute_of_hour: String,
     pub time_zone_placeholder: String,
     pub cron_placeholder: String,
+    /// EXP-1363: an Every option (`{n} minutes`).
+    pub every: String,
     pub summary: ScheduleSummaryCopy,
     pub errors: ScheduleErrorCopy,
 }
@@ -82,6 +88,7 @@ pub struct SchedulePickerTestIds {
     pub time: String,
     pub time_zone: String,
     pub cron: String,
+    pub every: String,
 }
 
 /// What the rows edit; [`cron_from_schedule`] is its wire form.
@@ -89,7 +96,10 @@ pub struct SchedulePickerTestIds {
 #[serde(rename_all = "camelCase")]
 pub struct Schedule {
     pub repeat: ScheduleRepeat,
-    /// 0..59.
+    /// EXP-1363: one of `everyValues`; minutes only (a read carries
+    /// `defaults.every` otherwise).
+    pub every: u32,
+    /// 0..59; unused by minutes.
     pub minute: u32,
     /// 0..23; unused by hourly.
     pub hour: u32,
@@ -102,6 +112,7 @@ pub struct Schedule {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ScheduleRepeat {
+    Minutes,
     Hourly,
     Daily,
     Weekly,
@@ -109,11 +120,12 @@ pub enum ScheduleRepeat {
 }
 
 impl ScheduleRepeat {
-    pub const ALL: [ScheduleRepeat; 4] = [Self::Hourly, Self::Daily, Self::Weekly, Self::Monthly];
+    pub const ALL: [ScheduleRepeat; 5] = [Self::Minutes, Self::Hourly, Self::Daily, Self::Weekly, Self::Monthly];
 
     /// The wire / fixture value.
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Minutes => "minutes",
             Self::Hourly => "hourly",
             Self::Daily => "daily",
             Self::Weekly => "weekly",
@@ -125,10 +137,17 @@ impl ScheduleRepeat {
         Self::ALL.into_iter().find(|repeat| repeat.as_str() == value)
     }
 
+    /// EXP-1363: minutes and hourly schedules show no Time zone row (and
+    /// their summary never names a zone).
+    pub fn zoned(self) -> bool {
+        !matches!(self, Self::Minutes | Self::Hourly)
+    }
+
     /// The Repeat row's label (`copy.repeat`).
     pub fn label(self) -> &'static str {
         let copy = &SCHEDULE_PICKER.copy.repeat;
         match self {
+            Self::Minutes => &copy.minutes,
             Self::Hourly => &copy.hourly,
             Self::Daily => &copy.daily,
             Self::Weekly => &copy.weekly,
@@ -143,6 +162,8 @@ impl ScheduleRepeat {
 pub struct SchedulePickerSpec {
     pub repeat_values: Vec<ScheduleRepeat>,
     pub day_of_month_max: u32,
+    /// EXP-1363: the minutes repeat's intervals.
+    pub every_values: Vec<u32>,
     pub defaults: Schedule,
     pub copy: SchedulePickerCopy,
     pub test_ids: SchedulePickerTestIds,
@@ -161,6 +182,11 @@ pub fn default_schedule() -> Schedule {
     SCHEDULE_PICKER.defaults.clone()
 }
 
+/// EXP-1363: an Every option's label (`copy.every`).
+pub fn every_label(every: u32) -> String {
+    SCHEDULE_PICKER.copy.every.replacen("{n}", &every.to_string(), 1)
+}
+
 /// The 24h `HH:mm` a Time row reads.
 pub fn time_label(hour: u32, minute: u32) -> String {
     format!("{hour:02}:{minute:02}")
@@ -176,6 +202,7 @@ pub fn cron_from_schedule(schedule: &Schedule) -> String {
     let minute = schedule.minute;
     let hour = schedule.hour;
     match schedule.repeat {
+        ScheduleRepeat::Minutes => format!("*/{} * * * *", schedule.every),
         ScheduleRepeat::Hourly => format!("{minute} * * * *"),
         ScheduleRepeat::Daily => format!("{minute} {hour} * * *"),
         ScheduleRepeat::Weekly => {
@@ -231,11 +258,24 @@ pub fn schedule_from_cron(cron: &str) -> Option<Schedule> {
     if *month_field != "*" {
         return None;
     }
+    if let Some(step) = minute_field.strip_prefix("*/") {
+        let every = plain_number(step, 0, 99)?;
+        let plain = *hour_field == "*" && *dom_field == "*" && *dow_field == "*";
+        return (plain && SCHEDULE_PICKER.every_values.contains(&every)).then(|| Schedule {
+            repeat: ScheduleRepeat::Minutes,
+            every,
+            minute: 0,
+            hour: 0,
+            weekdays: Vec::new(),
+            day_of_month: 1,
+        });
+    }
     let minute = plain_number(minute_field, 0, 59)?;
     // Only the repeat's own fields are populated: `weekdays` [] unless
     // weekly, `day_of_month` 1 unless monthly.
     let base = |repeat, hour| Schedule {
         repeat,
+        every: SCHEDULE_PICKER.defaults.every,
         minute,
         hour,
         weekdays: Vec::new(),
@@ -295,7 +335,11 @@ pub fn schedule_summary(cron: &str, tz: Option<&str>) -> String {
         Some(schedule) => {
             let time = time_label(schedule.hour, schedule.minute);
             match schedule.repeat {
-                ScheduleRepeat::Hourly => copy.hourly.replacen("{minute}", &format!("{:02}", schedule.minute), 1),
+                // EXP-1363: a zone means nothing for a minutes or hourly schedule.
+                ScheduleRepeat::Minutes => return copy.minutes.replacen("{n}", &schedule.every.to_string(), 1),
+                ScheduleRepeat::Hourly => {
+                    return copy.hourly.replacen("{minute}", &format!("{:02}", schedule.minute), 1);
+                }
                 ScheduleRepeat::Daily => copy.daily.replacen("{time}", &time, 1),
                 ScheduleRepeat::Weekly if schedule.weekdays.len() == 1 => copy
                     .weekly_one

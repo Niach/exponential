@@ -17,6 +17,8 @@ import { BoardGlyph } from "./board-glyph"
 import { EmptyState } from "./empty-state"
 import { GlassSectionHeader } from "./glass-rows"
 import { conceptIcon } from "./icons.generated"
+import { menuProps, type MenuEntry, type MenuIcon } from "./menu"
+import { CHATS_COPY, type AgentMenuEntry, type ThreadMenuEntry } from "@exp/domain-contract/chats"
 import { SessionRow } from "./session-row"
 import { ThreadsListItem } from "./session-thread-view"
 import { SkeletonRows } from "./skeleton"
@@ -35,6 +37,63 @@ import { treeGuides } from "./tree-guides"
 // tree nests its children under the root (`SessionRow` depth + TreeGuides,
 // opening that session), a bold title = unread, the live caption the muted
 // second line, and a row that changes band enters on the motion tokens.
+
+/** Thread 58cb32df (chats.json MENUS ×4): the context-menu kinds a chat row
+ *  and an agent row carry (`menuProps(kind, id)`); the app's ONE
+ *  `MenuGestureHost` builds them. */
+export const CHAT_ROW_MENU_KIND = `thread`
+export const AGENT_ROW_MENU_KIND = `agent`
+
+const ChatStopIcon = conceptIcon(`coding-stop`)
+const ChatDeleteIcon = conceptIcon(`ui-delete`)
+const AGENT_MENU_ICONS: Record<AgentMenuEntry, MenuIcon> = {
+  compact: conceptIcon(`coding-compact`),
+  newConversation: conceptIcon(`ui-clean`),
+  stop: ChatStopIcon,
+  settings: conceptIcon(`nav-settings`),
+}
+
+/** A chat's menu (`threadMenuEntries`) as THE Menu's rows: Stop, then the
+ *  destructive Stop and delete / Delete. */
+export function chatMenuRows(
+  entries: readonly ThreadMenuEntry[],
+  run: (entry: ThreadMenuEntry) => void
+): MenuEntry[] {
+  return entries.map((entry): MenuEntry => ({
+    kind: `item`,
+    id: entry,
+    label: CHATS_COPY.menu[entry],
+    icon: entry === `stop` ? ChatStopIcon : ChatDeleteIcon,
+    destructive: entry !== `stop`,
+    "data-testid": `chat-menu-${entry}`,
+    onSelect: () => run(entry),
+  }))
+}
+
+/** The agent menu (`agentMenuEntries`) as THE Menu's rows: the
+ *  conversation pair, a divider, then Stop / Agent settings. */
+export function agentMenuRows(
+  entries: readonly AgentMenuEntry[],
+  run: (entry: AgentMenuEntry) => void
+): MenuEntry[] {
+  const rows: MenuEntry[] = []
+  let divided = false
+  for (const entry of entries) {
+    if (!divided && (entry === `stop` || entry === `settings`)) {
+      rows.push({ kind: `separator`, id: `sep` })
+      divided = true
+    }
+    rows.push({
+      kind: `item`,
+      id: entry,
+      label: CHATS_COPY.menu[entry],
+      icon: AGENT_MENU_ICONS[entry],
+      "data-testid": `agent-menu-${entry}`,
+      onSelect: () => run(entry),
+    })
+  }
+  return rows
+}
 
 const NeedsYouIcon = conceptIcon(`coding-needs-input`)
 const RecentIcon = conceptIcon(`ui-check`)
@@ -173,6 +232,7 @@ export function ThreadsList({
                 title={agent.name}
                 word={agent.needsYou ? (THREAD_ROW_WORDS.needsInput ?? null) : null}
                 active={agent.agentId === activeId}
+                menu={menuProps(AGENT_ROW_MENU_KIND, agent.agentId)}
                 onOpen={onOpenAgent ? () => onOpenAgent(agent.agentId) : undefined}
               />
             ))}
@@ -263,6 +323,7 @@ function GroupRows({
             wordIcon={word === `stack` ? <PrStackIcon className="size-3 shrink-0" /> : undefined}
             device={deviceGlyph(row.deviceId)}
             active={row.sessionId === activeId}
+            menu={menuProps(CHAT_ROW_MENU_KIND, row.sessionId)}
             onOpen={() => onOpenThread(row.sessionId)}
           />
         )

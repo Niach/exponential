@@ -15,6 +15,11 @@ private data class NotificationIssueInput(@SerialName("issueId") val issueId: St
 @Serializable
 private object NotificationsEmptyInput
 
+/** Thread 58cb32df: `notifications.markAllRead({ teamId })` — only that
+ *  team's rows (phones show ONE active team). */
+@Serializable
+private data class NotificationsTeamInput(@SerialName("teamId") val teamId: String)
+
 @Singleton
 class NotificationsApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -38,12 +43,22 @@ class NotificationsApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 
-    suspend fun markAllRead(accountId: String) {
-        trpc.mutationUnit(
-            accountId,
-            path = "notifications.markAllRead",
-            input = NotificationsEmptyInput,
-            inputSerializer = NotificationsEmptyInput.serializer(),
-        )
+    /** Mark all read; [teamId] = only that team's rows (absent = every team). */
+    suspend fun markAllRead(accountId: String, teamId: String? = null) {
+        if (teamId == null) {
+            trpc.mutationUnit(
+                accountId,
+                path = "notifications.markAllRead",
+                input = NotificationsEmptyInput,
+                inputSerializer = NotificationsEmptyInput.serializer(),
+            )
+        } else {
+            trpc.mutationUnit(
+                accountId,
+                path = "notifications.markAllRead",
+                input = NotificationsTeamInput(teamId),
+                inputSerializer = NotificationsTeamInput.serializer(),
+            )
+        }
     }
 }

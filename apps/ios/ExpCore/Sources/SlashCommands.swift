@@ -13,7 +13,7 @@ import Foundation
 // DOES.
 //
 // NEW-2 (owner 2026-10-21): the catalog is the contract `steerCommands` ALONE
-// (compact, model, effort); commands the agent CLI injects (its
+// (compact, new, model, effort); commands the agent CLI injects (its
 // `config_state.commands`: Claude Code skills, plugins) are HIDDEN on every
 // platform — nothing here merges them, so neither the menu nor the
 // transcript's command lookup ever sees one.

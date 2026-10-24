@@ -147,6 +147,17 @@ impl SurfaceView {
             style.transform.scale *= a.scale as f32;
             style.transform.rotate += a.rotate as f32;
         }
+        // A host-driven entrance (`SurfaceView::set_entrance`).
+        if !self.ghosting.get() && !self.surface.settings().reduced_motion {
+            if let Some(entrance) = &self.entrance {
+                let now = self.now();
+                if let Some((opacity, ty)) = entrance.frame(self.cache.ids[i].as_ref(), now) {
+                    style.opacity = Some(style.opacity.unwrap_or(1.0) * opacity);
+                    style.transform.ty += ty;
+                    window.request_animation_frame();
+                }
+            }
+        }
         let tf = style.transform;
         let leaf = n.kind == NodeKind::Leaf;
         // Round 2 §2: `position: sticky` / a pinned section header moves by

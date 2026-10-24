@@ -50,6 +50,10 @@ import { entry as workTabsStrip } from "./work-tabs-strip.tsx"
 import { entry as searchList } from "./search-list.tsx"
 import { entry as menuSubmenu } from "./menu-submenu.tsx"
 import { entry as gettingStarted } from "./getting-started.tsx"
+import { entry as chatList } from "./chat-list.tsx"
+import { entry as phoneTabBar } from "./phone-tab-bar.tsx"
+import { entry as chatTranscript } from "./chat-transcript.tsx"
+import { entry as chatMenus } from "./chat-menus.tsx"
 import { entry as trace } from "./trace.tsx"
 import { entry as codeBlock } from "./code-block.tsx"
 import type { StyleguideEntry } from "./types.ts"
@@ -106,6 +110,10 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   agentHome,
   workTabsStrip,
   gettingStarted,
+  chatList,
+  phoneTabBar,
+  chatTranscript,
+  chatMenus,
 ]
 
 export function entryById(id: string): StyleguideEntry | undefined {

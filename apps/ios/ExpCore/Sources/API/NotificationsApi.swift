@@ -38,11 +38,30 @@ public final class NotificationsApi: Sendable {
         )
     }
 
-    public func markAllRead(accountId: String) async throws {
-        let _: EmptyResult = try await trpc.mutation(
-            accountId: accountId,
-            path: "notifications.markAllRead",
-            input: EmptyInput()
-        )
+    /// EXP-1373: `teamId` = only that team's rows (the phone inbox shows ONE
+    /// active team); nil = every team (the input-less call).
+    public func markAllRead(accountId: String, teamId: String? = nil) async throws {
+        if let teamId {
+            let _: EmptyResult = try await trpc.mutation(
+                accountId: accountId,
+                path: "notifications.markAllRead",
+                input: MarkAllReadInput(teamId: teamId)
+            )
+        } else {
+            let _: EmptyResult = try await trpc.mutation(
+                accountId: accountId,
+                path: "notifications.markAllRead",
+                input: EmptyInput()
+            )
+        }
+    }
+}
+
+/// `notifications.markAllRead({ teamId })`.
+public struct MarkAllReadInput: Encodable, Equatable, Sendable {
+    public let teamId: String
+
+    public init(teamId: String) {
+        self.teamId = teamId
     }
 }

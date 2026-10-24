@@ -119,8 +119,15 @@ export function cardMediaAllowed(src: string): boolean {
 }
 
 function cardHost(): HostPlugin {
+  return planCardHost()
+}
+
+/** THE card host (the plan card's, and thread 58cb32df's `SurfaceCard`):
+ *  `onAction` = the surface's action events (a surface card's `reply`). */
+export function planCardHost(onAction?: (event: { name: string; context: Record<string, unknown> }) => void): HostPlugin {
   const origin = typeof window === `undefined` ? `http://localhost` : window.location.origin
   return {
+    ...(onAction ? { onAction: (event) => onAction({ name: event.name, context: event.context }) } : {}),
     icons: CARD_ICONS,
     media: { baseUrl: origin },
     urls: { baseUrl: origin },

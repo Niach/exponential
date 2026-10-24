@@ -6,8 +6,9 @@
 //! A schedule trigger STORES a 5-field cron; these rows edit it. They are
 //! pushed into the trigger editor's glass group under its Schedule · On
 //! event strip, top to bottom: Repeat · Days (weekly) | Day (monthly) ·
-//! Minute (hourly) | Time · Time zone · Cron (a custom, MCP-written
-//! expression only — the one place cron is ever visible).
+//! Every (minutes) | Minute (hourly) | Time · Time zone (EXP-1363: not for
+//! minutes / hourly) · Cron (a custom, MCP-written expression only — the one
+//! place cron is ever visible). Every option list scrolls.
 
 use std::rc::Rc;
 
@@ -24,7 +25,7 @@ use gpui_component::{
 };
 
 use domain::schedule_picker::{
-    cron_from_schedule, default_schedule, schedule_from_cron, weekdays_label, Schedule,
+    cron_from_schedule, default_schedule, every_label, schedule_from_cron, weekdays_label, Schedule,
     ScheduleRepeat, SCHEDULE_PICKER,
 };
 
@@ -188,9 +189,30 @@ impl ScheduleFieldsState {
                     );
                     rows.push(surface::glass_picker_row(copy.rows.day.clone(), None, control, cx));
                 }
+                ScheduleRepeat::Minutes => {
+                    // EXP-1363: Every 5/10/15/20/30 minutes.
+                    let options = SCHEDULE_PICKER
+                        .every_values
+                        .iter()
+                        .map(|every| (SharedString::from(every_label(*every)), *every))
+                        .collect();
+                    let control = menu_control(
+                        format!("{prefix}-every"),
+                        every_label(schedule.every).into(),
+                        options,
+                        Some(schedule.every),
+                        |state, every| state.patch(|schedule| schedule.every = every),
+                        access,
+                        true,
+                        cx,
+                    );
+                    rows.push(surface::glass_picker_row(copy.rows.every.clone(), None, control, cx));
+                }
                 ScheduleRepeat::Hourly | ScheduleRepeat::Daily => {}
             }
-            if schedule.repeat == ScheduleRepeat::Hourly {
+            if schedule.repeat == ScheduleRepeat::Minutes {
+                // No Minute / Time row: the interval is the whole schedule.
+            } else if schedule.repeat == ScheduleRepeat::Hourly {
                 let options = (0..60).map(|minute| (minute_of_hour_label(minute), minute)).collect();
                 let control = menu_control(
                     format!("{prefix}-minute"),
@@ -213,7 +235,11 @@ impl ScheduleFieldsState {
             }
         }
 
-        rows.push(self.time_zone_row(prefix, access, window, cx));
+        // EXP-1363: a minutes or hourly schedule shows no zone row (the
+        // stored zone is kept as is).
+        if self.schedule.as_ref().is_none_or(|schedule| schedule.repeat.zoned()) {
+            rows.push(self.time_zone_row(prefix, access, window, cx));
+        }
 
         if self.schedule.is_none() {
             let input = surface::glass_row_input(glass_input(&self.cron, window, cx));
@@ -346,10 +372,19 @@ fn with_repeat(current: Option<&Schedule>, repeat: ScheduleRepeat) -> Schedule {
     } else {
         base.day_of_month
     };
+    // EXP-1363: a minutes read carries no time (00:00): leaving it seeds
+    // the defaults' time.
+    let (hour, minute) = if base.repeat == ScheduleRepeat::Minutes && repeat != ScheduleRepeat::Minutes {
+        (seed.hour, seed.minute)
+    } else {
+        (base.hour, base.minute)
+    };
     Schedule {
         repeat,
         weekdays,
         day_of_month,
+        hour,
+        minute,
         ..base
     }
 }
@@ -500,5 +535,9 @@ mod tests {
         // From custom: the defaults (09:00), day 1.
         assert_eq!(cron_from_schedule(&with_repeat(None, ScheduleRepeat::Monthly)), "0 9 1 * *");
         assert_eq!(cron_from_schedule(&with_repeat(None, ScheduleRepeat::Weekly)), "0 9 * * 1,2,3,4,5");
+        // EXP-1363: minutes keeps the default interval, leaving it seeds 09:00.
+        assert_eq!(cron_from_schedule(&with_repeat(Some(&daily), ScheduleRepeat::Minutes)), "*/10 * * * *");
+        let minutes = schedule_from_cron("*/15 * * * *").unwrap();
+        assert_eq!(cron_from_schedule(&with_repeat(Some(&minutes), ScheduleRepeat::Daily)), "0 9 * * *");
     }
 }

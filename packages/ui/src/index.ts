@@ -117,6 +117,9 @@ export * from "./session-results"
 export * from "./session-results-view"
 export * from "./session-thread-view"
 export * from "./threads-list"
+// Thread 58cb32df (chats.json): THE phone Chats list pieces + the phone tab bar.
+export * from "./chat-list"
+export * from "./phone-tab-bar"
 // EXP-1248: THE session row, small | big.
 export * from "./session-row"
 export * from "./run-status-row"
@@ -174,3 +177,7 @@ export * from "./comment-call-card"
 // EXP-1270 (EXP-1259 D6): THE Getting started block's face (header + one
 // strip of square cards); the app derives the entries and runs the targets.
 export * from "./getting-started-list"
+// Thread 58cb32df (chats.json): the surface card, transcript divider and phone chat bubble.
+export * from "./surface-card"
+// Thread 58cb32df: the four chat specimens (styleguide entries + the app's ?dev= captures).
+export * from "./chat-specimens"

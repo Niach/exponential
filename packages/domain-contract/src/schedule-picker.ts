@@ -12,13 +12,17 @@ export const SCHEDULE_PICKER_COPY = fixture.copy
 export const SCHEDULE_PICKER_TEST_IDS = fixture.testIds
 export const SCHEDULE_REPEAT_VALUES = fixture.repeatValues as readonly ScheduleRepeat[]
 export const SCHEDULE_DAY_OF_MONTH_MAX: number = fixture.dayOfMonthMax
+/** EXP-1363: the `minutes` repeat's intervals. */
+export const SCHEDULE_EVERY_VALUES: readonly number[] = fixture.everyValues
 
-export type ScheduleRepeat = `hourly` | `daily` | `weekly` | `monthly`
+export type ScheduleRepeat = `minutes` | `hourly` | `daily` | `weekly` | `monthly`
 
 /** What the rows edit; `cronFromSchedule` is its wire form. */
 export interface Schedule {
   repeat: ScheduleRepeat
-  /** 0..59. */
+  /** EXP-1363: one of `SCHEDULE_EVERY_VALUES`; minutes only. */
+  every: number
+  /** 0..59; unused by `minutes`. */
   minute: number
   /** 0..23; unused by `hourly`. */
   hour: number
@@ -33,6 +37,7 @@ export function defaultSchedule(): Schedule {
   const d = fixture.defaults
   return {
     repeat: d.repeat as ScheduleRepeat,
+    every: d.every,
     minute: d.minute,
     hour: d.hour,
     weekdays: [...d.weekdays],
@@ -56,6 +61,8 @@ const fromCronWeekday = (cron: number): number => (cron === 0 ? 7 : cron)
 export function cronFromSchedule(schedule: Schedule): string {
   const minute = String(schedule.minute)
   switch (schedule.repeat) {
+    case `minutes`:
+      return `*/${schedule.every} * * * *`
     case `hourly`:
       return `${minute} * * * *`
     case `daily`:
@@ -104,11 +111,19 @@ export function scheduleFromCron(cron: string): Schedule | null {
     string,
   ]
   if (monthField !== `*`) return null
+  const step = /^\*\/(\d{1,2})$/.exec(minuteField)
+  if (step) {
+    const every = Number(step[1])
+    const plain = hourField === `*` && domField === `*` && dowField === `*`
+    return plain && SCHEDULE_EVERY_VALUES.includes(every)
+      ? { repeat: `minutes`, every, minute: 0, hour: 0, weekdays: [], dayOfMonth: 1 }
+      : null
+  }
   const minute = plainNumber(minuteField, 0, 59)
   if (minute === null) return null
   // Only the repeat's own fields are populated: `weekdays` [] unless weekly,
   // `dayOfMonth` 1 unless monthly (the rows seed `defaults` on a switch).
-  const base: Omit<Schedule, `repeat` | `hour`> = { minute, weekdays: [], dayOfMonth: 1 }
+  const base: Omit<Schedule, `repeat` | `hour`> = { every: fixture.defaults.every, minute, weekdays: [], dayOfMonth: 1 }
   if (hourField === `*`) {
     return domField === `*` && dowField === `*` ? { ...base, repeat: `hourly`, hour: 0 } : null
   }
@@ -147,9 +162,11 @@ export function scheduleSummary(cron: string, tz?: string | null): string {
   } else {
     const time = scheduleTimeLabel(schedule.hour, schedule.minute)
     switch (schedule.repeat) {
+      case `minutes`:
+        return copy.minutes.replace(`{n}`, String(schedule.every))
       case `hourly`:
-        text = copy.hourly.replace(`{minute}`, pad2(schedule.minute))
-        break
+        // EXP-1363: a zone means nothing for an hourly schedule.
+        return copy.hourly.replace(`{minute}`, pad2(schedule.minute))
       case `daily`:
         text = copy.daily.replace(`{time}`, time)
         break

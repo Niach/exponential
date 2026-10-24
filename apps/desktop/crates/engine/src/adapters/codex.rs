@@ -46,7 +46,7 @@ use agent_client_protocol::schema::v1::{
     RequestPermissionRequest, SessionCapabilities, SessionConfigOption,
     PermissionOptionId, SessionConfigOptionCategory, SessionConfigOptionValue,
     SessionConfigSelectOption, SessionId,
-    SessionInfo, SessionListCapabilities, SessionMode, SessionModeId, SessionModeState,
+    SessionInfo, SessionInfoUpdate, SessionListCapabilities, SessionMode, SessionModeId, SessionModeState,
     SessionNotification, SessionResumeCapabilities, SessionUpdate, SetSessionConfigOptionRequest,
     SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse, StopReason,
     TextContent, ToolCall, ToolCallContent, ToolCallId, ToolCallLocation, ToolCallStatus,
@@ -54,13 +54,14 @@ use agent_client_protocol::schema::v1::{
     ToolCallUpdateFields, ToolKind, UsageUpdate,
 };
 use agent_client_protocol::{Agent, Client, ConnectTo, ConnectionTo, Error};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tokio::sync::Notify;
 
 use super::codex_wire::{
     self, ApprovalKind, AppServer, CodexMode, ServerRequest, TurnRequest,
 };
 use super::AdapterSpec;
+use crate::host::NATIVE_SESSION_META_KEY;
 use crate::session::{EngineError, ResumeHandle};
 
 /// How long a single app-server call may take before the adapter gives up on
@@ -636,8 +637,9 @@ impl ConnectTo<Client> for CodexAgent {
                         // later message. Inline, a turn could never be
                         // cancelled.
                         let shared = prompt.clone();
+                        let spawned = cx.clone();
                         cx.spawn(async move {
-                            let outcome = run_prompt(&shared, request).await;
+                            let outcome = run_prompt(&shared, &spawned, request).await;
                             let _ = match outcome {
                                 Ok(stop) => responder.respond(PromptResponse::new(stop)),
                                 Err(error) => responder.respond_with_error(error),
@@ -1197,7 +1199,11 @@ fn prompt_text(blocks: &[ContentBlock]) -> String {
         .join("\n")
 }
 
-async fn run_prompt(shared: &Arc<Shared>, request: PromptRequest) -> Result<StopReason, Error> {
+async fn run_prompt(
+    shared: &Arc<Shared>,
+    cx: &ConnectionTo<Client>,
+    request: PromptRequest,
+) -> Result<StopReason, Error> {
     let thread_id = shared
         .session_id()
         .map(|id| id.0.to_string())
@@ -1208,6 +1214,11 @@ async fn run_prompt(shared: &Arc<Shared>, request: PromptRequest) -> Result<Stop
     let text = prompt_text(&request.prompt);
     if text.trim() == "/compact" || text.trim().starts_with("/compact ") {
         return compact(shared, &thread_id).await;
+    }
+    // `/new` = a fresh conversation in the SAME session: a new thread, never
+    // prompt text. The host holds a mid-turn `/new` until the turn ends.
+    if super::is_new_conversation_command(&text) {
+        return new_thread(shared, cx).await;
     }
 
     let input = prompt_input(&request.prompt);
@@ -1358,6 +1369,62 @@ async fn wait_for_turn(shared: &Arc<Shared>, turn_id: &str) -> TurnOutcome {
             log::warn!("engine: codex turn {turn_id} never completed, giving up");
             return TurnOutcome::Failed;
         }
+    }
+}
+
+/// `/new`: `thread/start` like the session's own start (the same config
+/// block and playbook), and every later turn rides the new thread. The id is
+/// re-published under [`NATIVE_SESSION_META_KEY`] so the run record (and a
+/// later resume) names the new thread, never the abandoned one.
+async fn new_thread(shared: &Arc<Shared>, cx: &ConnectionTo<Client>) -> Result<StopReason, Error> {
+    let cwd = shared.cwd.lock().map(|cwd| cwd.clone()).unwrap_or_default();
+    let roots = shared.writable_roots();
+    let config = thread_config_for(shared, &roots);
+    let response = call(
+        shared,
+        "thread/start",
+        codex_wire::thread_start_params(&cwd, config, Some(shared.spec.system_append.as_str())),
+    )
+    .await?;
+    let thread_id = started_thread_id(&response)
+        .ok_or_else(|| internal("codex thread/start returned no thread id"))?;
+    adopt_new_thread(shared, &thread_id);
+    let mut meta = Map::new();
+    meta.insert(NATIVE_SESSION_META_KEY.to_string(), json!(thread_id));
+    if let Some(session_id) = shared.session_id() {
+        let notification = SessionNotification::new(
+            session_id,
+            SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()),
+        )
+        .meta(meta);
+        if let Err(error) = cx.send_notification(notification) {
+            log::debug!("engine: codex new thread id not delivered: {error}");
+        }
+    }
+    Ok(StopReason::EndTurn)
+}
+
+/// The thread id a `thread/start` | `thread/resume` response names.
+fn started_thread_id(response: &Value) -> Option<String> {
+    response
+        .get("thread")
+        .and_then(|thread| thread.get("id"))
+        .and_then(Value::as_str)
+        .or_else(|| response.get("threadId").and_then(Value::as_str))
+        .map(str::to_string)
+}
+
+/// `/new`'s bookkeeping: the new thread is THE conversation from here on —
+/// a fresh one (no resumed prefix, its context bar measured again), with no
+/// turn of the old thread live.
+fn adopt_new_thread(shared: &Shared, thread_id: &str) {
+    if let Ok(mut slot) = shared.session_id.lock() {
+        *slot = Some(SessionId::new(thread_id));
+    }
+    shared.resumed.store(false, Ordering::SeqCst);
+    shared.context_layout_published.store(false, Ordering::SeqCst);
+    if let Ok(mut turns) = shared.turns.lock() {
+        turns.live = None;
     }
 }
 

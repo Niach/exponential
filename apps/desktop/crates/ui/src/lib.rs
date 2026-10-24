@@ -43,6 +43,8 @@ mod board_form;
 mod changelog;
 // EXP-772: the Chat page — one centred prompt box, one row of pickers.
 mod chat_launch;
+// Thread 58cb32df: the chat and agent menus (Stop, Delete, Compact, New conversation).
+mod chat_actions;
 mod chat_screen;
 pub mod coding_flow;
 // EXP-1121: the "Ready to code?" checklist behind Start coding.
@@ -134,6 +136,8 @@ mod pickers;
 mod picker;
 mod pins;
 mod plan_card;
+// Thread 58cb32df: the transcript's surface card + command dividers.
+mod surface_card;
 mod pr_diff;
 mod pr_graph;
 mod pr_merge;
@@ -229,6 +233,9 @@ use gpui_component::dock::register_panel;
 /// navigation action handlers (§4.2). Must run once at bootstrap, after
 /// `gpui_component::init(cx)` and before any window opens.
 pub fn init(cx: &mut App) {
+    // Thread 58cb32df: every motion token honours the OS's Reduce Motion.
+    #[cfg(target_os = "macos")]
+    theme::motion::set_reduce_motion_probe(macos_reduce_motion);
     // VAPP-90: the SDK's generic controls read the IDE's token values.
     exponential_ui_gpui::chrome::install(cx, controls::ide_chrome().clone());
     navigation::init(cx);
@@ -280,4 +287,20 @@ pub fn init(cx: &mut App) {
     register_panel(cx, debug_board::PANEL_NAME, |_, _, _, window, cx| {
         Box::new(cx.new(|cx| debug_board::DebugBoardPanel::new(window, cx)))
     });
+}
+
+/// macOS System Settings → Accessibility → Display → Reduce motion
+/// (`NSWorkspace.accessibilityDisplayShouldReduceMotion`), the probe behind
+/// `theme::motion::reduce_motion`.
+#[cfg(target_os = "macos")]
+fn macos_reduce_motion() -> bool {
+    use cocoa::base::{id, BOOL, NO};
+    use objc::{class, msg_send, sel, sel_impl};
+    // SAFETY: a class method and a BOOL property read on the shared
+    // workspace, no ownership taken.
+    unsafe {
+        let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let reduced: BOOL = msg_send![workspace, accessibilityDisplayShouldReduceMotion];
+        reduced != NO
+    }
 }

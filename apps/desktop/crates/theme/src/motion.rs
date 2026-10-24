@@ -15,15 +15,70 @@
 //! `CubicBezierEasing`. [`ease`] below solves `x(t) = progress` first, which is
 //! what keeps the desktop's feel identical to the other three clients.
 //!
-//! gpui exposes NO OS reduce-motion signal — unlike iOS
-//! (`accessibilityReduceMotion`), Android (`ANIMATOR_DURATION_SCALE`) and web
-//! (`prefers-reduced-motion`), there is nothing here to honour, and the
-//! accessibility surface is AccessKit tree-building only. If a reduce-motion
-//! opt-out is ever wanted, the hook is a `reduceMotion` key in the shared
-//! `{data_dir}/settings.json`; do not add it speculatively.
+//! REDUCE MOTION (thread 58cb32df; the `Reduce motion: opacity only` rule
+//! below, like iOS `accessibilityReduceMotion`, Android
+//! `ANIMATOR_DURATION_SCALE` and web `prefers-reduced-motion`): gpui exposes
+//! no OS signal, so the host installs a probe ([`set_reduce_motion_probe`];
+//! the IDE's reads macOS `NSWorkspace.accessibilityDisplayShouldReduceMotion`)
+//! and every animation asks [`reduce_motion`] here, the ONE place: a reduced
+//! animation keeps its opacity fade and drops every movement — [`travel`]
+//! (a rise, a slide, a drop) reads 0, [`settle`] jumps a non-opacity
+//! progress (a rotation, a column's width) to its end, [`movement`] makes a
+//! moving transition instant, and the ambient shimmer stops.
+//! `EXP_REDUCE_MOTION=1` forces it (captures, tests).
 
 use crate::tokens::motion as m;
-use std::time::Duration;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+static PROBE: OnceLock<fn() -> bool> = OnceLock::new();
+static CACHE: Mutex<Option<(Instant, bool)>> = Mutex::new(None);
+/// How long a probe answer is trusted (the setting can flip while the app
+/// runs; the probe is a cheap system call, but not one per frame).
+const PROBE_TTL: Duration = Duration::from_secs(2);
+
+/// Install the OS's reduce-motion probe (once; later calls are ignored).
+pub fn set_reduce_motion_probe(probe: fn() -> bool) {
+    let _ = PROBE.set(probe);
+}
+
+/// Whether the person asked the OS to reduce motion (or
+/// `EXP_REDUCE_MOTION=1`); `false` without a probe.
+pub fn reduce_motion() -> bool {
+    if std::env::var("EXP_REDUCE_MOTION").is_ok_and(|value| value == "1") {
+        return true;
+    }
+    let Some(probe) = PROBE.get() else {
+        return false;
+    };
+    let mut cache = CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    match *cache {
+        Some((at, value)) if at.elapsed() < PROBE_TTL => value,
+        _ => {
+            let value = probe();
+            *cache = Some((Instant::now(), value));
+            value
+        }
+    }
+}
+
+/// A movement's distance (a rise, a slide, a drop): 0 under reduce motion.
+pub fn travel(px: f32) -> f32 {
+    if reduce_motion() { 0. } else { px }
+}
+
+/// A NON-opacity progress (a rotation, a width, a slide's 0..1): its end
+/// (1) under reduce motion, so the state lands without moving.
+pub fn settle(progress: f32) -> f32 {
+    if reduce_motion() { 1. } else { progress }
+}
+
+/// A moving transition's duration: instant (1 ms, never a zero divisor)
+/// under reduce motion (an opacity fade keeps its token duration; only pass
+/// movements through here).
+pub fn movement(duration: Duration) -> Duration {
+    if reduce_motion() { Duration::from_millis(1) } else { duration }
+}
 
 /// Hover / opacity micro-feedback.
 pub const FAST: Duration = Duration::from_millis(m::duration::FAST_MS);
@@ -45,8 +100,8 @@ pub const POPOVER_FROM_SCALE: f32 = m::scale::POPOVER_FROM;
 /// ambient loop that is a token. One sweep lasts [`SHIMMER`]; the band is
 /// [`SHIMMER_SPREAD_PX`] each side of its centre; the highlight is the text
 /// colour at OKLCH lightness max([`SHIMMER_LIGHTNESS_MIN`], l +
-/// [`SHIMMER_LIGHTNESS_BOOST`]) and alpha + [`SHIMMER_ALPHA_BOOST`]. gpui has
-/// no reduce-motion signal (above), so it always runs.
+/// [`SHIMMER_LIGHTNESS_BOOST`]) and alpha + [`SHIMMER_ALPHA_BOOST`]. It stops
+/// under [`reduce_motion`].
 pub const SHIMMER: Duration = Duration::from_millis(m::shimmer::DURATION_MS as u64);
 pub const SHIMMER_SPREAD_PX: f32 = m::shimmer::SPREAD_PX;
 pub const SHIMMER_ANGLE_DEG: f32 = m::shimmer::ANGLE_DEG;
@@ -135,6 +190,18 @@ pub fn accelerate() -> impl Fn(f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Without a probe nothing is reduced; the env override reduces.
+    #[test]
+    fn reduce_motion_drops_movement_only() {
+        if std::env::var("EXP_REDUCE_MOTION").is_ok() {
+            return;
+        }
+        assert!(!reduce_motion());
+        assert_eq!(travel(12.), 12.);
+        assert_eq!(settle(0.3), 0.3);
+        assert_eq!(movement(SLOW), SLOW);
+    }
 
     #[test]
     fn durations_come_from_the_shared_tokens() {

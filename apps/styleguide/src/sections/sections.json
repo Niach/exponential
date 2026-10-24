@@ -18,7 +18,8 @@
       "work-card", "thread-parts", "ask-dock", "dock-card", "plan-card", "script-card", "comment-call-card",
       "team-agents-settings", "voice-call-overlay", "computer-use-banner",
       "agent-home", "work-tabs-strip",
-      "getting-started"
+      "getting-started",
+      "chat-list", "phone-tab-bar", "chat-transcript", "chat-menus"
     ] },
     { "id": "views", "order": 4, "title": "4 Views", "blurb": "Whole screens, photographed on every platform.", "entries": [] }
   ],
@@ -71,6 +72,10 @@
     "work-tabs-strip": "EXP-1255",
     "search-list": "SLOP-28",
     "menu-submenu": "SLOP-28",
-    "getting-started": "EXP-1270"
+    "getting-started": "EXP-1270",
+    "chat-list": "EXP-1373",
+    "phone-tab-bar": "EXP-1373",
+    "chat-transcript": "EXP-1373",
+    "chat-menus": "EXP-1373"
   }
 }

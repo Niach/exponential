@@ -506,7 +506,7 @@ internal fun subagentModelLabel(value: String): String = modelLabel(value)
 internal const val SUBAGENT_MODEL_LABEL = "Subagent model"
 
 /** The dispatcher root's model row (threads + team agents), per agent. */
-internal const val THREAD_MODEL_LABEL = "Thread model"
+internal const val THREAD_MODEL_LABEL = "Chat model"
 
 /**
  * EXP-1236: the Computer use model vocabulary = THE claude model list. A

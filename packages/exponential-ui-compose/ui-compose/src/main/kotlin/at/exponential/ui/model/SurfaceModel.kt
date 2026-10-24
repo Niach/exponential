@@ -257,6 +257,16 @@ class SurfaceModel(
     var keyboardFocus: String? by mutableStateOf(null)
         internal set
 
+    /**
+     * A HOST hook on the painted tree: when set, every node view asks it for
+     * an extra [androidx.compose.ui.Modifier] (index → modifier, applied
+     * outermost on that node; null or [androidx.compose.ui.Modifier] = none).
+     * Layout never reads it, so it may only paint (a `graphicsLayer` alpha /
+     * translation for an entrance, a test tag). Exponential's chat surface
+     * card staggers the root's first-level children in through it.
+     */
+    var nodeModifier: ((index: Int) -> androidx.compose.ui.Modifier?)? by mutableStateOf(null)
+
     /** Speaks through the platform (set by `ExponentialSurface`: the view's announcement). */
     var announcer: ((text: String, live: String) -> Unit)? = null
 

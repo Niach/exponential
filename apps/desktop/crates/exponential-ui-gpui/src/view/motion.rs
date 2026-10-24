@@ -44,6 +44,48 @@ pub(crate) const ENTER_FALLBACK_MS: f64 = 180.0;
 /// The theme's `motion.fast` (ms) when a theme names none.
 pub(crate) const EXIT_FALLBACK_MS: f64 = 120.0;
 
+/// A HOST-driven entrance of named nodes (the embedding app's own enter
+/// animation, e.g. a chat card staggering its root's children in): from
+/// [`Self::started`], each node in [`Self::ids`] fades in from
+/// `from_opacity` and rises `from_translate_y` px into place over
+/// `duration_ms` (`easing` = a cubic bezier), after its own delay
+/// (`delays_ms[i]`, the last delay for any node past the list). Paint-only:
+/// layout never moves. Ignored under the surface's reduced motion.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NodeEntrance {
+    pub started: Instant,
+    pub ids: Vec<String>,
+    pub from_opacity: f32,
+    pub from_translate_y: f32,
+    pub duration_ms: f32,
+    pub easing: [f32; 4],
+    pub delays_ms: Vec<f32>,
+}
+
+impl NodeEntrance {
+    /// Node `id`'s (opacity, translate y) at `now`; `None` once it settled
+    /// or for a node the entrance does not name.
+    pub fn frame(&self, id: &str, now: Instant) -> Option<(f32, f32)> {
+        let index = self.ids.iter().position(|n| n == id)?;
+        let delay = self.delays_ms.get(index).or(self.delays_ms.last()).copied().unwrap_or(0.0);
+        let elapsed = now.saturating_duration_since(self.started).as_secs_f32() * 1000.0 - delay;
+        if elapsed < 0.0 {
+            return Some((self.from_opacity, self.from_translate_y));
+        }
+        let t = elapsed / self.duration_ms.max(1.0);
+        if t >= 1.0 {
+            return None;
+        }
+        let p = cubic_bezier(self.easing, t);
+        Some((self.from_opacity + (1.0 - self.from_opacity) * p, self.from_translate_y * (1.0 - p)))
+    }
+
+    /// Whether any node still moves at `now`.
+    pub fn running(&self, now: Instant) -> bool {
+        self.ids.iter().any(|id| self.frame(id, now).is_some())
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Motion {
     styles: HashMap<u32, StyleAnim>,
@@ -146,6 +188,27 @@ mod tests {
         let plain = PaintStyle { opacity: Some(1.0), ..Default::default() };
         m.style_changed(2, &a, &plain, t0);
         assert_eq!(m.style(2, &plain, t0), plain);
+    }
+
+    #[test]
+    fn a_node_entrance_staggers_and_settles() {
+        let t0 = Instant::now();
+        let e = NodeEntrance {
+            started: t0,
+            ids: vec!["a".into(), "b".into()],
+            from_opacity: 0.0,
+            from_translate_y: 6.0,
+            duration_ms: 100.0,
+            easing: [0.0, 0.0, 1.0, 1.0],
+            delays_ms: vec![0.0, 50.0],
+        };
+        // Before its delay a node holds its `from` look.
+        assert_eq!(e.frame("b", t0 + Duration::from_millis(20)), Some((0.0, 6.0)));
+        let (o, y) = e.frame("a", t0 + Duration::from_millis(50)).unwrap();
+        assert!((o - 0.5).abs() < 0.02 && (y - 3.0).abs() < 0.2, "{o} {y}");
+        assert_eq!(e.frame("other", t0), None);
+        assert!(e.running(t0 + Duration::from_millis(120)));
+        assert!(!e.running(t0 + Duration::from_millis(200)));
     }
 
     #[test]

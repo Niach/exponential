@@ -1,3 +1,5 @@
+import { CHATS_COPY } from "@exp/domain-contract/chats"
+import { toast } from "@exp/ui"
 import { acquireSteerSession } from "@/lib/steer-session-store"
 import { trpc } from "@/lib/trpc-client"
 
@@ -32,23 +34,29 @@ export function onStopRetraction(
  *  message never renders as a row. The text comes back at once (the
  *  STEER-WIRE rule); a REFUSED call re-takes it (the device still holds the
  *  queue, its next `queue` frame repaints the strip — the text must not sit
- *  in a field too, or it is sent twice) and rethrows. */
+ *  in a field too, or it is sent twice) and rethrows. Thread 58cb32df
+ *  (chats.json STOP): `delivered === false` (the relay reached no device)
+ *  toasts `copy.toasts.stopNotDelivered`. */
 export async function stopSessionTurn(
   sessionId: string,
   opts?: Parameters<typeof trpc.sessions.stop.mutate>[1]
-): Promise<void> {
+): Promise<{ delivered: boolean }> {
   const store = acquireSteerSession(sessionId)
   const draftBefore = store.getDraftSnapshot().text
   const tookQueue = store.noteStopped()
   // What `noteStopped` put in the draft: the draft in progress with the
   // queue's text after it (`mergeHeldIntoDraft`).
   const held = tookQueue ? store.getDraftSnapshot().text : ``
+  let delivered = true
   try {
-    await trpc.sessions.stop.mutate({ sessionId }, opts)
+    const result = await trpc.sessions.stop.mutate({ sessionId }, opts)
+    delivered = result?.delivered !== false
   } catch (error) {
     if (tookQueue) retractHeld(sessionId, store, held, draftBefore)
     throw error
   }
+  if (!delivered) toast.error(CHATS_COPY.toasts.stopNotDelivered)
+  return { delivered }
 }
 
 /** The refused Stop's text goes back where it came from: out of the store's

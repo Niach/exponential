@@ -420,7 +420,7 @@
     "templateMaxComponents": 500
   },
   "messageCardKind": {
-    "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask"]
+    "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface"]
   },
   "messageEventKind": {
     "values": ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired"]
@@ -505,12 +505,19 @@
     "maxImages": 4
   },
   "steerCommands": {
-    "$comment": "NEW-2 (owner 2026-10-21): the composer's `/` menu = the team's PROMPTS (the `prompts` shape, a pick inserts the prompt as the run's first message) plus ONLY these builtins; commands the agent CLI injects from outside Exponential (Claude Code skills, plugins) are hidden on every platform. /model <alias> is sent as text (the CLI switches, config_state reports it), /effort <level> = sessions.configure.",
+    "$comment": "NEW-2 (owner 2026-10-21): the composer's `/` menu = the team's PROMPTS (the `prompts` shape, a pick inserts the prompt as the run's first message) plus ONLY these builtins (thread 58cb32df, owner 2026-10-23: `/new` = a fresh conversation in the SAME session row: the device's engine clears the CLI's context between turns, claude via its own `/clear`, codex via a new thread; the composer's `/` menu and the agent header menu `New conversation` both send it; NOT the dead CLI-injected `/clear`, which stays hidden); commands the agent CLI injects from outside Exponential (Claude Code skills, plugins) are hidden on every platform. /model <alias> is sent as text (the CLI switches, config_state reports it), /effort <level> = sessions.configure.",
     "commands": [
       {
         "name": "compact",
         "description": "Compact the conversation context",
         "argHint": "instructions",
+        "agents": ["claude", "codex"],
+        "confirm": false
+      },
+      {
+        "name": "new",
+        "description": "Start a fresh conversation",
+        "argHint": "",
         "agents": ["claude", "codex"],
         "confirm": false
       },
@@ -1297,6 +1304,17 @@
         "result": "none"
       },
       {
+        "name": "session_self_show",
+        "title": "Show a preview",
+        "blurb": "Draws an inline Exponential UI preview in the chat; a reply button sends its text as the person's reply.",
+        "progressive": "Showing a preview",
+        "done": "Showed a preview",
+        "progressiveMany": "Showing {n} previews",
+        "doneMany": "Showed {n} previews",
+        "subjectKey": "title",
+        "result": "none"
+      },
+      {
         "name": "session_self_compact",
         "title": "Compact context",
         "blurb": "Asks the host to compact this session's context at the next turn boundary.",
@@ -1601,6 +1619,7 @@
       { "name": "team_config_repositories_list", "refs": "list:repository@" },
       { "name": "session_self_ask", "refs": "" },
       { "name": "session_self_compact", "refs": "" },
+      { "name": "session_self_show", "refs": "" },
       { "name": "sessions_end", "refs": "" },
       { "name": "sessions_get", "refs": "session@root" },
       { "name": "sessions_link", "refs": "session@ issue@$issueIds[]" },

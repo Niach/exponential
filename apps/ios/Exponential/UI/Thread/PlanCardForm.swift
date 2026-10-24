@@ -502,10 +502,24 @@ struct PlanCardSurfaceView: View {
     /// answered it), applied OVER `surface.data` (web `PlanCardSurface`'s
     /// `data`). nil = the agent's initial values.
     var data: CardJSON? = nil
+    /// Thread 58cb32df (chats.json SURFACE CARD): the inline preview
+    /// answers nothing — a press whose action event is `replyEvent` with a
+    /// non-empty `context.text` hands that text out (`Chats.surfaceReply`);
+    /// nil = actions reach nobody (the plan / question card).
+    var onReply: ((String) -> Void)? = nil
+    /// The surface card draws its own frame (no `copy.surface` label).
+    var bare = false
+    /// chats.json `surfaceCard.enter.children`: a LIVE arrival staggers the
+    /// root's first-level children in (never under reduce motion).
+    var staggerChildren = false
 
     var body: some View {
         // The `copy.surface` label ABOVE its frame (web `PlanCardSurface`).
         let shape = RoundedRectangle(cornerRadius: PlanCard.Card.surfaceRadius)
+        if bare {
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
         VStack(alignment: .leading, spacing: PlanCard.Card.surfaceLabelGap) {
             Text(PlanCard.Copy.surface)
                 .font(.caption2.weight(.medium))
@@ -520,15 +534,24 @@ struct PlanCardSurfaceView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(PlanCard.TestIds.surface)
+        }
     }
 
     @ViewBuilder
     private var content: some View {
         #if canImport(ExponentialUI)
-        PlanCardLiveSurface(surface: surface, data: data, handle: handle)
-            .allowsHitTesting(editable)
+        PlanCardLiveSurface(
+            surface: surface, data: data, handle: handle, onReply: onReply, staggerChildren: staggerChildren
+        )
+            .allowsHitTesting(editable || onReply != nil)
         #else
-        EmptyView()
+        // Without the painter linked: a quiet placeholder band.
+        if bare {
+            Text(PlanCard.Copy.surface)
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        }
         #endif
     }
 }
@@ -540,7 +563,10 @@ private struct PlanCardLiveSurface: View {
     let surface: CardSurface
     let data: CardJSON?
     let handle: PlanCardSurfaceHandle
+    var onReply: ((String) -> Void)? = nil
+    var staggerChildren = false
 
+    @Environment(\.motion) private var motion
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var model: SurfaceModel?
@@ -554,6 +580,9 @@ private struct PlanCardLiveSurface: View {
         Group {
             if let model {
                 ExponentialSurface(model: model)
+                    .overlay(alignment: .topLeading) {
+                        if staggerChildren, !motion.reduceMotion { childVeils(model) }
+                    }
             } else if failed {
                 EmptyView()
             } else {
@@ -563,12 +592,33 @@ private struct PlanCardLiveSurface: View {
         .task(id: buildKey) { build() }
     }
 
+    /// Each first-level child of the root veiled in the card's own fill
+    /// until its turn (Android `SurfaceCard`'s veil): the stagger without
+    /// reaching into the renderer.
+    @ViewBuilder
+    private func childVeils(_ model: SurfaceModel) -> some View {
+        if let root = model.rootIndex, let info = model.node(root) {
+            let origin = model.frame(root).origin
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(info.children.enumerated()), id: \.element) { index, child in
+                    let rect = model.frame(child)
+                    SurfaceChildVeil(
+                        rect: rect.offsetBy(dx: -origin.x, dy: -origin.y),
+                        index: index
+                    )
+                }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
     private func build() {
         let host = PlanCardSurfaceHost(
             baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
             accountId: accountId,
             httpClient: deps.httpClient
         )
+        host.onReply = onReply
         do {
             let next = try SurfaceModel(
                 id: "plan-card-\(abs(surface.rootJSON.hashValue))",
@@ -589,6 +639,32 @@ private struct PlanCardLiveSurface: View {
         } catch {
             failed = true
         }
+    }
+}
+
+/// One child's veil: the card fill over its frame, fading out after
+/// `startAfterMs + index · staggerMs` (`surfaceCard.enter.children`).
+private struct SurfaceChildVeil: View {
+    let rect: CGRect
+    let index: Int
+
+    @Environment(\.motion) private var motion
+    @State private var gone = false
+
+    var body: some View {
+        let rise = gone ? 0 : CGFloat(Chats.SurfaceEnter.Children.fromTranslateY)
+        Rectangle()
+            .fill(GlassTokens.opaqueCardFill)
+            .frame(width: max(rect.width, 0), height: max(rect.height + rise, 0))
+            .offset(x: rect.minX, y: rect.minY - rise)
+            .opacity(gone ? 0 : 1)
+            .onAppear {
+                guard !gone else { return }
+                withAnimation(
+                    motion.decelerate(DesignTokens.Motion.Duration.standard)?
+                        .delay(Chats.SurfaceEnter.childDelayMs(index) / 1000)
+                ) { gone = true }
+            }
     }
 }
 
@@ -615,6 +691,24 @@ private final class PlanCardSurfaceHost: HostPlugin {
     /// instance = a universal link) to `UIApplication.open` — overriding it
     /// here is what keeps the surface sandboxed.
     func openUrl(_ url: String) {}
+
+    /// The surface card's reply hook (`Chats.surfaceReply`).
+    var onReply: ((String) -> Void)?
+
+    func onAction(_ event: SurfaceActionEvent) {
+        guard let onReply else { return }
+        var context: [String: Any]?
+        if case let .object(fields) = event.context {
+            switch fields["text"] {
+            case let .string(text)?: context = ["text": text]
+            case .some: context = ["text": 0]
+            case nil: context = [:]
+            }
+        }
+        if let text = Chats.surfaceReply(name: event.name, context: context) {
+            onReply(text)
+        }
+    }
 
     private var base: String? {
         baseURL.map { $0.absoluteString.hasSuffix("/") ? String($0.absoluteString.dropLast()) : $0.absoluteString }

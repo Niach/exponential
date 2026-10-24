@@ -31,7 +31,7 @@ use crate::contract::{
     MESSAGE_AUTHOR_KIND_AGENT, MESSAGE_AUTHOR_KIND_USER, MESSAGE_CARD_KIND_ASK, MESSAGE_CARD_KIND_EVENT,
     MESSAGE_CARD_KIND_PICTURE, MESSAGE_CARD_KIND_PLAN, MESSAGE_CARD_KIND_QUESTION,
     MESSAGE_CARD_KIND_REPLIES, MESSAGE_CARD_KIND_REPORT, MESSAGE_CARD_KIND_SESSION,
-    MESSAGE_CARD_KIND_SUBAGENT,
+    MESSAGE_CARD_KIND_SUBAGENT, MESSAGE_CARD_KIND_SURFACE,
     MESSAGE_CARD_KIND_SUGGESTIONS, MESSAGE_CARD_KIND_THREAD_STARTED,
     SESSION_STATUS_ENDED, SESSION_STATUS_QUEUED,
     SESSION_STATUS_RUNNING, PR_STATE_MERGED,
@@ -783,6 +783,26 @@ fn question_options(card: &Value) -> Vec<QuestionOption> {
         .collect()
 }
 
+/// Thread 58cb32df (chats.json SURFACE CARD): a `surface` message as its
+/// Conversation row (the thread's, and the session view's): the title
+/// trimmed (`None` when blank); no parseable surface = no row.
+pub fn surface_card_row(message: &MessageRow) -> Option<SessionThreadRow> {
+    let card = message.card.as_ref()?;
+    if card_str(card, "kind") != Some(MESSAGE_CARD_KIND_SURFACE) {
+        return None;
+    }
+    let surface = card_surface(card.get("surface"))?;
+    Some(SessionThreadRow::Surface {
+        id: message.id.clone(),
+        session_id: message.session_id.clone(),
+        title: card_str(card, "title")
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .map(str::to_string),
+        surface,
+    })
+}
+
 /// EXP-1280: a `question` / `plan` message as its Conversation row (the
 /// thread's, and the session view's tool-posted card); any other message =
 /// `None`.
@@ -911,6 +931,20 @@ pub enum SessionThreadRow {
     },
     /// One muted line (`Linked EXP-12`, `Merged PR #45`).
     Event { id: String, event: String, text: String },
+    /// Thread 58cb32df (chats.json): a person's `/new` or `/compact` line,
+    /// painted as the centred divider pill (`at` = the message's createdAt).
+    Divider {
+        id: String,
+        kind: crate::chats::DividerKind,
+        at: String,
+    },
+    /// Thread 58cb32df (chats.json): an agent's inline Exponential UI preview.
+    Surface {
+        id: String,
+        session_id: String,
+        title: Option<String>,
+        surface: CardSurface,
+    },
 }
 
 impl SessionThreadRow {
@@ -925,7 +959,9 @@ impl SessionThreadRow {
             | Self::Plan { id, .. }
             | Self::Subagent { id, .. }
             | Self::Picture { id, .. }
-            | Self::Event { id, .. } => id,
+            | Self::Event { id, .. }
+            | Self::Divider { id, .. }
+            | Self::Surface { id, .. } => id,
         }
     }
 }
@@ -1549,6 +1585,17 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
             if message.body_text().trim().is_empty() {
                 continue;
             }
+            let divider = (author == MESSAGE_AUTHOR_KIND_USER)
+                .then(|| crate::chats::command_divider(message.body_text()))
+                .flatten();
+            if let Some(kind) = divider {
+                rows.push(SessionThreadRow::Divider {
+                    id: message.id.clone(),
+                    kind,
+                    at: message.created_at.clone().unwrap_or_default(),
+                });
+                continue;
+            }
             rows.push(SessionThreadRow::Message {
                 id: message.id.clone(),
                 author: author.to_string(),
@@ -1625,6 +1672,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
             // NEW-1: a child's ask mirrored into its parent: the child's own
             // card already surfaces in the Conversation, so it draws nothing.
             Some(MESSAGE_CARD_KIND_ASK) => {}
+            Some(MESSAGE_CARD_KIND_SURFACE) => rows.extend(surface_card_row(message)),
             _ => {}
         }
     }
@@ -2354,7 +2402,7 @@ mod tests {
         assert_eq!(SessionState::Working.icon(), "coding-running");
         assert_eq!(SessionState::Blocked.tone(), "rose");
         assert_eq!(THREAD.copy.placeholder, "Type / for commands");
-        assert_eq!(THREADS_LIST.copy.title, "Threads");
+        assert_eq!(THREADS_LIST.copy.title, "Chats");
         assert_eq!(ThreadsListKey::Recent.title(), "Recent");
         assert_eq!(THREADS_LIST.agent_defaults.icon, "bot");
         assert_eq!(THREADS_LIST.recent, RecentRules { hours: 24, max: 20 });

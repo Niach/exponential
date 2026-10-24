@@ -444,7 +444,7 @@ impl ToastLayer {
 }
 
 fn slow() -> Transition {
-    Transition::new(theme::motion::SLOW).ease(theme::motion::standard())
+    Transition::new(theme::motion::movement(theme::motion::SLOW)).ease(theme::motion::standard())
 }
 
 /// Progress of a phase that began at `since` and lasts `duration`, eased.
@@ -530,14 +530,14 @@ impl Render for ToastLayer {
                     let (p, running) =
                         phase(now, since, theme::motion::STANDARD, theme::motion::decelerate());
                     animating |= running;
-                    (p, constants::TRAVEL * (1. - p))
+                    (p, theme::motion::travel(constants::TRAVEL) * (1. - p))
                 }
                 ToastTransitionStatus::Present => (1., 0.),
                 ToastTransitionStatus::Ending => {
                     let (p, running) =
                         phase(now, since, theme::motion::FAST, theme::motion::accelerate());
                     animating |= running;
-                    (1. - p, constants::TRAVEL * p)
+                    (1. - p, theme::motion::travel(constants::TRAVEL) * p)
                 }
             };
             let dismiss: Dismiss = {

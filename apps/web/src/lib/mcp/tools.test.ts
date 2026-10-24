@@ -278,9 +278,11 @@ vi.mock(`@/lib/pull-requests`, () => h.prs)
 // EXP-1280: the card builders stay real (the validation under test); only
 // the DB write is stubbed.
 const postAskCard = vi.hoisted(() => vi.fn())
+const postSurfaceCard = vi.hoisted(() => vi.fn())
 vi.mock(`@/lib/sessions/plan`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/sessions/plan")>()),
   postAskCard,
+  postSurfaceCard,
 }))
 
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
@@ -2192,13 +2194,19 @@ describe(`exponential_sessions_get / list`, () => {
 
 describe(`exponential_sessions_send stop / sessions_end`, () => {
   it(`NEW-4: stop rides sessions_send and interrupts the named session's turn`, async () => {
-    sessionsCore.stopSession.mockResolvedValue({ txid: 1 })
+    sessionsCore.stopSession.mockResolvedValue({ txid: 1, delivered: true })
     const result = await tool(`exponential_sessions_send`)({ sessionId: CHILD, stop: true })
     expect(parseOk(result)).toEqual({ ok: true, id: CHILD, stopped: true })
     expect(sessionsCore.stopSession).toHaveBeenCalledWith({
       userId: USER.id,
       sessionId: CHILD,
     })
+  })
+
+  it(`Chats: a stop the device never got says so`, async () => {
+    sessionsCore.stopSession.mockResolvedValue({ txid: 1, delivered: false })
+    const result = await tool(`exponential_sessions_send`)({ sessionId: CHILD, stop: true })
+    expect(parseOk(result)).toMatchObject({ ok: true, id: CHILD, stopped: false, delivered: false })
   })
 
   it(`ends the caller's own session with its summary by default`, async () => {
@@ -2766,13 +2774,13 @@ describe(`exponential_plan_propose / exponential_sessions_ask (EXP-1280)`, () =>
     expect(askSchema.safeParse({ question: `Q?` }).success).toBe(false)
   })
 
-  it(`surfaces the one-open-plan CONFLICT`, async () => {
+  it(`surfaces a refused post`, async () => {
     postAskCard.mockRejectedValue(
-      new TRPCError({ code: `CONFLICT`, message: `A plan is already waiting for an answer (message x)` })
+      new TRPCError({ code: `PRECONDITION_FAILED`, message: `This session has ended` })
     )
     const result = await propose({ plan: `1. x` })
     expect(result.isError).toBe(true)
-    expect(result.content[0]!.text).toContain(`A plan is already waiting for an answer`)
+    expect(result.content[0]!.text).toContain(`This session has ended`)
   })
 
   it(`refuses a header that is not the caller's own session`, async () => {
@@ -2842,5 +2850,55 @@ describe(`exponential_plan_propose / exponential_sessions_ask (EXP-1280)`, () =>
     const defs = collectToolDefs()
     expect(defs.has(`exponential_plan_propose`)).toBe(true)
     expect(defs.has(`exponential_sessions_ask`)).toBe(true)
+  })
+})
+
+// Chats (fixtures/chats.json `surfaceCard`): `session_self {op: "show"}`
+// posts an inline preview in the caller's own chat, validated like a plan
+// card's surface (the builder runs for real; the DB write is stubbed).
+describe(`exponential_surface_show (Chats)`, () => {
+  const surface = {
+    root: { id: `r`, component: `Stack`, children: [{ id: `t`, component: `Text`, props: { text: `Hi` } }] },
+  }
+  const show = (args: Record<string, unknown>) => collectTools(USER, SESSION).get(`exponential_surface_show`)!(args)
+
+  beforeEach(() => {
+    dbRows.current = [callerRow()]
+    postSurfaceCard.mockReset()
+    postSurfaceCard.mockResolvedValue({ messageId: MSG })
+  })
+
+  it(`posts a surface card on the caller's own session`, async () => {
+    const result = await show({ surface, title: `  Login screen ` })
+    expect(parseOk(result)).toEqual({ messageId: MSG })
+    expect(postSurfaceCard).toHaveBeenCalledWith({
+      sessionId: SESSION,
+      card: { kind: `surface`, surface: { root: surface.root, data: null }, title: `Login screen` },
+    })
+  })
+
+  it.each([
+    [`a surface outside the core catalog`, { root: { id: `r`, component: `Nope` } }, `unknown component Nope`],
+    [`a surface root that is no node`, { root: { kind: `x` } }, `Exponential UI node`],
+    [`a surface past the byte cap`, { root: { id: `r`, component: `Text`, props: { text: `x`.repeat(70_000) } } }, `the cap is 65536`],
+  ])(`refuses %s`, async (_name, bad, message) => {
+    const result = await show({ surface: bad })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]!.text).toContain(message)
+    expect(postSurfaceCard).not.toHaveBeenCalled()
+  })
+
+  it(`needs a surface and refuses unknown keys`, () => {
+    const schema = collectToolDefs().get(`exponential_surface_show`)!.inputSchema!
+    expect(schema.safeParse({ surface }).success).toBe(true)
+    expect(schema.safeParse({ title: `x` }).success).toBe(false)
+    expect(schema.safeParse({ surface, extra: 1 }).success).toBe(false)
+  })
+
+  it(`only works inside a session`, async () => {
+    dbRows.current = []
+    const result = await collectTools(USER, null).get(`exponential_surface_show`)!({ surface })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]!.text).toContain(`No session`)
   })
 })

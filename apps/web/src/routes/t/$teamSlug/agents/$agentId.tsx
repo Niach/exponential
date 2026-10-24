@@ -12,6 +12,11 @@ import type { User } from "@/db/schema"
 import { SessionComposer } from "@/components/session-composer"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AgentChannel, AgentComposer } from "@/components/thread/agent-channel"
+import { AgentHeaderMenu } from "@/components/thread/chat-menu"
+import { AgentHeaderTitle } from "@/components/thread/chat-header"
+import { HEADER_BUTTON_CLASS } from "@/components/team/mobile-detail-header"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { trpc } from "@/lib/trpc-client"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useAgentRow } from "@/hooks/use-agent-row"
 import { useSession } from "@/hooks/use-session"
@@ -28,6 +33,9 @@ import { THREADS_LIST_COPY, type SessionRow } from "@/lib/session-tree"
 // rows and THE session cards of what it started, and the composer
 // (`Message <name>`). No conversation yet = the same screen, empty, whose
 // composer opens one with `sessions.send({agentId})`.
+// Thread 58cb32df (chats.json MENUS + TRANSCRIPT): the header's `…` = THE
+// agent menu (Compact conversation · New conversation · Stop while busy ·
+// Agent settings for owners); no Stop pill; phones paint chat bubbles.
 
 const AgentsIcon = conceptIcon(`settings-agents`)
 
@@ -111,6 +119,15 @@ function AgentChannelPage() {
   }
 
   const name = agent.name
+  const headerMenu = (className?: string) => (
+    <AgentHeaderMenu team={team} agentId={agent.id} title={name} className={className} />
+  )
+  const sendSurfaceReply = (text: string) => {
+    const call = conversation
+      ? trpc.sessions.send.mutate({ teamId: team.id, sessionId: conversation.id, text }, SKIP_ERROR_TOAST)
+      : trpc.sessions.send.mutate({ agentId: agent.id, text }, SKIP_ERROR_TOAST)
+    call.catch((error) => failedAction(`send`, `the message`, error))
+  }
   const glyph = (
     <BoardGlyph board={{ icon: agent.icon, color: agent.color }} className="size-6" />
   )
@@ -119,20 +136,18 @@ function AgentChannelPage() {
     <div className="flex h-full min-h-0 flex-col max-md:h-dvh" data-testid="agent-channel-page">
       {isMobile ? (
         <MobileDetailHeader
-          title={
-            <span className="flex min-w-0 items-center gap-2">
-              <BoardGlyph board={{ icon: agent.icon, color: agent.color }} className="size-4" />
-              <span className="truncate">{name}</span>
-            </span>
-          }
+          // Chats (the draft, iOS/Android): the agent's disc, the name over `Agent`.
+          title={<AgentHeaderTitle name={name} icon={agent.icon} color={agent.color} />}
           onBack={() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } })}
+          menu={headerMenu(HEADER_BUTTON_CLASS)}
         />
       ) : (
         <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 pt-6 pb-5 md:px-10">
           {glyph}
-          <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight md:text-2xl">
+          <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight md:text-2xl">
             {name}
           </h1>
+          {headerMenu(`shrink-0 text-muted-foreground`)}
         </div>
       )}
       {/* EXP-1316 (1n): the session feed's scroll (opens at the newest
@@ -156,6 +171,8 @@ function AgentChannelPage() {
               users={users as User[]}
               canAnswer={permissions.isMember}
               onOpenSession={openSession}
+              layout={isMobile ? `bubbles` : `transcript`}
+              onSurfaceReply={permissions.isMember ? sendSurfaceReply : undefined}
             />
           </div>
         </div>

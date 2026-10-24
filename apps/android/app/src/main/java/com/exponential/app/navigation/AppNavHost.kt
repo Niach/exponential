@@ -98,6 +98,7 @@ import com.exponential.app.ui.session.AgentsScreen
 import com.exponential.app.ui.settings.AboutScreen
 import com.exponential.app.ui.settings.ServerDetailScreen
 import com.exponential.app.ui.settings.SettingsScreen
+import com.exponential.app.ui.settings.TeamTabScreen
 import com.exponential.app.ui.settings.SyncDiagnosticsScreen
 import com.exponential.app.ui.settings.TeamSettingsScreen
 import com.exponential.app.ui.settings.ThirdPartyLicensesScreen
@@ -161,27 +162,31 @@ fun AppNavHost() {
             // while ANOTHER issue was open re-showed that issue. navigateDeepLink
             // keeps the only thing single top bought us: a re-tap for what is
             // already on screen stays a no-op.
-            is DeepLinkBus.Target.Issue -> guarded {
-                navController.navigateIssueDeepLink(target.id, target.comment)
+            is DeepLinkBus.Target.Issue -> {
+                // chats.json: a link naming another team switches first.
+                switchToTeamOf(teamSelection, webLinkResolver.teamOfIssue(target.id))
+                guarded { navController.navigateIssueDeepLink(target.id, target.comment) }
             }
             is DeepLinkBus.Target.Invite -> guarded {
                 navController.navigateDeepLink("invite/${target.token}")
             }
-            // An agent's message (EXP-801) renders in My Work's inbox — the
-            // segment the screen opens on unless the user last left it on
-            // My Issues.
+            // An agent's message (EXP-801) renders in the inbox — thread
+            // 58cb32df: a page pushed over the Chats tab, not a tab root.
             DeepLinkBus.Target.Inbox -> guarded {
-                navController.selectTab(MainTabs.INBOX, tabSwitch, restore = false)
+                navController.selectTab(MainTabs.THREADS, tabSwitch, restore = false)
+                navController.navigate(MainTabs.INBOX) { launchSingleTop = true }
             }
             // EXP-980: a blocked run's push tap lands on the run itself. Same
             // snapshot hazard as the issue route — the session screen reads
             // its id from SavedStateHandle once.
-            is DeepLinkBus.Target.Session -> guarded {
-                navController.navigateDeepLink(Routes.session(target.id))
+            is DeepLinkBus.Target.Session -> {
+                switchToTeamOf(teamSelection, webLinkResolver.teamOfSession(target.id))
+                guarded { navController.navigateDeepLink(Routes.session(target.id)) }
             }
             // EXP-1291: a thread link opens the thread (a root session).
-            is DeepLinkBus.Target.Thread -> guarded {
-                navController.navigateDeepLink(Routes.thread(target.id))
+            is DeepLinkBus.Target.Thread -> {
+                switchToTeamOf(teamSelection, webLinkResolver.teamOfSession(target.id))
+                guarded { navController.navigateDeepLink(Routes.thread(target.id)) }
             }
             // EXP-1291: `/t/{team}/sessions/{id}` in prose (the PR body
             // footer): a synced root IS a thread, so it opens there (on the
@@ -189,6 +194,7 @@ fun AppNavHost() {
             // raw session view.
             is DeepLinkBus.Target.SessionLink -> {
                 val isRoot = webLinkResolver.isLocalRoot(target.id) == true
+                switchToTeamOf(teamSelection, webLinkResolver.teamOfSession(target.id))
                 guarded {
                     navController.navigateDeepLink(
                         if (isRoot) {
@@ -211,17 +217,21 @@ fun AppNavHost() {
                 // opens in a Custom Tab — which never re-triggers App Links,
                 // so it can't loop back here.
                 when (val resolution = webLinkResolver.resolve(target)) {
-                    is WebLinkResolver.Resolution.Found -> guarded {
+                    is WebLinkResolver.Resolution.Found -> {
+                        val team = webLinkResolver.teamOfIssue(resolution.id, resolution.accountId)
+                        guarded {
                         if (resolution.accountId != state.activeAccountId) {
                             // The issue lives under another signed-in account:
                             // switch first; IssueDetail re-scopes reactively.
                             viewModel.switchAccount(resolution.accountId)
                         }
+                        switchToTeamOf(teamSelection, team)
                         // EXP-1241: a web link's `?comment=` lands on that comment.
                         navController.navigateIssueDeepLink(
                             resolution.id,
                             commentId = target.uri.getQueryParameter("comment"),
                         )
+                        }
                     }
                     WebLinkResolver.Resolution.NotFound ->
                         CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
@@ -230,10 +240,13 @@ fun AppNavHost() {
             // link above, then the SAME route the in-app thread link takes.
             is DeepLinkBus.Target.WebThreadRef ->
                 when (val resolution = webLinkResolver.resolveThread(target)) {
-                    is WebLinkResolver.Resolution.Found -> guarded {
+                    is WebLinkResolver.Resolution.Found -> {
+                        val team = webLinkResolver.teamOfSession(resolution.id, resolution.accountId)
+                        guarded {
                         if (resolution.accountId != state.activeAccountId) {
                             viewModel.switchAccount(resolution.accountId)
                         }
+                        switchToTeamOf(teamSelection, team)
                         navController.navigateDeepLink(
                             when {
                                 !resolution.isRoot -> Routes.session(resolution.id)
@@ -242,6 +255,7 @@ fun AppNavHost() {
                                 else -> Routes.thread(resolution.id)
                             },
                         )
+                        }
                     }
                     WebLinkResolver.Resolution.NotFound ->
                         CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
@@ -454,6 +468,10 @@ private fun AuthenticatedNav(
     val threadsRunning by threadsVm.anyRunning.collectAsStateWithLifecycle()
     val threadsNeedYou by threadsVm.needsYou.collectAsStateWithLifecycle()
     val threadsUnread by threadsVm.unread.collectAsStateWithLifecycle()
+    // Thread 58cb32df: the Team tab wears the ACTIVE team's avatar + name.
+    val teams by threadsVm.teams.collectAsStateWithLifecycle()
+    val selectedTeamId by teamSelection.selectedId.collectAsStateWithLifecycle()
+    val activeTeam = teams.firstOrNull { it.id == selectedTeamId }
     // EXP-825: every launcher entry point is NAVIGATION onto the Agent page
     // with a preselection seed — every play button with what it acts on.
     // The seed rides the route string, so the concrete route differs per seed:
@@ -514,7 +532,8 @@ private fun AuthenticatedNav(
                 // EXP-1210: a tab is never pushed — its ref switches to it.
                 EntityTarget.Devices -> navController.selectTab(MainTabs.DEVICES, tabSwitch)
                 EntityTarget.TeamSettings -> navController.navigate("team-settings")
-                EntityTarget.Inbox -> navController.selectTab(MainTabs.INBOX, tabSwitch)
+                // Thread 58cb32df: the inbox is a page, pushed.
+                EntityTarget.Inbox -> navController.navigate(MainTabs.INBOX) { launchSingleTop = true }
             }
         } }
     }
@@ -581,7 +600,7 @@ private fun AuthenticatedNav(
                 liveRunsByTeam = liveRunsByTeam,
                 selectedTeamId = selectedTeamId,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenSettings = { navController.navigate("settings") },
+                // Thread 58cb32df: the gear moved to the Team tab.
                 onOpenAgent = openAgent,
                 // EXP-686: search left the bottom bar — the board header's
                 // button pushes it instead.
@@ -592,6 +611,8 @@ private fun AuthenticatedNav(
                 onNewIssue = {
                     currentBoardId?.let { navController.openIssueDraft(it) }
                 },
+                // Thread 58cb32df: the board's Drafts chip reopens a draft.
+                onOpenDraft = { boardId, draftId -> navController.openIssueDraft(boardId, draftId = draftId) },
             )
         }
         composable("search") {
@@ -632,17 +653,13 @@ private fun AuthenticatedNav(
                 onLandInThread = { id -> navController.landOnThread(id, replaceCurrent = true) },
             )
         }
-        composable("personal") {
-            // "Inbox" (SLOP-5; "My Work" until then) — Inbox + My Issues
-            // merged into one board-independent personal tab (EXP-58). Notification taps never land here directly
-            // (pushes deep-link straight to issue/{id}), so renaming the old
-            // "inbox" route is safe.
+        composable(MainTabs.INBOX) {
+            // Thread 58cb32df: the INBOX page — pushed from the Chats
+            // header's inbox circle (no segments: My issues and Drafts moved
+            // to the board's chips).
             PersonalScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                // EXP-878/1170: a draft row reopens the New issue page.
-                onOpenDraft = { boardId, draftId ->
-                    navController.openIssueDraft(boardId, draftId = draftId)
-                },
+                onBack = { navController.popBackStack() },
                 // EXP-980: a blocked-run row opens the run it is about.
                 onOpenSession = { sessionId -> navController.navigate(Routes.session(sessionId)) },
                 // EXP-1291: an agent message's issue row opens the issue.
@@ -658,7 +675,24 @@ private fun AuthenticatedNav(
                 // empty DM (the first send creates it).
                 onOpenAgent = { id -> navController.navigate(Routes.agentDm(id)) },
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
+                // Thread 58cb32df: the header's inbox circle pushes the inbox.
+                onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
+                onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
+                inboxUnread = unreadCount > 0,
+            )
+        }
+        composable(MainTabs.TEAM) {
+            // Thread 58cb32df: the Team tab (the active team, the ONE team
+            // switch, the settings rows, the servers, General).
+            TeamTabScreen(
+                onOpenServerDetail = { accountId -> navController.navigate("server/$accountId") },
+                onOpenTeamSettings = { navController.navigate("team-settings") },
+                onOpenAgents = { navController.navigate(Routes.AGENTS_SETTINGS) },
                 onOpenApps = { navController.navigate(Routes.APPS) },
+                onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },
+                onOpenAbout = { navController.navigate("about") },
+                onAddServer = { navController.navigate("add-server") },
+                onOpenAgentHome = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
             )
         }
         composable(Routes.APPS) {
@@ -995,15 +1029,14 @@ private fun AuthenticatedNav(
     ) {
         BottomNavBar(
             agentActive = currentTab == MainTabs.AGENT,
-            issuesActive = currentTab == MainTabs.ISSUES,
+            boardActive = currentTab == MainTabs.ISSUES,
             devicesActive = currentTab == MainTabs.DEVICES,
-            personalActive = currentTab == MainTabs.INBOX,
-            threadsActive = currentTab == MainTabs.THREADS,
-            unreadCount = unreadCount,
-            draftCount = draftCount,
-            threadsRunning = threadsRunning,
-            threadsNeedYou = threadsNeedYou,
-            threadsUnread = threadsUnread,
+            chatsActive = currentTab == MainTabs.THREADS,
+            teamActive = currentTab == MainTabs.TEAM,
+            team = activeTeam,
+            chatsRunning = threadsRunning,
+            chatsNeedYou = threadsNeedYou,
+            chatsUnread = threadsUnread,
             // The Chat arm (the Agent page) rides every top-level surface, with New issue beside it in
             // one capsule (EXP-827/EXP-973) — dimmed while the team has no
             // board to file onto. The arm SWITCHES to the Agent page like a
@@ -1014,16 +1047,22 @@ private fun AuthenticatedNav(
             // back to it); NEW-7: the Actions tab is gone (Settings = the
             // Issues header's gear).
             onChat = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
-            onIssues = { navController.selectTab(MainTabs.ISSUES, tabSwitch) },
+            onBoard = { navController.selectTab(MainTabs.ISSUES, tabSwitch) },
             onDevices = { navController.selectTab(MainTabs.DEVICES, tabSwitch) },
-            onPersonal = { navController.selectTab(MainTabs.INBOX, tabSwitch) },
-            onThreads = { navController.selectTab(MainTabs.THREADS, tabSwitch) },
+            onChats = { navController.selectTab(MainTabs.THREADS, tabSwitch) },
+            onTeam = { navController.selectTab(MainTabs.TEAM, tabSwitch) },
             onCompose = {
                 composeBoardId?.let { navController.openIssueDraft(it) }
             },
         )
     }
     }
+}
+
+/** Thread 58cb32df (chats.json): a notification / deep link that names
+ *  another team switches the ONE active team first (no prompt). */
+private fun switchToTeamOf(selection: TeamSelection, teamId: String?) {
+    if (teamId != null && selection.selectedId.value != teamId) selection.select(teamId)
 }
 
 /**

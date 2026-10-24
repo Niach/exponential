@@ -15,15 +15,21 @@ import androidx.navigation.NavHostController
  * lands on its root (iOS `MainTab.keepsPushes` mirrors this).
  */
 object MainTabs {
-    /** The Agent tab — the stack root and launch landing. */
+    /** The Agent tab — the stack root and launch landing (the launcher's
+     *  Chat arm). */
     const val AGENT = "agent-tab"
+    /** Thread 58cb32df (chats.json `shell.tabs`): Board · Devices · Chats · Team. */
     const val ISSUES = "home"
-    const val INBOX = "personal"
     const val DEVICES = "agents"
-    /** EXP-1291: the Threads tab (it replaced Reviews). */
+    /** The Chats tab (EXP-1291's Threads tab, renamed). */
     const val THREADS = "threads"
+    /** The Team tab: the active team, the team switch, the settings rows. */
+    const val TEAM = "team"
+    /** Thread 58cb32df: the inbox is a PAGE now (the Chats header's inbox
+     *  circle pushes it), no longer a tab root. */
+    const val INBOX = "personal"
 
-    val routes: Set<String> = setOf(AGENT, ISSUES, INBOX, DEVICES, THREADS)
+    val routes: Set<String> = setOf(AGENT, ISSUES, DEVICES, THREADS, TEAM)
 
     /**
      * The tab whose stack is up, given which tab roots are [onStack]: the

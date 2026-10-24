@@ -558,3 +558,58 @@ fn a_notification_that_lands_mid_turn_keeps_the_turn_open_into_the_continuation(
     );
     until("the run to read idle", || !harness.session.agent_busy());
 }
+
+/// `/new` mid-turn (contract `steerCommands`): the host HOLDS it — a held
+/// queue line, never written into the running turn — and applies it when
+/// the turn ends: claude's own `/clear` goes in (never the `/new` line), its
+/// local result settles the `/new` turn, and the run returns to idle with
+/// the bar empty and `/new` announced once as the person's row.
+#[test]
+fn a_new_command_mid_turn_waits_for_the_turn_end() {
+    let _session = one_session_at_a_time();
+    let harness = start("new-conversation-mid-turn", None);
+    until("the seeded turn slot", || !events_of(&harness.sink, "turn").is_empty());
+
+    harness.session.send_prompt("Long work".to_string());
+    until("the first turn to start", || {
+        events_of(&harness.sink, "turn").iter().any(|event| event["state"] == "started")
+    });
+    harness.session.send_prompt("/new".to_string());
+    until("the held /new line", || {
+        events_of(&harness.sink, "queue").iter().any(|queue| {
+            queue["messages"].as_array().is_some_and(|lines| {
+                lines.iter().any(|line| line["text"] == "/new" && line.get("sent").is_none())
+            })
+        })
+    });
+    assert_eq!(ended_turns(&harness.sink), 0, "held while the turn still runs");
+
+    until("the /new turn to end", || ended_turns(&harness.sink) >= 2);
+    until("the run to read idle", || harness.session.turn_signal().is_idle());
+    let queues = events_of(&harness.sink, "queue");
+    assert!(
+        queues.last().is_some_and(|queue| queue["messages"].as_array().is_none_or(Vec::is_empty)),
+        "the bar closed: {queues:?}"
+    );
+    let stdin = std::fs::read_to_string(harness.work.join("stdin.jsonl")).unwrap_or_default();
+    let users: Vec<String> = stdin
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|line| line["type"] == "user")
+        .map(|line| {
+            let content = &line["message"]["content"];
+            content
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| content[0]["text"].as_str().unwrap_or_default().to_string())
+        })
+        .collect();
+    assert_eq!(users, vec!["Long work".to_string(), "/clear".to_string()]);
+    std::thread::sleep(Duration::from_millis(600));
+    let rows: Vec<String> = events_of(&harness.sink, "user_message")
+        .iter()
+        .map(|row| row["text"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(rows.iter().filter(|text| text.as_str() == "/new").count(), 1, "{rows:?}");
+    assert!(!rows.iter().any(|text| text == "/clear"), "{rows:?}");
+}

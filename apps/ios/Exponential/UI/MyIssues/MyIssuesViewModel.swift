@@ -26,6 +26,13 @@ final class MyIssuesViewModel {
     var issueLabels: [IssueLabelEntity] = []
     /// Folded group ids (session-only, like the board list).
     var collapsedStatuses: Set<String> = []
+    /// EXP-1373: the phone's ONE active team (the board's My issues chip):
+    /// only its boards' issues; nil = every team.
+    var teamId: String? {
+        didSet { if teamId != oldValue { rebuildRows() } }
+    }
+    /// The rows the list shows (the chip's count).
+    var count: Int { renderGroups.reduce(0) { $0 + $1.rows.count } }
 
     private let accountId: String
     private let db: DatabaseManager
@@ -210,7 +217,7 @@ final class MyIssuesViewModel {
             boards.map { ($0.id, $0.teamId) }, uniquingKeysWith: { a, _ in a }
         )
         let groups = CrossTeamStatusGroups.groups(
-            issues: issues,
+            issues: teamId.map { id in issues.filter { teamOfBoard[$0.boardId] == id } } ?? issues,
             teamIdOf: { teamOfBoard[$0.boardId] },
             statusRows: statusRows
         )

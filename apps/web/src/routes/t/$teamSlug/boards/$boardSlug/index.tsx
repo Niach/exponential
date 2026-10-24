@@ -1,6 +1,12 @@
 import { useMemo, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { SkeletonRows } from "@exp/ui"
+import { SkeletonRows, useIsMobile } from "@exp/ui"
+import { BoardChips, type BoardChip } from "@/components/board-chips"
+import { DraftsList } from "@/components/drafts-list"
+import { MyIssuesView } from "@/components/my-issues-view"
+import { useDraftEntriesWithReady } from "@/hooks/use-issue-drafts"
+import { useMyIssuesData } from "@/hooks/use-my-issues-data"
+import { useSession } from "@/hooks/use-session"
 import { BoardNotFound } from "@/components/board-not-found"
 import { BulkActionBar } from "@/components/bulk-action-bar"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
@@ -19,6 +25,9 @@ type BoardSearch = {
    *  its main menu either way — the param only has to survive the round trip
    *  instead of being dropped on the way in. */
   from?: string
+  /** Thread 58cb32df (chats.json `shell.boardChips`): the phone board's
+   *  chip — My issues or Drafts (absent = All issues). */
+  chip?: `mine` | `drafts`
 }
 
 export const Route = createFileRoute(
@@ -28,14 +37,17 @@ export const Route = createFileRoute(
   validateSearch: (search: Record<string, unknown>): BoardSearch => ({
     from:
       typeof search.from === `string` && search.from ? search.from : undefined,
+    chip: search.chip === `mine` || search.chip === `drafts` ? search.chip : undefined,
   }),
   component: BoardPage,
 })
 
 function BoardPage() {
   const { boardSlug, teamSlug } = Route.useParams()
+  const search = Route.useSearch()
   const navigate = useNavigate()
   const openNewDraft = useOpenNewDraft(teamSlug)
+  const isMobile = useIsMobile()
 
   const {
     issueLabelMap,
@@ -55,6 +67,28 @@ function BoardPage() {
   usePageTitle(board ? pageTitle(board.name) : undefined)
 
   const permissions = useTeamPermissions(team)
+
+  // Thread 58cb32df: the phone board's chips (All issues · My issues N ·
+  // Drafts N); md+ keeps My issues + Drafts in the sidebar.
+  const { data: authSession } = useSession()
+  const mine = useMyIssuesData({
+    userId: isMobile ? authSession?.user?.id : undefined,
+    teamSlug,
+  })
+  const drafts = useDraftEntriesWithReady(isMobile ? team?.id : undefined)
+  const draftCount = drafts.entries.length
+  const requestedChip: BoardChip = isMobile ? (search.chip ?? `all`) : `all`
+  // Drafts only while the viewer has one (a cold link waits for the shape).
+  const chip: BoardChip =
+    requestedChip === `drafts` && drafts.isReady && draftCount === 0 ? `all` : requestedChip
+  const setChip = (next: BoardChip) =>
+    void navigate({
+      to: `/t/$teamSlug/boards/$boardSlug`,
+      params: { teamSlug, boardSlug },
+      search: { ...search, chip: next === `all` ? undefined : next },
+      replace: true,
+    })
+  const [mineBulkSlot, setMineBulkSlot] = useState<HTMLDivElement | null>(null)
 
   // Bulk-selection state lives here so the floating action bar can render
   // over the list; IssueList keeps all the selection mechanics.
@@ -93,8 +127,46 @@ function BoardPage() {
     )
   }
 
+  const chips = isMobile ? (
+    <BoardChips
+      value={chip}
+      counts={{ mine: mine.totalIssueCount, drafts: draftCount }}
+      onChange={setChip}
+      className="shrink-0"
+    />
+  ) : null
+
+  if (chip === `mine`) {
+    return (
+      <div className="relative flex h-full flex-col">
+        {chips}
+        <div ref={setMineBulkSlot} className="contents" />
+        <div className="min-h-0 flex-1">
+          <MyIssuesView teamSlug={teamSlug} bulkActionSlot={mineBulkSlot} />
+        </div>
+      </div>
+    )
+  }
+
+  if (chip === `drafts`) {
+    return (
+      <div className="relative flex h-full flex-col">
+        {chips}
+        <div className={`min-h-0 flex-1 overflow-auto ${TAB_BAR_CLEARANCE}`}>
+          <DraftsList
+            teamId={team.id}
+            teamSlug={teamSlug}
+            from="inbox:drafts"
+            className="px-4 py-3"
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="relative flex h-full flex-col">
+      {chips}
       <div
         // EXP-698 r5: one clearance for both states — the bulk bar REPLACES
         // the tab bar on phones, so TAB_BAR_CLEARANCE's `max()` of the two

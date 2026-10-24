@@ -708,6 +708,12 @@ public enum ThreadRow: Equatable, Sendable {
     case picture(id: String, attachmentId: String, width: Double?, height: Double?, caption: String?)
     /// One muted line.
     case event(id: String, event: String, text: String)
+    /// Thread 58cb32df (chats.json): a person's `/new` or `/compact` line,
+    /// the centred divider pill; `at` = the message's createdAt (wire text).
+    case divider(id: String, kind: Chats.DividerKind, at: String)
+    /// Thread 58cb32df (chats.json): an agent's inline Exponential UI
+    /// preview (`surface` card); `title` trimmed, nil = none.
+    case surface(id: String, sessionId: String, title: String?, surface: CardSurface)
 
     /// A `question` / `plan` card message as its row (nil = another kind).
     public static func askCard(_ message: TreeMessage) -> ThreadRow? {
@@ -755,7 +761,9 @@ public enum ThreadRow: Equatable, Sendable {
              let .suggestions(id, _, _, _, _),
              let .subagent(id, _, _),
              let .picture(id, _, _, _, _),
-             let .event(id, _, _):
+             let .event(id, _, _),
+             let .divider(id, _, _),
+             let .surface(id, _, _, _):
             id
         }
     }
@@ -1236,7 +1244,7 @@ public enum SessionTree {
     /// (group titles = `ThreadsListGroup.Key.title`, words =
     /// `ThreadRowWord.text`).
     public enum ListCopy {
-        public static let title = "Threads"
+        public static let title = "Chats"
         /// The rail's one band (web + IDE).
         public static let rail = "Active"
         public static let agents = "Agents"
@@ -1444,6 +1452,10 @@ public enum SessionTree {
                     ? message.authorKind
                     : "system"
                 if message.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
+                if author == "user", let divider = Chats.commandDivider(message.body) {
+                    rows.append(.divider(id: message.id, kind: divider, at: message.createdAt))
+                    continue
+                }
                 rows.append(.message(
                     id: message.id,
                     author: author,
@@ -1501,6 +1513,15 @@ public enum SessionTree {
             // mirror draws nothing here.
             case "ask":
                 break
+            case "surface":
+                guard let surface = card.surface else { break }
+                let title = card.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                rows.append(.surface(
+                    id: message.id,
+                    sessionId: message.sessionId,
+                    title: title.isEmpty ? nil : title,
+                    surface: surface
+                ))
             default:
                 break
             }

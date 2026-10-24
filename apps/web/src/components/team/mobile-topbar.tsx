@@ -1,24 +1,10 @@
 import { APPS_COPY } from "@exp/domain-contract/apps"
+import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { useState } from "react"
 import { useMatchRoute, useNavigate, useParams } from "@tanstack/react-router"
-import {
-  conceptIcon,
-  Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  UserAvatar,
-  BoardGlyph,
-} from "@exp/ui"
+import { conceptIcon, BoardGlyph, FabButton, FAB_CHROME_CLASS } from "@exp/ui"
 import type { Board, Team } from "@/db/schema"
-import { useSession } from "@/hooks/use-session"
-import { useSignOut } from "@/hooks/use-sign-out"
-import { isAdminUser } from "@/lib/auth/app-user"
-import { openFeedbackWidget } from "@/components/feedback-widget-provider"
-import { useFeedbackWidgetAvailable } from "@/components/feedback-button"
-import { ChangelogSheet } from "@/components/whats-new"
+import { cn } from "@/lib/utils"
 import { BoardSwitcherSheet } from "@/components/team/board-switcher-sheet"
 import { useIssueSearch } from "@/hooks/use-issue-search"
 import {
@@ -28,15 +14,9 @@ import {
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
-const NavAboutIcon = conceptIcon(`settings-about`)
-const NavAppsIcon = conceptIcon(`nav-apps`)
-const NavAdminIcon = conceptIcon(`nav-admin`)
-const NavChangelogIcon = conceptIcon(`nav-changelog`)
-const NavReportBugIcon = conceptIcon(`nav-report-bug`)
-const NavSettingsIcon = conceptIcon(`nav-settings`)
-const NavSignOutIcon = conceptIcon(`nav-sign-out`)
-const NavTeamSwitcherIcon = conceptIcon(`nav-team-switcher`)
+const SwitcherChevronIcon = conceptIcon(`ui-chevron-down`)
 const NavSearchIcon = conceptIcon(`nav-search`)
+const UiBackIcon = conceptIcon(`ui-back`)
 
 interface TeamMobileTopbarProps {
   teamSlug: string
@@ -44,156 +24,104 @@ interface TeamMobileTopbarProps {
   boards: Board[] | undefined
 }
 
-// Mobile-only chrome (EXP-189), mirroring the native apps' Issues header:
-// a board-switcher control (board name + chevron → bottom sheet) on board
-// surfaces, a static title elsewhere, and the user menu (settings, what's
-// new, feedback, sign out) behind the avatar. Account is a settings section
-// since EXP-238, so it gets no second entry here. Primary navigation lives
-// in the floating MobileTabBar; the whole header is `md:hidden` and hides
-// with it on detail routes (which carry their own headers).
+/** Which phone header a route wears (chats.json `shell`): the board
+ *  header, none (the page draws its own headline: Chats, the Team tab), or
+ *  a titled bar (a pushed page from the Team tab gets a back to it). */
+export type MobileTopbarKind =
+  | { kind: `board` }
+  | { kind: `none` }
+  | { kind: `title`; title: string; backToTeam: boolean }
+
+// Mobile-only chrome (EXP-189), mirroring the native apps' headers. Thread
+// 58cb32df (chats.json): the BOARD header = the board switcher pill + the
+// search circle (the settings gear and the avatar menu moved to the Team
+// tab); Chats and the Team tab draw their own large headline, so no bar
+// there; the other top-level surfaces keep a titled bar, and the pages the
+// Team tab pushes (settings, apps) get a back to it. Primary navigation
+// lives in the floating MobileTabBar; the whole header is `md:hidden` and
+// hides with it on detail routes (which carry their own headers).
 export function TeamMobileTopbar({
   teamSlug,
   team,
   boards,
 }: TeamMobileTopbarProps) {
-  const { data: session } = useSession()
   const navigate = useNavigate()
-  const handleSignOut = useSignOut()
   const matchRoute = useMatchRoute()
   const visible = useMobileChromeVisible()
   const { boardSlug } = useParams({ strict: false })
   const [switcherOpen, setSwitcherOpen] = useState(false)
-  const [whatsNewOpen, setWhatsNewOpen] = useState(false)
-  const feedbackAvailable = useFeedbackWidgetAvailable()
   const issueSearch = useIssueSearch()
 
-  // EXP-851 / EXP-1293: the Agent page (HOME) and Threads are titled
-  // surfaces, not details, so they wear this bar like the others. The Agent
-  // page's history sheet is gone: Threads is the list.
-  const sectionTitle = matchRoute({ to: `/t/$teamSlug/inbox`, fuzzy: true })
-    ? `Inbox`
-    : matchRoute({ to: `/t/$teamSlug/devices`, fuzzy: true })
-      ? `Devices`
-      : matchRoute({ to: `/t/$teamSlug/agent`, fuzzy: true })
-        ? `Agent`
-        : matchRoute({ to: `/t/$teamSlug/threads`, fuzzy: true })
-          ? `Threads`
-          : matchRoute({ to: `/t/$teamSlug/apps`, fuzzy: true })
-            ? APPS_COPY.title
-            : matchRoute({ to: `/t/$teamSlug/settings`, fuzzy: true })
-              ? `Settings`
-              : undefined
-  // VAPP-110: the Threads tab's header carries the Apps button (the phones' way
-  // into the Apps list, fixtures/apps.json).
-  const onThreads = Boolean(matchRoute({ to: `/t/$teamSlug/threads`, fuzzy: true }))
+  const on = (to: string) => Boolean(matchRoute({ to, fuzzy: true }))
+  const bar: MobileTopbarKind =
+    on(`/t/$teamSlug/threads`) || on(`/t/$teamSlug/team`)
+      ? { kind: `none` }
+      : on(`/t/$teamSlug/devices`)
+        ? { kind: `title`, title: CHATS_COPY.tabs.devices, backToTeam: false }
+        : on(`/t/$teamSlug/agent`)
+          ? { kind: `title`, title: `Agent`, backToTeam: false }
+          : on(`/t/$teamSlug/apps`)
+            ? { kind: `title`, title: APPS_COPY.title, backToTeam: true }
+            : on(`/t/$teamSlug/settings`)
+              ? { kind: `title`, title: `Settings`, backToTeam: true }
+              : { kind: `board` }
 
-  if (!visible) return null
+  if (!visible || bar.kind === `none`) return null
 
   const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
   const switcherLabel = boardTarget?.name ?? team?.name ?? teamSlug
 
+  if (bar.kind === `title`) {
+    return (
+      <header className="sticky top-0 z-30 flex h-12 items-center gap-1 border-b border-border/60 px-3 glass-chrome-top md:hidden">
+        {bar.backToTeam && (
+          <button
+            type="button"
+            aria-label={CHATS_COPY.tabs.team}
+            onClick={() => void navigate({ to: `/t/$teamSlug/team`, params: { teamSlug } })}
+            className="-ml-1 flex size-9 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+          >
+            <UiBackIcon className="size-4" />
+          </button>
+        )}
+        <span className="truncate text-sm font-medium">{bar.title}</span>
+      </header>
+    )
+  }
 
   return (
-    <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border/60 px-3 glass-chrome-top md:hidden">
-      {sectionTitle ? (
-        <span className="truncate text-sm font-medium">{sectionTitle}</span>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setSwitcherOpen(true)}
-          aria-label="Switch board"
-          className="flex min-w-0 items-center gap-1.5 rounded-md py-1 pl-1 pr-2 text-sm font-medium hover:bg-muted/50"
-        >
-          {boardTarget && (
-            <BoardGlyph board={boardTarget} className="size-3.5" />
-          )}
-          <span className="truncate">{switcherLabel}</span>
-          {/* EXP-1210: no live dot here; the per-team dots live in the
-              board switcher sheet. */}
-          <NavTeamSwitcherIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        </button>
-      )}
-
-      <div className="ml-auto flex items-center gap-2">
-        {onThreads && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9 text-muted-foreground"
-            aria-label={APPS_COPY.title}
-            data-testid="mobile-nav-apps"
-            onClick={() => navigate({ to: `/t/$teamSlug/apps`, params: { teamSlug } })}
-          >
-            <NavAppsIcon className="size-4" />
-          </Button>
+    <header
+      data-testid="mobile-board-header"
+      className="sticky top-0 z-30 flex items-center gap-3 px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] glass-chrome-top md:hidden"
+    >
+      {/* The board switcher PILL (name + chevron → bottom sheet). EXP-1210:
+          no live dot here; the per-team dots live in the sheet. */}
+      <button
+        type="button"
+        onClick={() => setSwitcherOpen(true)}
+        aria-label="Switch board"
+        className={cn(
+          `flex h-12 min-w-0 items-center gap-2.5 rounded-full pl-4 pr-3.5 text-base font-medium text-foreground transition-colors active:bg-glass-active`,
+          FAB_CHROME_CLASS
         )}
+      >
+        {boardTarget && <BoardGlyph board={boardTarget} className="size-[18px]" />}
+        <span className="truncate">{switcherLabel}</span>
+        <SwitcherChevronIcon className="size-4 shrink-0 text-muted-foreground" />
+      </button>
+      <div className="ml-auto flex items-center gap-2">
         {/* EXP-686 → polish: on a board, Search sits in the header cluster
             (the natives' Issues header), not on a row of its own. */}
-        {!sectionTitle && boardSlug && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9 text-muted-foreground"
+        {boardSlug && (
+          <FabButton
             aria-label="Search"
+            emphasis="primary"
+            className="size-12"
             onClick={issueSearch.open}
           >
-            <NavSearchIcon className="size-4" />
-          </Button>
+            <NavSearchIcon className="size-5" />
+          </FabButton>
         )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-9 rounded-full"
-              aria-label="User menu"
-            >
-              <UserAvatar size={28} user={session?.user} />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            {isAdminUser(session?.user) && (
-              <DropdownMenuItem onClick={() => navigate({ to: `/admin` })}>
-                <NavAdminIcon className="mr-2 size-4" />
-                Admin
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem
-              onClick={() =>
-                navigate({
-                  to: `/t/$teamSlug/settings`,
-                  params: { teamSlug },
-                })
-              }
-            >
-              <NavSettingsIcon className="mr-2 size-4" />
-              Settings
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setWhatsNewOpen(true)}>
-              <NavChangelogIcon className="mr-2 size-4" />
-              What&apos;s new
-            </DropdownMenuItem>
-            {/* EXP-262: version-less About page with the third-party
-                licence notices. */}
-            <DropdownMenuItem onClick={() => navigate({ to: `/about` })}>
-              <NavAboutIcon className="mr-2 size-4" />
-              About
-            </DropdownMenuItem>
-            {/* EXP-771: same label and glyph as the sidebar footer entry —
-                one name for the one way into the widget. */}
-            {feedbackAvailable && (
-              <DropdownMenuItem onClick={() => openFeedbackWidget()}>
-                <NavReportBugIcon className="mr-2 size-4" />
-                Report bug
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleSignOut}>
-              <NavSignOutIcon className="mr-2 size-4" />
-              Sign out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
 
       <BoardSwitcherSheet
@@ -204,7 +132,6 @@ export function TeamMobileTopbar({
         boards={boards}
         activeBoardSlug={boardSlug}
       />
-      <ChangelogSheet open={whatsNewOpen} onOpenChange={setWhatsNewOpen} />
     </header>
   )
 }

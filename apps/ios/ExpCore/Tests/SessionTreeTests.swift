@@ -236,6 +236,10 @@ final class SessionTreeTests: XCTestCase {
             ["type": "picture", "id": id, "attachmentId": attachmentId, "width": json(width), "height": json(height), "caption": json(caption)]
         case let .event(id, event, text):
             ["type": "event", "id": id, "event": event, "text": text]
+        case let .divider(id, kind, at):
+            ["type": "divider", "id": id, "kind": kind.rawValue, "at": at]
+        case let .surface(id, sessionId, title, surface):
+            ["type": "surface", "id": id, "sessionId": sessionId, "title": json(title), "surface": json(surface)]
         }
     }
 

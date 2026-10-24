@@ -3,8 +3,15 @@ import ExpCore
 import SwiftUI
 import GRDB
 
+/// EXP-1373: the Team tab's rows land on one section of this page.
+enum TeamSettingsSection: String, Hashable {
+    case boards, agents, prompts, repositories, members, labels
+}
+
 struct TeamSettingsView: View {
     let teamId: String
+    /// EXP-1373: the section a Team tab row opened it on (scrolled to).
+    var focus: TeamSettingsSection? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -43,6 +50,7 @@ struct TeamSettingsView: View {
         ZStack {
             AppBackground()
 
+            ScrollViewReader { scroller in
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     // Boards section
@@ -55,6 +63,7 @@ struct TeamSettingsView: View {
                         repositoriesApi: deps.repositoriesApi,
                         onDelete: { board in deleteBoardTarget = board }
                     )
+                    .id(TeamSettingsSection.boards)
 
                     // EXP-1291: Agents, managed exactly like boards — a row
                     // opens the agent page (read-only for members).
@@ -63,6 +72,7 @@ struct TeamSettingsView: View {
                         isOwner: isOwner,
                         onOpen: { agentTarget = AgentPageTarget(agentId: $0) }
                     )
+                    .id(TeamSettingsSection.agents)
 
                     // NEW-2: the team's Events, newest first (web
                     // `AgentEventsBand`).
@@ -75,6 +85,7 @@ struct TeamSettingsView: View {
                         isOwner: isOwner,
                         onOpen: { promptTarget = PromptPageTarget(promptId: $0) }
                     )
+                    .id(TeamSettingsSection.prompts)
 
                     // Repositories registry (server-only, read over tRPC —
                     // masterplan §6). A pure registry with "used by" chips;
@@ -94,6 +105,7 @@ struct TeamSettingsView: View {
                         integrationsApi: deps.integrationsApi,
                         instanceBaseURL: deps.auth.instanceBaseURL(forAccountId: accountId)
                     )
+                    .id(TeamSettingsSection.repositories)
 
                     // Members section (view/manage only — inviting is web-only,
                     // EXP-216)
@@ -108,6 +120,7 @@ struct TeamSettingsView: View {
                         isOwner: isOwner,
                         teamName: team?.name
                     )
+                    .id(TeamSettingsSection.members)
 
                     // Labels section
                     TeamLabelsSection(
@@ -116,6 +129,7 @@ struct TeamSettingsView: View {
                         labels: labels,
                         labelsApi: deps.labelsApi
                     )
+                    .id(TeamSettingsSection.labels)
 
                     // Delete team — owner-only (hidden for non-owners, full
                     // web parity). No slug is exempt: EXP-364 killed every
@@ -159,8 +173,15 @@ struct TeamSettingsView: View {
                 }
                 .padding(16)
             }
+            .task(id: focus) {
+                guard let focus else { return }
+                // The sections size as their rows sync in: land once laid out.
+                try? await Task.sleep(for: .milliseconds(150))
+                scroller.scrollTo(focus, anchor: .top)
+            }
+            }
         }
-        .navigationTitle("Settings")
+        .navigationTitle(team?.name ?? "Settings")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .navigationDestination(item: $agentTarget) { target in

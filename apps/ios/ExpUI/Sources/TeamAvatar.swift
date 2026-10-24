@@ -46,7 +46,8 @@ public struct TeamAvatar: View {
             ink: DesignTokens.Palette.primaryForeground,
             initials: initial,
             cornerRadius: size / 4,
-            font: .caption.weight(.bold),
+            // A large mark (the Team tab's 84pt header) scales its initial.
+            font: size >= 40 ? .system(size: size * 0.42, weight: .bold) : .caption.weight(.bold),
             minimumScaleFactor: 1
         )
     }

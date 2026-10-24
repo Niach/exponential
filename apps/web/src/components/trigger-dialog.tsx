@@ -85,7 +85,8 @@ export function TriggerDialog({
         </DialogHeader>
 
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-3">
-          <DialogBody className="space-y-3">
+          {/* EXP-1363: the body scrolls when its rows outgrow the dialog. */}
+          <DialogBody className="min-h-0 space-y-3 overflow-y-auto">
             <TriggerWhenFields
               draft={draft}
               onChange={(next) => {

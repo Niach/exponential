@@ -4,6 +4,7 @@ import {
   conceptIcon,
   FloatingComposer,
   Pill,
+  toastActionError,
   useIsMobile,
   WORK_COLUMN_CLASS,
   WORK_GUTTER_CLASS,
@@ -11,8 +12,10 @@ import {
 import type { IconConcept } from "@exp/icons"
 import { AgentSessionView } from "@/components/agent-session"
 import { SessionComposer, SessionComposerReplies } from "@/components/session-composer"
-import { stopSessionTurn } from "@/lib/session-stop"
-import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { CHATS_COPY } from "@exp/domain-contract/chats"
+import { actionErrorDescription, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { sessionCollection } from "@/lib/collections"
+import { trpc } from "@/lib/trpc-client"
 import {
   useSessionCard,
   useSessionRow,
@@ -33,7 +36,7 @@ import { cn } from "@/lib/utils"
 //                    (EXP-1343: phones too, a page of the thread's pager)
 //   SessionScreen    sessions under a team AGENT (`/sessions/$id`): its own header,
 //                    back to the thread (or the agent's channel), the
-//                    session's name and Stop while live
+//                    session's name (Chats: no Stop pill under an agent)
 //
 // The feed always shows the work (no faces, no Show work, no Guide), and the
 // reply box posts to THIS session. Visibility is the shape's. EXP-1323:
@@ -127,7 +130,6 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
   const name = card?.name ?? (isRoot ? threadTitle : null)
   usePageTitle(name ? pageTitle(name, isRoot ? null : threadTitle) : undefined)
 
-  const live = row.status !== `ended`
   const CardIcon = conceptIcon((card?.icon ?? `coding-assistant`) as IconConcept)
 
   const header = (
@@ -164,7 +166,11 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
         >
           {name}
         </h1>
-        {live ? <SessionStopPill sessionId={row.id} /> : null}
+        {/* Chats STOP: an agent's tree has no header pill; a thread's
+            ends its root. */}
+        {!rootAgentId && rootRow && rootRow.status !== `ended` ? (
+          <SessionStopPill rootId={rootId} />
+        ) : null}
       </div>
     </div>
   )
@@ -191,8 +197,11 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
   )
 }
 
-/** Stop the session (`sessions.stop`); the synced row ends it. */
-export function SessionStopPill({ sessionId }: { sessionId: string }) {
+/** Thread 58cb32df (chats.json STOP): the thread header's Stop pill = the
+ *  chat menu's Stop, `sessions.end` on the ROOT (the whole tree ends); shown
+ *  while the root is not ended. An agent chat has none (only the composer's
+ *  turn stop and the agent menu's). A failure toasts `copy.toasts.stopFailed`. */
+export function SessionStopPill({ rootId }: { rootId: string }) {
   const [stopping, setStopping] = useState(false)
   return (
     <Pill
@@ -202,19 +211,22 @@ export function SessionStopPill({ sessionId }: { sessionId: string }) {
       onClick={async () => {
         setStopping(true)
         try {
-          await stopSessionTurn(sessionId, SKIP_ERROR_TOAST)
+          const result = await trpc.sessions.end.mutate({ sessionId: rootId }, SKIP_ERROR_TOAST)
+          await sessionCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
         } catch (error) {
-          failedAction(`stop`, `the session`, error)
+          toastActionError(CHATS_COPY.toasts.stopFailed, { description: actionErrorDescription(error) })
         } finally {
           setStopping(false)
         }
       }}
-      aria-label="Stop the session"
-      title="Stop the session"
+      aria-label={STOP_LABEL}
+      title={STOP_LABEL}
       data-testid="session-stop"
     >
       <StopIcon className="size-3.5" />
-      Stop
+      {CHATS_COPY.menu.stop}
     </Pill>
   )
 }
+
+const STOP_LABEL = `Stop the chat`

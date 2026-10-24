@@ -24,6 +24,8 @@ pub struct AskDockCopy {
     pub back: String,
     pub feedback_placeholder: String,
     pub cancel: String,
+    /// FEED-140: a plan the agent replaced with a newer one.
+    pub superseded: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -90,6 +92,10 @@ pub struct AskDockPending {
 
 /// The option a decided plan card names as its answer.
 pub fn plan_decision_label(decision: &str, fresh: bool) -> String {
+    // FEED-140: a plan the agent replaced with a newer one.
+    if decision == "superseded" {
+        return ASK_DOCK.copy.superseded.clone();
+    }
     let wants_fresh = decision == "approved" && fresh;
     plan_options()
         .iter()

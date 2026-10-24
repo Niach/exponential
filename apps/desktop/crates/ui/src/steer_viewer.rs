@@ -146,6 +146,19 @@ pub(crate) const WORKING_PULSE: Duration = Duration::from_millis(1400);
 /// EXP-850 §3: an orphan card row's content identity — its ROW id is an
 /// index (the cards are keyed positionally at the tail), so the workflow it
 /// actually shows rides the fingerprint instead.
+/// Thread 58cb32df: the trailing conversation cards' list ids, between the
+/// orphan workflow cards' and the working row's.
+const CONV_TAIL_ROW_BASE: FeedItemId = ORPHAN_ROW_BASE + 512;
+
+/// A conversation card's measure: its whole row (an answer, a decision, a
+/// draft-free state change re-measures it).
+fn conversation_card_fingerprint(row: Option<&domain::session_tree::SessionThreadRow>) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut hasher = std::hash::DefaultHasher::new();
+    serde_json::to_string(&row).unwrap_or_default().hash(&mut hasher);
+    hasher.finish()
+}
+
 fn orphan_fingerprint(workflow_id: &str) -> u64 {
     use std::hash::{Hash as _, Hasher as _};
     let mut hasher = std::hash::DefaultHasher::new();
@@ -574,6 +587,15 @@ pub(crate) struct SteerSessionView {
     /// first: no engine ask behind them, so they dock from their `messages`
     /// rows and answer only through `sessions.answer`.
     tool_cards: Vec<domain::session_tree::SessionThreadRow>,
+    /// Thread 58cb32df (chats.json, FEED-140): this session's conversation
+    /// cards the relay feed does not paint itself (the TOOL-posted plan /
+    /// question cards in every state, the agent's surface cards), in
+    /// message order; each sits after the call that posted it
+    /// (`conv_anchors`: feed item id → card indices), the rest trail the
+    /// transcript (`conv_tail`).
+    conv_cards: Vec<domain::session_tree::SessionThreadRow>,
+    conv_anchors: HashMap<FeedItemId, Vec<usize>>,
+    conv_tail: Vec<usize>,
     /// N-12: THE Dock's state (the fan, the open sheet, the band height).
     dock: Entity<crate::dock::DockState>,
     /// EXP-1211: this session's open quick replies (its newest synced
@@ -786,6 +808,9 @@ impl SteerSessionView {
             active: HashSet::new(),
             docked: None,
             tool_cards: Vec::new(),
+            conv_cards: Vec::new(),
+            conv_anchors: HashMap::new(),
+            conv_tail: Vec::new(),
             dock: cx.new(|_| crate::dock::DockState::default()),
             replies: None,
             working: false,
@@ -1286,6 +1311,8 @@ impl SteerSessionView {
         // EXP-850 §12: the per-turn file cards are derived state now
         // (EXP-884, [`Self::refresh_derived`] above).
         self.prune_dropped_rows();
+        // Thread 58cb32df: the conversation's own cards beside the relay rows.
+        self.refresh_conversation_cards(focus.is_none(), cx);
         // The "Working…" line belongs to the main transcript — a subagent's
         // tab has its own running spinner in the strip.
         self.working = focus.is_none() && self.working_now();
@@ -1330,8 +1357,19 @@ impl SteerSessionView {
                 fingerprint,
             });
         }
+        // Thread 58cb32df: the cards no call in the window anchors trail it,
+        // keyed between the orphan cards and the working row.
+        for (ix, &card) in self.conv_tail.iter().enumerate() {
+            let at = self.rows.len() + self.orphan_workflows.len() + ix;
+            let gap = f32::from(self.row_gap(at));
+            let fingerprint = transcript_rows::fold_gap(conversation_card_fingerprint(self.conv_cards.get(card)), gap);
+            keys.push(RowKey {
+                id: CONV_TAIL_ROW_BASE + ix as steer::FeedItemId,
+                fingerprint,
+            });
+        }
         if self.working {
-            let gap = f32::from(self.row_gap(self.rows.len() + self.orphan_workflows.len()));
+            let gap = f32::from(self.row_gap(self.rows.len() + self.orphan_workflows.len() + self.conv_tail.len()));
             // EXP-850 §5: the working row's text is no longer a constant (a
             // verb, a ticking duration, a workflow's caption), so its
             // fingerprint folds in what it will say.
@@ -2549,6 +2587,102 @@ impl SteerSessionView {
         };
     }
 
+    /// Thread 58cb32df (chats.json, FEED-140): the conversation's cards the
+    /// relay feed does not paint (web `AgentSessionView`'s tool cards + its
+    /// surface cards): every TOOL-posted plan / question card (waiting ones
+    /// stay inline beside THE Dock; answered ones closed; a superseded plan
+    /// collapsed) and every surface card, anchored after the settled call
+    /// that posted it. An engine ask is the feed's own Question row (never
+    /// duplicated). Never on a root's host (its thread paints the tree) nor
+    /// on a subagent tab.
+    fn refresh_conversation_cards(&mut self, main: bool, cx: &mut gpui::Context<Self>) {
+        if self.tree_scope || !main {
+            self.conv_cards.clear();
+            self.conv_anchors.clear();
+            self.conv_tail.clear();
+            return;
+        }
+        let messages = crate::session_data::messages_of_session(&self.session_id, cx);
+        let mut ordered: Vec<&domain::rows::MessageRow> = messages.iter().collect();
+        ordered.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
+        self.conv_cards = ordered
+            .into_iter()
+            .filter_map(|message| {
+                if domain::session_tree::is_tool_card(message) {
+                    domain::session_tree::ask_card_row(message)
+                } else {
+                    domain::session_tree::surface_card_row(message)
+                }
+            })
+            .collect();
+        crate::surface_card::sync_rows(cx.entity_id(), &self.conv_cards, cx);
+        // The calls the window shows (a card whose call is above it trails).
+        let shown: HashSet<FeedItemId> = self
+            .rows
+            .iter()
+            .flat_map(|spec| spec.item_indices().iter().filter_map(|&ix| self.feed.items().get(ix)).map(|item| item.id))
+            .collect();
+        let calls: Vec<(u64, &str)> = self
+            .feed
+            .items()
+            .iter()
+            .filter(|item| shown.contains(&item.id))
+            .filter_map(|item| match &item.kind {
+                FeedKind::Tool { name, settled: true, failed: false, .. } => {
+                    steer::exp_tool_row(name).map(|row| (item.id, row))
+                }
+                _ => None,
+            })
+            .collect();
+        let (anchors, tail) = crate::surface_card::anchor_cards(&calls, &self.conv_cards);
+        self.conv_anchors = anchors;
+        self.conv_tail = tail;
+    }
+
+    /// The conversation cards at `indices`, painted by the thread screen's
+    /// own row painter (the inline plan / question answers while the reader
+    /// may message the session).
+    fn render_conversation_cards(&self, indices: &[usize], window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let team_id = self.row.as_ref().and_then(|row| row.team_id.clone());
+        let text = crate::thread_screen::ThreadText::team(team_id.as_deref()).answering(self.may_message);
+        let cards: Vec<AnyElement> = indices
+            .iter()
+            .filter_map(|&index| self.conv_cards.get(index).cloned())
+            .filter_map(|row| crate::thread_screen::card_row(&row, &self.session_id, &text, &self.images, window, cx))
+            .collect();
+        v_flex().w_full().min_w_0().gap(px(transcript::GAP_BLOCK)).children(cards).into_any_element()
+    }
+
+    /// A `/new` / `/compact` divider's `HH:mm`: the feed's divider lines of
+    /// that kind paired newest back with the session's synced ones.
+    fn divider_time(&self, item_id: FeedItemId, kind: domain::chats::DividerKind, cx: &App) -> String {
+        let is_kind = |text: &str| domain::chats::command_divider(text) == Some(kind);
+        let from_end = self
+            .feed
+            .items()
+            .iter()
+            .rev()
+            .filter(|item| matches!(&item.kind, FeedKind::UserMessage { text, .. } if is_kind(text)))
+            .position(|item| item.id == item_id);
+        let Some(from_end) = from_end else { return String::new() };
+        let messages = crate::session_data::messages_of_session(&self.session_id, cx);
+        let mut synced: Vec<&domain::rows::MessageRow> = messages
+            .iter()
+            .filter(|message| {
+                message.author_kind.as_deref() == Some(domain::contract::MESSAGE_AUTHOR_KIND_USER)
+                    && message.card.is_none()
+                    && is_kind(message.body_text())
+            })
+            .collect();
+        synced.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        synced
+            .iter()
+            .rev()
+            .nth(from_end)
+            .map(|message| crate::thread_screen::clock(message.created_at.as_deref()))
+            .unwrap_or_default()
+    }
+
     /// N-12: the relay's own waiting card (claude's AskUserQuestion or its
     /// plan) as THE Dock's front-most source (`relay:<row id>`).
     fn relay_source(&self) -> Option<domain::dock::DockSource> {
@@ -2735,6 +2869,12 @@ impl SteerSessionView {
                 }
                 if steer::exp_tool_row(name) == Some(COMMENTS_CREATE_ROW) {
                     self.comment_call_body_len(item, cx).hash(&mut hasher);
+                }
+            }
+            // Thread 58cb32df: the conversation cards after this call.
+            if let Some(cards) = self.conv_anchors.get(&item.id) {
+                for &card in cards {
+                    conversation_card_fingerprint(self.conv_cards.get(card)).hash(&mut hasher);
                 }
             }
             if let Some(workflow) = self.workflow_of(item) {
@@ -3389,7 +3529,8 @@ pub(crate) fn may_steer(row: &domain::rows::SessionRow, me: Option<&str>) -> boo
 }
 
 /// EXP-1294 — Stop: `sessions.stop` interrupts the session's turn through
-/// the relay (a queued one simply ends); a refusal is the usual toast.
+/// the relay (a queued one simply ends); a refusal is the usual toast, a
+/// stop no device got (`delivered: false`) `copy.toasts.stopNotDelivered`.
 /// Shared with the terminal strip's per-row stop.
 pub(crate) fn stop_session(session_id: &str, cx: &mut App) {
     let Some(trpc) = crate::queries::trpc_client(cx) else {
@@ -3402,10 +3543,20 @@ pub(crate) fn stop_session(session_id: &str, cx: &mut App) {
             .background_executor()
             .spawn(async move { api::sessions::stop(&trpc, &session_id) })
             .await;
-        if let Err(err) = result {
-            let _ = cx.update(|cx| {
-                crate::action_error::failed_action_err("stop", "the session", &err, cx);
-            });
+        match result {
+            // Thread 58cb32df: the relay reached no device for a live run.
+            Ok(out) if out.not_delivered() => {
+                let _ = cx.update(|cx| {
+                    let title = domain::chats::CHATS.copy.toasts.stop_not_delivered.clone();
+                    crate::toast::show_in_active_window(crate::toast::Toast::error(title), cx);
+                });
+            }
+            Ok(_) => {}
+            Err(err) => {
+                let _ = cx.update(|cx| {
+                    crate::action_error::failed_action_err("stop", "the session", &err, cx);
+                });
+            }
         }
     })
     .detach();
@@ -4356,7 +4507,8 @@ pub(crate) fn ask_body_text(cx: &App) -> gpui::Div {
 
 /// EXP-1175 → EXP-1294 — the session view's status row: the agent's mark
 /// for `state` ([`crate::run_rows::run_mark`]) beside the state word in its
-/// tone (`session-card.json`). Also the styleguide's `run-status-row`.
+/// tone (`session-card.json`): the styleguide's `run-status-row` (N-11: the
+/// session view no longer draws it over the transcript).
 pub(crate) fn session_status_row(
     id: impl Into<gpui::ElementId>,
     agent: Option<coding::CodingAgent>,
@@ -4383,43 +4535,6 @@ pub(crate) fn session_status_row(
 }
 
 impl SteerSessionView {
-    /// EXP-1294 — the session's state as the status row shows it: the
-    /// synced state (`session_tree::session_state`) with the viewer's own
-    /// live signals folded over it — a pending card on a live run waits on
-    /// the reader, the working predicate moves the mark.
-    fn view_state(&self) -> Option<domain::session_tree::SessionState> {
-        use domain::session_tree::SessionState;
-        let row = self.row.as_ref()?;
-        if self.session_over() {
-            return Some(SessionState::Ended);
-        }
-        if self.answerable_run() && !self.active.is_empty() {
-            return Some(SessionState::NeedsYou);
-        }
-        if self.working_now() {
-            return Some(SessionState::Working);
-        }
-        Some(domain::session_tree::session_state(row))
-    }
-
-    /// EXP-1294 — the status row over the transcript: the agent's mark (it
-    /// works while the agent does, badges while it waits), the state word
-    /// in its tone (`session-card.json`). No device caption.
-    fn render_status_row(&self, cx: &App) -> Option<AnyElement> {
-        let row = self.row.as_ref()?;
-        let state = self.view_state()?;
-        // NEW-1: a blocked session names its kind (`copy.blockedKinds`).
-        let word = domain::session_tree::session_kind_word(row, state);
-        let element = session_status_row(
-            "steer-run-status-row",
-            crate::run_rows::run_agent(row.cli.as_deref()),
-            state,
-            &word,
-            cx,
-        );
-        Some(work_column_row(element).py_2().into_any_element())
-    }
-
     fn render_feed(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         if self.feed.is_empty() {
@@ -4580,15 +4695,22 @@ impl SteerSessionView {
         let Some(spec) = self.rows.get(ix) else {
             // §3: past the transcript sit the orphan workflow cards, then the
             // synthetic "Working…" line.
+            let past = ix - self.rows.len();
             let orphan = self
                 .orphan_workflows
-                .get(ix - self.rows.len())
+                .get(past)
                 .and_then(|id| self.feed.workflow_for(id))
                 .cloned();
-            return match orphan {
-                Some(workflow) => {
-                    let card = self.render_workflow_card(&workflow, None, cx);
-                    self.transcript_row(ix, card)
+            if let Some(workflow) = orphan {
+                let card = self.render_workflow_card(&workflow, None, cx);
+                return self.transcript_row(ix, card);
+            }
+            // Thread 58cb32df: the unanchored conversation cards.
+            let tail = past.checked_sub(self.orphan_workflows.len()).and_then(|t| self.conv_tail.get(t)).copied();
+            return match tail {
+                Some(card) => {
+                    let element = self.render_conversation_cards(&[card], window, cx);
+                    self.transcript_row(ix, element)
                 }
                 None => self.transcript_row(ix, self.render_working_row(cx)),
             };
@@ -4598,6 +4720,26 @@ impl SteerSessionView {
         let spec = spec.clone();
         let row = spec.resolve(self.feed.items());
         let element = self.render_row(&row, ix == last_row && live, &self.active, window, cx);
+        // Thread 58cb32df: the conversation cards the row's calls posted.
+        let anchored: Vec<usize> = spec
+            .item_indices()
+            .iter()
+            .filter_map(|&index| self.feed.items().get(index))
+            .filter_map(|item| self.conv_anchors.get(&item.id))
+            .flatten()
+            .copied()
+            .collect();
+        let element = if anchored.is_empty() {
+            element
+        } else {
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .gap(px(transcript::GAP_BLOCK))
+                .child(element)
+                .child(self.render_conversation_cards(&anchored, window, cx))
+                .into_any_element()
+        };
         self.transcript_row(ix, element)
     }
 
@@ -4651,6 +4793,13 @@ impl SteerSessionView {
         match &item.kind {
             FeedKind::Narration { text, .. } => {
                 self.render_narration(SharedString::from(format!("steer-narration-{}", item.id)), text.clone(), cx)
+            }
+            // Thread 58cb32df (chats.json TRANSCRIPT): a person's `/new` or
+            // `/compact` line is THE divider pill, never a bubble.
+            FeedKind::UserMessage { text, .. } if domain::chats::command_divider(text).is_some() => {
+                let kind = domain::chats::command_divider(text).expect("matched above");
+                let time = self.divider_time(item.id, kind, cx);
+                crate::surface_card::divider_pill(&format!("steer-{}", item.id), kind, &time, cx)
             }
             // EXP-724: a message that IS a catalog command reads as a
             // compact pill, not a chat bubble — the agent was steered, not
@@ -8467,9 +8616,8 @@ impl Render for SteerSessionView {
         self.sync_card_focus(window, cx);
         // EXP-789: the subagent strip sits between the header and the feed.
         let strip = self.render_subagent_strip(cx);
-        // EXP-1294: the session view ALWAYS shows the full transcript, under
-        // its status row.
-        let status_row = self.render_status_row(cx);
+        // N-11 (owner 2026-10-24): no status row over the transcript; the
+        // live "Working…" row at its bottom is the one working signal.
         // N-12: THE Dock (the waiting cards, THE Queue, the queued messages,
         // the banners, then THE composer) floats over the transcript's
         // bottom edge; the transcript is the ONE scroll region and pads by
@@ -8487,7 +8635,6 @@ impl Render for SteerSessionView {
             .min_h_0()
             .overflow_hidden()
             .children(strip)
-            .children(status_row)
             .child(
                 div()
                     .relative()

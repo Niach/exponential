@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it, vi } from "vitest"
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   agents,
@@ -47,6 +47,23 @@ vi.mock(`@/lib/storage`, () => ({
 vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
   deleteStorageObjects: async () => {},
 }))
+// Chats: `sessions.stop`'s `delivered` with a relay configured (off = the
+// real module).
+const relay = vi.hoisted(() => ({ on: false, delivered: true, interrupted: [] as string[] }))
+vi.mock(`@/lib/steer`, async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/steer")>()
+  return {
+    ...real,
+    getSteerRelayConfig: () => (relay.on ? { url: `http://relay.test`, secret: `s` } : real.getSteerRelayConfig()),
+    relayPostInterrupt: async (...args: Parameters<typeof real.relayPostInterrupt>) => {
+      if (!relay.on) return real.relayPostInterrupt(...args)
+      relay.interrupted.push(args[1])
+      return { delivered: relay.delivered }
+    },
+    relayPostKill: async (...args: Parameters<typeof real.relayPostKill>) =>
+      relay.on ? undefined : real.relayPostKill(...args),
+  }
+})
 
 const ready = await probeRealDb(`
   SELECT (
@@ -1584,13 +1601,127 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
       .set({ lastSeenAt: new Date(Date.now() - 3 * 3_600_000) })
       .where(eq(devices.deviceId, w.deviceId))
     await db.update(sessions).set({ status: `running`, busy: true }).where(eq(sessions.id, w.sessionId))
-    await stopSession({ userId: w.owner, sessionId: w.sessionId })
+    // Chats: nothing to deliver to a ghost: `delivered` stays true.
+    expect(await stopSession({ userId: w.owner, sessionId: w.sessionId })).toMatchObject({ delivered: true })
     expect(await row(w.sessionId)).toMatchObject({ status: `idle`, busy: false })
-    // An online device's Stop only interrupts.
+    // An online device's Stop only interrupts; `delivered` = the relay's word.
     await db.update(devices).set({ lastSeenAt: new Date() }).where(eq(devices.deviceId, w.deviceId))
     await db.update(sessions).set({ status: `running`, busy: true }).where(eq(sessions.id, w.sessionId))
-    await stopSession({ userId: w.owner, sessionId: w.sessionId })
+    relay.on = true
+    try {
+      relay.delivered = false
+      expect(await stopSession({ userId: w.owner, sessionId: w.sessionId })).toMatchObject({ delivered: false })
+      relay.delivered = true
+      expect(await stopSession({ userId: w.owner, sessionId: w.sessionId })).toMatchObject({ delivered: true })
+      expect(relay.interrupted).toEqual([w.sessionId, w.sessionId])
+    } finally {
+      relay.on = false
+      relay.interrupted = []
+    }
     expect(await row(w.sessionId)).toMatchObject({ status: `running`, busy: true })
+  })
+
+  it(`Chats: a queued session's Stop delivers nothing and reads delivered`, async () => {
+    const { stopSession } = await import(`@/lib/sessions/lifecycle`)
+    const w = await world()
+    const sent = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `go` } })
+    relay.on = true
+    try {
+      expect(await stopSession({ userId: w.owner, sessionId: sent.sessionId })).toMatchObject({ delivered: true })
+      expect(relay.interrupted).toEqual([])
+    } finally {
+      relay.on = false
+    }
+  })
+})
+
+// Chats (fixtures/chats.json menus): `sessions.delete` ends what is live,
+// then deletes the root chat with its whole tree; the cascades run on the
+// REAL Postgres (a fake DB hides them).
+describe.skipIf(!ready.ok)(`sessions.delete (Chats)`, async () => {
+  const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
+  const { events, sessionReads } = await import(`@/db/schema`)
+  const caller = (userId: string) =>
+    sessionsRouter.createCaller({
+      session: { user: { id: userId } },
+      db,
+      request: new Request(`http://x.test`),
+    } as never)
+
+  it(`refuses non-roots and other members, ends the live tree first, then cascades it away`, async () => {
+    const w = await world({ shared: true })
+    const other = await user()
+    await db.insert(teamMembers).values({ teamId: w.teamId, userId: other, role: `member` })
+    const [upload] = await db
+      .insert(attachments)
+      .values({
+        teamId: w.teamId,
+        uploaderId: w.mate,
+        filename: `shot.png`,
+        contentType: `image/png`,
+        sizeBytes: 3,
+        storageKey: `k-${id8()}`,
+        url: `/api/attachments/x`,
+      })
+      .returning({ id: attachments.id })
+    const issueId = await w.issue()
+    const root = await sendSession({
+      userId: w.mate,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `look`, attachmentIds: [upload!.id], issueIds: [issueId] },
+    })
+    const child = await sendSession({ userId: w.mate, input: { parentId: root.sessionId, text: `part` } })
+    await caller(w.mate).markRead({ sessionId: root.sessionId })
+    // A watcher outside the tree forgets the deleted ids.
+    const watcher = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `w` } })
+    await db
+      .update(sessions)
+      .set({ wakeOn: [child.sessionId] })
+      .where(eq(sessions.id, watcher.sessionId))
+
+    // Root chats only; a member who neither started it nor owns the team cannot.
+    await expect(caller(w.mate).delete({ sessionId: child.sessionId })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await expect(caller(other).delete({ sessionId: root.sessionId })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    await expect(caller(w.mate).delete({ sessionId: crypto.randomUUID() })).rejects.toMatchObject({ code: `NOT_FOUND` })
+
+    // The team owner may (not the starter).
+    const { txid } = await caller(w.owner).delete({ sessionId: root.sessionId })
+    expect(txid).toBeTypeOf(`number`)
+    const ids = [root.sessionId, child.sessionId]
+    expect(await db.select().from(sessions).where(inArray(sessions.id, ids))).toEqual([])
+    expect(await db.select().from(conversations).where(inArray(conversations.sessionId, ids))).toEqual([])
+    expect(await db.select().from(messages).where(eq(messages.rootId, root.sessionId))).toEqual([])
+    expect(await db.select().from(sessionIssues).where(inArray(sessionIssues.sessionId, ids))).toEqual([])
+    expect(await db.select().from(sessionReads).where(inArray(sessionReads.sessionId, ids))).toEqual([])
+    // The issue and the file stay (the file owner-less, for the orphan sweep).
+    expect(await db.select({ id: issues.id }).from(issues).where(eq(issues.id, issueId))).toHaveLength(1)
+    const [file] = await db.select().from(attachments).where(eq(attachments.id, upload!.id))
+    expect(file).toMatchObject({ messageId: null })
+    // Ended first: each live row emitted its session.ended event.
+    const ended = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(and(eq(events.teamId, w.teamId), eq(events.name, `session.ended`)))
+    expect(ended.map((row) => (row.payload as { sessionId: string }).sessionId).sort()).toEqual([...ids].sort())
+    expect((await row(watcher.sessionId)).wakeOn).toEqual([])
+  })
+
+  it(`lets the starter delete an ended private chat, hides another's private one`, async () => {
+    const w = await world()
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `x` } })
+    await endSession({ userId: w.owner, sessionId: root.sessionId })
+    await expect(caller(w.mate).delete({ sessionId: root.sessionId })).rejects.toMatchObject({ code: `NOT_FOUND` })
+    await caller(w.owner).delete({ sessionId: root.sessionId })
+    expect(await db.select().from(sessions).where(eq(sessions.id, root.sessionId))).toEqual([])
+  })
+
+  it(`refuses an agent's conversation`, async () => {
+    const w = await world({ shared: true })
+    const [agent] = await db
+      .insert(agents)
+      .values({ teamId: w.teamId, name: `Bot`, deviceId: w.deviceId, ownerId: w.owner })
+      .returning({ id: agents.id })
+    const sent = await sendSession({ userId: w.owner, input: { agentId: agent!.id, text: `hi` } })
+    await expect(caller(w.owner).delete({ sessionId: sent.sessionId })).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 })
 
@@ -1618,6 +1749,37 @@ describe.skipIf(!ready.ok)(`plan mode: the plan card`, async () => {
     url: `/api/attachments/x`,
     width: 640,
     height: 400,
+  })
+
+  it(`FEED-140: a second plan supersedes the waiting one, never delivered as an answer`, async () => {
+    const w = await world({ shared: true })
+    const sent = await sendSession({
+      userId: w.mate,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `plan it` },
+    })
+    await db.update(sessions).set({ planMode: true }).where(eq(sessions.id, sent.sessionId))
+    const host = caller(w.owner)
+    await host.claim({ sessionId: sent.sessionId, deviceId: w.deviceId })
+    const first = await postAskCard({ userId: w.mate, sessionId: sent.sessionId, card: buildPlanCard({ plan: `1. Old` }) })
+    const second = await postAskCard({ userId: w.mate, sessionId: sent.sessionId, card: buildPlanCard({ plan: `1. New` }) })
+    const old = await message(first.messageId)
+    expect(old.card).toMatchObject({ kind: `plan`, plan: `1. Old`, decision: `superseded` })
+    expect(old.answeredAt).not.toBeNull()
+    // Consumed with it: the device never feeds a superseded card as an answer.
+    expect(old.consumedAt).not.toBeNull()
+    expect(await message(second.messageId)).toMatchObject({ answeredAt: null, consumedAt: null, card: { decision: null } })
+    expect(await row(sent.sessionId)).toMatchObject({ planMode: true, needsInput: true })
+    // A superseded card takes no answer.
+    await expect(caller(w.mate).answer({ messageId: first.messageId, decision: `approved` })).rejects.toMatchObject({
+      code: `CONFLICT`,
+    })
+    // A question never supersedes a plan.
+    await postAskCard({
+      userId: w.mate,
+      sessionId: sent.sessionId,
+      card: buildQuestionCard({ question: `Q?`, options: [{ label: `A` }] }),
+    })
+    expect((await message(second.messageId)).answeredAt).toBeNull()
   })
 
   it(`proposes, takes its picture, is approved with answers and consumed by the device`, async () => {
@@ -1653,10 +1815,6 @@ describe.skipIf(!ready.ok)(`plan mode: the plan card`, async () => {
     })
     expect((await row(sent.sessionId)).needsInput).toBe(true)
 
-    // ONE open plan per session.
-    await expect(postAskCard({ userId: w.mate, sessionId: sent.sessionId, card })).rejects.toMatchObject({
-      code: `CONFLICT`,
-    })
     // An unanswered card is never consumed.
     await host.consume({ sessionId: sent.sessionId, messageIds: [posted.messageId] })
     expect((await message(posted.messageId)).consumedAt).toBeNull()

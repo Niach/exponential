@@ -1,35 +1,16 @@
-import { useEffect, useState } from "react"
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
-import { DraftsList } from "@/components/drafts-list"
+import { useEffect } from "react"
+import { createFileRoute, redirect, useNavigate, useRouter } from "@tanstack/react-router"
+import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { InboxView } from "@/components/inbox/inbox-view"
-import { MyIssuesView } from "@/components/my-issues-view"
 import { ListDetailEmpty } from "@/components/team/list-detail"
-import {
-  TAB_BODY_TOUCH_CLASS,
-  primeTabEnter,
-  useFaceSwipe,
-} from "@/hooks/use-face-swipe"
-import {
-  Button,
-  SEGMENTED_ROW,
-  SEGMENTED_TAB,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  conceptIcon,
-  useIsMobile,
-} from "@exp/ui"
-import { useDraftEntriesWithReady } from "@/hooks/use-issue-drafts"
+import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
+import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
+import { Pill, useIsMobile } from "@exp/ui"
 import { useSession } from "@/hooks/use-session"
-import { useTeamBySlug } from "@/hooks/use-team-data"
+import { useTeamBoardsWithReady, useTeamBySlug } from "@/hooks/use-team-data"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { trpc } from "@/lib/trpc-client"
 import { pageTitle } from "@/lib/page-title"
-
-// The phone segments ×3 = label + a plain trailing count (unread, drafts), no
-// icons. EXP-878: below md there is no Drafts route — the drafts list is a
-// third segment here, present only while the caller actually has one.
-const MarkReadIcon = conceptIcon(`notification-mark-read`)
 
 // The merged personal surface (EXP-186): ONE sidebar entry ("Inbox") with two
 // tabs — the notification stream and the cross-board My Issues list — matching
@@ -42,12 +23,10 @@ const MarkReadIcon = conceptIcon(`notification-mark-read`)
 // `sidebarOccupant`) and this page is the detail side with nothing picked
 // (desktop's "No notification selected"). A row opens the issue's own route
 // with `?from=inbox` / `?from=inbox:my-issues`, so the very same list stays
-// beside it. Phones keep the full-width list and push the detail.
+// beside it. Phones: the inbox only (`PhoneInboxPage`, chats.json).
 type InboxSearch = {
   tab?: `my-issues` | `drafts`
 }
-
-type InboxTab = `inbox` | `my-issues` | `drafts`
 
 export const Route = createFileRoute(`/t/$teamSlug/inbox/`)({
   head: ({ match }) => ({
@@ -80,167 +59,78 @@ export const Route = createFileRoute(`/t/$teamSlug/inbox/`)({
   component: InboxPage,
 })
 
-// EXP-616: inside the capsule segment the count is a plain trailing number
-// (the GlassSectionHeader idiom), not a second pill nested in a pill.
-function UnreadTabCount() {
-  const unread = useUnreadNotificationCount()
-  if (unread === 0) return null
-  return (
-    <span className="text-xs text-foreground/50 tabular-nums">
-      {unread > 99 ? `99+` : unread}
-    </span>
-  )
-}
-
-function MarkAllReadButton() {
-  const unread = useUnreadNotificationCount()
-  if (unread === 0) return null
-  return (
-    // The phone strip's trailing ghost glyph (md+ = the sidebar strip's
-    // `MarkAllReadGlyph`, list-nav.tsx).
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      className="shrink-0"
-      aria-label="Mark all read"
-      onClick={() => void trpc.notifications.markAllRead.mutate()}
-    >
-      <MarkReadIcon />
-    </Button>
-  )
-}
-
 function InboxPage() {
+  const isMobile = useIsMobile()
+  return isMobile ? <PhoneInboxPage /> : <WideInboxPage />
+}
+
+// Thread 58cb32df (chats.json `shell`): on phones the Inbox is the
+// inbox ONLY — pushed from the Chats header's inbox circle, its own back
+// header with Mark all read, no segments, the ONE active team's stream. My
+// issues and Drafts moved to the board's chips, so an old `?tab=my-issues`
+// / `?tab=drafts` link forwards to that chip.
+function PhoneInboxPage() {
   const { teamSlug } = Route.useParams()
   const search = Route.useSearch()
   const navigate = useNavigate()
+  const router = useRouter()
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
-  const isMobile = useIsMobile()
-  const { entries: draftEntries, isReady: draftsReady } =
-    useDraftEntriesWithReady(team?.id)
-  const draftCount = draftEntries.length
-  // The segment only exists on a phone that has drafts; anywhere else the
-  // sidebar owns the surface. Both conditions can stop holding while the tab
-  // is open (the last draft is filed, the viewport widens), so the tab falls
-  // back to the inbox rather than rendering a segment that is not there.
-  // Until the shapes have synced, a requested `?tab=drafts` is taken at its
-  // word: a cold deep link must not bounce before the rows arrive.
-  const draftsTabAvailable =
-    isMobile &&
-    (draftCount > 0 || (!draftsReady && search.tab === `drafts`))
-  const requestedTab: InboxTab =
-    search.tab === `my-issues` || search.tab === `drafts`
-      ? search.tab
-      : `inbox`
-  const tab: InboxTab =
-    requestedTab === `drafts` && !draftsTabAvailable ? `inbox` : requestedTab
-  const [bulkSlot, setBulkSlot] = useState<HTMLDivElement | null>(null)
-
-  // EXP-1190: on a phone the body pages between the segments, like the Work
-  // screen's faces.
-  const tabs: InboxTab[] = draftsTabAvailable
-    ? [`inbox`, `my-issues`, `drafts`]
-    : [`inbox`, `my-issues`]
-  const setTab = (next: InboxTab) => {
-    void navigate({
-      to: `/t/$teamSlug/inbox`,
-      params: { teamSlug },
-      search: {
-        ...search,
-        tab: next === `inbox` ? undefined : next,
-      },
-      replace: true,
-    })
-  }
-  const swipe = useFaceSwipe(tabs, tab, setTab)
+  const { boards, boardsReady } = useTeamBoardsWithReady(team?.id)
+  const unread = useUnreadNotificationCount(team?.id)
 
   useEffect(() => {
-    if (!draftsReady) return
-    if (requestedTab === `drafts` && !draftsTabAvailable) {
-      void navigate({
-        to: `/t/$teamSlug/inbox`,
-        params: { teamSlug },
-        search: { tab: undefined },
-        replace: true,
-      })
+    if (!search.tab || !boardsReady) return
+    const board = resolveBoardTarget(teamSlug, boards, undefined)
+    if (!board) {
+      void navigate({ to: `/t/$teamSlug/inbox`, params: { teamSlug }, search: {}, replace: true })
+      return
     }
-  }, [requestedTab, draftsTabAvailable, draftsReady, navigate, teamSlug])
+    void navigate({
+      to: `/t/$teamSlug/boards/$boardSlug`,
+      params: { teamSlug, boardSlug: board.slug },
+      search: { chip: search.tab === `drafts` ? `drafts` : `mine` },
+      replace: true,
+    })
+  }, [search.tab, boardsReady, boards, navigate, teamSlug])
 
   if (!session?.user) return null
 
-  if (!isMobile) {
-    return (
-      <ListDetailEmpty tab={tab === `my-issues` ? `my-issues` : `inbox`} />
-    )
+  const back = () => {
+    if (router.history.canGoBack()) router.history.back()
+    else void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } })
   }
 
   return (
-    <div className="flex h-full flex-col" {...(isMobile ? swipe : {})}>
-      {/* EXP-851: `SEGMENTED_ROW` — the same padding the Support strip sits
-          in, so the two read as one control at one size. */}
-      <div className={SEGMENTED_ROW}>
-        <div className="flex min-w-0 items-center gap-2">
-          {/* EXP-616: the capsule segmented control, still URL-driven — the
-              controlled value is the parsed ?tab and every change navigates. */}
-          <Tabs
-            value={tab}
-            onValueChange={(next) => {
-              primeTabEnter(tabs, tab, next as InboxTab)
-              setTab(next as InboxTab)
-            }}
-            className="w-fit shrink-0"
-          >
-            <TabsList>
-              <TabsTrigger value="inbox" className={SEGMENTED_TAB}>
-                Inbox
-                <UnreadTabCount />
-              </TabsTrigger>
-              <TabsTrigger value="my-issues" className={SEGMENTED_TAB}>
-                My issues
-              </TabsTrigger>
-              {draftsTabAvailable && (
-                <TabsTrigger value="drafts" className={SEGMENTED_TAB}>
-                  Drafts
-                  {draftCount > 0 && (
-                    <span className="text-xs text-foreground/50 tabular-nums">
-                      {draftCount}
-                    </span>
-                  )}
-                </TabsTrigger>
-              )}
-            </TabsList>
-          </Tabs>
-          {/* The My Issues bulk-action bar portals in here (EXP-525) so a
-              selection never reflows the list under it; EXP-642 moved the
-              slot LEFT, beside the tabs. */}
-          {tab === `my-issues` && (
-            <div ref={setBulkSlot} className="contents" />
-          )}
-        </div>
-        {tab === `inbox` ? <MarkAllReadButton /> : null}
-      </div>
-
-      <div
-        className={isMobile ? `min-h-0 flex-1 ${TAB_BODY_TOUCH_CLASS}` : `min-h-0 flex-1`}
-        data-face-body={isMobile ? `` : undefined}
-      >
-        {tab === `inbox` ? (
-          <InboxView from="inbox" />
-        ) : tab === `drafts` ? (
-          <DraftsList
-            teamId={team?.id}
-            teamSlug={teamSlug}
-            from="inbox:drafts"
-            className="px-4 py-3"
-          />
-        ) : (
-          <MyIssuesView
-            teamSlug={teamSlug}
-            bulkActionSlot={bulkSlot}
-          />
-        )}
+    <div className="flex h-full flex-col pt-[env(safe-area-inset-top)]">
+      <MobileDetailHeader
+        title={CHATS_COPY.inbox}
+        onBack={back}
+        menu={
+          unread > 0 ? (
+            <Pill
+              mode="action"
+              size="md"
+              className="shrink-0"
+              onClick={() => void trpc.notifications.markAllRead.mutate(team ? { teamId: team.id } : undefined)}
+            >
+              Mark all read
+            </Pill>
+          ) : undefined
+        }
+      />
+      <div className="min-h-0 flex-1">
+        <InboxView from="inbox" teamId={team?.id} />
       </div>
     </div>
   )
+}
+
+// md+: the list-detail host's page with nothing picked (the list sits in
+// the sidebar's panel slot, EXP-1246).
+function WideInboxPage() {
+  const search = Route.useSearch()
+  const { data: session } = useSession()
+  if (!session?.user) return null
+  return <ListDetailEmpty tab={search.tab === `my-issues` ? `my-issues` : `inbox`} />
 }

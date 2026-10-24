@@ -6,6 +6,7 @@ import java.net.URI
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 /**
  * Resolves a verified App Link (EXP-92) — team slug + identifier from the
@@ -51,6 +52,29 @@ class WebLinkResolver @Inject constructor(
     suspend fun isLocalRoot(sessionId: String): Boolean? {
         val accountId = auth.activeAccountId.value ?: return null
         return runCatching { dbHolder.database(accountId).sessionDao().getById(sessionId)?.isRoot }.getOrNull()
+    }
+
+    /**
+     * Thread 58cb32df (chats.json): a notification / deep link that names
+     * another team SWITCHES first, then opens the target. The team of the
+     * synced issue / session [id] on the ACTIVE account (an issue's = its
+     * board's); null when the row is not synced (yet).
+     */
+    suspend fun teamOfIssue(id: String, accountId: String? = null): String? = activeDb(accountId) { db ->
+        val issue = db.issueDao().observeById(id).first() ?: return@activeDb null
+        db.boardDao().observeAll().first().firstOrNull { it.id == issue.boardId }?.teamId
+    }
+
+    suspend fun teamOfSession(id: String, accountId: String? = null): String? = activeDb(accountId) { db ->
+        db.sessionDao().getById(id)?.teamId?.takeIf { it.isNotEmpty() }
+    }
+
+    private suspend fun <T> activeDb(
+        account: String?,
+        block: suspend (com.exponential.app.data.db.ExponentialDatabase) -> T?,
+    ): T? {
+        val accountId = account ?: auth.activeAccountId.value ?: return null
+        return runCatching { block(dbHolder.database(accountId)) }.getOrNull()
     }
 
     private suspend fun poll(

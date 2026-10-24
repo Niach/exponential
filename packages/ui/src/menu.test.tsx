@@ -418,6 +418,31 @@ describe(`the gesture host`, () => {
     expect(onRowClick).toHaveBeenCalledTimes(1)
   })
 
+  // Thread 58cb32df: a touch long-press opens the menu while the finger is
+  // still down; the release's click is the gesture's tail, wherever it
+  // lands (the phone sheet is under the finger), never a tap on the row.
+  it(`swallows the release's click after a touch long-press, then lets taps through`, () => {
+    const onOpen = vi.fn()
+    const onRowClick = vi.fn()
+    render(<Host onOpen={onOpen} onRowClick={onRowClick} />)
+    const row = screen.getByTestId(`row`)
+    fireEvent.pointerDown(row, { pointerType: `touch`, clientX: 10, clientY: 10 })
+    vi.advanceTimersByTime(750)
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    fireEvent.pointerUp(row, { pointerType: `touch`, clientX: 10, clientY: 10 })
+    // The ONE click of the release is swallowed (here it lands on the row).
+    fireEvent.click(row)
+    expect(onRowClick).not.toHaveBeenCalled()
+    // A short tap afterwards is a tap.
+    vi.advanceTimersByTime(150)
+    fireEvent.pointerDown(row, { pointerType: `touch`, clientX: 10, clientY: 10 })
+    vi.advanceTimersByTime(80)
+    fireEvent.pointerUp(row, { pointerType: `touch`, clientX: 10, clientY: 10 })
+    fireEvent.click(row)
+    expect(onRowClick).toHaveBeenCalledTimes(1)
+    expect(onOpen).toHaveBeenCalledTimes(1)
+  })
+
   it(`leaves a kind it does not answer for to the browser`, () => {
     const onOpen = vi.fn()
     render(<Host onOpen={onOpen} onRowClick={() => {}} />)

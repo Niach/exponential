@@ -12,7 +12,10 @@ const mocks = vi.hoisted(() => ({
   stop: vi.fn(),
   draft: { text: `` },
   queued: [] as string[],
+  toastError: vi.fn(),
 }))
+
+vi.mock(`@exp/ui`, () => ({ toast: { error: mocks.toastError } }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
   trpc: { sessions: { stop: { mutate: mocks.stop } } },
@@ -53,12 +56,22 @@ const drain = () => {
 }
 
 beforeEach(() => {
+  mocks.toastError.mockReset()
   mocks.stop.mockReset()
   mocks.draft = { text: `` }
   mocks.queued = []
 })
 
 describe(`stopSessionTurn (EXP-1342)`, () => {
+  it(`chats.json: an undelivered stop toasts copy.toasts.stopNotDelivered`, async () => {
+    mocks.stop.mockResolvedValue({ txid: 1, delivered: false })
+    await expect(stopSessionTurn(`s1`)).resolves.toEqual({ delivered: false })
+    expect(mocks.toastError).toHaveBeenCalledWith(`The device didn't get the stop`)
+    mocks.stop.mockResolvedValue({ txid: 2, delivered: true })
+    await expect(stopSessionTurn(`s1`)).resolves.toEqual({ delivered: true })
+    expect(mocks.toastError).toHaveBeenCalledTimes(1)
+  })
+
   it(`a Stop that goes through leaves the handed-back text in the draft`, async () => {
     mocks.stop.mockResolvedValue({ txid: 1 })
     mocks.queued = [`one`, `two`]

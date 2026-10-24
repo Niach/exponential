@@ -400,7 +400,47 @@ internal fun ColumnScope.PlanAskCard(
                 Box(Modifier.padding(top = 4.dp)) { AnsweredRow(question!!.answer) }
             }
         } else if (plan != null) {
-            // N-12: a pending plan decides in THE Dock's sheet; here it reads.
+            // FEED-140 (chats.json TRANSCRIPT): a WAITING plan is always
+            // visible inline WITH its actions, besides the dock: THE decision
+            // row the dock's sheet carries (ask-dock.json `planOptions`:
+            // No, keep planning · Yes + the fresh-context chevron), through
+            // the same `sessions.answer` path.
+            var rejecting by remember(row.id) { mutableStateOf(false) }
+            val answers = blocks.associate { it.id to answerOf(it) }
+            val issue = PlanCard.answerIssue(
+                PlanCard.Card.Plan(plan.questions),
+                PlanCard.Input(decision = "approved", planAnswers = answers),
+            )
+            Box(Modifier.padding(top = 8.dp).testTag("thread-plan-decision")) {
+                PlanSheetFooter(
+                    onBack = null,
+                    onNext = null,
+                    decide = true,
+                    approveIssue = issue,
+                    rejecting = rejecting,
+                    onRejecting = { rejecting = it },
+                    feedback = feedback,
+                    onFeedback = { feedback = it },
+                    busy = locked,
+                    onDecide = { option ->
+                        val approve = option.decision == "approved"
+                        if (live && !(approve && issue != null)) {
+                            state = AnswerState.Sending
+                            onDecidePlan(
+                                plan.id,
+                                PlanAnswer(
+                                    approved = approve,
+                                    fresh = approve && option.fresh,
+                                    feedback = if (approve) null else feedback.trim().takeIf { it.isNotEmpty() },
+                                    answers = answers.filterValues { it.isNotEmpty() }.takeIf { it.isNotEmpty() },
+                                    surfaceData = surfaceHandle.snapshot(),
+                                ),
+                                settle,
+                            )
+                        }
+                    },
+                )
+            }
         } else {
             val block = blocks.first()
             val labels = answerOf(block)

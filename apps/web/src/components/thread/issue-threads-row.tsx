@@ -1,3 +1,4 @@
+import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { useMemo } from "react"
 import { Link } from "@tanstack/react-router"
 import { AgentBrandMark, AgentWorkingMark, Pill } from "@exp/ui"
@@ -10,8 +11,8 @@ import type { SessionRow } from "@/lib/session-tree"
 // the thread's title (`sessionTitle`, `useSessionTitles`), opening the thread page. Absent while
 // the issue sits in none.
 
-/** The rail/page title is the one place copy may say it. */
-export const ISSUE_THREADS_LABEL = `Threads`
+/** Thread 58cb32df: the product says CHATS (chats.json `copy.title`). */
+export const ISSUE_THREADS_LABEL = CHATS_COPY.title
 /** The draft page's word before its thread chip. */
 export const DRAFT_THREAD_LABEL = `In`
 

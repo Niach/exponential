@@ -101,6 +101,8 @@ pub mod apps;
 // EXP-1188: what a clicked link in agent prose opens, fixture-locked ×4.
 pub mod app_link;
 pub mod board;
+// Thread 58cb32df: Chats (menus, dividers, the surface card's reply rule), fixture-locked ×4.
+pub mod chats;
 pub mod client_version;
 // EXP-1121: the Start coding readiness checklist, fixture-locked ×4.
 pub mod coding_readiness;

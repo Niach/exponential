@@ -283,6 +283,8 @@ import com.exponential.app.domain.SessionAccountOption
 import com.exponential.app.domain.SessionAccountSwitch
 import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
+import com.exponential.app.domain.Chats
+import com.exponential.app.ui.components.TranscriptDivider
 import com.exponential.app.domain.TranscriptGap
 import com.exponential.app.domain.activeQuestionIds
 import com.exponential.app.domain.agentWorking
@@ -760,35 +762,14 @@ private fun RunFaceContent(
         blocked = AgentUsagePresentation.parseBlocked(session?.blocked) != null,
         compacting = activity.compacting != null,
     )
-    // ── EXP-1291: the status row — the ×4 session state + where it runs ────
+    // N-11: no status row over the feed; before the first turn the empty
+    // column reads "Starting on <device>" over its placeholder rows.
     val cardState = session?.let { SessionTree.sessionState(SessionTree.session(it)) }
     val rowPaused = !sessionEnded && cardState != null && hostDevice.isPaused(cardState)
     val startingRun = session != null && session?.userId == currentUserId &&
         !sessionEnded && !rowPaused && feed.isEmpty() &&
         activity.turnState != TURN_STATE_STARTED && history == null &&
         phase !is AgentPhase.Closed && phase !is AgentPhase.Ended
-    val statusRow: @Composable () -> Unit = {
-        ReadingColumn {
-            Row(
-                modifier = Modifier.padding(vertical = 8.dp).testTag("run-status-row"),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                AgentRunMark(
-                    agent = session?.cli?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
-                    state = cardState,
-                    size = 14.dp,
-                    badgeSize = 6.dp,
-                )
-                // EXP-1291: the state word alone — no device caption.
-                Text(
-                    cardState?.let { SessionTree.CardCopy.STATES[it] }.orEmpty(),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                )
-            }
-        }
-    }
     // EXP-850 (S5/S7): the NEWEST running workflow — its caption is what the
     // working row says while it runs. Only while the run is LIVE: a replayed
     // transcript can end with a workflow frozen mid-flight, and an ended run
@@ -1025,8 +1006,8 @@ private fun RunFaceContent(
                         textAlign = TextAlign.Center,
                     )
                 }
-            // EXP-1271: the status row above says "Starting on …".
-            startingRun -> Unit
+            startingRun ->
+                TranscriptPlaceholder(FeedbackStates.startingLabel(hostDevice.displayLabel))
             feed.isEmpty() && (phase == AgentPhase.Connecting || phase == AgentPhase.Starting) ->
                 TranscriptPlaceholder(
                     if (phase == AgentPhase.Starting) {
@@ -1119,10 +1100,8 @@ private fun RunFaceContent(
             // EXP-893: the diff is the Changes face and Merge lives in the
             // header. An ended run's byline heads the feed as its first row
             // (so it scrolls with it), or sits above a placeholder.
-            // EXP-1175: the status row sits on top in both modes.
             if (bodyPlaceholder) {
                 Spacer(Modifier.height(topInset))
-                statusRow()
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1169,7 +1148,6 @@ private fun RunFaceContent(
                     // band's height clears the head.
                     bottomInset = bandClearance,
                     topInset = topInset,
-                    statusRow = statusRow,
                     header = {},
                     docked = dockedRow,
                 )
@@ -1685,9 +1663,6 @@ private fun ActivityFeed(
     topInset: Dp = 0.dp,
     /** EXP-1162: the feed's leading row (an ended run's byline). */
     header: @Composable () -> Unit = {},
-    /** EXP-1175: the Run face's status row, pinned under the header band
-     *  above the tabs and the list. */
-    statusRow: @Composable () -> Unit = {},
     /** THE ask dock (ask-dock.json): the card row waiting on the viewer,
      *  drawn in the composer's slot instead of here; null = none. */
     docked: AgentFeedRow? = null,
@@ -1816,10 +1791,9 @@ private fun ActivityFeed(
     // Only composed once real activity has arrived (the placeholder states are
     // siblings). EXP-1175: the `agent-feed` tag moved to the Run face body.
     Column(modifier = Modifier.fillMaxSize()) {
-        // EXP-1175: the status row, then the subagent tabs, stay put above the
-        // list (under the header band, not beneath it); the list starts below.
+        // N-11: no status row; the subagent tabs stay put above the list
+        // (under the header band, not beneath it); the list starts below.
         Spacer(Modifier.height(topInset))
-        statusRow()
         if (visibleTabs.isNotEmpty()) {
             AgentTabStrip(
                 agents = visibleTabs,
@@ -1959,13 +1933,17 @@ private fun ActivityFeed(
                             // a workflow's own duplicates render under its card.
                             is AgentFeedItem.DuplicateAgent -> DuplicateAgentRow(item)
                             is AgentFeedItem.UserMessage -> {
+                                // Thread 58cb32df (chats.json): a person's
+                                // `/new` or `/compact` line is the centred
+                                // divider pill, never a bubble.
+                                val divider = Chats.commandDivider(item.text)
                                 // EXP-724: a steered catalog command reads as one.
                                 val command =
                                     SlashCommands.commandFor(item.text, agent)
-                                if (command != null) {
-                                    CommandRow(command, item.text)
-                                } else {
-                                    UserMessageBubble(item.text)
+                                when {
+                                    divider != null -> TranscriptDivider(divider, item.at?.let(::feedClock))
+                                    command != null -> CommandRow(command, item.text)
+                                    else -> UserMessageBubble(item.text, at = item.at)
                                 }
                             }
                             is AgentFeedItem.Compaction -> CompactionMarkerRow()
@@ -2233,30 +2211,47 @@ private fun NarrationBubble(
      *  (EXP-787), so a top-level bubble carries no outer padding. */
     nested: Boolean = false,
 ) {
-    // MarkdownView renders nothing for blank input — without this the icon
-    // would be left behind as an orphan row.
+    // MarkdownView renders nothing for blank input.
     if (text.isBlank()) return
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (nested) Modifier.padding(vertical = 5.dp) else Modifier),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Icon(
-            ExpIcons.codingAssistant,
-            contentDescription = null,
-            modifier = Modifier.size(13.dp).padding(top = 1.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        // EXP-440: narration is GFM — the agents emit lists, code fences,
-        // links and embedded images. Never folded: it is the feed's
-        // conversation. Bare URLs stay tappable (EXP-430) through the
-        // feed's LocalMarkdownAutolink. MarkdownView brings its own
-        // SelectionContainer (EXP-534).
-        MarkdownView(text, softBreaksAsNewlines = true, modifier = Modifier.weight(1f))
+    if (nested) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                ExpIcons.codingAssistant,
+                contentDescription = null,
+                modifier = Modifier.size(13.dp).padding(top = 1.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            MarkdownView(text, softBreaksAsNewlines = true, modifier = Modifier.weight(1f))
+        }
+        return
+    }
+    // Thread 58cb32df (chats.json TRANSCRIPT): phones paint the agent's text
+    // on the left in a card-fill bubble (max 94%, top-leading corner 6dp).
+    // EXP-440: GFM; EXP-430 bare URLs stay tappable.
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val shape = RoundedCornerShape(topStart = 6.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .widthIn(max = maxWidth * 0.94f)
+                .clip(shape)
+                .background(DesignTokens.Palette.Card, shape)
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .testTag("session-agent-bubble"),
+        ) {
+            MarkdownView(text, softBreaksAsNewlines = true)
+        }
     }
 }
+
+/** A relay stamp (epoch ms) as the local `HH:mm` a bubble / divider shows. */
+private fun feedClock(at: Long): String =
+    java.time.Instant.ofEpochMilli(at).atZone(java.time.ZoneId.systemDefault())
+        .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
 
 /**
  * The trailing "agent is busy" row (EXP-389/EXP-850): the running agent's own
@@ -2822,7 +2817,7 @@ private fun Modifier.foldedTo(clampHeight: Dp): Modifier =
 // are the point of the message, and a long prose clamp must never be what
 // hides them.
 @Composable
-private fun UserMessageBubble(text: String, nested: Boolean = false) {
+private fun UserMessageBubble(text: String, nested: Boolean = false, at: Long? = null) {
     var expanded by remember { mutableStateOf(false) }
     val parsed = remember(text) { parseSteerMessage(text) }
     val hasImages = parsed.attachmentIds.isNotEmpty()
@@ -2838,13 +2833,16 @@ private fun UserMessageBubble(text: String, nested: Boolean = false) {
             .then(if (nested) Modifier.padding(vertical = 5.dp) else Modifier),
         horizontalArrangement = Arrangement.End,
     ) {
-        Spacer(Modifier.width(32.dp))
+        // Thread 58cb32df (chats.json TRANSCRIPT): the person's bubble sits
+        // right, max 80% of the column, its time bottom-right.
+        Spacer(Modifier.fillMaxWidth(0.2f))
+        val bubbleShape = RoundedCornerShape(18.dp)
         Column(
             modifier = Modifier
-                // Slightly brighter than the assistant's glass sections — the
-                // sender's own bubble (matches the composer's active tint).
-                .background(GlassTokens.RowFillActive, RoundedCornerShape(12.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .clip(bubbleShape)
+                .background(GlassTokens.OpaqueCardFill, bubbleShape)
+                .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, bubbleShape)
+                .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 8.dp),
         ) {
             Column(
                 modifier = if (folds && !expanded) Modifier.foldedTo(FOLD_HEIGHT) else Modifier,
@@ -2873,6 +2871,14 @@ private fun UserMessageBubble(text: String, nested: Boolean = false) {
             }
             if (hasFiles) {
                 SteerFileRows(parsed.files)
+            }
+            if (at != null) {
+                Text(
+                    feedClock(at),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
+                )
             }
         }
     }

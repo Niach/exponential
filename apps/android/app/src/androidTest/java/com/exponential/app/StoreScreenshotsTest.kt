@@ -289,11 +289,13 @@ class StoreScreenshotsTest {
         // NEW-7: the Actions slide is gone with the tab (prompts replaced
         // actions: the composer's `/` menu and Settings → Prompts).
 
-        // --- Inbox tab (EXP-58: Inbox + My Issues merged behind a
-        // segmented control; Inbox is the default segment, seeded with 5
-        // notifications, 3 unread). Wait for a real group row — capturing
-        // "You're all caught up" would silently ship an empty screenshot.
-        composeRule.onNode(hasTestTag("tab-mywork")).performClick()
+        // --- Inbox (thread 58cb32df: a page the Chats header's inbox circle
+        // pushes; seeded with 5 notifications, 3 unread). Wait for a real
+        // group row — capturing "You're all caught up" would silently ship
+        // an empty screenshot.
+        composeRule.onNode(hasTestTag("tab-threads")).performClick()
+        flow.waitFor(hasTestTag(com.exponential.app.domain.Chats.TestIds.INBOX_BUTTON), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag(com.exponential.app.domain.Chats.TestIds.INBOX_BUTTON)).performClick()
         flow.waitFor(hasText(SHOWCASE_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("7_inbox", popRects = true)

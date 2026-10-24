@@ -869,7 +869,104 @@ fn path_segment(id: &str) -> Option<String> {
 /// Exponential's), so `useAutoModeDuringPlan` is gone.
 pub const CLAUDE_FLAG_SETTINGS: &str = r#"{"permissions":{"disableAutoMode":"disable"}}"#;
 
-/// EXP-746: the claude `--settings` file ([`CLAUDE_FLAG_SETTINGS`], EXP-1124)
+/// N-5: the rule kinds a CONFINED (repo-less) claude run denies on the
+/// person's checkouts. `Read(path)` covers Read/Glob/Grep, `Edit(path)`
+/// covers Edit/Write/MultiEdit/NotebookEdit; the CLI (2.1.308, measured)
+/// warns that `Write(path)`/`Glob(path)`/`NotebookEdit(path)` rules match
+/// nothing, so they are not spelled.
+pub const CONFINED_DENY_TOOLS: [&str; 2] = ["Read", "Edit"];
+
+/// N-5: the home-relative toolchain dirs a confined run's sandboxed Bash may
+/// still READ inside the otherwise read-denied home (so `bun`, `cargo`,
+/// `git`, a version manager's shims keep working). Never `.config` or
+/// `.local/share` whole: those hold tokens and, on Linux, the data dir with
+/// every other session's scratch folder.
+pub const CONFINED_HOME_READABLE: [&str; 12] = [
+    ".local/bin",
+    ".bun",
+    ".cargo",
+    ".rustup",
+    ".nvm",
+    ".volta",
+    ".pyenv",
+    ".deno",
+    ".asdf",
+    ".npm",
+    ".gitconfig",
+    ".config/git",
+];
+
+/// The claude flag-settings layer for one launch. A repo-backed run gets
+/// [`CLAUDE_FLAG_SETTINGS`] byte for byte. N-5: a repo-less run confined to
+/// its scratch dir (`confine_to`) additionally carries
+///
+/// - `permissions.deny` for [`CONFINED_DENY_TOOLS`] on `repos_root/**` (deny
+///   rules hold under `bypassPermissions`, measured; the engine's `PreToolUse` hook
+///   refuses every OTHER path outside the scratch dir, which a deny rule
+///   cannot express while the scratch dir itself lives under the home);
+/// - the CLI's Bash sandbox (Seatbelt on macOS, bubblewrap on Linux):
+///   writes only to the cwd (the scratch dir) and the temp dirs, reads
+///   denied for the whole `home` and `repos_root` with the scratch dir and
+///   [`CONFINED_HOME_READABLE`] re-allowed, no `dangerouslyDisableSandbox`
+///   escape (which also stops the scratch dir's own `.claude/settings.json`
+///   from loosening any of it), and the network left open (every domain plus
+///   localhost, so a dev instance's upload `curl` still lands).
+///
+/// Measured limits: the CLI keeps `.git/hooks` unwritable inside the cwd, so
+/// a `git init`/`git clone` INTO the scratch dir fails (one in `$TMPDIR`
+/// works); a missing sandbox backend (Linux without bubblewrap) runs Bash
+/// unsandboxed with a warning, leaving the engine's hook as the only guard;
+/// a user `sandbox.excludedCommands` pattern still runs outside the sandbox.
+///
+/// Paths are absolute: the `//` prefix is claude's absolute-path rule form.
+pub fn claude_flag_settings(
+    confine_to: Option<&Path>,
+    home: Option<&Path>,
+    repos_root: &Path,
+) -> String {
+    let Some(scratch) = confine_to else {
+        return CLAUDE_FLAG_SETTINGS.to_string();
+    };
+    let absolute = |path: &Path| -> Option<String> {
+        path.is_absolute().then(|| path.display().to_string().trim_end_matches('/').to_string())
+    };
+    let repos = absolute(repos_root).filter(|repos| !repos.is_empty());
+    let deny: Vec<String> = repos
+        .iter()
+        .flat_map(|repos| CONFINED_DENY_TOOLS.iter().map(move |tool| format!("{tool}(/{repos}/**)")))
+        .collect();
+    let home = home.and_then(absolute).filter(|home| !home.is_empty());
+    let mut deny_read: Vec<String> = home.iter().cloned().collect();
+    if let Some(repos) = repos.filter(|repos| !home.as_ref().is_some_and(|home| Path::new(repos).starts_with(home))) {
+        deny_read.push(repos);
+    }
+    let mut allow_read: Vec<String> = absolute(scratch).into_iter().collect();
+    if let Some(home) = &home {
+        allow_read.extend(CONFINED_HOME_READABLE.iter().map(|rel| format!("{home}/{rel}")));
+    }
+    serde_json::json!({
+        "permissions": {
+            "disableAutoMode": "disable",
+            "deny": deny,
+        },
+        "sandbox": {
+            "enabled": true,
+            "autoAllowBashIfSandboxed": true,
+            "allowUnsandboxedCommands": false,
+            "filesystem": {
+                "denyRead": deny_read,
+                "allowRead": allow_read,
+            },
+            "network": {
+                "allowedDomains": ["*"],
+                "allowLocalBinding": true,
+            },
+        },
+    })
+    .to_string()
+}
+
+/// EXP-746: the claude `--settings` file ([`claude_flag_settings`], EXP-1124)
 /// at a per-pid path. It wires no hooks (the engine reads `session/update`
 /// notifications), and claude's `--settings <path>` argv is the REAPER's only process-selection
 /// anchor (`reaper::select` matches the `claude-hooks/<pid>/` segment in the
@@ -881,10 +978,13 @@ fn write_acp_reaper_anchor(
     data_dir: &Path,
     session_id: &str,
     agent: CodingAgent,
+    confine_to: Option<&Path>,
+    repos_root: &Path,
 ) -> Option<PathBuf> {
     if agent != CodingAgent::Claude {
         return None;
     }
+    let content = claude_flag_settings(confine_to, dirs::home_dir().as_deref(), repos_root);
     let root = data_dir.join(HOOK_SETTINGS_DIR);
     prune_hook_settings(&root);
     let dir = root.join(std::process::id().to_string());
@@ -893,7 +993,7 @@ fn write_acp_reaper_anchor(
     // A lost anchor launches claude WITHOUT the flag layer (the EXP-1124
     // classifier wall), so retry once and say so rather than fail silently.
     let write = || {
-        std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&settings, CLAUDE_FLAG_SETTINGS))
+        std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&settings, &content))
     };
     if let Err(err) = write().or_else(|_| write()) {
         log::warn!("coding: could not write the claude flag settings {}: {err}", settings.display());
@@ -1629,7 +1729,15 @@ fn prepare_session(
         crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
     // EXP-746: the reaper's claude anchor (the EXP-1124 flag settings).
-    let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session_id, agent);
+    // N-5 / NEW-5: a repo-less run is confined to its scratch dir.
+    let confine_to = crate::scratch::is_scratch_dir(&deps.data_dir, &cwd).then(|| cwd.clone());
+    let reaper_anchor = write_acp_reaper_anchor(
+        &deps.data_dir,
+        &session_id,
+        agent,
+        confine_to.as_deref(),
+        &deps.settings.repos_root_path(),
+    );
     // EXP-443: the codex originator is stamped into its rollout metas before
     // the spawn. The claude session id is the ACP adapter's own to mint.
     let codex_originator =
@@ -1771,7 +1879,7 @@ fn prepare_session(
             context_layers,
             servers: team_mcp.servers.clone(),
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
-            confine_to: crate::scratch::is_scratch_dir(&deps.data_dir, &cwd).then(|| cwd.clone()),
+            confine_to,
         },
         seed_message_id: None,
         bypass_permissions: true,
@@ -2251,7 +2359,15 @@ fn prepare_resume(
         crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
     // EXP-746: the reaper's claude anchor (the EXP-1124 flag settings).
-    let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session_id, agent);
+    // N-5 / NEW-5: a repo-less run is confined to its scratch dir.
+    let confine_to = crate::scratch::is_scratch_dir(&deps.data_dir, &cwd).then(|| cwd.clone());
+    let reaper_anchor = write_acp_reaper_anchor(
+        &deps.data_dir,
+        &session_id,
+        agent,
+        confine_to.as_deref(),
+        &deps.settings.repos_root_path(),
+    );
     let codex_originator =
         (agent == CodingAgent::Codex).then(|| crate::argv::codex_session_originator(&session_id));
     let spawn = session_spawn(
@@ -2360,7 +2476,7 @@ fn prepare_resume(
             context_layers,
             servers: team_mcp.servers.clone(),
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
-            confine_to: crate::scratch::is_scratch_dir(&deps.data_dir, &cwd).then(|| cwd.clone()),
+            confine_to,
         },
         seed_message_id: resume.message_id.clone(),
         bypass_permissions: true,
@@ -3581,6 +3697,66 @@ mod tests {
         let prepared = ready(launch(session_request(row("scratch-1", None), &[]), &deps));
         assert!(crate::scratch::is_scratch_dir(&dir.0, &prepared.worktree));
         assert_eq!(prepared.acp.confine_to.as_deref(), Some(prepared.worktree.as_path()));
+        // N-5: its claude flag layer carries the scratch-dir sandbox.
+        let anchor = prepared.acp.reaper_settings_path.as_ref().expect("reaper anchor");
+        let settings: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(anchor).unwrap()).expect("valid json");
+        assert_eq!(settings["sandbox"]["enabled"], true);
+        assert_eq!(settings["sandbox"]["filesystem"]["allowRead"][0], prepared.worktree.display().to_string());
+    }
+
+    /// N-5: a repo-backed run's flag layer is EXACTLY the EXP-1124 one — no
+    /// deny rules, no sandbox.
+    #[test]
+    fn a_repo_backed_run_keeps_the_plain_flag_settings() {
+        let settings = claude_flag_settings(None, Some(Path::new("/Users/a")), Path::new("/Users/a/repos"));
+        assert_eq!(settings, CLAUDE_FLAG_SETTINGS);
+    }
+
+    /// N-5: a repo-less run denies the file tools on the repos root, and its
+    /// Bash runs in the CLI sandbox: home read-denied except the scratch dir
+    /// and the toolchains, no unsandboxed escape, network open.
+    #[test]
+    fn a_confined_run_denies_the_checkouts_and_sandboxes_bash_to_the_scratch_dir() {
+        let scratch = Path::new("/Users/a/Library/Application Support/at.exponential/scratch/r/s");
+        let raw = claude_flag_settings(Some(scratch), Some(Path::new("/Users/a/")), Path::new("/Users/a/Exponential/repos"));
+        let settings: serde_json::Value = serde_json::from_str(&raw).expect("valid json");
+        assert_eq!(settings["permissions"]["disableAutoMode"], "disable", "EXP-1124 stays");
+        let deny: Vec<&str> = settings["permissions"]["deny"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|rule| rule.as_str().unwrap())
+            .collect();
+        assert_eq!(
+            deny,
+            [
+                "Read(//Users/a/Exponential/repos/**)",
+                "Edit(//Users/a/Exponential/repos/**)",
+            ]
+        );
+        let sandbox = &settings["sandbox"];
+        assert_eq!(sandbox["enabled"], true);
+        assert_eq!(sandbox["autoAllowBashIfSandboxed"], true);
+        assert_eq!(sandbox["allowUnsandboxedCommands"], false);
+        // The repos root sits under the home: one deny covers both.
+        assert_eq!(sandbox["filesystem"]["denyRead"], serde_json::json!(["/Users/a"]));
+        let allow = sandbox["filesystem"]["allowRead"].as_array().unwrap();
+        assert_eq!(allow[0], scratch.display().to_string());
+        assert!(allow.contains(&serde_json::json!("/Users/a/.cargo")));
+        assert!(!allow.iter().any(|path| path == "/Users/a/.config" || path == "/Users/a/.local/share"));
+        assert_eq!(sandbox["network"]["allowedDomains"], serde_json::json!(["*"]));
+        assert_eq!(sandbox["network"]["allowLocalBinding"], true);
+        assert!(sandbox.get("failIfUnavailable").is_none(), "a missing sandbox never bricks the run");
+    }
+
+    /// N-5: a repos root outside the home is read-denied on its own.
+    #[test]
+    fn a_repos_root_outside_the_home_is_read_denied_too() {
+        let raw = claude_flag_settings(Some(Path::new("/data/scratch/r/s")), Some(Path::new("/home/a")), Path::new("/srv/repos"));
+        let settings: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(settings["sandbox"]["filesystem"]["denyRead"], serde_json::json!(["/home/a", "/srv/repos"]));
+        assert_eq!(settings["permissions"]["deny"][0], "Read(//srv/repos/**)");
     }
 
     /// A child whose brief names no parent branch cuts from the repo default

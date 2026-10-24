@@ -5,8 +5,12 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,6 +23,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import com.exponential.app.data.db.TeamEntity
+import com.exponential.app.domain.Chats
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,27 +42,23 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 
-// Linear-style floating bottom navigation: a dark pill with the top-level
-// destinations (Issues, Inbox — the merged Inbox + My Issues personal tab,
-// with an unread dot — Devices — the machines surface — and Threads; NEW-7:
-// the Actions tab is gone, prompts live in the composer's `/` menu and
-// Settings → Prompts; Settings = the Issues gear) plus a detached launcher on the right: the Chat arm that
-// switches to the Agent page — the app's landing screen and a top-level
-// destination like the tabs, so the arm wears the SELECTED state while it is
-// up — joined by New issue in one capsule, on every tab since EXP-973. The
-// live dot rides Threads (EXP-1327), like every other client. Search left the
-// bar in EXP-686: it is a button in the board header now.
+// Thread 58cb32df (chats.json `shell`): the phone's bottom bar = the glass tab
+// capsule — the look-alike of iOS's Liquid Glass tab bar on the FAB chrome
+// recipe (the shared OPAQUE glass fill + the strong hairline, EXP-698) — with
+// `shell.tabs` in order, Board · Devices · Chats · Team, each an icon over its
+// label (`copy.tabs`), the selected one on the glass-active pill; the Team
+// tab's icon is the active team's avatar and its label the team name; a dot
+// on Chats (amber while a chat needs you, green while one runs, else the
+// unread dot). Beside it, unchanged, the two-armed new chat / new issue
+// capsule (the Chat arm switches to the Agent page, the app's landing root).
+// Inbox left the bar: it is a page the Chats header's inbox circle pushes.
 // Overlaid above the NavHost; AppNavHost shows it only on the top-level routes.
-// (Compose has no cheap backdrop blur, so the bar takes the shared OPAQUE glass
-// fill — GlassTokens.OpaqueCardFill, EXP-698 — instead of the iOS material and
-// instead of the hand-mixed near-black it used to carry.)
 
 // Bottom contentPadding for scrollable content on screens the floating bar
 // overlays (the bar stack is ~68dp above the system nav inset — 42dp tab +
@@ -77,11 +83,6 @@ class BottomBarSuppression {
 /** Null outside the nav shell (previews, tests) — every read is optional. */
 val LocalBottomBarSuppression = staticCompositionLocalOf<BottomBarSuppression?> { null }
 
-// The Threads dot: amber while a thread needs a person (EXP-214), green while
-// one runs (EXP-1327). EXP-699: the live dot shares the semantic green —
-// every platform's live dot is the same color now.
-private val ThreadsLiveGreen = DesignTokens.Semantic.Green
-private val ThreadsNeedYouAmber = DesignTokens.Semantic.Yellow
 
 @Composable
 fun BottomNavBar(
@@ -90,110 +91,91 @@ fun BottomNavBar(
      * up: the chat arm wears the tab's active fill, and no pill tab is lit.
      */
     agentActive: Boolean,
-    issuesActive: Boolean,
+    boardActive: Boolean,
     devicesActive: Boolean,
-    personalActive: Boolean,
-    /** EXP-1291: lit while the Threads tab (it replaced Reviews) is up. */
-    threadsActive: Boolean,
-    unreadCount: Int,
-    /** EXP-1272: the caller's drafts; they light the Inbox dot too (`inboxDot`). */
-    draftCount: Int = 0,
-    /** EXP-1327: a green dot on Threads while a thread runs. */
-    threadsRunning: Boolean,
-    /** EXP-1291: an amber dot on Threads while a thread needs a person. */
-    threadsNeedYou: Boolean,
-    /** EXP-1323: a thread has news the viewer has not read (`threadsUnread`). */
-    threadsUnread: Boolean = false,
+    chatsActive: Boolean,
+    teamActive: Boolean,
+    /** The ACTIVE team: the Team tab's avatar + label (null = `copy.tabs.team`). */
+    team: TeamEntity?,
+    /** EXP-1327: a green dot on Chats while a chat runs. */
+    chatsRunning: Boolean,
+    /** An amber dot on Chats while a chat needs a person. */
+    chatsNeedYou: Boolean,
+    /** EXP-1323 / chats.json `chatsUnread`: a chat has unread news. */
+    chatsUnread: Boolean = false,
     /** EXP-973: whether New issue has a board to file onto (it always shows). */
     composeEnabled: Boolean,
-    onIssues: () -> Unit,
+    onBoard: () -> Unit,
     onDevices: () -> Unit,
-    onPersonal: () -> Unit,
-    onThreads: () -> Unit,
+    onChats: () -> Unit,
+    onTeam: () -> Unit,
     onCompose: () -> Unit,
     onChat: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Four fixed tabs (Issues, Inbox, Devices, Threads).
-    val tabCount = 4
-    // Every count must still fit a 360dp screen beside the compose circle:
-    // the outer padding pulls in with the count. The tab itself is the shared
-    // 44dp square on every count (EXP-698).
     Row(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(
-                horizontal = BottomNavDefaults.horizontalInset(tabCount),
-                vertical = 8.dp,
-            ),
+            .padding(horizontal = BottomNavDefaults.HorizontalInsetCompact, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
             modifier = Modifier
+                .weight(1f)
+                .height(BottomNavDefaults.BarHeight)
                 .clip(RoundedCornerShape(percent = 50))
                 .background(GlassTokens.OpaqueCardFill)
                 .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, RoundedCornerShape(percent = 50))
                 .padding(BottomNavDefaults.BarPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TabItem(
-                icon = ExpIcons.navMyIssues,
-                contentDescription = "Issues",
-                testTag = "tab-issues",
-                active = issuesActive,
-                onClick = onIssues,
-            )
-            // EXP-58: Inbox + My Issues merged behind this one tab (SLOP-5:
-            // called Inbox, like the web and desktop entry).
-            TabItem(
-                icon = ExpIcons.navInbox,
-                contentDescription = "Inbox",
-                testTag = "tab-mywork",
-                active = personalActive,
-                // EXP-1272: unread OR a draft, the same dot and colour.
-                showDot = IssueDraftPage.inboxDotLit(unreadCount, draftCount),
-                onClick = onPersonal,
-            )
-            // Devices (EXP-686, the renamed Agents surface): the machine list.
-            // Its live dot moved to the Agent launcher with the sessions list.
-            TabItem(
-                icon = ExpIcons.navDevices,
-                contentDescription = "Devices",
-                testTag = "tab-devices",
-                active = devicesActive,
-                onClick = onDevices,
-            )
-            // EXP-1291: Threads (it replaced Reviews) — the thread list;
-            // amber dot while one of them needs a person, green while one
-            // runs (EXP-1327).
-            TabItem(
-                icon = ExpIcons.navThreads,
-                contentDescription = "Threads",
-                testTag = "tab-threads",
-                active = threadsActive,
-                // EXP-1323: unread news lights it too; amber, then green, win.
-                showDot = threadsRunning || threadsNeedYou || threadsUnread,
-                dotColor = when {
-                    threadsNeedYou -> ThreadsNeedYouAmber
-                    threadsRunning -> ThreadsLiveGreen
-                    else -> null
-                },
-                onClick = onThreads,
-            )
+            Chats.Shell.TABS.forEach { tab ->
+                when (tab) {
+                    "board" -> TabItem(
+                        label = Chats.Copy.TABS.getValue(tab),
+                        testTag = "tab-issues",
+                        active = boardActive,
+                        onClick = onBoard,
+                        glyph = { tint -> Icon(ExpIcons.navIssues, null, modifier = Modifier.size(22.dp), tint = tint) },
+                    )
+                    "devices" -> TabItem(
+                        label = Chats.Copy.TABS.getValue(tab),
+                        testTag = "tab-devices",
+                        active = devicesActive,
+                        onClick = onDevices,
+                        glyph = { tint -> Icon(ExpIcons.navDevices, null, modifier = Modifier.size(22.dp), tint = tint) },
+                    )
+                    "chats" -> TabItem(
+                        label = Chats.Copy.TABS.getValue(tab),
+                        testTag = "tab-threads",
+                        active = chatsActive,
+                        // Amber, then green, then the unread dot (EXP-1323).
+                        showDot = chatsRunning || chatsNeedYou || chatsUnread,
+                        dotColor = when {
+                            chatsNeedYou -> ChatsNeedYouAmber
+                            chatsRunning -> ChatsLiveGreen
+                            else -> null
+                        },
+                        onClick = onChats,
+                        glyph = { tint -> Icon(ExpIcons.navThreads, null, modifier = Modifier.size(22.dp), tint = tint) },
+                    )
+                    "team" -> TabItem(
+                        label = team?.name?.takeIf { it.isNotBlank() } ?: Chats.Copy.TABS.getValue(tab),
+                        testTag = Chats.TestIds.TAB_TEAM,
+                        active = teamActive,
+                        onClick = onTeam,
+                        glyph = { _ -> TeamAvatar(team, size = 22.dp) },
+                    )
+                }
+            }
         }
 
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.width(10.dp))
 
-        // The detached launcher beside the pill. The Chat circle opens the
-        // Agent page from every top-level surface (EXP-631/694/827); no dot
-        // since EXP-1327 (the live dot rides Threads). EXP-827: a board offers
-        // New issue too, so the slot becomes one capsule with two arms
-        // (chat | new issue).
-        // EXP-973: the capsule rides EVERY tab now — New issue was a thing
-        // the reader had to walk back to the board for. With no board in the
-        // team at all its arm dims rather than vanishing, so the launcher
-        // never changes shape under the thumb.
+        // The detached launcher beside the pill (EXP-827/973, unchanged): the
+        // Chat arm opens the Agent page from every top-level surface, New
+        // issue files onto the current board (dimmed with no board).
         LauncherCapsule(
             onChat = onChat,
             onCompose = onCompose,
@@ -202,6 +184,11 @@ fun BottomNavBar(
         )
     }
 }
+
+// The Chats dot: amber while a chat needs a person (EXP-214), green while
+// one runs (EXP-1327; the shared semantic green).
+private val ChatsLiveGreen = DesignTokens.Semantic.Green
+private val ChatsNeedYouAmber = DesignTokens.Semantic.Yellow
 
 /**
  * EXP-827: the merged launcher on a board — the circle's 52dp height, two
@@ -219,7 +206,7 @@ private fun LauncherCapsule(
 ) {
     Row(
         modifier = Modifier
-            .height(52.dp)
+            .height(BottomNavDefaults.BarHeight)
             .clip(RoundedCornerShape(percent = 50))
             .background(GlassTokens.OpaqueCardFill)
             .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, RoundedCornerShape(percent = 50)),
@@ -289,28 +276,19 @@ private fun LauncherArm(
     }
 }
 
+/** One tab of the capsule: its glyph over its label, the selected one on
+ *  the glass-active pill (cross-faded, EXP-523), a dot on its glyph. */
 @Composable
-private fun TabItem(
-    icon: ImageVector,
-    contentDescription: String,
-    // EXP-686: the capture suites address a tab by tag — two of the six now
-    // carry a label that also reads as ordinary content elsewhere.
+private fun RowScope.TabItem(
+    label: String,
     testTag: String,
     active: Boolean,
+    onClick: () -> Unit,
+    glyph: @Composable (tint: Color) -> Unit,
     showDot: Boolean = false,
     dotColor: Color? = null,
-    onClick: () -> Unit,
 ) {
-    // EXP-523: the pill and the glyph fade between states instead of cutting.
-    // A travelling pill (iOS uses matchedGeometryEffect) would need
-    // SharedTransitionLayout and per-tab position measurement for a bar whose
-    // tab COUNT changes with the yolo flag — a cross-fade reads as
-    // deliberate here and costs one animated float per tab. Both collapse to
-    // an instant change when the OS has animations off (Motion -> snap()).
     val pillFill by animateColorAsState(
-        // EXP-698: the shared ACTIVE fill, not a hand-typed `white.12` that
-        // existed only here — the tab pill is the same on-state a segmented
-        // segment or a pressed row takes.
         targetValue = if (active) GlassTokens.RowFillActive else Color.Transparent,
         animationSpec = Motion.standard(),
         label = "nav-tab-pill",
@@ -320,35 +298,40 @@ private fun TabItem(
         animationSpec = Motion.standard(),
         label = "nav-tab-glyph",
     )
-    Box(
+    Column(
         modifier = Modifier
-            // One 44dp square on every tab count (EXP-698) — above Material's
-            // 48dp touch minimum in neither axis on its own, but the bar's own
-            // padding and the row's height carry it there, and a SQUARE tab
-            // takes a circular pill instead of a stretched capsule.
-            .size(BottomNavDefaults.ItemSize)
+            .weight(1f)
+            .fillMaxHeight()
             .testTag(testTag)
-            .clip(CircleShape)
-            .background(pillFill, CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+            .clip(RoundedCornerShape(percent = 50))
+            .background(pillFill, RoundedCornerShape(percent = 50))
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = label },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        Icon(
-            icon,
-            contentDescription = contentDescription,
-            modifier = Modifier.size(20.dp),
-            tint = Color.White.copy(alpha = glyphAlpha),
-        )
-        if (showDot) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = (-14).dp, y = 8.dp)
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(dotColor ?: MaterialTheme.colorScheme.primary),
-            )
+        Box {
+            glyph(Color.White.copy(alpha = glyphAlpha))
+            if (showDot) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 4.dp, y = (-2).dp)
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(dotColor ?: MaterialTheme.colorScheme.primary),
+                )
+            }
         }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White.copy(alpha = glyphAlpha),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
     }
 }
 
@@ -358,6 +341,10 @@ private fun TabItem(
  * be re-typed by the issue detail's twin bar; both read it here now.
  */
 object BottomNavDefaults {
+    /** Thread 58cb32df: the tab capsule's (and the launcher's) height — a
+     *  glyph over its label. */
+    val BarHeight: Dp = 52.dp
+
     /** Inset between the capsule's edge and a tab — the pill's track. */
     val BarPadding: Dp = 4.dp
 

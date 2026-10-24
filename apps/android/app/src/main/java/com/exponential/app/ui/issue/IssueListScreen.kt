@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -133,6 +135,46 @@ import com.exponential.app.domain.Prompts
  */
 enum class IssueListMode { Root, Pushed }
 
+// Thread 58cb32df: the board chips' keys (chats.json `shell.boardChips`).
+private const val BOARD_CHIP_ALL = "all"
+private const val BOARD_CHIP_MINE = "mine"
+private const val BOARD_CHIP_DRAFTS = "drafts"
+
+/** The board chips (chats.json `shell.boardChips`): All issues · My issues N
+ *  · Drafts N (only while there are drafts), select Pills, a count after My
+ *  issues and Drafts. */
+@Composable
+private fun BoardChips(
+    selected: String,
+    mineCount: Int,
+    draftsCount: Int,
+    onSelect: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        com.exponential.app.domain.Chats.Shell.BOARD_CHIPS.forEach { chip ->
+            if (chip == BOARD_CHIP_DRAFTS && draftsCount == 0) return@forEach
+            val label = when (chip) {
+                BOARD_CHIP_MINE -> com.exponential.app.domain.Chats.Copy.BOARD_CHIP_MINE + (if (mineCount > 0) " $mineCount" else "")
+                BOARD_CHIP_DRAFTS -> com.exponential.app.domain.Chats.Copy.BOARD_CHIP_DRAFTS + " $draftsCount"
+                else -> com.exponential.app.domain.Chats.Copy.BOARD_CHIP_ALL
+            }
+            GlassPill(
+                label,
+                onClick = { onSelect(chip) },
+                mode = PillMode.Select,
+                selected = chip == selected,
+                modifier = Modifier.testTag("${com.exponential.app.domain.Chats.TestIds.BOARD_CHIP}-$chip"),
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IssueListScreen(
@@ -158,6 +200,8 @@ fun IssueListScreen(
     // pushed board has no switcher.
     liveRunsByTeam: Map<String, TeamLiveRuns> = emptyMap(),
     selectedTeamId: String? = null,
+    /** Thread 58cb32df: a Drafts chip row reopens the New issue page. */
+    onOpenDraft: (boardId: String, draftId: String) -> Unit = { _, _ -> },
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -265,6 +309,18 @@ fun IssueListScreen(
     val hasAnyBoard = homeState?.boardTree
         ?.any { group -> group.teamBlocks.any { it.boards.isNotEmpty() } } == true
 
+    // Thread 58cb32df: the board chips' state + counts (Root mount only).
+    var boardChip by rememberSaveable { mutableStateOf(BOARD_CHIP_ALL) }
+    val myIssuesViewModel: com.exponential.app.ui.myissues.MyIssuesViewModel? =
+        if (mode == IssueListMode.Root) hiltViewModel() else null
+    val draftsViewModel: com.exponential.app.ui.drafts.DraftsViewModel? =
+        if (mode == IssueListMode.Root) hiltViewModel() else null
+    val myIssuesCount = myIssuesViewModel?.state?.collectAsStateWithLifecycle()?.value
+        ?.groups?.sumOf { it.issues.size } ?: 0
+    val drafts = draftsViewModel?.drafts?.collectAsStateWithLifecycle()?.value.orEmpty()
+    // The Drafts chip leaves with the last draft: its pick falls back.
+    if (boardChip == BOARD_CHIP_DRAFTS && drafts.isEmpty()) boardChip = BOARD_CHIP_ALL
+
     Scaffold(containerColor = Color.Transparent) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -299,6 +355,8 @@ fun IssueListScreen(
                         Spacer(Modifier.weight(1f))
                         // Nothing to search before a board resolves — the
                         // empty/create-board states have no issues yet.
+                        // Thread 58cb32df: the settings gear moved to the
+                        // Team tab; the header = the switcher + search.
                         if (!boardId.isNullOrBlank()) {
                             CircleIconButton(
                                 ExpIcons.navSearch,
@@ -306,11 +364,23 @@ fun IssueListScreen(
                                 onClick = onOpenSearch,
                                 modifier = Modifier.testTag("board-search"),
                             )
-                            Spacer(Modifier.width(8.dp))
                         }
-                        CircleIconButton(ExpIcons.navSettings, "Settings", onClick = onOpenSettings)
                     }
                 }
+            }
+
+            // Thread 58cb32df (chats.json `shell.boardChips`): All issues ·
+            // My issues N · Drafts N (Drafts only while there are drafts) as
+            // select Pills; My issues = the viewer's assigned issues of the
+            // active team grouped by status, Drafts = the team's drafts.
+            val chipsShown = mode == IssueListMode.Root && !boardId.isNullOrBlank()
+            if (chipsShown) {
+                BoardChips(
+                    selected = boardChip,
+                    mineCount = myIssuesCount,
+                    draftsCount = drafts.size,
+                    onSelect = { boardChip = it },
+                )
             }
 
             // Sync activity, pinned in the same strip (EXP-264): shown while
@@ -398,6 +468,18 @@ fun IssueListScreen(
                         }
                     }
                 }
+            } else if (boardChip == BOARD_CHIP_MINE && myIssuesViewModel != null) {
+                com.exponential.app.ui.myissues.MyIssuesListContent(
+                    onOpenIssue = onOpenIssue,
+                    viewModel = myIssuesViewModel,
+                    modifier = Modifier.weight(1f),
+                )
+            } else if (boardChip == BOARD_CHIP_DRAFTS && draftsViewModel != null) {
+                com.exponential.app.ui.drafts.DraftsListContent(
+                    onOpenDraft = onOpenDraft,
+                    viewModel = draftsViewModel,
+                    modifier = Modifier.weight(1f),
+                )
             } else {
                 IssueListContent(
                     state = state,
@@ -581,7 +663,15 @@ fun IssueListScreen(
 
     if (showSwitcher && homeViewModel != null) {
         BoardSwitcherSheet(
-            groups = homeState?.boardTree ?: emptyList(),
+            // Thread 58cb32df (chats.json `shell`): ONE active team per phone
+            // screen, switched ONLY on the Team tab — the sheet lists the
+            // active team's boards alone (no other teams, no New team).
+            groups = (homeState?.boardTree ?: emptyList()).mapNotNull { group ->
+                if (selectedTeamId == null) return@mapNotNull group
+                group.copy(teamBlocks = group.teamBlocks.filter { it.team.id == selectedTeamId })
+                    .takeIf { it.teamBlocks.isNotEmpty() }
+            },
+            showNewTeam = false,
             currentBoardId = state.board?.id,
             liveRunsByTeam = liveRunsByTeam,
             selectedTeamId = selectedTeamId,

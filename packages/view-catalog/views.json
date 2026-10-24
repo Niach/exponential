@@ -420,6 +420,9 @@
           "kind": "tool",
           "value": "board"
         }
+      },
+      "notes": {
+        "web-mobile": "Thread 58cb32df (chats.json `shell`): the header is the board switcher pill + the search circle (no settings gear, no avatar menu: both moved to the Team tab), the board chips under it, and the glass tab capsule Board · Devices · Chats · Team beside the new chat / new issue capsule."
       }
     },
     {
@@ -778,14 +781,15 @@
         }
       },
       "notes": {
-        "desktop": "EXP-1192: always three columns, Linear-style — the root sidebar, then the notifications as a second sidebar INSIDE the content card (the Inbox | My issues strip and Mark all read on top), then the main pane: an empty state (\"No notification selected\") until a notification is picked, after which its issue or session opens beside the list without re-sliding it."
+        "desktop": "EXP-1192: always three columns, Linear-style — the root sidebar, then the notifications as a second sidebar INSIDE the content card (the Inbox | My issues strip and Mark all read on top), then the main pane: an empty state (\"No notification selected\") until a notification is picked, after which its issue or session opens beside the list without re-sliding it.",
+        "web-mobile": "Thread 58cb32df (chats.json): pushed from the Chats header's inbox circle: a back header with Mark all read and the active team's stream, no segments and no tab bar (My issues and Drafts are board chips)."
       }
     },
     {
       "id": "my-issues",
       "group": "my-work",
       "title": "My issues",
-      "blurb": "Everything assigned to me across every board in the team. A tab on the inbox route, not a route of its own.",
+      "blurb": "Everything assigned to me across every board in the team: the Inbox's second tab on md+, the board's My issues chip on phones.",
       "order": 2,
       "web": {
         "route": "/t/$teamSlug/inbox?tab=my-issues",
@@ -795,7 +799,14 @@
         },
         "settleMs": 1000
       },
-      "webMobile": "inherit",
+      "webMobile": {
+        "route": "/t/$teamSlug/boards/$boardSlug?chip=mine",
+        "anchor": {
+          "text": "My issues",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
       "ios": {
         "shot": "sg_my-issues",
         "lane": "styleguide"
@@ -811,7 +822,8 @@
         }
       },
       "notes": {
-        "desktop": "EXP-1192: no full-width page — My issues is the SECOND tab of the Inbox's second sidebar (the Inbox | My issues strip inside the content card), with the main pane empty until an issue is picked, which then opens beside the list. `EXP_DEV_TOOL=my-issues` opens it."
+        "desktop": "EXP-1192: no full-width page — My issues is the SECOND tab of the Inbox's second sidebar (the Inbox | My issues strip inside the content card), with the main pane empty until an issue is picked, which then opens beside the list. `EXP_DEV_TOOL=my-issues` opens it.",
+        "web-mobile": "Thread 58cb32df (chats.json `shell.boardChips`): the phone board's My issues chip (All issues · My issues N · Drafts N), the list grouped by status like the board; an old `/inbox?tab=my-issues` link forwards to it."
       }
     },
     {
@@ -829,7 +841,7 @@
         "settleMs": 1000
       },
       "webMobile": {
-        "route": "/t/$teamSlug/inbox?tab=drafts",
+        "route": "/t/$teamSlug/boards/$boardSlug?chip=drafts",
         "anchor": {
           "text": "Offline queue for issue edits",
           "timeoutMs": 30000
@@ -837,7 +849,7 @@
         "settleMs": 1000
       },
       "notes": {
-        "web-mobile": "Below md there is no Drafts route: the list is a third segment on the Inbox, present only while the caller has a draft.",
+        "web-mobile": "Thread 58cb32df: below md the list is the board's Drafts chip, present only while the caller has a draft; an old `/inbox?tab=drafts` link forwards to it.",
         "ios": "Not captured yet — the iOS drafts list has no UI test in either lane.",
         "android": "Not captured yet — the Android drafts list has no UI test in either lane.",
         "desktop": "Not captured yet — the IDE reaches drafts from the sidebar entry and has no EXP_DEV_* drive for it."
@@ -1636,7 +1648,7 @@
     {
       "id": "settings-root",
       "group": "settings",
-      "title": "Settings · Root (mobile)",
+      "title": "Team tab · Settings root (mobile)",
       "blurb": "The native settings root: the signed-in servers, the teams under them, and the way into everything else.",
       "order": 14,
       "ios": {
@@ -1648,9 +1660,17 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "Web has no settings root: the sidebar links straight into a section, and bare /settings redirects to the first one the viewer may see.",
-        "web-mobile": "See web.",
+        "web": "Web has no settings root on md+: the sidebar links straight into a section, and bare /settings redirects to the first one the viewer may see.",
+        "web-mobile": "Thread 58cb32df (chats.json): the phone's Team tab (`/t/$teamSlug/team`): the team avatar, name and meta, the viewer's teams (a tap switches), the settings rows, then the account row and the old avatar menu's entries.",
         "desktop": "Desktop follows the web split, one nav item per section."
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/team",
+        "anchor": {
+          "testId": "team-tab",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
       }
     },
     {
@@ -5340,7 +5360,7 @@
     {
       "id": "threads",
       "group": "coding",
-      "title": "Threads",
+      "title": "Chats",
       "blurb": "Every thread of the team (EXP-1293, threads-list.json): Needs you · Running · Recent bands, one row per root session with its glyph (a merged thread = the violet pr-merged glyph), title, ONE quiet right word (question, ready to merge, stack) and the root's device glyph; no lock, no merged word (EXP-1339). Phones show the team's Agents band on top.",
       "order": 18,
       "web": {
@@ -5351,7 +5371,14 @@
         },
         "settleMs": 1200
       },
-      "webMobile": "inherit",
+      "webMobile": {
+        "route": "/t/$teamSlug/threads",
+        "anchor": {
+          "testId": "chat-list",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
       "ios": {
         "shot": "sg_threads",
         "lane": "styleguide"
@@ -5369,7 +5396,8 @@
       "notes": {
         "web": "Seeded rows only (seedSessionTree in apps/web/scripts/seed-screenshots.ts): six roots, one per list state, plus the three team agents phones band on top.",
         "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: the Threads tab, gated on the seeded rows' quiet words (`question`, `stack`).",
-        "android": "See ios."
+        "android": "See ios.",
+        "web-mobile": "Thread 58cb32df (chats.json): the phone Chats screen, not the bands: the large Chats headline with the search and inbox circles, the agent bubbles, the filter chips (All · Needs you · Running · Unread) and one flat row per root chat of the ACTIVE team (52 lead disc, title + time, two-line preview, word, unread badge)."
       }
     },
     {
@@ -5448,6 +5476,187 @@
         "web": "`$agentId` resolves to DEMO_AGENT_ID (apps/web/scripts/screenshot-demo.ts), the Triage agent; its messages live on the demo user's conversation session (DEMO_AGENT_CONVERSATION_ID). The four messages sit at pinned instants (DEMO_AGENT_CHANNEL_TIMES) because the rows print a time of day; the anchor is DEMO_AGENT_REQUEST.",
         "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: Threads → the Agents band's Triage; the rows print DEMO_AGENT_CHANNEL_TIMES in the seed's zone (Android pins it in the test), bare FB-8/FB-3/FB-9 chipped like web.",
         "android": "See ios."
+      }
+    },
+    {
+      "id": "chat-list",
+      "group": "coding",
+      "title": "Chat list",
+      "blurb": "The phone Chats list ×3 (chats.json): the Chats headline with search + inbox circles, the agent bubbles (amber ring = needs you, white = unread), the filter chips and flat WhatsApp rows (lead disc, title, time, preview, word, unread badge).",
+      "order": 32,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=chat-list",
+        "anchor": {
+          "testId": "chat-list-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_chat-list",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_chat-list",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:chat-list"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=chat-list` on the Agent route (never parsed in a production build, like `plan-card`): `@exp/ui` `ChatListSpecimen`, the phone Chats screen's real pieces (header, agent bubbles, filter chips, the flat rows) fed chats.json `listCases[0]` + `bubbleCases[0]`, 390px wide.",
+        "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_chat-list.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:chat-list`: the IDE styleguide entry drawn full-window.",
+        "web-mobile": "Inherits web: the phone frame draws the same 390px specimen at full width."
+      }
+    },
+    {
+      "id": "phone-tab-bar",
+      "group": "coding",
+      "title": "Phone tab bar",
+      "blurb": "The phone bottom bar (chats.json shell): Board · Devices · Chats · Team (the team avatar + name), icon over label on the glass capsule, beside the new chat / new issue capsule.",
+      "order": 33,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=phone-tab-bar",
+        "anchor": {
+          "testId": "phone-tab-bar-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_phone-tab-bar",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_phone-tab-bar",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:phone-tab-bar"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=phone-tab-bar` on the Agent route (never parsed in a production build, like `plan-card`): `@exp/ui` `PhoneTabBarSpecimen`, the tab capsule (Board · Devices · Chats · Team) beside the new chat / new issue capsule in three states: Chats, Team and Board selected, the amber dot on Chats.",
+        "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_phone-tab-bar.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:phone-tab-bar`: the IDE styleguide entry drawn full-window.",
+        "web-mobile": "Inherits web: the same three bars at the phone's width."
+      }
+    },
+    {
+      "id": "chat-transcript",
+      "group": "coding",
+      "title": "Chat transcript",
+      "blurb": "The chat transcript pieces ×4 (chats.json TRANSCRIPT + SURFACE CARD): the person’s and the agent’s bubbles, the /compact and /new divider pills, an agent’s inline Exponential UI preview, a superseded plan line.",
+      "order": 34,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=chat-transcript",
+        "anchor": {
+          "testId": "chat-transcript-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_chat-transcript",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_chat-transcript",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:chat-transcript"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=chat-transcript` on the Agent route (never parsed in a production build, like `plan-card`): `@exp/ui` `ChatTranscriptSpecimen`, the real ThreadConversation in both layouts (phone bubbles, web-wide transcript: the superseded plan, the inline SurfaceCard, the /compact and /new divider pills) plus the standalone SurfaceCard.",
+        "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_chat-transcript.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:chat-transcript`: the IDE styleguide entry drawn full-window.",
+        "web-mobile": "Inherits web: the three columns stack in the phone frame."
+      }
+    },
+    {
+      "id": "chat-menus",
+      "group": "coding",
+      "title": "Chat menus",
+      "blurb": "The chat and agent menus ×4 (chats.json MENUS): Stop · Stop and delete on a live chat, Delete on an ended one, the agent menu (Compact conversation, New conversation, Stop, Agent settings) and the delete confirm.",
+      "order": 35,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=chat-menus",
+        "anchor": {
+          "testId": "chat-menus-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_chat-menus",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_chat-menus",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:chat-menus"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=chat-menus` on the Agent route (never parsed in a production build, like `plan-card`): `@exp/ui` `ChatMenusSpecimen`, the chat menu (live, ended), the agent menu (busy owner, idle member) as pointer panels, the phone long-press sheet and the delete confirm (`PromptLayout` in the dialog frame).",
+        "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_chat-menus.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:chat-menus`: the IDE styleguide entry drawn full-window.",
+        "web-mobile": "Inherits web: the same panels wrap down the phone column."
+      }
+    },
+    {
+      "id": "schedule-picker",
+      "group": "coding",
+      "title": "Schedule picker",
+      "blurb": "THE schedule rows ×4 (schedule-picker.json): Repeat (Every few minutes · hour · day · week · month), Every / Minute / Time / Days / Day, Time zone only from daily up.",
+      "order": 36,
+      "ios": {
+        "shot": "sg_schedule-picker",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_schedule-picker",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:schedule-picker"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "A styleguide specimen (apps/styleguide entry `schedule-picker`); the live web screens are their own views.",
+        "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_schedule-picker.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:schedule-picker`: the IDE styleguide entry drawn full-window.",
+        "web-mobile": "See web: the styleguide entry is the phone-wide specimen."
       }
     }
   ]

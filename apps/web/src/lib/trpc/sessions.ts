@@ -46,6 +46,7 @@ import {
   unlinkIssue,
 } from "@/lib/sessions/issues"
 import {
+  deleteSession,
   endDeadSessionInTx,
   endSession,
   stopSession,
@@ -217,7 +218,8 @@ export const sessionsRouter = router({
     .mutation(({ ctx, input }) => configureSession(ctx.session.user.id, input)),
 
   /** Interrupt the session's current turn (it stays live, goes idle). Every
-   *  member may Stop a SHARED session; a private one only its starter. */
+   *  member may Stop a SHARED session; a private one only its starter.
+   *  → {txid, delivered}: false = the relay reached no device. */
   stop: authedProcedure
     .input(z.object({ sessionId: uuid }))
     .mutation(({ ctx, input }) =>
@@ -235,6 +237,15 @@ export const sessionsRouter = router({
       })
       return { txid }
     }),
+
+  /** Chats: delete a ROOT chat and its whole tree (what is live ends
+   *  first). The starter or a team owner; agent conversations and app
+   *  sessions refuse (BAD_REQUEST). */
+  delete: authedProcedure
+    .input(z.object({ sessionId: uuid }))
+    .mutation(({ ctx, input }): Promise<{ txid: number }> =>
+      deleteSession({ userId: ctx.session.user.id, sessionId: input.sessionId })
+    ),
 
   /** Link issues to a session (NEW-1: the rows sit on the session that
    *  holds them; the thread header's "+" names the root). */

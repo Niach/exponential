@@ -2,12 +2,28 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-private struct TeamNavTarget: Hashable {
-    let accountId: String
-    let teamId: String
+import GRDB
+
+/// The Team tab's counts (its meta line and rows).
+private struct TeamCounts: Equatable, Sendable {
+    var members = 0
+    var boards = 0
+    var agents = 0
 }
 
-struct SettingsView: View {
+/// EXP-1373 (chats.json `shell`): the phone's TEAM tab (the old settings
+/// root moved here; the board header lost its gear). The ACTIVE team's
+/// avatar (84) + name + `copy.team.meta`, a glass group of the viewer's
+/// teams (the active one checked, a team with an unread notification an
+/// amber dot; a tap switches — the ONLY place a phone switches team), then
+/// the team's settings rows, the account rows (each server's signed-in
+/// account) and the rest of the old root (Getting started, About).
+struct TeamTabView: View {
+    /// Teams holding an unread notification (their amber dots).
+    var unreadTeamIds: Set<String> = []
+    /// A team row's tap: `(accountId, teamId)`.
+    var onSwitchTeam: (String, String) -> Void = { _, _ in }
+
     @Environment(AppDependencies.self) private var deps
     @Environment(TeamState.self) private var teamState
     /// EXP-1270: Getting started for the ACTIVE team, behind the General
@@ -15,11 +31,14 @@ struct SettingsView: View {
     @State private var gettingStarted = GettingStartedProgress()
     @State private var showGettingStarted = false
     @State private var teamLoader: MultiAccountTeamLoader?
-    @State private var pendingTeam: TeamNavTarget?
     @State private var showAddServer = false
+    @State private var showTeamSetup = false
+    @State private var counts = TeamCounts()
     // The account that was active before Add-server opened, so a cancelled /
     // incomplete add can be rolled back off the tokenless pending account.
     @State private var previousActiveAccountId: String?
+
+    private var activeAccountId: String { deps.auth.activeAccountId ?? "" }
 
     var body: some View {
         ZStack {
@@ -27,32 +46,34 @@ struct SettingsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    serversSection
+                    teamHeader
                     teamsSection
+                    teamSettingsSection
+                    serversSection
                     generalSection
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-                .padding(.bottom, 96)
+                .padding(.bottom, 16)
             }
+            .tabBarBottomInset()
         }
-        .navigationTitle("Settings")
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .navigationDestination(item: $pendingTeam) { target in
-            TeamSettingsView(teamId: target.teamId)
-                .environment(\.accountId, target.accountId)
-        }
-        .task(id: "\(deps.auth.activeAccountId ?? "")/\(teamState.activeTeamId ?? "")") {
-            if let accountId = deps.auth.activeAccountId, let teamId = teamState.activeTeamId {
-                gettingStarted.bind(accountId: accountId, teamId: teamId, deps: deps)
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: "\(activeAccountId)/\(teamState.activeTeamId ?? "")") {
+            if let teamId = teamState.activeTeamId, !activeAccountId.isEmpty {
+                gettingStarted.bind(accountId: activeAccountId, teamId: teamId, deps: deps)
+                await observeCounts(teamId: teamId)
             } else {
                 gettingStarted.stop()
             }
         }
         .sheet(isPresented: $showGettingStarted) {
-            if let accountId = deps.auth.activeAccountId, let teamId = teamState.activeTeamId {
-                GettingStartedSheet(progress: gettingStarted, accountId: accountId, teamId: teamId)
+            if let teamId = teamState.activeTeamId {
+                GettingStartedSheet(progress: gettingStarted, accountId: activeAccountId, teamId: teamId)
             }
+        }
+        .sheet(isPresented: $showTeamSetup) {
+            TeamSetupSheet()
         }
         .onAppear {
             if teamLoader == nil {
@@ -62,6 +83,7 @@ struct SettingsView: View {
         .onChange(of: deps.auth.accounts) { _, _ in
             teamLoader?.refresh()
         }
+        .accessibilityIdentifier("team-tab")
         .fullScreenCover(isPresented: $showAddServer) {
             InstanceView(showCancel: true) {
                 // Add-server activates a tokenless pending account the moment a
@@ -69,12 +91,7 @@ struct SettingsView: View {
                 // user backs out before login resolves a token, remove that
                 // half-added pending and roll back to the account that was
                 // active before — so the app is never left pointed at a
-                // tokenless server, and a cancelled add leaves no phantom entry
-                // (which would also wrongly mark the cloud as already-added).
-                // (The core wrong-account symptom is separately covered by
-                // MainNavigator's activeAccountId rebind; fully decoupling
-                // activation from setInstanceUrl would require threading the URL
-                // through resolveActiveAccount — deferred.)
+                // tokenless server, and a cancelled add leaves no phantom entry.
                 if deps.auth.token == nil,
                    let prev = previousActiveAccountId,
                    let stranded = deps.auth.activeAccountId,
@@ -87,12 +104,144 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Team
+
+    @ViewBuilder
+    private var teamHeader: some View {
+        if let team = teamState.activeTeam {
+            VStack(spacing: 10) {
+                TeamAvatar(team: team, size: 84)
+                Text(team.name)
+                    .font(.title.weight(.bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text(Chats.Copy.Team.metaLine(members: counts.members, boards: counts.boards))
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 24)
+            .padding(.bottom, 4)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("team-tab-header")
+        }
+    }
+
+    /// Every server's teams in ONE group (the server's name only
+    /// disambiguates with several servers).
+    private var teamsSection: some View {
+        let groups = teamLoader?.groups ?? []
+        return VStack(alignment: .leading, spacing: 4) {
+            GlassSectionBand(Chats.Copy.Team.switch)
+            VStack(spacing: 0) {
+                ForEach(groups) { group in
+                    ForEach(group.teams, id: \.id) { team in
+                        teamRow(team, accountId: group.accountId, server: groups.count > 1 ? group.hostname : nil)
+                    }
+                }
+                Button { showTeamSetup = true } label: {
+                    settingsRow(icon: AppIcons.uiAdd, title: "New team", chevron: false)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("board-switcher-new-team")
+            }
+            .glassSection()
+        }
+    }
+
+    private func teamRow(_ team: TeamEntity, accountId: String, server: String?) -> some View {
+        let active = accountId == activeAccountId && team.id == teamState.activeTeamId
+        return Button {
+            onSwitchTeam(accountId, team.id)
+        } label: {
+            HStack(spacing: 12) {
+                TeamAvatar(team: team, size: 24)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(team.name)
+                        .font(.body)
+                        .foregroundStyle(.white)
+                    if let server {
+                        Text(server)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    }
+                }
+                Spacer()
+                if active {
+                    AppIcon(AppIcons.uiCheck, size: AppIcon.Size.medium)
+                        .foregroundStyle(.white)
+                } else if accountId == activeAccountId, unreadTeamIds.contains(team.id) {
+                    Circle()
+                        .fill(DesignTokens.Semantic.yellow)
+                        .frame(width: 8, height: 8)
+                        .accessibilityLabel("Unread")
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(active ? .isSelected : [])
+        .accessibilityIdentifier("team-row-\(team.id)")
+    }
+
+    /// The team's settings (the old root's team row) — one row per page
+    /// section, each landing on that section of the team's settings.
+    @ViewBuilder
+    private var teamSettingsSection: some View {
+        if let teamId = teamState.activeTeamId {
+            VStack(spacing: 0) {
+                teamLink(teamId, section: .members, icon: AppIcons.settingsMembers, title: "Members", count: counts.members)
+                teamLink(teamId, section: .boards, icon: AppIcons.settingsBoards, title: "Boards", count: counts.boards)
+                teamLink(teamId, section: .agents, icon: AppIcons.settingsAgents, title: "Agents", count: counts.agents)
+                teamLink(teamId, section: .prompts, icon: AppIcons.navActions, title: "Prompts", count: nil)
+                teamLink(teamId, section: .repositories, icon: AppIcons.settingsRepositories, title: "Repositories", count: nil)
+                teamLink(teamId, section: .labels, icon: AppIcons.settingsLabels, title: "Labels", count: nil)
+                // VAPP-110: the team's Apps (they used to ride the Threads
+                // header).
+                NavigationLink(value: AppRoute.apps(accountId: activeAccountId)) {
+                    settingsRow(icon: AppIcons.navApps, title: Apps.Copy.nav)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("nav-apps")
+            }
+            .glassSection()
+        }
+    }
+
+    private func teamLink(
+        _ teamId: String, section: TeamSettingsSection, icon: String, title: String, count: Int?
+    ) -> some View {
+        NavigationLink(value: AppRoute.teamSettingsSection(accountId: activeAccountId, teamId: teamId, section: section)) {
+            settingsRow(icon: icon, title: title, count: count)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("team-settings-\(section.rawValue)")
+    }
+
+    private func observeCounts(teamId: String) async {
+        guard let pool = try? deps.db.pool(forAccountId: activeAccountId) else { return }
+        let observation = ValueObservation.tracking { db in
+            TeamCounts(
+                members: try TeamMemberEntity.filter(Column("team_id") == teamId).fetchCount(db),
+                boards: try BoardEntity.filter(Column("team_id") == teamId).fetchCount(db),
+                agents: try AgentDefinitionEntity.filter(Column("team_id") == teamId).fetchCount(db)
+            )
+        }.removeDuplicates()
+        do {
+            for try await next in observation.values(in: pool) {
+                counts = next
+            }
+        } catch {}
+    }
+
     // EXP-721: ONE grouped card per section (Android's SettingsScreen) — the
     // gapped stack of individually-filled rows is gone; rows sit flat inside
     // a single `.glassSection()`, no dividers (EXP-1320). "Add server" is the last row
     // of the Servers card, not a floating pill.
     private var serversSection: some View {
-        sectionStack(title: "Servers") {
+        sectionStack(title: "Account") {
             VStack(spacing: 0) {
                 ForEach(deps.auth.accounts, id: \.id) { account in
                     NavigationLink(value: AppRoute.serverDetail(accountId: account.id)) {
@@ -155,62 +304,6 @@ struct SettingsView: View {
         .contentShape(Rectangle())
     }
 
-    private var teamsSection: some View {
-        sectionStack(title: "Teams") {
-            let groups = teamLoader?.groups ?? []
-            if groups.isEmpty {
-                EmptyState(.teams)
-            } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(groups) { group in
-                        teamGroupBlock(group)
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func teamGroupBlock(_ group: ServerTeamGroup) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // The server header only disambiguates when several servers are
-            // connected — with a single server it's noise.
-            if (teamLoader?.groups.count ?? 0) > 1 {
-                Text(group.hostname)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .padding(.horizontal, 12)
-            }
-
-            VStack(spacing: 0) {
-                ForEach(group.teams, id: \.id) { team in
-                    Button {
-                        handleTeamTap(accountId: group.accountId, teamId: team.id)
-                    } label: {
-                        HStack(spacing: 12) {
-                            TeamAvatar(team: team, size: 22)
-                            Text(team.name)
-                                .font(.body)
-                                .foregroundStyle(.white)
-                            Spacer()
-                            AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
-                                .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .glassSection()
-        }
-    }
-
-    private func handleTeamTap(accountId: String, teamId: String) {
-        pendingTeam = TeamNavTarget(accountId: accountId, teamId: teamId)
-    }
-
     private var generalSection: some View {
         sectionStack(title: "General") {
             VStack(spacing: 0) {
@@ -252,7 +345,7 @@ struct SettingsView: View {
         }
     }
 
-    private func settingsRow(icon: String, title: String) -> some View {
+    private func settingsRow(icon: String, title: String, count: Int? = nil, chevron: Bool = true) -> some View {
         HStack(spacing: 12) {
             AppIcon(icon, size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -261,8 +354,16 @@ struct SettingsView: View {
                 .font(.body)
                 .foregroundStyle(.white)
             Spacer()
-            AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
-                .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+            if let count {
+                Text("\(count)")
+                    .font(.body)
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            if chevron {
+                AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

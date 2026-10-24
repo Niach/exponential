@@ -2,6 +2,7 @@ import { useMemo, useState } from "react"
 import contract from "@exp/domain-contract/contract"
 import {
   SCHEDULE_DAY_OF_MONTH_MAX,
+  SCHEDULE_EVERY_VALUES,
   SCHEDULE_PICKER_COPY,
   SCHEDULE_PICKER_TEST_IDS,
   SCHEDULE_REPEAT_VALUES,
@@ -23,8 +24,8 @@ import { Picker, PickerTrigger } from "./picker"
 // `ScheduleFields.kt`). Nobody speaks cron: a schedule trigger STORES a
 // 5-field cron, these rows edit it. Rendered INSIDE a `GlassGroup` (the
 // trigger editor's card, whose first row is the Schedule · On event strip):
-// Repeat · Days (weekly) | Day (monthly) · Minute (hourly) | Time ·
-// Time zone · Cron (a custom, MCP-written expression only). CONTROLLED: the
+// Repeat · Days (weekly) | Day (monthly) · Every (minutes) | Minute
+// (hourly) | Time · Time zone (EXP-1363: daily, weekly, monthly, custom) · Cron (a custom, MCP-written expression only). CONTROLLED: the
 // parent holds a `ScheduleDraft`.
 
 const COPY = SCHEDULE_PICKER_COPY
@@ -96,6 +97,10 @@ const WEEKDAY_ITEMS = range(7, 1).map((day) => ({
 const DAY_ITEMS = range(SCHEDULE_DAY_OF_MONTH_MAX, 1).map((day) => ({
   value: String(day),
   label: COPY.dayOfMonth.replace(`{day}`, String(day)),
+}))
+const EVERY_ITEMS = SCHEDULE_EVERY_VALUES.map((every) => ({
+  value: String(every),
+  label: COPY.every.replace(`{n}`, String(every)),
 }))
 const HOUR_ITEMS = range(24).map((hour) => ({ value: pad2(hour), label: pad2(hour) }))
 const MINUTE_ITEMS = range(60).map((minute) => ({ value: pad2(minute), label: pad2(minute) }))
@@ -211,6 +216,21 @@ export function ScheduleFields({
         />
       )}
 
+      {schedule?.repeat === `minutes` && (
+        <Picker
+          mode="single"
+          triggerVariant="row"
+          mobileTitle={COPY.rows.every}
+          value={String(schedule.every)}
+          onChange={(picked) => {
+            if (picked !== null) setSchedule({ every: Number(picked) })
+          }}
+          items={EVERY_ITEMS}
+          disabled={disabled}
+          data-testid={TEST_IDS.every}
+        />
+      )}
+
       {schedule?.repeat === `hourly` && (
         <Picker
           mode="single"
@@ -226,7 +246,7 @@ export function ScheduleFields({
         />
       )}
 
-      {schedule && schedule.repeat !== `hourly` && (
+      {schedule && schedule.repeat !== `hourly` && schedule.repeat !== `minutes` && (
         <ScheduleTimeRow
           hour={schedule.hour}
           minute={schedule.minute}
@@ -235,6 +255,9 @@ export function ScheduleFields({
         />
       )}
 
+      {/* EXP-1363: a zone means nothing every few minutes or every hour; the
+          stored zone is kept as is. */}
+      {(!schedule || (schedule.repeat !== `hourly` && schedule.repeat !== `minutes`)) && (
       <Picker
         mode="single"
         triggerVariant="row"
@@ -253,6 +276,7 @@ export function ScheduleFields({
         disabled={disabled}
         data-testid={TEST_IDS.timeZone}
       />
+      )}
 
       {!schedule && (
         <div className="flex w-full items-center gap-3 text-sm">
@@ -300,6 +324,9 @@ export function ScheduleTimeRow({
         <Picker
           mode="single"
           triggerVariant="inline"
+          // EXP-1363: the 24/60 rows open in THEIR OWN scrolling popover
+          // (a sheet on phones), never disclosed inline inside the row.
+          presentation="popover"
           mobileTitle="Hour"
           width="sm"
           value={pad2(hour)}
@@ -313,6 +340,9 @@ export function ScheduleTimeRow({
         <Picker
           mode="single"
           triggerVariant="inline"
+          // EXP-1363: the 24/60 rows open in THEIR OWN scrolling popover
+          // (a sheet on phones), never disclosed inline inside the row.
+          presentation="popover"
           mobileTitle="Minute"
           width="sm"
           value={pad2(minute)}

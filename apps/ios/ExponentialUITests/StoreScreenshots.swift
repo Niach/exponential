@@ -224,18 +224,23 @@ final class StoreScreenshots: XCTestCase {
         // ── 06: retired (NEW-7) — the Actions tab is gone: prompts live in
         // the composer's `/` menu and Settings → Prompts.
 
-        // ── 07: inbox (the Inbox tab, Inbox segment — the default) ──────────
-        // Wait for a real notification group — capturing the "You're all
-        // caught up" empty state would silently ship an empty store shot.
-        let inboxTab = app.buttons["tab-mywork"]
-        expect(inboxTab, within: Wait.nav, "Inbox tab missing")
-        inboxTab.tap()
+        // ── 07: inbox (EXP-1373: the page the Chats header's inbox circle
+        // pushes). Wait for a real notification group — capturing the
+        // "You're all caught up" empty state would silently ship an empty
+        // store shot.
+        let chatsTab = app.buttons["tab-threads"]
+        expect(chatsTab, within: Wait.nav, "Chats tab missing")
+        chatsTab.tap()
+        let inboxButton = app.buttons["chats-inbox"]
+        expect(inboxButton, within: Wait.nav, "The Chats header has no inbox button")
+        inboxButton.tap()
         expect(
             app.staticTexts[Self.showcaseTitle].firstMatch,
             within: Wait.sync,
             "Inbox never showed the seeded notifications"
         )
         snapshot("07_inbox", settle: 2, popRects: app)
+        goBack(app)
 
         // ── 01: home issue list (captured last, see above) ──────────────────
         app.buttons["tab-issues"].tap()

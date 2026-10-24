@@ -42,6 +42,17 @@ final class SessionListsModel {
     private(set) var liveByTeam: [String: SessionTree.TeamLiveSessions] = [:]
     /// The first emission landed (before it, lists draw skeleton rows).
     private(set) var loaded = false
+    /// EXP-1373 (chats.json): the ROOT conversations' list inputs — each
+    /// root's newest preview-able messages, its waiting asks and the agent
+    /// messages past my read (bodies dropped) — `Chats.chatList`'s
+    /// `messages`, never a whole transcript.
+    private(set) var chatMessages: [TreeMessage] = []
+    private(set) var reads: [TreeSessionRead] = []
+    /// Every session (the agent bubbles' conversations).
+    private(set) var sessions: [TreeSession] = []
+    /// Each root's status (the chat menu: live vs ended) and starter.
+    private(set) var rootStatus: [String: String] = [:]
+    private(set) var rootStarter: [String: String] = [:]
 
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var boundAccountId: String?
@@ -64,6 +75,29 @@ final class SessionListsModel {
     /// light it (web/Android parity, EXP-1327).
     var needsYou: Bool {
         groups.contains { $0.key == .needsYou }
+    }
+
+    /// EXP-1373: ONE active team drives the phone: the Chats dot reads its
+    /// rows alone.
+    func chatsRunning(teamId: String?) -> Bool {
+        groups.contains { $0.key == .running && $0.rows.contains { teamId == nil || $0.teamId == teamId } }
+    }
+
+    func chatsNeedYou(teamId: String?) -> Bool {
+        groups.contains { $0.key == .needsYou && $0.rows.contains { teamId == nil || $0.teamId == teamId } }
+    }
+
+    func chatsUnread(teamId: String?) -> Bool {
+        SessionTree.threadsUnread(teamGroups(teamId))
+    }
+
+    /// `partitionThreads` narrowed to one team (empty groups dropped).
+    func teamGroups(_ teamId: String?) -> [ThreadsListGroup] {
+        guard let teamId else { return groups }
+        return groups.compactMap { group in
+            let rows = group.rows.filter { $0.teamId == teamId }
+            return rows.isEmpty ? nil : ThreadsListGroup(key: group.key, title: group.title, rows: rows)
+        }
     }
 
     /// (Re)binds to an account's pool; a no-op while already bound to it.
@@ -103,6 +137,11 @@ final class SessionListsModel {
         prStates = [:]
         devices = [:]
         liveByTeam = [:]
+        chatMessages = []
+        reads = []
+        sessions = []
+        rootStatus = [:]
+        rootStarter = [:]
         loaded = false
     }
 
@@ -118,6 +157,7 @@ final class SessionListsModel {
         var pullRequests: [PullRequestEntity]
         var deviceRows: [DeviceEntity]
         var agents: [AgentLike]
+        var chatMessages: [TreeMessage]
     }
 
     private struct Derived: Sendable, Equatable {
@@ -131,6 +171,11 @@ final class SessionListsModel {
         var prStates: [String: [String]]
         var devices: [String: ThreadRowDevice]
         var liveByTeam: [String: SessionTree.TeamLiveSessions]
+        var chatMessages: [TreeMessage]
+        var reads: [TreeSessionRead]
+        var sessions: [TreeSession]
+        var rootStatus: [String: String]
+        var rootStarter: [String: String]
     }
 
     private func apply(_ derived: Derived) {
@@ -144,6 +189,11 @@ final class SessionListsModel {
         prStates = derived.prStates
         devices = derived.devices
         liveByTeam = derived.liveByTeam
+        chatMessages = derived.chatMessages
+        reads = derived.reads
+        sessions = derived.sessions
+        rootStatus = derived.rootStatus
+        rootStarter = derived.rootStarter
         loaded = true
     }
 
@@ -204,8 +254,80 @@ final class SessionListsModel {
             ),
             pullRequests: try PullRequestEntity.fetchAll(db),
             deviceRows: try DeviceEntity.fetchAll(db),
-            agents: try AgentDefinitionEntity.fetchAll(db).map(AgentLike.init)
+            agents: try AgentDefinitionEntity.fetchAll(db).map(AgentLike.init),
+            chatMessages: try chatMessages(db)
         )
+    }
+
+    /// EXP-1373: the chat list's messages (`Chats.chatList`), ROOT
+    /// conversations only: each root's three newest preview-able messages
+    /// (a person's or the agent's text, a question / plan / ask / picture /
+    /// surface card), every waiting ask, and the agent messages (no event
+    /// cards) at or past the root's read, their bodies dropped — the exact
+    /// unread compare stays `Chats.unreadCount`'s.
+    nonisolated private static func chatMessages(_ db: Database) throws -> [TreeMessage] {
+        let kind = """
+            CASE WHEN "messages"."card" IS NOT NULL AND json_valid("messages"."card")
+            THEN json_extract("messages"."card", '$.kind') END
+            """
+        let rootJoin = """
+            FROM "messages"
+            JOIN "conversations" ON "conversations"."id" = "messages"."conversation_id"
+            JOIN "sessions" ON "sessions"."id" = "conversations"."session_id" AND "sessions"."parent_id" IS NULL
+            """
+        let user = DomainContract.messageAuthorKindUser
+        let agent = DomainContract.messageAuthorKindAgent
+        let previews = try SessionMessage.fetchAll(db, sql: """
+            SELECT * FROM (
+                SELECT "messages".*, "conversations"."session_id" AS "conversation_session_id",
+                    ROW_NUMBER() OVER (
+                        PARTITION BY "conversations"."session_id"
+                        ORDER BY "messages"."created_at" DESC, "messages"."id" DESC
+                    ) AS "rn"
+                \(rootJoin)
+                WHERE "messages"."author_kind" IN (?, ?)
+                  AND ((\(kind)) IN ('question', 'plan', 'ask', 'picture', 'surface')
+                    OR (("messages"."card" IS NULL OR "messages"."card" = 'null') AND trim("messages"."body") <> ''))
+            ) WHERE "rn" <= 3
+            """, arguments: [user, agent])
+        let waiting = try SessionMessage.fetchAll(db, sql: """
+            SELECT "messages".*, "conversations"."session_id" AS "conversation_session_id"
+            \(rootJoin)
+            WHERE "messages"."answered_at" IS NULL AND (\(kind)) IN ('question', 'plan', 'ask')
+            """)
+        let unread = try Row.fetchAll(db, sql: """
+            SELECT "messages"."id" AS "id", "conversations"."session_id" AS "session_id",
+                "messages"."created_at" AS "created_at"
+            \(rootJoin)
+            WHERE "messages"."author_kind" = ?
+              AND ((\(kind)) IS NULL OR (\(kind)) <> 'event')
+              AND replace(substr("messages"."created_at", 1, 19), 'T', ' ') >= COALESCE((
+                  SELECT replace(substr(MAX("session_reads"."read_at"), 1, 19), 'T', ' ')
+                  FROM "session_reads" WHERE "session_reads"."session_id" = "conversations"."session_id"
+              ), '')
+            """, arguments: [agent])
+        var seen = Set<String>()
+        var out: [TreeMessage] = []
+        for row in previews + waiting where seen.insert(row.id).inserted {
+            out.append(TreeMessage(messageRow: row))
+        }
+        for row in unread {
+            let id: String = row["id"]
+            guard seen.insert(id).inserted else { continue }
+            let at: String = row["created_at"]
+            out.append(TreeMessage(
+                id: id,
+                sessionId: row["session_id"],
+                authorKind: agent,
+                authorId: nil,
+                body: "",
+                card: nil,
+                answeredAt: nil,
+                consumedAt: at,
+                createdAt: at
+            ))
+        }
+        return out
     }
 
     nonisolated private static func derive(_ rows: Rows, userId: String?) -> Derived {
@@ -290,7 +412,18 @@ final class SessionListsModel {
             words: words,
             prStates: prStates,
             devices: devices,
-            liveByTeam: SessionTree.liveByTeam(rows.sessions, userId: userId)
+            liveByTeam: SessionTree.liveByTeam(rows.sessions, userId: userId),
+            chatMessages: rows.chatMessages,
+            reads: rows.reads,
+            sessions: rows.sessions,
+            rootStatus: Dictionary(
+                rows.sessions.filter { $0.parentId == nil }.map { ($0.id, $0.status) },
+                uniquingKeysWith: { a, _ in a }
+            ),
+            rootStarter: Dictionary(
+                rows.sessions.filter { $0.parentId == nil }.map { ($0.id, $0.userId) },
+                uniquingKeysWith: { a, _ in a }
+            )
         )
     }
 }

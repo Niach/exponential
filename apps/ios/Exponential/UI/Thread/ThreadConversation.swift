@@ -70,8 +70,15 @@ struct ThreadConversationView: View {
     /// live root's relay state — as the Conversation's LAST row (web/Android
     /// `tail` slot, desktop parity); nil while no root is live.
     var liveTail: ThreadLiveTail?
+    /// Thread 58cb32df (chats.json SURFACE CARD): an inline preview's reply
+    /// press posts its text as the person's next message.
+    var onReply: (String) -> Void = { _ in }
 
     @Environment(AppDependencies.self) private var deps
+    /// The row ids the screen FIRST painted: a row outside it ARRIVED while
+    /// the chat was open (its bubble rises in, a surface card plays its
+    /// ENTER); history, a reopen or a scroll never animates.
+    @State private var painted: Set<String>?
     @Environment(\.accountId) private var accountId
     /// EXP-1347: an issue of this thread's tabs opens its tab.
     @Environment(\.threadIssueOutlet) private var threadIssueOutlet
@@ -110,14 +117,17 @@ struct ThreadConversationView: View {
         )
     }
 
+    private func arrived(_ id: String) -> Bool {
+        painted.map { !$0.contains(id) } ?? false
+    }
+
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 14) {
             ForEach(shownRows, id: \.id) { row in
-                if rows.isAgent {
-                    channelRowView(row)
-                } else {
-                    rowView(row)
-                }
+                // EXP-1373: phones paint every chat (a thread's and an
+                // agent's) as CHAT BUBBLES.
+                rowView(row)
+                    .chatBubbleArrival(arrived(row.id) && !Self.isSurface(row))
             }
             if let liveTail {
                 liveTail
@@ -126,6 +136,19 @@ struct ThreadConversationView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(SessionTree.ThreadCopy.conversationTestId)
+        .onAppear {
+            if painted == nil { painted = Set(shownRows.map(\.id)) }
+        }
+    }
+
+    private static func isSurface(_ row: ThreadRow) -> Bool {
+        if case .surface = row { return true }
+        return false
+    }
+
+    /// A row's `HH:mm` (the agent bubble's time, a divider's).
+    private func clock(_ at: String) -> String? {
+        WireTimestamps.parse(at).map { GlassTimeRow.formatted($0) }
     }
 
     /// An agent channel's own card (row 0) stays off it.
@@ -135,42 +158,6 @@ struct ThreadConversationView: View {
             if case let .session(_, card) = row { return card.sessionId != rows.root.id }
             return true
         }
-    }
-
-    /// An agent channel's row: a message is a comment row, anything else
-    /// the thread's own part indented under the rows' lead.
-    @ViewBuilder
-    private func channelRowView(_ row: ThreadRow) -> some View {
-        if case let .message(id, author, authorId, body, queued, _) = row,
-           author != DomainContract.messageAuthorKindSystem {
-            let fromAgent = author == DomainContract.messageAuthorKindAgent
-            let user = fromAgent ? nil : rows.user(id: authorId)
-            ChannelMessageRow(
-                name: fromAgent ? rows.agentName : (user?.name ?? user?.email ?? ""),
-                time: channelTime(messageId: id, queued: queued),
-                lead: {
-                    if fromAgent {
-                        AppIcon(rows.agentIcon, size: 16, weight: .medium)
-                            .foregroundStyle(Color(hex: rows.agentColor) ?? .white)
-                    } else {
-                        UserAvatar(user: user, id: authorId, size: ChannelMessageMetrics.leadSize)
-                    }
-                },
-                content: {
-                    AgentMarkdownText(text: body, context: markdownContext, options: [.autolinkBareURLs, .hardLineBreaks])
-                }
-            )
-            .opacity(queued ? 0.7 : 1)
-            .accessibilityIdentifier("thread-message")
-        } else {
-            rowView(row)
-                .padding(.leading, ChannelMessageMetrics.leadSize + ChannelMessageMetrics.gap)
-        }
-    }
-
-    /// A channel row's time: `HH:mm`, then `queued` until the device took it.
-    private func channelTime(messageId: String, queued: Bool) -> String {
-        UserMessageCaption.text(name: nil, at: createdAt(of: messageId), queued: queued)
     }
 
     /// The wire `createdAt` of a message row, as a date.
@@ -185,8 +172,12 @@ struct ThreadConversationView: View {
             if author == DomainContract.messageAuthorKindSystem {
                 ThreadEventLine(text: body)
             } else if author == DomainContract.messageAuthorKindAgent {
-                NarrationBubble(text: body, context: markdownContext)
-                    .accessibilityIdentifier("thread-message")
+                // EXP-1373: the agent's text on the left in a card-fill
+                // bubble, its time bottom-right.
+                AgentChatBubble(time: createdAt(of: id).map { GlassTimeRow.formatted($0) }) {
+                    AgentMarkdownText(text: body, context: markdownContext, options: [.autolinkBareURLs, .hardLineBreaks])
+                }
+                .accessibilityIdentifier("thread-message")
             } else {
                 UserMessageBubble(
                     text: body,
@@ -223,20 +214,30 @@ struct ThreadConversationView: View {
                     }
                 )
             }
-        case .question, .plan:
-            // THE ask dock (fixtures/ask-dock.json): a card still waiting on
-            // this reader rides the composer's slot (`ThreadScreen`); here
-            // only the answered ones stay, CLOSED (and every card for a
-            // read-only reader).
-            if !(canAnswer && Self.isPending(row)) {
-                ThreadAskCard(
-                    row: row,
-                    canAnswer: canAnswer,
-                    answeringId: answeringId,
-                    markdownContext: markdownContext,
-                    onSubmit: onSubmit
-                )
+        case let .plan(card) where card.decision == "superseded":
+            // FEED-140: a plan the agent replaced paints CLOSED and
+            // collapsed to `copy.superseded`, never in the dock.
+            HStack(spacing: 8) {
+                AppIcon(AppIcons.codingPlan, size: 13)
+                Text(Chats.Copy.superseded)
+                    .font(.footnote)
+                    .lineLimit(1)
             }
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("thread-plan-superseded")
+        case .question, .plan:
+            // FEED-140: a WAITING plan or question card is ALWAYS visible
+            // inline at its place with its actions (Approve / answer),
+            // besides THE dock; answered ones stay CLOSED.
+            ThreadAskCard(
+                row: row,
+                canAnswer: canAnswer,
+                answeringId: answeringId,
+                markdownContext: markdownContext,
+                onSubmit: onSubmit
+            )
         case let .subagent(_, title, status):
             HStack(spacing: 8) {
                 AppIcon(AppIcons.codingSubagent, size: 13)
@@ -268,6 +269,19 @@ struct ThreadConversationView: View {
             ThreadEventLine(text: text, issue: rows.issues.first { issue in issue.identifier.map { text.hasSuffix(" \($0)") } ?? false }) { issueId in
                 openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
             }
+        case let .divider(_, kind, at):
+            // chats.json: `/new` and `/compact` lines = the centred pill.
+            TranscriptDividerPill(
+                icon: AppIcons.conceptOrName(kind.icon) ?? kind.icon,
+                text: [kind.label, clock(at)].compactMap { $0 }.joined(separator: " · ")
+            )
+        case let .surface(id, _, title, surface):
+            SurfaceCardRow(
+                surface: surface,
+                title: title,
+                animate: arrived(id),
+                onReply: canAnswer ? onReply : nil
+            )
         }
     }
 
@@ -713,6 +727,8 @@ struct ThreadAskCard: View {
     var onSubmit: (ThreadCardAnswer) -> Void = { _ in }
 
     @State private var draft = PlanCardDraft()
+    /// FEED-140: a waiting plan's inline No-keep-planning field.
+    @State private var rejecting = false
 
     var body: some View {
         switch row {
@@ -868,23 +884,60 @@ struct ThreadAskCard: View {
     }
 
     /// A plan's form: the surface, then every question (closed once
-    /// decided, inert while it waits on someone else).
+    /// decided, inert while it waits on someone else). FEED-140: a plan
+    /// waiting on THIS reader is answerable inline too — its questions take
+    /// picks and THE decision footer (Yes · No, keep planning) closes it.
     private func planForm(_ card: ThreadPlanRow) -> AnyView? {
         let decided = card.decision != nil
-        guard card.surface != nil || !card.questions.isEmpty else { return nil }
+        let interactive = !decided && canAnswer && answeringId != card.id
+        guard card.surface != nil || !card.questions.isEmpty || interactive else { return nil }
+        let issue = PlanCard.answerIssue(
+            questions: card.questions,
+            input: PlanCard.AnswerInput(planAnswers: draft.planAnswers(card.questions), decision: "approved")
+        )
         return AnyView(VStack(alignment: .leading, spacing: PlanCard.Card.blockGap) {
             if let surface = card.surface {
                 // Decided: the person's stamped `surfaceData` over the
                 // agent's initial values (web `data={row.surfaceData}`).
                 PlanCardSurfaceView(
-                    surface: surface, handle: draft.surface, editable: false,
+                    surface: surface, handle: draft.surface, editable: interactive,
                     data: decided ? card.surfaceData : nil
                 )
             }
             ForEach(card.questions) { question in
-                questionBlock(question, card: card, editable: false)
+                questionBlock(question, card: card, editable: interactive)
+            }
+            if interactive {
+                PlanCardFooter(
+                    onBack: nil,
+                    onNext: nil,
+                    decision: PlanCardFooter.Decision(
+                        approveIssue: issue.map(PlanCard.Copy.issue),
+                        rejecting: $rejecting,
+                        feedback: $draft.feedback,
+                        onDecide: { decide($0, card: card, blocked: issue != nil) },
+                        busy: answeringId == card.id
+                    )
+                )
+                .accessibilityIdentifier("thread-plan-inline-decision")
             }
         })
+    }
+
+    /// Rejecting never needs answers; approving waits on them.
+    private func decide(_ option: AskDock.PlanOption, card: ThreadPlanRow, blocked: Bool) {
+        let approved = option.decision == PlanDecision.approved.rawValue
+        if approved, blocked { return }
+        let answers = draft.planAnswers(card.questions)
+        let typed = approved ? "" : draft.feedback.trimmingCharacters(in: .whitespacesAndNewlines)
+        onSubmit(ThreadCardAnswer(
+            messageId: card.id,
+            decision: approved ? .approved : .rejected,
+            fresh: approved && option.fresh,
+            feedback: typed.isEmpty ? nil : typed,
+            answers: answers.isEmpty ? nil : .plan(answers),
+            surfaceData: card.surface == nil ? nil : draft.surface.snapshot()
+        ))
     }
 
     private func questionBlock(_ question: ThreadPlanQuestion, card: ThreadPlanRow, editable: Bool) -> some View {
@@ -906,5 +959,30 @@ struct ThreadAskCard: View {
             },
             onType: { draft.type(question.id, text: $0, multi: question.multi) }
         )
+    }
+}
+
+/// Thread 58cb32df (chats.json SURFACE CARD): an agent's inline Exponential
+/// UI preview in the agent's column — THE plan card's surface painter in its
+/// own rounded glass frame (`SurfaceCardFrame`, which plays the ENTER
+/// animation on a live arrival); a `reply` press posts its text.
+struct SurfaceCardRow: View {
+    let surface: CardSurface
+    let title: String?
+    let animate: Bool
+    var onReply: ((String) -> Void)?
+
+    @State private var handle = PlanCardSurfaceHandle()
+
+    var body: some View {
+        HStack(spacing: 0) {
+            SurfaceCardFrame(title: title, animate: animate) {
+                PlanCardSurfaceView(
+                    surface: surface, handle: handle, editable: onReply != nil,
+                    onReply: onReply, bare: true, staggerChildren: animate
+                )
+            }
+            Spacer(minLength: ChatBubbleMetrics.agentTrailingGap)
+        }
     }
 }

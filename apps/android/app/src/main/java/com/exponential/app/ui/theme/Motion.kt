@@ -160,3 +160,47 @@ fun Modifier.pressScale(pressed: Boolean): Modifier {
     )
     return if (scale == 1f) this else graphicsLayer { scaleX = scale; scaleY = scale }
 }
+
+/** A motion token by its fixture NAME (`fast` | `standard` | `slow`), in ms
+ *  (thread 58cb32df: `chats.json` `surfaceCard.enter` names its tokens). */
+fun motionDurationMs(name: String): Int = when (name) {
+    "fast" -> DesignTokens.Motion.Duration.Fast
+    "slow" -> DesignTokens.Motion.Duration.Slow
+    else -> DesignTokens.Motion.Duration.Standard
+}
+
+/** An easing token by its fixture NAME (`standard` | `decelerate` | `accelerate`). */
+fun motionEasing(name: String): Easing = when (name) {
+    "decelerate" -> DesignTokens.Motion.Ease.Decelerate
+    "accelerate" -> DesignTokens.Motion.Ease.Accelerate
+    else -> DesignTokens.Motion.Ease.Standard
+}
+
+/** The px a phone chat bubble rises by when it arrives live (chats.json:
+ *  "an opacity + 6px rise at `standard` / `decelerate`"). */
+const val BUBBLE_RISE_PX = 6f
+
+/**
+ * Thread 58cb32df (chats.json TRANSCRIPT): a NEW bubble that arrives while the
+ * chat is open rises in once — opacity + [BUBBLE_RISE_PX] at `standard` /
+ * `decelerate`; reduce motion = the opacity alone. [animate] false (history,
+ * a reopen, a scroll back) draws it in place.
+ */
+@Composable
+fun Modifier.liveArrival(animate: Boolean): Modifier {
+    val reduce = LocalReduceMotion.current
+    // Decided once per item: a later recomposition never re-plays it.
+    val progress = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (animate) 0f else 1f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (progress.value >= 1f) return@LaunchedEffect
+        progress.animateTo(
+            1f,
+            tween(DesignTokens.Motion.Duration.Standard, easing = DesignTokens.Motion.Ease.Decelerate),
+        )
+    }
+    return graphicsLayer {
+        val p = progress.value
+        alpha = p
+        if (!reduce) translationY = (1f - p) * BUBBLE_RISE_PX * density
+    }
+}

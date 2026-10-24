@@ -56,11 +56,11 @@ vi.mock(`@/hooks/use-issue-drafts`, () => ({
   },
 }))
 const threadsNav = vi.hoisted(() => ({
-  value: { live: false, needsYou: false },
-  scope: [] as readonly string[],
+  value: { live: false, needsYou: false, unread: false },
+  scope: undefined as string | readonly string[] | undefined,
 }))
 vi.mock(`@/hooks/use-nav-counts`, () => ({
-  useThreadsNav: (teamIds: readonly string[]) => {
+  useThreadsNav: (teamIds: string | readonly string[] | undefined) => {
     threadsNav.scope = teamIds
     return threadsNav.value
   },
@@ -108,7 +108,6 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
       `/t/$teamSlug`,
       `/t/$teamSlug/agent`,
       `/t/$teamSlug/boards/$boardSlug`,
-      `/t/$teamSlug/inbox`,
       `/t/$teamSlug/devices`,
       `/t/$teamSlug/threads`,
     ]) {
@@ -161,46 +160,52 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
   })
 })
 
-// EXP-1293: Threads replaced Reviews — always a tab, its dot green while a
-// thread runs and amber while one needs you, across every member team.
-describe(`MobileTabBar Threads (EXP-1293)`, () => {
+// EXP-1293 → thread 58cb32df: Chats — always a tab, its dot amber while a
+// chat needs you, green while one runs, else the unread dot; phones read
+// the ONE active team (chats.json `shell`).
+describe(`MobileTabBar Chats (chats.json)`, () => {
   beforeEach(() => {
     route.value = ``
     memberTeams.value = null
-    threadsNav.value = { live: false, needsYou: false }
+    threadsNav.value = { live: false, needsYou: false, unread: false }
   })
 
-  const threadsTab = () => screen.getByTestId(`tab-threads`)
+  const chatsTab = () => screen.getByTestId(`tab-threads`)
 
-  it(`links Threads and lights it on its routes`, () => {
+  it(`links Chats and lights it on its routes`, () => {
     route.value = `/t/$teamSlug/threads`
     renderBar()
-    expect(threadsTab().getAttribute(`href`)).toBe(`/t/$teamSlug/threads`)
-    expect(threadsTab().className).toContain(`bg-glass-active`)
+    expect(chatsTab().getAttribute(`href`)).toBe(`/t/$teamSlug/threads`)
+    expect(chatsTab().className).toContain(`bg-glass-active`)
+    expect(chatsTab().getAttribute(`aria-current`)).toBe(`page`)
   })
 
-  it(`dots Threads green while running, amber while it needs you`, () => {
+  it(`dots Chats amber while it needs you, green while running, else unread`, () => {
     const view = renderBar()
-    expect(threadsTab().querySelector(`.bg-green-500, .bg-yellow-400`)).toBeNull()
+    expect(chatsTab().querySelector(`[data-slot=phone-tab-dot]`)).toBeNull()
     view.unmount()
-    threadsNav.value = { live: true, needsYou: false }
+    threadsNav.value = { live: true, needsYou: false, unread: false }
     const running = renderBar()
-    expect(threadsTab().querySelector(`.bg-green-500`)).toBeTruthy()
+    expect(chatsTab().querySelector(`.bg-green-500`)).toBeTruthy()
     running.unmount()
-    threadsNav.value = { live: true, needsYou: true }
+    threadsNav.value = { live: true, needsYou: true, unread: false }
+    const needs = renderBar()
+    expect(chatsTab().querySelector(`.bg-yellow-400`)).toBeTruthy()
+    needs.unmount()
+    threadsNav.value = { live: false, needsYou: false, unread: true }
     renderBar()
-    expect(threadsTab().querySelector(`.bg-yellow-400`)).toBeTruthy()
+    expect(chatsTab().querySelector(`.bg-primary`)).toBeTruthy()
   })
 
-  it(`reads the dot across every member team`, () => {
+  it(`reads the dot off the active team only`, () => {
     memberTeams.value = [team, { id: `t2`, name: `Beta` }]
     renderBar()
-    expect(threadsNav.scope).toEqual([`t1`, `t2`])
+    expect(threadsNav.scope).toBe(`t1`)
   })
 
-  // EXP-1327: the live dot rides Threads, never the chat arm.
+  // EXP-1327: the live dot rides Chats, never the chat arm.
   it(`never dots the chat arm`, () => {
-    threadsNav.value = { live: true, needsYou: true }
+    threadsNav.value = { live: true, needsYou: true, unread: false }
     renderBar()
     expect(
       screen.getByTestId(`chat-button`).querySelector(`.bg-green-500, .bg-yellow-400`)
@@ -208,24 +213,45 @@ describe(`MobileTabBar Threads (EXP-1293)`, () => {
   })
 })
 
-// EXP-1187 / NEW-2: no More and no Actions on the phone, Settings
-// lives in the topbar's avatar menu (×3 with iOS and Android).
-describe(`MobileTabBar tabs (EXP-1187)`, () => {
+// chats.json `shell.tabs`: Board · Devices · Chats · Team, each an icon over
+// its label; the Team tab = the active team's avatar + name. No Inbox tab
+// (it moved into the Chats header), no More, no Actions.
+describe(`MobileTabBar tabs (chats.json shell.tabs)`, () => {
   beforeEach(() => {
     route.value = ``
     memberTeams.value = null
   })
 
-  it(`draws Issues · Inbox · Devices · Threads and no More`, () => {
+  it(`draws Board · Devices · Chats · Team and nothing else`, () => {
     renderBar()
     const nav = screen.getByRole(`navigation`, { name: `Primary` })
-    const labels = [...nav.querySelectorAll(`a, button`)].map((el) =>
-      el.getAttribute(`aria-label`)
-    )
-    expect(labels).toEqual([`Issues`, `Inbox`, `Devices`, `Threads`])
+    const tabs = [...nav.querySelectorAll(`a, button`)]
+    expect(tabs.map((el) => el.getAttribute(`aria-label`))).toEqual([
+      `Board`,
+      `Devices`,
+      `Chats`,
+      `Acme`,
+    ])
+    expect(tabs.map((el) => el.textContent)).toEqual([`Board`, `Devices`, `Chats`, `AAcme`]) // the avatar initial, then the name
+    expect(screen.getByTestId(`tab-team`).getAttribute(`href`)).toBe(`/t/$teamSlug/team`)
+    expect(screen.queryByLabelText(`Inbox`)).toBeNull()
     expect(screen.queryByTestId(`nav-more`)).toBeNull()
-    expect(screen.queryByLabelText(`More`)).toBeNull()
     expect(screen.queryByLabelText(`Settings`)).toBeNull()
+  })
+
+  it(`lights the Team tab on its own route and the settings it pushes`, () => {
+    for (const path of [`/t/$teamSlug/team`, `/t/$teamSlug/settings`]) {
+      route.value = path
+      const view = renderBar()
+      expect(screen.getByTestId(`tab-team`).getAttribute(`aria-current`), path).toBe(`page`)
+      view.unmount()
+    }
+  })
+
+  it(`hides on the pushed Inbox`, () => {
+    route.value = `/t/$teamSlug/inbox`
+    renderBar()
+    expect(screen.queryByRole(`navigation`, { name: `Primary` })).toBeNull()
   })
 
   it(`selects the chat arm on the Agent page only`, () => {
@@ -248,38 +274,5 @@ describe(`MobileTabBar tabs (EXP-1187)`, () => {
     renderBar()
     expect(screen.queryByTestId(`tab-actions`)).toBeNull()
     expect(screen.queryByLabelText(`Actions`)).toBeNull()
-  })
-})
-
-// EXP-1272: the phone has no Drafts entry — the Inbox tab's dot also lights
-// while the caller has a draft in the team, the SAME dot as unread.
-describe(`MobileTabBar Inbox dot (EXP-1272)`, () => {
-  beforeEach(() => {
-    route.value = ``
-    memberTeams.value = null
-    inbox.unread = 0
-    inbox.drafts = []
-    inbox.draftTeamId = undefined
-  })
-
-  const inboxDot = () =>
-    screen.getByRole(`link`, { name: `Inbox` }).querySelector(`.bg-primary`)
-
-  it(`stays dark with nothing unread and no drafts`, () => {
-    renderBar()
-    expect(inboxDot()).toBeNull()
-  })
-
-  it(`lights for unread notifications`, () => {
-    inbox.unread = 2
-    renderBar()
-    expect(inboxDot()).toBeTruthy()
-  })
-
-  it(`lights for a draft alone, read off the active team`, () => {
-    inbox.drafts = [{ draft: { id: `d1` } }]
-    renderBar()
-    expect(inboxDot()).toBeTruthy()
-    expect(inbox.draftTeamId).toBe(`t1`)
   })
 })

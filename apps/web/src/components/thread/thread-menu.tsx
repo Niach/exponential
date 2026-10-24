@@ -7,6 +7,9 @@ import { sessionIssueCollection } from "@/lib/collections"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { newDraftNavigation } from "@/lib/issue-draft-page"
 import { trpc } from "@/lib/trpc-client"
+import { usePullRequestClose } from "@/components/session-merge-button"
+import { guideMenuEntries, type PullRequestRow, type SessionRow } from "@/lib/session-tree"
+import { ChatHeaderMenu, useChatMenuEntries, type useChatActions } from "@/components/thread/chat-menu"
 
 // EXP-1284 / EXP-1293 / EXP-1334: the header strip's ONE menu (THE Menu),
 // behind the "+" (LEFT of Conversation) and every issue chip's context menu
@@ -198,3 +201,43 @@ export function useThreadMenu({
 
   return { entries, addMenu }
 }
+
+/** Thread 58cb32df (chats.json MENUS): the thread header's `…` = the chat's
+ *  own menu (Stop · Stop and delete | Delete, the rows' right-click menu)
+ *  plus, while the Guide's PR is open, its Close (EXP-1338). The delete
+ *  confirm is the host's (`useChatActions().dialog`). */
+export function ThreadHeaderMenu({
+  root,
+  title,
+  pr,
+  canClosePr,
+  actions,
+  className,
+}: {
+  root: SessionRow
+  title: string
+  /** The Guide's PR (null = none). */
+  pr: PullRequestRow | null
+  canClosePr: boolean
+  actions: Pick<ReturnType<typeof useChatActions>, `stop` | `requestDelete`>
+  className?: string
+}) {
+  const chat = useChatMenuEntries(root, actions)
+  const close = usePullRequestClose(pr ?? NO_PR, canClosePr && pr !== null)
+  const prEntries: MenuEntry[] =
+    pr && close.entry && guideMenuEntries({ state: pr.state, member: canClosePr }).length > 0
+      ? [close.entry]
+      : []
+  const entries: MenuEntry[] =
+    chat.length > 0 && prEntries.length > 0
+      ? [...chat, { kind: `separator`, id: `sep-pr` }, ...prEntries]
+      : [...chat, ...prEntries]
+  return (
+    <>
+      <ChatHeaderMenu entries={entries} title={title} className={className} />
+      {close.dialog}
+    </>
+  )
+}
+
+const NO_PR = { id: ``, state: `closed` } as const

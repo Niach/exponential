@@ -135,7 +135,9 @@ fun NodeView(index: Int, modifier: Modifier = Modifier) {
     val node = model.node(index) ?: return
     if (node.hidden) return
     model.paintTrace?.add(index)
-    NodeBody(index, node, model, modifier)
+    // The host's paint-only hook (SurfaceModel.nodeModifier), outermost.
+    val extra = model.nodeModifier?.invoke(index)
+    NodeBody(index, node, model, if (extra != null) modifier.then(extra) else modifier)
 }
 
 @OptIn(ExperimentalFoundationApi::class)

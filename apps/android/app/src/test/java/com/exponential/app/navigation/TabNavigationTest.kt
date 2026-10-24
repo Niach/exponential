@@ -20,7 +20,9 @@ class TabNavigationTest {
 
     @Test
     fun `a tab root on the Agent root is that tab`() {
-        assertEquals(MainTabs.INBOX, MainTabs.current(listOf(null, "agent-tab", "personal")))
+        assertEquals(MainTabs.TEAM, MainTabs.current(listOf(null, "agent-tab", "team")))
+        // Thread 58cb32df: the inbox is a page pushed inside a tab.
+        assertEquals(MainTabs.THREADS, MainTabs.current(listOf(null, "agent-tab", "threads", "personal")))
     }
 
     @Test
@@ -51,9 +53,10 @@ class TabNavigationTest {
 
     @Test
     fun `the tab routes are the bar's five destinations`() {
-        // NEW-7: the Actions tab is gone (prompts replaced actions).
+        // NEW-7: the Actions tab is gone (prompts replaced actions); thread
+        // 58cb32df: Board · Devices · Chats · Team + the Agent root.
         assertEquals(
-            setOf("agent-tab", "home", "personal", "agents", "threads"),
+            setOf("agent-tab", "home", "agents", "threads", "team"),
             MainTabs.routes,
         )
     }

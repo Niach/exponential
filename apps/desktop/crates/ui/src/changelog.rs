@@ -46,6 +46,22 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-24-chats",
+    date: "2026-10-24",
+    title: "Chats: a WhatsApp-like phone app, stop and delete from the list, agents that compact and start over, and live previews in the chat",
+    summary: "Threads are now Chats everywhere. Phones get a new bottom bar, a chat list with agent bubbles, chat bubbles and a Team tab; every platform can stop or delete a chat from its row, compact an agent or start it fresh, and agents can draw live previews right into the chat.",
+    body: r#"- **Chats**: threads are called chats on every platform. On phones the bottom bar is Board · Devices · Chats · Team, and the Chats tab lists your active team's chats like a messenger: agents as bubbles on top (a ring when they need you or wrote something new), filter chips, and one row per chat with its last message, time and unread count.
+- **Stop and delete**: right-click a chat (long-press on phones) to Stop it or Stop and delete it; an ended chat offers Delete. The Stop button in a chat's header now ends the chat, and a stop the device never received says so.
+- **Agents**: Compact conversation and New conversation in an agent chat's menu, or type `/compact` and `/new`; both leave a marker in the chat.
+- **Live previews**: agents can draw an interactive preview (charts, stats, buttons) straight into the chat, and it animates in as it arrives.
+- **Plans**: a waiting plan always shows in the chat with its buttons, and a newer plan replaces the waiting one.
+- **Phones**: one active team at a time, switched on the Team tab, which also holds the settings; My issues and Drafts are chips on the board, and the inbox has its own page.
+- **Triggers**: agents can wake every 5, 10, 15, 20 or 30 minutes; hourly and shorter schedules no longer show a time zone, and the minute and hour lists scroll."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_75: ChangelogEntry = ChangelogEntry {
     id: "2026-10-24-no-built-in-apps",
     date: "2026-10-24",
     title: "Apps lists only your team's apps",
