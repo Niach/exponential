@@ -140,8 +140,8 @@
         "file": "shots/app/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 59810,
-        "sha256": "6614f13b8b13880b9c391b2c42afe955298eafea67c37b4e59a3aaf0de771424"
+        "bytes": 50472,
+        "sha256": "cf12012ed28640cb024a451a1a3f62d504e69013e6a3329d3b06bd25d1e294ab"
       },
       "ios": {
         "file": "shots/app/ios.webp",
@@ -4172,8 +4172,8 @@
         "file": "shots/settings-app/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 29146,
-        "sha256": "32a429de06425d2b29b74c8c019c1ae15de1f116a5a474ddf5452a7e968fc52e"
+        "bytes": 31548,
+        "sha256": "d85d3486de6c6c5e543951762e3b9b75062cc5bf7f152e94a06786633c53f2e1"
       },
       "web": {
         "file": "shots/settings-app/web.webp",
