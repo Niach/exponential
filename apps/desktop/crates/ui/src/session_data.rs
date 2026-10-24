@@ -171,6 +171,45 @@ pub(crate) fn session_card_of(session_id: &str, now_ms: i64, cx: &App) -> Option
 pub(crate) fn session_title_of(session_id: &str, cx: &App) -> Option<String> {
     let store = Store::try_global(cx)?;
     let collections = store.collections();
+    // #EXP-1380 PERF: the tab strip asks this for every thread tab on every
+    // frame (twice: measure + paint); memoised per store change, it used to
+    // walk and clone every synced message each time.
+    let revisions = [
+        collections.sessions.read(cx).revision(),
+        collections.session_issues.read(cx).revision(),
+        collections.issues.read(cx).revision(),
+        collections.messages.read(cx).revision(),
+        collections.conversations.read(cx).revision(),
+    ];
+    if let Some(title) = TITLE_MEMO.with(|memo| {
+        memo.borrow()
+            .get(session_id)
+            .filter(|(at, _)| *at == revisions)
+            .map(|(_, title)| title.clone())
+    }) {
+        return title;
+    }
+    let title = derive_session_title(session_id, cx);
+    TITLE_MEMO.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        if memo.len() > 512 {
+            memo.clear();
+        }
+        memo.insert(session_id.to_string(), (revisions, title.clone()));
+    });
+    title
+}
+
+thread_local! {
+    /// [`session_title_of`]'s memo: session id → (the store revisions it
+    /// was derived at, the title).
+    static TITLE_MEMO: std::cell::RefCell<HashMap<String, ([u64; 5], Option<String>)>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+fn derive_session_title(session_id: &str, cx: &App) -> Option<String> {
+    let store = Store::try_global(cx)?;
+    let collections = store.collections();
     let row = collections.sessions.read(cx).get(session_id)?.clone();
     // NEW-1: a session titles from its OWN rows (the row sits on its holder).
     let links: Vec<SessionIssueRow> = collections
@@ -186,7 +225,10 @@ pub(crate) fn session_title_of(session_id: &str, cx: &App) -> Option<String> {
         .filter_map(|link| all_issues.get(&link.issue_id))
         .map(TreeIssue::from_issue)
         .collect();
-    let messages: Vec<MessageRow> = keyed_messages(cx, |owner, _| owner == session_id);
+    // Only the first-prompt candidates are ever read (no clone of a long
+    // chat's every message).
+    let messages: Vec<MessageRow> =
+        keyed_messages(cx, |owner, message| owner == session_id && is_first_prompt_candidate(message, owner));
     let link_refs: Vec<&SessionIssueRow> = links.iter().collect();
     let message_refs: Vec<&MessageRow> = messages.iter().collect();
     Some(domain::session_title::session_title(&row, &link_refs, &issues, &message_refs))
@@ -316,25 +358,6 @@ fn sort_messages(messages: &mut [MessageRow]) {
 /// The messages of ONE session (its own conversation), oldest first.
 pub(crate) fn messages_of_session(session_id: &str, cx: &App) -> Vec<MessageRow> {
     let mut out: Vec<MessageRow> = keyed_messages(cx, |owner, _| owner == session_id);
-    sort_messages(&mut out);
-    out
-}
-
-/// VAPP-110: the messages of a whole TREE (every session whose root is
-/// `root_id`), oldest first (web `useTreeMessages`).
-pub(crate) fn tree_messages(root_id: &str, cx: &App) -> Vec<MessageRow> {
-    let Some(store) = Store::try_global(cx) else {
-        return Vec::new();
-    };
-    let collections = store.collections();
-    let tree: HashSet<String> = collections
-        .sessions
-        .read(cx)
-        .iter()
-        .filter(|session| session.id == root_id || session.root_id_or_self() == root_id)
-        .map(|session| session.id.clone())
-        .collect();
-    let mut out: Vec<MessageRow> = keyed_messages(cx, |owner, _| tree.contains(owner));
     sort_messages(&mut out);
     out
 }
@@ -475,22 +498,35 @@ pub(crate) fn team_pr_snapshot(team_id: &str, cx: &App) -> PrSnapshot {
 // ---------------------------------------------------------------------------
 
 /// The thread screen's model for `root_id` (`build_session_thread`): the
-/// tabs, the conversation rows, the composer target. `None` while the root
-/// has not synced. Works for an agent root too (its channel).
-pub(crate) fn session_thread_view(
+/// tabs, the conversation rows, the composer target; `None` while the root
+/// has not synced. Works for an agent root too (its channel). #EXP-1380:
+/// with the root's own messages (oldest first) off the SAME scan.
+/// `whole_tree` (VAPP-110) = an app EDITOR's channel over the WHOLE tree's
+/// messages (web `useTreeMessages`): the editor session's children (and a
+/// pre-FEED-134 continuation child) post there too.
+pub(crate) fn thread_view_and_messages(
     root_id: &str,
     focus: Option<&str>,
     now_ms: i64,
+    whole_tree: bool,
     cx: &App,
-) -> Option<SessionThreadView> {
-    thread_view(root_id, focus, now_ms, false, cx)
+) -> Option<(SessionThreadView, Vec<MessageRow>)> {
+    thread_view(root_id, focus, now_ms, whole_tree, cx)
 }
 
-/// VAPP-110: an app EDITOR's channel: [`session_thread_view`] over the
-/// WHOLE tree's messages (web `useTreeMessages`): the editor session's
-/// children (and a pre-FEED-134 continuation child) post there too.
-pub(crate) fn editor_thread_view(root_id: &str, now_ms: i64, cx: &App) -> Option<SessionThreadView> {
-    thread_view(root_id, None, now_ms, true, cx)
+/// #EXP-1380: a card-less input that may name `owner` (another team
+/// session): `session_title::first_prompt`'s candidates (a person's text or
+/// another session's input, with a usable first line). Only the oldest is
+/// kept per session — all another root's plain messages are ever read for
+/// here, so a 1500-message chat beside this one no longer rides along.
+fn is_first_prompt_candidate(message: &MessageRow, owner: &str) -> bool {
+    matches!(message.card, None | Some(serde_json::Value::Null))
+        && (message.is_from_user()
+            || message
+                .author_session_id
+                .as_deref()
+                .is_some_and(|author| !author.is_empty() && author != owner))
+        && domain::session_title::first_line(message.body_text()).is_some()
 }
 
 fn thread_view(
@@ -499,7 +535,7 @@ fn thread_view(
     now_ms: i64,
     whole_tree: bool,
     cx: &App,
-) -> Option<SessionThreadView> {
+) -> Option<(SessionThreadView, Vec<MessageRow>)> {
     let store = Store::try_global(cx)?;
     let collections = store.collections();
     let sessions = collections.sessions.read(cx);
@@ -529,19 +565,39 @@ fn thread_view(
         .map(|session| session.id.as_str())
         .collect();
     // NEW-8: every message keyed through its conversation.
-    let keyed: Vec<MessageRow> = keyed_messages(cx, |owner, message| {
-        owner == root_id
-            // EXP-1341: a card-less input names its session (first prompt).
-            || (team_ids.contains(owner) && message.card.is_none())
-            || (tree_ids.contains(owner)
-                && message.card.as_ref().is_some_and(|card| {
-                    matches!(
-                        card.get("kind").and_then(serde_json::Value::as_str),
-                        Some(domain::contract::MESSAGE_CARD_KIND_QUESTION)
-                            | Some(domain::contract::MESSAGE_CARD_KIND_PLAN)
-                    )
-                }))
-    });
+    // EXP-1341: a card-less input names its session (first prompt); #EXP-1380:
+    // another root's only as that one input.
+    let owners = conversation_sessions(cx);
+    let all_messages = collections.messages.read(cx);
+    // ONE pass: the root's (and its tree's) rows, plus each other team
+    // session's first prompt.
+    let (mut picked, mut first): (Vec<&MessageRow>, HashMap<&str, (i64, &MessageRow)>) = (Vec::new(), HashMap::new());
+    for message in all_messages.iter() {
+        let Some(owner) = domain::message_conversation::session_of(message, &owners) else {
+            continue;
+        };
+        let in_tree = owner == root_id || tree_ids.contains(owner);
+        if in_tree {
+            let card_kind = message.card.as_ref().and_then(|card| card.get("kind")).and_then(serde_json::Value::as_str);
+            if owner == root_id
+                || message.card.is_none()
+                || matches!(
+                    card_kind,
+                    Some(domain::contract::MESSAGE_CARD_KIND_QUESTION) | Some(domain::contract::MESSAGE_CARD_KIND_PLAN)
+                )
+            {
+                picked.push(message);
+            }
+        } else if team_ids.contains(owner) && is_first_prompt_candidate(message, owner) {
+            let at = message.created_at.as_deref().and_then(domain::session_tree::iso_ms).unwrap_or(0);
+            let slot = first.entry(owner).or_insert((at, message));
+            if (at, message.id.as_str()) < (slot.0, slot.1.id.as_str()) {
+                *slot = (at, message);
+            }
+        }
+    }
+    picked.extend(first.into_values().map(|(_, message)| message));
+    let keyed: Vec<MessageRow> = domain::message_conversation::key_messages_by_session(picked, &owners);
     let messages: Vec<&MessageRow> = keyed.iter().collect();
     // VAPP-110: the tree's plain messages re-homed onto the root (cards stay
     // where they are: a continuation's own session card is not a message).
@@ -643,7 +699,7 @@ fn thread_view(
         .iter()
         .filter(|pull| pull.team_id == root.team_id)
         .collect();
-    Some(build_session_thread(
+    let view = build_session_thread(
         SessionThreadInput {
             root,
             sessions: &team_sessions,
@@ -654,7 +710,17 @@ fn thread_view(
             now_ms,
         },
         focus,
-    ))
+    );
+    // The root's own messages (an editor: the tree's), oldest first.
+    let mut own: Vec<MessageRow> = keyed
+        .iter()
+        .filter(|message| {
+            message.session_id == root_id || (whole_tree && tree_ids.contains(message.session_id.as_str()))
+        })
+        .cloned()
+        .collect();
+    sort_messages(&mut own);
+    Some((view, own))
 }
 
 // ---------------------------------------------------------------------------
@@ -765,6 +831,130 @@ fn derive_thread_lists(team_id: &str, cx: &App) -> Vec<ThreadsListGroup> {
         reads: &reads,
         now_ms: Some(now_ms()),
     })
+}
+
+// ---------------------------------------------------------------------------
+// The Chats page (#EXP-1380: the list on every form factor)
+// ---------------------------------------------------------------------------
+
+/// The Chats page's model: the WHOLE list (filter All, chips filter it in
+/// the view) and the agent bubbles.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ChatsModel {
+    pub(crate) list: domain::chats::ChatList,
+    pub(crate) bubbles: Vec<domain::chats::AgentBubble>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct ChatsKey {
+    team_id: String,
+    revisions: [u64; 8],
+    /// The time labels move with the local hour (today → Yesterday).
+    hour: i64,
+}
+
+#[derive(Default)]
+struct ChatsMemo(Option<(ChatsKey, Rc<ChatsModel>)>);
+
+impl gpui::Global for ChatsMemo {}
+
+/// [`ChatsModel`] of `team_id` (`domain::chats::chat_list` +
+/// `agent_bubbles`), memoised per store change.
+pub(crate) fn chats_model(team_id: &str, cx: &mut App) -> Rc<ChatsModel> {
+    let Some(store) = Store::try_global(cx) else {
+        return Rc::new(ChatsModel::default());
+    };
+    let collections = store.collections();
+    let key = ChatsKey {
+        team_id: team_id.to_string(),
+        revisions: [
+            collections.sessions.read(cx).revision(),
+            collections.session_issues.read(cx).revision(),
+            collections.messages.read(cx).revision(),
+            collections.conversations.read(cx).revision(),
+            collections.issues.read(cx).revision(),
+            collections.session_reads.read(cx).revision(),
+            collections.pull_requests.read(cx).revision(),
+            collections.agents.read(cx).revision(),
+        ],
+        hour: now_ms() / 3_600_000,
+    };
+    if let Some((cached, model)) = &cx.default_global::<ChatsMemo>().0 {
+        if *cached == key {
+            return model.clone();
+        }
+    }
+    let groups = thread_lists(team_id, cx);
+    let model = Rc::new(derive_chats_model(team_id, &groups, cx));
+    cx.global_mut::<ChatsMemo>().0 = Some((key, model.clone()));
+    model
+}
+
+fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> ChatsModel {
+    let collections = Store::global(cx).collections();
+    let me = crate::queries::active_account(cx).map(|account| account.user_id);
+    let agents = agents_in_team(team_id, cx);
+    let sessions = collections.sessions.read(cx);
+    let team_sessions: Vec<&SessionRow> = sessions
+        .iter()
+        .filter(|session| session.team_id.as_deref() == Some(team_id))
+        .collect();
+    // Only the ROOT conversations (the list's roots + my agent chats) count.
+    let roots: HashSet<&str> = groups
+        .iter()
+        .flat_map(|group| group.rows.iter())
+        .filter(|row| row.depth == 0)
+        .map(|row| row.session_id.as_str())
+        .chain(
+            team_sessions
+                .iter()
+                .filter(|session| session.is_root() && session.agent_id.is_some())
+                .map(|session| session.id.as_str()),
+        )
+        .collect();
+    let keyed: Vec<MessageRow> = keyed_messages(cx, |owner, _| roots.contains(owner));
+    let messages: Vec<&MessageRow> = keyed.iter().collect();
+    let session_reads = collections.session_reads.read(cx);
+    let reads: Vec<&SessionReadRow> = session_reads
+        .iter()
+        .filter(|read| roots.contains(read.session_id.as_str()))
+        .collect();
+    let pulls: Vec<PullRequestRow> = collections
+        .pull_requests
+        .read(cx)
+        .iter()
+        .filter(|pull| pull.team_id.as_deref() == Some(team_id))
+        .cloned()
+        .collect();
+    let mut pr_states: HashMap<String, Vec<String>> = HashMap::new();
+    for pull in &pulls {
+        if let Some(root) = pull.root_session_id.as_deref() {
+            pr_states.entry(root.to_string()).or_default().push(pull.state.clone().unwrap_or_default());
+        }
+    }
+    let words: HashMap<String, domain::session_tree::ThreadRowWord> = groups
+        .iter()
+        .flat_map(|group| group.rows.iter())
+        .filter(|row| row.depth == 0)
+        .filter_map(|row| {
+            crate::threads_view::thread_word(&row.session_id, row.busy, row.needs_you, &pulls)
+                .map(|word| (row.session_id.clone(), word))
+        })
+        .collect();
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let offset = chrono::Local::now().offset().local_minus_utc() / 60;
+    let list = domain::chats::chat_list(domain::chats::ChatListInput {
+        groups,
+        messages: &messages,
+        reads: &reads,
+        pr_states: &pr_states,
+        words: &words,
+        filter: domain::chats::ChatFilter::All,
+        now: &now,
+        utc_offset_minutes: offset,
+    });
+    let bubbles = domain::chats::agent_bubbles(&agents, &team_sessions, &messages, &reads, me.as_deref());
+    ChatsModel { list, bubbles }
 }
 
 /// EXP-1323: the Threads entry's unread dot — any thread of `team_id` has

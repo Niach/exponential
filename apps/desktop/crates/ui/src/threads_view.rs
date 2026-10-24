@@ -1,10 +1,13 @@
 //! EXP-1294 — the CHATS page ([`Screen::Threads`], the rail's `Chats`
-//! entry; thread 58cb32df: the product says chats): the ACTIVE team's
-//! threads in the Reviews list language. A chat row's right-click = THE
-//! chat menu ([`chat_row_menu`], `fixtures/chats.json` `menuCases`).
+//! entry; thread 58cb32df: the product says chats). #EXP-1380 (chats.json
+//! WIDE): the page = THE Chats list of the active team, the same pieces as
+//! the phones ([`crate::chat_list`]): the agent bubbles row, the filter
+//! chips, then the flat rows, one centred column. A row opens the chat, its
+//! right-click = THE chat menu ([`chat_row_menu`], `menuCases`); a bubble
+//! opens the agent's chat, its right-click the agent menu.
 //!
-//! A tab-less FULL-PAGE screen like Devices / Actions: one centred column,
-//! no page title. Bands Needs you · Running · Recent
+//! The helpers below still paint the rail's rows and the styleguide's
+//! `thread-parts` specimen: bands Needs you · Running · Recent
 //! (`domain::session_tree::partition_threads`, through the memoised
 //! [`crate::session_data::thread_lists`]), each a glass band with its glyph
 //! (no count) over flat gapless ONE-line rows ([`crate::pr_rows::pr_row`],
@@ -25,6 +28,7 @@ use gpui::{
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
+use domain::chats::{AgentBubble, ChatFilter, ChatRow, CHATS};
 use domain::rows::{PullRequestRow, SessionRow};
 use domain::session_tree::{
     thread_in_stack, thread_row_mark_state, thread_row_word, SessionState, StackPr, ThreadRowWord, ThreadsListGroup, ThreadsListKey, ThreadsListRow,
@@ -311,6 +315,8 @@ fn root_agent(root: Option<&SessionRow>) -> Option<coding::CodingAgent> {
 pub struct ThreadsView {
     nav: Entity<Navigation>,
     scroll: ScrollHandle,
+    /// #EXP-1380: the selected filter chip.
+    filter: ChatFilter,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -322,9 +328,53 @@ impl ThreadsView {
         Self {
             nav,
             scroll: ScrollHandle::new(),
+            filter: ChatFilter::All,
             _subscriptions: subscriptions,
         }
     }
+}
+
+/// #EXP-1380: one Chats page row — THE list row ([`crate::chat_list`]),
+/// hover-lit; a click opens the chat, a right-click its menu.
+fn chats_page_row(row: &ChatRow, cx: &App) -> gpui::AnyElement {
+    use gpui::StatefulInteractiveElement as _;
+    let agent = root_agent(session_data::session(&row.session_id, cx).as_ref());
+    let lead = crate::chat_list::chat_lead_disc(row.lead, agent, cx);
+    let session_id = row.session_id.clone();
+    let element = gpui::div()
+        .id(SharedString::from(format!("{}-{}", CHATS.test_ids.chat_row, row.session_id)))
+        .w_full()
+        .min_w_0()
+        .px_2()
+        .rounded_lg()
+        .cursor_pointer()
+        .hover(|style| style.bg(cx.theme().list_hover))
+        .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+            crate::navigation::navigate(window, cx, Screen::Thread { session_id: session_id.clone() });
+        })
+        .child(crate::chat_list::chat_row(row, lead, cx))
+        .into_any_element();
+    chat_row_menu(&row.session_id, element, cx)
+}
+
+/// #EXP-1380: a bubble's click opens the agent's chat, its right-click the
+/// agent menu.
+fn chats_page_bubble(index: usize, bubble: &AgentBubble, element: gpui::Div) -> gpui::AnyElement {
+    use crate::controls::PointerContextMenuExt as _;
+    use gpui::StatefulInteractiveElement as _;
+    let open_id = bubble.agent.agent_id.clone();
+    let menu_id = bubble.agent.agent_id.clone();
+    gpui::div()
+        .id((SharedString::from(CHATS.test_ids.agent_bubble.clone()), index))
+        .cursor_pointer()
+        .child(element)
+        .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+            crate::navigation::navigate(window, cx, Screen::Agent { agent_id: open_id.clone() });
+        })
+        .pointer_context_menu(move |menu, _, cx| {
+            crate::chat_actions::agent_menu_items(menu.min_w(px(220.)), &menu_id, cx)
+        })
+        .into_any_element()
 }
 
 impl Render for ThreadsView {
@@ -332,10 +382,21 @@ impl Render for ThreadsView {
         let ready = sync::Store::try_global(cx)
             .is_some_and(|store| store.collections().sessions.read(cx).is_ready());
         let team_id = active_team_id(&self.nav, cx);
-        let groups = team_id
+        let model = team_id
             .as_deref()
-            .map(|team_id| session_data::thread_lists(team_id, cx))
+            .map(|team_id| session_data::chats_model(team_id, cx))
             .unwrap_or_default();
+        let filter = self.filter;
+        let on_filter: crate::chat_list::OnFilter = {
+            let view = cx.entity().downgrade();
+            std::rc::Rc::new(move |filter, _window, cx| {
+                view.update(cx, |view, cx| {
+                    view.filter = filter;
+                    cx.notify();
+                })
+                .ok();
+            })
+        };
         let column = if !ready {
             // Skeletons, never "Loading…" (feedback-states.json).
             v_flex().min_w_0().child(crate::feedback::skeleton_rows(
@@ -344,19 +405,29 @@ impl Render for ThreadsView {
                 crate::settings::SETTINGS_ROW_H,
                 cx,
             ))
-        } else if groups.is_empty() {
-            v_flex().min_w_0().child(crate::controls::empty_state(
-                Icon::new(registry::NAV_THREADS),
-                crate::empty_state_copy::THREADS,
-                None,
-                cx,
-            ))
         } else {
-            let snapshot = team_id
-                .as_deref()
-                .map(|team_id| session_data::team_pr_snapshot(team_id, cx))
-                .unwrap_or_default();
-            v_flex().min_w_0().gap_2().children(thread_list_bands(&groups, &snapshot, cx))
+            let rows: Vec<&ChatRow> = model.list.rows.iter().filter(|row| filter.keeps(row)).collect();
+            let list = if model.list.rows.is_empty() {
+                crate::controls::empty_state(
+                    Icon::new(registry::NAV_THREADS),
+                    crate::empty_state_copy::THREADS,
+                    None,
+                    cx,
+                )
+                .into_any_element()
+            } else {
+                v_flex()
+                    .w_full()
+                    .min_w_0()
+                    .children(rows.into_iter().map(|row| chats_page_row(row, cx)))
+                    .into_any_element()
+            };
+            v_flex()
+                .min_w_0()
+                .gap_4()
+                .children(crate::chat_list::agent_bubbles_row(&model.bubbles, chats_page_bubble, cx))
+                .child(crate::chat_list::chat_filter_chips(&model.list.counts, filter, Some(on_filter), cx))
+                .child(list)
         };
         page_scaffold_with("threads-screen-scroll", &self.scroll, column, THREADS_COLUMN_W)
     }
