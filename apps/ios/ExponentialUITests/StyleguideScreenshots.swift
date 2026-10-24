@@ -946,6 +946,15 @@ final class StyleguideScreenshots: XCTestCase {
             default: snapshot("sg_schedule-picker", settle: 2)
             }
         }
+        // ── sg_app-consent (VAPP-120, app-actions.json): the consent card an
+        // app raises for an ungranted typed action, with the operation's own
+        // words, drawn by the real card over a stand-in surface (the painted
+        // surface's rows are not reachable from XCUITest, so no live walk).
+        if ScreenshotShots.isWanted("sg_app-consent") {
+            openThreadCards(app, "app-consent")
+            expect(anyElement(app, containing: "Allow this surface to comment on issue APP-15?"), within: Wait.nav, "The app-consent specimen raised no consent card")
+            snapshot("sg_app-consent", settle: 2)
+        }
 
         finished = true
     }
@@ -992,26 +1001,6 @@ final class StyleguideScreenshots: XCTestCase {
             "The \(Self.appName) editor never drew its preview"
         )
         snapshot("sg_app", settle: 3)
-        // ── sg_app-consent (VAPP-120): the docs, admin entry (linked to
-        // APP-15) opens the Log hours dialog; Post to the issue calls the
-        // typed action exponential.comments.create, which nobody granted, so
-        // the host raises the consent card with the operation's own words.
-        // Deny closes it and the dialog; the shot is gated like sg_app.
-        if ScreenshotShots.isWanted("sg_app-consent") {
-            // The painter folds a pressable Row's leaves into ONE accessible
-            // name ("docs, admin, 2026-10-21, 8 h"), so match by fragment.
-            let entry = anyElement(app, containing: "docs, admin")
-            expect(entry, within: Wait.sync, "The Working hours preview has no docs, admin entry — reseed with `bun run seed:screenshots`")
-            entry.tap()
-            let post = anyElement(app, containing: "Post to the issue")
-            expect(post, within: Wait.nav, "The Log hours dialog has no Post to the issue button (the entry's issues did not bind)")
-            post.tap()
-            expect(anyElement(app, identified: "exponential-ui-consent-arguments"), within: Wait.nav, "Post to the issue raised no consent card")
-            snapshot("sg_app-consent", settle: 2)
-            let deny = anyElement(app, identified: "glass-alert-deny")
-            if deny.waitForExistence(timeout: Wait.nav) { deny.tap() }
-            settle(1)
-        }
         goBack(app)
         goBack(app)
         settle(1)

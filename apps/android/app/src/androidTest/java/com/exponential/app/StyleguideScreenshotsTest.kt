@@ -39,6 +39,8 @@ import com.exponential.app.ui.gettingstarted.GettingStartedStepKey
 import com.exponential.app.ui.styleguide.FeedbackStatesScreen
 import com.exponential.app.ui.styleguide.FeedbackStatesScreenTestId
 import com.exponential.app.ui.styleguide.ThreadCardsKind
+import com.exponential.app.ui.styleguide.AppConsentSpecimenScreen
+import com.exponential.app.ui.styleguide.AppConsentSpecimenTestId
 import com.exponential.app.ui.styleguide.AskDockSpecimenScreen
 import com.exponential.app.ui.styleguide.AskDockSpecimenScreenTestId
 import com.exponential.app.ui.styleguide.DockCardSpecimenScreen
@@ -102,7 +104,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
- *   sg_chat-menus · sg_schedule-picker
+ *   sg_chat-menus · sg_schedule-picker · sg_app-consent
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -178,6 +180,8 @@ class StyleguideScreenshotsTest {
             "sg_trace", "sg_code-block", "sg_ask-dock", "sg_dock-card", "sg_plan-card",
             // Thread 58cb32df: the Chats pieces + the minutes schedule.
             "sg_chat-list", "sg_phone-tab-bar", "sg_chat-transcript", "sg_chat-menus", "sg_schedule-picker",
+            // VAPP-120: the consent card with a typed action's words.
+            "sg_app-consent",
         )
 
         /** VAPP-122: the seeded Working hours app, with records (web `DEMO_APP_SLUG`). */
@@ -772,24 +776,6 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag(Apps.TestIds.PREVIEW), SYNC_TIMEOUT)
         flow.settle(longer = true)
         flow.screenshot("sg_app")
-        // --- sg_app-consent (VAPP-120): the docs, admin entry (linked to
-        // APP-15) opens the Log hours dialog; Post to the issue calls the typed
-        // action exponential.comments.create, which nobody granted, so the
-        // host raises the consent card with the operation's own words. Deny
-        // closes it; the walk is gated like the shot.
-        if (ScreenshotFlow.anyRequested("sg_app-consent")) {
-            val entry = hasText("docs, admin")
-            flow.waitFor(entry, SYNC_TIMEOUT)
-            composeRule.onAllNodes(entry).onFirst().performClick()
-            val post = hasText("Post to the issue")
-            flow.waitFor(post, NAV_TIMEOUT)
-            composeRule.onAllNodes(post).onFirst().performClick()
-            flow.waitFor(hasTestTag("exponential-ui-consent-arguments"), NAV_TIMEOUT)
-            flow.settle()
-            flow.screenshot("sg_app-consent")
-            composeRule.onNode(hasTestTag("exponential-ui-consent-deny")).performClick()
-            flow.settle()
-        }
         Espresso.pressBack()
         flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
         Espresso.pressBack()
@@ -1144,6 +1130,15 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_chat-list")
         show(PhoneTabBarSpecimenTestId) { PhoneTabBarSpecimenScreen() }
         flow.screenshot("sg_phone-tab-bar")
+        // --- sg_app-consent (VAPP-120, app-actions.json): the consent card an
+        // app raises for an ungranted typed action, worded for the operation,
+        // drawn by the real card over a stand-in surface (the painted
+        // surface's rows carry no text semantics, so no live walk).
+        show(AppConsentSpecimenTestId) { AppConsentSpecimenScreen() }
+        // The card's title: the operation's own words (app-actions.json).
+        flow.waitFor(hasText("Allow this surface to comment on issue APP-15?"), NAV_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_app-consent")
         show(ChatTranscriptSpecimenTestId) { ChatTranscriptSpecimenScreen() }
         flow.screenshot("sg_chat-transcript")
         show(ChatMenusSpecimenTestId) { ChatMenusSpecimenScreen() }
