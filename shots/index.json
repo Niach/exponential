@@ -133,8 +133,8 @@
         "file": "shots/app/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 61638,
-        "sha256": "490fbd669bacfa05afed19341baac395bb5dc18edcccbfc4728e313c02cf1183"
+        "bytes": 38616,
+        "sha256": "60ef8674a4bb296c52285ec2c508be9f3c0d0e480b23a54b99ddde4a6af300ac"
       },
       "desktop": {
         "file": "shots/app/desktop.webp",
@@ -170,8 +170,8 @@
         "file": "shots/apps/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 11058,
-        "sha256": "a9a1baf74a6f532745f3038b420773e782aa3a78368f28d0520e55ec636a5b59"
+        "bytes": 13080,
+        "sha256": "f3301abafb145d680298c015f7e881abf21bba0f6cab7ce68f88d1e751b86b90"
       },
       "ios": {
         "file": "shots/apps/ios.webp",

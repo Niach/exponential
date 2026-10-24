@@ -751,19 +751,6 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_threads")
 
-        // --- sg_agent-channel: an agent row opens its channel (the same
-        // conversation screen): Triage's report (its bare FB-n chipped as
-        // issue pills, EXP-760), the thread it started, the person's request
-        // and the reply. The reply's clock proves the pinned zone.
-        composeRule.onAllNodes(agentRow).onFirst().performClick()
-        flow.waitFor(hasText(AGENT_REQUEST_FRAGMENT, substring = true), SYNC_TIMEOUT)
-        flow.waitFor(hasText(AGENT_REPLY_CLOCK), SYNC_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_agent-channel")
-        Espresso.pressBack()
-        flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
-        flow.settle(longer = true)
-
         // --- sg_apps / sg_app (VAPP-116): thread 58cb32df moved the Apps
         // entry to the Team tab's rows; it opens the selected team's Apps (no
         // built-in apps: the seeded apps, by name); the Working hours app
@@ -792,6 +779,23 @@ class StyleguideScreenshotsTest {
         composeRule.onNode(hasTestTag("tab-threads")).performClick()
         flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
         flow.settle(longer = true)
+
+        // --- sg_agent-channel: an agent row opens its channel (the same
+        // conversation screen): Triage's report (its bare FB-n chipped as
+        // issue pills, EXP-760), the thread it started, the person's request
+        // and the reply. The reply's clock proves the pinned zone.
+        // VAPP-122: a scoped run that does not ask for this shot skips the
+        // walk (the apps views alone must not wait on the channel).
+        if (ScreenshotFlow.anyRequested("sg_agent-channel")) {
+            composeRule.onAllNodes(agentRow).onFirst().performClick()
+            flow.waitFor(hasText(AGENT_REQUEST_FRAGMENT, substring = true), SYNC_TIMEOUT)
+            flow.waitFor(hasText(AGENT_REPLY_CLOCK), SYNC_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_agent-channel")
+            Espresso.pressBack()
+            flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
+            flow.settle(longer = true)
+        }
 
         // --- sg_thread: the cold-start thread (APP-5): the strip, the
         // Conversation with its session cards, the agent's reply and the
