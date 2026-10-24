@@ -166,6 +166,9 @@ function AgentChannelPage() {
             className="mx-auto flex min-h-full w-full max-w-4xl flex-col justify-end px-4 pt-8 pb-8 md:px-6"
           >
             <AgentChannel
+              // #EXP-1380: another agent = a fresh transcript window (the pinned
+              // oldest row belongs to THIS chat).
+              key={agentId}
               agent={agent}
               conversation={conversation}
               messages={messages}

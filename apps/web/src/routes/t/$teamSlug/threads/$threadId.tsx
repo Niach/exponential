@@ -145,6 +145,9 @@ const SYNC_GRACE_MS = 4_000
 
 const ThreadsIcon = conceptIcon(`nav-threads`)
 const PrivateIcon = conceptIcon(`ui-private`)
+// #EXP-1380 (chats.json PERF): a STABLE callback, or every row re-renders
+// with the page (`StableRow` compares it by identity).
+const attachmentSrc = (id: string) => `/api/attachments/${id}`
 
 export const Route = createFileRoute(`/t/$teamSlug/threads/$threadId`)({
   head: () => ({ meta: [{ title: pageTitle(THREADS_LIST_COPY.title) }] }),
@@ -924,7 +927,7 @@ function ConversationBody({
           <ThreadConversation
             rows={transcript.rows}
             renderText={renderThreadText}
-            attachmentSrc={(id) => `/api/attachments/${id}`}
+            attachmentSrc={attachmentSrc}
             messageCaption={(row) => {
               const message = messagesById.get(row.id)
               const caption = userMessageCaption({

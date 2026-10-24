@@ -407,7 +407,8 @@ impl Render for ThreadsView {
             ))
         } else {
             let rows: Vec<&ChatRow> = model.list.rows.iter().filter(|row| filter.keeps(row)).collect();
-            let list = if model.list.rows.is_empty() {
+            // The empty state for an empty filter too (web `ChatList`).
+            let list = if rows.is_empty() {
                 crate::controls::empty_state(
                     Icon::new(registry::NAV_THREADS),
                     crate::empty_state_copy::THREADS,

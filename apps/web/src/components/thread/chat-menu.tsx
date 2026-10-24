@@ -19,7 +19,7 @@ import {
 } from "@exp/ui"
 import { useSession } from "@/hooks/use-session"
 import { useAgentRow } from "@/hooks/use-agent-row"
-import { useSessionRow, useSessionThread, useTeamSessions } from "@/hooks/use-session-tree"
+import { useSessionRow, useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import type { Team } from "@/db/schema"
@@ -150,10 +150,13 @@ export function ChatMenuSession({
 }: MenuSessionProps & { actions: ReturnType<typeof useChatActions> }) {
   const { row } = useSessionRow(target.id)
   const root = row && row.parentId === null && !row.agentId ? row : null
-  const { view } = useSessionThread(root?.id ?? null)
+  // #EXP-1380 (chats.json LIST DATA): the title reads the digest, never a
+  // transcript.
+  const rootRows = useMemo(() => (root ? [root] : []), [root])
+  const { titles } = useSessionTitles(rootRows)
   const entries = useChatMenuEntries(root, actions)
   if (entries.length === 0) return null
-  const title = view?.title || COPY.title
+  const title = (root ? titles.get(root.id) : undefined) || COPY.title
   return (
     <Menu
       mode="pointer"

@@ -1236,6 +1236,9 @@ pub(crate) fn observe_session_collections<V: 'static>(cx: &mut gpui::Context<V>)
         cx.observe(&collections.pull_requests, |_, _, cx| cx.notify()),
         cx.observe(&collections.pull_request_issues, |_, _, cx| cx.notify()),
         cx.observe(&collections.issues, |_, _, cx| cx.notify()),
+        // #EXP-1380: the Chats list's unread badges, bold titles and bubble
+        // rings follow the viewer's read marks.
+        cx.observe(&collections.session_reads, |_, _, cx| cx.notify()),
         // NEW-2: the Agents rows are the agent definitions.
         cx.observe(&collections.agents, |_, _, cx| cx.notify()),
     ]
