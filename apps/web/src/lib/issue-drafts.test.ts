@@ -28,6 +28,7 @@ function draft(overrides: Partial<IssueDraft> = {}): IssueDraft {
     statusId: null,
     priority: `none`,
     assigneeId: null,
+    assigneeAgentId: null,
     labelIds: [],
     dueDate: null,
     createdAt: new Date(`2026-01-01T00:00:00Z`),
@@ -58,6 +59,7 @@ function snapshot(overrides: Partial<DraftSnapshot> = {}): DraftSnapshot {
     statusId: null,
     priority: `none`,
     assigneeId: null,
+    assigneeAgentId: null,
     labelIds: [],
     dueDate: null,
     sessionId: null,
@@ -110,6 +112,7 @@ describe(`toUpsertInput`, () => {
       statusId: `status-1`,
       priority: `high`,
       assigneeId: `user-2`,
+      assigneeAgentId: null,
       labelIds: [`label-1`],
       dueDate: `2026-03-04`,
       sessionId: null,
@@ -144,6 +147,7 @@ describe(`toDialogSeed`, () => {
       statusId: `status-1`,
       priority: `urgent`,
       assigneeId: `user-2`,
+      assigneeAgentId: null,
       labelIds: [`label-1`],
       dueDate: `2026-03-04`,
       sessionId: null,
@@ -159,6 +163,14 @@ describe(`toDialogSeed`, () => {
     )
     expect(seed?.assigneeId).toBeNull()
     expect(seed?.labelIds).toEqual([`label-1`])
+  })
+
+  // #EXP-1383: an agent assignee rides through (its FK clears a deleted
+  // agent) and the person column stays empty beside it.
+  it(`keeps an agent assignee`, () => {
+    const seed = toDialogSeed(draft({ assigneeAgentId: `agent-1` }), resolvable)
+    expect(seed?.assigneeAgentId).toBe(`agent-1`)
+    expect(seed?.assigneeId).toBeNull()
   })
 
   it(`refuses to seed a draft whose board is gone`, () => {

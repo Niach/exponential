@@ -269,7 +269,7 @@ fn run_agent_entry(entry: AgentMenuEntry, agent_id: &str, window: &mut Window, c
 
 /// Compact / New conversation SEND their builtin line through THE send path
 /// (`sessions.send({agentId, text})` lands in the viewer's conversation).
-fn send_to_agent(agent_id: &str, text: &str, cx: &mut App) {
+pub(crate) fn send_to_agent(agent_id: &str, text: &str, cx: &mut App) {
     let Some(team_id) = crate::session_data::agent_def(agent_id, cx).and_then(|agent| agent.team_id) else {
         return;
     };

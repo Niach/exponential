@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 import { trpc } from "@/lib/trpc-client"
 import {
   ISSUE_SEARCH_DEFAULT_LIMIT,
@@ -47,7 +47,12 @@ export function useIssueSearchResults<T extends IssueSearchRow>({
   /** What an empty query lists: the newest rows, or nothing. */
   emptyQuery?: `recent` | `none`
 }): { results: T[]; pending: boolean } {
-  const normalized = normalizeIssueSearchQuery(query)
+  // #EXP-1382: typing never waits on the rank. The caller's input stays
+  // controlled by the immediate `query` (it paints every keystroke at once);
+  // the rank and the server pass read the DEFERRED one, which React renders
+  // behind the keystroke and abandons when the next one lands.
+  const deferredQuery = useDeferredValue(query)
+  const normalized = normalizeIssueSearchQuery(deferredQuery)
   const [hits, setHits] = useState<{
     query: string
     rows: IssueSearchServerHit[]

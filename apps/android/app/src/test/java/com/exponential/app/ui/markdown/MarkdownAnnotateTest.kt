@@ -169,7 +169,7 @@ class MarkdownAnnotateTest {
             refsTitled("MET-1" to "Crash"),
             mentions("Ada" to "dev@example.com"),
         )
-        assertEquals("@Ada bug #MET-1 Crash done", result.text)
+        assertEquals("\u00A0@Ada\u00A0 bug #MET-1 Crash done", result.text)
         val links = result.getLinkAnnotations(0, result.length)
         assertEquals(1, links.size)
         assertEquals("#MET-1 Crash", result.text.substring(links[0].start, links[0].end))
@@ -186,7 +186,8 @@ class MarkdownAnnotateTest {
             null,
             mentions("Ada Lovelace" to "dev@example.com"),
         )
-        assertEquals("ping @Ada Lovelace now", result.text)
+        // Padded by the two pad cells, the name unbreakable (thread e4a04d22).
+        assertEquals("ping \u00A0@Ada\u00A0Lovelace\u00A0 now", result.text)
         // Not a link — nothing to open, so it can never collide with one.
         assertEquals(0, result.getLinkAnnotations(0, result.length).size)
     }
@@ -206,7 +207,7 @@ class MarkdownAnnotateTest {
             null,
             mentions("Ada" to "dev@example.com"),
         )
-        assertEquals("@Ada", result.text)
+        assertEquals("\u00A0@Ada\u00A0", result.text)
     }
 
     @Test
@@ -225,7 +226,7 @@ class MarkdownAnnotateTest {
         val text = "@dev@example.com bug #MET-1"
         val marks = listOf(InlineMark(17, 20, InlineKind.Bold)) // "bug"
         val result = annotate(text, marks, refs("MET-1"), mentions("Ada" to "dev@example.com"))
-        assertEquals("@Ada bug #MET-1", result.text)
+        assertEquals("\u00A0@Ada\u00A0 bug #MET-1", result.text)
         val links = result.getLinkAnnotations(0, result.length)
         assertEquals(1, links.size)
         assertEquals("#MET-1", result.text.substring(links[0].start, links[0].end))
@@ -521,5 +522,45 @@ class MarkdownAnnotateTest {
         // Without a handler every href opens as written, as before.
         val plain = annotate("link", listOf(InlineMark(0, 4, InlineKind.Link, href = "/t/acme/sessions/abc")), null)
         assertEquals("/t/acme/sessions/abc", (plain.getLinkAnnotations(0, plain.length).single().item as LinkAnnotation.Url).url)
+    }
+
+    // --- Thread e4a04d22: the mention pill is web's `.mention-pill` ×4. ---
+
+    @Test
+    fun theMentionPillIsAnAccentCapsuleAtThirteenMedium() {
+        val line = annotateLine(
+            "ping @dev@example.com now",
+            emptyList(),
+            null,
+            mentions("Ada" to "dev@example.com"),
+        )
+        val text = line.text
+        val start = text.text.indexOf('\u00A0')
+        val end = start + "\u00A0@Ada\u00A0".length
+        // One painted pill spec covering the padded display text.
+        val pill = line.chips.single()
+        assertTrue(pill.pill)
+        assertEquals(start, pill.start)
+        assertEquals(end, pill.end)
+        val styles = text.spanStyles.filter { it.start == start && it.end == end }.map { it.item }
+        assertTrue(styles.any { it.color == MdStyle.MentionText && it.fontWeight == FontWeight.Medium })
+        assertTrue(styles.any { it.fontSize == MdStyle.mentionFontSize })
+        // The two pad cells carry the side padding.
+        val padded = text.spanStyles.filter { it.item.letterSpacing == MdStyle.mentionPadLetterSpacing }
+        assertEquals(listOf(start, end - 1), padded.map { it.start })
+        // No flat highlight under it any more: the capsule is painted.
+        assertTrue(text.spanStyles.none { it.item.background != Color.Unspecified })
+    }
+
+    @Test
+    fun theMentionPillTokensAreTheWebOnes() {
+        // oklch(0.269 0 0) / oklch(0.985 0 0) / oklch(1 0 0 / 10%).
+        assertEquals(Color(0xFF262626), MdStyle.MentionBg)
+        assertEquals(Color(0xFFFAFAFA), MdStyle.MentionText)
+        assertEquals(Color(0x1AFFFFFF), MdStyle.MentionBorder)
+        assertEquals(13f, MdStyle.mentionFontSize.value)
+        assertEquals(1f, MdStyle.mentionBorderWidth.value)
+        // 6.4/13 em in total: the cell (a Roboto space) + its letter spacing.
+        assertEquals(6.4f / 13f, MdStyle.mentionPadLetterSpacing.value + 507f / 2048f, 0.0001f)
     }
 }

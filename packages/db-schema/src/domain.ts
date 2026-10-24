@@ -776,6 +776,7 @@ export type AgentTriggerKind = (typeof agentTriggerKindValues)[number]
 export const builtinEventNames = [
   `issue.created`,
   `issue.status_changed`,
+  `issue.assigned`,
   `pr.opened`,
   `pr.merged`,
   `session.ended`,

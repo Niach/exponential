@@ -16,6 +16,20 @@ extension NSAttributedString.Key {
 /// person. Read-only renderers show the member's NAME instead
 /// (`decorateForDisplay`, EXP-713) — the same split web and Android ship.
 /// Unknown addresses stay plain text.
+/// The attributes of a mention pill run (web `.mention-pill`): the chip
+/// marker the layout manager paints the capsule off, `--accent-foreground`
+/// at 13pt medium, and the base colour + font un-chipping restores.
+public func expMentionAttributes(base: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
+    var attrs: [NSAttributedString.Key: Any] = [
+        .markdownChip: true,
+        .foregroundColor: MarkdownStyle.mentionForeground,
+        .font: MarkdownStyle.mentionFont,
+        .markdownChipBaseColor: (base[.foregroundColor] as? PlatformColor) ?? MarkdownStyle.textColor,
+    ]
+    if let font = base[.font] as? PlatformFont { attrs[.markdownChipBaseFont] = font }
+    return attrs
+}
+
 public enum MentionRefs {
 
     /// Mirrors the web `MENTION_SOURCE` and the Android `Mentions.REGEX`.
@@ -80,10 +94,23 @@ public enum MentionRefs {
             guard let name = resolver(email) else { continue }
             let target = mutable ?? NSMutableAttributedString(attributedString: attributed)
             target.addAttributes(
-                expChipAttributes(baseColor: attrs[.foregroundColor] as? PlatformColor)
-                    .merging([.markdownMention: name]) { _, new in new },
+                expMentionAttributes(base: attrs).merging([.markdownMention: name]) { _, new in new },
                 range: match.range,
             )
+            // The pill's horizontal padding: the trailing half kerned onto its
+            // last character, the leading half onto the character before it
+            // (unless that one already carries a kern, e.g. a list marker).
+            target.addAttribute(
+                .kern, value: MarkdownStyle.mentionPaddingX,
+                range: NSRange(location: NSMaxRange(match.range) - 1, length: 1))
+            if match.range.location > 0 {
+                let lead = NSRange(location: match.range.location - 1, length: 1)
+                let leadChar = ns.substring(with: lead)
+                if leadChar != "\n", target.attribute(.kern, at: lead.location, effectiveRange: nil) == nil {
+                    target.addAttributes(
+                        [.kern: MarkdownStyle.mentionPaddingX, .markdownMentionLead: true], range: lead)
+                }
+            }
             mutable = target
         }
         return mutable ?? attributed
@@ -114,11 +141,20 @@ public enum MentionRefs {
         // Replacements change the length, so walk back-to-front to keep every
         // earlier match range valid (the `IssueRefs.decorateForDisplay` pattern).
         for match in found.reversed() {
+            let email = ns.substring(with: match.range(at: 1))
+            // Thread e4a04d22: a display render with `.autolinkBareURLs` (the
+            // chat feed) turns the address of `@email` into its own
+            // `mailto:` link; that run is the mention, styled like the `@`.
+            let autolinked = isAutolinkedMailto(attributed, range: match.range(at: 1), email: email)
             var effective = NSRange(location: 0, length: 0)
-            let attrs = attributed.attributes(
-                at: match.range.location, longestEffectiveRange: &effective, in: match.range)
-            guard effective.location == match.range.location, effective.length == match.range.length else {
-                continue
+            let attrs = autolinked
+                ? attributed.attributes(at: match.range.location, effectiveRange: nil)
+                : attributed.attributes(
+                    at: match.range.location, longestEffectiveRange: &effective, in: match.range)
+            if !autolinked {
+                guard effective.location == match.range.location, effective.length == match.range.length else {
+                    continue
+                }
             }
             if attrs[.markdownInlineCode] != nil || attrs[.markdownCodeBlock] != nil || attrs[.link] != nil {
                 continue
@@ -129,19 +165,50 @@ public enum MentionRefs {
                 continue
             }
             if attrs[.markdownMention] != nil { continue }
-            let email = ns.substring(with: match.range(at: 1))
             guard let name = resolver(email) else { continue }
             var chipAttrs = attrs
-            for (key, value) in expChipAttributes(baseColor: attrs[.foregroundColor] as? PlatformColor) {
+            for (key, value) in expMentionAttributes(base: attrs) {
                 chipAttrs[key] = value
             }
+            chipAttrs[.link] = nil
             chipAttrs[.markdownMention] = name
-            let piece = NSAttributedString(string: displayText(name: name, email: email), attributes: chipAttrs)
+            let piece = NSMutableAttributedString(
+                string: leadingPad + displayText(name: name, email: email), attributes: chipAttrs)
+            // The pill's horizontal padding (web `0.4rem` a side): a hair space
+            // opening the pill kerned up to the full pad, and the same pad
+            // kerned onto the last character. Display text never serializes.
+            piece.addAttribute(
+                .kern, value: max(0, MarkdownStyle.mentionPaddingX - hairSpaceWidth),
+                range: NSRange(location: 0, length: 1))
+            piece.addAttribute(
+                .kern, value: MarkdownStyle.mentionPaddingX,
+                range: NSRange(location: piece.length - 1, length: 1))
             let target = mutable ?? NSMutableAttributedString(attributedString: attributed)
             target.replaceCharacters(in: match.range, with: piece)
             mutable = target
         }
         return mutable ?? attributed
+    }
+
+    /// The hair space a display pill opens with: it carries the pill's
+    /// leading padding (as kern), so a pill that starts a line still has it.
+    public static let leadingPad = "\u{200A}"
+
+    static var hairSpaceWidth: CGFloat {
+        (leadingPad as NSString).size(withAttributes: [.font: MarkdownStyle.mentionFont]).width
+    }
+
+    /// The whole `range` is ONE link run whose target is `mailto:<email>` —
+    /// cmark's autolink extension's form for a bare address.
+    static func isAutolinkedMailto(_ attributed: NSAttributedString, range: NSRange, email: String) -> Bool {
+        guard range.length > 0, NSMaxRange(range) <= attributed.length else { return false }
+        var effective = NSRange(location: 0, length: 0)
+        guard let link = attributed.attribute(
+            .link, at: range.location, longestEffectiveRange: &effective, in: range),
+            effective == range
+        else { return false }
+        let target = (link as? URL)?.absoluteString ?? (link as? String) ?? ""
+        return target.lowercased() == "mailto:\(email.lowercased())"
     }
 
     /// `@<name>` with the name's internal whitespace made non-breaking; a

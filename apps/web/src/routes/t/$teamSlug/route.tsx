@@ -10,7 +10,6 @@ import { fetchSessionOnce } from "@/lib/auth/client"
 import { rememberLastVisited } from "@/lib/last-visited"
 import { trpc } from "@/lib/trpc-client"
 import { SidebarProvider, useIsMobile } from "@exp/ui"
-import { TeamMobileTopbar } from "@/components/team/mobile-topbar"
 import { MobileTabBar } from "@/components/team/mobile-tab-bar"
 import { AgentLoginDialogHost } from "@/components/agent-login-dialog"
 import { LaunchDialogHost } from "@/components/launch-dialog/launch-dialog"
@@ -223,11 +222,6 @@ function TeamLayout() {
                     every breakpoint. Renders nothing while the server is
                     reachable. */}
                 <OfflineBanner />
-                <TeamMobileTopbar
-                  teamSlug={teamSlug}
-                  team={team}
-                  boards={boards}
-                />
                 <div className={MAIN_OUTLET_CLASS}>
                   <Outlet />
                 </div>

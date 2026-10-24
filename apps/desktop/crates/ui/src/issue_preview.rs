@@ -122,7 +122,31 @@ pub(crate) fn card(issue_id: &str, cx: &mut App) -> Option<AnyElement> {
                 .child(SharedString::from(issue.identifier.clone())),
         )
         .child(div().flex_1().min_w_0());
-    if let Some((user_id, name, email, image)) = assignee {
+    // #EXP-1383: an agent assignee reads as THE AGENT MARK + its name.
+    let assignee_agent = issue
+        .assignee_agent_id
+        .as_deref()
+        .and_then(|agent_id| crate::queries::agent_actor(cx, agent_id));
+    if let Some(agent) = assignee_agent {
+        header = header.child(
+            h_flex()
+                .flex_shrink_0()
+                .items_center()
+                .gap_1p5()
+                .child(crate::user_avatar::agent_avatar(
+                    agent.icon.as_deref(),
+                    agent.color.as_deref(),
+                    gpui_component::Size::XSmall,
+                    cx,
+                ))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(agent.name.clone())),
+                ),
+        );
+    } else if let Some((user_id, name, email, image)) = assignee {
         let label = name
             .clone()
             .or_else(|| email.clone())

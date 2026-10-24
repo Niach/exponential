@@ -1,7 +1,7 @@
 import { useCallback, useMemo, type ComponentProps, type ReactElement } from "react"
 import { Link, useParams } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
-import type { EntityChipLinkProps } from "@exp/ui"
+import { useIsMobile, type EntityChipLinkProps } from "@exp/ui"
 import type { Attachment, Board, Comment, Notification, Team } from "@/db/schema"
 import {
   attachmentCollection,
@@ -73,6 +73,7 @@ export function useEntityRefTargets(
 ): (ref: EntityRef) => EntityRefTarget {
   const { teamSlug } = useParams({ strict: false })
   const issueRefs = useIssueRefs()
+  const phone = useIsMobile()
 
   const boards = useRowsByIds<Board>(boardCollection, idsOf(refs, `board`))
   const comments = useRowsByIds<Comment>(commentCollection, idsOf(refs, `comment`))
@@ -105,8 +106,9 @@ export function useEntityRefTargets(
         const row = sessions.get(id)
         return row && row.parentId === null ? (row.agentId ?? null) : null
       },
+      phone,
     }),
-    [teamSlug, issueRefs, boards, comments, attachments, notifications, teams, sessions]
+    [teamSlug, phone, issueRefs, boards, comments, attachments, notifications, teams, sessions]
   )
 
   return useCallback(

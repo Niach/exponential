@@ -50,6 +50,8 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -91,6 +93,8 @@ data class IssueDraftUiState(
         IssueStatusResolver.builtinDefaults.first { it.builtinKey == IssueStatus.Backlog },
     val priority: IssuePriority = IssuePriority.None,
     val assigneeId: String? = null,
+    /** #EXP-1383: a team AGENT as the assignee (exclusive with [assigneeId]). */
+    val assigneeAgentId: String? = null,
     val dueDate: String? = null,
     val labelIds: Set<String> = emptySet(),
     val boardId: String? = null,
@@ -216,6 +220,11 @@ class IssueDraftViewModel @Inject constructor(
     /** The team's member users — assignee picker + @-mention vocabulary (EXP-487). */
     val teamUsers: StateFlow<List<UserEntity>> = teamQuery(emptyList()) { db, team -> db.userDao().observeByTeam(team) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** #EXP-1383: the team's agents, the assignee picker's rows after the members. */
+    val teamAgents: StateFlow<List<com.exponential.app.data.db.AgentDefinitionEntity>> =
+        teamQuery(emptyList()) { db, team -> db.agentDefinitionDao().observeByTeam(team) }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** EXP-50: the lone member of a solo team — hides the assignee chip. */
     val soloMemberId: StateFlow<String?> = members
@@ -357,7 +366,8 @@ class IssueDraftViewModel @Inject constructor(
                             title = row.title,
                             description = row.description,
                             priority = IssuePriority.fromWire(row.priority),
-                            assigneeId = row.assigneeId,
+                            assigneeId = if (row.assigneeAgentId != null) null else row.assigneeId,
+                            assigneeAgentId = row.assigneeAgentId,
                             dueDate = row.dueDate,
                             labelIds = row.labelIds.toSet(),
                             boardId = row.boardId.ifBlank { null } ?: it.boardId,
@@ -376,7 +386,10 @@ class IssueDraftViewModel @Inject constructor(
         viewModelScope.launch { statuses.collect(::repointStatus) }
         // EXP-50: a solo team pins the assignee to its lone member.
         viewModelScope.launch {
-            soloMemberId.collect { solo -> if (solo != null) _state.update { it.copy(assigneeId = solo) } }
+            // #EXP-1383: a draft assigned to an agent keeps it.
+            soloMemberId.collect { solo ->
+                if (solo != null) _state.update { if (it.assigneeAgentId != null) it else it.copy(assigneeId = solo) }
+            }
         }
         // Drop selections the loaded vocabulary does not know.
         viewModelScope.launch {
@@ -642,6 +655,7 @@ class IssueDraftViewModel @Inject constructor(
             statusId = s.status.rowId ?: pendingStatusId?.takeIf { !it.startsWith("builtin:") },
             priority = s.priority.wire,
             assigneeId = s.assigneeId,
+            assigneeAgentId = s.assigneeAgentId,
             labelIds = (if (known.isEmpty()) s.labelIds else s.labelIds.filter { it in known }).sorted(),
             dueDate = s.dueDate,
             threadId = s.threadId,
@@ -661,6 +675,8 @@ class IssueDraftViewModel @Inject constructor(
                 statusId = snap.statusId,
                 priority = snap.priority,
                 assigneeId = snap.assigneeId,
+                // #EXP-1383: ALWAYS sent (an explicit null clears the agent).
+                assigneeAgentId = snap.assigneeAgentId?.let(::JsonPrimitive) ?: JsonNull,
                 // ALWAYS sent — an omitted list could never clear a selection.
                 labelIds = snap.labelIds,
                 dueDate = snap.dueDate,
@@ -994,6 +1010,7 @@ class IssueDraftViewModel @Inject constructor(
                     priority = s.priority.wire,
                     description = strippedDescription,
                     assigneeId = s.assigneeId,
+                    assigneeAgentId = s.assigneeAgentId,
                     dueDate = s.dueDate,
                     labelIds = labelIds.takeIf { it.isNotEmpty() },
                     draftId = draftId,
@@ -1162,6 +1179,7 @@ private data class DraftSnapshot(
     val labelIds: List<String>,
     val dueDate: String?,
     val threadId: String?,
+    val assigneeAgentId: String? = null,
 )
 
 private fun com.exponential.app.data.db.IssueDraftEntity.toSnapshot() = DraftSnapshot(
@@ -1171,6 +1189,7 @@ private fun com.exponential.app.data.db.IssueDraftEntity.toSnapshot() = DraftSna
     statusId = statusId,
     priority = priority,
     assigneeId = assigneeId,
+    assigneeAgentId = assigneeAgentId,
     labelIds = labelIds.sorted(),
     dueDate = dueDate,
     threadId = threadId,

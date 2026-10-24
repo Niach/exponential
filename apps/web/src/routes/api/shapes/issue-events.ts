@@ -8,12 +8,14 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // Server-pinned column allowlist — excludes the `board_deleted_at` trash
 // mirror (REV2-5) and the `board_archived_at` archive mirror (EXP-500), both
 // server-only (the where clause filters on them).
-const ISSUE_EVENT_COLUMNS = [
+export const ISSUE_EVENT_COLUMNS = [
   `id`,
   `issue_id`,
   `team_id`,
   `board_id`,
   `actor_user_id`,
+  // #EXP-1383: the agent whose session acted (actor_user_id = its member).
+  `actor_agent_id`,
   `type`,
   `payload`,
   `created_at`,

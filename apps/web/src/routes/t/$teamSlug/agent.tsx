@@ -13,9 +13,12 @@ import {
   ChatMenusSpecimen,
   ChatTranscriptSpecimen,
   PhoneTabBarSpecimen,
+  PhoneBoardMenuSpecimen,
+  PhonePageHeaderSpecimen,
   useKeyboardInset,
 } from "@exp/ui"
 import { HOME_GEOMETRY, HOME_TEST_IDS } from "@exp/domain-contract/home-greeting"
+import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { useSteerConfig } from "@/hooks/use-steer-config"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { LaunchComposer } from "@/components/launch-composer"
@@ -29,6 +32,7 @@ import {
 } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { MobilePageHeader } from "@/components/team/mobile-page-header"
 import type { Team, User } from "@/db/schema"
 import type { SteerDevice } from "@/lib/steer-devices"
 import {
@@ -66,7 +70,8 @@ const str = (value: unknown): string | undefined =>
 // capture; EXP-1324: `?dev=trace` / `?dev=code-block` the Trace and
 // CodeBlock specimens (`?dev=ask-dock` THE ask dock's, EXP-1280 `?dev=plan-card`
 // THE rich plan card's; thread 58cb32df `?dev=chat-list` / `chat-menus` /
-// `chat-transcript` / `phone-tab-bar` the chats.json specimens) (identical
+// `chat-transcript` / `phone-tab-bar`, #EXP-1384 `phone-board-menu` /
+// `phone-page-header` the chats.json specimens) (identical
 // ×4) for theirs. Never parsed in a production build (`isProductionBuild`).
 const DEV_VIEWS = [
   `feedback-states`,
@@ -79,6 +84,8 @@ const DEV_VIEWS = [
   `chat-menus`,
   `chat-transcript`,
   `phone-tab-bar`,
+  `phone-board-menu`,
+  `phone-page-header`,
 ] as const
 type DevView = (typeof DEV_VIEWS)[number]
 const devView = (value: unknown): DevView | undefined =>
@@ -131,6 +138,10 @@ function AgentRoute() {
           <ChatTranscriptSpecimen />
         ) : dev === `phone-tab-bar` ? (
           <PhoneTabBarSpecimen />
+        ) : dev === `phone-board-menu` ? (
+          <PhoneBoardMenuSpecimen />
+        ) : dev === `phone-page-header` ? (
+          <PhonePageHeaderSpecimen />
         ) : dev === `code-block` ? (
           <CodeBlockSpecimen />
         ) : (
@@ -192,6 +203,13 @@ function AgentPage() {
 
   return (
     <div className="relative flex h-full min-h-0 flex-col" data-testid="agent-page">
+      {/* #EXP-1384 (chats.json `shell.header`): phones wear THE page header
+          (title `copy.headers.agent`). */}
+      <MobilePageHeader
+        teamSlug={teamSlug}
+        title={CHATS_COPY.headers.agent}
+        className="shrink-0 px-4 pb-2 pt-[max(1rem,env(safe-area-inset-top))] md:hidden"
+      />
       <div className="relative min-h-0 flex-1 overflow-y-auto">
         {/* EXP-1316 (composer-home.json `phone`): phones pin the dawn + the
             card + its options row to the BOTTOM (above the tab bar, riding

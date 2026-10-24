@@ -3,6 +3,7 @@ package com.exponential.app.ui.issue
 import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.AgentSettings
 import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.ui.icons.ExpIcons
@@ -36,7 +37,38 @@ class EventPhrasesTest {
         users: Map<String, UserEntity> = emptyMap(),
         labels: Map<String, LabelEntity> = emptyMap(),
         estimationType: String? = null,
-    ) = eventPhrase(event, users, labels, estimationType)
+        agents: List<AgentSettings.AgentRowLike> = emptyList(),
+    ) = eventPhrase(event, users, labels, estimationType, agents)
+
+    private val sloppy = AgentSettings.AgentRowLike(id = "G1", name = "Sloppy", icon = "bot", color = "#22c55e")
+
+    @Test
+    fun assignedToAnAgentNamesTheAgent() {
+        // #EXP-1383: `toAgentId` names the agent (`assigned Sloppy`).
+        assertEquals(
+            "assigned Sloppy",
+            phrase(event("assignee_changed", """{"from":null,"to":null,"toAgentId":"G1"}"""), agents = listOf(sloppy)),
+        )
+        assertEquals(
+            "assigned an agent",
+            phrase(event("assignee_changed", """{"from":null,"to":null,"toAgentId":"G9"}"""), agents = listOf(sloppy)),
+        )
+        assertEquals(
+            "unassigned this issue",
+            phrase(event("assignee_changed", """{"from":null,"to":null,"fromAgentId":"G1"}"""), agents = listOf(sloppy)),
+        )
+    }
+
+    @Test
+    fun anAgentActorReadsAsTheAgent() {
+        val byAgent = event("status_changed", """{"to":"done"}""").copy(actorAgentId = "G1")
+        assertEquals("Sloppy", eventActorName(byAgent, mapOf(dana.id to dana), listOf(sloppy)))
+        // An unsynced agent falls back to the member.
+        assertEquals(
+            "Dana",
+            eventActorName(byAgent.copy(actorUserId = dana.id), mapOf(dana.id to dana), emptyList()),
+        )
+    }
 
     private val dana = UserEntity(
         id = "user-dana",

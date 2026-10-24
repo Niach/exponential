@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/agent-settings.json" with { type: "json" }
 import contract from "../contract.json" with { type: "json" }
-import { agentAccountValue, triggerSummary, validateAgentForm } from "./agent-settings"
+import { agentAccountValue, assigneeOptions, issueActor, triggerSummary, validateAgentForm } from "./agent-settings"
 
 describe(`agent settings fixtures (EXP-1291)`, () => {
   test(`every builtin event name has a summary`, () => {
@@ -10,6 +10,16 @@ describe(`agent settings fixtures (EXP-1291)`, () => {
       expect((fixture.copy.events as Record<string, string>)[name]).toBeTruthy()
     }
   })
+  for (const entry of fixture.actor.actorCases) {
+    test(`actor: ${entry.name}`, () => {
+      expect(issueActor(entry.input, entry.agents)).toEqual(entry.expected as never)
+    })
+  }
+  for (const entry of fixture.assignee.optionCases) {
+    test(`assignee options: ${entry.name}`, () => {
+      expect(assigneeOptions(entry.input)).toEqual(entry.expected)
+    })
+  }
   for (const entry of fixture.summaryCases) {
     test(`summary: ${entry.expected}`, () => {
       expect(triggerSummary(entry.trigger as never)).toBe(entry.expected)

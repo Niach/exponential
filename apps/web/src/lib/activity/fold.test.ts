@@ -16,6 +16,7 @@ interface FixtureEvent {
   id: string
   issueId: string
   actorUserId: string | null
+  actorAgentId?: string | null
   type: string
   payload: Record<string, unknown> | null
   createdAt: string
@@ -24,8 +25,13 @@ interface FixtureEvent {
 interface FixtureCase {
   name: string
   events: FixtureEvent[]
-  barriers: { issueId: string; actorUserId: string | null; createdAt: string }[]
-  expected: Omit<FixtureEvent, `issueId` | `actorUserId`>[]
+  barriers: {
+    issueId: string
+    actorUserId: string | null
+    actorAgentId?: string | null
+    createdAt: string
+  }[]
+  expected: Omit<FixtureEvent, `issueId` | `actorUserId` | `actorAgentId`>[]
 }
 
 const cases = fixture as unknown as FixtureCase[]
@@ -35,6 +41,7 @@ function toEvent(row: FixtureEvent): ActivityEvent {
     id: row.id,
     issueId: row.issueId,
     actorUserId: row.actorUserId,
+    actorAgentId: row.actorAgentId ?? null,
     type: row.type as ActivityEvent[`type`],
     payload: row.payload,
     createdAt: new Date(row.createdAt),
@@ -47,6 +54,7 @@ describe(`foldActivity (contract fixture)`, () => {
       const barriers: ActivityBarrier[] = c.barriers.map((b) => ({
         issueId: b.issueId,
         actorUserId: b.actorUserId,
+        actorAgentId: b.actorAgentId ?? null,
         createdAt: new Date(b.createdAt),
       }))
       const folded = foldActivity(c.events.map(toEvent), barriers).map(

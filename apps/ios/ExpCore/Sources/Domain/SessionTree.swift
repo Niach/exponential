@@ -1382,13 +1382,19 @@ public enum SessionTree {
         for issue in issues { issueMap[issue.id] = issue }
         var prMap: [String: TreePullRequest] = [:]
         for pr in pullRequests { prMap[pr.id] = pr }
+        // #EXP-1380: each timestamp parses ONCE per build (the comparators
+        // parsed two per comparison: ~60k parses on a 1500-message chat).
+        var createdMs: [String: Double] = [:]
+        createdMs.reserveCapacity(messages.count)
+        for message in messages { createdMs[message.id] = ms(message.createdAt) ?? 0 }
+        func chronological(_ a: TreeMessage, _ b: TreeMessage) -> Bool {
+            let ma = createdMs[a.id] ?? 0, mb = createdMs[b.id] ?? 0
+            if ma != mb { return ma < mb }
+            return a.id < b.id
+        }
         let own = messages
             .filter { $0.sessionId == root.id }
-            .sorted { a, b in
-                let ma = ms(a.createdAt) ?? 0, mb = ms(b.createdAt) ?? 0
-                if ma != mb { return ma < mb }
-                return a.id < b.id
-            }
+            .sorted(by: chronological)
         let title = titles[root.id] ?? SessionTitle.Copy.untitled
         let focused = focus.flatMap { id in tree.first { $0.id == id } }
         // EXP-1334: the conversation IS the dispatcher (no chip of its own);
@@ -1440,11 +1446,7 @@ public enum SessionTree {
                   let kind = message.card?.kind else { return false }
             return kind == "question" || kind == "plan"
         }
-        let conversation = (own + asks).sorted { a, b in
-            let ma = ms(a.createdAt) ?? 0, mb = ms(b.createdAt) ?? 0
-            if ma != mb { return ma < mb }
-            return a.id < b.id
-        }
+        let conversation = asks.isEmpty ? own : (own + asks).sorted(by: chronological)
         var rows: [ThreadRow] = []
         for message in conversation {
             guard let card = message.card else {

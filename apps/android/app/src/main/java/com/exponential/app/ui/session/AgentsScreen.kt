@@ -104,8 +104,12 @@ import kotlinx.coroutines.delay
  * seeing that a shared server's codex login expired explains a refused start,
  * but only its owner can fix it.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun AgentsScreen(
+    // #EXP-1381: pushed from the Team page's Devices row (settings-nav.json)
+    // the page wears a back + "Devices" top bar instead of the tab headline.
+    onBack: (() -> Unit)? = null,
     viewModel: AgentsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -175,13 +179,15 @@ fun AgentsScreen(
     val ownDevices = devices?.filter { it.isMine }
     val teamDevices = devices?.filterNot { it.isMine }.orEmpty()
 
-    Scaffold(containerColor = Color.Transparent) { padding ->
+    Scaffold(
+        containerColor = Color.Transparent,
+    ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            Text(
-                "Devices",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+            // #EXP-1384 (chats.json `shell.header`): the page header; pushed
+            // from the Team page's Devices row, the back control first.
+            com.exponential.app.ui.components.PageHeader(
+                title = com.exponential.app.domain.Chats.Copy.HEADERS.getValue("devices"),
+                onBack = onBack,
             )
             // No relay → nothing here can take a start: the full empty state.
             if (state.steerEnabled == false) {

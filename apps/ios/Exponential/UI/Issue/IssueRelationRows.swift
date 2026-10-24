@@ -29,6 +29,9 @@ struct IssueRelationListRow: View {
     let status: ResolvedIssueStatus?
     let assignee: UserEntity?
     let assigneeId: String?
+    /// #EXP-1383: an agent assignee (its row when synced) wears THE AGENT MARK.
+    var assigneeAgentId: String? = nil
+    var assigneeAgent: AgentDefinitionEntity? = nil
     let removeLabel: String
     let onOpen: () -> Void
     let onRemove: (() -> Void)?
@@ -80,7 +83,12 @@ struct IssueRelationListRow: View {
 
     @ViewBuilder
     private var avatar: some View {
-        if let assigneeId {
+        if assigneeAgentId != nil {
+            UserAvatar(
+                agent: UserAvatarAgent(icon: assigneeAgent?.icon, color: assigneeAgent?.color),
+                size: IssueRelationRowTokens.avatarSize
+            )
+        } else if let assigneeId {
             UserAvatar(user: assignee, id: assigneeId, size: IssueRelationRowTokens.avatarSize)
         } else {
             AppIcon(AppIcons.uiAssignee, size: 20)
@@ -124,6 +132,8 @@ struct IssueRelationRowList: View {
                     status: vm.relationStatus(id: row.id),
                     assignee: vm.relationAssignee(id: row.id),
                     assigneeId: vm.relationIssue(id: row.id)?.assigneeId,
+                    assigneeAgentId: vm.relationIssue(id: row.id)?.assigneeAgentId,
+                    assigneeAgent: vm.relationAssigneeAgent(id: row.id),
                     removeLabel: removeLabel,
                     onOpen: { onOpen(row.id) },
                     onRemove: onRemove.map { remove in { remove(row.id) } }

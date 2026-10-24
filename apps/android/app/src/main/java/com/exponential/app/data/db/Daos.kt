@@ -64,13 +64,21 @@ interface IssueDao {
     @Query("SELECT * FROM issues")
     fun observeAll(): Flow<List<IssueEntity>>
 
+    // #EXP-1382: the ACTIVE team's issues (the global search's local pool),
+    // over its live boards only.
+    @Query(
+        "SELECT issues.* FROM issues INNER JOIN boards ON boards.id = issues.board_id " +
+            "WHERE boards.team_id = :teamId AND boards.deleted_at IS NULL",
+    )
+    fun observeByTeam(teamId: String): Flow<List<IssueEntity>>
+
     // Cross-board "My Issues" view (masterplan §5a): everything assigned to me.
     @Query("SELECT * FROM issues WHERE assignee_id = :userId ORDER BY sort_order, created_at")
     fun observeByAssignee(userId: String): Flow<List<IssueEntity>>
 
     // VAPP-119: a team's issues (through their boards), the app host's `exp:issues`.
     @Query("SELECT i.* FROM issues i JOIN boards b ON b.id = i.board_id WHERE b.team_id = :teamId")
-    fun observeByTeam(teamId: String): Flow<List<IssueEntity>>
+    fun observeByTeamForApps(teamId: String): Flow<List<IssueEntity>>
 
     @Query("SELECT * FROM issues WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<IssueEntity?>
@@ -319,6 +327,10 @@ interface SessionDao {
     @Query("SELECT * FROM sessions WHERE root_id = :rootId OR id = :rootId ORDER BY created_at, id")
     fun observeTree(rootId: String): Flow<List<SessionEntity>>
 
+    // #EXP-1380: the sessions a chat's cards name (another tree's root).
+    @Query("SELECT * FROM sessions WHERE id IN (:ids) ORDER BY created_at, id")
+    fun observeByIds(ids: List<String>): Flow<List<SessionEntity>>
+
     // NEW-2: the agents' CONVERSATION sessions (roots with `agent_id`; the
     // definitions live in `agents`), creation order.
     @Query("SELECT * FROM sessions WHERE parent_id IS NULL AND agent_id IS NOT NULL ORDER BY created_at, id")
@@ -394,6 +406,15 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE root_id = :rootId ORDER BY created_at, id")
     fun observeByRoot(rootId: String): Flow<List<MessageEntity>>
 
+    // #EXP-1380: the card-less rows of the given sessions' conversations —
+    // all a session TITLE reads (its first prompt), never a whole transcript.
+    @Query(
+        "SELECT * FROM messages WHERE (card IS NULL OR card = 'null') AND conversation_id IN " +
+            "(SELECT id FROM conversations WHERE session_id IN (:sessionIds)) " +
+            "AND (author_kind = 'user' OR author_session_id IS NOT NULL) ORDER BY created_at, id",
+    )
+    fun observeTitleRows(sessionIds: List<String>): Flow<List<MessageEntity>>
+
     // A session's person messages the device has not consumed (the queue bar).
     @Query(
         "SELECT * FROM messages WHERE conversation_id IN " +
@@ -443,6 +464,10 @@ interface ConversationDao {
     // NEW-8: every message is keyed through these ([com.exponential.app.domain.MessageConversation]).
     @Query("SELECT * FROM conversations")
     fun observeAll(): Flow<List<ConversationEntity>>
+
+    // Thread e4a04d22: one team's conversations (the Chats list reads their digests).
+    @Query("SELECT * FROM conversations WHERE team_id = :teamId")
+    fun observeByTeam(teamId: String): Flow<List<ConversationEntity>>
 
     @Query("SELECT * FROM conversations WHERE session_id = :sessionId LIMIT 1")
     fun observeBySession(sessionId: String): Flow<ConversationEntity?>

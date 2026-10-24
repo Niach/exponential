@@ -186,4 +186,67 @@ class AgentSettingsTest {
         assertEquals("Someone", AgentSettings.eventEmitterLabel("user", null, null, title, user))
         assertEquals("Exponential", AgentSettings.eventEmitterLabel("server", null, null, title, user))
     }
+
+    private fun JsonObject.agentRows(key: String): List<AgentSettings.AgentRowLike> =
+        getValue(key).jsonArray.map { it.jsonObject }.map { row ->
+            AgentSettings.AgentRowLike(
+                id = row.str("id")!!,
+                name = row.str("name")!!,
+                icon = row.str("icon"),
+                color = row.str("color"),
+                sortOrder = row["sortOrder"]?.jsonPrimitive?.content?.toDouble() ?: 0.0,
+            )
+        }
+
+    @Test
+    fun `every actor case matches the fixture (EXP-1383)`() {
+        val cases = fixture.getValue("actor").jsonObject.getValue("actorCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val actual = AgentSettings.issueActor(input.str("actorAgentId"), input.str("actorUserId"), case.agentRows("agents"))
+            val encoded = when (actual) {
+                is AgentSettings.IssueActor.Agent -> buildJsonObject {
+                    put("kind", "agent")
+                    put("id", actual.id)
+                    put("name", actual.name)
+                    put("icon", actual.icon)
+                    put("color", actual.color)
+                }
+                is AgentSettings.IssueActor.User -> buildJsonObject {
+                    put("kind", "user")
+                    put("id", actual.id)
+                }
+                null -> JsonNull
+            }
+            assertEquals(case.str("name"), case.getValue("expected"), encoded)
+        }
+    }
+
+    @Test
+    fun `every assignee option case matches the fixture (EXP-1383)`() {
+        val assignee = fixture.getValue("assignee").jsonObject
+        assertEquals(assignee.getValue("copy").jsonObject.str("unassigned"), AgentSettings.ASSIGNEE_UNASSIGNED_LABEL)
+        val cases = assignee.getValue("optionCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val members = input.getValue("members").jsonArray.map { it.jsonObject.str("id")!! }
+            val actual = AgentSettings.assigneeOptions(members, input.agentRows("agents"))
+            val expected = case.getValue("expected").jsonArray.map { it.jsonPrimitive.content }
+            assertEquals(case.str("name"), expected, actual)
+        }
+    }
+
+    @Test
+    fun `an assignee write sends both columns, an agent clears the person (EXP-1383)`() {
+        assertEquals(AgentSettings.Assignee(null, "G1"), AgentSettings.Assignee("U1", "G1").write())
+        assertEquals(AgentSettings.Assignee("U1", null), AgentSettings.Assignee("U1", null).write())
+        assertEquals(AgentSettings.Assignee.NONE, AgentSettings.Assignee(null, null).write())
+        // A solo team keeps its assignee control while it has agents.
+        assertTrue(AgentSettings.hidesAssigneeControl(memberCount = 1, agentCount = 0))
+        assertTrue(!AgentSettings.hidesAssigneeControl(memberCount = 1, agentCount = 1))
+        assertTrue(!AgentSettings.hidesAssigneeControl(memberCount = 1, agentCount = 0, assigneeAgentId = "G1"))
+        assertTrue(!AgentSettings.hidesAssigneeControl(memberCount = 2, agentCount = 0))
+    }
 }

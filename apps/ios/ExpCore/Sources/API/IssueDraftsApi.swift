@@ -27,6 +27,8 @@ public struct IssueDraftDto: Decodable, Sendable {
     public let sessionId: String?
     public let createdAt: String?
     public let updatedAt: String?
+    /// #EXP-1383: a team AGENT assignee (exclusive with `assigneeId`).
+    public let assigneeAgentId: String?
 
     public init(
         id: String,
@@ -42,8 +44,10 @@ public struct IssueDraftDto: Decodable, Sendable {
         dueDate: String? = nil,
         sessionId: String? = nil,
         createdAt: String? = nil,
-        updatedAt: String? = nil
+        updatedAt: String? = nil,
+        assigneeAgentId: String? = nil
     ) {
+        self.assigneeAgentId = assigneeAgentId
         self.id = id
         self.userId = userId
         self.teamId = teamId
@@ -79,7 +83,8 @@ public struct IssueDraftDto: Decodable, Sendable {
             dueDate: dueDate,
             sessionId: sessionId,
             createdAt: createdAt ?? "",
-            updatedAt: updatedAt ?? ""
+            updatedAt: updatedAt ?? "",
+            assigneeAgentId: assigneeAgentId
         )
     }
 }
@@ -168,6 +173,10 @@ public struct UpsertIssueDraftInput: Encodable, Sendable {
     /// when nil, which KEEPS the row's session server-side (null would clear
     /// it; nothing on iOS clears it).
     public var sessionId: String?
+    /// #EXP-1383: a team AGENT assignee, exclusive with `assigneeId`. Always
+    /// on the wire (nil = an explicit null that clears it), so a person pick
+    /// or Unassigned never leaves an agent behind.
+    public var assigneeAgentId: String?
 
     public init(
         id: String,
@@ -180,8 +189,10 @@ public struct UpsertIssueDraftInput: Encodable, Sendable {
         assigneeId: String? = nil,
         labelIds: [String] = [],
         dueDate: String? = nil,
-        sessionId: String? = nil
+        sessionId: String? = nil,
+        assigneeAgentId: String? = nil
     ) {
+        self.assigneeAgentId = assigneeAgentId
         self.id = id
         self.teamId = teamId
         self.boardId = boardId
@@ -193,6 +204,27 @@ public struct UpsertIssueDraftInput: Encodable, Sendable {
         self.labelIds = labelIds
         self.dueDate = dueDate
         self.sessionId = sessionId
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, teamId, boardId, title, description, statusId, priority, assigneeId
+        case assigneeAgentId, labelIds, dueDate, sessionId
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(teamId, forKey: .teamId)
+        try c.encode(boardId, forKey: .boardId)
+        try c.encode(title, forKey: .title)
+        try c.encode(description, forKey: .description)
+        try c.encodeIfPresent(statusId, forKey: .statusId)
+        try c.encodeIfPresent(priority, forKey: .priority)
+        try c.encodeIfPresent(assigneeAgentId == nil ? assigneeId : nil, forKey: .assigneeId)
+        try c.encode(assigneeAgentId, forKey: .assigneeAgentId)
+        try c.encode(labelIds, forKey: .labelIds)
+        try c.encodeIfPresent(dueDate, forKey: .dueDate)
+        try c.encodeIfPresent(sessionId, forKey: .sessionId)
     }
 }
 

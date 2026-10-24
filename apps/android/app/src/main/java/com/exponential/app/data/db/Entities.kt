@@ -110,6 +110,10 @@ data class IssueEntity(
     @ColumnInfo(name = "draft_id") @SerialName("draft_id") @JsonNames("draftId") val draftId: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") override val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") override val updatedAt: String,
+    // #EXP-1383: an AGENT assignee (exclusive with `assignee_id`; the server
+    // clears one when it sets the other) and the agent whose session filed it.
+    @ColumnInfo(name = "assignee_agent_id") @SerialName("assignee_agent_id") @JsonNames("assigneeAgentId") val assigneeAgentId: String? = null,
+    @ColumnInfo(name = "creator_agent_id") @SerialName("creator_agent_id") @JsonNames("creatorAgentId") val creatorAgentId: String? = null,
     // EXP-892: the ONE issue-search engine ranks these rows directly (Search
     // tab, the pickers) — the interface is pure projection, nothing is stored.
 ) : IssueSearch.Row
@@ -286,6 +290,9 @@ data class CommentEntity(
     @ColumnInfo(name = "edited_at") @SerialName("edited_at") @JsonNames("editedAt") val editedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
+    // #EXP-1383: the agent whose session wrote it (the card names the agent
+    // and wears its mark; `author_id` keeps the member for audit).
+    @ColumnInfo(name = "author_agent_id") @SerialName("author_agent_id") @JsonNames("authorAgentId") val authorAgentId: String? = null,
 )
 
 enum class CommentKind { Regular }
@@ -409,7 +416,8 @@ data class IssueEventEntity(
     val type: String,
     @Serializable(with = JsonAsStringSerializer::class) val payload: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
-    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,    // #EXP-1383: the agent whose session made the change (the row names it).
+    @ColumnInfo(name = "actor_agent_id") @SerialName("actor_agent_id") @JsonNames("actorAgentId") val actorAgentId: String? = null,
 )
 
 // A registered machine (EXP-481, the 17th Electric shape): the caller's own
@@ -605,7 +613,9 @@ data class IssueDraftEntity(
     @ColumnInfo(name = "thread_id") @SerialName("session_id") @JsonNames("sessionId", "thread_id", "threadId")
     val threadId: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
-    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",    // #EXP-1383: an AGENT assignee (exclusive with `assignee_id`).
+    @ColumnInfo(name = "assignee_agent_id") @SerialName("assignee_agent_id") @JsonNames("assigneeAgentId")
+    val assigneeAgentId: String? = null,
 )
 
 // EXP-1291 Threads v2: ONE session tree (the `sessions` shape). A thread IS a
@@ -674,6 +684,11 @@ data class SessionEntity(
     // VAPP-110: the app this root is one member's EDITOR SESSION of (one per
     // app and member); NULL = anything else. Never a thread.
     @ColumnInfo(name = "app_id") @SerialName("app_id") @JsonNames("appId") val appId: String? = null,
+    // #EXP-1383: when this session last fetched its agent's brief (the
+    // "Instructions changed" banner compares it with the agent's stamp).
+    @ColumnInfo(name = "agent_instructions_at") @SerialName("agent_instructions_at") @JsonNames("agentInstructionsAt") val agentInstructionsAt: String? = null,
+    // #EXP-1383: the agent whose session started this root (an agent tree).
+    @ColumnInfo(name = "started_by_agent_id") @SerialName("started_by_agent_id") @JsonNames("startedByAgentId") val startedByAgentId: String? = null,
 ) {
     val isRoot: Boolean get() = parentId == null
     /** NEW-2: an agent's conversation session ([SessionKind.sessionKindOf]). */
@@ -708,6 +723,8 @@ data class AgentDefinitionEntity(
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+    // #EXP-1383: stamped only when the instructions TEXT changes.
+    @ColumnInfo(name = "instructions_updated_at") @SerialName("instructions_updated_at") @JsonNames("instructionsUpdatedAt") val instructionsUpdatedAt: String? = null,
 )
 
 // NEW-2: an event (free-text `name`, raw jsonb `payload`), team-scoped;
@@ -892,6 +909,10 @@ data class ConversationEntity(
     val title: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+    // Thread e4a04d22: the Chats list's per-conversation digest (jsonb kept
+    // by the server's `conversation_digest` trigger), stored as JSON text
+    // like messages.card; read through [com.exponential.app.domain.Chats.digestMessages].
+    @Serializable(with = JsonAsStringSerializer::class) val digest: String? = null,
 )
 
 // EXP-1323: the viewer's read mark of one session (a thread = its root's

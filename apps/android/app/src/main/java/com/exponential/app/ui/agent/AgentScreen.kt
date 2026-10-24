@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
@@ -863,11 +864,13 @@ internal fun AgentPageFrame(
     Box(modifier = Modifier.fillMaxSize().testTag(AgentHome.HOME_TEST_ID)) {
         Scaffold(
             containerColor = Color.Transparent,
+            // #EXP-1384 (chats.json `shell.header`): the page header, the
+            // back control first on the seeded (pushed) page.
             topBar = {
-                CenterAlignedTopAppBar(
-                    title = { Text("Agent") },
-                    navigationIcon = { onBack?.let { TopBarBackButton(onClick = it) } },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+                com.exponential.app.ui.components.PageHeader(
+                    title = com.exponential.app.domain.Chats.Copy.HEADERS.getValue("agent"),
+                    onBack = onBack,
+                    modifier = Modifier.statusBarsPadding(),
                 )
             },
         ) { padding ->

@@ -33,7 +33,14 @@ import kotlinx.serialization.json.JsonPrimitive
  * `board_moved` → board, `label_added` /
  * `label_removed` → that ONE label (`payload.labelId`; an add and a remove
  * of the same label cancel), `relation_added` / `relation_removed` → that
- * one relation (`payload.type` + `payload.relatedIssueId`).
+ * one relation (`payload.type` + `payload.relatedIssueId`). An assignee
+ * side compares as `agent:<fromAgentId|toAgentId>` when the payload names an
+ * agent, else the user id.
+ *
+ * THE ACTOR (#EXP-1383): an event (or barrier) with `actorAgentId` set is the
+ * AGENT `agent:<id>`, else the member `user:<actorUserId>` ([foldActorKey]).
+ * An agent and the member whose conversation it runs in are DIFFERENT actors,
+ * and so are two agents of one member.
  */
 object ActivityFold {
 
@@ -47,7 +54,16 @@ object ActivityFold {
         val issueId: String,
         val actorUserId: String?,
         val createdAt: String,
+        /** #EXP-1383: the agent whose session wrote the comment. */
+        val actorAgentId: String? = null,
     )
+
+    /** #EXP-1383: the fold's actor key: the agent when set, else the member, else null. */
+    fun foldActorKey(actorUserId: String?, actorAgentId: String?): String? = when {
+        !actorAgentId.isNullOrEmpty() -> "agent:$actorAgentId"
+        actorUserId != null -> "user:$actorUserId"
+        else -> null
+    }
 
     /** First-to-last span a run may cover and still fold. */
     const val FOLD_WINDOW_MS: Long = 10L * 60L * 1000L
@@ -101,12 +117,12 @@ object ActivityFold {
         val open = LinkedHashMap<String, Run>()
         val out = mutableListOf<Out>()
 
-        fun breakOthers(issueId: String, actorUserId: String?) {
+        fun breakOthers(issueId: String, actor: String?) {
             val iterator = open.entries.iterator()
             while (iterator.hasNext()) {
                 val run = iterator.next().value
                 if (run.issueId != issueId) continue
-                if (actorUserId != null && run.actorUserId == actorUserId) continue
+                if (actor != null && run.actor == actor) continue
                 flushRun(run, out)
                 iterator.remove()
             }
@@ -114,9 +130,12 @@ object ActivityFold {
 
         for (step in steps) {
             when (step) {
-                is Step.Barrier -> breakOthers(step.barrier.issueId, step.barrier.actorUserId)
+                is Step.Barrier -> breakOthers(
+                    step.barrier.issueId,
+                    foldActorKey(step.barrier.actorUserId, step.barrier.actorAgentId),
+                )
                 is Step.Event -> {
-                    val actor = step.event.actorUserId
+                    val actor = foldActorKey(step.event.actorUserId, step.event.actorAgentId)
                     breakOthers(step.event.issueId, actor)
                     val field = if (actor != null && step.datable) {
                         fieldKey(step.event.type, step.payload)
@@ -165,7 +184,7 @@ object ActivityFold {
 
     private class Run(
         val issueId: String,
-        val actorUserId: String,
+        val actor: String,
         val events: MutableList<Step.Event>,
     )
 
@@ -231,7 +250,9 @@ object ActivityFold {
         return when (step.event.type) {
             "status_changed" ->
                 asString(payload["fromStatusId"]) ?: asString(payload["from"]) ?: ""
-            "assignee_changed", "priority_changed", "estimate_changed", "title_changed" ->
+            "assignee_changed" ->
+                optionalString(payload["fromAgentId"])?.let { "agent:$it" } ?: asString(payload["from"]) ?: ""
+            "priority_changed", "estimate_changed", "title_changed" ->
                 asString(payload["from"]) ?: ""
             "board_moved" -> asString(payload["fromBoardId"]) ?: ""
             "label_added", "relation_added" -> "absent"
@@ -245,7 +266,9 @@ object ActivityFold {
         return when (step.event.type) {
             "status_changed" ->
                 asString(payload["toStatusId"]) ?: asString(payload["to"]) ?: ""
-            "assignee_changed", "priority_changed", "estimate_changed", "title_changed" ->
+            "assignee_changed" ->
+                optionalString(payload["toAgentId"])?.let { "agent:$it" } ?: asString(payload["to"]) ?: ""
+            "priority_changed", "estimate_changed", "title_changed" ->
                 asString(payload["to"]) ?: ""
             "board_moved" -> asString(payload["toBoardId"]) ?: ""
             "label_added", "relation_added" -> "present"

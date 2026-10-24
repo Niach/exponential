@@ -408,12 +408,14 @@ struct IssueDraftPageView: View {
                     subject: .init(
                         priority: vm.priority.rawValue,
                         assigneeId: vm.assigneeId,
+                        assigneeAgentId: vm.assigneeAgentId,
                         dueDate: vm.dueDate
                     ),
                     status: vm.status,
                     assignee: vm.assignee,
+                    assigneeAgent: vm.assigneeAgent,
                     assignedLabels: vm.assignedLabels,
-                    singleMemberTeam: vm.singleMemberTeam,
+                    hidesAssignee: vm.hidesAssignee,
                     estimationType: DomainContract.issueEstimationNone,
                     isModerator: vm.permissions.isModerator,
                     board: vm.showsBoardChip ? vm.board : nil,

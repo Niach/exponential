@@ -4,8 +4,8 @@ import Foundation
 import GRDB
 
 /// EXP-1291: the session tree as the phone's LISTS read it — ONE observation
-/// of the synced `sessions` / `session_issues` / `messages` /
-/// `pull_requests` rows, owned by
+/// of the synced `sessions` / `session_issues` / `conversations` (their
+/// digests, never `messages`) / `pull_requests` rows, owned by
 /// the navigator for its whole lifetime and handed down through the
 /// environment, so the Threads tab, its dot, Home's Running band and the
 /// board switcher's per-team dots never disagree. Every rule is ExpCore's
@@ -42,9 +42,8 @@ final class SessionListsModel {
     private(set) var liveByTeam: [String: SessionTree.TeamLiveSessions] = [:]
     /// The first emission landed (before it, lists draw skeleton rows).
     private(set) var loaded = false
-    /// EXP-1373 (chats.json): the ROOT conversations' list inputs — each
-    /// root's newest preview-able messages, its waiting asks and the agent
-    /// messages past my read (bodies dropped) — `Chats.chatList`'s
+    /// EXP-1373 (chats.json): the list inputs — every conversation's digest
+    /// back as messages (`Chats.digestMessages`) — `Chats.chatList`'s
     /// `messages`, never a whole transcript.
     private(set) var chatMessages: [TreeMessage] = []
     private(set) var reads: [TreeSessionRead] = []
@@ -157,7 +156,6 @@ final class SessionListsModel {
         var pullRequests: [PullRequestEntity]
         var deviceRows: [DeviceEntity]
         var agents: [AgentLike]
-        var chatMessages: [TreeMessage]
     }
 
     private struct Derived: Sendable, Equatable {
@@ -198,9 +196,9 @@ final class SessionListsModel {
     }
 
     /// The whole session table (the shape already scopes it to what I may
-    /// read), the root links, their issues, and every session's INPUT
-    /// messages (a person's or another session's card-less text: the
-    /// `SessionTitle` first-prompt rung — never a whole transcript).
+    /// read), the root links, their issues, and every conversation's digest
+    /// messages (the `SessionTitle` first-prompt rung, the previews, the
+    /// waiting asks and the agent times — never a whole transcript).
     nonisolated private static func read(_ db: Database) throws -> Rows {
         let sessions = try SessionEntity.fetchAll(db)
         let links = try SessionIssueEntity.order(Column("sort_order")).fetchAll(db)
@@ -208,45 +206,24 @@ final class SessionListsModel {
         let issues = issueIds.isEmpty
             ? []
             : try IssueEntity.filter(issueIds.contains(Column("id"))).fetchAll(db)
-        // NEW-8: every message is keyed through its conversation
-        // (`SessionQueries.keyedMessagesSQL`); "another session's" text =
-        // posted by a session other than the one its conversation belongs to.
-        let messages = try SessionMessage.fetchAll(db, sql: """
-            \(SessionQueries.keyedMessagesSQL)
-            AND ("messages"."card" IS NULL OR "messages"."card" = 'null')
-            AND ("messages"."author_kind" = ?
-                OR ("messages"."author_session_id" IS NOT NULL
-                    AND "messages"."author_session_id" <> "conversations"."session_id"))
-            ORDER BY "messages"."created_at", "messages"."id"
-            """, arguments: [DomainContract.messageAuthorKindUser])
-        // EXP-1323: unread only reads each session's NEWEST agent message, so
-        // one aggregate row per session stands in for the transcript.
-        let newestAgent = try Row.fetchAll(db, sql: """
-            SELECT "conversations"."session_id" AS "session_id", MAX("messages"."created_at") AS "at"
-            FROM "messages"
-            JOIN "conversations" ON "conversations"."id" = "messages"."conversation_id"
-            WHERE "messages"."author_kind" = ? AND "conversations"."session_id" IS NOT NULL
-            GROUP BY "conversations"."session_id"
-            """, arguments: [DomainContract.messageAuthorKindAgent])
-            .compactMap { row -> TreeMessage? in
-                guard let sessionId: String = row["session_id"], let at: String = row["at"] else { return nil }
-                return TreeMessage(
-                    id: "newest-agent-\(sessionId)",
-                    sessionId: sessionId,
-                    authorKind: DomainContract.messageAuthorKindAgent,
-                    authorId: nil,
-                    body: "",
-                    card: nil,
-                    answeredAt: nil,
-                    consumedAt: at,
-                    createdAt: at
-                )
+        // Thread e4a04d22 (chats.json LIST DATA): the lists never read a
+        // transcript — each conversation's server-kept digest, turned back
+        // into messages (`Chats.digestMessages`, `digestCases`), stands in
+        // for them, so this observation tracks `conversations`, never
+        // `messages`.
+        let digestMessages = try Row.fetchAll(db, sql: """
+            SELECT "session_id", "digest" FROM "conversations"
+            WHERE "session_id" IS NOT NULL AND "session_id" <> ''
+            """)
+            .flatMap { row -> [TreeMessage] in
+                let sessionId: String = row["session_id"]
+                return Chats.digestMessages(sessionId: sessionId, digest: row["digest"] as String?)
             }
         return Rows(
             sessions: sessions.map { TreeSession(sessionRow: $0) },
             sessionIssues: links.map { TreeSessionIssue(sessionIssueRow: $0) },
             issues: issues.map { TreeIssue(issueRow: $0) },
-            messages: messages.map { TreeMessage(messageRow: $0) } + newestAgent,
+            messages: digestMessages,
             reads: try SessionReadEntity.fetchAll(db).map { TreeSessionRead(sessionReadRow: $0) },
             clis: Dictionary(
                 sessions.map { ($0.id, $0.cli ?? "") },
@@ -254,80 +231,8 @@ final class SessionListsModel {
             ),
             pullRequests: try PullRequestEntity.fetchAll(db),
             deviceRows: try DeviceEntity.fetchAll(db),
-            agents: try AgentDefinitionEntity.fetchAll(db).map(AgentLike.init),
-            chatMessages: try chatMessages(db)
+            agents: try AgentDefinitionEntity.fetchAll(db).map(AgentLike.init)
         )
-    }
-
-    /// EXP-1373: the chat list's messages (`Chats.chatList`), ROOT
-    /// conversations only: each root's three newest preview-able messages
-    /// (a person's or the agent's text, a question / plan / ask / picture /
-    /// surface card), every waiting ask, and the agent messages (no event
-    /// cards) at or past the root's read, their bodies dropped — the exact
-    /// unread compare stays `Chats.unreadCount`'s.
-    nonisolated private static func chatMessages(_ db: Database) throws -> [TreeMessage] {
-        let kind = """
-            CASE WHEN "messages"."card" IS NOT NULL AND json_valid("messages"."card")
-            THEN json_extract("messages"."card", '$.kind') END
-            """
-        let rootJoin = """
-            FROM "messages"
-            JOIN "conversations" ON "conversations"."id" = "messages"."conversation_id"
-            JOIN "sessions" ON "sessions"."id" = "conversations"."session_id" AND "sessions"."parent_id" IS NULL
-            """
-        let user = DomainContract.messageAuthorKindUser
-        let agent = DomainContract.messageAuthorKindAgent
-        let previews = try SessionMessage.fetchAll(db, sql: """
-            SELECT * FROM (
-                SELECT "messages".*, "conversations"."session_id" AS "conversation_session_id",
-                    ROW_NUMBER() OVER (
-                        PARTITION BY "conversations"."session_id"
-                        ORDER BY "messages"."created_at" DESC, "messages"."id" DESC
-                    ) AS "rn"
-                \(rootJoin)
-                WHERE "messages"."author_kind" IN (?, ?)
-                  AND ((\(kind)) IN ('question', 'plan', 'ask', 'picture', 'surface')
-                    OR (("messages"."card" IS NULL OR "messages"."card" = 'null') AND trim("messages"."body") <> ''))
-            ) WHERE "rn" <= 3
-            """, arguments: [user, agent])
-        let waiting = try SessionMessage.fetchAll(db, sql: """
-            SELECT "messages".*, "conversations"."session_id" AS "conversation_session_id"
-            \(rootJoin)
-            WHERE "messages"."answered_at" IS NULL AND (\(kind)) IN ('question', 'plan', 'ask')
-            """)
-        let unread = try Row.fetchAll(db, sql: """
-            SELECT "messages"."id" AS "id", "conversations"."session_id" AS "session_id",
-                "messages"."created_at" AS "created_at"
-            \(rootJoin)
-            WHERE "messages"."author_kind" = ?
-              AND ((\(kind)) IS NULL OR (\(kind)) <> 'event')
-              AND replace(substr("messages"."created_at", 1, 19), 'T', ' ') >= COALESCE((
-                  SELECT replace(substr(MAX("session_reads"."read_at"), 1, 19), 'T', ' ')
-                  FROM "session_reads" WHERE "session_reads"."session_id" = "conversations"."session_id"
-              ), '')
-            """, arguments: [agent])
-        var seen = Set<String>()
-        var out: [TreeMessage] = []
-        for row in previews + waiting where seen.insert(row.id).inserted {
-            out.append(TreeMessage(messageRow: row))
-        }
-        for row in unread {
-            let id: String = row["id"]
-            guard seen.insert(id).inserted else { continue }
-            let at: String = row["created_at"]
-            out.append(TreeMessage(
-                id: id,
-                sessionId: row["session_id"],
-                authorKind: agent,
-                authorId: nil,
-                body: "",
-                card: nil,
-                answeredAt: nil,
-                consumedAt: at,
-                createdAt: at
-            ))
-        }
-        return out
     }
 
     nonisolated private static func derive(_ rows: Rows, userId: String?) -> Derived {
@@ -413,7 +318,7 @@ final class SessionListsModel {
             prStates: prStates,
             devices: devices,
             liveByTeam: SessionTree.liveByTeam(rows.sessions, userId: userId),
-            chatMessages: rows.chatMessages,
+            chatMessages: rows.messages,
             reads: rows.reads,
             sessions: rows.sessions,
             rootStatus: Dictionary(

@@ -94,6 +94,8 @@ pub(crate) struct DraftSave {
     pub(crate) status_id: Option<String>,
     pub(crate) priority: IssuePriority,
     pub(crate) assignee_id: Option<String>,
+    /// #EXP-1383: an agent assignee (exclusive with `assignee_id`).
+    pub(crate) assignee_agent_id: Option<String>,
     pub(crate) label_ids: Vec<String>,
     pub(crate) due_date: Option<NaiveDate>,
     /// EXP-1284: the thread the draft files into (stored on the row).
@@ -114,7 +116,10 @@ impl DraftSave {
         input.description = self.description.clone();
         input.status_id = self.status_id.clone();
         input.priority = self.priority.as_wire().is_some().then_some(self.priority);
-        input.assignee_id = self.assignee_id.clone();
+        // #EXP-1383: both columns, an agent wins and clears the person.
+        let assignee = api::issues::Assignee::of(self.assignee_id.as_deref(), self.assignee_agent_id.as_deref());
+        input.assignee_id = assignee.user_id().map(str::to_string);
+        input.assignee_agent_id = assignee.agent_id().map(str::to_string);
         input.label_ids = self.label_ids.clone();
         input.due_date = self
             .due_date
@@ -141,6 +146,7 @@ impl DraftSave {
             status_id: self.status_id.clone(),
             priority: self.priority.as_wire().is_some().then_some(self.priority),
             assignee_id: self.assignee_id.clone(),
+            assignee_agent_id: self.assignee_agent_id.clone(),
             label_ids: self.label_ids.clone(),
             due_date: self
                 .due_date
@@ -177,6 +183,8 @@ pub(crate) struct DraftSeed {
     pub(crate) status: crate::pickers::StatusPick,
     pub(crate) priority: IssuePriority,
     pub(crate) assignee_id: Option<String>,
+    /// #EXP-1383: an agent assignee (exclusive with `assignee_id`).
+    pub(crate) assignee_agent_id: Option<String>,
     pub(crate) label_ids: Vec<String>,
     pub(crate) due_date: Option<NaiveDate>,
 }
@@ -200,6 +208,10 @@ pub(crate) fn seed_from_row(draft: &IssueDraftRow, cx: &App) -> DraftSeed {
         priority: draft.priority.unwrap_or(IssuePriority::None),
         assignee_id: draft
             .assignee_id
+            .clone()
+            .filter(|id| !id.trim().is_empty()),
+        assignee_agent_id: draft
+            .assignee_agent_id
             .clone()
             .filter(|id| !id.trim().is_empty()),
         label_ids: draft.label_ids.clone(),
@@ -227,6 +239,7 @@ mod tests {
             status_id: None,
             priority: None,
             assignee_id: None,
+            assignee_agent_id: None,
             label_ids: Vec::new(),
             due_date: None,
             session_id: None,
@@ -282,6 +295,7 @@ mod tests {
             status_id: Some("s-1".into()),
             priority: IssuePriority::High,
             assignee_id: Some("u-1".into()),
+            assignee_agent_id: None,
             label_ids: vec!["l-1".into()],
             due_date: NaiveDate::from_ymd_opt(2026, 9, 14),
             thread_id: Some("th-1".into()),
@@ -313,6 +327,7 @@ mod tests {
             status_id: Some("s-1".into()),
             priority: IssuePriority::None,
             assignee_id: None,
+            assignee_agent_id: Some("g-1".into()),
             label_ids: Vec::new(),
             due_date: NaiveDate::from_ymd_opt(2026, 9, 14),
             thread_id: None,
@@ -324,6 +339,9 @@ mod tests {
         assert_eq!(input.priority, Some(IssuePriority::None));
         assert_eq!(input.due_date.as_deref(), Some("2026-09-14"));
         assert_eq!(input.status_id.as_deref(), Some("s-1"));
+        // #EXP-1383: the agent assignee rides its own column.
+        assert_eq!(input.assignee_agent_id.as_deref(), Some("g-1"));
+        assert_eq!(input.assignee_id, None);
         // A forward-compat value from a newer server must never be echoed.
         save.priority = IssuePriority::Unknown;
         assert_eq!(save.to_input().priority, None);

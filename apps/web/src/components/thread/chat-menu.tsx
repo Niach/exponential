@@ -19,7 +19,7 @@ import {
 } from "@exp/ui"
 import { useSession } from "@/hooks/use-session"
 import { useAgentRow } from "@/hooks/use-agent-row"
-import { useSessionRow, useSessionThread, useTeamSessions } from "@/hooks/use-session-tree"
+import { useSessionRow, useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import type { Team } from "@/db/schema"
@@ -150,10 +150,13 @@ export function ChatMenuSession({
 }: MenuSessionProps & { actions: ReturnType<typeof useChatActions> }) {
   const { row } = useSessionRow(target.id)
   const root = row && row.parentId === null && !row.agentId ? row : null
-  const { view } = useSessionThread(root?.id ?? null)
+  // #EXP-1380 (chats.json LIST DATA): the title reads the digest, never a
+  // transcript.
+  const rootRows = useMemo(() => (root ? [root] : []), [root])
+  const { titles } = useSessionTitles(rootRows)
   const entries = useChatMenuEntries(root, actions)
   if (entries.length === 0) return null
-  const title = view?.title || COPY.title
+  const title = (root ? titles.get(root.id) : undefined) || COPY.title
   return (
     <Menu
       mode="pointer"
@@ -223,6 +226,31 @@ function useAgentConversation(teamId: string | undefined, agentId: string | null
   )
 }
 
+/** An agent menu line (`AGENT_MENU_SENDS`: `/compact`, `/new`) into the
+ *  viewer's conversation with the agent (or a fresh one), the failure as a
+ *  toast. #EXP-1383: the Dock's "Instructions changed" banner sends its
+ *  `/new` through here too, so both are one path. */
+export async function sendAgentLine({
+  teamId,
+  agentId,
+  conversationId,
+  text,
+}: {
+  teamId: string
+  agentId: string
+  conversationId: string | null
+  text: string
+}): Promise<void> {
+  try {
+    const result = conversationId
+      ? await trpc.sessions.send.mutate({ teamId, sessionId: conversationId, text }, SKIP_ERROR_TOAST)
+      : await trpc.sessions.send.mutate({ agentId, text }, SKIP_ERROR_TOAST)
+    await messageCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
+  } catch (error) {
+    toastFailed(`Couldn't send the message`, error)
+  }
+}
+
 /** The agent menu's rows (`agentMenuEntries`): Compact and New conversation
  *  SEND their builtin line; Stop interrupts the turn; settings for owners. */
 export function useAgentMenuEntries({
@@ -239,16 +267,8 @@ export function useAgentMenuEntries({
   if (!team || !agentId || !agent || agent.teamId !== team.id || !permissions.isMember) return []
   const busy = conversation?.busy ?? false
 
-  const send = async (text: string) => {
-    try {
-      const result = conversation
-        ? await trpc.sessions.send.mutate({ teamId: team.id, sessionId: conversation.id, text }, SKIP_ERROR_TOAST)
-        : await trpc.sessions.send.mutate({ agentId, text }, SKIP_ERROR_TOAST)
-      await messageCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
-    } catch (error) {
-      toastFailed(`Couldn't send the message`, error)
-    }
-  }
+  const send = (text: string) =>
+    sendAgentLine({ teamId: team.id, agentId, conversationId: conversation?.id ?? null, text })
   const stop = async () => {
     if (!conversation) return
     try {

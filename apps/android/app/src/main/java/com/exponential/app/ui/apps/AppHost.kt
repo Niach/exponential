@@ -365,7 +365,7 @@ fun rememberAppHost(
         fun <T> teamRows(query: (ExponentialDatabase, String) -> Flow<List<T>>): Flow<List<T>> =
             if (teamId == null) flowOf(emptyList()) else db.scopedQuery(emptyList()) { query(it, teamId) }
         val teamBoards = teamRows { d, t -> d.boardDao().observeByTeam(t) }.map { it.map(AppSources::board) }
-        val teamIssues = teamRows { d, t -> d.issueDao().observeByTeam(t) }.map { it.map(AppSources::issue) }
+        val teamIssues = teamRows { d, t -> d.issueDao().observeByTeamForApps(t) }.map { it.map(AppSources::issue) }
         val teamMembers = teamRows { d, t -> d.teamMemberDao().observeByTeam(t) }.map { it.map(AppSources::member) }
         val sourceUsers = users.map { it.map(AppSources::user) }
         val teamSessions = teamRows { d, t -> d.sessionDao().observeByTeam(t) }.map { it.map(AppSources::session) }

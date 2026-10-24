@@ -68,6 +68,11 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
 vi.mock(`@/lib/integrations/subscriptions`, () => ({
   ensureSubscribed: h.ensureSubscribed,
 }))
+// #EXP-1383: the assignment's team event + agent nudge (real-DB tested).
+vi.mock(`@/lib/agents/assignment`, () => ({
+  assertAgentInTeam: vi.fn(async () => {}),
+  onIssueAssignedInTx: vi.fn(async () => {}),
+}))
 vi.mock(`@/lib/integrations/activity`, () => ({
   recordIssueEvent: vi.fn(),
 }))

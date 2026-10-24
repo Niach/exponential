@@ -4,18 +4,14 @@ import GRDB
 import SwiftUI
 
 /// Thread 58cb32df (chats.json, #EXP-1373): the phone's CHATS tab — the
-/// large inline title "Chats" with the search and INBOX circles (a dot while
-/// any of the active team's notifications is unread; the inbox is a pushed
-/// page), the team agents as BUBBLES, the filter chips All · Needs you ·
+/// page header (#EXP-1384 `shell.header`: the large title "Chats", the
+/// native search and INBOX circles), the team agents as BUBBLES, the filter chips All · Needs you ·
 /// Running · Unread, then ONE flat WhatsApp-like list of the ACTIVE team's
 /// chats (`Chats.chatList` over `partitionThreads`: no bands, no nesting,
 /// newest activity first). A row opens the chat; a long press opens THE
 /// menu's sheet titled with the chat (Stop · Stop and delete, or Delete); a
 /// bubble's hold its agent menu.
 struct ChatsView: View {
-    /// The Chats header's inbox dot.
-    var inboxUnread = false
-
     @Environment(AppDependencies.self) private var deps
     @Environment(SessionListsModel.self) private var lists
     @Environment(TeamState.self) private var teamState
@@ -46,25 +42,7 @@ struct ChatsView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
-        .navigationTitle(Chats.Copy.title)
-        .toolbarTitleDisplayMode(.inlineLarge)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .ownChromeToolbarItem(placement: .topBarTrailing) {
-            HStack(spacing: 10) {
-                NavigationLink(value: AppRoute.search) {
-                    Self.headerCircle(AppIcons.navSearch, dot: false)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Search")
-                .accessibilityIdentifier("chats-search")
-                NavigationLink(value: AppRoute.myWork) {
-                    Self.headerCircle(AppIcons.navInbox, dot: inboxUnread)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Chats.Copy.inbox)
-                .accessibilityIdentifier(Chats.TestIds.inboxButton)
-            }
-        }
+        .pageHeader(Chats.Copy.Headers.chats)
         .sheet(item: $menu, onDismiss: runPendingPick) { target in
             ChatMenuSheet(title: target.title, entries: target.entries) { entry in
                 pendingPick = (target, entry)
@@ -90,25 +68,6 @@ struct ChatsView: View {
 
     private var actions: ChatActions {
         ChatActions(deps: deps, accountId: accountId, toaster: toaster)
-    }
-
-    /// The header's two trailing circles (search, the inbox with its dot).
-    static func headerCircle(_ icon: String, dot: Bool) -> some View {
-        AppIcon(icon, size: AppIcon.Size.large)
-            .foregroundStyle(.white)
-            .frame(width: 40, height: 40)
-            .background(GlassTokens.opaqueCardFill, in: Circle())
-            .overlay(Circle().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline))
-            .overlay(alignment: .topTrailing) {
-                if dot {
-                    Circle()
-                        .fill(DesignTokens.Semantic.blue)
-                        .frame(width: 9, height: 9)
-                        .offset(x: -2, y: 2)
-                        .accessibilityLabel("Unread")
-                }
-            }
-            .contentShape(Circle())
     }
 
     // MARK: - List

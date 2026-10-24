@@ -45,6 +45,8 @@ mod changelog;
 mod chat_launch;
 // Thread 58cb32df: the chat and agent menus (Stop, Delete, Compact, New conversation).
 mod chat_actions;
+mod chat_list;
+mod chat_transcript;
 mod chat_screen;
 pub mod coding_flow;
 // EXP-1121: the "Ready to code?" checklist behind Start coding.

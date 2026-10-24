@@ -42,6 +42,7 @@ use gpui_component::{
 use sync::Store;
 
 use domain::activity_fold::{fold_activity, ActivityBarrier};
+use domain::agent_settings::{AgentActorRow, IssueActor};
 use domain::rows::{Comment, IssueEvent, Label, Board, User};
 
 use crate::comment_attachments::{self, MAX_COMMENT_ATTACHMENTS};
@@ -1317,6 +1318,7 @@ impl IssueTimeline {
             .map(|comment| ActivityBarrier {
                 issue_id: comment.issue_id.clone(),
                 actor_user_id: comment.author_id.clone(),
+                actor_agent_id: comment.author_agent_id.clone(),
                 created_at: comment.created_at.clone().unwrap_or_default(),
             })
             .collect();
@@ -1350,8 +1352,19 @@ impl IssueTimeline {
         &'a self,
         comment: &'a Comment,
         user_map: &'a HashMap<String, User>,
+        agents: &[AgentActorRow],
         current_user_id: Option<&str>,
     ) -> CommentCardProps<'a> {
+        // #EXP-1383 (agent-settings.json `actor`): an agent's session wrote
+        // it → the card names the AGENT and wears its mark.
+        let author_agent = match domain::agent_settings::issue_actor(
+            comment.author_agent_id.as_deref(),
+            comment.author_id.as_deref(),
+            agents,
+        ) {
+            Some(IssueActor::Agent(agent)) => Some(agent),
+            _ => None,
+        };
         let author = comment
             .author_id
             .as_deref()
@@ -1370,6 +1383,7 @@ impl IssueTimeline {
         CommentCardProps {
             comment,
             author,
+            author_agent,
             reporter_name: self
                 .reporter
                 .as_ref()
@@ -1395,6 +1409,7 @@ impl IssueTimeline {
     fn creation_row(
         &self,
         user_map: &HashMap<String, User>,
+        agents: &[AgentActorRow],
         now_epoch: i64,
         line_below: bool,
         cx: &App,
@@ -1407,8 +1422,18 @@ impl IssueTimeline {
             .get(issue_id)
             .cloned()?;
         // Widget/agent rows carry a NULL creator — the origin is the author
-        // signal.
-        let who = if issue.source.as_deref() == Some(domain::contract::ISSUE_SOURCE_WIDGET) {
+        // signal. #EXP-1383: an agent session's issue names the AGENT.
+        let creator_agent = match domain::agent_settings::issue_actor(
+            issue.creator_agent_id.as_deref(),
+            issue.creator_id.as_deref(),
+            agents,
+        ) {
+            Some(IssueActor::Agent(agent)) => Some(agent),
+            _ => None,
+        };
+        let who = if let Some(agent) = creator_agent {
+            agent.name
+        } else if issue.source.as_deref() == Some(domain::contract::ISSUE_SOURCE_WIDGET) {
             "Feedback widget".to_string()
         } else if issue.source.as_deref() == Some(domain::contract::ISSUE_SOURCE_AGENT) {
             "Agent".to_string()
@@ -1583,6 +1608,9 @@ impl Render for IssueTimeline {
                     .children(fold_toggle),
             );
 
+        // #EXP-1383: agent actors (events, comments, the creation row) and
+        // agent assignees resolve against the synced agents.
+        let agents = queries::agent_actor_rows(cx);
         // EXP-525: status-changed rows resolve their target status against
         // the team vocabulary (real icon + color).
         let statuses = self
@@ -1616,13 +1644,14 @@ impl Render for IssueTimeline {
             .iter()
             .filter(|item| match item {
                 TimelineItem::Event(event) => {
-                    event_phrase(
+                    event_phrase_with(
                         event,
                         &user_map,
                         &label_map,
                         &board_map,
                         &statuses,
                         &estimate_scale,
+                        &agents,
                     )
                     .is_some()
                 }
@@ -1631,7 +1660,7 @@ impl Render for IssueTimeline {
             .collect();
 
         // EXP-417: "X created the issue" goes FIRST, above every event.
-        let creation_row = self.creation_row(&user_map, now_epoch, !rendered.is_empty(), cx);
+        let creation_row = self.creation_row(&user_map, &agents, now_epoch, !rendered.is_empty(), cx);
         let has_creation_row = creation_row.is_some();
         body = body.children(creation_row);
 
@@ -1660,6 +1689,7 @@ impl Render for IssueTimeline {
                         &board_map,
                         &statuses,
                         &estimate_scale,
+                        &agents,
                         now_epoch,
                         line_above,
                         line_below,
@@ -1669,13 +1699,13 @@ impl Render for IssueTimeline {
                     }
                 }
                 TimelineItem::Comment(comment) => {
-                    let card = self.card_props(comment, &user_map, current_user_id.as_deref());
+                    let card = self.card_props(comment, &user_map, &agents, current_user_id.as_deref());
                     let replies: Vec<CommentCardProps<'_>> = replies_by_parent
                         .get(&comment.id)
                         .map(|list| {
                             list.iter()
                                 .map(|reply| {
-                                    self.card_props(reply, &user_map, current_user_id.as_deref())
+                                    self.card_props(reply, &user_map, &agents, current_user_id.as_deref())
                                 })
                                 .collect()
                         })
@@ -1916,6 +1946,7 @@ impl EventGlyph {
 /// unknown event types (web returns null). `estimate_scale` = the team's
 /// `estimation_type`, which decides how an `estimate_changed` value reads
 /// (EXP-630).
+#[cfg(test)]
 fn event_phrase(
     event: &IssueEvent,
     user_map: &HashMap<String, User>,
@@ -1923,6 +1954,20 @@ fn event_phrase(
     board_map: &HashMap<String, Board>,
     statuses: &[domain::rows::IssueStatusRow],
     estimate_scale: &str,
+) -> Option<(EventGlyph, String, Option<String>)> {
+    event_phrase_with(event, user_map, label_map, board_map, statuses, estimate_scale, &[])
+}
+
+/// [`event_phrase`] with the synced agents an agent assignee (#EXP-1383
+/// `toAgentId`, `assigned Sloppy`) resolves against.
+fn event_phrase_with(
+    event: &IssueEvent,
+    user_map: &HashMap<String, User>,
+    label_map: &HashMap<String, Label>,
+    board_map: &HashMap<String, Board>,
+    statuses: &[domain::rows::IssueStatusRow],
+    estimate_scale: &str,
+    agents: &[AgentActorRow],
 ) -> Option<(EventGlyph, String, Option<String>)> {
     let payload = event.payload.as_ref();
     let payload_str = |key: &str| -> Option<String> {
@@ -1974,6 +2019,17 @@ fn event_phrase(
                 statuses,
             );
             Some((EventGlyph::Status(status), phrase, None))
+        }
+        // #EXP-1383: an agent assignee rides `toAgentId` (`assigned
+        // Sloppy`); a row that is gone reads `an agent` (web parity).
+        "assignee_changed" if payload_str("toAgentId").is_some_and(|id| !id.is_empty()) => {
+            let agent_id = payload_str("toAgentId").unwrap_or_default();
+            let name = agents
+                .iter()
+                .find(|agent| agent.id == agent_id)
+                .map(|agent| agent.name.clone())
+                .unwrap_or_else(|| AGENT_FALLBACK_NAME.to_string());
+            Some((EventGlyph::Plain(registry::EVENT_ASSIGNEE_CHANGED), format!("assigned {name}"), None))
         }
         "assignee_changed" => match payload_str("to") {
             // `payload.to` can reference a user the viewer can't see (the
@@ -2084,6 +2140,23 @@ fn event_phrase(
     }
 }
 
+/// #EXP-1383: an agent assignee whose row is gone (deleted, or not synced).
+const AGENT_FALLBACK_NAME: &str = "an agent";
+
+/// The event row's actor (#EXP-1383 `issue_actor`): the AGENT's name when an
+/// agent's session acted, else the member's, else `Someone`.
+fn event_actor_name(event: &IssueEvent, user_map: &HashMap<String, User>, agents: &[AgentActorRow]) -> String {
+    match domain::agent_settings::issue_actor(
+        event.actor_agent_id.as_deref(),
+        event.actor_user_id.as_deref(),
+        agents,
+    ) {
+        Some(IssueActor::Agent(agent)) => agent.name,
+        Some(IssueActor::User(id)) => comments::user_label(&id, user_map.get(&id)),
+        None => "Someone".to_string(),
+    }
+}
+
 /// One compact single-line activity entry (web `EventRow`): icon + "Actor
 /// did-something" in muted text with the actor emphasized. PR events carry a
 /// link — the row opens it in the browser (EXP-33).
@@ -2095,23 +2168,21 @@ fn event_row(
     board_map: &HashMap<String, Board>,
     statuses: &[domain::rows::IssueStatusRow],
     estimate_scale: &str,
+    agents: &[AgentActorRow],
     now_epoch: i64,
     line_above: bool,
     line_below: bool,
     cx: &App,
 ) -> Option<gpui::AnyElement> {
     let (glyph, phrase, link) =
-        event_phrase(event, user_map, label_map, board_map, statuses, estimate_scale)?;
+        event_phrase_with(event, user_map, label_map, board_map, statuses, estimate_scale, agents)?;
     // EXP-723: the row reads "Actor did X · 2 days ago" on web and desktop.
     let time = event
         .created_at
         .as_deref()
         .map(|at| comments::relative_time(at, now_epoch))
         .unwrap_or_default();
-    let actor_name = match event.actor_user_id.as_deref() {
-        Some(id) => comments::user_label(id, user_map.get(id)),
-        None => "Someone".to_string(),
-    };
+    let actor_name = event_actor_name(event, user_map, agents);
 
     // EXP-1324: the row's text IS a Trace line at size sm (web `EventRow`):
     // the sentence its title (the actor in medium foreground, truncating),
@@ -2292,6 +2363,42 @@ mod tests {
         let user: User =
             serde_json::from_value(json!({ "id": "u-1", "name": name })).unwrap();
         HashMap::from([("u-1".to_string(), user)])
+    }
+
+    /// #EXP-1383 (agent-settings.json `actor`): an agent's session acted →
+    /// the AGENT's name with the same per-type copy; an agent assignee reads
+    /// `assigned Sloppy`, a gone one `assigned an agent`.
+    #[test]
+    fn agent_actors_and_assignees_read_the_agents_name() {
+        let users = users_with("Ada");
+        let agents = vec![AgentActorRow {
+            id: "g-1".into(),
+            name: "Sloppy".into(),
+            icon: Some("bot".into()),
+            color: Some("#22c55e".into()),
+        }];
+        let mut status = event("status_changed", json!({ "to": "done" }));
+        status.actor_user_id = Some("u-1".into());
+        assert_eq!(event_actor_name(&status, &users, &agents), "Ada", "no agent → the member");
+        status.actor_agent_id = Some("g-1".into());
+        assert_eq!(event_actor_name(&status, &users, &agents), "Sloppy");
+        status.actor_agent_id = Some("g-9".into());
+        assert_eq!(event_actor_name(&status, &users, &agents), "Ada", "an unsynced agent falls back to the member");
+        status.actor_user_id = None;
+        assert_eq!(event_actor_name(&status, &users, &agents), "Someone");
+
+        let none = HashMap::new();
+        let assigned = event("assignee_changed", json!({ "from": null, "to": null, "toAgentId": "g-1" }));
+        let (_, phrase, _) =
+            event_phrase_with(&assigned, &users, &none, &HashMap::new(), &[], "fibonacci", &agents).unwrap();
+        assert_eq!(phrase, "assigned Sloppy");
+        let (_, phrase, _) =
+            event_phrase_with(&assigned, &users, &none, &HashMap::new(), &[], "fibonacci", &[]).unwrap();
+        assert_eq!(phrase, "assigned an agent");
+        let cleared = event("assignee_changed", json!({ "from": null, "fromAgentId": "g-1", "to": null }));
+        let (_, phrase, _) =
+            event_phrase_with(&cleared, &users, &none, &HashMap::new(), &[], "fibonacci", &agents).unwrap();
+        assert_eq!(phrase, "removed the assignee");
     }
 
     #[test]

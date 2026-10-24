@@ -13,9 +13,19 @@ public enum Chats {
         public static let title = "Chats"
         public enum Tabs {
             public static let board = "Board"
-            public static let devices = "Devices"
             public static let chats = "Chats"
+            public static let apps = "Apps"
             public static let team = "Team"
+        }
+        /// Page header titles (Board = the board's name, Team = the team's name).
+        public enum Headers {
+            public static let chats = "Chats"
+            public static let apps = "Apps"
+            public static let devices = "Devices"
+            public static let agent = "Agent"
+        }
+        public enum BoardMenu {
+            public static let newBoard = "New board"
         }
         public enum Filters {
             public static let all = "All"
@@ -75,6 +85,35 @@ public enum Chats {
             }
         }
         public static let inbox = "Inbox"
+        /// #EXP-1380: the transcript window's ghost button.
+        public static let loadEarlier = "Load earlier"
+        /// #EXP-1380: the transcript's ONE status line while the chat works.
+        public static let working = "Working…"
+    }
+
+    /// Fixture `transcript` (#EXP-1380 WINDOW + FOLLOW ×4): a chat paints
+    /// its newest `window` rows, `Load earlier` widens by `windowStep`, the
+    /// tail is followed within `followSlack` px of the bottom.
+    public enum Transcript {
+        public static let window = 100
+        public static let windowStep = 100
+        public static let followSlack: Double = 32
+
+        /// WINDOW (`windowCases`, TS `transcriptWindowStart`): the index of
+        /// the first painted row. The newest `window` rows, the start reaching
+        /// up to the oldest WAITING card (`waitingIndexes`, never cut off);
+        /// once painted the start is PINNED (`pinnedStart` = the first
+        /// paint's start: arrivals append, a shrink only grows the window);
+        /// each `Load earlier` press (`loadedSteps`) moves it up one step.
+        /// A reopen passes nil / 0 again.
+        public static func windowStart(
+            rowCount: Int, waitingIndexes: [Int], pinnedStart: Int?, loadedSteps: Int
+        ) -> Int {
+            let tail = max(0, rowCount - window)
+            var base = pinnedStart.map { min(max(0, $0), tail) } ?? tail
+            for index in waitingIndexes where index >= 0 && index < rowCount && index < base { base = index }
+            return max(0, base - max(0, loadedSteps) * windowStep)
+        }
     }
 
     /// Fixture `testIds`.
@@ -87,28 +126,36 @@ public enum Chats {
         public static let boardChip = "board-chip"
         public static let surfaceCard = "surface-card"
         public static let divider = "transcript-divider"
+        public static let tabBoard = "tab-board"
+        public static let boardMenu = "board-menu"
+        public static let boardMenuRow = "board-menu-row"
+        public static let pageHeader = "page-header"
+        public static let searchButton = "header-search"
+        public static let loadEarlier = "transcript-load-earlier"
+        public static let jumpToBottom = "jump-to-bottom"
     }
 
     /// Fixture `shell`.
     public enum Shell {
         public enum Tab: String, CaseIterable, Sendable {
-            case board, devices, chats, team
+            case board, chats, apps, team
 
             public var label: String {
                 switch self {
                 case .board: Copy.Tabs.board
-                case .devices: Copy.Tabs.devices
                 case .chats: Copy.Tabs.chats
+                case .apps: Copy.Tabs.apps
                 case .team: Copy.Tabs.team
                 }
             }
 
-            /// Concept icon (`tabIcons`); the Team tab paints the team avatar.
+            /// Concept icon (`tabIcons`); the Board tab paints the active
+            /// board's glyph when there is one, the Team tab the team avatar.
             public var icon: String? {
                 switch self {
                 case .board: "nav-issues"
-                case .devices: "nav-devices"
                 case .chats: "nav-threads"
+                case .apps: "nav-apps"
                 case .team: nil
                 }
             }
@@ -116,8 +163,52 @@ public enum Chats {
 
         public static let tabs: [Tab] = Tab.allCases
         public static let tabIcons: [String: String] = [
-            "board": "nav-issues", "devices": "nav-devices", "chats": "nav-threads",
+            "board": "nav-issues", "chats": "nav-threads", "apps": "nav-apps",
         ]
+
+        /// `shell.bar`: the capsule takes the width beside the new chat / new
+        /// issue capsule; each tab starts at its label's width.
+        public enum Bar {
+            public static let height: Double = 52
+            public static let padding: Double = 4
+            public static let gap: Double = 12
+            public static let tabMinWidth: Double = 44
+            public static let tabPaddingX: Double = 8
+            public enum Drag {
+                public static let lensScale: Double = 1.12
+                public static let cancelDistance: Double = 56
+            }
+        }
+
+        /// `shell.boardTab`.
+        public enum BoardTab {
+            public static let caret = "nav-team-switcher"
+            public static let caretSize: Double = 10
+        }
+
+        /// `shell.boardMenu` (motion tokens by name).
+        public enum BoardMenu {
+            public static let rowHeight: Double = 48
+            public static let maxVisibleRows = 8
+            public static let radius: Double = 28
+            public enum Motion {
+                public static let open = "slow"
+                public static let openEase = "decelerate"
+                public static let close = "standard"
+                public static let closeEase = "accelerate"
+            }
+        }
+
+        /// `shell.header`: the page header on every top-level page.
+        public enum Header {
+            public enum Page: String, CaseIterable, Sendable {
+                case board, chats, apps, team, devices, agent
+            }
+            public static let pages: [Page] = Page.allCases
+            public static let buttons = ["nav-search", "nav-inbox"]
+            public static let circle: Double = 44
+        }
+
         public enum BoardChip: String, CaseIterable, Sendable {
             case all, mine, drafts
 
@@ -130,7 +221,6 @@ public enum Chats {
             }
         }
         public static let boardChips: [BoardChip] = BoardChip.allCases
-        public static let chatsHeader = ["nav-search", "nav-inbox"]
         public static let leadDisc: Double = 52
         public static let bubble: Double = 66
         public static let bubbleRing: Double = 3
@@ -168,6 +258,32 @@ public enum Chats {
         public static func childDelayMs(_ index: Int) -> Double {
             Children.startAfterMs + Children.staggerMs * Double(min(max(index, 0), Children.maxStaggered - 1))
         }
+    }
+
+    /// #EXP-1383 fixture `agentHint`: the agent chat's "Instructions
+    /// changed" Dock banner (dock.json kind `banner`, no new component); its
+    /// action sends `sends` exactly like the agent menu's New conversation.
+    public enum AgentHint {
+        public static let id = "instructions"
+        public static let icon = "ui-info"
+        public static let label = "Instructions changed"
+        public static let text = "This conversation still follows the previous instructions"
+        public static let tone = "muted"
+        public static let action = "Start new conversation"
+        public static let sends = "/new"
+        /// The Dock row id of the banner (`banner:<id>`).
+        public static let rowId = "banner:\(id)"
+    }
+
+    /// #EXP-1383 (`agentHint.cases`): the root session fetched its brief
+    /// before the agent's instructions last changed. Either stamp missing (or
+    /// unreadable) = no hint; equal = current.
+    public static func agentInstructionsChanged(sessionStamp: String?, agentStamp: String?) -> Bool {
+        guard let sessionStamp, !sessionStamp.isEmpty, let agentStamp, !agentStamp.isEmpty,
+              let session = WireTimestamps.parse(sessionStamp),
+              let agent = WireTimestamps.parse(agentStamp)
+        else { return false }
+        return session < agent
     }
 
     /// Fixture `agentMenu.sends`.
@@ -584,5 +700,86 @@ public enum Chats {
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+// MARK: - Digest (thread e4a04d22)
+
+extension Chats {
+    /// `digestMessages` (chats.json `digestCases`, TS `chats.ts`): a
+    /// conversation's server-kept digest (`conversations.digest`) back as the
+    /// TreeMessages every list rule reads — its messages (first, preview,
+    /// waiting; once each), one bodiless agent message per kept agent time
+    /// (a time a kept agent message already stands for is skipped, compared
+    /// as instants), and the newest agent time as an event card. The open
+    /// chat's transcript, unread marking and pickup keep reading messages.
+    public static func digestMessages(sessionId: String, digest raw: String?) -> [TreeMessage] {
+        digestMessages(sessionId: sessionId, digest: SessionTree.jsonObject(raw))
+    }
+
+    public static func digestMessages(sessionId: String, digest: [String: Any]?) -> [TreeMessage] {
+        guard let digest else { return [] }
+        func text(_ value: Any?) -> String? { value as? String }
+        func msOr0(_ iso: String) -> Double { SessionTree.ms(iso) ?? 0 }
+        let agent = DomainContract.messageAuthorKindAgent
+        var out: [TreeMessage] = []
+        var seen = Set<String>()
+        // Kept agent messages by instant (a multiset: two may share one).
+        var counted: [Double: Int] = [:]
+        for key in ["first", "preview", "waiting"] {
+            guard let m = digest[key] as? [String: Any], let id = text(m["id"]) else { continue }
+            guard seen.insert(id).inserted else { continue }
+            let authorKind = text(m["authorKind"]) ?? ""
+            let createdAt = text(m["createdAt"]) ?? ""
+            let card = (m["card"] as? [String: Any]).map(TreeMessageCard.init(object:))
+            out.append(TreeMessage(
+                id: id,
+                sessionId: sessionId,
+                authorKind: authorKind,
+                authorId: nil,
+                body: text(m["body"]) ?? "",
+                card: card,
+                answeredAt: text(m["answeredAt"]),
+                consumedAt: nil,
+                createdAt: createdAt,
+                authorSessionId: text(m["authorSessionId"])
+            ))
+            if authorKind == agent, card?.kind != "event" {
+                counted[msOr0(createdAt), default: 0] += 1
+            }
+        }
+        let times = (digest["agentTimes"] as? [Any])?.compactMap { $0 as? String } ?? []
+        for (index, at) in times.enumerated() {
+            let instant = msOr0(at)
+            if let kept = counted[instant], kept > 0 {
+                counted[instant] = kept - 1
+                continue
+            }
+            out.append(TreeMessage(
+                id: "digest:\(sessionId):\(index)",
+                sessionId: sessionId,
+                authorKind: agent,
+                authorId: nil,
+                body: "",
+                card: nil,
+                answeredAt: nil,
+                consumedAt: nil,
+                createdAt: at
+            ))
+        }
+        if let agentAt = text(digest["agentAt"]), !agentAt.isEmpty {
+            out.append(TreeMessage(
+                id: "digest:\(sessionId):agent",
+                sessionId: sessionId,
+                authorKind: agent,
+                authorId: nil,
+                body: "",
+                card: TreeMessageCard(object: ["kind": "event"]),
+                answeredAt: nil,
+                consumedAt: nil,
+                createdAt: agentAt
+            ))
+        }
+        return out
     }
 }

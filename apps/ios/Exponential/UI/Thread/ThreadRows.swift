@@ -75,8 +75,24 @@ struct ThreadRows: Sendable {
     }
     var agentColor: String { app?.color ?? agent?.color ?? SessionTree.ListCopy.agentDefaultColor }
 
+    /// #EXP-1380: the per-row lookups, indexed ONCE per load (a row's
+    /// session / author / time was a linear scan per row per body pass).
+    var sessionsById: [String: SessionEntity] = [:]
+    var usersById: [String: UserEntity] = [:]
+    var messageCreatedAt: [String: String] = [:]
+
+    /// Fills the indexes (`load` calls it; a hand-built snapshot, as the
+    /// styleguide's, gets them through `indexed()`).
+    func indexed() -> ThreadRows {
+        var copy = self
+        copy.sessionsById = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        copy.usersById = Dictionary(users.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        copy.messageCreatedAt = Dictionary(messages.map { ($0.id, $0.createdAt) }, uniquingKeysWith: { first, _ in first })
+        return copy
+    }
+
     func session(id: String) -> SessionEntity? {
-        sessions.first { $0.id == id }
+        sessionsById[id] ?? sessions.first { $0.id == id }
     }
 
     func issue(id: String) -> IssueEntity? {
@@ -85,7 +101,50 @@ struct ThreadRows: Sendable {
 
     func user(id: String?) -> UserEntity? {
         guard let id else { return nil }
-        return users.first { $0.id == id }
+        return usersById[id] ?? users.first { $0.id == id }
+    }
+
+    /// A message's wire `createdAt` (nil = not in this snapshot).
+    func createdAt(messageId: String) -> String? {
+        messageCreatedAt[messageId] ?? messages.first { $0.id == messageId }?.createdAt
+    }
+
+    /// #EXP-1380 PERF: the clock's tick re-reads ONLY the elapsed of the
+    /// cards naming a live session (`SessionTree.sessionCard`): the session
+    /// cards and the started items of a suggested tasks card. Every other
+    /// row is untouched, and nil = no card moved (the view is not
+    /// re-published at all).
+    func ticked(_ view: SessionThreadView, now: Date) -> SessionThreadView? {
+        var changed = false
+        func refreshed(_ card: SessionCard) -> SessionCard? {
+            guard let session = session(id: card.sessionId), session.isLive else { return nil }
+            let next = SessionTree.sessionCard(TreeSession(sessionRow: session), title: card.name, now: now)
+            return next == card ? nil : next
+        }
+        let rows = view.rows.map { row -> ThreadRow in
+            switch row {
+            case let .session(id, card):
+                guard let next = refreshed(card) else { return row }
+                changed = true
+                return .session(id: id, card: next)
+            case let .suggestions(id, sessionId, header, startAll, items):
+                var moved = false
+                let nextItems = items.map { item -> SuggestionRow in
+                    guard let card = item.card, let next = refreshed(card) else { return item }
+                    moved = true
+                    return SuggestionRow(
+                        id: item.id, title: item.title, text: item.text, state: item.state,
+                        card: next, issueId: item.issueId, identifier: item.identifier
+                    )
+                }
+                guard moved else { return row }
+                changed = true
+                return .suggestions(id: id, sessionId: sessionId, header: header, startAll: startAll, items: nextItems)
+            default:
+                return row
+            }
+        }
+        return changed ? view.replacingRows(rows) : nil
     }
 
     /// Whether a card's session is ANOTHER root (a thread an agent or a
@@ -227,7 +286,11 @@ struct ThreadRows: Sendable {
         for pullRequest in pullRequests {
             pullRequestIssueIds[pullRequest.id] = try SessionQueries.issueIds(db: db, pullRequestId: pullRequest.id)
         }
-        let teamPullRequests = try SessionQueries.pullRequests(db: db, teamId: root.teamId)
+        // #EXP-1380: the team's PRs only feed the Guide PR's stack walk: a
+        // thread without a PR reads (and tracks) none of them.
+        let teamPullRequests = pullRequests.isEmpty
+            ? []
+            : try SessionQueries.pullRequests(db: db, teamId: root.teamId)
         // The stack rail names every member by its issue: read the links of
         // the Guide PR's open stack only, never the whole team's.
         var stackIssueIds: [String: [String]] = [:]
@@ -260,7 +323,73 @@ struct ThreadRows: Sendable {
             app: try root.appId.flatMap { try AppEntity.fetchOne(db, key: $0) },
             stackIssueIds: stackIssueIds,
             stackIssues: stackIssues
-        )
+        ).indexed()
+    }
+
+    /// #EXP-1380: what the screen's observation tracks instead of the whole
+    /// snapshot — one cheap digest per input of `load`, scoped to THIS root
+    /// (its tree and the sessions its cards name, its keyed messages and
+    /// their authors, its issue links, issues and parent relations, its PRs
+    /// and, only while it has one, the team's PR pool, its device, agent and
+    /// app). A write anywhere else in the database (another chat's
+    /// messages, another team's sessions) leaves the digest equal, so the
+    /// snapshot is neither re-read nor re-built.
+    static func signature(db: Database, rootId: String) throws -> String? {
+        guard let root = try SessionQueries.session(db: db, id: rootId) else { return nil }
+        if root.rootId != root.id, !root.rootId.isEmpty {
+            return try signature(db: db, rootId: root.rootId)
+        }
+        let id = root.id
+        let named = """
+            SELECT json_extract("card", '$.sessionId') FROM "messages"
+            WHERE "root_id" = ?1 AND "card" IS NOT NULL AND json_valid("card")
+            """
+        var parts: [String] = [
+            try digest(db, table: "sessions", where: "\"root_id\" = ?1 OR \"id\" = ?1 OR \"id\" IN (\(named))", id),
+            try String.fetchOne(db, sql: """
+                SELECT count(*) || ':' || ifnull(max("m"."updated_at"), '') || ':' || ifnull(max("m"."created_at"), '')
+                    || ':' || ifnull(sum(length("m"."body")), 0) || ':' || ifnull(sum(length("m"."card")), 0)
+                    || ':' || count("m"."answered_at") || ':' || count("m"."consumed_at")
+                    || ':' || ifnull(group_concat(DISTINCT "c"."session_id"), '')
+                FROM "messages" "m" JOIN "conversations" "c" ON "c"."id" = "m"."conversation_id"
+                WHERE "m"."root_id" = ?1 AND "c"."session_id" IS NOT NULL AND "c"."session_id" <> ''
+                """, arguments: [id]) ?? "",
+            try stamp(db, table: "users", where: "\"id\" IN (SELECT \"author_id\" FROM \"messages\" WHERE \"root_id\" = ?1)", id),
+            try digest(db, table: "session_issues", where: "\"session_id\" = ?1", id),
+            try stamp(db, table: "issues", where: "\"id\" IN (SELECT \"issue_id\" FROM \"session_issues\" WHERE \"session_id\" = ?1)", id),
+            try stamp(db, table: "issue_relations", where: "\"type\" = 'parent'", nil),
+            try stamp(db, table: "pull_requests", where: "\"root_session_id\" = ?1", id),
+            try digest(db, table: "devices", where: "\"device_id\" = ?1", root.deviceId),
+        ]
+        if let agentId = root.agentId { parts.append(try stamp(db, table: "agents", where: "\"id\" = ?1", agentId)) }
+        if let appId = root.appId { parts.append(try stamp(db, table: "apps", where: "\"id\" = ?1", appId)) }
+        if try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM \"pull_requests\" WHERE \"root_session_id\" = ?)", arguments: [id]) == true {
+            // The Guide's stack walk: the team's PRs, their links and issues.
+            let teamPrs = "SELECT \"id\" FROM \"pull_requests\" WHERE \"team_id\" = ?1"
+            parts.append(try stamp(db, table: "pull_requests", where: "\"team_id\" = ?1", root.teamId))
+            parts.append(try stamp(db, table: "pull_request_issues", where: "\"pull_request_id\" IN (\(teamPrs))", root.teamId))
+            parts.append(try stamp(db, table: "issues", where: "\"id\" IN (SELECT \"issue_id\" FROM \"pull_request_issues\" WHERE \"pull_request_id\" IN (\(teamPrs)))", root.teamId))
+        }
+        return parts.joined(separator: "|")
+    }
+
+    /// Count + newest `updated_at` of the matching rows (tables that stamp
+    /// every write).
+    private static func stamp(_ db: Database, table: String, where clause: String, _ argument: String?) throws -> String {
+        try String.fetchOne(db, sql: """
+            SELECT count(*) || ':' || ifnull(max("updated_at"), '') FROM "\(table)" WHERE \(clause)
+            """, arguments: StatementArguments(argument.map { [$0] } ?? [])) ?? ""
+    }
+
+    /// Every column of the matching (few) rows, quoted: for tables without
+    /// an `updated_at` stamp (`devices`) and for the tree, whose live flags
+    /// must never be missed.
+    private static func digest(_ db: Database, table: String, where clause: String, _ argument: String) throws -> String {
+        let columns = try db.columns(in: table).map { "quote(\"\($0.name)\")" }.joined(separator: " || ',' || ")
+        return try String.fetchOne(db, sql: """
+            SELECT count(*) || ':' || ifnull(group_concat(\(columns), ';'), '')
+            FROM (SELECT * FROM "\(table)" WHERE \(clause) ORDER BY rowid)
+            """, arguments: [argument]) ?? ""
     }
 }
 

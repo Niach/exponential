@@ -45,18 +45,38 @@ async function postFiring(
   body: string,
   event: Event | null
 ): Promise<{ ownerId: string; deviceId: string } | null> {
-  const { session, created } = await conversationInTx(tx, agent, agent.ownerId)
+  return postAgentInputInTx(tx, agent, agent.ownerId, body, {
+    triggerId: trigger.id,
+    eventId: event?.id ?? null,
+    name: event?.name ?? null,
+  })
+}
+
+/** A `trigger_fired` card + its line as pending input in `userId`'s
+ *  conversation with the agent (created when missing), authored by that
+ *  member so every device delivers it. Returns the host to nudge
+ *  (`nudgeAgentHost`). #EXP-1383: an assignment's nudge rides it too
+ *  (no trigger, the issue as its entity). */
+export async function postAgentInputInTx(
+  tx: Tx,
+  agent: Agent,
+  userId: string,
+  body: string,
+  card: { triggerId: string | null; eventId: string | null; name: string | null; issueId?: string | null }
+): Promise<{ ownerId: string; deviceId: string } | null> {
+  const { session, created } = await conversationInTx(tx, agent, userId)
   await insertMessage(tx, session, {
     authorKind: `user`,
-    authorId: agent.ownerId,
+    authorId: userId,
     body,
     card: {
       kind: `event`,
       event: `trigger_fired`,
       agentId: agent.id,
-      triggerId: trigger.id,
-      eventId: event?.id ?? null,
-      name: event?.name ?? null,
+      triggerId: card.triggerId,
+      eventId: card.eventId,
+      name: card.name,
+      ...(card.issueId ? { issueId: card.issueId } : {}),
     },
   })
   return created ?? { ownerId: agent.ownerId, deviceId: agent.deviceId }
@@ -66,6 +86,11 @@ function nudge(host: { ownerId: string; deviceId: string } | null) {
   const config = getSteerRelayConfig()
   if (!config || !host) return
   void relayPostNudge(config, host.ownerId, host.deviceId)
+}
+
+/** Wakes the device that runs a firing (best-effort relay poke). */
+export function nudgeAgentHost(host: { ownerId: string; deviceId: string } | null) {
+  nudge(host)
 }
 
 /** The firing of `trigger` still unread on the owner's conversation. */
@@ -163,7 +188,7 @@ export async function fireEventTriggersInTx(tx: Tx, event: Event): Promise<numbe
   const emitterAgentId = event.sessionId
     ? ((
         await tx
-          .select({ agentId: sessions.agentId })
+          .select({ agentId: sql<string | null>`coalesce(${sessions.agentId}, ${sessions.startedByAgentId})` })
           .from(sessions)
           .where(sql`${sessions.id} = (SELECT root_id FROM sessions WHERE id = ${event.sessionId})`)
           .limit(1)

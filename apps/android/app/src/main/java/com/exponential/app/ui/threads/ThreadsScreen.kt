@@ -47,7 +47,9 @@ import com.exponential.app.ui.components.ChatDeleteConfirm
 import com.exponential.app.ui.components.ChatFilterChips
 import com.exponential.app.ui.components.ChatMenuSheet
 import com.exponential.app.ui.components.ChatRow
-import com.exponential.app.ui.components.ChatsHeader
+import com.exponential.app.ui.components.LocalPageHeaderActions
+import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PageHeaderActions
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassSheetSearchField
@@ -189,35 +191,21 @@ fun ChatsContent(
     inboxUnread: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    var searching by rememberSaveable { mutableStateOf(false) }
-    var query by rememberSaveable { mutableStateOf("") }
-    val rows = remember(list.rows, query) {
-        val q = query.trim()
-        if (q.isEmpty()) list.rows else list.rows.filter { it.title.contains(q, ignoreCase = true) || it.preview.text.contains(q, ignoreCase = true) }
-    }
+    // #EXP-1384: the header's search pushes the phone search; the inbox
+    // circle is this list's own (the specimen drives it).
+    val shell = LocalPageHeaderActions.current
+    val headerActions = PageHeaderActions(
+        onSearch = { shell?.onSearch?.invoke() },
+        onInbox = onOpenInbox,
+        inboxUnread = inboxUnread,
+    )
+    val rows = list.rows
     LazyColumn(
         modifier = modifier.fillMaxSize().testTag(SessionTree.ListCopy.TEST_ID_LIST),
         contentPadding = PaddingValues(top = 4.dp, bottom = BottomBarInset),
     ) {
         item(key = "__header__") {
-            ChatsHeader(
-                onSearch = {
-                    searching = !searching
-                    if (!searching) query = ""
-                },
-                onInbox = onOpenInbox,
-                inboxUnread = inboxUnread,
-            )
-        }
-        if (searching) {
-            item(key = "__search__") {
-                GlassSheetSearchField(
-                    value = query,
-                    onValueChange = { query = it },
-                    placeholder = "Search chats",
-                    modifier = Modifier.padding(vertical = 6.dp).testTag("chats-search-field"),
-                )
-            }
+            PageHeader(title = Chats.Copy.HEADERS.getValue("chats"), actions = headerActions)
         }
         if (bubbles.isNotEmpty()) {
             item(key = "__bubbles__") {

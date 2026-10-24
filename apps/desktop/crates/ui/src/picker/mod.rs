@@ -2344,6 +2344,7 @@ mod tests {
                 mounted[3] = Some(device.surface());
                 let assignee: Picker<String> = assignee_picker::assignee_picker(
                     &members,
+                    &[],
                     PickerMode::Single,
                     vec![],
                     true,

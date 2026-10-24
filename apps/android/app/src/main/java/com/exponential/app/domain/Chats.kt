@@ -22,10 +22,21 @@ object Chats {
         /** `copy.tabs` by [Shell.TABS]. */
         val TABS: Map<String, String> = linkedMapOf(
             "board" to "Board",
-            "devices" to "Devices",
             "chats" to "Chats",
+            "apps" to "Apps",
             "team" to "Team",
         )
+
+        /** `copy.headers` by page (the Board / Team titles are the board's /
+         *  team's names). */
+        val HEADERS: Map<String, String> = linkedMapOf(
+            "chats" to "Chats",
+            "apps" to "Apps",
+            "devices" to "Devices",
+            "agent" to "Agent",
+        )
+
+        const val BOARD_MENU_NEW_BOARD = "New board"
 
         /** `copy.filters` by [FILTERS]. */
         val FILTERS: Map<ChatFilter, String> = linkedMapOf(
@@ -77,6 +88,10 @@ object Chats {
 
         const val INBOX = "Inbox"
 
+        /** #EXP-1380: the transcript's window button and its status line. */
+        const val LOAD_EARLIER = "Load earlier"
+        const val WORKING = "Working…"
+
         /** A divider kind's words (`copy.dividers`). */
         fun divider(kind: String): String = if (kind == DIVIDER_KIND_COMPACT) DIVIDER_COMPACT else DIVIDER_NEW
 
@@ -86,16 +101,88 @@ object Chats {
     }
 
     /** `shell`: the phone tab order and their icon CONCEPTS (the Team tab's
-     *  icon is the active team's avatar), the sizes. */
+     *  icon is the active team's avatar), the bar, the board tab and menu,
+     *  the page header, the sizes. */
     object Shell {
-        val TABS: List<String> = listOf("board", "devices", "chats", "team")
+        val TABS: List<String> = listOf("board", "chats", "apps", "team")
         val TAB_ICONS: Map<String, String> = linkedMapOf(
             "board" to "nav-issues",
-            "devices" to "nav-devices",
             "chats" to "nav-threads",
+            "apps" to "nav-apps",
         )
+
+        /** `shell.bar`: the tab capsule (dp). */
+        object Bar {
+            const val HEIGHT = 52
+            const val PADDING = 4
+            const val GAP = 12
+            const val TAB_MIN_WIDTH = 44
+            const val TAB_PADDING_X = 8
+
+            /** `shell.bar.drag`: the selection lens. */
+            object Drag {
+                const val LENS_SCALE = 1.12f
+                const val CANCEL_DISTANCE = 56
+            }
+
+            /**
+             * The tabs' widths in a capsule [available] wide, given each tab's
+             * [preferred] width (its label + 2 × [TAB_PADDING_X], at least
+             * [TAB_MIN_WIDTH]): while they fit, every tab gets its own width
+             * plus an even share of the rest; when they do not, the widest
+             * give way first (one cap for all the tabs above it), so a label
+             * truncates only when the labels alone do not fit.
+             */
+            fun tabWidths(preferred: List<Float>, available: Float): List<Float> {
+                if (preferred.isEmpty()) return emptyList()
+                val total = preferred.sum()
+                if (total <= available) {
+                    val extra = (available - total) / preferred.size
+                    return preferred.map { it + extra }
+                }
+                var remaining = available
+                var cap = Float.MAX_VALUE
+                val ascending = preferred.sorted()
+                for ((index, width) in ascending.withIndex()) {
+                    val left = ascending.size - index
+                    if (width * left <= remaining) {
+                        remaining -= width
+                    } else {
+                        cap = remaining / left
+                        break
+                    }
+                }
+                return preferred.map { minOf(it, cap) }
+            }
+        }
+
+        /** `shell.boardTab`: the caret on the board view. */
+        object BoardTab {
+            const val CARET = "nav-team-switcher"
+            const val CARET_SIZE = 10
+        }
+
+        /** `shell.boardMenu`: the strip morph (durations / eases name the
+         *  motion tokens). */
+        object BoardMenu {
+            const val ROW_HEIGHT = 48
+            const val MAX_VISIBLE_ROWS = 8
+            const val RADIUS = 28
+            const val OPEN = "slow"
+            const val OPEN_EASE = "decelerate"
+            const val CLOSE = "standard"
+            const val CLOSE_EASE = "accelerate"
+        }
+
+        /** `shell.header`: the page header's pages, its trailing circles in
+         *  order, the circle size (dp). */
+        object Header {
+            val PAGES: List<String> = listOf("board", "chats", "apps", "team", "devices", "agent")
+            val BUTTONS: List<String> = listOf("nav-search", "nav-inbox")
+            const val CIRCLE = 44
+        }
+
         val BOARD_CHIPS: List<String> = listOf("all", "mine", "drafts")
-        val CHATS_HEADER: List<String> = listOf("nav-search", "nav-inbox")
         const val LEAD_DISC = 52
         const val BUBBLE = 66
         const val BUBBLE_RING = 3
@@ -110,6 +197,42 @@ object Chats {
         const val BOARD_CHIP = "board-chip"
         const val SURFACE_CARD = "surface-card"
         const val DIVIDER = "transcript-divider"
+        const val TAB_BOARD = "tab-board"
+        const val BOARD_MENU = "board-menu"
+        const val BOARD_MENU_ROW = "board-menu-row"
+        const val PAGE_HEADER = "page-header"
+        const val SEARCH_BUTTON = "header-search"
+        const val LOAD_EARLIER = "transcript-load-earlier"
+        const val JUMP_TO_BOTTOM = "jump-to-bottom"
+    }
+
+    /** #EXP-1380 `transcript`: a chat paints its newest [WINDOW] rows, `Load
+     *  earlier` widens by [WINDOW_STEP]; the tail is followed within
+     *  [FOLLOW_SLACK] px of the bottom. */
+    object Transcript {
+        const val WINDOW = 100
+        const val WINDOW_STEP = 100
+        const val FOLLOW_SLACK = 32
+    }
+
+    /** chats.json WINDOW (`windowCases`, review of #1218; TS
+     *  `transcriptWindowStart`): the index of the window's first painted row.
+     *  The newest [Transcript.WINDOW] rows, the start reaching up to the
+     *  oldest WAITING plan / question card ([waitingIndexes]: never cut off);
+     *  [pinnedStart] = the start the FIRST paint returned (null = not painted
+     *  yet / reopened): arrivals append below it, a shrink only grows the
+     *  window; each Load earlier press ([loadedSteps]) moves the start up by
+     *  [Transcript.WINDOW_STEP]. `start > 0` shows Load earlier. */
+    fun transcriptWindowStart(
+        rowCount: Int,
+        waitingIndexes: List<Int>,
+        pinnedStart: Int?,
+        loadedSteps: Int,
+    ): Int {
+        val tail = maxOf(0, rowCount - Transcript.WINDOW)
+        var base = if (pinnedStart == null) tail else minOf(maxOf(0, pinnedStart), tail)
+        for (index in waitingIndexes) if (index in 0 until rowCount && index < base) base = index
+        return maxOf(0, base - maxOf(0, loadedSteps) * Transcript.WINDOW_STEP)
     }
 
     /** `agentMenu.sends`: what Compact / New conversation send (one path
@@ -220,6 +343,126 @@ object Chats {
         DomainContract.messageCardKindPicture,
         DomainContract.messageCardKindSurface,
     )
+
+    /** #EXP-1383 (`agentHint.banner`): the agent chat's "Instructions
+     *  changed" Dock banner row; its action sends [AGENT_HINT_SENDS]. */
+    object AgentHint {
+        const val ID = "instructions"
+        const val ICON = "ui-info"
+        const val LABEL = "Instructions changed"
+        const val TEXT = "This conversation still follows the previous instructions"
+        const val TONE = "muted"
+        const val ACTION = "Start new conversation"
+        const val SENDS = Sends.NEW_CONVERSATION
+        /** The Dock row id the banner draws as. */
+        const val ROW_ID = "banner:$ID"
+
+        val banner: Dock.Source.Banner
+            get() = Dock.Source.Banner(id = ID, icon = ICON, label = LABEL, text = TEXT, tone = Dock.Tint.Muted, action = ACTION)
+    }
+
+    /**
+     * #EXP-1383 (`agentHint.cases`): the agent chat's root fetched its brief
+     * ([sessionStamp] = `sessions.agent_instructions_at`) before the agent's
+     * instructions last changed ([agentStamp] =
+     * `agents.instructions_updated_at`). Either stamp missing = no hint;
+     * equal = current.
+     */
+    fun agentInstructionsChanged(sessionStamp: String?, agentStamp: String?): Boolean {
+        val session = ms(sessionStamp) ?: return false
+        val agent = ms(agentStamp) ?: return false
+        return session < agent
+    }
+
+    // ── the list's per-conversation DIGEST (`digestCases`, TS `digestMessages`) ──
+    // The Chats list never reads a transcript: the server keeps, on each
+    // conversation row (`conversations.digest`), exactly the messages the
+    // list's rules read; [digestMessages] turns it back into tree messages so
+    // `partitionThreads`, `chatList` and `agentBubbles` run UNCHANGED over it.
+
+    /** `conversations.digest` (JSON text) → its object; null / bad = none. */
+    fun parseDigest(text: String?): JsonObject? {
+        if (text.isNullOrBlank()) return null
+        return runCatching { kotlinx.serialization.json.Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+    }
+
+    /** A digest back as the tree messages the list reads: its first /
+     *  preview / waiting messages (once each), one bodiless agent message
+     *  per kept agent time (the one a kept message already stands for
+     *  skipped, matched as INSTANTS), and the newest agent time as an event
+     *  card. Output times are the digest's strings verbatim. */
+    fun digestMessages(sessionId: String, digest: JsonObject?): List<SessionTree.Message> {
+        if (digest == null) return emptyList()
+        val out = mutableListOf<SessionTree.Message>()
+        val seen = mutableSetOf<String>()
+        // Kept agent messages by instant (a multiset: two may share a time).
+        val counted = mutableMapOf<Long, Int>()
+        for (key in listOf("first", "preview", "waiting")) {
+            val m = digest[key] as? JsonObject ?: continue
+            val id = m.textOf("id")
+            if (!seen.add(id)) continue
+            val authorKind = m.textOf("authorKind")
+            val card = m["card"] as? JsonObject
+            val createdAt = m.textOf("createdAt")
+            out += SessionTree.Message(
+                id = id,
+                sessionId = sessionId,
+                authorKind = authorKind,
+                authorId = null,
+                body = m.textOf("body"),
+                card = card,
+                answeredAt = m.optText("answeredAt"),
+                consumedAt = null,
+                createdAt = createdAt,
+                authorSessionId = m.optText("authorSessionId"),
+            )
+            if (authorKind == "agent" && card?.kind() != "event") {
+                val at = ms(createdAt) ?: 0L
+                counted[at] = (counted[at] ?: 0) + 1
+            }
+        }
+        val times = (digest["agentTimes"] as? kotlinx.serialization.json.JsonArray).orEmpty()
+        times.forEachIndexed { index, element ->
+            val at = (element as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return@forEachIndexed
+            val instant = ms(at) ?: 0L
+            val kept = counted[instant] ?: 0
+            if (kept > 0) {
+                counted[instant] = kept - 1
+                return@forEachIndexed
+            }
+            out += SessionTree.Message(
+                id = "digest:$sessionId:$index",
+                sessionId = sessionId,
+                authorKind = "agent",
+                authorId = null,
+                body = "",
+                card = null,
+                answeredAt = null,
+                consumedAt = null,
+                createdAt = at,
+                authorSessionId = null,
+            )
+        }
+        val agentAt = digest.optText("agentAt")
+        if (!agentAt.isNullOrEmpty()) {
+            out += SessionTree.Message(
+                id = "digest:$sessionId:agent",
+                sessionId = sessionId,
+                authorKind = "agent",
+                authorId = null,
+                body = "",
+                card = JsonObject(mapOf("kind" to JsonPrimitive("event"))),
+                answeredAt = null,
+                consumedAt = null,
+                createdAt = agentAt,
+                authorSessionId = null,
+            )
+        }
+        return out
+    }
+
+    private fun JsonObject.optText(key: String): String? =
+        (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
 
     /** A builtin command line a person sent (`/new`, `/compact …`): the
      *  transcript paints it as a divider, never a bubble (`dividerCases`). */

@@ -61,6 +61,7 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.domain.BoardRepoLabel
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.GithubCopy
+import com.exponential.app.domain.SettingsNav
 import com.exponential.app.domain.inviteExpiryLabel
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.FailedActionToast
@@ -170,20 +171,21 @@ private fun SettingsConfirmDialog(
     )
 }
 
+/**
+ * #EXP-1381 (settings-nav.json): ONE team settings category as its own page
+ * (`team-settings/{section}`, [TeamSettingsViewModel.section]): the row's
+ * label as the title + back, only that category's content. General = the
+ * team's identity + the Danger zone; Members, Labels, Boards, Repositories =
+ * their section. (Agents, Prompts and Devices are their own screens.)
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TeamSettingsScreen(
     onBack: () -> Unit,
-    // EXP-1296: Settings → Agents, managed like boards (a row opens the
-    // agent's page, `New agent` the create form).
-    onOpenAgent: (agentSessionId: String) -> Unit = {},
-    onNewAgent: () -> Unit = {},
-    // NEW-7: Settings → Prompts (prompts replaced actions).
-    onOpenPrompt: (promptId: String) -> Unit = {},
-    onNewPrompt: () -> Unit = {},
     viewModel: TeamSettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val section = viewModel.section
 
     // FEED-79: a failed action is an error toast; pop back once the team is
     // actually deleted (parity with the previous screen's behavior).
@@ -195,14 +197,15 @@ fun TeamSettingsScreen(
     // Owner-only controls are HIDDEN for non-owners (full web parity) — the
     // server enforces team-owner on these mutations anyway.
     val isOwner = state.isOwner
-    // A single confirm target shared across every section, funnelled through the
-    // one SettingsConfirmDialog so no mutation fires without an explicit confirm.
+    // A single confirm target, funnelled through the one SettingsConfirmDialog
+    // so no mutation fires without an explicit confirm.
     var confirm by remember { mutableStateOf<SettingsConfirm?>(null) }
+    val title = section?.let { id -> SettingsNav.ROWS.firstOrNull { it.id == id }?.label } ?: "Settings"
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") }, // P103: iOS + web title it "Settings"
+                title = { Text(title) },
                 navigationIcon = {
                     TopBarBackButton(onClick = onBack)
                 },
@@ -211,10 +214,6 @@ fun TeamSettingsScreen(
         },
         containerColor = Color.Transparent,
     ) { padding ->
-        // One scrolling sectioned screen (iOS TeamSettingsView parity):
-        // Boards → Repositories → Members → Labels → Danger. Members carries
-        // the invite-link creator (EXP-725), owner-only and absent at the seat
-        // cap.
         Column(
             modifier = Modifier
                 .padding(padding)
@@ -223,17 +222,54 @@ fun TeamSettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            BoardsSection(state, viewModel, isOwner, onConfirm = { confirm = it })
-            AgentsSettingsList(onOpenAgent = onOpenAgent, onNewAgent = onNewAgent)
-            PromptsSettingsList(onOpenPrompt = onOpenPrompt, onNewPrompt = onNewPrompt)
-            RepositoriesSection(state, viewModel, isOwner, onConfirm = { confirm = it })
-            MembersSection(state, isOwner, onConfirm = { confirm = it }, onRevokeInvite = viewModel::revokeInvite)
-            LabelsSection(state, viewModel, onConfirm = { confirm = it })
-            DangerZone(state, viewModel, isOwner)
+            val all = section == null
+            if (all || section == SettingsNav.GENERAL) TeamIdentity(state)
+            if (all || section == SettingsNav.BOARDS) BoardsSection(state, viewModel, isOwner, onConfirm = { confirm = it })
+            if (all || section == SettingsNav.REPOSITORIES) RepositoriesSection(state, viewModel, isOwner, onConfirm = { confirm = it })
+            if (all || section == SettingsNav.MEMBERS) {
+                MembersSection(
+                    state,
+                    isOwner,
+                    onConfirm = { confirm = it },
+                    onRevokeInvite = viewModel::revokeInvite,
+                    showHeader = all,
+                )
+            }
+            if (all || section == SettingsNav.LABELS) LabelsSection(state, viewModel, onConfirm = { confirm = it })
+            if (all || section == SettingsNav.GENERAL) DangerZone(state, viewModel, isOwner)
         }
     }
 
     confirm?.let { SettingsConfirmDialog(it, state, viewModel) { confirm = null } }
+}
+
+/** General: the team's identity (avatar + name). */
+@Composable
+private fun TeamIdentity(state: TeamSettingsState) {
+    val team = state.team ?: return
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxWidth().flatRow().padding(horizontal = 12.dp, vertical = 12.dp),
+    ) {
+        com.exponential.app.ui.components.TeamAvatar(team, size = 40.dp)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                team.name,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                team.slug,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
 }
 
 @Composable
@@ -648,9 +684,11 @@ private fun MembersSection(
     isOwner: Boolean,
     onConfirm: (SettingsConfirm) -> Unit,
     onRevokeInvite: (inviteId: String) -> Unit,
+    // #EXP-1381: on its own page the top bar already says "Members".
+    showHeader: Boolean = true,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader("Members")
+        if (showHeader) SectionHeader("Members")
         // A team must always keep at least one owner.
         val ownerCount = state.members.count { it.member.role == DomainContract.teamRoleOwner }
         // EXP-721: one self-bordered glass row per member (the Boards and

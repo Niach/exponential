@@ -143,9 +143,8 @@ struct AgentPageView: View {
                     .frame(maxHeight: .infinity, alignment: .top)
             }
         }
-        .navigationTitle("Agent")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        // #EXP-1384: the page header (`copy.headers.agent`).
+        .pageHeader(Chats.Copy.Headers.agent)
         .sheet(item: $loginTarget) { target in
             if let devicesModel {
                 AgentLoginSheet(viewModel: devicesModel, target: target)

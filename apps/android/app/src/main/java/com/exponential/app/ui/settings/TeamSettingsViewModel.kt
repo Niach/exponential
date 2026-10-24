@@ -1,11 +1,13 @@
 package com.exponential.app.ui.settings
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.PlaceholderStatus
 import com.exponential.app.domain.GithubCopy
+import com.exponential.app.domain.SettingsNav
 import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.domain.membersInJoinOrder
 import com.exponential.app.domain.pendingInvites
@@ -124,7 +126,17 @@ class TeamSettingsViewModel @Inject constructor(
     private val integrationsApi: IntegrationsApi,
     private val deepLinkBus: DeepLinkBus,
     private val connectStarter: GithubConnectStarter,
+    savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
+
+    /**
+     * #EXP-1381 (settings-nav.json): the ONE category this page shows
+     * (`team-settings/{section}`); it observes only that category's data. The
+     * roster always loads (it decides who owns the team); null = every
+     * category (no caller left, kept for previews).
+     */
+    val section: String? = savedStateHandle.get<String>("section")
+    private fun observes(vararg sections: String): Boolean = section == null || section in sections
 
     // Reactive account scoping: a Settings → Teams tap on a different
     // server switches the active account and this ViewModel re-scopes to the
@@ -144,13 +156,16 @@ class TeamSettingsViewModel @Inject constructor(
     // ones out already) — the only thing that says a roster row is a
     // placeholder member waiting to be claimed.
     private val invitesFlow = dbAndSelected.flatMapLatest { (db, id) ->
-        if (db == null || id == null) flowOf(emptyList()) else db.teamInviteDao().observeByTeam(id)
+        if (db == null || id == null || !observes(SettingsNav.MEMBERS)) flowOf(emptyList())
+        else db.teamInviteDao().observeByTeam(id)
     }
     private val labelsFlow = dbAndSelected.flatMapLatest { (db, id) ->
-        if (db == null || id == null) flowOf(emptyList()) else db.labelDao().observeByTeam(id)
+        if (db == null || id == null || !observes(SettingsNav.LABELS)) flowOf(emptyList())
+        else db.labelDao().observeByTeam(id)
     }
     private val boardsFlow = dbAndSelected.flatMapLatest { (db, id) ->
-        if (db == null || id == null) flowOf(emptyList()) else db.boardDao().observeByTeam(id)
+        if (db == null || id == null || !observes(SettingsNav.BOARDS, SettingsNav.REPOSITORIES)) flowOf(emptyList())
+        else db.boardDao().observeByTeam(id)
     }
 
     private val _transient = MutableStateFlow<FailedAction?>(null)
@@ -184,7 +199,8 @@ class TeamSettingsViewModel @Inject constructor(
                     resolvedRepoIds.clear()
                     _githubStatus.value = null
                     _githubStatusFailed.value = false
-                    if (accountId != null && teamId != null) {
+                    // Only Boards (the repo chips + retarget) and Repositories read the registry.
+                    if (accountId != null && teamId != null && observes(SettingsNav.BOARDS, SettingsNav.REPOSITORIES)) {
                         // FEED-79: the list loads on its own (team switch,
                         // resume, after a write), so a failed load is quiet:
                         // the empty list, never a toast.
@@ -329,7 +345,7 @@ class TeamSettingsViewModel @Inject constructor(
             boardsFlow,
             _repos,
             _githubStatus,
-            dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
+            if (observes(SettingsNav.MEMBERS)) dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() } else flowOf(emptyList()),
             auth.userId,
             auth.instanceUrl,
             _transient,

@@ -849,6 +849,23 @@ html {
   padding: 0.05rem 0.4rem 0.05rem 0.25rem;
   white-space: nowrap;
 }
+
+/* THE mention pill (thread e4a04d22): the ROUND `@Name` capsule every
+   surface paints for a resolved `@<email>` mention, the `<MentionPill>`
+   component (./mention-pill.tsx, chat text) and the editors' decoration
+   (the app's lib/mention-pill-extension.ts) alike. Unlayered like
+   `.issue-chip` above, so it reaches the chats' plain text path outside the
+   editor's content root. styles.test.ts locks the round box. */
+.mention-pill {
+  background: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--accent-foreground);
+  white-space: nowrap;
+}
 /* The same highlight.js palette, scoped for the diff view's per-line
    highlighting (file-diff-card.tsx renders lowlight output under a
    `.diff-code` wrapper). */

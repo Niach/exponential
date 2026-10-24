@@ -5,7 +5,8 @@
 import type { IssueEvent } from "@/db/schema"
 
 /** user = a person in an app; agent = an MCP call (a coding run when
- *  `sessionId` is set); automation = the server (PR automation, webhooks). */
+ *  `sessionId` is set) or a team agent's session (#EXP-1383: `agent` names
+ *  it); automation = the server (PR automation, webhooks). */
 export type ActivityActorKind = `user` | `agent` | `automation`
 
 export type ActivityRow = Pick<
@@ -17,7 +18,12 @@ export type ActivityRow = Pick<
   | `viaMcp`
   | `sessionId`
   | `createdAt`
->
+> & {
+  /** #EXP-1383: the acting team agent and its name (a deleted agent's row
+   *  reads null). */
+  actorAgentId?: string | null
+  actorAgentName?: string | null
+}
 
 export interface ActivityWire {
   id: string
@@ -30,6 +36,8 @@ export interface ActivityWire {
   to: unknown
   actorId: string | null
   actorKind: ActivityActorKind
+  /** #EXP-1383: the team agent that acted (absent = none). */
+  agent?: { id: string; name: string | null }
   sessionId: string | null
   at: string
   /** The raw payload: status names, PR urls, relation details. */
@@ -51,6 +59,12 @@ function fieldChange(
         to: payload.toStatusId ?? payload.to ?? null,
       }
     case `assignee_changed`:
+      // #EXP-1383: an agent assignee reads `agent:<id>` (the picker's id).
+      return {
+        field: `assignee`,
+        from: payload.from ?? (payload.fromAgentId ? `agent:${payload.fromAgentId}` : null),
+        to: payload.to ?? (payload.toAgentId ? `agent:${payload.toAgentId}` : null),
+      }
     case `priority_changed`:
     case `estimate_changed`:
     case `title_changed`:
@@ -86,7 +100,9 @@ export function actorKindOf(row: ActivityRow): ActivityActorKind {
   const payload = (row.payload ?? {}) as Payload
   // pr-sync stamps `automation` on the status flip it makes for the team's
   // PR automation: the recorded actor opened/merged the PR, not the move.
-  if (row.actorUserId == null || payload.automation === true) return `automation`
+  if (payload.automation === true) return `automation`
+  if (row.actorAgentId) return `agent`
+  if (row.actorUserId == null) return `automation`
   return row.viaMcp ? `agent` : `user`
 }
 
@@ -98,6 +114,9 @@ export function activityWire(row: ActivityRow): ActivityWire {
     ...fieldChange(row.type, payload ?? {}),
     actorId: row.actorUserId,
     actorKind: actorKindOf(row),
+    ...(row.actorAgentId
+      ? { agent: { id: row.actorAgentId, name: row.actorAgentName ?? null } }
+      : {}),
     sessionId: row.sessionId,
     at: new Date(row.createdAt).toISOString(),
     payload,

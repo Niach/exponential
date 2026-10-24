@@ -74,7 +74,6 @@ const PINNED_RECIPES = [
   `openOnboardingDevices`,
   `openAppPreviewTab`,
   `openBoardBulkEdit`,
-  `openBoardSwitcher`,
   `openIssuePropertiesMobile`,
   `openMachineSettings`,
   `expandFirstDevice`,

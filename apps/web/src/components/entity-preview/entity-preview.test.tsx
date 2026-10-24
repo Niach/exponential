@@ -220,6 +220,18 @@ describe(`entityRefRoute`, () => {
     expect(route({ kind: `team`, id: `t-9` })).toBeNull()
   })
 
+  it(`on a phone, a status or a team opens the Team tab (like iOS and Android)`, () => {
+    const team = { to: `/t/$teamSlug/team`, params: { teamSlug: `acme` } }
+    const phone = context({ phone: true })
+    expect(entityRefRoute({ kind: `status`, id: `st-1` }, phone)).toEqual(team)
+    expect(entityRefRoute({ kind: `team`, id: `t-2` }, phone)).toEqual(team)
+    expect(entityRefRoute({ kind: `team`, id: `t-9` }, phone)).toEqual(team)
+    expect(entityRefRoute({ kind: `label`, id: `l-1` }, phone)).toEqual({
+      to: `/t/$teamSlug/settings/labels`,
+      params: { teamSlug: `acme` },
+    })
+  })
+
   it(`a list never navigates, and nothing does outside a team`, () => {
     expect(route({ kind: `list`, id: `issue`, count: 3 })).toBeNull()
     expect(

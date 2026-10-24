@@ -63,6 +63,7 @@ export const agentsRouter = router({
         model: agents.model,
         ownerId: agents.ownerId,
         sortOrder: agents.sortOrder,
+        instructionsUpdatedAt: agents.instructionsUpdatedAt,
         createdAt: agents.createdAt,
         updatedAt: agents.updatedAt,
       })
@@ -98,6 +99,8 @@ export const agentsRouter = router({
             icon: input.icon ?? null,
             color: input.color ?? null,
             instructions: input.instructions,
+            // #EXP-1383 (chats.json `agentHint`): the text's birth.
+            instructionsUpdatedAt: new Date(),
             triggers: withTriggerIds(input.triggers),
             deviceId: input.deviceId,
             cli: input.cli ?? null,
@@ -152,7 +155,11 @@ export const agentsRouter = router({
             ...(input.name !== undefined ? { name: input.name } : {}),
             ...(input.icon !== undefined ? { icon: input.icon } : {}),
             ...(input.color !== undefined ? { color: input.color } : {}),
-            ...(input.instructions !== undefined ? { instructions: input.instructions } : {}),
+            // #EXP-1383: only a CHANGED text re-stamps (a rename, a trigger
+            // toggle or a device pick never does).
+            ...(input.instructions !== undefined && input.instructions !== agent.instructions
+              ? { instructions: input.instructions, instructionsUpdatedAt: now }
+              : {}),
             ...(input.triggers !== undefined ? { triggers: withTriggerIds(input.triggers) } : {}),
             ...(input.cli !== undefined ? { cli: input.cli } : {}),
             ...(input.account !== undefined ? { account: input.account } : {}),

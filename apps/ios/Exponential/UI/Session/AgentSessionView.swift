@@ -13,14 +13,11 @@ enum AgentSessionLayout {
     static let feedCoordSpace = "feed-scroll"
     /// EXP-787: the transcript's own inset, INSIDE the reading column.
     static let gutter: CGFloat = 16
-    /// Within this many points of the bottom still counts as pinned (Android
-    /// carries 96dp, EXP-529): a pixel-tight slack made the "Jump to bottom"
-    /// pill hard to dismiss — a short drag had to land on the exact bottom to
-    /// re-pin, so it lingered while the list visually WAS at the end (EXP-588).
-    /// iOS gets a little more room than Android (EXP-591): the pill should
-    /// only appear after a deliberate scroll-up and hide again well before
-    /// the finger reaches the true end.
-    static let followSlack: CGFloat = 120
+    /// Within this many points of the bottom still counts as pinned. #EXP-1383
+    /// (owner 2026-10-24: the chats' jump "exactly as in sessions"): the run
+    /// view and every chat read the ONE fixture value, chats.json
+    /// `transcript.followSlack`.
+    static let followSlack = CGFloat(Chats.Transcript.followSlack)
 }
 
 // EXP-927 (wire doc §2c "Alignment"): the transcript is a reading measure, and
@@ -531,7 +528,9 @@ struct AgentSessionView: View {
                 db: deps.db,
                 onOpen: { [threadIssueOutlet] issueId in
                     openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
-                }
+                },
+                mentionMembers: ChatMentionMembers.members(
+                    teamId: session.teamId, db: deps.db, accountId: accountId)
             )
         )
     }
@@ -739,11 +738,7 @@ struct AgentSessionView: View {
                             // upward (and, past the feed's own first row, asks
                             // the device for the page below it).
                             if model.canLoadEarlier {
-                                Button("Load earlier") { model.loadEarlier() }
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.bottom, 4)
+                                TranscriptLoadEarlierButton { model.loadEarlier() }
                             }
                             // THE Dock: the card waiting on this steerer
                             // leaves the transcript for a DockCard
@@ -1961,6 +1956,21 @@ extension View {
 /// (EXP-440: claude narrates in markdown, so lists, code and images have to
 /// come out as themselves). EXP-274 dropped the glass speech bubble: agent
 /// output is the feed's bulk, and the bubble insets cost real width on a phone.
+/// EXP-783 / #EXP-1380: THE transcript's `Load earlier` ghost button — the
+/// run view's, and every chat's window (chats.json WINDOW ×4).
+struct TranscriptLoadEarlierButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(Chats.Copy.loadEarlier, action: action)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, 4)
+            .accessibilityIdentifier(Chats.TestIds.loadEarlier)
+    }
+}
+
 struct NarrationBubble: View {
     let text: String
     let context: AgentMarkdownContext

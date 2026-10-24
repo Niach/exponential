@@ -44,6 +44,8 @@ internal data class IssueRefChipSpec(
     /** Registry glyph name; null ⇒ no icon, and the `#` stays visible. */
     val iconName: String? = null,
     val color: Color? = null,
+    /** Thread e4a04d22: a mention pill — the round accent capsule, not a chip. */
+    val pill: Boolean = false,
 )
 
 /**
@@ -71,15 +73,80 @@ internal fun Modifier.drawIssueRefChips(
     val padX = with(density) { MdStyle.chipPadX.toPx() }
     val iconSide = with(density) { MdStyle.chipIconSize.toPx() }
     val hairline = with(density) { 1.dp.toPx() }
+    val pillMetrics = if (chips.any { it.pill }) {
+        // The pill's content area = the 13sp medium font's ascent..descent,
+        // exactly what an inline CSS box paints its background over.
+        val paint = android.graphics.Paint().apply {
+            textSize = with(density) { MdStyle.mentionFontSize.toPx() }
+            // Roboto's vertical metrics are weight-independent.
+            typeface = android.graphics.Typeface.DEFAULT
+        }
+        val fm = paint.fontMetrics
+        val padY = with(density) { MdStyle.mentionPadY.toPx() }
+        val border = with(density) { MdStyle.mentionBorderWidth.toPx() }
+        PillMetrics(ascent = -fm.ascent + padY + border, descent = fm.descent + padY + border, hairline = border)
+    } else {
+        null
+    }
     return this.drawBehind {
         val result = layout() ?: return@drawBehind
         for (chip in chips) {
             runCatching {
+                if (chip.pill) {
+                    if (pillMetrics != null) drawMentionPill(chip, result, pillMetrics)
+                    return@runCatching
+                }
                 drawChip(chip, result, radius, padX, hairline)
                 val painter = painters[chip.iconName]
                 if (painter != null) drawChipIcon(chip, result, painter, iconSide, hairline)
             }
         }
+    }
+}
+
+/** Pixel extents of a mention pill around its baseline. */
+private class PillMetrics(val ascent: Float, val descent: Float, val hairline: Float)
+
+/**
+ * The mention pill (thread e4a04d22), box for box web's inline
+ * `.mention-pill`: horizontally the pill's display text (its two letter-spaced
+ * [MENTION_PAD] cells are the side padding), vertically the 13sp font's
+ * content area plus `0.05rem` and the hairline around the baseline; fully
+ * round, `--accent` fill, `--border` hairline drawn INSIDE the box.
+ */
+private fun DrawScope.drawMentionPill(chip: IssueRefChipSpec, result: TextLayoutResult, m: PillMetrics) {
+    val length = result.layoutInput.text.length
+    val start = chip.start.coerceIn(0, length)
+    val end = chip.end.coerceIn(start, length)
+    if (end <= start) return
+    for (line in result.getLineForOffset(start)..result.getLineForOffset(end - 1)) {
+        val segStart = maxOf(start, result.getLineStart(line))
+        val segEnd = minOf(end, result.getLineEnd(line, visibleEnd = false))
+        if (segEnd <= segStart) continue
+        val segBounds = result.getPathForRange(segStart, segEnd).getBounds()
+        if (segBounds.isEmpty) continue
+        val baseline = result.getLineBaseline(line)
+        val top = baseline - m.ascent
+        val bottom = baseline + m.descent
+        val left = segBounds.left
+        val right = segBounds.right
+        if (right <= left || bottom <= top) continue
+        val height = bottom - top
+        drawRoundRect(
+            color = MdStyle.MentionBg,
+            topLeft = Offset(left, top),
+            size = Size(right - left, height),
+            cornerRadius = CornerRadius(height / 2, height / 2),
+        )
+        val half = m.hairline / 2
+        val inner = (height - m.hairline) / 2
+        drawRoundRect(
+            color = MdStyle.MentionBorder,
+            topLeft = Offset(left + half, top + half),
+            size = Size(right - left - m.hairline, height - m.hairline),
+            cornerRadius = CornerRadius(inner, inner),
+            style = Stroke(width = m.hairline),
+        )
     }
 }
 

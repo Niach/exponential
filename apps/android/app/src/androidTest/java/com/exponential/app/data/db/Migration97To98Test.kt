@@ -5,21 +5,22 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * VAPP-120: [MIGRATION_97_98] on a real version-97 database, built from
- * today's schema with the `apps` table minus `granted_tools`. Room opens it
- * with the migration and NO destructive fallback, so the column is validated
- * against [AppEntity]; the existing app reads "[]" (no grants), a grant
- * round-trips, and every offset survives untouched.
+ * #EXP-1383: [MIGRATION_97_98] on a real version-97 file (today's schema
+ * minus the eight agent columns). Room opens it with the migrations and NO
+ * destructive fallback, so every table is validated against its entity; the
+ * rows survive with the new columns NULL, the six shapes refetch and every
+ * other offset stays ([MIGRATION_98_99] then only refetches conversations).
  */
 @RunWith(AndroidJUnit4::class)
 class Migration97To98Test {
@@ -36,39 +37,38 @@ class Migration97To98Test {
     fun tearDown() = clean()
 
     @Test
-    fun addsTheGrantedToolsColumn() {
+    fun addsTheAgentColumnsAndRefetchesTheirShapes() {
         createVersion97()
 
         val db = Room.databaseBuilder(context, ExponentialDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_97_98)
+            .addMigrations(MIGRATION_97_98, MIGRATION_98_99)
             .allowMainThreadQueries()
             .build()
         try {
             val sql = db.openHelper.writableDatabase
-            assertEquals(98, sql.version)
-
-            val apps = db.appDao()
-            val app = runBlocking { apps.observeById("a1").first() }!!
-            assertEquals("hours", app.slug)
-            assertEquals("[]", app.grantedTools)
-
-            runBlocking { apps.upsert(app.copy(grantedTools = "[\"exponential.issues.update\"]")) }
-            assertEquals(
-                "[\"exponential.issues.update\"]",
-                runBlocking { apps.observeById("a1").first() }!!.grantedTools,
-            )
-
-            for (kept in listOf("apps", "sessions")) {
-                val row = runBlocking { db.electricOffsetDao().get(kept) }!!
-                assertEquals("h", row.handle)
-                assertTrue(row.isLive)
+            assertEquals(99, sql.version)
+            sql.query("SELECT title, assignee_agent_id FROM issues WHERE id = 'i1'").use {
+                assertTrue(it.moveToFirst())
+                assertEquals("Crash on launch", it.getString(0))
+                assertTrue(it.isNull(1))
             }
+            val offsets = db.electricOffsetDao()
+            for (shape in AGENT_ACTOR_COLUMNS_V98.map { it.first }.distinct()) {
+                val row = runBlocking { offsets.get(shape) }!!
+                assertEquals(shape, "", row.handle)
+                assertEquals("-1", row.offset)
+                assertFalse(row.isLive)
+                assertTrue(row.needsRefetch)
+            }
+            val kept = runBlocking { offsets.get("pins") }!!
+            assertEquals("h-pins", kept.handle)
+            assertTrue(kept.isLive)
+            assertNull(runBlocking { offsets.get("actions") })
         } finally {
             db.close()
         }
     }
 
-    /** A v97 file: today's schema (from Room) with `apps` minus `granted_tools`. */
     private fun createVersion97() {
         val schema = ArrayList<String>()
         val fresh = Room.databaseBuilder(context, ExponentialDatabase::class.java, SCHEMA_DB).build()
@@ -86,23 +86,20 @@ class Migration97To98Test {
         val file = context.getDatabasePath(TEST_DB)
         file.parentFile?.mkdirs()
         SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
-            for (statement in schema) {
-                val v97 = if (statement.startsWith("CREATE TABLE `apps`")) {
-                    statement.replace(Regex(""",\s*`granted_tools` TEXT[^,]*"""), "")
-                } else {
-                    statement
-                }
-                if (statement.startsWith("CREATE TABLE `apps`")) assertTrue(!v97.contains("granted_tools"))
-                db.execSQL(v97)
+            for (statement in schema) db.execSQL(statement)
+            for ((table, column) in AGENT_ACTOR_COLUMNS_V98) {
+                db.execSQL("ALTER TABLE `$table` DROP COLUMN `$column`")
             }
             db.execSQL(
-                "INSERT INTO apps (id, team_id, slug, name, description, created_by, created_at, updated_at) " +
-                    "VALUES ('a1', 't1', 'hours', 'Hours', '', 'u1', 'c', 'u')",
+                "INSERT INTO issues (id, board_id, number, identifier, title, status, priority, " +
+                    "sort_order, created_at, updated_at) VALUES ('i1', 'b1', 1, 'APP-1', " +
+                    "'Crash on launch', 'backlog', 'none', 1.0, 'c', 'u')",
             )
-            for (shape in listOf("apps", "sessions")) {
+            val shapes = AGENT_ACTOR_COLUMNS_V98.map { it.first }.distinct() + "pins"
+            for (shape in shapes) {
                 db.execSQL(
                     "INSERT INTO electric_offsets (shape, handle, `offset`, is_live, needs_refetch) " +
-                        "VALUES ('$shape', 'h', '0_0', 1, 0)",
+                        "VALUES ('$shape', 'h-$shape', '7_3', 1, 0)",
                 )
             }
             db.version = 97
@@ -110,7 +107,7 @@ class Migration97To98Test {
     }
 
     private companion object {
-        const val SCHEMA_DB = "vapp120-schema-v98.db"
-        const val TEST_DB = "vapp120-migration-v97.db"
+        const val SCHEMA_DB = "migration-97-98-schema.db"
+        const val TEST_DB = "migration-97-98.db"
     }
 }

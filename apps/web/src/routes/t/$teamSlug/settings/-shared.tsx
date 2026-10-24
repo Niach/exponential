@@ -1,4 +1,5 @@
 import { APPS_COPY } from "@exp/domain-contract/apps"
+import { settingsNavRow } from "@exp/domain-contract/settings-nav"
 // Shared model for the team-settings pages (EXP-146): the grouped nav
 // definition consumed by the layout route (sidebar) and the index route
 // (redirect to the first visible section), plus the per-section access guard
@@ -257,6 +258,35 @@ export const NEW_AGENT_LABEL = AGENT_SETTINGS_COPY.newAgent
 // VAPP-110: the same injection for the team's apps (fixture apps.json).
 export const SETTINGS_APPS_GROUP = `Apps`
 export const NEW_APP_LABEL = APPS_COPY.newApp
+
+// #EXP-1381: the settings route a pathname sits on: `section` = the segment
+// after `/settings/` (a settings-nav.json row id or a SETTINGS_NAV page),
+// `sub` = the one after it (a board/agent/app/prompt id, `new`, `archived`).
+export function settingsRouteOf(pathname: string): { section: string | null; sub: string | null } {
+  const match = /\/settings\/([^/?#]+)(?:\/([^/?#]+))?/.exec(pathname)
+  return { section: match?.[1] ?? null, sub: match?.[2] ?? null }
+}
+
+/** The pages under a section that list rows (their sub-pages go back to them). */
+export const SETTINGS_LIST_SECTIONS = [`boards`, `agents`, `prompts`, `apps`] as const
+
+/** A section's label: the settings-nav.json row's (the phones' row title AND
+ *  page title) where the fixture has it, else SETTINGS_NAV's (the group label
+ *  for the injected Boards / Agents / Apps lists). */
+export function settingsSectionLabel(section: string, sub: string | null = null): string | null {
+  const nested = sub ? flatSettingsNavItems().find((item) => item.to === `/t/$teamSlug/settings/${section}/${sub}`) : undefined
+  if (nested) return nested.label
+  const row = settingsNavRow(section)
+  if (row) return row.label
+  const item = flatSettingsNavItems().find((entry) => entry.to === `/t/$teamSlug/settings/${section}`)
+  if (item) return item.label
+  const group = SETTINGS_NAV.find((entry) => entry.group.toLowerCase() === section)
+  return group?.group ?? null
+}
+
+function flatSettingsNavItems(): SettingsNavItem[] {
+  return SETTINGS_NAV.flatMap((group) => flattenSettingsNav(group.items))
+}
 
 // Everything a settings section page needs. `resolved` flips true only once
 // the current user's own member row has synced — permissions are transiently

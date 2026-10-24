@@ -48,6 +48,7 @@ class ActivityFoldTest {
                         issueId = obj.getValue("issueId").jsonPrimitive.content,
                         actorUserId = obj.getValue("actorUserId").asNullableString(),
                         createdAt = obj.getValue("createdAt").jsonPrimitive.content,
+                        actorAgentId = obj["actorAgentId"]?.asNullableString(),
                     )
                 },
                 expected = case.getValue("expected").jsonArray.map { row ->
@@ -85,6 +86,9 @@ class ActivityFoldTest {
         assertTrue(covers("left alone"))
         assertTrue(covers("without an actor"))
         assertTrue(covers("empty list"))
+        // #EXP-1383: agent actors.
+        assertTrue(covers("an agent and its member are different actors"))
+        assertTrue(covers("assigned to an agent then cleared"))
     }
 
     @Test
@@ -193,11 +197,13 @@ class ActivityFoldTest {
         createdAt: String,
         issueId: String = "i1",
         actorUserId: String? = "A",
+        actorAgentId: String? = null,
     ) = IssueEventEntity(
         id = id,
         issueId = issueId,
         teamId = "t1",
         actorUserId = actorUserId,
+        actorAgentId = actorAgentId,
         type = type,
         payload = payload,
         createdAt = createdAt,
@@ -212,6 +218,7 @@ class ActivityFoldTest {
         createdAt = obj.getValue("createdAt").jsonPrimitive.content,
         issueId = obj.getValue("issueId").jsonPrimitive.content,
         actorUserId = obj.getValue("actorUserId").asNullableString(),
+        actorAgentId = obj["actorAgentId"]?.asNullableString(),
     )
 
     private fun JsonElement.asNullableString(): String? =

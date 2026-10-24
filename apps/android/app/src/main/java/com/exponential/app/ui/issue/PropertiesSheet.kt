@@ -1,5 +1,7 @@
 package com.exponential.app.ui.issue
 
+import com.exponential.app.domain.AgentSettings
+import com.exponential.app.ui.components.AgentAvatar
 import com.exponential.app.ui.components.UserAvatar
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -56,6 +58,8 @@ fun PropertiesSheet(
     priority: IssuePriority,
     assignee: UserEntity?,
     hideAssignee: Boolean,
+    /** #EXP-1383: the resolved agent assignee (mark + name). */
+    assigneeAgent: AgentSettings.AgentRowLike?,
     /** Every label in the team; orders the Labels row's value. */
     teamLabels: List<LabelEntity>,
     issueLabels: List<LabelEntity>,
@@ -77,6 +81,8 @@ fun PropertiesSheet(
     relationIssues: Map<String, IssueEntity>,
     users: List<UserEntity>,
     teamStatuses: List<ResolvedIssueStatus>,
+    /** #EXP-1383: the team's agents (agent assignees on relation rows). */
+    agents: List<AgentSettings.AgentRowLike> = emptyList(),
     onOpenRelations: () -> Unit,
     onToggleRelationBand: (IssueRelationsView.BandKey) -> Unit,
     onShowAllRelations: (IssueRelationsView.BandKey, Boolean) -> Unit,
@@ -120,7 +126,10 @@ fun PropertiesSheet(
                     GroupDivider()
                     MetaRow(label = "Assignee", enabled = true, onClick = onOpenAssignee) {
                         // P55: a set assignee shows their avatar, as every chip does.
-                        if (issue.assigneeId != null) {
+                        // #EXP-1383: an agent assignee wears THE AGENT MARK.
+                        if (assigneeAgent != null) {
+                            AgentAvatar(icon = assigneeAgent.icon, color = assigneeAgent.color, size = 16.dp)
+                        } else if (issue.assigneeId != null) {
                             UserAvatar(
                                 user = assignee,
                                 nameOrEmail = userDisplayName(assignee, issue.assigneeId),
@@ -136,10 +145,10 @@ fun PropertiesSheet(
                         }
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            if (issue.assigneeId != null) {
-                                userDisplayName(assignee, issue.assigneeId)
-                            } else {
-                                "Unassigned"
+                            when {
+                                assigneeAgent != null -> assigneeAgent.name
+                                issue.assigneeId != null -> userDisplayName(assignee, issue.assigneeId)
+                                else -> AgentSettings.ASSIGNEE_UNASSIGNED_LABEL
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -249,6 +258,7 @@ fun PropertiesSheet(
                 issuesById = relationIssues,
                 users = users,
                 statuses = teamStatuses,
+                agents = agents,
                 onAdd = onOpenRelations,
                 onToggle = onToggleRelationBand,
                 onShowAll = onShowAllRelations,

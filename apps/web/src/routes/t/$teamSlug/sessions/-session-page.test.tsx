@@ -71,6 +71,7 @@ vi.mock(`@/hooks/use-session-tree`, () => ({
   useSessionThread: () => ({ view: { title: `Reduce cold start below 800 ms` } }),
   useSessionMessages: () => [],
   useConversationSessions: () => ({ conversations: new Map(), isReady: true }),
+  useDigestMessages: () => ({ messages: [], isReady: true }),
 }))
 vi.mock(`@/hooks/use-agent-row`, () => ({
   useAgentRow: (id: string | null) => ({

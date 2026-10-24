@@ -1,5 +1,4 @@
 import { useMemo } from "react"
-import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
   agentBubbles,
   chatList,
@@ -11,21 +10,15 @@ import { threadWordOf, useTeamPullRequestsByRoot } from "@/components/thread/thr
 import { useNow } from "@/hooks/use-now"
 import {
   useAgents,
-  useConversationSessions,
+  useDigestMessages,
   useSessionReads,
   useTeamSessions,
   useThreadsList,
 } from "@/hooks/use-session-tree"
-import { messageCollection } from "@/lib/collections"
-import {
-  keyMessageRows,
-  toTreeMessage,
-  type SyncedMessageRow,
-  type ThreadRowWord,
-} from "@/lib/session-tree"
+import { type ThreadRowWord } from "@/lib/session-tree"
 
-// Thread 58cb32df (#EXP-1373, fixture `chats.json`): the PHONE Chats
-// screen's model for the ONE active team — the contract's `chatList` over
+// Thread 58cb32df (#EXP-1373, fixture `chats.json`): the Chats
+// screen's model (every form factor since #EXP-1380) for the ONE active team — the contract's `chatList` over
 // `partitionThreads` (the same groups the wide Chats page bands), and the
 // agents as `agentBubbles`. Pure reads over synced shapes; nothing here
 // decides a rule.
@@ -51,18 +44,9 @@ export function useChatList(
   const { agents } = useAgents(teamId, me)
   const reads = useSessionReads()
   const prs = useTeamPullRequestsByRoot(teamId)
-  const { data: messageRows } = useLiveQuery(
-    (query) =>
-      teamId
-        ? query.from({ messages: messageCollection }).where(({ messages }) => eq(messages.teamId, teamId))
-        : undefined,
-    [teamId]
-  )
-  const { conversations } = useConversationSessions()
-  const messages = useMemo(
-    () => keyMessageRows((messageRows ?? []) as SyncedMessageRow[], conversations).map(toTreeMessage),
-    [messageRows, conversations]
-  )
+  // #EXP-1380: the digests, never the transcripts (`useDigestMessages`).
+  const teamIds = useMemo(() => (teamId ? [teamId] : []), [teamId])
+  const { messages } = useDigestMessages({ teamIds })
   const now = useNow(60_000)
   const nowIso = now.toISOString()
   const offset = localUtcOffsetMinutes(now)

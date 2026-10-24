@@ -13,6 +13,9 @@ struct IssueListView: View {
     /// search → settings (EXP-331, Android parity; SwiftUI's parent/child
     /// toolbar merge would otherwise put the gear first).
     var showsSettingsButton = false
+    /// #EXP-1384: a pushed board wears the page header itself; the Board
+    /// tab's root (IssuesHomeView) draws it over the chips instead.
+    var ownsHeader = true
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -114,17 +117,9 @@ struct IssueListView: View {
         }
         // Haptic tick when multi-select engages (long-press confirmation).
         .sensoryFeedback(.impact(weight: .medium), trigger: selectionActive) { _, entered in entered }
-        .navigationTitle(viewModel?.board?.name ?? "Issues")
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        // Search trigger in the nav bar (EXP-686 moved Search out of the tab
-        // bar into the board header). Root mode also emits the Settings gear
-        // here (after search, EXP-331); pushed boards show search as the sole
-        // trailing item.
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                searchToolbarButton
-            }
-        }
+        // #EXP-1384: the page header (the board's name, search + inbox) —
+        // only where no host draws it.
+        .modifier(BoardPageHeader(title: viewModel?.board?.name ?? Chats.Copy.Tabs.board, enabled: ownsHeader))
         // EXP-1021: every bulk edit is a TYPED picker driven by `open` — the
         // bar's glyphs are the triggers, and they live in the toolbar.
         .background {
@@ -335,20 +330,6 @@ struct IssueListView: View {
         .padding(.top, 8)
     }
 
-    /// Nav-bar search entry (EXP-686): Search lost its tab, so every board
-    /// header carries it, in the same 32pt style as the Settings gear.
-    private var searchToolbarButton: some View {
-        NavigationLink(value: AppRoute.search) {
-            AppIcon(AppIcons.navSearch, size: AppIcon.Size.medium)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .frame(width: 32, height: 32)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Search")
-        .accessibilityIdentifier("board-search")
-    }
-
     @ViewBuilder
     private func statusHeader(group: ResolvedIssueStatus, count: Int, vm: IssueListViewModel) -> some View {
         // EXP-1248: the status group = the shared `GlassSectionBand` with its
@@ -536,7 +517,14 @@ struct IssueListView: View {
                     // `UserAvatar`, not a hand-rolled initial on a grey disc —
                     // the row now shows the member's PICTURE when there is one,
                     // and the hashed hue when there isn't.
-                    if !vm.singleMemberTeam, let assigneeId = issue.assigneeId {
+                    // #EXP-1383: an agent assignee wears THE AGENT MARK.
+                    if !vm.hidesAssignee, let agentId = issue.assigneeAgentId {
+                        let agent = vm.agentFor(id: agentId)
+                        UserAvatar(
+                            agent: UserAvatarAgent(icon: agent?.icon, color: agent?.color),
+                            size: rowContentMinHeight
+                        )
+                    } else if !vm.hidesAssignee, let assigneeId = issue.assigneeId {
                         // Sized off the height floor rather than a fixed 22:
                         // the floor scales with Dynamic Type, so a hard 22
                         // would poke above it at text sizes below default and
@@ -713,8 +701,9 @@ struct IssueListView: View {
                 bulkSheet = .priority
             }
 
-            // Assignee — only meaningful on multi-member teams.
-            if !vm.singleMemberTeam {
+            // Assignee — only meaningful on multi-member teams (or a solo
+            // team with agents, #EXP-1383).
+            if !vm.hidesAssignee {
                 barIconButton(
                     iconName: AppIcons.uiAssignee,
                     color: .white.opacity(TextOpacity.secondary),
@@ -836,9 +825,12 @@ struct IssueListView: View {
 
     /// The assignee shared by every selected issue, or nil when they differ /
     /// are unassigned — the picker's pre-selection.
-    private func sharedAssigneeId(_ vm: IssueListViewModel) -> String? {
-        let assignees = Set(selectedIssues(vm).map { $0.assigneeId })
-        return assignees.count == 1 ? (assignees.first ?? nil) : nil
+    private func sharedAssignee(_ vm: IssueListViewModel) -> IssueAssignee? {
+        let assignees = Set(selectedIssues(vm).map {
+            IssueAssignee(assigneeId: $0.assigneeId, assigneeAgentId: $0.assigneeAgentId)
+        })
+        guard assignees.count == 1, let only = assignees.first, !only.isUnassigned else { return nil }
+        return only
     }
 
     /// One bulk picker's open state (EXP-1021).
@@ -884,8 +876,9 @@ struct IssueListView: View {
 
             AssigneePicker(
                 members: vm.teamUsers.map(AssigneePickerMember.init),
-                value: sharedAssigneeId(vm).map { [$0] } ?? [],
-                onChange: { picked in bulkSetAssignee(vm, picked.first) },
+                agents: vm.teamAgents.map(AssigneePickerAgent.init),
+                value: sharedAssignee(vm).map { [$0.pickerValue] } ?? [],
+                onChange: { picked in bulkSetAssignee(vm, IssueAssignee(pickerValue: picked.first)) },
                 open: bulkOpen(.assignee),
                 hideTrigger: true,
                 trigger: { EmptyView() }
@@ -999,10 +992,10 @@ struct IssueListView: View {
         Task { await vm.bulkSetPriority(issueIds: ids, priority: priority) }
     }
 
-    private func bulkSetAssignee(_ vm: IssueListViewModel, _ assigneeId: String?) {
+    private func bulkSetAssignee(_ vm: IssueListViewModel, _ assignee: IssueAssignee) {
         let ids = Array(selectedIds)
         exitSelection()
-        Task { await vm.bulkSetAssignee(issueIds: ids, assigneeId: assigneeId) }
+        Task { await vm.bulkSetAssignee(issueIds: ids, assignee: assignee) }
     }
 
     /// EXP-825: Start coding is NAVIGATION — the Agent page composer with
@@ -1080,4 +1073,19 @@ private struct InlineEdit: Identifiable {
     let issue: IssueEntity
 
     var id: String { "\(kind.rawValue)-\(issue.id)" }
+}
+
+/// The board list's page header, off while a host (the Board tab's root)
+/// draws its own.
+private struct BoardPageHeader: ViewModifier {
+    let title: String
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.pageHeader(title)
+        } else {
+            content
+        }
+    }
 }

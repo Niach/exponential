@@ -3439,6 +3439,10 @@ fn render_inline_text(
             icons: display.icon_ranges,
             background: theme.accent,
             border: theme.border,
+            // Thread e4a04d22: web `.mention-pill` = the OPAQUE `--accent`
+            // token (the app theme's `accent` is the glass hover fill).
+            mention_background: theme::tokens::ACCENT.to_hsla(),
+            mention_border: theme::tokens::BORDER.to_hsla(),
         }
         .into_any_element()
     };
@@ -3637,6 +3641,9 @@ struct PillText {
     icons: Vec<(Range<usize>, SharedString, gpui::Hsla)>,
     background: gpui::Hsla,
     border: gpui::Hsla,
+    /// Thread e4a04d22: the mention pill's own fill + hairline.
+    mention_background: gpui::Hsla,
+    mention_border: gpui::Hsla,
 }
 
 // EXP-885: the chip geometry is OWNED by `crate::issue_chip` — the one
@@ -3703,13 +3710,21 @@ impl gpui::Element for PillText {
         window: &mut Window,
         cx: &mut App,
     ) {
-        // Full pill for mentions (gpui clamps 999 to half the smaller side,
-        // so it's "as round as it gets"); small rounded rect for issue chips
-        // (EXP-423).
-        let kinds = [
-            (&self.mention_pills, px(999.)),
-            (&self.issue_pills, px(ISSUE_PILL_RADIUS)),
-        ];
+        // Thread e4a04d22: mention pills = web `.mention-pill` box for box —
+        // horizontally the padded display range (its `MENTION_PAD` bands are
+        // the padding), vertically the glyph box plus `0.05rem` and the 1px
+        // border, fully round. The radius is clamped by hand: `paint_quad`
+        // does NOT clamp, and the unclamped 999 this used made the shader
+        // drop every mention quad (the pill painted as plain text).
+        for quad_bounds in mention_pill_quads(&self.layout, &self.mention_pills) {
+            let mut quad = gpui::fill(quad_bounds, self.mention_background);
+            quad.corner_radii = gpui::Corners::all(quad_bounds.size.height / 2.);
+            quad.border_widths = gpui::Edges::all(px(1.));
+            quad.border_color = self.mention_border;
+            window.paint_quad(quad);
+        }
+        // Small rounded rect for issue chips (EXP-423).
+        let kinds = [(&self.issue_pills, px(ISSUE_PILL_RADIUS))];
         // EXP-899: how far the quad pulls IN from the row box before
         // `PILL_PAD_Y` pushes it back out — see `pill_row_inset`.
         let row_inset = pill_row_inset(&self.layout);
@@ -3934,6 +3949,31 @@ fn pill_row_inset(layout: &gpui::TextLayout) -> Pixels {
     (half_leading - px(PILL_PAD_Y)).max(px(0.))
 }
 
+/// Thread e4a04d22: the quads of the mention pills in `ranges` — the padded
+/// display range wide, the glyph box (ascent + descent, centred in the row)
+/// plus [`MENTION_PAD_Y`] and the 1px border tall, never taller than its row.
+fn mention_pill_quads(layout: &gpui::TextLayout, ranges: &[Range<usize>]) -> Vec<Bounds<Pixels>> {
+    if ranges.is_empty() {
+        return Vec::new();
+    }
+    let Some(line) = layout.line_layout_for_index(0) else {
+        return Vec::new();
+    };
+    let glyph_height = line.unwrapped_layout.ascent + line.unwrapped_layout.descent;
+    let half_leading = (layout.line_height() - glyph_height) / 2.;
+    let inset = (half_leading - px(MENTION_PAD_Y + 1.)).max(px(0.));
+    ranges
+        .iter()
+        .flat_map(|range| pill_segment_bounds(layout, range.clone()))
+        .map(|segment| {
+            Bounds::from_corners(
+                point(segment.left(), segment.top() + inset),
+                point(segment.right(), segment.bottom() - inset),
+            )
+        })
+        .collect()
+}
+
 fn pill_segment_bounds(layout: &gpui::TextLayout, range: Range<usize>) -> Vec<Bounds<Pixels>> {
     if range.start >= range.end {
         return Vec::new();
@@ -4039,6 +4079,23 @@ const CHIP_GUTTER: &str = "\u{00a0}\u{00a0}\u{00a0}\u{00a0}";
 /// mirror).
 const CHIP_MARGIN: &str = "\u{00a0}";
 
+/// Thread e4a04d22: the blank band opening and closing a mention pill's
+/// display text — web `.mention-pill`'s `padding: 0 0.4rem` (+ its 1px
+/// border) as glyphs, since a text run cannot pad. Two NBSPs ≈ 7.8px at the
+/// body size, against web's 7.4. The pill quad spans exactly the padded
+/// range, so nothing overdraws the neighbours.
+const MENTION_PAD: &str = "\u{00a0}\u{00a0}";
+
+/// Web `.mention-pill`'s `padding-block: 0.05rem` at a 16px root.
+const MENTION_PAD_Y: f32 = 0.8;
+
+/// The displayed text of a resolved mention: `@<name>` with the name's
+/// whitespace made non-breaking (web `white-space: nowrap`), padded.
+fn mention_pill_text(name: &str) -> String {
+    let joined = name.split_whitespace().collect::<Vec<_>>().join("\u{00a0}");
+    format!("{MENTION_PAD}@{joined}{MENTION_PAD}")
+}
+
 fn build_display_line(
     line: &str,
     marks: &[InlineMark],
@@ -4079,7 +4136,7 @@ fn build_display_line(
             if let Some(name) = (resolver.member_name)(email, cx) {
                 decorations.push(Decoration {
                     range: token.clone(),
-                    display_text: format!("@{name}"),
+                    display_text: mention_pill_text(&name),
                     style: DecorationStyle::MentionPill,
                 });
             }
@@ -4790,17 +4847,17 @@ mod tests {
             assert_eq!(
                 display.text,
                 format!(
-                    "Ping @Ada about {CHIP_MARGIN}{CHIP_GUTTER}#EXP-42 Fix login flow{CHIP_MARGIN} now"
+                    "Ping {MENTION_PAD}@Ada{MENTION_PAD} about {CHIP_MARGIN}{CHIP_GUTTER}#EXP-42 Fix login flow{CHIP_MARGIN} now"
                 )
             );
-            let mention = display.text.find("@Ada").expect("mention");
+            let mention = display.text.find("@Ada").expect("mention") - MENTION_PAD.len();
             let issue = display.text.find("#EXP-42").expect("issue token");
             // The chip (pill/click/icon) starts at the gutter — AFTER the
             // leading margin, which stays outside every chip range.
             let chip = issue - CHIP_GUTTER.len();
             assert_eq!(
                 display.mention_pill_ranges,
-                vec![mention..mention + "@Ada".len()]
+                vec![mention..mention + format!("{MENTION_PAD}@Ada{MENTION_PAD}").len()]
             );
             assert_eq!(
                 display.issue_pill_ranges,
@@ -4825,6 +4882,59 @@ mod tests {
                      the pill quad replaces it"
                 );
             }
+        });
+    }
+
+    /// Thread e4a04d22 (mention pills in chats ×4): a chat row's text — the
+    /// chat flag and the thread resolver's BARE mode `message_markdown`
+    /// builds — paints a member's `@email` as THE comments' round pill with
+    /// the member's name; an unknown address stays the written text.
+    #[gpui::test]
+    async fn a_chat_row_paints_member_mentions_as_pills(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            let line = "@ada@example.com can you check EXP-42? cc @x@y.com";
+            let display = build_display_line(line, &[], Some(&bare_resolver()), true, cx);
+            let mention = display.text.find("@Ada").expect("the member's pill") - MENTION_PAD.len();
+            assert_eq!(mention, 0);
+            assert_eq!(
+                display.mention_pill_ranges,
+                vec![mention..mention + format!("{MENTION_PAD}@Ada{MENTION_PAD}").len()],
+                "one round mention pill, over the member's name"
+            );
+            assert!(!display.text.contains("@ada@example.com"));
+            assert!(display.text.ends_with("cc @x@y.com"), "{}", display.text);
+            assert_eq!(display.issue_pill_ranges.len(), 1, "the bare ref still chips");
+        });
+    }
+
+    /// Thread e4a04d22: the mention pill = web `.mention-pill` ×4 — padded
+    /// by the NBSP bands, unbreakable, `--accent-foreground` at medium, NO
+    /// flat run background (the opaque `--accent` quad is painted).
+    #[gpui::test]
+    async fn the_mention_pill_is_the_web_capsule(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            assert_eq!(mention_pill_text(" Ada  King Lovelace "), "\u{a0}\u{a0}@Ada\u{a0}King\u{a0}Lovelace\u{a0}\u{a0}");
+            let line = "Ping @ada@example.com now";
+            let display = build_display_line(line, &[], Some(&test_resolver()), false, cx);
+            let pill = display.mention_pill_ranges[0].clone();
+            assert_eq!(&display.text[pill.clone()], format!("{MENTION_PAD}@Ada{MENTION_PAD}"));
+            let theme = cx.theme();
+            let (_, style) = display
+                .highlights
+                .iter()
+                .find(|(range, _)| range.start <= pill.start && pill.end <= range.end)
+                .expect("the pill's run");
+            assert_eq!(style.color, Some(theme.accent_foreground));
+            assert_eq!(style.font_weight, Some(FontWeight::MEDIUM));
+            assert_eq!(style.background_color, None);
+            // The quad's paint: the opaque web tokens, not the glass accent.
+            let rgba = |c: theme::Srgb8| (c.r, c.g, c.b, c.a);
+            assert_eq!(rgba(theme::tokens::ACCENT), (38, 38, 38, 255));
+            assert_eq!(rgba(theme::tokens::BORDER), (255, 255, 255, 26));
+            assert_eq!(MENTION_PAD_Y, 0.8);
         });
     }
 

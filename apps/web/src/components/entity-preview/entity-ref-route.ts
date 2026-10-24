@@ -38,6 +38,10 @@ export interface EntityRefRouteContext {
   /** NEW-2: the agent whose CONVERSATION a synced session root is (a root
    *  with `agentId`); null for a thread, a child or an unsynced row. */
   sessionAgentId: (id: string) => string | null
+  /** Web-mobile (the phone shell, chats.json `shell`): a status or a team
+   *  opens the Team tab, like iOS and Android (Statuses is no phone page,
+   *  and the team is switched only on the Team tab). Wide web unchanged. */
+  phone?: boolean
 }
 
 function issueRoute(
@@ -121,7 +125,9 @@ export function entityRefRoute(
     case `label`:
       return { to: `/t/$teamSlug/settings/labels`, params: { teamSlug } }
     case `status`:
-      return { to: `/t/$teamSlug/settings/statuses`, params: { teamSlug } }
+      return ctx.phone
+        ? { to: `/t/$teamSlug/team`, params: { teamSlug } }
+        : { to: `/t/$teamSlug/settings/statuses`, params: { teamSlug } }
     case `device`:
       return { to: `/t/$teamSlug/devices`, params: { teamSlug } }
     case `member`:
@@ -130,6 +136,7 @@ export function entityRefRoute(
     case `repository`:
       return { to: `/t/$teamSlug/settings/repositories`, params: { teamSlug } }
     case `team`: {
+      if (ctx.phone) return { to: `/t/$teamSlug/team`, params: { teamSlug } }
       const slug = ctx.teamSlugById(ref.id)
       return slug ? { to: `/t/$teamSlug`, params: { teamSlug: slug } } : null
     }

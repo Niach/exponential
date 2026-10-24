@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { assigneeWrite, type IssueAssignee } from "@/lib/issue-assignee"
 import type { Board, Issue, IssueDraft, User } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { toIssueDescription, type IssuePriority } from "@/lib/domain"
@@ -126,8 +127,13 @@ export function useIssueDraftEditor({
   // written" key below includes it and merely looking at a draft never
   // rewrites it. `users` length 0 = still loading, never a genuine empty.
   const soleMemberId = users.length === 1 ? users[0].id : null
+  // #EXP-1383: a draft assigned to an agent keeps it (no sole-member
+  // default over it); the two columns stay exclusive.
+  const [assigneeAgentId, setAssigneeAgentIdState] = useState<string | null>(
+    seed?.assigneeAgentId ?? null
+  )
   const [assigneeId, setAssigneeIdState] = useState<string | null>(
-    soleMemberId ?? seed?.assigneeId ?? null
+    seed?.assigneeAgentId ? null : (soleMemberId ?? seed?.assigneeId ?? null)
   )
   const [labelIds, setLabelIds] = useState<string[]>(seed?.labelIds ?? [])
   const [dueDate, setDueDateState] = useState<string | null>(
@@ -166,6 +172,7 @@ export function useIssueDraftEditor({
     statusId: isFallbackStatusOption(status) ? null : status.id,
     priority,
     assigneeId,
+    assigneeAgentId,
     labelIds,
     dueDate,
     sessionId: threadId,
@@ -317,7 +324,7 @@ export function useIssueDraftEditor({
   }, [chipVersion])
 
   useEffect(() => {
-    if (soleMemberId) setAssigneeIdState(soleMemberId)
+    if (soleMemberId && !snapshotRef.current.assigneeAgentId) setAssigneeIdState(soleMemberId)
   }, [soleMemberId])
 
   // Draft attachments are server-only (the attachments shape drops them), so
@@ -478,6 +485,7 @@ export function useIssueDraftEditor({
         ...statusUpdatePayload(statusOption),
         priority: snapshot.priority,
         assigneeId: snapshot.assigneeId ?? undefined,
+        assigneeAgentId: snapshot.assigneeAgentId ?? undefined,
         // Already final `/api/attachments/{id}` URLs (eager uploads).
         description: toIssueDescription(snapshot.description) ?? undefined,
         dueDate: snapshot.dueDate ?? undefined,
@@ -544,6 +552,7 @@ export function useIssueDraftEditor({
     status,
     priority,
     assigneeId,
+    assigneeAgentId,
     labelIds,
     dueDate,
     threadId,
@@ -581,8 +590,11 @@ export function useIssueDraftEditor({
       setPriorityState(value)
       bumpChips()
     },
-    setAssigneeId: (value: string | null) => {
-      setAssigneeIdState(value)
+    /** #EXP-1383: the pick as both columns, the cleared one null. */
+    setAssignee: (value: IssueAssignee) => {
+      const next = assigneeWrite(value)
+      setAssigneeIdState(next.assigneeId)
+      setAssigneeAgentIdState(next.assigneeAgentId)
       bumpChips()
     },
     toggleLabel: (labelId: string) => {

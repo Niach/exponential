@@ -133,3 +133,13 @@ fun AccountOption.toPickerAccount(): AccountPickerOption = AccountPickerOption(
 /** The priority a picker value names. */
 fun pickedPriority(values: Set<String>): IssuePriority? =
     values.firstOrNull()?.let(IssuePriority::fromWire)
+
+/** #EXP-1383: a synced agent definition as an assignee picker row. */
+fun com.exponential.app.data.db.AgentDefinitionEntity.toPickerAgent(): com.exponential.app.ui.components.picker.AssigneePickerAgent =
+    com.exponential.app.ui.components.picker.AssigneePickerAgent(
+        id = id,
+        name = name,
+        icon = icon,
+        color = color,
+        sortOrder = sortOrder,
+    )

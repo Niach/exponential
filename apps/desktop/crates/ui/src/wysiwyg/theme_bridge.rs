@@ -49,6 +49,12 @@ pub(crate) fn editor_theme(cx: &App) -> Arc<MarkdownEditorTheme> {
     c.reference_text = app.foreground;
     c.reference_token_text = app.muted_foreground;
     c.reference_border = app.border;
+    // Thread e4a04d22: the mention pill = web `.mention-pill` straight off the
+    // design tokens — the OPAQUE `--accent` (the app theme's `accent` is the
+    // glass hover fill), the `--border` hairline, `--accent-foreground` text.
+    c.mention_bg = theme::tokens::ACCENT.to_hsla();
+    c.mention_border = theme::tokens::BORDER.to_hsla();
+    c.mention_text = theme::tokens::ACCENT_FOREGROUND.to_hsla();
     c.cursor = app.caret;
     c.selection = app.selection;
     c.task_checkbox_border = app.border;

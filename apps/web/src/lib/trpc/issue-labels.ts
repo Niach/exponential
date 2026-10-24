@@ -47,7 +47,7 @@ export const issueLabelsRouter = router({
             issueId: input.issueId,
             teamId: label!.teamId,
             actorUserId: ctx.session.user.id,
-            origin: eventOrigin(ctx),
+            origin: await eventOrigin(ctx),
             type: `label_added`,
             payload: { labelId: input.labelId },
           })
@@ -90,7 +90,7 @@ export const issueLabelsRouter = router({
             issueId: input.issueId,
             teamId: label!.teamId,
             actorUserId: ctx.session.user.id,
-            origin: eventOrigin(ctx),
+            origin: await eventOrigin(ctx),
             type: `label_removed`,
             payload: { labelId: input.labelId },
           })
@@ -157,7 +157,7 @@ export const issueLabelsRouter = router({
             issueId: row.issueId,
             teamId: label.teamId,
             actorUserId: ctx.session.user.id,
-            origin: eventOrigin(ctx),
+            origin: await eventOrigin(ctx),
             type: `label_added`,
             payload: { labelId: input.labelId },
           })
@@ -218,7 +218,7 @@ export const issueLabelsRouter = router({
             issueId: row.issueId,
             teamId: label.teamId,
             actorUserId: ctx.session.user.id,
-            origin: eventOrigin(ctx),
+            origin: await eventOrigin(ctx),
             type: `label_removed`,
             payload: { labelId: input.labelId },
           })
