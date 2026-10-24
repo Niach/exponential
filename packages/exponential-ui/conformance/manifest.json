@@ -219,6 +219,15 @@
       "unit": "theme × animation",
       "cases": 38,
       "check": "Time each animation under the theme and sample its frames (and the reduced-motion frame): equal to `expected` within 1e-3; `opacity`: the painted opacity = the node's own × the frame's, within 1e-3."
+    },
+    {
+      "id": "pointer",
+      "files": [
+        "fixtures/pointer.json"
+      ],
+      "unit": "write or read",
+      "cases": 16,
+      "check": "Write each `writes` case: `expected` + its read-back `read`, or `error` with the data unchanged; read each `reads` case: `expected`."
     }
   ]
 }

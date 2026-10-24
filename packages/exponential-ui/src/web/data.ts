@@ -8,7 +8,7 @@
 // functions run through the SURFACE Formatter (round 2 §3: Intl in the
 // surface locale + time zone). Pure, so the host can run it too.
 
-import { CORE_FUNCTIONS, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, sharedCatalogView, truthy, writePointer } from "@exponential_app/ui"
+import { CORE_FUNCTIONS, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, sharedCatalogView, readPointer, truthy, writePointer } from "@exponential_app/ui"
 import type { CatalogView, ExtensionDef, Formatter } from "@exponential_app/ui"
 
 export type DataModel = Record<string, unknown> | unknown[]
@@ -44,16 +44,9 @@ export function absolutePath(path: string, scope = ``): string {
   return path === `` ? scope : `${scope}/${path}`
 }
 
-export function getPointer(data: unknown, pointer: string): unknown {
-  let cur: unknown = data
-  for (const token of pointerTokens(pointer)) {
-    if (cur === null || typeof cur !== `object`) return undefined
-    // The core's readPointer: real indices and OWN keys only.
-    if (Array.isArray(cur)) cur = /^[0-9]+$/.test(token) ? cur[Number(token)] : undefined
-    else cur = Object.prototype.hasOwnProperty.call(cur, token) ? (cur as Record<string, unknown>)[token] : undefined
-  }
-  return cur
-}
+/** The core's `readPointer`: real indices and OWN keys only, `-` = the
+ *  last element. */
+export const getPointer: (data: unknown, pointer: string) => unknown = readPointer
 
 /** A copy of `data` with the value at `pointer` replaced (or removed when
  *  `value` is undefined): the core's `writePointer` (missing containers are

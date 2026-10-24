@@ -79,7 +79,7 @@ export function sparklineSummaryParams(values: readonly number[]): { first: numb
     if (v < lo) lo = v
     if (v > hi) hi = v
   }
-  return { first: finite[0], last: finite[finite.length - 1], min: lo, max: hi }
+  return { first: finite[0], last: finite.at(-1)!, min: lo, max: hi }
 }
 
 function niceNum(x: number, round: boolean): number {

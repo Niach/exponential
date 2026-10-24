@@ -9,12 +9,13 @@ import directionFixture from "../fixtures/text-direction.json" with { type: "jso
 import resizableFixture from "../fixtures/resizable.json" with { type: "json" }
 import listFixture from "../fixtures/virtual-list.json" with { type: "json" }
 import animationsFixture from "../fixtures/animations.json" with { type: "json" }
+import pointerFixture from "../fixtures/pointer.json" with { type: "json" }
 import benchFixture from "../fixtures/bench-list.json" with { type: "json" }
 import kitchenExpanded from "../fixtures/kitchen-sink.expanded.json" with { type: "json" }
 import knownFixture from "../fixtures/conformance-known.json" with { type: "json" }
 import manifest from "../conformance/manifest.json" with { type: "json" }
 import { CORE_CATALOG_ID, coreCatalog } from "./catalog"
-import { bindSectionHeader, bindTree, resolveDynamic } from "./dynamic"
+import { bindSectionHeader, bindTree, readPointer, resolveDynamic, writePointer } from "./dynamic"
 import { displayString, englishFormatter, fixedOffset, formatFunctions, intlFormatter, intlZoneOffset, type Formatter } from "./format"
 import { itemExtents, itemOffsets, listSections, scrollOffsetForIndex, scrollOffsetForItem, sectionRows, stickyHeader, tableRowKeys, templateInstances, templateItemKeys, virtualWindow, type ScrollAlign } from "./list"
 import { dragDelta, keyboardResize, normalizeSizes, panelExtents, resizePanels, type PanelLimits } from "./resizable"
@@ -340,10 +341,28 @@ describe(`theme, strings, a11y, catalog, prompt (round 2)`, () => {
   })
 })
 
+describe(`pointer.json (EXP-1385)`, () => {
+  type Write = { name: string; data: unknown; pointer: string; value?: unknown; expected?: unknown; read?: unknown; error?: string }
+  for (const c of pointerFixture.writes as Write[])
+    test(`write: ${c.name}`, () => {
+      const before = JSON.stringify(c.data)
+      const written = writePointer(c.data, c.pointer, c.value)
+      if (c.error !== undefined) {
+        expect(written.error).toBe(c.error)
+        expect(JSON.stringify(written.data)).toBe(before)
+      } else {
+        expect(written.error).toBeUndefined()
+        expect(written.data).toEqual(c.expected)
+        expect(readPointer(written.data, c.pointer)).toEqual(c.read)
+      }
+    })
+  for (const c of pointerFixture.reads as { name: string; data: unknown; pointer: string; expected?: unknown }[]) test(`read: ${c.name}`, () => expect(readPointer(c.data, c.pointer)).toEqual(c.expected))
+})
+
 describe(`conformance (round 2)`, () => {
   test(`the manifest counts the round-1 and round-2 fixtures`, () => {
     expect(manifest.version).toBe(2)
-    for (const id of [`bind`, `style-conditions`, `code-tokens`, `format`, `template-items`, `text-direction`, `resizable`, `virtual-list`, `animations`]) expect(manifest.suites.some((s) => s.id === id), id).toBe(true)
+    for (const id of [`bind`, `style-conditions`, `code-tokens`, `format`, `template-items`, `text-direction`, `resizable`, `virtual-list`, `animations`, `pointer`]) expect(manifest.suites.some((s) => s.id === id), id).toBe(true)
   })
 
   test(`every known gpui-vs-web divergence cause carries a decision`, () => {

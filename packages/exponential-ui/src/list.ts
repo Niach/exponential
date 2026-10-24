@@ -289,7 +289,7 @@ export function listSections(items: readonly unknown[], sectionBy: string): List
   items.forEach((item, index) => {
     const v = readPointer(item, pointer)
     const value = v === undefined || v === null ? `` : typeof v === `object` ? JSON.stringify(v) : String(v)
-    const last = out[out.length - 1]
+    const last = out.at(-1)
     if (last && last.value === value) last.count++
     else out.push({ value, start: index, count: 1 })
   })

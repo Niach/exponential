@@ -522,6 +522,7 @@ final class ConformanceTests: XCTestCase {
         case "resizable": try Round2Suites.resizable()
         case "virtual-list": try Round2Suites.virtualList()
         case "animations": try Round2Suites.animations()
+        case "pointer": try Round2Suites.pointer()
         case "text-shimmer": try Round2Suites.textShimmer()
         default: [("suite \(id)", "the runner does not know the suite \(id): add it")]
         }

@@ -663,6 +663,7 @@ fn suite(id: &str, p: &mut Painter) -> Vec<Case> {
         "resizable" => round2::resizable_cases(),
         "virtual-list" => round2::virtual_list_cases(),
         "animations" => round2::animation_cases(),
+        "pointer" => round2::pointer_cases(),
         other => panic!("the runner does not know the suite {other}: add it"),
     }
 }
