@@ -1030,7 +1030,7 @@ impl IdeHost {
         refresh_records(&feeds, cx);
         let mut subscriptions = Vec::new();
         if let Some(store) = sync::Store::try_global(cx) {
-            let collections = store.collections();
+            let collections = store.collections().clone();
             let devices = collections.devices.clone();
             let (records, apps, users) =
                 (collections.app_records.clone(), collections.apps.clone(), collections.users.clone());
@@ -1040,7 +1040,7 @@ impl IdeHost {
             macro_rules! observe_part {
                 ($entity:expr, $part:expr) => {{
                     let f = feeds.clone();
-                    subscriptions.push(cx.observe(&$entity.clone(), move |_, cx| refresh_sources(&f, $part, cx)));
+                    subscriptions.push(cx.observe(&$entity, move |_, cx| refresh_sources(&f, $part, cx)));
                 }};
             }
             observe_part!(collections.boards, SourcePart::Issues);
@@ -1307,7 +1307,6 @@ mod tests {
     #[gpui::test]
     fn sources_bind_over_the_seeded_store(cx: &mut gpui::TestAppContext) {
         use domain::app_sources as src;
-        use sync::ShapeRow as _;
         cx.update(|cx| {
             gpui_component::init(cx);
             let store = sync::Store::open(cx, None, None);
@@ -1346,7 +1345,8 @@ mod tests {
         let bind = |uri: &str| {
             let got = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
             let sink = got.clone();
-            let cancel = resolver(exponential_ui::host::parse_source(uri).unwrap(), Arc::new(move |v| sink.lock().unwrap().push(v)));
+            let emit: Emit = Arc::new(move |v: Value| sink.lock().unwrap().push(v));
+            let cancel = resolver(exponential_ui::host::parse_source(uri).unwrap(), emit);
             (got, cancel)
         };
         let (members, _m) = bind("exp:members");
