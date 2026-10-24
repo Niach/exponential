@@ -422,7 +422,7 @@
         }
       },
       "notes": {
-        "web-mobile": "Thread 58cb32df (chats.json `shell`): the header is the board switcher pill + the search circle (no settings gear, no avatar menu: both moved to the Team tab), the board chips under it, and the glass tab capsule Board · Devices · Chats · Team beside the new chat / new issue capsule."
+        "web-mobile": "Thread 58cb32df / #EXP-1384 (chats.json `shell`): the page header (the board's name as the large title, the search + inbox circles), the board chips under it, and the glass tab capsule Board · Chats · Apps · Team beside the new chat / new issue capsule (the Board tab's caret opens the board menu)."
       }
     },
     {
