@@ -1175,16 +1175,25 @@ fun ThreadConversation(
         }
         JumpToBottomButton(
             visible = !follow && shown.isNotEmpty(),
+            // #EXP-1383 (owner 2026-10-24: "exactly as in sessions"): the run
+            // view's tap — animate to the newest row (the pinned window still
+            // ends on it), finish on the true end, then drop the pin and
+            // resume following.
             onClick = {
                 jumpScope.launch {
-                    // Back to the newest window, then to its last row.
+                    val last = state.layoutInfo.totalItemsCount - 1
+                    if (last >= 0) {
+                        state.animateScrollToItem(last)
+                        state.scrollBy(100_000f)
+                    }
                     windowFrom = null
                     follow = true
-                    state.pinToEnd()
                 }
             },
-            // chats.json: 12dp above the composer / dock.
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = jumpBottomInset + 12.dp),
+            // The run view's placement: centred 12dp above the composer's
+            // rung ([jumpBottomInset] = the floating band, whose top 8dp is
+            // the bar's own padding), so band + 4dp.
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = jumpBottomInset + 4.dp),
         )
         }
     }

@@ -1738,12 +1738,14 @@ private fun ActivityFeed(
     )
 
     // Only user drags flip follow-mode; programmatic scrolls keep it.
-    // EXP-529 batch: "at the bottom" carries ~96dp of slack — the pixel-exact
+    // EXP-529 batch: "at the bottom" carries slack — the pixel-exact
     // canScrollForward check dropped follow-mode (and surfaced the "Jump to
     // bottom" chip) while the list sat a few px shy of the true bottom, which
     // visually IS the bottom. Near-bottom counts as bottom, so the chip only
     // appears after a real scroll-up and hides again within the same slack.
-    val followSlackPx = with(LocalDensity.current) { 96.dp.toPx() }
+    // #EXP-1383: the chats' slack (chats.json `transcript.followSlack`), so
+    // the run view and a chat show THE jump button at the same scroll.
+    val followSlackPx = with(LocalDensity.current) { Chats.Transcript.FOLLOW_SLACK.dp.toPx() }
     val jumpScope = rememberCoroutineScope()
     LaunchedEffect(listState, followSlackPx) {
         snapshotFlow { listState.isScrollInProgress to listState.isNearBottom(followSlackPx) }
