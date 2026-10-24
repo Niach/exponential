@@ -4621,8 +4621,8 @@
         "file": "shots/settings-team/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 41532,
-        "sha256": "5d4cbf5e765583436a8eae09e1f3f4c44f46dc6808796814650180ef1f879071"
+        "bytes": 16328,
+        "sha256": "b583ea7ee058f70f56faf6a2d7c45d51963c414dfb182007bf86c7ff1746f800"
       }
     },
     "settings-team-agent": {
