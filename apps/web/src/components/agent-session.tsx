@@ -42,6 +42,7 @@ import {
   conceptIcon,
   EditedFilesCard,
   JumpToBottomButton,
+  JUMP_TO_BOTTOM_GAP,
   LoadEarlierButton,
   useIsMobile,
   Button,
@@ -228,7 +229,6 @@ const TRANSCRIPT_STALL_MS = 8_000
 /** N-12: the transcript's last row clears THE Dock's band by this much. */
 const DOCK_GAP = 16
 /** N-12: the jump circle sits this far above the band (EXP-1191: 12px). */
-const JUMP_GAP = 12
 /** N-12: the relay's own waiting card is the newest ask in the Dock. */
 const RELAY_ASK_ORDER = Number.MAX_SAFE_INTEGER
 
@@ -1024,7 +1024,7 @@ export function AgentSessionView({
           <JumpToBottomButton
             visible={!atBottom && feed.length > 0}
             className="absolute left-1/2 z-30 -translate-x-1/2"
-            style={{ bottom: dockHeight + JUMP_GAP }}
+            style={{ bottom: dockHeight + JUMP_TO_BOTTOM_GAP }}
             onClick={jumpToBottom}
           />
           {/* N-12: THE Dock over the transcript's bottom edge: the waiting

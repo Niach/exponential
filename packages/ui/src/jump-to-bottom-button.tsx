@@ -15,6 +15,10 @@ const ArrowDownIcon = conceptIcon(`ui-arrow-down`)
 
 export const JUMP_TO_BOTTOM_LABEL = `Jump to bottom`
 
+/** The gap between the circle and the composer / dock it floats above (px):
+ *  the run view's, and every chat's (#EXP-1383: chats use it exactly). */
+export const JUMP_TO_BOTTOM_GAP = 12
+
 export function JumpToBottomButton({
   visible,
   className,

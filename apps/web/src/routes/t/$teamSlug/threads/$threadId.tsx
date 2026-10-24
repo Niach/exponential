@@ -9,6 +9,7 @@ import {
   EmptyState,
   FloatingComposer,
   JumpToBottomButton,
+  JUMP_TO_BOTTOM_GAP,
   LoadEarlierButton,
   useTranscriptWindow,
   Menu,
@@ -960,7 +961,7 @@ function ConversationBody({
       <JumpToBottomButton
         visible={!follow.atBottom && view.rows.length > 0}
         className="absolute left-1/2 z-30 -translate-x-1/2"
-        style={{ bottom: dockHeight + 12 }}
+        style={{ bottom: dockHeight + JUMP_TO_BOTTOM_GAP }}
         onClick={follow.jumpToBottom}
       />
       {canReply && (

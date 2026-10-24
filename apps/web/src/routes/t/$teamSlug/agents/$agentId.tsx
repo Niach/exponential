@@ -5,6 +5,7 @@ import {
   conceptIcon,
   EmptyState,
   JumpToBottomButton,
+  JUMP_TO_BOTTOM_GAP,
   SkeletonRows,
   useIsMobile,
 } from "@exp/ui"
@@ -185,9 +186,12 @@ function AgentChannelPage() {
             />
           </div>
         </div>
+        {/* #EXP-1383 (owner: "exactly as in sessions"): the run view's
+            circle, placement and layer; the composer sits right below. */}
         <JumpToBottomButton
           visible={!follow.atBottom && messages.length > 0}
-          className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
+          className="absolute left-1/2 z-30 -translate-x-1/2"
+          style={{ bottom: JUMP_TO_BOTTOM_GAP }}
           onClick={follow.jumpToBottom}
         />
       </div>
