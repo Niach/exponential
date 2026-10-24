@@ -47,6 +47,7 @@
     { "id": "thread", "class": "native", "with": "the conversation feed (the same feed native); Tabs + Chip for the strip; the session card is Row surface card" },
     { "id": "thread-replies", "class": "expressible", "with": "Stack horizontal of Chips (pressable) with a dismiss Button" },
     { "id": "chat-from-issue", "class": "extension", "with": "the launcher composer" },
+    { "id": "mention-pill", "class": "extension", "with": "Text whose markdown runs carry an inline Badge (the round pill variant) for a resolved @member, in a chat bubble Box; needs inline chips inside Text" },
     { "id": "machine-settings", "class": "expressible", "with": "Page (title, back) + Group + Row + Switch + Select; FormActions for Update / Remove" },
     { "id": "add-server", "class": "expressible", "with": "Card ×2 + CodeBlock + Button" },
     { "id": "review-diff", "class": "native", "with": "a DIFF viewer (hunks, syntax, expand context) and the file tree (Tree); CodeBlock is not a diff" },
