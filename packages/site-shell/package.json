@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "The shell every public Exponential site shares (exponential.at, ui.exponential.at): header and footer bars, the docs layout, the brand mark, the GitHub stars button, the base styles, and the prerender + SEO engine. Shared components, not copies.",
+  "description": "The shell of exponential.at (the /ui/ section included): header and footer bars, the docs layout, the brand mark, the GitHub stars button, the base styles, and the prerender + SEO engine. Shared components, not copies.",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

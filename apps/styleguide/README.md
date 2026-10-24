@@ -9,7 +9,7 @@ it.
 | section | what it holds | where it comes from |
 | --- | --- | --- |
 | **1 Style** | the values the controls are made of: colour, shape, type, motion and the icon registry | `@exp/design-tokens` and `packages/icons` |
-| **2 General components** | the Exponential app's own controls any screen reuses (the typed pickers, the search list, toasts, the strip chip, feedback states, Trace, CodeBlock …); the generic set (buttons, fields, rows, pills, dialogs, meters and the layout macros Page, Toolbar, SplitView, FieldGroup, FormActions, StatTile) lives on [ui.exponential.at](https://ui.exponential.at/components/), VAPP-93 | rendered live at build time: the REAL `@exp/ui` component (EXP-698 / EXP-887) |
+| **2 General components** | the Exponential app's own controls any screen reuses (the typed pickers, the search list, toasts, the strip chip, feedback states, Trace, CodeBlock …); the generic set (buttons, fields, rows, pills, dialogs, meters and the layout macros Page, Toolbar, SplitView, FieldGroup, FormActions, StatTile) lives on [ui.exponential.at](https://exponential.at/ui/components/), VAPP-93 | rendered live at build time: the REAL `@exp/ui` component (EXP-698 / EXP-887) |
 | **3 Special components** | compositions with ONE owner: a dialog, a tree, a settings surface, the session thread, THE Dock and its cards (`dock-card`, `ask-dock`, `plan-card`) | rendered live, same as section 2 |
 | **4 Views** | every screen in `@exp/view-catalog` (bar the site-owned `exponential-ui-catalog` group), with its web / web-mobile / desktop / iOS / Android shots side by side | photographs in `shots/` (EXP-566) |
 
@@ -115,10 +115,10 @@ Dock's collapsed card + its sheet; the app's `dock-card` entry here shows the
 real Dock around it), **Trace** / **TraceItem**, **CodeBlock**, **ChoiceTiles**,
 **SearchList** and the layout macros **Page**, **Toolbar**, **SplitView**,
 **FieldGroup**, **FormActions** and **StatTile** (VAPP-126) — is documented at
-[`https://ui.exponential.at/components/`](https://ui.exponential.at/components/),
+[`https://exponential.at/ui/components/`](https://exponential.at/ui/components/),
 where it renders live through the SDK beside its four platform shots. Their
 per-platform status tables moved with them, verbatim, to
-`apps/ui-site/src/data/app-parity.ts`, one row per old id; the generic specs
+`apps/marketing/ui/src/data/app-parity.ts`, one row per old id; the generic specs
 the VAPP-88 merge dropped from here (list item, tooltip, hover card,
 collapsible, the menu family, the picker surface) were re-homed there too
 (VAPP-102). The view-catalog

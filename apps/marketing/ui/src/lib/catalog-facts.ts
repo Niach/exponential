@@ -1,0 +1,20 @@
+/* The few catalog facts the content pages print (counts, ids, component
+   links) WITHOUT importing the generated component docs: those weigh ~140 KB
+   and belong to the component pages only. catalog-facts.test.ts locks every
+   value here to the docs, so a catalog change fails the test, not the page. */
+import promptBudget from "@exponential_app/ui/fixtures/prompt-budget.json"
+
+export const CORE_CATALOG = `https://ui.exponential.at/catalogs/core/v1`
+export const CORE_LITE_CATALOG = `https://ui.exponential.at/catalogs/core-lite/v1`
+
+/** Every component of the core catalog (the prompt's count, generated). */
+export const COMPONENT_COUNT: number = promptBudget.full.components
+export const NATIVE_COUNT = 46
+export const MACRO_COUNT = 35
+/** Built-in functions: the A2UI basic 14 plus the core ones. */
+export const BASIC_FUNCTION_COUNT = 14
+export const FUNCTION_COUNT = 33
+
+/** A component's page: its slug is its name in kebab case (`AlertDialog` → `alert-dialog`). */
+export const componentSlugOf = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, `$1-$2`).toLowerCase()
+export const componentHref = (name: string) => `/ui/components/${componentSlugOf(name)}/`

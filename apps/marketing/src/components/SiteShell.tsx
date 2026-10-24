@@ -1,12 +1,23 @@
 import { useEffect, type ReactNode } from "react"
 import { GitHubStarsButton, SiteFooterBar, SiteHeaderBar } from "@exp/site-shell"
+import { UI_SECTION } from "../../ui/src/lib/nav"
 import { initAttributionForwarding } from "../lib/attribution"
 import { LINKS } from "../lib/links"
 import { DownloadIconRow } from "./DownloadSection"
 import { IcArrow } from "./icons"
 import { WidgetEmbed } from "./WidgetEmbed"
 
-export function SiteHeader({ currentPath }: { currentPath?: string } = {}) {
+/* The main menu; the UI SDK link steps into its own level (UI_SECTION). */
+const NAV = [
+  { label: `Product`, href: `/#product` },
+  { label: `Pricing`, href: `/pricing/` },
+  { label: `Docs`, href: `/docs/` },
+  { label: `Blog`, href: `/blog/` },
+  { label: `UI SDK`, href: LINKS.ui },
+  { label: `Download`, href: LINKS.downloadPage },
+]
+
+export function SiteHeader({ currentPath, extra }: { currentPath?: string; extra?: ReactNode } = {}) {
   useEffect(() => {
     /* Cookieless ref/utm forwarding onto app + internal links (EXP-362);
        every page renders SiteHeader once, and the module self-guards. */
@@ -19,27 +30,16 @@ export function SiteHeader({ currentPath }: { currentPath?: string } = {}) {
           feedback widget on all routes (WidgetEmbed renders nothing and
           guards against double-injection). */}
       <WidgetEmbed />
-      {/* The bar itself is shared with ui.exponential.at (@exp/site-shell). */}
+      {/* ONE header for every page, the /ui/ section included (@exp/site-shell). */}
       <SiteHeaderBar
         brand="Exponential"
         currentPath={currentPath}
-        nav={[
-          { label: `Product`, href: `/#product` },
-          { label: `Pricing`, href: `/pricing/` },
-          { label: `Docs`, href: `/docs/` },
-          { label: `Blog`, href: `/blog/` },
-          { label: `UI SDK`, href: LINKS.ui },
-          { label: `Download`, href: LINKS.downloadPage },
-        ]}
+        nav={NAV}
+        sections={[UI_SECTION]}
         right={
           <>
+            {extra}
             <GitHubStarsButton variant="compact" />
-            <a className="btn btn-sm topbar-dl" href={LINKS.downloadPage}>
-              Download
-            </a>
-            <a className="btn btn-ghost btn-sm" href={LINKS.app.login}>
-              Sign in
-            </a>
             <a className="btn btn-primary btn-sm" href={LINKS.app.login}>
               Get started free
             </a>

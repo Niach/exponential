@@ -65,7 +65,7 @@ const COMPONENT_PLATFORM_LABEL: Record<ComponentPlatform, string> = {
  * carries one link there in their place.
  */
 export const SITE_GROUP_ID = `exponential-ui-catalog`
-export const SITE_COMPONENTS_URL = `https://ui.exponential.at/components/`
+export const SITE_COMPONENTS_URL = `https://exponential.at/ui/components/`
 
 /** The gallery minus the site-owned group: what this page lists. */
 export function listedGallery(data: GalleryData): GalleryData {
@@ -439,7 +439,7 @@ export function renderHtml(
   const siteLink =
     siteViews === 0
       ? ``
-      : `<p class="section-blurb">The core catalog's ${siteViews} specimens live on <a href="${SITE_COMPONENTS_URL}">ui.exponential.at/components</a>, rendered through the Exponential UI SDK.</p>`
+      : `<p class="section-blurb">The core catalog's ${siteViews} specimens live on <a href="${SITE_COMPONENTS_URL}">exponential.at/ui/components</a>, rendered through the Exponential UI SDK.</p>`
 
   const viewNav = data.groups
     .map((section) =>

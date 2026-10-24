@@ -27,6 +27,24 @@ function contentType(file: string): string {
   return `application/octet-stream`
 }
 
+/* The Exponential UI section (/ui/, formerly ui.exponential.at): ONE entry,
+   ui/index.html, routing by path. In dev a page navigation under /ui/ (an
+   HTML request, never a module or asset) gets that entry, so the guide
+   example projects' own index.html under ui/guides/ never answers. */
+function uiSection(): Plugin {
+  return {
+    name: `exp-ui-section`,
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        const path = (req.url ?? ``).split(`?`)[0]
+        const isPage = req.method === `GET` && (req.headers.accept ?? ``).includes(`text/html`)
+        if (isPage && (path === `/ui` || (path.startsWith(`/ui/`) && path.endsWith(`/`)))) req.url = `/ui/index.html`
+        next()
+      })
+    },
+  }
+}
+
 function shotStore(): Plugin {
   return {
     name: `exp-shot-store`,
@@ -68,7 +86,7 @@ function shotStore(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), shotStore()],
+  plugins: [react(), uiSection(), shotStore()],
   resolve: {
     alias: {
       // The site self-hosts Inter/JetBrains Mono (fonts.css) — the movie
@@ -90,6 +108,11 @@ export default defineConfig({
     // — its hooks dispatcher is null (EXP-207: the movie ending slide's
     // useId crashed the player). Always bundle the one hoisted copy.
     dedupe: [`react`, `react-dom`],
+  },
+  /* Only the site's own pages: the dep scan must not crawl the guide example
+     projects under ui/guides/ (Solid, the web component …). */
+  optimizeDeps: {
+    entries: [`index.html`, `*/index.html`, `docs/*/index.html`, `blog/*/index.html`],
   },
   build: {
     rollupOptions: {
@@ -115,6 +138,7 @@ export default defineConfig({
         terms: resolve(__dirname, `terms/index.html`),
         imprint: resolve(__dirname, `imprint/index.html`),
         contact: resolve(__dirname, `contact/index.html`),
+        ui: resolve(__dirname, `ui/index.html`),
         ...blogInputs,
       },
     },

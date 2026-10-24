@@ -8,8 +8,8 @@ name: exponential-ui
 # failed). The React renderer runs in headless Chromium, the Rust core and
 # the gpui painter on Linux, the SwiftUI painter on macOS against the
 # xcframework, the Compose painter under Robolectric against the host build
-# of the facade. Each job also compiles its ui.exponential.at guides from a
-# fresh project (`apps/ui-site/guides/check.ts`, VAPP-93). VAPP-103: the
+# of the facade. Each job also compiles its exponential.at/ui guides from a
+# fresh project (`apps/marketing/ui/guides/check.ts`, VAPP-93). VAPP-103: the
 # SwiftUI painter also builds and tests on an iOS Simulator (the UIKit paths)
 # with the KitchenSink example, and the Compose painter runs its instrumented
 # tests on an Android emulator. FEED-128: the Solid renderer runs the same
@@ -44,7 +44,7 @@ on:
       - 'apps/desktop/crates/exponential-ui-ffi/**'
       - 'apps/desktop/crates/exponential-ui-gpui/**'
       - 'packages/exponential-ui-bench/**'
-      - 'apps/ui-site/guides/**'
+      - 'apps/marketing/ui/guides/**'
       - '.github/workflows/exponential-ui.yml'
   push:
     branches: [master]
@@ -59,7 +59,7 @@ on:
       - 'apps/desktop/crates/exponential-ui-ffi/**'
       - 'apps/desktop/crates/exponential-ui-gpui/**'
       - 'packages/exponential-ui-bench/**'
-      - 'apps/ui-site/guides/**'
+      - 'apps/marketing/ui/guides/**'
       - '.github/workflows/exponential-ui.yml'
   workflow_dispatch: {}
 
@@ -111,10 +111,10 @@ jobs:
         run: bun packages/exponential-ui/release/size.ts npm --check
       - name: Guides (React, agent, define, theme) from a fresh project
         run: |
-          bun apps/ui-site/guides/check.ts react
-          bun apps/ui-site/guides/check.ts agent
-          bun apps/ui-site/guides/check.ts define
-          bun apps/ui-site/guides/check.ts theme
+          bun apps/marketing/ui/guides/check.ts react
+          bun apps/marketing/ui/guides/check.ts agent
+          bun apps/marketing/ui/guides/check.ts define
+          bun apps/marketing/ui/guides/check.ts theme
       - name: Bench scenarios are generated and the ratchet's tests pass
         run: bun run --filter @exponential_app/ui-bench test
       - name: Bench (React, headless Chromium)
@@ -164,7 +164,7 @@ jobs:
         # Every browser/*.test.ts but the two runs above.
         run: bunx vitest run --config vitest.browser.config.ts --exclude browser/suites.test.ts --exclude browser/parity.test.ts
       - name: Guide (Solid) from a fresh project
-        run: bun apps/ui-site/guides/check.ts solid
+        run: bun apps/marketing/ui/guides/check.ts solid
       - name: Bench (Solid, headless Chromium)
         env:
           EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
@@ -208,7 +208,7 @@ jobs:
       - name: Element API + standalone bundle (headless Chromium)
         run: bun run --filter @exponential_app/ui-element test:browser browser/element.test.ts browser/standalone.test.ts
       - name: Guide (element) from a fresh project
-        run: bun apps/ui-site/guides/check.ts element
+        run: bun apps/marketing/ui/guides/check.ts element
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -272,7 +272,7 @@ jobs:
           cargo install cargo-bloat --locked
           bun packages/exponential-ui/release/size.ts crate --check
       - name: Guide (gpui) from a fresh project
-        run: bun apps/ui-site/guides/check.ts gpui
+        run: bun apps/marketing/ui/guides/check.ts gpui
       - name: Bench (the Rust core, release)
         env:
           # One label per runner class: budgets never compare the Mint with GitHub's runner.
@@ -334,7 +334,7 @@ jobs:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-swift.json
         run: swift test
       - name: Guide (SwiftUI) from a fresh project
-        run: bun apps/ui-site/guides/check.ts swift
+        run: bun apps/marketing/ui/guides/check.ts swift
       - name: Bench (SwiftUI, macOS, release)
         env:
           EXPONENTIAL_UI_BENCH_MACHINE: ${{ runner.environment == 'github-hosted' && 'github-macos-26' || 'macbook' }}
@@ -536,7 +536,7 @@ jobs:
           ./gradlew :ui-compose:testDebugUnitTest :ui-compose-primitives:testDebugUnitTest --no-daemon
       - uses: oven-sh/setup-bun@v2
       - name: Guide (Compose) from a fresh project
-        run: bun apps/ui-site/guides/check.ts compose
+        run: bun apps/marketing/ui/guides/check.ts compose
       - name: Bench (Compose, JVM, Robolectric)
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/apps/desktop/target

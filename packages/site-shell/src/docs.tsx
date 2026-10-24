@@ -13,7 +13,7 @@ import { Copy } from "lucide-react"
    definition rows). Styles: styles/docs.css. */
 
 /** `group`: a heading printed above the first entry of each run of equal
- *  groups (a long nav, e.g. ui.exponential.at's 80 components). */
+ *  groups (a long nav, e.g. the /ui/ section's 80 components). */
 export type DocsNavEntry = { path: string; label: string; blurb?: string; group?: string }
 
 const IcCopy = ({ size }: { size: number }) => <Copy size={size} strokeWidth={1.6} />

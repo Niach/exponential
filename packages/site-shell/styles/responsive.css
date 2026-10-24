@@ -1,5 +1,5 @@
 /* ─── Responsive site chrome (topbar, footer, shell gutters), shared by
-   exponential.at and ui.exponential.at. Page-specific breakpoints stay in
+   every page of exponential.at. Page-specific breakpoints stay in
    each site's own sheet. ─── */
 @media (max-width: 900px) {
   /* Star count off — the GitHub mark alone is enough in a tight topbar. */
@@ -12,8 +12,8 @@
   .nav {
     display: none;
   }
-  .topbar-dl {
-    display: none;
+  .site-menu {
+    display: block;
   }
   .topbar-inner {
     gap: 12px;
@@ -42,5 +42,8 @@
   }
   .topbar-right .btn-ghost {
     display: none;
+  }
+  .topbar-right .btn-ghost.site-icon-btn {
+    display: inline-flex;
   }
 }

@@ -1,5 +1,5 @@
 /* The SEO types every public site's page manifest uses (apps/marketing
-   src/lib/seo.ts, apps/ui-site src/lib/seo.ts) and the helpers they share.
+   src/lib/seo.ts, apps/marketing/ui src/lib/routes.ts) and the helpers they share.
    The manifest is the single owner of description/canonical/OG/Twitter/
    JSON-LD markup; prerender.tsx injects it. */
 
