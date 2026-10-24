@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -203,3 +204,63 @@ fun TeamAvatar(
         },
     )
 }
+
+/**
+ * #EXP-1383 (agent-settings.json `actor` / `assignee`): an AGENT where a
+ * person would be (an actor, an assignee) reads as THE AGENT MARK at the
+ * avatar's size: its glyph in its colour on the muted disc — the Chats agent
+ * bubble and the chat header's disc — never initials. The glyph follows the
+ * web avatar table (16→10, 20→12, 24→14, 28→16, 32→18, 48→24).
+ */
+@Composable
+fun AgentAvatar(
+    icon: String?,
+    color: String?,
+    modifier: Modifier = Modifier,
+    size: Dp = 28.dp,
+) {
+    val glyph = icon?.let { com.exponential.app.ui.icons.ExpIcons.byName(it) }
+        ?: com.exponential.app.ui.icons.ExpIcons.byName(com.exponential.app.domain.SessionTree.ListCopy.AGENT_DEFAULT_ICON)
+        ?: com.exponential.app.ui.icons.ExpIcons.settingsAgents
+    val tint = remember(color) {
+        com.exponential.app.ui.parseColor(color ?: com.exponential.app.domain.SessionTree.ListCopy.AGENT_DEFAULT_COLOR)
+    }
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(DesignTokens.Palette.Muted, CircleShape)
+            .testTag(AGENT_AVATAR_TEST_TAG),
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.material3.Icon(
+            glyph,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(agentAvatarGlyph(size)),
+        )
+    }
+}
+
+/** The agent mark's glyph side for an avatar [size] (web `USER_AVATAR_SIZES.glyph`). */
+internal fun agentAvatarGlyph(size: Dp): Dp = when (size.value.toInt()) {
+    16 -> 10.dp
+    20 -> 12.dp
+    24 -> 14.dp
+    28 -> 16.dp
+    32 -> 18.dp
+    48 -> 24.dp
+    else -> size * 0.58f
+}
+
+const val AGENT_AVATAR_TEST_TAG = "agent-avatar"
+
+/** #EXP-1383: a synced agent definition as the actor / assignee row. */
+fun com.exponential.app.data.db.AgentDefinitionEntity.actorRow(): com.exponential.app.domain.AgentSettings.AgentRowLike =
+    com.exponential.app.domain.AgentSettings.AgentRowLike(
+        id = id,
+        name = name,
+        icon = icon,
+        color = color,
+        sortOrder = sortOrder,
+    )

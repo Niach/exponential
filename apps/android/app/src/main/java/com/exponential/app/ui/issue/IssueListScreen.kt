@@ -86,6 +86,12 @@ import com.exponential.app.ui.components.issuePriorityPickerOptions
 import com.exponential.app.ui.components.pickedPriority
 import com.exponential.app.ui.components.toPickerLabel
 import com.exponential.app.ui.components.toPickerMember
+import com.exponential.app.ui.components.toPickerAgent
+import com.exponential.app.ui.components.actorRow
+import com.exponential.app.ui.components.AgentAvatar
+import com.exponential.app.domain.AgentSettings
+import com.exponential.app.ui.components.picker.assigneeFromPickerValue
+import com.exponential.app.ui.components.picker.assigneePickerValue
 import com.exponential.app.ui.components.toPickerRow
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.LocalToaster
@@ -245,7 +251,11 @@ fun IssueListScreen(
         onDispose { barSuppression?.suppressed = false }
     }
     val haptics = LocalHapticFeedback.current
-    val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
+    val soloMemberIdRaw by viewModel.soloMemberId.collectAsStateWithLifecycle()
+    // #EXP-1383: the team's agents; a solo team hides its assignee control
+    // only while it has none (an agent is someone to assign to).
+    val teamAgents by viewModel.teamAgents.collectAsStateWithLifecycle()
+    val soloMemberId = soloMemberIdRaw.takeIf { teamAgents.isEmpty() }
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
     val steerDevices by viewModel.devices.collectAsStateWithLifecycle()
 
@@ -268,8 +278,8 @@ fun IssueListScreen(
     val sharedPriority = remember(selectedEntries) {
         selectedEntries.map { IssuePriority.fromWire(it.issue.priority) }.distinct().singleOrNull()
     }
-    val sharedAssigneeId = remember(selectedEntries) {
-        selectedEntries.map { it.issue.assigneeId }.distinct().singleOrNull()
+    val sharedAssignee = remember(selectedEntries) {
+        selectedEntries.map { assigneePickerValue(it.issue.assigneeId, it.issue.assigneeAgentId) }.distinct().singleOrNull()
     }
 
     // Selection ids are board-scoped — a board swap drops them.
@@ -485,6 +495,7 @@ fun IssueListScreen(
                     state = state,
                     permissions = permissions,
                     soloMemberId = soloMemberId,
+                    agents = teamAgents,
                     collapsed = collapsed,
                     onToggleCollapsed = { groupKey, isCollapsed ->
                         collapsed = if (isCollapsed) collapsed - groupKey else collapsed + groupKey
@@ -612,9 +623,10 @@ fun IssueListScreen(
         )
         BulkSheet.Assignee -> AssigneePicker(
             members = state.teamUsers.map { it.toPickerMember() },
-            value = setOfNotNull(sharedAssigneeId),
+            agents = teamAgents.map { it.toPickerAgent() },
+            value = sharedAssignee.orEmpty(),
             onChange = { picked ->
-                viewModel.bulkUpdateAssignee(selectedIds, picked.firstOrNull())
+                viewModel.bulkUpdateAssignee(selectedIds, assigneeFromPickerValue(picked.firstOrNull()))
                 selectedIds = emptySet()
             },
             open = true,
@@ -738,6 +750,8 @@ private fun IssueListContent(
     state: IssueListState,
     permissions: TeamPermissions,
     soloMemberId: String?,
+    /** #EXP-1383: the team's agents (agent assignees on the rows). */
+    agents: List<com.exponential.app.data.db.AgentDefinitionEntity>,
     collapsed: Set<String>,
     onToggleCollapsed: (groupKey: String, collapsed: Boolean) -> Unit,
     onOpenIssue: (String) -> Unit,
@@ -755,6 +769,7 @@ private fun IssueListContent(
     onNewIssue: () -> Unit,
 ) {
     val usersById = remember(state.users) { state.users.associateBy { it.id } }
+    val agentsById = remember(agents) { agents.associateBy { it.id } }
 
     // EXP-1115: nothing to show until the issues shape has snapshotted at
     // least once — a full resync (or a fresh install) would otherwise flash
@@ -870,6 +885,8 @@ private fun IssueListContent(
                                 resolvedStatus = entry.status ?: group.status,
                                 // Solo teams hide the assignee avatar (one member).
                                 assignee = if (soloMemberId != null) null else usersById[entry.issue.assigneeId],
+                                // #EXP-1383: an agent assignee wears THE AGENT MARK.
+                                assigneeAgent = entry.issue.assigneeAgentId?.let { agentsById[it] }?.actorRow(),
                                 selected = if (selectionActive) entry.issue.id in selectedIds else null,
                                 // EXP-980: what blocks this row, and what
                                 // it blocks — the pill opens the graph.
@@ -952,6 +969,8 @@ internal fun IssueRow(
     assignee: UserEntity?,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
+    /** #EXP-1383: an agent assignee (exclusive with [assignee]): the mark. */
+    assigneeAgent: AgentSettings.AgentRowLike? = null,
     // Multi-select rendering (EXP-239): null = no selection UI; false/true
     // show the leading check indicator, true additionally tints the row.
     selected: Boolean? = null,
@@ -1086,7 +1105,10 @@ internal fun IssueRow(
                         softWrap = false,
                     )
                 }
-                if (assignee != null) {
+                if (assigneeAgent != null) {
+                    Spacer(Modifier.width(8.dp))
+                    AgentAvatar(icon = assigneeAgent.icon, color = assigneeAgent.color, size = 22.dp)
+                } else if (assignee != null) {
                     Spacer(Modifier.width(8.dp))
                     UserAvatar(
                         user = assignee,

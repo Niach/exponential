@@ -47,13 +47,14 @@ fun commentAuthorName(comment: CommentEntity, author: UserEntity?, reporterName:
  * The muted caption after the time (web `commentCaption`, fixture
  * `reporter-reply.json` `captions`): "reporter" (the widget reporter wrote
  * it), then "to reporter" (a member's reply that was emailed out), then
- * "via MCP" (an agent posted it). Every part that applies shows, joined by
- * " · "; none = no caption.
+ * "via MCP" (a person's MCP client posted it; #EXP-1383: never on an agent's
+ * own comment, `author_agent_id` set, which already names the agent). Every
+ * part that applies shows, joined by " · "; none = no caption.
  */
 fun commentCaption(comment: CommentEntity): String? = listOfNotNull(
     ReporterReply.REPORTER_CAPTION.takeIf { comment.isFromReporter },
     ReporterReply.TO_REPORTER_CAPTION.takeIf { comment.isToReporter },
-    VIA_MCP_CAPTION.takeIf { comment.isViaMcp },
+    VIA_MCP_CAPTION.takeIf { comment.isViaMcp && comment.authorAgentId.isNullOrEmpty() },
 ).takeIf { it.isNotEmpty() }?.joinToString(CAPTION_SEPARATOR)
 
 internal const val VIA_MCP_CAPTION = "via MCP"
