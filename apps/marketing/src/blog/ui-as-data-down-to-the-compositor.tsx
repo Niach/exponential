@@ -4,7 +4,7 @@
    (surfaces.ts) painted by the Exponential UI React renderer; the captures
    are real shots from the store. Written to describe, not to sell: every
    claim names what exists and what is a drawing. */
-import { Callout, CompositorTree, ConceptFigure, DesktopConcept, IssueLink, LiveSurface, Section, Shot, ShotRow, StatusChip, WatchView } from "../components/blog"
+import { Callout, CompositorTree, ConceptFigure, DesktopConcept, LiveSurface, Section, Shot, ShotRow, StatusChip, WatchView } from "../components/blog"
 import { EXPENSE_SURFACE } from "./surfaces"
 import type { PostMeta } from "./types"
 
@@ -35,7 +35,7 @@ export function Post() {
           A2UI is an open wire format for user interfaces, started at Google: a flat list of components from a
           fixed catalog, a data model they bind to, and the actions they send back. A language model can write one,
           because the catalog fits in a prompt, and a renderer paints it with each platform's own toolkit: SwiftUI,
-          Compose, gpui, the DOM. Exponential UI (<IssueLink id="VAPP-84" />) is one implementation. A Rust core
+          Compose, gpui, the DOM. Exponential UI is one implementation. A Rust core
           lays out the tree, three native painters draw it, and the React, Solid and web-component renderers pass
           the same conformance replays. A theme is a JSON file loaded at runtime.
         </p>
@@ -54,8 +54,7 @@ export function Post() {
       <Section id="desktop" num="02" label="Desktop">
         <h2>A desktop made of the same data <StatusChip status="planned" /></h2>
         <p>
-          If a card can be data, so can a panel. The desktop environment in planning (<IssueLink id="NEW-10" />,{` `}
-          <IssueLink id="VAPP-64" />) keeps its panel, launcher, settings and file view as surfaces on disk, painted
+          If a card can be data, so can a panel. The desktop environment we are planning keeps its panel, launcher, settings and file view as surfaces on disk, painted
           by the same renderer, with existing applications running beside them as ordinary Wayland and X clients.
         </p>
         <ul>
@@ -74,10 +73,9 @@ export function Post() {
         </ul>
         <p>
           Voice sits in the tray, one key away: push-to-talk or a wake word, local speech-to-text, short commands
-          acted on at once, everything else sent to the assistant session and answered aloud
-          (<IssueLink id="NEW-9" />). Today, computer use runs in the foreground on Linux (X11), macOS and Windows,
-          with your input held and Esc to take it back (<IssueLink id="EXP-1196" />); a second pointer on X11 was
-          tried and removed after it fought the person's cursor (<IssueLink id="EXP-1273" />).
+          acted on at once, everything else sent to the assistant session and answered aloud. Today, computer use
+          runs in the foreground on Linux (X11), macOS and Windows, with your input held and Esc to take it back; a
+          second pointer on X11 was tried and removed after it fought the person's cursor.
         </p>
         <ConceptFigure id="desktop" still="desktop-concept" caption="Draft of the desktop: two agents in their own windows with their own seats, the expense form streaming in from a request, the mic in the tray.">
           <DesktopConcept />
@@ -124,7 +122,7 @@ export function Post() {
         <p>
           A step the agent marks as irreversible, or that matches a rule you set (payments, deletes), waits for
           confirmation. The step line and the agent's messages are recorded as timestamped A2UI messages, a few
-          kilobytes you can scrub (<IssueLink id="VAPP-81" />); the window capture itself is video, or a keyframe per
+          kilobytes you can scrub; the window capture itself is video, or a keyframe per
           step. The spoken caption is the same line the tray reads aloud.
         </p>
         <ConceptFigure id="watch" still="watch-view" caption="Draft of the watch view: the live window with the agent's cursor and its target, the step line, the spoken caption.">

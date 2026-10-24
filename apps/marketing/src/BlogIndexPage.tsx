@@ -13,8 +13,8 @@ export function BlogIndexPage() {
           <div className="shell blog-index-inner">
             <h1>Blog</h1>
             <p className="blog-index-intro">
-              Notes on how Exponential works and where it goes, with the screenshots and the issue numbers behind
-              each claim. <a href={`${BLOG_PATH}rss.xml`}>RSS</a>
+              Notes on how Exponential works and where it goes, with a screenshot behind each claim.{` `}
+              <a href={`${BLOG_PATH}rss.xml`}>RSS</a>
             </p>
             <PostList posts={BLOG_POSTS.map((post) => post.meta)} byYear />
           </div>

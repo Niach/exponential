@@ -83,6 +83,22 @@
   --radius-sheet: 24px;
   --radius-pill: 999px;
 
+  /* Type scale (styleguide, SLOP-18) — mirrors packages/design-tokens
+     tokens.json `type.size`/`type.lineHeight`; design-tokens.test.ts
+     guards the parity. */
+  --type-size-xs: 12px;
+  --type-size-sm: 14px;
+  --type-size-base: 16px;
+  --type-size-lg: 18px;
+  --type-size-xl: 20px;
+  --type-size-xl2: 24px;
+  --type-line-height-xs: 16px;
+  --type-line-height-sm: 20px;
+  --type-line-height-base: 24px;
+  --type-line-height-lg: 28px;
+  --type-line-height-xl: 28px;
+  --type-line-height-xl2: 32px;
+
   color-scheme: dark;
 }
 

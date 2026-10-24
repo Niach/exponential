@@ -1,7 +1,8 @@
 /* ─── Blog (EXP-1366): the index cards, the post page, the post components
    and the home strip. The prose itself wears the docs typography
    (@exp/site-shell/styles/docs.css `.docs-content`), so an article reads
-   like a docs page; everything here is the frame around it. ─── */
+   like a docs page; everything here is the frame around it. Sizes come
+   off the styleguide type scale (--type-size-*, site-shell tokens.css). ─── */
 
 /* ── Index: a heading, one line, the posts by year ── */
 .blog-index {
@@ -22,8 +23,8 @@
 
 .blog-index-intro {
   margin: 0 0 36px;
-  font-size: 15.5px;
-  line-height: 1.6;
+  font-size: var(--type-size-lg);
+  line-height: var(--type-line-height-lg);
   color: var(--fg);
 }
 
@@ -40,7 +41,8 @@
 
 .blog-year-label {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-size: var(--type-size-sm);
+  line-height: var(--type-line-height-sm);
   font-weight: 500;
   color: var(--fg-dim);
 }
@@ -59,16 +61,16 @@
 .blog-row {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 7px 0;
+  gap: 16px;
+  padding: 8px 0;
   color: var(--fg);
   border-bottom: 0 !important;
 }
 
 .blog-row-thumb {
   flex-shrink: 0;
-  width: 72px;
-  height: 48px;
+  width: 84px;
+  height: 56px;
   object-fit: cover;
   object-position: top left;
   border: 1px solid var(--glass-stroke-card);
@@ -79,10 +81,10 @@
 .blog-row-title {
   flex: 1;
   min-width: 0;
-  font-size: 16px;
+  font-size: var(--type-size-xl);
   font-weight: 500;
   letter-spacing: -0.01em;
-  line-height: 1.35;
+  line-height: var(--type-line-height-xl);
 }
 
 .blog-row:hover .blog-row-title {
@@ -93,7 +95,8 @@
 
 .blog-row-date {
   flex-shrink: 0;
-  font-size: 13.5px;
+  font-size: var(--type-size-base);
+  line-height: var(--type-line-height-base);
   color: var(--fg-dim);
 }
 
@@ -129,14 +132,15 @@
 
 .blog-lead {
   margin: 0 0 14px;
-  font-size: 19px;
-  line-height: 1.55;
+  font-size: var(--type-size-xl2);
+  line-height: var(--type-line-height-xl2);
   color: var(--fg-muted);
 }
 
 .blog-author {
   margin: 0;
-  font-size: 13.5px;
+  font-size: var(--type-size-sm);
+  line-height: var(--type-line-height-sm);
   color: var(--fg-dim);
 }
 
@@ -148,11 +152,12 @@
   padding-top: 8px;
 }
 
-/* The article reads at 18px, two sizes above the docs' 14.5px. */
+/* The article reads at the scale's xl (20px), prose leading over the
+   scale's UI line height. */
 .blog-prose p,
 .blog-prose ul,
 .blog-prose ol {
-  font-size: 18px;
+  font-size: var(--type-size-xl);
   line-height: 1.6;
 }
 
@@ -161,7 +166,7 @@
 }
 
 .blog-prose code:not(pre code) {
-  font-size: 15px;
+  font-size: var(--type-size-lg);
 }
 
 .blog-prose h2 {
@@ -358,17 +363,6 @@
   background: var(--st-progress);
 }
 
-.docs-content a.blog-issue {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  padding: 1px 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-elev);
-  color: var(--fg);
-  white-space: nowrap;
-}
-
 /* ── Home strip ── */
 .home-blog {
   border-top: 1px solid var(--glass-stroke-section);
@@ -396,17 +390,22 @@
   }
 
   .blog-row-title {
-    flex-basis: calc(100% - 86px);
+    flex-basis: calc(100% - 100px);
   }
 
   .blog-row-date {
-    padding-left: 86px;
+    padding-left: 100px;
   }
 }
 
 @media (max-width: 720px) {
   .blog-post {
     padding-top: 24px;
+  }
+
+  .blog-lead {
+    font-size: var(--type-size-xl);
+    line-height: var(--type-line-height-xl);
   }
 
   .blog-surface[data-live="ready"] .blog-surface-frame {
