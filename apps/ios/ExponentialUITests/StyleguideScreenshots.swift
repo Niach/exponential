@@ -14,7 +14,7 @@ import XCTest
 /// `packages/view-catalog/src/views.test.ts` gates both directions, and
 /// additionally requires the iOS and Android `sg_*` sets to be IDENTICAL.
 ///
-///   sg_sign-in · sg_board-switcher · sg_onboarding-create-team ·
+///   sg_sign-in · sg_onboarding-create-team ·
 ///   sg_board-empty ·
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
@@ -27,7 +27,8 @@ import XCTest
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
 ///   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
 ///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
-///   sg_chat-list · sg_phone-tab-bar · sg_chat-transcript · sg_chat-menus · sg_schedule-picker
+///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header ·
+///   sg_chat-transcript · sg_chat-menus · sg_schedule-picker
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
@@ -72,11 +73,11 @@ import XCTest
 /// starter identity, relaunched with `-uiTestingOnboardingStep invite` so the
 /// wizard parks on step 3 without anything being submitted.
 ///
-/// EXP-698 r5 added `sg_onboarding-create-team`: the board switcher grew a
-/// "New team" row (and a per-team "Create board" one), so the create-or-join
-/// team form is now reachable from the app's home instead of only from the
-/// zero-team empty state a seeded account never shows. It is captured right
-/// after `sg_board-switcher`, off that row.
+/// EXP-698 r5 added `sg_onboarding-create-team`: the create-or-join team form
+/// is reachable from a "New team" row (the Team tab's teams group since
+/// EXP-1373) instead of only from the zero-team empty state a seeded account
+/// never shows. #EXP-1384 retired `sg_board-switcher` with the sheet it
+/// photographed (the board menu is `sg_phone-board-menu`).
 ///
 /// EXP-642 reshuffled the front of the set: the old `sg_instance-picker` shot
 /// IS the cloud Apple/Google chooser a first-run user meets, so it took over
@@ -228,8 +229,8 @@ final class StyleguideScreenshots: XCTestCase {
             walkApps(app)
         }
 
-        // Switch to Issues for the board.
-        let issuesTab = app.buttons["tab-issues"]
+        // Switch to the Board tab for the board.
+        let issuesTab = app.buttons["tab-board"]
         expect(issuesTab, within: Wait.sync, "Tab bar never appeared")
         issuesTab.tap()
 
@@ -242,30 +243,9 @@ final class StyleguideScreenshots: XCTestCase {
         )
         if !injected { dismissSavePasswordSheet(timeout: 3) }
 
-        // ── sg_board-switcher: the server → team → board bottom sheet ────────
-        // The trigger is the board-name control in the pinned nav row; its
-        // accessibility LABEL is the same string as the sheet's headline, so
-        // scope the tap to the button and the assertion to staticTexts.
-        let switcherButton = app.buttons["Switch board"]
-        expect(switcherButton, within: Wait.nav, "Board switcher trigger missing")
-        switcherButton.tap()
-        let switcherHeadline = app.staticTexts["Switch board"]
-        expect(switcherHeadline, within: Wait.nav, "Board switcher sheet did not open")
-        // The team block header is the real content — the sheet chrome alone
-        // renders before the boards have been loaded off the synced rows.
-        expect(
-            app.staticTexts[Self.teamName].firstMatch,
-            within: Wait.sync,
-            "Board switcher never listed the seeded team"
-        )
-        snapshot("sg_board-switcher", settle: 2)
-
         // ── sg_onboarding-create-team: the create-or-join team form ──────────
-        // EXP-1373: the switcher lists the ACTIVE team's boards alone; a team
-        // is created (and switched) on the Team tab, whose teams group ends
-        // on the "New team" row.
-        dismissSheet(app, whileVisible: switcherHeadline)
-        _ = switcherHeadline.waitForNonExistence(timeout: Wait.nav)
+        // EXP-1373: a team is created (and switched) on the Team tab, whose
+        // teams group ends on the "New team" row.
         let teamTabForNew = app.buttons["tab-team"]
         expect(teamTabForNew, within: Wait.nav, "Team tab missing")
         teamTabForNew.tap()
@@ -302,7 +282,7 @@ final class StyleguideScreenshots: XCTestCase {
         // from the same board list. The switcher is already gone — this only
         // has to close the setup sheet.
         dismissSheet(app, whileVisible: app.staticTexts["Set up a team"].firstMatch)
-        app.buttons["tab-issues"].tap()
+        showBoard(app)
         expect(
             showcaseRowTitle,
             within: Wait.nav,
@@ -419,7 +399,7 @@ final class StyleguideScreenshots: XCTestCase {
         // `composeTarget`), so come back to the issues tab first. The title
         // field takes focus on appear, so the page is captured with the
         // keyboard up — which is the state a user actually sees.
-        app.buttons["tab-issues"].tap()
+        showBoard(app)
         expect(showcaseRowTitle, within: Wait.nav, "Board did not come back for the compose shot")
         let composeButton = app.buttons["compose-button"]
         expect(composeButton, within: Wait.nav, "Compose button missing on the board")
@@ -444,7 +424,7 @@ final class StyleguideScreenshots: XCTestCase {
 
         // ── sg_search: the search view with seeded results ───────────────────
         // EXP-686: Search lost its tab — it is a push off the board header.
-        let searchButton = app.buttons["board-search"]
+        let searchButton = app.buttons["header-search"]
         expect(searchButton, within: Wait.nav, "Board search button missing")
         searchButton.tap()
         let searchField = app.textFields["search-field"]
@@ -462,7 +442,7 @@ final class StyleguideScreenshots: XCTestCase {
         goBack(app)
 
         // ── sg_my-issues: the board's "My issues" chip (EXP-1373) ────────────
-        app.buttons["tab-issues"].tap()
+        showBoard(app)
         let myIssuesChip = app.buttons["board-chip-mine"]
         expect(myIssuesChip, within: Wait.nav, "My issues chip missing")
         myIssuesChip.tap()
@@ -480,9 +460,8 @@ final class StyleguideScreenshots: XCTestCase {
         // taken from, and an empty machines list is not a useful reference
         // shot either. EXP-686 renamed the surface to Devices (the shot id
         // stays sg_agents).
-        let devicesTab = app.buttons["tab-devices"]
-        expect(devicesTab, within: Wait.nav, "Devices tab missing")
-        devicesTab.tap()
+        // #EXP-1384: Devices is the Team page's last settings row.
+        openDevices(app)
         expect(
             app.navigationBars["Devices"],
             within: Wait.nav,
@@ -588,10 +567,8 @@ final class StyleguideScreenshots: XCTestCase {
             usleep(600_000)
         }
         // The Agent page is a bar root now (the chat arm switches to it) —
-        // back to Devices through the bar.
-        let devicesTabAgain = app.buttons["tab-devices"]
-        expect(devicesTabAgain, within: Wait.nav, "Devices tab missing")
-        devicesTabAgain.tap()
+        // back to Devices through the Team tab (its pushes are parked).
+        app.buttons["tab-team"].tap()
         expect(
             app.navigationBars["Devices"],
             within: Wait.nav,
@@ -621,7 +598,7 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_pr-row: THE pull-request row (EXP-1248/1295) ──────────────────
         // An issue page lists its pull requests as rows; APP-14 owns the
         // seed's real open PR.
-        app.buttons["tab-issues"].tap()
+        showBoard(app)
         openIssue(app, title: Self.guideTitle)
         let prRow = anyElement(app, identified: "issue-pr-row")
         _ = scrollUntilVisible(app, prRow)
@@ -704,7 +681,7 @@ final class StyleguideScreenshots: XCTestCase {
         let threadShots = ["sg_threads", "sg_agent-channel", "sg_thread", "sg_session"]
         if threadShots.map(ScreenshotShots.isWanted).contains(true) {
             walkThreads(app)
-            app.buttons["tab-issues"].tap()
+            showBoard(app)
             settle(1)
         }
 
@@ -714,6 +691,11 @@ final class StyleguideScreenshots: XCTestCase {
         let teamTab = app.buttons["tab-team"]
         expect(teamTab, within: Wait.nav, "Team tab missing")
         teamTab.tap()
+        // #EXP-1384: the Team tab parked the Devices page pushed earlier; a
+        // re-tap pops back to its root.
+        if !anyElement(app, identified: "team-tab-header").waitForExistence(timeout: 2) {
+            teamTab.tap()
+        }
         expect(
             anyElement(app, identified: "team-tab-header"),
             within: Wait.nav,
@@ -724,7 +706,7 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.nav,
             "The Team tab never showed its teams group"
         )
-        let teamRow = app.buttons["team-settings-boards"]
+        let teamRow = teamSettingsRow(app, "Boards")
         expect(teamRow, within: Wait.nav, "The Team tab has no Boards row")
         snapshot("sg_settings-root", settle: 2)
 
@@ -749,15 +731,16 @@ final class StyleguideScreenshots: XCTestCase {
         _ = gettingStartedSheet.waitForNonExistence(timeout: Wait.nav)
 
         // ── sg_settings-team: team settings ─────────────────────────────────
+        // #EXP-1381: every Team row opens its OWN page; the Boards page,
+        // anchored on the seeded board it lists.
         teamRow.tap()
-        // TeamSettingsView carries the nav title "Settings" too — anchor on the
-        // seeded board listed in its Boards section instead.
         expect(
             app.staticTexts[Self.seededBoardName],
             within: Wait.sync,
             "Team settings never listed the seeded boards"
         )
         snapshot("sg_settings-team", settle: 2)
+        goBack(app)
 
         // ── sg_settings-team-agent: Settings → Agents, one agent's page ─────
         // EXP-1293/1309: the Triage agent (DEMO_AGENT_ID) — its build
@@ -765,6 +748,9 @@ final class StyleguideScreenshots: XCTestCase {
         // (`sessions.getAgent`, so gate on their text). A detour: nothing is
         // edited, Back returns to the team settings.
         if ScreenshotShots.isWanted("sg_settings-team-agent") {
+            let agentsRow = teamSettingsRow(app, "Agents")
+            scrollUntilVisible(app, agentsRow, attempts: 4)
+            agentsRow.tap()
             let agentRow = app.buttons
                 .matching(identifier: "agent-settings-row")
                 .matching(NSPredicate(format: "label CONTAINS %@", Self.agentName))
@@ -779,7 +765,8 @@ final class StyleguideScreenshots: XCTestCase {
             expect(instructions, within: Wait.network, "\(Self.agentName)'s instructions never loaded (sessions.getAgent)")
             snapshot("sg_settings-team-agent", settle: 2)
             goBack(app)
-            expect(app.staticTexts[Self.seededBoardName], within: Wait.nav, "Did not return to the team settings")
+            expect(agentRow, within: Wait.nav, "Did not return to the Agents page")
+            goBack(app)
         }
 
         // ── sg_settings-prompts · sg_settings-prompt: Settings → Prompts ────
@@ -788,6 +775,9 @@ final class StyleguideScreenshots: XCTestCase {
         // (the owner pill): the same page an existing prompt opens, in create
         // mode so the capture needs no seeded id. Nothing is saved.
         if ScreenshotShots.isWanted("sg_settings-prompts") || ScreenshotShots.isWanted("sg_settings-prompt") {
+            let promptsRow = teamSettingsRow(app, "Prompts")
+            scrollUntilVisible(app, promptsRow, attempts: 4)
+            promptsRow.tap()
             let newPrompt = anyElement(app, identified: "prompts-new")
             scrollUntilVisible(app, newPrompt, attempts: 10)
             expect(newPrompt, within: Wait.sync, "Team settings drew no Prompts band with New prompt")
@@ -796,9 +786,9 @@ final class StyleguideScreenshots: XCTestCase {
             expect(anyElement(app, identified: "prompt-form"), within: Wait.nav, "New prompt did not open its form")
             snapshot("sg_settings-prompt", settle: 2)
             goBack(app)
-            expect(newPrompt, within: Wait.nav, "Did not return to the team settings")
+            expect(newPrompt, within: Wait.nav, "Did not return to the Prompts page")
+            goBack(app)
         }
-        goBack(app)
 
         // ── sg_settings-account: the account / server detail ──────────────────
         // There is no separate profile screen (EXP-311): the signed-in
@@ -933,15 +923,21 @@ final class StyleguideScreenshots: XCTestCase {
         // question with several picks; an approved plan with feedback.
         openThreadCards(app, "plan-card")
         snapshot("sg_plan-card", settle: 2)
-        // ── sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
+        // ── sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu ·
+        // sg_phone-page-header · sg_chat-transcript ·
         // sg_chat-menus · sg_schedule-picker (thread 58cb32df, chats.json +
         // schedule-picker.json): the styleguide entries' specimens.
-        for entry in ["chat-list", "phone-tab-bar", "chat-transcript", "chat-menus", "schedule-picker"] {
+        for entry in [
+            "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
+            "chat-menus", "schedule-picker",
+        ] {
             guard ScreenshotShots.isWanted("sg_\(entry)") else { continue }
             openThreadCards(app, entry)
             switch entry {
             case "chat-list": snapshot("sg_chat-list", settle: 2)
             case "phone-tab-bar": snapshot("sg_phone-tab-bar", settle: 2)
+            case "phone-board-menu": snapshot("sg_phone-board-menu", settle: 2)
+            case "phone-page-header": snapshot("sg_phone-page-header", settle: 2)
             case "chat-transcript": snapshot("sg_chat-transcript", settle: 2)
             case "chat-menus": snapshot("sg_chat-menus", settle: 2)
             default: snapshot("sg_schedule-picker", settle: 2)
@@ -952,6 +948,28 @@ final class StyleguideScreenshots: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// #EXP-1381: a Team page row (`team-settings-row`, settings-nav.json)
+    /// by its label.
+    @MainActor
+    private func teamSettingsRow(_ app: XCUIApplication, _ label: String) -> XCUIElement {
+        app.buttons
+            .matching(identifier: "team-settings-row")
+            .matching(NSPredicate(format: "label BEGINSWITH %@", label))
+            .firstMatch
+    }
+
+    /// #EXP-1384: the Team tab → its Devices row (the page it pushes).
+    @MainActor
+    private func openDevices(_ app: XCUIApplication) {
+        let teamTab = app.buttons["tab-team"]
+        expect(teamTab, within: Wait.nav, "Team tab missing")
+        teamTab.tap()
+        let devicesRow = teamSettingsRow(app, "Devices")
+        scrollUntilVisible(app, devicesRow, attempts: 4)
+        expect(devicesRow, within: Wait.nav, "The Team page has no Devices row")
+        devicesRow.tap()
+    }
 
     /// EXP-1259: relaunch signed out onto one run-thread card specimen.
     @MainActor
@@ -964,23 +982,18 @@ final class StyleguideScreenshots: XCTestCase {
         )
     }
 
-    /// VAPP-110: the Team tab's Apps row → the list (gated on the
-    /// seeded Team dashboard row) → the Team
-    /// dashboard editor (gated on its seeded chat) → back to the Threads tab.
+    /// VAPP-110: the Apps TAB (#EXP-1384) → the list (gated on the seeded
+    /// Team dashboard row) → the Team dashboard editor (gated on its seeded
+    /// chat) → back to the Apps list.
     @MainActor
     private func walkApps(_ app: XCUIApplication) {
-        app.buttons["tab-team"].tap()
-        let appsButton = anyElement(app, identified: "nav-apps")
-        scrollUntilVisible(app, appsButton, attempts: 4)
-        expect(appsButton, within: Wait.nav, "The Team tab has no Apps row")
-        appsButton.tap()
+        let appsTab = app.buttons["tab-apps"]
+        expect(appsTab, within: Wait.nav, "Apps tab missing")
+        appsTab.tap()
         let dashboardRow = anyElement(app, identified: "apps-row-\(Self.appSlug)")
         expect(dashboardRow, within: Wait.sync, "The Apps list has no \(Self.appName) row — reseed with `bun run seed:screenshots`")
         snapshot("sg_apps", settle: 2)
-        guard ScreenshotShots.isWanted("sg_app") else {
-            goBack(app)
-            return
-        }
+        guard ScreenshotShots.isWanted("sg_app") else { return }
         app.staticTexts[Self.appName].firstMatch.tap()
         expect(
             anyElement(app, containing: Self.appChatReply),
@@ -989,7 +1002,6 @@ final class StyleguideScreenshots: XCTestCase {
         )
         expect(anyElement(app, identified: "app-editor-tabs"), within: Wait.nav, "The editor drew no Chat | Preview | Versions control")
         snapshot("sg_app", settle: 2)
-        goBack(app)
         goBack(app)
         settle(1)
     }
@@ -1128,25 +1140,19 @@ final class StyleguideScreenshots: XCTestCase {
         guideTab.tap()
     }
 
-    /// Board switcher → the named board.
-    ///
-    /// The sheet's rows are Buttons whose glyph + name + prefix SwiftUI merges
-    /// into ONE element, so there is no contained staticText to address — match
-    /// on the button's own concatenated label instead. The nav-row trigger
-    /// overrides its label to "Switch board", so it can never be the match.
+    /// #EXP-1384: the board menu → the named board (on the board view the
+    /// Board tab opens the menu; its rows are labelled with the board names).
     @MainActor
     private func switchBoard(_ app: XCUIApplication, to name: String) {
-        let switcherButton = app.buttons["Switch board"]
-        expect(switcherButton, within: Wait.nav, "Board switcher trigger missing")
-        switcherButton.tap()
-        let headline = app.staticTexts["Switch board"]
-        expect(headline, within: Wait.nav, "Board switcher sheet did not open")
-        let row = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", name)
-        ).firstMatch
-        expect(row, within: Wait.nav, "Board \"\(name)\" missing from the switcher")
+        showBoard(app)
+        app.buttons["tab-board"].tap()
+        let menu = anyElement(app, identified: "board-menu")
+        expect(menu, within: Wait.nav, "The board menu did not open")
+        let row = app.buttons.matching(identifier: "board-menu-row")
+            .matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
+        expect(row, within: Wait.nav, "Board \"\(name)\" missing from the board menu")
         row.tap()
-        _ = headline.waitForNonExistence(timeout: Wait.nav)
+        _ = menu.waitForNonExistence(timeout: Wait.nav)
         settle(1)
     }
 }

@@ -49,7 +49,7 @@ import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 // Thread 58cb32df (fixtures/chats.json): the CHATS pieces Android draws on the
-// phone shell — the large headline with its two circles, the agent bubbles,
+// phone shell (the header is the shared [PageHeader]) — the agent bubbles,
 // the filter chips, the flat WhatsApp row with its 52 lead disc, THE chat
 // menu sheet (long-press) + its delete confirm, and the transcript's divider
 // pill. One look ×4 (iOS ExpUI, web-mobile, the styleguide entries
@@ -60,61 +60,6 @@ private val DiscFill: Color = DesignTokens.Palette.Muted
 
 /** The inbox circle's unread dot. */
 val ChatsInboxDot: Color = DesignTokens.Semantic.Blue
-
-/**
- * The Chats header (Android: the large in-content headline): `copy.title`
- * with the two trailing circles `shell.chatsHeader` — search and the inbox
- * (concept `nav-inbox`, a dot while any notification is unread).
- */
-@Composable
-fun ChatsHeader(
-    onSearch: () -> Unit,
-    onInbox: () -> Unit,
-    inboxUnread: Boolean,
-    modifier: Modifier = Modifier,
-    title: String = Chats.Copy.TITLE,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
-    ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        CircleIconButton(
-            ExpIcons.navSearch,
-            contentDescription = "Search",
-            onClick = onSearch,
-            size = 48.dp,
-            glyphSize = 20.dp,
-            modifier = Modifier.testTag("chats-search"),
-        )
-        Spacer(Modifier.width(10.dp))
-        Box {
-            CircleIconButton(
-                ExpIcons.navInbox,
-                contentDescription = Chats.Copy.INBOX,
-                onClick = onInbox,
-                size = 48.dp,
-                glyphSize = 20.dp,
-                modifier = Modifier.testTag(Chats.TestIds.INBOX_BUTTON),
-            )
-            if (inboxUnread) {
-                Box(
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-4).dp, y = 4.dp)
-                        .size(10.dp)
-                        .background(ChatsInboxDot, CircleShape)
-                        .testTag("chats-inbox-dot"),
-                )
-            }
-        }
-    }
-}
 
 /** The 52 lead DISC of a chat row (`lead`): needs_you = the brand mark with
  *  the amber badge, working = the working mark, open / merged = the root's PR

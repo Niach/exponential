@@ -579,14 +579,8 @@ describe(`icon call sites`, () => {
         /\bFolderKanban\b/
       )
     }
-    // EXP-1274: the board switcher's only boards glyph is its empty row,
-    // drawn through `<Empty id="board-switcher">` off the ×4 fixture.
-    const switcher = readFileSync(
-      join(repoRoot, `apps/web/src/components/team/board-switcher-sheet.tsx`),
-      `utf8`
-    )
-    expect(switcher).toContain(`<Empty id="board-switcher"`)
-    expect(switcher).not.toMatch(/\bFolder(Input|Kanban)\b/)
+    // EXP-1274: the sidebar's empty board list draws its boards glyph
+    // through `<Empty id="board-switcher">` off the ×4 fixture.
     expect(emptyStateCopy(`board-switcher`).icon).toBe(`nav-boards`)
     expect(SEMANTIC_ICONS[`nav-boards`]).toBe(`folder-kanban`)
   })

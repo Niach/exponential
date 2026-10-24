@@ -13,9 +13,19 @@ public enum Chats {
         public static let title = "Chats"
         public enum Tabs {
             public static let board = "Board"
-            public static let devices = "Devices"
             public static let chats = "Chats"
+            public static let apps = "Apps"
             public static let team = "Team"
+        }
+        /// Page header titles (Board = the board's name, Team = the team's name).
+        public enum Headers {
+            public static let chats = "Chats"
+            public static let apps = "Apps"
+            public static let devices = "Devices"
+            public static let agent = "Agent"
+        }
+        public enum BoardMenu {
+            public static let newBoard = "New board"
         }
         public enum Filters {
             public static let all = "All"
@@ -105,6 +115,11 @@ public enum Chats {
         public static let boardChip = "board-chip"
         public static let surfaceCard = "surface-card"
         public static let divider = "transcript-divider"
+        public static let tabBoard = "tab-board"
+        public static let boardMenu = "board-menu"
+        public static let boardMenuRow = "board-menu-row"
+        public static let pageHeader = "page-header"
+        public static let searchButton = "header-search"
         public static let loadEarlier = "transcript-load-earlier"
         public static let jumpToBottom = "jump-to-bottom"
     }
@@ -112,23 +127,24 @@ public enum Chats {
     /// Fixture `shell`.
     public enum Shell {
         public enum Tab: String, CaseIterable, Sendable {
-            case board, devices, chats, team
+            case board, chats, apps, team
 
             public var label: String {
                 switch self {
                 case .board: Copy.Tabs.board
-                case .devices: Copy.Tabs.devices
                 case .chats: Copy.Tabs.chats
+                case .apps: Copy.Tabs.apps
                 case .team: Copy.Tabs.team
                 }
             }
 
-            /// Concept icon (`tabIcons`); the Team tab paints the team avatar.
+            /// Concept icon (`tabIcons`); the Board tab paints the active
+            /// board's glyph when there is one, the Team tab the team avatar.
             public var icon: String? {
                 switch self {
                 case .board: "nav-issues"
-                case .devices: "nav-devices"
                 case .chats: "nav-threads"
+                case .apps: "nav-apps"
                 case .team: nil
                 }
             }
@@ -136,8 +152,52 @@ public enum Chats {
 
         public static let tabs: [Tab] = Tab.allCases
         public static let tabIcons: [String: String] = [
-            "board": "nav-issues", "devices": "nav-devices", "chats": "nav-threads",
+            "board": "nav-issues", "chats": "nav-threads", "apps": "nav-apps",
         ]
+
+        /// `shell.bar`: the capsule takes the width beside the new chat / new
+        /// issue capsule; each tab starts at its label's width.
+        public enum Bar {
+            public static let height: Double = 52
+            public static let padding: Double = 4
+            public static let gap: Double = 12
+            public static let tabMinWidth: Double = 44
+            public static let tabPaddingX: Double = 8
+            public enum Drag {
+                public static let lensScale: Double = 1.12
+                public static let cancelDistance: Double = 56
+            }
+        }
+
+        /// `shell.boardTab`.
+        public enum BoardTab {
+            public static let caret = "nav-team-switcher"
+            public static let caretSize: Double = 10
+        }
+
+        /// `shell.boardMenu` (motion tokens by name).
+        public enum BoardMenu {
+            public static let rowHeight: Double = 48
+            public static let maxVisibleRows = 8
+            public static let radius: Double = 28
+            public enum Motion {
+                public static let open = "slow"
+                public static let openEase = "decelerate"
+                public static let close = "standard"
+                public static let closeEase = "accelerate"
+            }
+        }
+
+        /// `shell.header`: the page header on every top-level page.
+        public enum Header {
+            public enum Page: String, CaseIterable, Sendable {
+                case board, chats, apps, team, devices, agent
+            }
+            public static let pages: [Page] = Page.allCases
+            public static let buttons = ["nav-search", "nav-inbox"]
+            public static let circle: Double = 44
+        }
+
         public enum BoardChip: String, CaseIterable, Sendable {
             case all, mine, drafts
 
@@ -150,7 +210,6 @@ public enum Chats {
             }
         }
         public static let boardChips: [BoardChip] = BoardChip.allCases
-        public static let chatsHeader = ["nav-search", "nav-inbox"]
         public static let leadDisc: Double = 52
         public static let bubble: Double = 66
         public static let bubbleRing: Double = 3

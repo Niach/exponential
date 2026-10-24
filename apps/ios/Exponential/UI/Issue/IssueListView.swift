@@ -13,6 +13,9 @@ struct IssueListView: View {
     /// search → settings (EXP-331, Android parity; SwiftUI's parent/child
     /// toolbar merge would otherwise put the gear first).
     var showsSettingsButton = false
+    /// #EXP-1384: a pushed board wears the page header itself; the Board
+    /// tab's root (IssuesHomeView) draws it over the chips instead.
+    var ownsHeader = true
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -114,17 +117,9 @@ struct IssueListView: View {
         }
         // Haptic tick when multi-select engages (long-press confirmation).
         .sensoryFeedback(.impact(weight: .medium), trigger: selectionActive) { _, entered in entered }
-        .navigationTitle(viewModel?.board?.name ?? "Issues")
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        // Search trigger in the nav bar (EXP-686 moved Search out of the tab
-        // bar into the board header). Root mode also emits the Settings gear
-        // here (after search, EXP-331); pushed boards show search as the sole
-        // trailing item.
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                searchToolbarButton
-            }
-        }
+        // #EXP-1384: the page header (the board's name, search + inbox) —
+        // only where no host draws it.
+        .modifier(BoardPageHeader(title: viewModel?.board?.name ?? Chats.Copy.Tabs.board, enabled: ownsHeader))
         // EXP-1021: every bulk edit is a TYPED picker driven by `open` — the
         // bar's glyphs are the triggers, and they live in the toolbar.
         .background {
@@ -333,20 +328,6 @@ struct IssueListView: View {
         .glassRow()
         .padding(.horizontal, 16)
         .padding(.top, 8)
-    }
-
-    /// Nav-bar search entry (EXP-686): Search lost its tab, so every board
-    /// header carries it, in the same 32pt style as the Settings gear.
-    private var searchToolbarButton: some View {
-        NavigationLink(value: AppRoute.search) {
-            AppIcon(AppIcons.navSearch, size: AppIcon.Size.medium)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .frame(width: 32, height: 32)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Search")
-        .accessibilityIdentifier("board-search")
     }
 
     @ViewBuilder
@@ -1092,4 +1073,19 @@ private struct InlineEdit: Identifiable {
     let issue: IssueEntity
 
     var id: String { "\(kind.rawValue)-\(issue.id)" }
+}
+
+/// The board list's page header, off while a host (the Board tab's root)
+/// draws its own.
+private struct BoardPageHeader: ViewModifier {
+    let title: String
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.pageHeader(title)
+        } else {
+            content
+        }
+    }
 }

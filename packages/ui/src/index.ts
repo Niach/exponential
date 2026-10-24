@@ -121,6 +121,8 @@ export * from "./threads-list"
 // Thread 58cb32df (chats.json): THE phone Chats list pieces + the phone tab bar.
 export * from "./chat-list"
 export * from "./phone-tab-bar"
+export * from "./phone-board-menu"
+export * from "./page-header"
 // EXP-1248: THE session row, small | big.
 export * from "./session-row"
 export * from "./run-status-row"

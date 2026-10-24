@@ -12,6 +12,7 @@ import { BulkActionBar } from "@/components/bulk-action-bar"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { IssueList } from "@/components/issue-list"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { MobilePageHeader } from "@/components/team/mobile-page-header"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -130,13 +131,22 @@ function BoardPage() {
     )
   }
 
+  // #EXP-1384 (chats.json `shell.header`): phones open the board under THE
+  // page header titled with the board's name (the board is switched from the
+  // Board tab's menu), the chips under it.
   const chips = isMobile ? (
-    <BoardChips
-      value={chip}
-      counts={{ mine: mine.totalIssueCount, drafts: draftCount }}
-      onChange={setChip}
-      className="shrink-0"
-    />
+    <div className="shrink-0">
+      <MobilePageHeader
+        teamSlug={teamSlug}
+        title={board.name}
+        className="px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))]"
+      />
+      <BoardChips
+        value={chip}
+        counts={{ mine: mine.totalIssueCount, drafts: draftCount }}
+        onChange={setChip}
+      />
+    </div>
   ) : null
 
   if (chip === `mine`) {

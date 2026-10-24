@@ -98,6 +98,37 @@ final class IssueSearchTests: XCTestCase {
         }
     }
 
+    /// #EXP-1382: the prepared pool (the phones' Search, ranked off the main
+    /// actor) orders every fixture case exactly like `rank` — fresh, and
+    /// rebuilt from a previous snapshot (reused entries carry the new order).
+    func testPreparedIndexReplaysTheFixture() throws {
+        for testCase in try cases() {
+            let rows = testCase.rows.map(\.row)
+            let limit = testCase.limit ?? IssueSearch.defaultLimit
+            let exclude = Set(testCase.exclude ?? [])
+            let expected = IssueSearch.rank(rows, query: testCase.query, limit: limit, exclude: exclude).map(\.id)
+            let index = IssueSearch.Index(rows, projection: { $0 })
+            XCTAssertEqual(index.rank(query: testCase.query, limit: limit, exclude: exclude).map(\.id), expected, testCase.name)
+            let rebuilt = IssueSearch.Index(rows, reusing: IssueSearch.Index(rows.reversed(), projection: { $0 }), projection: { $0 })
+            XCTAssertEqual(rebuilt.rank(query: testCase.query, limit: limit, exclude: exclude).map(\.id), expected, testCase.name)
+        }
+    }
+
+    func testPreparedIndexReusesOnlyUnchangedRows() {
+        let before = [
+            IssueSearch.Row(id: "a", identifier: "X-1", title: "alpha"),
+            IssueSearch.Row(id: "b", identifier: "X-2", title: "beta"),
+        ]
+        let previous = IssueSearch.Index(before, projection: { $0 })
+        // `b` renamed: the stale prepared title must not survive the rebuild.
+        let after = [before[0], IssueSearch.Row(id: "b", identifier: "X-2", title: "gamma")]
+        let index = IssueSearch.Index(after, reusing: previous, projection: { $0 })
+        XCTAssertEqual(index.rank(query: "beta").map(\.id), [])
+        XCTAssertEqual(index.rank(query: "gamma").map(\.id), ["b"])
+        XCTAssertEqual(index.value(id: "b")?.title, "gamma")
+        XCTAssertEqual(index.count, 2)
+    }
+
     func testNormalizesAQuery() {
         XCTAssertEqual(IssueSearch.normalizeQuery("  #EXP-87  "), "exp-87")
         XCTAssertEqual(IssueSearch.normalizeQuery("#"), "")

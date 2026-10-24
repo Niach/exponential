@@ -25,6 +25,7 @@ import {
 import { type PickerRepo } from "@/components/github-repo-picker"
 import { BoardRepoField } from "@/components/board-repo-field"
 import { Empty } from "@/components/empty"
+import { NEW_BOARD_LABEL } from "@/routes/t/$teamSlug/settings/-shared"
 import type { Board, Team } from "@/db/schema"
 
 // EXP-862: the Boards settings section is no longer one list page with an
@@ -147,8 +148,8 @@ export function BoardSettingsPage({
     }
   }
 
-  // The board is gone from the nav either way, so land on the section index —
-  // it forwards to whatever board is first now (or the empty state). A draft
+  // The board is gone from the nav either way, so land on the section index
+  // (#EXP-1381: the Boards list page). A draft
   // rename dies with it: the board this page is unmounting away from has just
   // been archived or trashed.
   const leaveSection = () => {
@@ -266,28 +267,68 @@ export function BoardSettingsPage({
   )
 }
 
-// What the section shows while the team has no boards at all: the nav's
-// "New board" entry as the band's trailing pill over the list-size empty
-// state (EXP-1274: a list empty state never carries the button).
-export function BoardsEmptyState({ team }: { team: Team }) {
+// #EXP-1381: the Boards PAGE (settings-nav.json `boards`): the team's boards,
+// a row opens that board's settings page, "New board" as the band's trailing
+// pill (owners) over the list, the list-size empty state when there are none
+// (EXP-1274: a list empty state never carries the button).
+export function BoardsListBand({
+  team,
+  boards,
+  canManage,
+}: {
+  team: Team
+  boards: readonly Board[]
+  /** Owners open a board's settings and create boards; members read the list. */
+  canManage: boolean
+}) {
+  const navigate = useNavigate()
   const [createOpen, setCreateOpen] = useState(false)
   return (
     <div>
       <GlassSectionHeader
         label="Boards"
         trailing={
-          <Pill mode="action" onClick={() => setCreateOpen(true)}>
-            <Plus />
-            New board
-          </Pill>
+          canManage ? (
+            <Pill mode="action" onClick={() => setCreateOpen(true)}>
+              <Plus />
+              {NEW_BOARD_LABEL}
+            </Pill>
+          ) : undefined
         }
       />
-      <Empty id="team-boards" />
-      <CreateBoardDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        team={team}
-      />
+      {boards.length === 0 ? (
+        <Empty id="team-boards" />
+      ) : (
+        <div className={SETTINGS_LIST_CLASS}>
+          {boards.map((board) => (
+            <ListRow
+              key={board.id}
+              interactive={canManage}
+              onClick={
+                canManage
+                  ? () =>
+                      void navigate({
+                        to: `/t/$teamSlug/settings/boards/$boardId`,
+                        params: { teamSlug: team.slug, boardId: board.id },
+                      })
+                  : undefined
+              }
+              className="gap-3 px-3 py-2 text-sm"
+              data-testid={`boards-list-row-${board.id}`}
+            >
+              <BoardGlyph board={board} />
+              <span className="min-w-0 flex-1 truncate font-medium">{board.name}</span>
+            </ListRow>
+          ))}
+        </div>
+      )}
+      {canManage && (
+        <CreateBoardDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          team={team}
+        />
+      )}
     </div>
   )
 }

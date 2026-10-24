@@ -155,6 +155,8 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`code-block`]: `Surfaces`,
   [`chat-list`]: `Lists & rows`,
   [`phone-tab-bar`]: `Surfaces`,
+  [`phone-board-menu`]: `Inputs & pickers`,
+  [`phone-page-header`]: `Surfaces`,
   [`chat-transcript`]: `Surfaces`,
   [`chat-menus`]: `Surfaces`,
 }

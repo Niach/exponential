@@ -1,8 +1,11 @@
-import { Link, useMatchRoute, useParams } from "@tanstack/react-router"
+import { useEffect, useState } from "react"
+import { Link, useMatchRoute, useNavigate, useParams } from "@tanstack/react-router"
 import { CHATS_COPY, CHATS_TEST_IDS } from "@exp/domain-contract/chats"
 import {
+  BoardGlyph,
   Button,
   FAB_CHROME_CLASS,
+  PhoneBoardMenuStrip,
   PhoneTab,
   PhoneTabBar,
   TeamAvatar,
@@ -10,6 +13,8 @@ import {
 } from "@exp/ui"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
+import { CreateBoardDialog } from "@/components/create-board-dialog"
+import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { readLastVisited } from "@/lib/last-visited"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
@@ -20,10 +25,13 @@ import { useThreadsNav } from "@/hooks/use-nav-counts"
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
 const ActionChatIcon = conceptIcon(`action-chat`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
-// chats.json `shell.tabIcons` (Team = the active team's avatar).
+// chats.json `shell.tabIcons` (Team = the active team's avatar; Board = the
+// active board's glyph, this one only while the team has no board).
 const BoardTabIcon = conceptIcon(`nav-issues`)
-const DevicesTabIcon = conceptIcon(`nav-devices`)
 const ChatsTabIcon = conceptIcon(`nav-threads`)
+const AppsTabIcon = conceptIcon(`nav-apps`)
+// `shell.boardTab.caret`.
+const BoardCaretIcon = conceptIcon(`nav-team-switcher`)
 
 // Bottom padding for every scroll container that sits under the floating
 // tab bar, so list ends scroll clear of the glass pill. Detail routes hide
@@ -122,7 +130,10 @@ function chatsDot(nav: { live: boolean; needsYou: boolean; unread: boolean }): s
 // The detached FAB beside the nav pill: ONE 52px capsule with two 52px arms
 // — Start chat | New issue — split by a hairline (`FAB_GROUP_CLASS` +
 // `FAB_ARM_CLASS`). The capsule is the circle STRETCHED, so it says 52px the
-// same way the circle does, never `3.25rem`.
+// same way the circle does, never `3.25rem`. #EXP-1379: iOS metrics exactly
+// (ExpUI `MobileTabBarMetrics.capsuleWidth` = 2 × 52 + the hairline): the
+// capsule is 105px OUTSIDE, its 1px border inside it, the arms share the rest,
+// so the tab capsule beside it gets the same width as on iOS and Android.
 // EXP-973: it is the SAME capsule on every tab-bar route. EXP-827 drew it
 // only on a board and left a lone chat circle everywhere else, so filing a
 // bug from Devices or Threads meant a trip back to a board first. With no
@@ -132,8 +143,8 @@ function chatsDot(nav: { live: boolean; needsYou: boolean; unread: boolean }): s
 // The Agent page is the phone's FIRST screen and keeps the bar, so the chat
 // arm is SELECTED there — the tabs' active circle inside the arm — the way a
 // tab is lit on its own surface.
-const FAB_GROUP_CLASS = `pointer-events-auto flex h-[52px] shrink-0 items-stretch overflow-hidden rounded-full text-foreground ${FAB_CHROME_CLASS}`
-const FAB_ARM_CLASS = `relative flex w-[52px] items-center justify-center text-foreground transition-colors active:bg-glass-active`
+const FAB_GROUP_CLASS = `pointer-events-auto flex h-[52px] w-[105px] shrink-0 items-stretch overflow-hidden rounded-full text-foreground ${FAB_CHROME_CLASS}`
+const FAB_ARM_CLASS = `relative flex min-w-0 flex-1 items-center justify-center text-foreground transition-colors active:bg-glass-active`
 
 interface MobileTabBarProps {
   teamSlug: string
@@ -144,11 +155,14 @@ interface MobileTabBarProps {
 // Native-parity mobile navigation (EXP-189): a floating glass capsule with
 // the top-level destinations plus a detached compose FAB, replacing the old
 // sidebar-as-drawer. Desktop keeps the persistent sidebar (`md:hidden`).
-// Thread 58cb32df (chats.json `shell.tabs`, ×3 with iOS and Android): Board ·
-// Devices · Chats · Team, each an icon over its label on `PhoneTabBar` (the
-// iOS Liquid Glass look-alike on the FAB chrome recipe); the Team tab is the
-// active team's avatar + name and holds settings + the account (the old
-// topbar avatar menu); the Inbox moved into the Chats header. The phone
+// Thread 58cb32df → #EXP-1384 (chats.json `shell.tabs`, ×3 with iOS and
+// Android): Board · Chats · Apps · Team, each an icon over its label on
+// `PhoneTabBar` (the iOS Liquid Glass look-alike on the FAB chrome recipe,
+// the drag lens included). The Board tab = the active board's glyph + name;
+// ON the board view it carries the caret and a tap morphs the whole strip
+// into the BOARD MENU (`PhoneBoardMenuStrip`, the only phone board switch).
+// The Team tab is the active team's avatar + name and holds settings,
+// Devices and the account; the Inbox is in every page header. The phone
 // OPENS on the Agent page (`routes/index.tsx`), whose entry is the FAB's chat
 // arm.
 export function MobileTabBar({
@@ -157,6 +171,10 @@ export function MobileTabBar({
   boards,
 }: MobileTabBarProps) {
   const matchRoute = useMatchRoute()
+  const navigate = useNavigate()
+  const permissions = useTeamPermissions(team)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [createBoardOpen, setCreateBoardOpen] = useState(false)
   // EXP-698 r5: a multi-selection replaces the bar with the bulk bar (native
   // parity) — one occupant of the bottom edge, FAB included.
   const { bulkBarPresent } = useMobileChrome()
@@ -177,17 +195,20 @@ export function MobileTabBar({
   )
   const onTeamIndex = Boolean(matchRoute({ to: `/t/$teamSlug` }))
   const onAgent = Boolean(matchRoute({ to: `/t/$teamSlug/agent`, fuzzy: true }))
-  const onDevices = Boolean(
-    matchRoute({ to: `/t/$teamSlug/devices`, fuzzy: true })
-  )
   const onChats = Boolean(
     matchRoute({ to: `/t/$teamSlug/threads`, fuzzy: true })
   )
-  // The Team tab holds the settings rows: their pages keep it lit.
+  const onApps = Boolean(matchRoute({ to: `/t/$teamSlug/apps`, fuzzy: true }))
+  // The Team tab holds the settings rows and Devices (#EXP-1384: pushed from
+  // it now): their pages keep it lit.
   const onTeam =
     Boolean(matchRoute({ to: `/t/$teamSlug/team`, fuzzy: true })) ||
     Boolean(matchRoute({ to: `/t/$teamSlug/settings`, fuzzy: true })) ||
-    Boolean(matchRoute({ to: `/t/$teamSlug/apps`, fuzzy: true }))
+    Boolean(matchRoute({ to: `/t/$teamSlug/devices`, fuzzy: true }))
+  // Leaving the board view (or the bar hiding) folds the menu.
+  useEffect(() => {
+    if (!onBoard || !visible) setMenuOpen(false)
+  }, [onBoard, visible])
   // EXP-973: the New-issue arm is always DRAWN; it only goes dead when the
   // team has no board to file into. The arm targets the current board when
   // there is one, else the team's remembered/first board
@@ -198,37 +219,73 @@ export function MobileTabBar({
 
   const teamName = team?.name ?? teamSlug
 
+  const menuRows = (boards ?? []).map((board) => ({
+    id: board.id,
+    name: board.name,
+    glyph: <BoardGlyph board={board} className="size-5" />,
+    active: board.id === boardTarget?.id,
+  }))
+
   return (
+    <>
     <div
       ref={publishTabBarHeight}
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-[35] flex items-center justify-center gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:hidden"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[35] flex items-center justify-center px-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:hidden"
     >
-      <PhoneTabBar>
-        <PhoneTab
-          asChild
-          label={CHATS_COPY.tabs.board}
-          icon={<BoardTabIcon className="size-5" />}
-          selected={onBoard || onTeamIndex}
-          data-testid="tab-board"
-        >
-          {boardTarget ? (
-            <Link
-              to="/t/$teamSlug/boards/$boardSlug"
-              params={{ teamSlug, boardSlug: boardTarget.slug }}
-            />
-          ) : (
-            <Link to="/t/$teamSlug" params={{ teamSlug }} />
-          )}
-        </PhoneTab>
-        <PhoneTab
-          asChild
-          label={CHATS_COPY.tabs.devices}
-          icon={<DevicesTabIcon className="size-5" />}
-          selected={onDevices}
-          data-testid="tab-devices"
-        >
-          <Link to="/t/$teamSlug/devices" params={{ teamSlug }} />
-        </PhoneTab>
+      {/* #EXP-1384: the strip (tab capsule + the capsule beside it) is the
+          frame the board menu grows from. */}
+      <PhoneBoardMenuStrip
+        open={menuOpen}
+        onOpenChange={setMenuOpen}
+        rows={menuRows}
+        onSelect={(id) => {
+          const board = boards?.find((row) => row.id === id)
+          if (board && board.slug !== boardSlug) {
+            void navigate({
+              to: `/t/$teamSlug/boards/$boardSlug`,
+              params: { teamSlug, boardSlug: board.slug },
+            })
+          }
+        }}
+        onNewBoard={permissions.canCreate && team ? () => setCreateBoardOpen(true) : undefined}
+      >
+      <PhoneTabBar className="flex-1">
+        {onBoard && boardTarget ? (
+          // ON the board view: the caret, and a tap opens the board menu.
+          <PhoneTab
+            label={boardTarget.name}
+            icon={<BoardGlyph board={boardTarget} className="size-5" />}
+            trailing={<BoardCaretIcon className="size-2.5 shrink-0" />}
+            selected
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            data-testid={CHATS_TEST_IDS.tabBoard}
+            onClick={() => setMenuOpen((value) => !value)}
+          />
+        ) : (
+          <PhoneTab
+            asChild
+            label={boardTarget?.name ?? CHATS_COPY.tabs.board}
+            icon={
+              boardTarget ? (
+                <BoardGlyph board={boardTarget} className="size-5" />
+              ) : (
+                <BoardTabIcon className="size-5" />
+              )
+            }
+            selected={onBoard || onTeamIndex}
+            data-testid={CHATS_TEST_IDS.tabBoard}
+          >
+            {boardTarget ? (
+              <Link
+                to="/t/$teamSlug/boards/$boardSlug"
+                params={{ teamSlug, boardSlug: boardTarget.slug }}
+              />
+            ) : (
+              <Link to="/t/$teamSlug" params={{ teamSlug }} />
+            )}
+          </PhoneTab>
+        )}
         <PhoneTab
           asChild
           label={CHATS_COPY.tabs.chats}
@@ -238,6 +295,15 @@ export function MobileTabBar({
           data-testid="tab-threads"
         >
           <Link to="/t/$teamSlug/threads" params={{ teamSlug }} />
+        </PhoneTab>
+        <PhoneTab
+          asChild
+          label={CHATS_COPY.tabs.apps}
+          icon={<AppsTabIcon className="size-5" />}
+          selected={onApps}
+          data-testid="tab-apps"
+        >
+          <Link to="/t/$teamSlug/apps" params={{ teamSlug }} />
         </PhoneTab>
         <PhoneTab
           asChild
@@ -300,6 +366,15 @@ export function MobileTabBar({
           </span>
         )}
       </div>
+      </PhoneBoardMenuStrip>
     </div>
+    {team && (
+      <CreateBoardDialog
+        open={createBoardOpen}
+        onOpenChange={setCreateBoardOpen}
+        team={team}
+      />
+    )}
+    </>
   )
 }

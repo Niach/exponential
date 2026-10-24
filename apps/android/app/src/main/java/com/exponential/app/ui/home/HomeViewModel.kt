@@ -25,13 +25,13 @@ import kotlinx.coroutines.withTimeoutOrNull
 import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.ui.components.Blocking
 
-// Powers the Issues tab root's board-switcher sheet (the old Boards home
-// collapsed into a bottom sheet): the cross-server team/board tree,
-// first-run team bootstrap, and the pick action that swaps the root
-// list's board in place.
+// Powers the Board tab: the board menu the bottom strip morphs into
+// (#EXP-1384, AppNavHost) and the Issues tab root's bootstrap — the
+// cross-server team/board tree, first-run team bootstrap, and the pick
+// action that swaps the root list's board in place.
 
 data class HomeState(
-    // Server > Team > Board tree shown in the switcher sheet. Every
+    // Server > Team > Board tree the board menu reads its rows from. Every
     // signed-in account contributes one block.
     val boardTree: List<ServerBoardGroup> = emptyList(),
     // True while the first team bootstrap is in flight and nothing has
@@ -135,7 +135,7 @@ class HomeViewModel @Inject constructor(
     // now (EXP-698) — one engine behind the wizard's team step and the sheet,
     // with a per-card error line instead of this screen-wide one.
 
-    /// Board pick from the switcher sheet. Makes the picked board's account
+    /// Board pick from the board menu. Makes the picked board's account
     /// active (a no-op for same-server picks) and records it as last-used —
     /// the Issues root's current-board resolution reacts to both, so the
     /// list swaps in place with no navigation.
