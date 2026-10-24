@@ -826,8 +826,10 @@ async function seedSessionTree(ctx: {
       description: `Your hours per day, a month at a time: log them, see the total against the target, keep the issues you worked on.`,
       package: hoursPackage(`1.4.0`),
       headVersion: 5,
-      // VAPP-120: the person granted the one typed action the app declares.
-      grantedTools: [`exponential.comments.create`],
+      // VAPP-120: nothing granted yet: "Post to the issue" asks with the
+      // operation's words on every platform (the consent card shots); the
+      // settings page shows the declared action with its switch off.
+      grantedTools: [],
       createdBy: demoId,
       createdAt: daysAgo(6),
       updatedAt: DEMO_APP_CHAT_TIMES.fifth,

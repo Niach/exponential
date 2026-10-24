@@ -772,6 +772,24 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag(Apps.TestIds.PREVIEW), SYNC_TIMEOUT)
         flow.settle(longer = true)
         flow.screenshot("sg_app")
+        // --- sg_app-consent (VAPP-120): the docs, admin entry (linked to
+        // APP-15) opens the Log hours dialog; Post to the issue calls the typed
+        // action exponential.comments.create, which nobody granted, so the
+        // host raises the consent card with the operation's own words. Deny
+        // closes it; the walk is gated like the shot.
+        if (ScreenshotFlow.anyRequested("sg_app-consent")) {
+            val entry = hasText("docs, admin")
+            flow.waitFor(entry, SYNC_TIMEOUT)
+            composeRule.onAllNodes(entry).onFirst().performClick()
+            val post = hasText("Post to the issue")
+            flow.waitFor(post, NAV_TIMEOUT)
+            composeRule.onAllNodes(post).onFirst().performClick()
+            flow.waitFor(hasTestTag("exponential-ui-consent-arguments"), NAV_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_app-consent")
+            composeRule.onNode(hasTestTag("exponential-ui-consent-deny")).performClick()
+            flow.settle()
+        }
         Espresso.pressBack()
         flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
         Espresso.pressBack()

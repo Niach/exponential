@@ -4172,15 +4172,15 @@
         "file": "shots/settings-app/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 36786,
-        "sha256": "fe1f08ff0481be6d60d06593edc0222a93a63aa556d3c4786bfec4cee27e16cc"
+        "bytes": 31726,
+        "sha256": "b19b80ec27aebd8887951b68f69fe9927d7c00800dd2f207b8c77f50fbe0c965"
       },
       "web": {
         "file": "shots/settings-app/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 46884,
-        "sha256": "8f208a073a25e4c21ddaf0b5a1b1ffd4707ea9310b76d839b3456691cd79cab3"
+        "bytes": 46768,
+        "sha256": "9d4207d03c71ecf21f3e06521b07380d60b284df9eb743db8757af8ed70a5a15"
       },
       "web-mobile": {
         "file": "shots/settings-app/web-mobile.webp",

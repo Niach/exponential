@@ -2222,6 +2222,28 @@
       }
     },
     {
+      "id": "app-consent",
+      "group": "coding",
+      "title": "App · consent card",
+      "blurb": "VAPP-120: the consent card an app surface raises for a typed action nobody granted (fixtures/app-actions.json): the operation's own words (\"Allow this surface to comment on issue APP-15?\"), the arguments it would send, Deny and Allow. A granted action (the app's settings page, web + desktop) never shows it.",
+      "order": 37,
+      "ios": {
+        "shot": "sg_app-consent",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-consent",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "Not captured: the same card (ConsentCard in lib/exponential-ui-host.tsx) sits under the app's preview; the Working hours entry dialog's Post to the issue raises it.",
+        "desktop": "Not captured: the same card over the app screen (exponential_ui_host.rs).",
+        "ios": "The LIVE walk after sg_app: the docs, admin entry (linked to APP-15) opens the Log hours dialog, Post to the issue raises the card; Deny closes it.",
+        "android": "See ios: the same walk in StyleguideScreenshotsTest.",
+        "web-mobile": "Not captured: the web card at the phone's width."
+      }
+    },
+    {
       "id": "exponential-ui-box",
       "group": "exponential-ui-catalog",
       "title": "Exponential UI · Box",
