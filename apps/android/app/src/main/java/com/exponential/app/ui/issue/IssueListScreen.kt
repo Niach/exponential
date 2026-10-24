@@ -127,9 +127,9 @@ import com.exponential.app.domain.Prompts
 
 /**
  * How the issue list is mounted:
- * - [Root] — the Issues tab's home. No back button; the pinned header is the
- *   inline board switcher (current board name + expander glyph → the
- *   switcher sheet) plus the settings gear. The board swaps in place.
+ * - [Root] — the Board tab's home. No back button; the page header is the
+ *   board's name (#EXP-1384: the board is switched by the Board tab's menu).
+ *   The board swaps in place.
  * - [Pushed] — a pushed `board/{boardId}` destination (share target,
  *   deep link, search): back button, fixed board.
  */

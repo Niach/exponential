@@ -342,29 +342,6 @@ async function recipeOpenBoardBulkEdit(page: Page): Promise<void> {
     .waitFor({ timeout: 15_000 })
 }
 
-/**
- * Open the phone BOARD MENU (#EXP-1384, chats.json `shell.boardMenu`): on the
- * board view the Board tab's tap morphs the bottom strip into the glass menu
- * of the team's boards. The tab bar is `md:hidden`, so at the desktop
- * viewport there is no trigger at all — that reads as a manifest mistake
- * rather than a flake, so it fails loudly.
- */
-async function recipeOpenBoardSwitcher(page: Page): Promise<void> {
-  const width = page.viewportSize()?.width ?? 0
-  if (width >= 768) {
-    throw new Error(
-      `the board menu is web-mobile only — the tab bar carrying it is ` +
-        `md:hidden, and this viewport is ${width}px wide`
-    )
-  }
-  const trigger = page.getByTestId(`tab-board`)
-  if (!(await appears(trigger, 20_000))) {
-    throw new Error(`no Board tab — capture this view on a board route`)
-  }
-  await trigger.first().click()
-  await page.getByTestId(`board-menu`).waitFor({ timeout: 15_000 })
-}
-
 // ---------------------------------------------------------------- reviews
 
 /**
@@ -682,7 +659,6 @@ export const RECIPES: Record<string, Recipe> = {
   scrollToComments: recipeScrollToComments,
   openSearch: recipeOpenSearch,
   openBoardBulkEdit: recipeOpenBoardBulkEdit,
-  openBoardSwitcher: recipeOpenBoardSwitcher,
   openIssuePropertiesMobile: recipeOpenIssuePropertiesMobile,
   expandFirstDiffFile: recipeExpandFirstDiffFile,
   openMachineSettings: recipeOpenMachineSettings,

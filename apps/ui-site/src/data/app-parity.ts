@@ -217,12 +217,7 @@ export const APP_PARITY: readonly AppParity[] = [
         "file": "apps/android/app/src/main/java/com/exponential/app/ui/theme/Glass.kt"
       }
     },
-    "leftovers": [
-      {
-        "file": "apps/web/src/components/team/board-switcher-sheet.tsx",
-        "note": "PLAIN_ROW re-derives the mobile picker row"
-      }
-    ]
+    "leftovers": []
   },
   {
     "id": "list-item",

@@ -93,7 +93,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * (`packages/view-catalog/src/views.test.ts` gates both directions AND requires
  * the two platforms' `sg_*` sets to be identical):
  *
- *   sg_sign-in · sg_board-switcher · sg_onboarding-create-team ·
+ *   sg_sign-in · sg_onboarding-create-team ·
  *   sg_board-empty ·
  *   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
@@ -390,21 +390,11 @@ class StyleguideScreenshotsTest {
         flow.waitForGone(hasText("Syncing", substring = true), FIRST_SYNC_TIMEOUT)
         flow.settle()
 
-        // --- Board switcher: #EXP-1384 — on the board view the Board tab
-        // morphs the bottom strip into the board menu (chats.json
-        // `shell.boardMenu`), the active team's boards then New board.
-        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_BOARD)).performClick()
-        flow.waitFor(hasTestTag(Chats.TestIds.BOARD_MENU), NAV_TIMEOUT)
-        flow.waitFor(hasText(Chats.Copy.BOARD_MENU_NEW_BOARD), SYNC_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_board-switcher")
-
-        // --- Set up a team: thread 58cb32df moved "New team" from the board
-        // switcher (the active team's boards only now) to the Team tab's
-        // teams group; it opens the create-or-join sheet. The extra wait on
-        // the first card's title keeps the shot off a half-drawn sheet.
-        Espresso.pressBack()
-        flow.waitForGone(hasTestTag(Chats.TestIds.BOARD_MENU), NAV_TIMEOUT)
+        // --- Set up a team: thread 58cb32df moved "New team" to the Team
+        // tab's teams group; it opens the create-or-join sheet. The extra
+        // wait on the first card's title keeps the shot off a half-drawn
+        // sheet. (#EXP-1384: the board switcher view is gone — the board
+        // menu is the capture-only `sg_phone-board-menu`.)
         composeRule.onNode(hasTestTag(Chats.TestIds.TAB_TEAM)).performClick()
         flow.waitFor(hasTestTag("team-new"), NAV_TIMEOUT)
         composeRule.onNode(hasTestTag("team-new")).performClick()

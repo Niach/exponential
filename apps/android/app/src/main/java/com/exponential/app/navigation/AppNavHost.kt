@@ -380,7 +380,7 @@ fun AppNavHost() {
             // rebuild, no pending-handoff flags.
             val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
             val draftCount by viewModel.draftCount.collectAsStateWithLifecycle()
-            // EXP-1075: the board switcher sheet's per-team live-run dots.
+            // EXP-1075: my live runs per team.
             val liveRunsByTeam by viewModel.liveRunsByTeam.collectAsStateWithLifecycle()
             val currentBoardId by viewModel.currentBoardId.collectAsStateWithLifecycle()
             val gatedOtherServers by viewModel.gatedOtherServers.collectAsStateWithLifecycle()

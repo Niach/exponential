@@ -294,8 +294,8 @@ class AppViewModel @Inject constructor(
             }
         }
 
-    // EXP-1075: the caller's LIVE sessions grouped by team — the board
-    // switcher sheet's per-team dots.
+    // EXP-1075: the caller's LIVE sessions grouped by team (per-team live
+    // dots; the old board switcher sheet's were the only reader on phones).
     val liveRunsByTeam: StateFlow<Map<String, TeamLiveRuns>> = combine(myLiveSessions, auth.userId) { sessions, me ->
         liveRunsByTeam(sessions, me)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
