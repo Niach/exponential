@@ -263,8 +263,8 @@ struct ChatTranscriptSpecimens: View {
 struct ChatMenuSpecimens: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            menu("Spike: offline queue", Chats.threadMenuEntries(rootStatus: "running", canSteer: true).map { .thread($0) })
-            menu("#APP-16 Fix flaky scroll restore", Chats.threadMenuEntries(rootStatus: "ended", canSteer: true).map { .thread($0) })
+            menu("Spike: offline queue", Chats.threadMenuEntries(rootStatus: "running", canSteer: true, canDelete: true).map { .thread($0) })
+            menu("#APP-16 Fix flaky scroll restore", Chats.threadMenuEntries(rootStatus: "ended", canSteer: true, canDelete: true).map { .thread($0) })
             menu("Triage", Chats.agentMenuEntries(busy: true, isOwner: true).map { .agent($0) })
         }
         .accessibilityIdentifier("chat-menus-specimen")

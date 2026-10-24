@@ -122,6 +122,23 @@ async function legacyLinkOnEndedRoot(
   return root?.status === `ended`
 }
 
+/** The device procedures' load (`report`, `reply`, `consume`): a session
+ *  that no longer EXISTS (a deleted chat whose kill the device missed) is
+ *  `null`, answered like an ended one (a no-op) so the device stops cleanly;
+ *  an existing row keeps the full access check. */
+async function loadDeviceSession(
+  ctx: { db: typeof db; session: { user: { id: string } } },
+  sessionId: string
+): Promise<Session | null> {
+  const [row] = await ctx.db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, sessionId)).limit(1)
+  if (!row) return null
+  const session = await loadSessionForUser(ctx.session.user.id, sessionId)
+  await assertDeviceHost(ctx.session.user.id, session)
+  return session
+}
+
+const noOpTx = (database: typeof db) => database.transaction(async (tx) => ({ txid: await generateTxId(tx) }))
+
 export const sessionsRouter = router({
   // ── people (and agents over MCP) ──────────────────────────────────────────
 
@@ -536,15 +553,16 @@ export const sessionsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
-      await assertDeviceHost(ctx.session.user.id, session)
+      const session = await loadDeviceSession(ctx, input.sessionId)
       if (
+        !session ||
         session.status === `ended` ||
         (input.deviceId !== undefined && input.deviceId !== session.deviceId)
       ) {
         // An ended row stays ended; the device's late reports are no-ops,
-        // and so are a device's the session moved away from.
-        return ctx.db.transaction(async (tx) => ({ txid: await generateTxId(tx) }))
+        // and so are a device's the session moved away from (and a deleted
+        // row's).
+        return noOpTx(ctx.db)
       }
       // A session that SURVIVES its process: an agent's conversation never
       // ends, and neither does a thread's ROOT (FEED-134: the conversation
@@ -648,8 +666,9 @@ export const sessionsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
-      await assertDeviceHost(ctx.session.user.id, session)
+      const session = await loadDeviceSession(ctx, input.sessionId)
+      // A deleted session: nothing to post into, a no-op (no message id).
+      if (!session) return { messageId: ``, ...(await noOpTx(ctx.db)) }
       const card = (input.card ?? null) as MessageCard | null
       if (card && !DEVICE_CARD_KINDS.has(card.kind)) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: `A device cannot post ${card.kind} cards` })
@@ -704,8 +723,8 @@ export const sessionsRouter = router({
   consume: authedProcedure
     .input(z.object({ sessionId: uuid, messageIds: z.array(uuid).min(1).max(100) }))
     .mutation(async ({ ctx, input }) => {
-      const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
-      await assertDeviceHost(ctx.session.user.id, session)
+      const session = await loadDeviceSession(ctx, input.sessionId)
+      if (!session) return noOpTx(ctx.db)
       return ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const now = new Date()

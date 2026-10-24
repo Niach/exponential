@@ -38,13 +38,22 @@ pub(crate) fn can_steer(row: &SessionRow, cx: &App) -> bool {
     crate::queries::active_account(cx).is_some_and(|me| row.user_id.as_deref() == Some(me.user_id.as_str()))
 }
 
+/// web `useChatMenuEntries`' `canDelete` (the server's `sessions.delete`
+/// rule): the chat's starter or a team owner.
+pub(crate) fn can_delete(row: &SessionRow, cx: &App) -> bool {
+    let starter =
+        crate::queries::active_account(cx).is_some_and(|me| row.user_id.as_deref() == Some(me.user_id.as_str()));
+    starter || row.team_id.as_deref().is_some_and(|team_id| crate::settings::is_owner(cx, team_id))
+}
+
 /// The chat menu's entries for `root_id` (`threadMenuEntries`); none for a
-/// row that is not a chat root or one the viewer cannot steer.
+/// row that is not a chat root or one the viewer cannot steer, and no delete
+/// entries for a viewer who is neither its starter nor a team owner.
 pub(crate) fn chat_entries(root_id: &str, cx: &App) -> Vec<ThreadMenuEntry> {
     let Some(root) = crate::session_data::session(root_id, cx).filter(is_chat_root) else {
         return Vec::new();
     };
-    thread_menu_entries(root.status.as_deref().unwrap_or_default(), can_steer(&root, cx))
+    thread_menu_entries(root.status.as_deref().unwrap_or_default(), can_steer(&root, cx), can_delete(&root, cx))
 }
 
 /// Append the chat's entries to `menu` (a row's context menu, the header
@@ -158,20 +167,41 @@ pub(crate) fn delete_chat(root_id: &str, cx: &mut App) {
     .detach();
 }
 
-/// The deleted chat's screen closes: its tab goes, and a window still on it
-/// lands on the Chats page.
+/// The deleted chat's screens close: the root's thread and every session of
+/// its tree (a child's own tab would sit on rows that no longer exist) lose
+/// their tabs, and a window still on one lands on the Chats page. The tree
+/// is read from the store's `root_id`s (the rows may not have synced away
+/// yet; the root's own screen closes regardless).
 fn close_chat_screens(root_id: &str, cx: &mut App) {
-    let screen = Screen::Thread {
-        session_id: root_id.to_string(),
-    };
+    let mut ids: Vec<String> = sync::Store::try_global(cx)
+        .map(|store| {
+            store
+                .collections()
+                .sessions
+                .read(cx)
+                .iter()
+                .filter(|session| session.id != root_id && session.root_id_or_self() == root_id)
+                .map(|session| session.id.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    ids.insert(0, root_id.to_string());
+    let screens: Vec<Screen> = ids
+        .into_iter()
+        .flat_map(|session_id| [Screen::Thread { session_id: session_id.clone() }, Screen::Session { session_id }])
+        .collect();
     for handle in cx.windows() {
-        let screen = screen.clone();
+        let screens = screens.clone();
         let _ = handle.update(cx, |_, window, cx| {
-            if let Some(screens) = crate::screens::screens_for_window(window, cx) {
-                screens.update(cx, |screens, cx| screens.close_screen_tab(&screen, window, cx));
+            if let Some(tabs) = crate::screens::screens_for_window(window, cx) {
+                tabs.update(cx, |tabs, cx| {
+                    for screen in &screens {
+                        tabs.close_screen_tab(screen, window, cx);
+                    }
+                });
             }
             let nav = crate::navigation::nav_for_window(window, cx);
-            if crate::navigation::resolved_screen(&nav, cx).as_ref() == Some(&screen) {
+            if crate::navigation::resolved_screen(&nav, cx).is_some_and(|current| screens.contains(&current)) {
                 crate::navigation::navigate(window, cx, Screen::Threads);
             }
         });

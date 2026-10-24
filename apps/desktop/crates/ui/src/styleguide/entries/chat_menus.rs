@@ -24,8 +24,8 @@ enum Specimen {
 
 fn specimens() -> Vec<(&'static str, Specimen)> {
     vec![
-        ("A live chat", Specimen::Chat(thread_menu_entries("running", true))),
-        ("An ended chat", Specimen::Chat(thread_menu_entries("ended", true))),
+        ("A live chat", Specimen::Chat(thread_menu_entries("running", true, true))),
+        ("An ended chat", Specimen::Chat(thread_menu_entries("ended", true, true))),
         ("The agent menu (busy, owner)", Specimen::Agent(agent_menu_entries(true, true))),
         ("The agent menu (idle, member)", Specimen::Agent(agent_menu_entries(false, false))),
     ]

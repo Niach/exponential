@@ -17,6 +17,7 @@ vi.mock(`@/lib/billing/creem-subscriptions`, () => ({
 import {
   attachments,
   comments,
+  conversations,
   messages,
   sessionIssues,
   sessions,
@@ -530,6 +531,8 @@ describe(`guardAndCleanupTeamsForUserDeletion — sessions (EXP-445/1291)`, () =
     // The visibility mirrors follow, or the cascade would take them.
     expect(updatesTo(messages)).toHaveLength(1)
     expect(updatesTo(sessionIssues)).toHaveLength(1)
+    // The conversation row too (it cascades with its owner, its messages with it).
+    expect(updatesTo(conversations)).toHaveLength(1)
     expect(ended!.values).toMatchObject({ status: `ended`, busy: false, needsInput: false })
     expect(result.endedSessionIds).toContain(`sess-requested`)
   })

@@ -269,10 +269,17 @@ export function agentBubbles(input: {
 export type ThreadMenuEntry = `stop` | `stopAndDelete` | `delete`
 
 /** A thread row's context menu ×4 (`menuCases`): live → Stop, Stop and
- *  delete; ended → Delete; nothing for a viewer who cannot steer it. */
-export function threadMenuEntries(input: { rootStatus: string; canSteer: boolean }): ThreadMenuEntry[] {
+ *  delete; ended → Delete; nothing for a viewer who cannot steer it. The
+ *  delete entries need `canDelete` (the chat's starter or a team owner, the
+ *  server's `sessions.delete` rule). */
+export function threadMenuEntries(input: {
+  rootStatus: string
+  canSteer: boolean
+  canDelete: boolean
+}): ThreadMenuEntry[] {
   if (!input.canSteer) return []
-  return input.rootStatus === `ended` ? [`delete`] : [`stop`, `stopAndDelete`]
+  if (input.rootStatus === `ended`) return input.canDelete ? [`delete`] : []
+  return input.canDelete ? [`stop`, `stopAndDelete`] : [`stop`]
 }
 
 export type AgentMenuEntry = `compact` | `newConversation` | `stop` | `settings`

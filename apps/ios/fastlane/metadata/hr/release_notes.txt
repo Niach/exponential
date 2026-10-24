@@ -1,7 +1,9 @@
-- Apps: izradite male aplikacije u sesiji uređivača, uz pregled uživo i spremljene u verzijama; popis Apps nalazi se iza gumba u zaglavlju Threads
-- Dock: transkript je jedno neprekinuto pomicanje, ono što čeka na vas lebdi kao kartice iznad composera, a plan se otvara kao donji list s gumbima „Da” i „Ne, nastavi planirati”
-- Jedna siva: svaka kartica, composer i listovi imaju isti neprozirni ton
-- Birači unutar lista otvaraju se izravno ispod svog retka
-- Threadovi s jednom sesijom ponovno prikazuju svoju karticu Conversation, a redak threada počinje njegovim otvorenim pull requestom
-- Markdown tablice više ne razvlače retke preko njihova sadržaja
-- Poruka završenom threadu nastavlja istu sesiju umjesto pokretanja kopije
+- Chatovi: niti su sada chatovi; donja traka sadrži Board, Devices, Chats i Team, a kartica Chats prikazuje chatove vašeg tima poput messengera, s agentima kao oblačićima na vrhu
+- Dugo pritisnite chat da ga zaustavite ili zaustavite i izbrišete; završeni chat nudi Izbriši
+- Agenti: Sažmi razgovor i Novi razgovor u izborniku chata s agentom, ili upišite /compact i /new
+- Pregledi uživo: agenti mogu nacrtati interaktivni pregled izravno u chat
+- Planovi: plan na čekanju uvijek se prikazuje u chatu sa svojim gumbima, a noviji plan zamjenjuje onaj na čekanju
+- Samo jedan aktivni tim u isto vrijeme, mijenja se na kartici Team, koja sadrži i postavke; My issues i Drafts su oznake na boardu, a Inbox ima vlastitu stranicu
+- Triggeri: agenti se mogu buditi svakih 5, 10, 15, 20 ili 30 minuta
+- Apps prikazuje samo aplikacije vašeg tima; ugrađena aplikacija Devices je uklonjena
+- Poruke se učitavaju kroz svoj razgovor, spremne za izravne poruke i kanale

@@ -230,13 +230,19 @@ class ThreadsViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Chats.ChatList(emptyList(), Chats.ChatCounts(0, 0, 0)))
 
-    /** What a chat row's menu needs per root: its status and whether the
-     *  viewer may steer it (shared, or the starter). */
-    data class RootFacts(val status: String, val canSteer: Boolean, val agent: String?)
+    /** What a chat row's menu needs per root: its status, whether the
+     *  viewer may steer it (shared, or the starter) and whether the viewer
+     *  started it (with [isOwner], who may delete it). */
+    data class RootFacts(val status: String, val canSteer: Boolean, val agent: String?, val mine: Boolean = false)
 
     val rootFacts: StateFlow<Map<String, RootFacts>> = combine(sessionRows, auth.userId) { rows, me ->
         rows.filter { it.isRoot }.associate { row ->
-            row.id to RootFacts(row.status, row.shared || (me != null && row.userId == me), row.cli)
+            row.id to RootFacts(
+                row.status,
+                row.shared || (me != null && row.userId == me),
+                row.cli,
+                mine = me != null && row.userId == me,
+            )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 

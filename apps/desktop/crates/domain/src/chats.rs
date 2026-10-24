@@ -230,15 +230,18 @@ impl ThreadMenuEntry {
 }
 
 /// A thread row's context menu ×4 (`menuCases`): live → Stop, Stop and
-/// delete; ended → Delete; nothing for a viewer who cannot steer it.
-pub fn thread_menu_entries(root_status: &str, can_steer: bool) -> Vec<ThreadMenuEntry> {
+/// delete; ended → Delete; nothing for a viewer who cannot steer it. The
+/// delete entries need `can_delete` (the chat's starter or a team owner, the
+/// server's `sessions.delete` rule).
+pub fn thread_menu_entries(root_status: &str, can_steer: bool, can_delete: bool) -> Vec<ThreadMenuEntry> {
     if !can_steer {
         return Vec::new();
     }
-    if root_status == "ended" {
-        vec![ThreadMenuEntry::Delete]
-    } else {
-        vec![ThreadMenuEntry::Stop, ThreadMenuEntry::StopAndDelete]
+    match (root_status == "ended", can_delete) {
+        (true, true) => vec![ThreadMenuEntry::Delete],
+        (true, false) => Vec::new(),
+        (false, true) => vec![ThreadMenuEntry::Stop, ThreadMenuEntry::StopAndDelete],
+        (false, false) => vec![ThreadMenuEntry::Stop],
     }
 }
 
@@ -398,6 +401,7 @@ mod tests {
             let got: Vec<&str> = thread_menu_entries(
                 input["rootStatus"].as_str().unwrap(),
                 input["canSteer"].as_bool().unwrap(),
+                input["canDelete"].as_bool().unwrap(),
             )
             .into_iter()
             .map(ThreadMenuEntry::key)

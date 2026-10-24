@@ -21,6 +21,7 @@ import { useSession } from "@/hooks/use-session"
 import { useAgentRow } from "@/hooks/use-agent-row"
 import { useSessionRow, useSessionThread, useTeamSessions } from "@/hooks/use-session-tree"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
+import { useTeamUsers } from "@/hooks/use-team-data"
 import type { Team } from "@/db/schema"
 import { actionErrorDescription, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { messageCollection, sessionCollection } from "@/lib/collections"
@@ -120,15 +121,19 @@ export function useChatActions(teamSlug: string | undefined): {
   return { stop, requestDelete: setDeleting, dialog }
 }
 
-/** A chat's menu entries for the viewer (`threadMenuEntries`). */
+/** A chat's menu entries for the viewer (`threadMenuEntries`): the delete
+ *  entries only for the chat's starter or a team owner (`sessions.delete`). */
 export function useChatMenuEntries(
-  root: Pick<SessionRow, `id` | `status` | `shared` | `userId`> | null,
+  root: Pick<SessionRow, `id` | `teamId` | `status` | `shared` | `userId`> | null,
   actions: Pick<ReturnType<typeof useChatActions>, `stop` | `requestDelete`>
 ): MenuEntry[] {
   const { data: auth } = useSession()
   const me = auth?.user?.id ?? null
+  const { members } = useTeamUsers(root?.teamId)
   if (!root) return []
-  const entries = threadMenuEntries({ rootStatus: root.status, canSteer: canSteerSession(root, me) })
+  const isOwner = Boolean(me) && members.some((m) => m.userId === me && m.role === `owner`)
+  const canDelete = Boolean(me) && (root.userId === me || isOwner)
+  const entries = threadMenuEntries({ rootStatus: root.status, canSteer: canSteerSession(root, me), canDelete })
   return chatMenuRows(entries, (entry) => {
     if (entry === `stop`) void actions.stop(root.id)
     else actions.requestDelete(root.id)

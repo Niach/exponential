@@ -970,8 +970,17 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
       shared: true,
       status: `queued`,
       name: `Ada 2`,
+      title: `Ada 2`,
       account: `acc1`,
     })
+    // The conversation row's visibility mirror follows the move (the
+    // conversations shape filters on it).
+    const [convo] = await db.select().from(conversations).where(eq(conversations.sessionId, conversation.sessionId))
+    expect(convo).toMatchObject({ shared: true, ownerId: w.owner })
+    // A member's own rename of the chat survives the agent's next rename.
+    await db.update(sessions).set({ title: `My Ada` }).where(eq(sessions.id, conversation.sessionId))
+    await agentsOf(w.owner).update({ id: agent.id, name: `Ada 3` })
+    expect(await row(conversation.sessionId)).toMatchObject({ name: `Ada 3`, title: `My Ada` })
     // Now the teammate may talk to it too: their OWN conversation.
     const mates = await sendSession({ userId: w.mate, input: { agentId: agent.id, text: `hey` } })
     expect(mates.sessionId).not.toBe(conversation.sessionId)
@@ -1619,6 +1628,10 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
       relay.interrupted = []
     }
     expect(await row(w.sessionId)).toMatchObject({ status: `running`, busy: true })
+    // An idle (not busy) session had nothing to interrupt: delivered, even
+    // with no relay configured.
+    await db.update(sessions).set({ status: `idle`, busy: false }).where(eq(sessions.id, w.sessionId))
+    expect(await stopSession({ userId: w.owner, sessionId: w.sessionId })).toMatchObject({ delivered: true })
   })
 
   it(`Chats: a queued session's Stop delivers nothing and reads delivered`, async () => {
@@ -1703,6 +1716,16 @@ describe.skipIf(!ready.ok)(`sessions.delete (Chats)`, async () => {
       .where(and(eq(events.teamId, w.teamId), eq(events.name, `session.ended`)))
     expect(ended.map((row) => (row.payload as { sessionId: string }).sessionId).sort()).toEqual([...ids].sort())
     expect((await row(watcher.sessionId)).wakeOn).toEqual([])
+    // A device that missed the kill: its late calls are no-ops, never NOT_FOUND.
+    await expect(caller(w.mate).report({ sessionId: root.sessionId, status: `idle` })).resolves.toMatchObject({
+      txid: expect.any(Number),
+    })
+    await expect(caller(w.mate).reply({ sessionId: root.sessionId, body: `late` })).resolves.toMatchObject({
+      messageId: ``,
+    })
+    await expect(
+      caller(w.mate).consume({ sessionId: root.sessionId, messageIds: [crypto.randomUUID()] })
+    ).resolves.toMatchObject({ txid: expect.any(Number) })
   })
 
   it(`lets the starter delete an ended private chat, hides another's private one`, async () => {
@@ -1780,6 +1803,26 @@ describe.skipIf(!ready.ok)(`plan mode: the plan card`, async () => {
       card: buildQuestionCard({ question: `Q?`, options: [{ label: `A` }] }),
     })
     expect((await message(second.messageId)).answeredAt).toBeNull()
+  })
+
+  it(`FEED-140: a tool plan never supersedes an ENGINE plan card (its parked ask stays answerable)`, async () => {
+    const w = await world({ shared: true })
+    const sent = await sendSession({
+      userId: w.mate,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `plan it` },
+    })
+    await db.update(sessions).set({ planMode: true }).where(eq(sessions.id, sent.sessionId))
+    await caller(w.owner).claim({ sessionId: sent.sessionId, deviceId: w.deviceId })
+    const engine = await postAskCard({ userId: w.mate, sessionId: sent.sessionId, card: buildPlanCard({ plan: `1. Engine` }) })
+    await db
+      .update(messages)
+      .set({ card: sql`${messages.card} || '{"questionId": "q-engine"}'::jsonb` })
+      .where(eq(messages.id, engine.messageId))
+    await postAskCard({ userId: w.mate, sessionId: sent.sessionId, card: buildPlanCard({ plan: `1. Tool` }) })
+    const parked = await message(engine.messageId)
+    expect(parked.answeredAt).toBeNull()
+    expect(parked.consumedAt).toBeNull()
+    expect(parked.card).toMatchObject({ questionId: `q-engine`, decision: null })
   })
 
   it(`proposes, takes its picture, is approved with answers and consumed by the device`, async () => {

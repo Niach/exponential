@@ -161,6 +161,20 @@ internal fun activeTeamNotifications(
     }
 }
 
+/** The inbox dot (chats.json): the unread rows the inbox PAGE shows for
+ *  [teamId] (null = every team), counted the way the page counts them, so
+ *  the dot and the page never disagree. */
+internal fun activeTeamUnread(
+    notifications: List<NotificationEntity>,
+    issues: List<IssueEntity>,
+    boards: List<com.exponential.app.data.db.BoardEntity>,
+    teamId: String?,
+): Int = buildInboxState(
+    activeTeamNotifications(notifications, issues, boards, teamId),
+    issues,
+    emptyList(),
+).totalUnread
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class InboxViewModel @Inject constructor(

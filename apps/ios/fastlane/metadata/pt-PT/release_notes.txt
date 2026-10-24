@@ -1,7 +1,9 @@
-- Apps: crie pequenas apps com a sessão de edição, com pré-visualização em direto e guardadas em versões; a lista de Apps está atrás do botão do cabeçalho de Threads
-- O Dock: a transcrição é um único deslocamento, o que está à sua espera flutua como cartões acima do composer e um plano abre-se como folha inferior com «Sim» e «Não, continuar a planear»
-- Um só cinzento: cada cartão, o composer e as folhas usam o mesmo tom opaco
-- Os seletores dentro de uma folha abrem-se logo abaixo da sua linha
-- Os threads com uma única sessão voltam a mostrar o separador Conversation, e uma linha de thread começa pelo seu pull request aberto
-- As tabelas Markdown já não esticam as linhas para além do seu conteúdo
-- Uma mensagem para um thread terminado retoma a mesma sessão em vez de iniciar uma cópia
+- Chats: os tópicos passam a ser chats; a barra inferior tem Board, Devices, Chats e Team, e o separador Chats lista os chats da sua equipa como uma app de mensagens, com os agentes em bolhas no topo
+- Mantenha um chat premido para o parar, ou parar e eliminar; um chat terminado oferece Eliminar
+- Agentes: Compactar conversa e Nova conversa no menu do chat de um agente, ou escreva /compact e /new
+- Pré-visualizações em direto: os agentes podem desenhar uma pré-visualização interativa diretamente no chat
+- Planos: um plano em espera aparece sempre no chat com os seus botões, e um plano mais recente substitui o que está em espera
+- Uma equipa ativa de cada vez, trocada no separador Team, que também tem as definições; My issues e Drafts são chips no quadro, e a Inbox tem a sua própria página
+- Triggers: os agentes podem acordar a cada 5, 10, 15, 20 ou 30 minutos
+- Apps lista apenas as apps da sua equipa; a app Devices integrada desapareceu
+- As mensagens carregam através da sua conversa, prontas para mensagens diretas e canais

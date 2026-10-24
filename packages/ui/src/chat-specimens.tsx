@@ -63,8 +63,8 @@ export function ChatListSpecimen() {
 // THE chat menu and THE agent menu in both looks (pointer + the phone sheet
 // titled with the chat's title), plus the delete confirm.
 
-const LIVE = chatMenuRows(threadMenuEntries({ rootStatus: `running`, canSteer: true }), noop)
-const ENDED = chatMenuRows(threadMenuEntries({ rootStatus: `ended`, canSteer: true }), noop)
+const LIVE = chatMenuRows(threadMenuEntries({ rootStatus: `running`, canSteer: true, canDelete: true }), noop)
+const ENDED = chatMenuRows(threadMenuEntries({ rootStatus: `ended`, canSteer: true, canDelete: true }), noop)
 const AGENT_BUSY_OWNER = agentMenuRows(agentMenuEntries({ busy: true, isOwner: true }), noop)
 const AGENT_IDLE = agentMenuRows(agentMenuEntries({ busy: false, isOwner: false }), noop)
 

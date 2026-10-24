@@ -62,6 +62,11 @@ const GLYPH: f32 = 16.;
 /// for some labels and ellipsized them.
 const BAR_SLACK: f32 = 4.;
 
+/// X11 without a screen layout (no RandR answer): the toolkit's display is
+/// the whole X screen, every monitor side by side, so its width is no cap a
+/// banner may take; this one keeps a long label off the monitors' seam.
+const X11_FALLBACK_ROOM: f32 = 1200.;
+
 /// The bar's height at `rem`: one item between the padding and the
 /// stroke, whole pixels up.
 fn bar_height(rem: f32) -> f32 {
@@ -230,9 +235,11 @@ fn banner_options(label: Option<&str>, cx: &App) -> WindowOptions {
     let room = display_bounds
         .map(|bounds| {
             let logical_root_width = f32::from(bounds.size.width);
-            layout
-                .and_then(|layout| layout.primary_logical_width(logical_root_width))
-                .unwrap_or(logical_root_width)
+            match layout.and_then(|layout| layout.primary_logical_width(logical_root_width)) {
+                Some(width) => width,
+                None if cfg!(target_os = "linux") => logical_root_width.min(X11_FALLBACK_ROOM),
+                None => logical_root_width,
+            }
         })
         .unwrap_or(f32::MAX);
     let banner = banner_size(label, room - 2. * BANNER_BOTTOM, cx);
@@ -362,7 +369,10 @@ mod tests {
 
     /// Labels whose words shape to fractions: the first window (the bare
     /// sum, whole pixels up once) was 1 px narrower than the drawn bar for
-    /// these, and the label ellipsized.
+    /// these, and the label ellipsized. Under the test platform's
+    /// NoopTextSystem every glyph is 0.6 em whatever its weight, so here they
+    /// only exercise the box arithmetic (rounding, slack, sides), not the
+    /// real semibold-vs-normal measurement.
     const FRACTIONS: [&str; 3] = ["iii", "Razer Synapse: Basilisk", "WWWW mmmm"];
 
     /// The banner's view with a probe on the bar: the drawn bar's size.
@@ -408,6 +418,9 @@ mod tests {
     /// of the issue's picture and the fractional ones.
     #[gpui::test]
     async fn the_banner_window_holds_the_drawn_bar(cx: &mut gpui::TestAppContext) {
+        // NOTE: gpui's test platform shapes with the NoopTextSystem (every
+        // glyph 0.6 em, semibold or normal alike), so this checks the box
+        // arithmetic around the measured words, never real font metrics.
         cx.update(|cx| {
             gpui_component::init(cx);
             theme::init(cx);

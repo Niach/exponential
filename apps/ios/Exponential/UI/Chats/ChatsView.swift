@@ -228,15 +228,27 @@ struct ChatsView: View {
 
     // MARK: - Menus
 
-    /// The starter or a team owner steers a chat (its menu); anyone else
-    /// gets none.
+    /// The viewer started the chat.
+    private func isStarter(_ rootId: String) -> Bool {
+        lists.rootStarter[rootId] != nil && lists.rootStarter[rootId] == deps.auth.userId
+    }
+
+    /// web `canSteerSession`: a shared chat, or the viewer's own; anyone
+    /// else gets no menu.
     private func canSteer(_ rootId: String) -> Bool {
-        isOwner || (lists.rootStarter[rootId] != nil && lists.rootStarter[rootId] == deps.auth.userId)
+        isStarter(rootId) || lists.sessions.contains { $0.id == rootId && $0.shared }
+    }
+
+    /// The starter or a team owner deletes a chat (`sessions.delete`).
+    private func canDelete(_ rootId: String) -> Bool {
+        isOwner || isStarter(rootId)
     }
 
     private func openThreadMenu(_ row: Chats.ChatRow) {
         let entries = Chats.threadMenuEntries(
-            rootStatus: lists.rootStatus[row.sessionId] ?? "", canSteer: canSteer(row.sessionId)
+            rootStatus: lists.rootStatus[row.sessionId] ?? "",
+            canSteer: canSteer(row.sessionId),
+            canDelete: canDelete(row.sessionId)
         )
         guard !entries.isEmpty else { return }
         menu = ChatMenuTarget(id: row.sessionId, title: row.title, entries: entries.map { .thread($0) })

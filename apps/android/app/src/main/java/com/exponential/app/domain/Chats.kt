@@ -434,13 +434,17 @@ object Chats {
     enum class ThreadMenuEntry(val wire: String) { Stop("stop"), StopAndDelete("stopAndDelete"), Delete("delete") }
 
     /** A chat row's context menu ×4 (`menuCases`): live → Stop, Stop and
-     *  delete; ended → Delete; nothing for a viewer who cannot steer it. */
-    fun threadMenuEntries(rootStatus: String, canSteer: Boolean): List<ThreadMenuEntry> {
+     *  delete; ended → Delete; nothing for a viewer who cannot steer it. The
+     *  delete entries need [canDelete] (the chat's starter or a team owner,
+     *  the server's `sessions.delete` rule). */
+    fun threadMenuEntries(rootStatus: String, canSteer: Boolean, canDelete: Boolean): List<ThreadMenuEntry> {
         if (!canSteer) return emptyList()
         return if (rootStatus == DomainContract.sessionStatusEnded) {
-            listOf(ThreadMenuEntry.Delete)
-        } else {
+            if (canDelete) listOf(ThreadMenuEntry.Delete) else emptyList()
+        } else if (canDelete) {
             listOf(ThreadMenuEntry.Stop, ThreadMenuEntry.StopAndDelete)
+        } else {
+            listOf(ThreadMenuEntry.Stop)
         }
     }
 

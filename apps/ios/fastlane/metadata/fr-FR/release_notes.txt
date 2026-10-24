@@ -1,7 +1,9 @@
-- Apps : créez de petites apps avec la session d'édition, avec aperçu en direct et conservées en versions ; la liste des Apps se trouve derrière le bouton de l'en-tête Threads
-- Le Dock : la transcription défile d'un seul tenant, ce qui vous attend flotte en cartes au-dessus du composer, et un plan s'ouvre en feuille inférieure avec « Oui » et « Non, continuer à planifier »
-- Un seul gris : chaque carte, le composer et les feuilles partagent le même ton opaque
-- Les sélecteurs dans une feuille s'ouvrent directement sous leur ligne
-- Les threads à session unique affichent de nouveau leur onglet Conversation, et une ligne de thread commence par sa pull request ouverte
-- Les tableaux Markdown n'étirent plus les lignes au-delà de leur contenu
-- Un message à un thread terminé reprend la même session au lieu d'en démarrer une copie
+- Chats : les fils sont désormais des chats ; la barre du bas contient Board, Devices, Chats et Team, et l'onglet Chats liste les chats de votre équipe comme une messagerie, avec les agents en bulles en haut
+- Appuyez longuement sur un chat pour l'arrêter, ou l'arrêter et le supprimer ; un chat terminé propose Supprimer
+- Agents : Compacter la conversation et Nouvelle conversation dans le menu d'un chat d'agent, ou tapez /compact et /new
+- Aperçus en direct : les agents peuvent dessiner un aperçu interactif directement dans le chat
+- Plans : un plan en attente s'affiche toujours dans le chat avec ses boutons, et un plan plus récent remplace celui en attente
+- Une seule équipe active à la fois, changée dans l'onglet Team, qui contient aussi les réglages ; My issues et Drafts sont des puces sur le tableau, et l'Inbox a sa propre page
+- Déclencheurs : les agents peuvent se réveiller toutes les 5, 10, 15, 20 ou 30 minutes
+- Apps ne liste que les apps de votre équipe ; l'app Devices intégrée a disparu
+- Les messages se chargent via leur conversation, prêts pour les messages directs et les canaux

@@ -257,7 +257,7 @@ fun ThreadScreen(
         }
     } else if (rootRow != null) {
         com.exponential.app.ui.components.chatMenuItems(
-            com.exponential.app.domain.Chats.threadMenuEntries(rootRow.status, canSteer),
+            com.exponential.app.domain.Chats.threadMenuEntries(rootRow.status, canSteer, rootRow.userId == me || isOwner),
             onStop = { viewModel.stopChat() },
             onDelete = { deleteConfirm = true },
         )

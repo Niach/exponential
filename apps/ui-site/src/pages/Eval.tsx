@@ -17,7 +17,7 @@ const SECTIONS: DocsSectionType[] = [
   { id: `validator`, num: `03`, label: `What the validator said` },
   { id: `rubric`, num: `04`, label: `The visual rubric` },
   { id: `render`, num: `05`, label: `Rendered on the web` },
-  { id: `parity`, num: `06`, label: `Spacing parity with the app` },
+  { id: `parity`, num: `06`, label: `Spacing parity with a reference layout` },
   { id: `vocabulary`, num: `07`, label: `What the corpus used` },
   { id: `gaps`, num: `08`, label: `The rewrite gap list` },
 ]
@@ -87,12 +87,12 @@ export default function EvalPage({ path }: PageProps) {
             validates every reply with the same reducer the renderers use and scores it; <code>render.ts</code> paints
             it in the React renderer, the Solid renderer and the <code>{`<exponential-surface>`}</code> element,
             measures the boxes of each and compares them with React;{` `}
-            <code>parity.ts</code> measures the Devices template against the native page on the stored shots.
+            <code>parity.ts</code> measures the sample Devices template against a reference layout on the stored shots.
           </p>
           <DocsCode>{`bun run --filter @exponential_app/ui eval:record   # once, needs ANTHROPIC_API_KEY
 bun run --filter @exponential_app/ui eval          # score the fixtures → eval/report.json
 bun run --filter @exponential_app/ui eval:render   # web renders, React + Solid + element, at every width (Playwright)
-bun run --filter @exponential_app/ui eval:parity   # the Devices template vs the native page`}</DocsCode>
+bun run --filter @exponential_app/ui eval:parity   # the sample Devices template vs a reference layout`}</DocsCode>
           <p>
             Recorded by: {Object.entries(a.recordedBy).map(([k, v]) => `${v} ${k === `api` ? `over the API` : k === `claude-cli` ? `through the Claude Code CLI (real usage)` : `by the session's own model from the same prompt`}`).join(`, `)}.
           </p>
@@ -183,12 +183,13 @@ bun run --filter @exponential_app/ui eval:parity   # the Devices template vs the
           )}
         </DocsSection>
 
-        <DocsSection id="parity" num="06" label="Spacing parity with the app">
-          <h2>Spacing parity with the app</h2>
+        <DocsSection id="parity" num="06" label="Spacing parity with a reference layout">
+          <h2>Spacing parity with a reference layout</h2>
           <p>
-            The Devices template (a declarative package rendered through the public host API) beside the native
-            Devices page, measured on the stored shots of both: the Section band every list starts with, and the first
-            row under it. Store pixels are 1.25 CSS px; the deltas are template minus native.
+            The sample Devices template (a declarative package rendered through the public host API) was measured
+            beside a native reference layout of the same page, on the stored shots of both: the Section band every
+            list starts with, and the first row under it. Store pixels are 1.25 CSS px; the deltas are template minus
+            reference.
           </p>
           <DocsTable
             head={[`Platform`, `Band height`, `Band title inset`, `First row inset`, `Gap under the band`, `Band pixel diff`]}

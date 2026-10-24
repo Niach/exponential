@@ -93,7 +93,7 @@ use crate::icons::registry;
 use crate::native_dialog::{self, AlertSpec};
 use crate::slash_commands;
 use crate::trace::{trace_collapsible, trace_content, trace_line, trace_link, trace_stack, TraceLine, TraceSize};
-use crate::transcript_rows::{self, facet, plan_list_sync, ItemFacets, ListOp, RowKey, ORPHAN_ROW_BASE};
+use crate::transcript_rows::{self, facet, plan_list_sync, ItemFacets, ListOp, RowKey, ORPHAN_ROW_BASE, WORKING_ROW_ID};
 
 /// EXP-1228: the transcript menu's Copy row — copies the window text
 /// selection exactly like ⌘C/Ctrl+C does over the transcript. EXP-1266: the
@@ -143,12 +143,20 @@ const WORKING_TICK: Duration = Duration::from_secs(1);
 /// ease-in-out, ×4.
 pub(crate) const WORKING_PULSE: Duration = Duration::from_millis(1400);
 
-/// EXP-850 §3: an orphan card row's content identity — its ROW id is an
-/// index (the cards are keyed positionally at the tail), so the workflow it
-/// actually shows rides the fingerprint instead.
-/// Thread 58cb32df: the trailing conversation cards' list ids, between the
-/// orphan workflow cards' and the working row's.
-const CONV_TAIL_ROW_BASE: FeedItemId = ORPHAN_ROW_BASE + 512;
+/// How many synthetic rows (the orphan workflow cards, then the trailing
+/// conversation cards) fit between [`ORPHAN_ROW_BASE`] and the working row's
+/// id: positions past it are dropped, never keyed onto the working row or
+/// wrapped into the feed's own ids.
+const SYNTHETIC_ROWS: usize = (WORKING_ROW_ID - ORPHAN_ROW_BASE) as usize;
+
+/// The list id of the synthetic row at position `at` past the transcript
+/// (orphan workflow cards first, then the trailing conversation cards):
+/// `None` once it would reach [`WORKING_ROW_ID`].
+fn synthetic_row_id(at: usize) -> Option<FeedItemId> {
+    ORPHAN_ROW_BASE
+        .checked_add(at as FeedItemId)
+        .filter(|id| *id < WORKING_ROW_ID)
+}
 
 /// A conversation card's measure: its whole row (an answer, a decision, a
 /// draft-free state change re-measures it).
@@ -159,6 +167,9 @@ fn conversation_card_fingerprint(row: Option<&domain::session_tree::SessionThrea
     hasher.finish()
 }
 
+/// EXP-850 §3: an orphan card row's content identity — its ROW id is an
+/// index (the cards are keyed positionally at the tail), so the workflow it
+/// actually shows rides the fingerprint instead.
 fn orphan_fingerprint(workflow_id: &str) -> u64 {
     use std::hash::{Hash as _, Hasher as _};
     let mut hasher = std::hash::DefaultHasher::new();
@@ -591,11 +602,13 @@ pub(crate) struct SteerSessionView {
     /// cards the relay feed does not paint itself (the TOOL-posted plan /
     /// question cards in every state, the agent's surface cards), in
     /// message order; each sits after the call that posted it
-    /// (`conv_anchors`: feed item id → card indices), the rest trail the
-    /// transcript (`conv_tail`).
+    /// (`conv_anchors`: feed item id → card indices); the rest (their call is
+    /// above the loaded window) sit at the HEAD, before the first row, like
+    /// web's `renderToolCards(unanchored, 'head')` (`conv_unanchored`, see
+    /// [`Self::conv_head`] / [`Self::conv_tail`]).
     conv_cards: Vec<domain::session_tree::SessionThreadRow>,
     conv_anchors: HashMap<FeedItemId, Vec<usize>>,
-    conv_tail: Vec<usize>,
+    conv_unanchored: Vec<usize>,
     /// N-12: THE Dock's state (the fan, the open sheet, the band height).
     dock: Entity<crate::dock::DockState>,
     /// EXP-1211: this session's open quick replies (its newest synced
@@ -810,7 +823,7 @@ impl SteerSessionView {
             tool_cards: Vec::new(),
             conv_cards: Vec::new(),
             conv_anchors: HashMap::new(),
-            conv_tail: Vec::new(),
+            conv_unanchored: Vec::new(),
             dock: cx.new(|_| crate::dock::DockState::default()),
             replies: None,
             working: false,
@@ -1335,11 +1348,29 @@ impl SteerSessionView {
             // (§12) whose height moves without the row's own content moving —
             // the card's state is part of the row's measure.
             let fingerprint = transcript_rows::fold_extra(fingerprint, self.row_extra(spec, cx));
+            // The head cards ride the first row's measure.
+            let fingerprint = match ix {
+                0 if !self.conv_head().is_empty() => transcript_rows::fold_extra(
+                    fingerprint,
+                    self.conv_head().iter().fold(0u64, |acc, &card| {
+                        acc.rotate_left(7) ^ conversation_card_fingerprint(self.conv_cards.get(card))
+                    }),
+                ),
+                _ => fingerprint,
+            };
             keys.push(RowKey { id, fingerprint });
+        }
+        // The synthetic rows share the ids between ORPHAN_ROW_BASE and the
+        // working row's: whatever does not fit is dropped (keys and paint
+        // read the same truncated lists).
+        self.orphan_workflows.truncate(SYNTHETIC_ROWS);
+        if self.rows.is_empty() {
+            self.conv_unanchored.truncate(SYNTHETIC_ROWS - self.orphan_workflows.len());
         }
         // §3: the orphan cards, in feed order, keyed above every feed id and
         // below the working row's so the list sync keeps its ascending order.
         for (ix, id) in self.orphan_workflows.iter().enumerate() {
+            let Some(row_id) = synthetic_row_id(ix) else { break };
             let gap = f32::from(self.row_gap(self.rows.len() + ix));
             let fingerprint = transcript_rows::fold_gap(orphan_fingerprint(id), gap);
             let workflow = self.feed.workflow_for(id);
@@ -1352,24 +1383,20 @@ impl SteerSessionView {
                         | workflow.status as u64
                 }),
             );
-            keys.push(RowKey {
-                id: ORPHAN_ROW_BASE + ix as steer::FeedItemId,
-                fingerprint,
-            });
+            keys.push(RowKey { id: row_id, fingerprint });
         }
-        // Thread 58cb32df: the cards no call in the window anchors trail it,
-        // keyed between the orphan cards and the working row.
-        for (ix, &card) in self.conv_tail.iter().enumerate() {
+        // Thread 58cb32df: with no row to sit above, the unanchored cards are
+        // rows of their own, keyed right after the orphan cards and below
+        // the working row.
+        for (ix, &card) in self.conv_tail().iter().enumerate() {
+            let Some(row_id) = synthetic_row_id(self.orphan_workflows.len() + ix) else { break };
             let at = self.rows.len() + self.orphan_workflows.len() + ix;
             let gap = f32::from(self.row_gap(at));
             let fingerprint = transcript_rows::fold_gap(conversation_card_fingerprint(self.conv_cards.get(card)), gap);
-            keys.push(RowKey {
-                id: CONV_TAIL_ROW_BASE + ix as steer::FeedItemId,
-                fingerprint,
-            });
+            keys.push(RowKey { id: row_id, fingerprint });
         }
         if self.working {
-            let gap = f32::from(self.row_gap(self.rows.len() + self.orphan_workflows.len() + self.conv_tail.len()));
+            let gap = f32::from(self.row_gap(self.rows.len() + self.orphan_workflows.len() + self.conv_tail().len()));
             // EXP-850 §5: the working row's text is no longer a constant (a
             // verb, a ticking duration, a workflow's caption), so its
             // fingerprint folds in what it will say.
@@ -2599,7 +2626,7 @@ impl SteerSessionView {
         if self.tree_scope || !main {
             self.conv_cards.clear();
             self.conv_anchors.clear();
-            self.conv_tail.clear();
+            self.conv_unanchored.clear();
             return;
         }
         let messages = crate::session_data::messages_of_session(&self.session_id, cx);
@@ -2616,7 +2643,8 @@ impl SteerSessionView {
             })
             .collect();
         crate::surface_card::sync_rows(cx.entity_id(), &self.conv_cards, cx);
-        // The calls the window shows (a card whose call is above it trails).
+        // The calls the window shows (a card whose call is above it sits at
+        // the head).
         let shown: HashSet<FeedItemId> = self
             .rows
             .iter()
@@ -2636,7 +2664,27 @@ impl SteerSessionView {
             .collect();
         let (anchors, tail) = crate::surface_card::anchor_cards(&calls, &self.conv_cards);
         self.conv_anchors = anchors;
-        self.conv_tail = tail;
+        self.conv_unanchored = tail;
+    }
+
+    /// The unanchored conversation cards painted above the first row (web's
+    /// `head`): all of them while the projection has a row to sit on.
+    fn conv_head(&self) -> &[usize] {
+        if self.rows.is_empty() {
+            &[]
+        } else {
+            &self.conv_unanchored
+        }
+    }
+
+    /// …and with no row at all they are synthetic rows of their own, after
+    /// the orphan workflow cards and before the working row.
+    fn conv_tail(&self) -> &[usize] {
+        if self.rows.is_empty() {
+            &self.conv_unanchored
+        } else {
+            &[]
+        }
     }
 
     /// The conversation cards at `indices`, painted by the thread screen's
@@ -3243,9 +3291,8 @@ impl SteerSessionView {
             if self.working_now() && !busy.contains(&self.session_id) {
                 busy.push(self.session_id.clone());
             }
-            for session_id in busy {
-                stop_session(&session_id, cx);
-            }
+            // One stop action = at most one toast, however many it stops.
+            stop_sessions(busy, cx);
         } else {
             stop_session(&self.session_id, cx);
         }
@@ -3533,31 +3580,50 @@ pub(crate) fn may_steer(row: &domain::rows::SessionRow, me: Option<&str>) -> boo
 /// stop no device got (`delivered: false`) `copy.toasts.stopNotDelivered`.
 /// Shared with the terminal strip's per-row stop.
 pub(crate) fn stop_session(session_id: &str, cx: &mut App) {
+    stop_sessions(vec![session_id.to_string()], cx);
+}
+
+/// [`stop_session`] over several sessions as ONE stop action (a root's
+/// composer stopping its busy tree): every `sessions.stop` goes out, and the
+/// outcome is at most one toast — the first refusal, else one
+/// `stopNotDelivered` when any stop reached no device.
+pub(crate) fn stop_sessions(session_ids: Vec<String>, cx: &mut App) {
+    if session_ids.is_empty() {
+        return;
+    }
     let Some(trpc) = crate::queries::trpc_client(cx) else {
         crate::action_error::failed_action("stop", "the session", None, cx);
         return;
     };
-    let session_id = session_id.to_string();
     cx.spawn(async move |cx| {
-        let result = cx
+        let results = cx
             .background_executor()
-            .spawn(async move { api::sessions::stop(&trpc, &session_id) })
+            .spawn(async move {
+                session_ids
+                    .iter()
+                    .map(|session_id| api::sessions::stop(&trpc, session_id))
+                    .collect::<Vec<_>>()
+            })
             .await;
-        match result {
-            // Thread 58cb32df: the relay reached no device for a live run.
-            Ok(out) if out.not_delivered() => {
-                let _ = cx.update(|cx| {
-                    let title = domain::chats::CHATS.copy.toasts.stop_not_delivered.clone();
-                    crate::toast::show_in_active_window(crate::toast::Toast::error(title), cx);
-                });
-            }
-            Ok(_) => {}
-            Err(err) => {
-                let _ = cx.update(|cx| {
-                    crate::action_error::failed_action_err("stop", "the session", &err, cx);
-                });
+        let mut not_delivered = false;
+        let mut failure = None;
+        for result in results {
+            match result {
+                // Thread 58cb32df: the relay reached no device for a live run.
+                Ok(out) => not_delivered |= out.not_delivered(),
+                Err(err) => {
+                    failure.get_or_insert(err);
+                }
             }
         }
+        let _ = cx.update(|cx| match failure {
+            Some(err) => crate::action_error::failed_action_err("stop", "the session", &err, cx),
+            None if not_delivered => {
+                let title = domain::chats::CHATS.copy.toasts.stop_not_delivered.clone();
+                crate::toast::show_in_active_window(crate::toast::Toast::error(title), cx);
+            }
+            None => {}
+        });
     })
     .detach();
 }
@@ -4706,7 +4772,7 @@ impl SteerSessionView {
                 return self.transcript_row(ix, card);
             }
             // Thread 58cb32df: the unanchored conversation cards.
-            let tail = past.checked_sub(self.orphan_workflows.len()).and_then(|t| self.conv_tail.get(t)).copied();
+            let tail = past.checked_sub(self.orphan_workflows.len()).and_then(|t| self.conv_tail().get(t)).copied();
             return match tail {
                 Some(card) => {
                     let element = self.render_conversation_cards(&[card], window, cx);
@@ -4729,15 +4795,19 @@ impl SteerSessionView {
             .flatten()
             .copied()
             .collect();
-        let element = if anchored.is_empty() {
+        // …and the first row carries the unanchored ones above it (web's
+        // `head`: their calls are above the loaded window).
+        let head: Vec<usize> = if ix == 0 { self.conv_head().to_vec() } else { Vec::new() };
+        let element = if anchored.is_empty() && head.is_empty() {
             element
         } else {
             v_flex()
                 .w_full()
                 .min_w_0()
                 .gap(px(transcript::GAP_BLOCK))
+                .when(!head.is_empty(), |column| column.child(self.render_conversation_cards(&head, window, cx)))
                 .child(element)
-                .child(self.render_conversation_cards(&anchored, window, cx))
+                .when(!anchored.is_empty(), |column| column.child(self.render_conversation_cards(&anchored, window, cx)))
                 .into_any_element()
         };
         self.transcript_row(ix, element)
@@ -8791,6 +8861,21 @@ mod tests {
         cx.run_until_parked();
         let copied = cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text()));
         assert_eq!(copied.as_deref(), Some("docker exec -it openclaw"));
+    }
+
+    /// The synthetic rows (orphan workflow cards, then the conversation
+    /// cards with no row to sit above) key ascending between the feed and
+    /// the working row, and a position past the room never reaches the
+    /// working row's id nor wraps into the feed's ids.
+    #[test]
+    fn synthetic_row_ids_stay_below_the_working_row() {
+        use crate::transcript_rows::{ORPHAN_ROW_BASE, WORKING_ROW_ID};
+        assert_eq!(super::synthetic_row_id(0), Some(ORPHAN_ROW_BASE));
+        let last = super::synthetic_row_id(super::SYNTHETIC_ROWS - 1).unwrap();
+        assert!(last < WORKING_ROW_ID);
+        assert!(super::synthetic_row_id(511) < super::synthetic_row_id(512));
+        assert_eq!(super::synthetic_row_id(super::SYNTHETIC_ROWS), None);
+        assert_eq!(super::synthetic_row_id(usize::MAX), None);
     }
 
     #[test]

@@ -1,7 +1,9 @@
-- Apps: rakenna pieniä sovelluksia editori-sessiolla, live-esikatselulla ja versioihin tallennettuina; Apps-lista löytyy Threads-otsikon painikkeen takaa
-- Dock: transkripti on yksi yhtenäinen vieritys, sinua odottavat asiat leijuvat kortteina composerin yläpuolella, ja suunnitelma avautuu alapaneelina vaihtoehdoilla ”Kyllä” ja ”Ei, jatka suunnittelua”
-- Yksi harmaa: jokainen kortti, composer ja paneelit käyttävät samaa peittävää sävyä
-- Paneelin sisällä olevat valitsimet avautuvat suoraan rivinsä alle
-- Yhden session threadit näyttävät taas Conversation-välilehtensä, ja thread-rivi alkaa sen avoimella pull requestilla
-- Markdown-taulukot eivät enää venytä rivejä sisältöään pidemmiksi
-- Viesti päättyneeseen threadiin jatkaa samaa sessiota sen sijaan, että aloittaisi kopion
+- Chatit: ketjut ovat nyt chatteja; alapalkissa ovat Board, Devices, Chats ja Team, ja Chats-välilehti listaa tiimisi chatit kuin viestisovellus, agentit kuplina ylhäällä
+- Paina chattia pitkään pysäyttääksesi sen tai pysäyttääksesi ja poistaaksesi sen; päättynyt chatti tarjoaa Poista-vaihtoehdon
+- Agentit: Tiivistä keskustelu ja Uusi keskustelu agenttichatin valikossa, tai kirjoita /compact ja /new
+- Live-esikatselut: agentit voivat piirtää interaktiivisen esikatselun suoraan chattiin
+- Suunnitelmat: odottava suunnitelma näkyy aina chatissa painikkeineen, ja uudempi suunnitelma korvaa odottavan
+- Yksi aktiivinen tiimi kerrallaan, vaihdetaan Team-välilehdellä, jossa ovat myös asetukset; My issues ja Drafts ovat siruja boardilla, ja Inboxilla on oma sivunsa
+- Triggerit: agentit voivat herätä 5, 10, 15, 20 tai 30 minuutin välein
+- Apps listaa vain tiimisi sovellukset; sisäänrakennettu Devices-sovellus on poistunut
+- Viestit latautuvat keskustelunsa kautta, valmiina yksityisviesteille ja kanaville

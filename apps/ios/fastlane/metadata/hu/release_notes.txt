@@ -1,7 +1,9 @@
-- Apps: készíts kis appokat a szerkesztő sessionnel, élő előnézettel és verziókban mentve; az Apps lista a Threads fejléc gombja mögött található
-- Dock: az átirat egyetlen görgetés, ami rád vár, kártyákként lebeg a composer fölött, a terv pedig alsó lapként nyílik meg „Igen” és „Nem, tervezés folytatása” gombokkal
-- Egy szürke: minden kártya, a composer és a lapok ugyanazt az átlátszatlan árnyalatot viselik
-- A lapon belüli választók közvetlenül a soruk alatt nyílnak meg
-- Az egy sessionös threadek ismét mutatják a Conversation lapjukat, és egy thread sora a nyitott pull requestjével kezdődik
-- A Markdown táblázatok már nem nyújtják a sorokat a tartalmukon túl
-- Egy befejezett threadnek küldött üzenet ugyanazt a sessiont folytatja ahelyett, hogy másolatot indítana
+- Chatek: a szálak mostantól chatek; az alsó sávban Board, Devices, Chats és Team található, a Chats fül pedig üzenetküldőként listázza a csapatod chatjeit, fent buborékokként az agentekkel
+- Nyomj hosszan egy chatre a leállításához, vagy a leállításához és törléséhez; egy befejezett chat a Törlés lehetőséget kínálja
+- Agentek: Beszélgetés tömörítése és Új beszélgetés egy agent chat menüjében, vagy írd be: /compact és /new
+- Élő előnézetek: az agentek interaktív előnézetet rajzolhatnak közvetlenül a chatbe
+- Tervek: egy várakozó terv mindig megjelenik a chatben a gombjaival, és egy újabb terv felváltja a várakozót
+- Egyszerre egy aktív csapat, a Team fülön váltható, ahol a beállítások is vannak; a My issues és a Drafts chipek a boardon, az Inbox pedig saját oldalt kapott
+- Triggerek: az agentek 5, 10, 15, 20 vagy 30 percenként ébredhetnek
+- Az Apps csak a csapatod appjait listázza; a beépített Devices app megszűnt
+- Az üzenetek a beszélgetésükön keresztül töltődnek be, készen a közvetlen üzenetekre és csatornákra

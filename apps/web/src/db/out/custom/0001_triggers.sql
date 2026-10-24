@@ -455,9 +455,10 @@ CREATE OR REPLACE TRIGGER populate_message_session_mirrors
 
 -- NEW-3: every session owns ONE conversation of kind `session`
 -- (`conversations.session_id`), created with the row; its visibility
--- mirrors (`shared`, `owner_id`, `team_id`) are the session's, stamped once
--- (a session's `shared` and `user_id` never change). Idempotent: a
--- conversation inserted by the app first is kept.
+-- mirrors (`shared`, `owner_id`, `team_id`) are the session's, stamped at
+-- insert and kept in step below (an agent's device move re-stamps `shared`,
+-- an account deletion hands `user_id` over). Idempotent: a conversation
+-- inserted by the app first is kept.
 CREATE OR REPLACE FUNCTION create_session_conversation()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -471,6 +472,22 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE TRIGGER create_session_conversation
   AFTER INSERT ON sessions
   FOR EACH ROW EXECUTE FUNCTION create_session_conversation();
+
+CREATE OR REPLACE FUNCTION sync_session_conversation_mirrors()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE conversations SET shared = NEW.shared, owner_id = NEW.user_id
+    WHERE session_id = NEW.id
+      AND (shared IS DISTINCT FROM NEW.shared OR owner_id IS DISTINCT FROM NEW.user_id);
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER sync_session_conversation_mirrors
+  AFTER UPDATE OF shared, user_id ON sessions
+  FOR EACH ROW
+  WHEN (OLD.shared IS DISTINCT FROM NEW.shared OR OLD.user_id IS DISTINCT FROM NEW.user_id)
+  EXECUTE FUNCTION sync_session_conversation_mirrors();
 
 -- The pre-EXP-1291 run/thread functions (their tables are gone, so are
 -- their triggers): dropped so no stale body lingers.

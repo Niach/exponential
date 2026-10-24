@@ -1118,7 +1118,14 @@ struct ThreadScreen: View {
     }
 
     /// The starter or a team owner steers the chat.
+    /// web `canSteerSession`: a shared chat, or the viewer's own.
     private var canSteer: Bool {
+        guard let rows else { return false }
+        return rows.root.shared || rows.root.userId == deps.auth.userId
+    }
+
+    /// The starter or a team owner deletes a chat (`sessions.delete`).
+    private var canDelete: Bool {
         guard let rows else { return false }
         return isOwner || rows.root.userId == deps.auth.userId
     }
@@ -1136,7 +1143,7 @@ struct ThreadScreen: View {
             guard rows.root.appId == nil else { return [] }
             return Chats.agentMenuEntries(busy: rows.root.busy, isOwner: isOwner).map { .agent($0) }
         }
-        let own = Chats.threadMenuEntries(rootStatus: rows.root.status, canSteer: canSteer).map { ChatMenuSheet.Entry.thread($0) }
+        let own = Chats.threadMenuEntries(rootStatus: rows.root.status, canSteer: canSteer, canDelete: canDelete).map { ChatMenuSheet.Entry.thread($0) }
         return own + guideMenuEntries.map { _ in .closePr }
     }
 

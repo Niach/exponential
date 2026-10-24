@@ -31,7 +31,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "section-header",
     "title": "Group band",
-    "blurb": "EXP-818: the Linear group header — a full-width strip on the section fill, radius 10, padding 6/12, 14/20 at 85% foreground, a trailing slot, 4px over its flat rows. Counts are optional and off by default (the catalog `Section.count`). Never uppercase and never a divider. A band heads a LIST; the bare fold INSIDE a row is the disclosure header below, which draws no strip at all. EXP-1274: `loading` spins a 12px glyph at the band's trailing edge while a list REFETCHES (the first load is a skeleton or a spinner, never this); it replaces a Refresh button, which only a list over an external source (GitHub, the local disk or git) keeps.",
+    "blurb": "The Linear group header — a full-width strip on the section fill, radius 10, padding 6/12, 14/20 at 85% foreground, a trailing slot, 4px over its flat rows. Counts are optional and off by default (the catalog `Section.count`). Never uppercase and never a divider. A band heads a LIST; the bare fold INSIDE a row is the disclosure header below, which draws no strip at all. `loading` spins a 12px glyph at the band's trailing edge while a list REFETCHES (the first load is a skeleton or a spinner, never this); it replaces a Refresh button, which only a list over an external source (GitHub, the local disk or git) keeps.",
     "components": [
       "Section"
     ],
@@ -65,7 +65,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "disclosure-header",
     "title": "Disclosure header",
-    "blurb": "EXP-962: the fold toggle INSIDE a row, and the whole of it is one line of bare text — a 12px chevron pointing right folded and down open, the label muted and brightening under the pointer, `aria-expanded` stating the fold, the entire line the target. The steer feed's tool groups, its Exponential calls, its subagent lanes and its long bodies, the workflow card's agents and the issue group's own header each drew this by hand before it was one component. `chevron=\"trailing\"` parks the glyph at the far edge instead, for a row whose siblings carry none and must not indent out of line with them. It is NOT the group band above: that is a filled strip heading a LIST. And it may not contain another button — a fold's own action renders beside it, because a button inside a button is invalid markup.",
+    "blurb": "The fold toggle INSIDE a row, and the whole of it is one line of bare text — a 12px chevron pointing right folded and down open, the label muted and brightening under the pointer, `aria-expanded` stating the fold, the entire line the target. The steer feed's tool groups, its Exponential calls, its subagent lanes and its long bodies, the workflow card's agents and the issue group's own header each drew this by hand before it was one component. `chevron=\"trailing\"` parks the glyph at the far edge instead, for a row whose siblings carry none and must not indent out of line with them. It is NOT the group band above: that is a filled strip heading a LIST. And it may not contain another button — a fold's own action renders beside it, because a button inside a button is invalid markup.",
     "components": [
       "Collapsible"
     ],
@@ -79,7 +79,7 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "controls::rows::disclosure_header",
         "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/rows.rs",
-        "note": "EXP-963: the steer feed's tool groups and Exponential runs fold on it (EXP-1240: lanes moved into the Work card)"
+        "note": "the steer feed's tool groups and Exponential runs fold on it (lanes moved into the Work card)"
       },
       "ios": {
         "status": "leftover",
@@ -98,7 +98,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "group",
     "title": "Group container",
-    "blurb": "EXP-994: THE settings shell, one per platform — borderless: radius 12, the row fill, a hairline BETWEEN every pair of children, overflow hidden. The fill is the edge, never an outer stroke, and never a card inside a card: inside an overlay that already is a surface (the composer's ⋯ popover, a bottom sheet) the group goes BARE — dividers only, no fill, no radius — so the host's edge is the only edge. Every grouped settings list on every platform draws this; the second specimen is the bare form. Its picker rows are `Picker triggerVariant=\"row\"`, never a Combobox (the Combobox engine is internal to Picker since EXP-1249).",
+    "blurb": "THE settings shell, one per platform — borderless: radius 12, the row fill, a hairline BETWEEN every pair of children, overflow hidden. The fill is the edge, never an outer stroke, and never a card inside a card: inside an overlay that already is a surface (the composer's ⋯ popover, a bottom sheet) the group goes BARE — dividers only, no fill, no radius — so the host's edge is the only edge. Every grouped settings list on every platform draws this; the second specimen is the bare form. Its picker rows are `Picker triggerVariant=\"row\"`, never a Combobox (the Combobox engine is internal to Picker).",
     "components": [
       "Group"
     ],
@@ -129,7 +129,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "property-row",
     "title": "Property row",
-    "blurb": "EXP-1170: THE phone properties sheet row (issue detail + create form, ×3 phones), the list row's VALUE variant (was PropertyRow; the catalog `Row` with a `value`): the label left and muted, the value right and readable with its glyph riding beside it as one trailing unit, 44px, the WHOLE row the target (a Button, so it can be a picker's trigger), no chevron. Rows stack inside a `GlassGroup`. A set-valued property (Labels) shows the picks joined by \", \" in the team's order and opens the shared picker sheet, never a cloud of toggle chips; nothing picked reads \"None\".",
+    "blurb": "THE phone properties sheet row (issue detail + create form, ×3 phones), the list row's VALUE variant (was PropertyRow; the catalog `Row` with a `value`): the label left and muted, the value right and readable with its glyph riding beside it as one trailing unit, 44px, the WHOLE row the target (a Button, so it can be a picker's trigger), no chevron. Rows stack inside a `GlassGroup`. A set-valued property (Labels) shows the picks joined by \", \" in the team's order and opens the shared picker sheet, never a cloud of toggle chips; nothing picked reads \"None\".",
     "components": [
       "Row"
     ],
@@ -159,7 +159,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "row",
     "title": "Glass row",
-    "blurb": "The GAPPED card item (the catalog `Row surface: card`): radius 10, row fill, its own hairline border, padding 12. EXP-818/1076 keep it for REAL CARDS only (a transcript's tool output, a diff) — never a settings list: the settings ladder is a `GlassSectionHeader` band over `SETTINGS_LIST_CLASS` + the flat list row below.",
+    "blurb": "The GAPPED card item (the catalog `Row surface: card`): radius 10, row fill, its own hairline border, padding 12. It is kept for REAL CARDS only (a transcript's tool output, a diff) — never a settings list: the settings ladder is a `GlassSectionHeader` band over `SETTINGS_LIST_CLASS` + the flat list row below.",
     "components": [
       "Row"
     ],
@@ -189,7 +189,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "list-row",
     "title": "List row",
-    "blurb": "EXP-818: the flat list item every list wears — no stroke, no fill, radius 10, padding 12, NO gap between rows under a group band; hover takes the row fill, the selected row the active fill. Rows read as a table, not as cards. EXP-962 gave it a second density: `compact` is the 28px one-line row the narrow column runs at (the sidebar's pinned and draft arms, the compact inbox) — the same 14px type, 8px of side padding, 8px to the glyph — and `SidebarMenuButton density=\"compact\"` is its exact twin, so a nav entry and a list row sitting in the same 17rem slot are the same height.",
+    "blurb": "The flat list item every list wears — no stroke, no fill, radius 10, padding 12, NO gap between rows under a group band; hover takes the row fill, the selected row the active fill. Rows read as a table, not as cards. It has a second density: `compact` is the 28px one-line row the narrow column runs at (the sidebar's pinned and draft arms, the compact inbox) — the same 14px type, 8px of side padding, 8px to the glyph — and `SidebarMenuButton density=\"compact\"` is its exact twin, so a nav entry and a list row sitting in the same 17rem slot are the same height.",
     "components": [
       "Row",
       "Section"
@@ -204,7 +204,7 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "surface::flat_row / flat_row_compact",
         "file": "apps/desktop/crates/ui/src/surface.rs",
-        "note": "EXP-963: flat_row_compact is the 28px density the rail's entries run at"
+        "note": "flat_row_compact is the 28px density the rail's entries run at"
       },
       "ios": {
         "status": "ok",
@@ -227,7 +227,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "list-item",
     "title": "List item",
-    "blurb": "EXP-1248 (fixture `list-item.json`, ×4): THE anatomy every entity row derives from, on a flat list row: [tree guides][lead glyph in a 14px box at x = 12 + 14·depth][mono identifier][title][caption, two-line rows only][trailing meta], which is the catalog `Row` (`depth`, `icon`, `identifier`, `title`, `subtitle`, `meta`). The lead box sits at the same x on every row of a depth, so glyphs and titles align and a child's elbow ends at its own lead. No fold chevron, no trailing chevron, no buttons: a row opens, its menu is a context menu / long-press. Two densities: `compact` (one line, 28-32px: the sidebar's Running, pinned rows) and `list` (36px one-liners, 52px with a caption). Derivations differ only in lead and meta: SessionRow = the session mark + the host device's glyph; an issue row = the status glyph + the assignee; PrRow = the PR ring (a stack swaps the guides for its 1px rail).",
+    "blurb": "THE anatomy (fixture `list-item.json`, ×4) every entity row derives from, on a flat list row: [tree guides][lead glyph in a 14px box at x = 12 + 14·depth][mono identifier][title][caption, two-line rows only][trailing meta], which is the catalog `Row` (`depth`, `icon`, `identifier`, `title`, `subtitle`, `meta`). The lead box sits at the same x on every row of a depth, so glyphs and titles align and a child's elbow ends at its own lead. No fold chevron, no trailing chevron, no buttons: a row opens, its menu is a context menu / long-press. Two densities: `compact` (one line, 28-32px: the sidebar's Running, pinned rows) and `list` (36px one-liners, 52px with a caption). Derivations differ only in lead and meta: SessionRow = the session mark + the host device's glyph; an issue row = the status glyph + the assignee; PrRow = the PR ring (a stack swaps the guides for its 1px rail).",
     "components": [
       "Row"
     ],
@@ -261,7 +261,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "tree-guides",
     "title": "Tree guides",
-    "blurb": "EXP-965: the connector every NESTED list draws instead of bare indentation. A row used to hang under its parent by left padding alone, so three levels of sessions read as three arbitrary margins. The indent stays 14px per level; on top of it a row at depth d draws, in its PARENT's 14px gutter, a 1px vertical from its top edge to its vertical centre, a rounded elbow (radius 5) and a stub out to the gutter's right edge — and the vertical carries on to the bottom edge when a sibling follows (a tee). Every ancestor level whose subtree continues below draws a straight full-height line, so a deep child stays attached to every level above it. One hairline weight throughout (the strong glass stroke); a parent draws nothing of its own. The RULE is pure and shared ×4 — it reads nothing but the visible rows' depths — so only the painting is per-platform. In the catalog the guides are a PART of `Row` (its `depth`, inside a `Section tree`), filled by the core's post-expansion pass and never authored on their own.",
+    "blurb": "The connector every NESTED list draws instead of bare indentation. A row used to hang under its parent by left padding alone, so three levels of sessions read as three arbitrary margins. The indent stays 14px per level; on top of it a row at depth d draws, in its PARENT's 14px gutter, a 1px vertical from its top edge to its vertical centre, a rounded elbow (radius 5) and a stub out to the gutter's right edge — and the vertical carries on to the bottom edge when a sibling follows (a tee). Every ancestor level whose subtree continues below draws a straight full-height line, so a deep child stays attached to every level above it. One hairline weight throughout (the strong glass stroke); a parent draws nothing of its own. The RULE is pure and shared ×4 — it reads nothing but the visible rows' depths — so only the painting is per-platform. In the catalog the guides are a PART of `Row` (its `depth`, inside a `Section tree`), filled by the core's post-expansion pass and never authored on their own.",
     "components": [
       "Row"
     ],
@@ -335,7 +335,7 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "Picker triggerVariant=\"row\"",
         "file": "packages/ui/src/picker/picker.tsx",
-        "note": "EXP-958: the row IS the picker — its own Select and sheet are gone"
+        "note": "the row IS the picker — its own Select and sheet are gone"
       },
       "desktop": {
         "status": "ok",
@@ -449,7 +449,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "segmented",
     "title": "Segmented control",
-    "blurb": "The standalone capsule: 36 tall, padding 3, the section fill under a section stroke. Segments share the embedded row's geometry — EXP-941 made that second form a prop rather than a second component, so the settings strips and the free-floating ones are one control. Eight strips wired their own Tabs + TabsList + N triggers by hand before, and drifted in padding and in whether a segment carried a glyph; the class recipe still lives in tabs.tsx, which other surfaces read directly.",
+    "blurb": "The standalone capsule: 36 tall, padding 3, the section fill under a section stroke. Segments share the embedded row's geometry, and that second form is a prop rather than a second component, so the settings strips and the free-floating ones are one control. Eight strips wired their own Tabs + TabsList + N triggers by hand before, and drifted in padding and in whether a segment carried a glyph; the class recipe still lives in tabs.tsx, which other surfaces read directly.",
     "components": [
       "Segmented"
     ],
@@ -480,7 +480,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "icon-button",
     "title": "Primary icon button",
-    "blurb": "A 32px circle of card fill under a card stroke, glyph 16px at 70% foreground; hover fills to active and the glyph goes full strength. The SHAPE is the meaning (EXP-771, narrowed by EXP-862): a circle marks the PRIMARY action and nothing else wears one. That is play / start, send, the rail's New issue and Search, a mobile FAB, and the \"+\" that adds. Every other icon-only control is the ghost icon button. The remaining exception is a picker TRIGGER, which is a rounded square: see icon picker.",
+    "blurb": "A 32px circle of card fill under a card stroke, glyph 16px at 70% foreground; hover fills to active and the glyph goes full strength. The SHAPE is the meaning: a circle marks the PRIMARY action and nothing else wears one. That is play / start, send, the rail's New issue and Search, a mobile FAB, and the \"+\" that adds. Every other icon-only control is the ghost icon button. The remaining exception is a picker TRIGGER, which is a rounded square: see icon picker.",
     "components": [
       "Button"
     ],
@@ -510,7 +510,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "ghost-icon-button",
     "title": "Ghost icon button",
-    "blurb": "The SECONDARY icon button (EXP-862): the same 32px box and the same 16px glyph at 70% foreground, with no circle, no fill and no border at rest. Hover is the only paint it carries, the row wash under the MD corner, and the glyph goes full strength; a toggle that is ON says so with aria-pressed and keeps that wash (the editor rail's marks, EXP-960). Everything that is not the primary action wears this one: the \"…\" overflow, close, the folder and file-list toggles, the chevrons (back, fold, reorder), trash and remove, refresh. Put a circle here and the surface ends up with three things asking to be pressed and no way to tell which one it wants.",
+    "blurb": "The SECONDARY icon button: the same 32px box and the same 16px glyph at 70% foreground, with no circle, no fill and no border at rest. Hover is the only paint it carries, the row wash under the MD corner, and the glyph goes full strength; a toggle that is ON says so with aria-pressed and keeps that wash (the editor rail's marks). Everything that is not the primary action wears this one: the \"…\" overflow, close, the folder and file-list toggles, the chevrons (back, fold, reorder), trash and remove, refresh. Put a circle here and the surface ends up with three things asking to be pressed and no way to tell which one it wants.",
     "components": [
       "Button"
     ],
@@ -541,7 +541,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "button-primary",
     "title": "Primary submit",
-    "blurb": "Full width, padding 14/16, radius 10, solid primary. Disabled drops to card fill with a card stroke and 50% foreground. EXP-1176: ONE shape on every client — the specimen is the web's own Button, a radius-10 rectangle like the mobile sheet submit and desktop web_md. A text button is never a capsule; the capsule is the pill.",
+    "blurb": "Full width, padding 14/16, radius 10, solid primary. Disabled drops to card fill with a card stroke and 50% foreground. ONE shape on every client — the specimen is the web's own Button, a radius-10 rectangle like the mobile sheet submit and desktop web_md. A text button is never a capsule; the capsule is the pill.",
     "components": [
       "Button"
     ],
@@ -550,7 +550,7 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "Button (variant default)",
         "file": "packages/ui/src/button.tsx",
-        "note": "the same radius-10 rectangle on every client since EXP-1176; the mobile sheet submit is the full-width form of it"
+        "note": "the same radius-10 rectangle on every client; the mobile sheet submit is the full-width form of it"
       },
       "desktop": {
         "status": "ok",
@@ -572,7 +572,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "text-button",
     "title": "Text button",
-    "blurb": "EXP-962: a control made of WORDS — `size=\"inline\"`, 12px, no box, no height of its own, sitting in the run of muted text around it. Two variants, and the difference is what happens when it is pressed: `text` is muted, brightens under the pointer and never underlines, because it toggles something IN PLACE (a fold's Show more / Show less, \"Back to the current step\"); `link` takes the primary colour and underlines on hover, because it GOES somewhere (a session band's \"Continues in a newer session\", a stack band's `↓ #APP-14`). Anything that wants a box is the pill or the primary submit — four call sites hand-drew one of these two shapes before.",
+    "blurb": "A control made of WORDS — `size=\"inline\"`, 12px, no box, no height of its own, sitting in the run of muted text around it. Two variants, and the difference is what happens when it is pressed: `text` is muted, brightens under the pointer and never underlines, because it toggles something IN PLACE (a fold's Show more / Show less, \"Back to the current step\"); `link` takes the primary colour and underlines on hover, because it GOES somewhere (a session band's \"Continues in a newer session\", a stack band's `↓ #APP-14`). Anything that wants a box is the pill or the primary submit — four call sites hand-drew one of these two shapes before.",
     "components": [
       "Button"
     ],
@@ -586,7 +586,7 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "controls::text_button (TextButtonVariant::Text)",
         "file": "apps/desktop/crates/ui/src/controls.rs",
-        "note": "EXP-963: the output card's and the body's Show more, the edited-files footer ride it"
+        "note": "the output card's and the body's Show more, the edited-files footer ride it"
       },
       "ios": {
         "status": "leftover",
@@ -635,20 +635,20 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "badge",
     "title": "Count badge",
-    "blurb": "EXP-962: the smallest chip there is — a 16px capsule carrying a NUMBER and nothing else, 10px semibold and tabular so a count can climb without the box twitching. `muted` is a count you parked (the rail's drafts), `primary` one that wants you (unread). Zero renders NOTHING, because a badge is a signal and an empty signal is noise, and past `max` it reads `99+`. PLACEMENT stays at the call site — a row's trailing edge, a nav glyph's corner — so the badge owns only its shape. A `Pill size=\"sm\"` is 24 tall and carries a word; this carries a quantity.",
+    "blurb": "The smallest chip there is — a 16px capsule carrying a NUMBER and nothing else, 10px semibold and tabular so a count can climb without the box twitching. `muted` is a count you parked (the rail's drafts), `primary` one that wants you (unread). Zero renders NOTHING, because a badge is a signal and an empty signal is noise, and past `max` it reads `99+`. PLACEMENT stays at the call site — a row's trailing edge, a nav glyph's corner — so the badge owns only its shape. A `Pill size=\"sm\"` is 24 tall and carries a word; this carries a quantity.",
     "components": [
       "Badge"
     ],
     "status": {
       "web": {
         "status": "n/a",
-        "note": "the caller-less web Badge was deleted (UI cleanup batch, EXP-1245..1251); no web count capsule today"
+        "note": "the caller-less web Badge was deleted in a UI cleanup; no web count capsule today"
       },
       "desktop": {
         "status": "ok",
         "symbol": "controls::pills::count_badge",
         "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/pills.rs",
-        "note": "EXP-963: RailBadge::Count hangs it on the rail's Drafts entry"
+        "note": "RailBadge::Count hangs it on the rail's Drafts entry"
       },
       "ios": {
         "status": "leftover",
@@ -667,7 +667,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "entity-chip",
     "title": "Entity chip",
-    "blurb": "The issue chip's box, opened to every kind an Exponential MCP answer can name (EXP-920): a settled tool row in a session transcript draws ONE chip per entity it touched — board, action, comment, session, label, status, workflow, device, member… — as a glyph and a short label in the SAME rounded rect the issue chip owns (the issue chip now renders THROUGH it, so the two cannot drift by a pixel). An issue keeps its three parts (status glyph · mono identifier · title); every other kind draws its icon CONCEPT (`entityRefIcon`) and its name; a LIST answer folds into one chip that counts its members in the product noun (`3 issues`, `1 session`) and never navigates — its card lists them. Label, detail and grouping are the contract's (`@exp/domain-contract/entity-preview`, fixture-locked ×4). A row the viewer has not synced draws the same chip muted with no target and no card.",
+    "blurb": "The issue chip's box, opened to every kind an Exponential MCP answer can name: a settled tool row in a session transcript draws ONE chip per entity it touched — board, action, comment, session, label, status, workflow, device, member… — as a glyph and a short label in the SAME rounded rect the issue chip owns (the issue chip now renders THROUGH it, so the two cannot drift by a pixel). An issue keeps its three parts (status glyph · mono identifier · title); every other kind draws its icon CONCEPT (`entityRefIcon`) and its name; a LIST answer folds into one chip that counts its members in the product noun (`3 issues`, `1 session`) and never navigates — its card lists them. Label, detail and grouping are the contract's (`@exp/domain-contract/entity-preview`, fixture-locked ×4). A row the viewer has not synced draws the same chip muted with no target and no card.",
     "components": [
       "Chip"
     ],
@@ -743,7 +743,7 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "controls::inputs::glass_input",
         "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/inputs.rs",
-        "note": "focus swaps the stroke to strokeActive, no ring (EXP-720); the corner is radius.lg (EXP-963)"
+        "note": "focus swaps the stroke to strokeActive, no ring; the corner is radius.lg"
       },
       "ios": {
         "status": "ok",
@@ -790,7 +790,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "glass-card",
     "title": "Glass card",
-    "blurb": "The ONE translucent card, and only its box: radius XL, the card hairline, the glass card fill. Everything a card owns on its own stays at the call site, because those genuinely differ — its padding, a blur, a shadow, and the divide-y + overflow hidden that turns the same box into a GROUP of rows. EXP-903: five surfaces painted it by copy-paste (the comment row, the agent AskCard, the usage card, the mobile issue properties sheet and the repo picker, which had drifted to the MD corner and the bare hairline). The shadcn Card derives its recipe from the same constant, so the two cannot disagree; a group of list ROWS is the group container instead, on the row fill with no outer stroke.",
+    "blurb": "The ONE translucent card, and only its box: radius XL, the card hairline, the glass card fill. Everything a card owns on its own stays at the call site, because those genuinely differ — its padding, a blur, a shadow, and the divide-y + overflow hidden that turns the same box into a GROUP of rows. Five surfaces painted it by copy-paste (the comment row, the agent AskCard, the usage card, the mobile issue properties sheet and the repo picker, which had drifted to the MD corner and the bare hairline). The shadcn Card derives its recipe from the same constant, so the two cannot disagree; a group of list ROWS is the group container instead, on the row fill with no outer stroke.",
     "components": [
       "Card"
     ],
@@ -850,7 +850,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "composer",
     "title": "Composer",
-    "blurb": "ONE composer for comments, steering and reporter replies: a radius-16 card of card fill under a card hairline, holding an optional attachment strip, a borderless 36-min field and a tool row of 24px ghost glyph buttons with a right-aligned submit whose glyph is the primary tint. EXP-877's `inline` arm is the steer card — the round submit rides the field's own row instead of a tool row under it. The opaque variant swaps to the opaque card fill and the strong stroke — it floats over a feed on mobile, and an alpha fill there shows the conversation through it. EXP-961 moved it into @exp/ui: the card owns CHROME AND LAYOUT only, and every caller keeps its own field, upload and send.",
+    "blurb": "ONE composer for comments, steering and reporter replies: a radius-16 card of card fill under a card hairline, holding an optional attachment strip, a borderless 36-min field and a tool row of 24px ghost glyph buttons with a right-aligned submit whose glyph is the primary tint. The `inline` arm is the steer card — the round submit rides the field's own row instead of a tool row under it. The opaque variant swaps to the opaque card fill and the strong stroke — it floats over a feed on mobile, and an alpha fill there shows the conversation through it. It lives in @exp/ui: the card owns CHROME AND LAYOUT only, and every caller keeps its own field, upload and send.",
     "components": [
       "Composer"
     ],
@@ -880,7 +880,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "meter",
     "title": "Meter",
-    "blurb": "The ONE bar every usage surface draws — the rate-limit windows, the session's context, the mini line. A capsule track in the strong stroke with a capsule fill, and exactly three tones: foreground at 30% normally, the yellow semantic from 75%, the destructive from 95%. The height is the caller's (6px full, 4px mini); the tone is the only decision. Before EXP-909 there were two bars two rows apart — a bare Progress with the primary fill, and a hand-rolled span with its own tone map — reading the same percent in different colours.",
+    "blurb": "The ONE bar every usage surface draws — the rate-limit windows, the session's context, the mini line. A capsule track in the strong stroke with a capsule fill, and exactly three tones: foreground at 30% normally, the yellow semantic from 75%, the destructive from 95%. The height is the caller's (6px full, 4px mini); the tone is the only decision. Before it there were two bars two rows apart — a bare Progress with the primary fill, and a hand-rolled span with its own tone map — reading the same percent in different colours.",
     "components": [
       "Meter"
     ],
@@ -910,7 +910,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "segmented-bar",
     "title": "Segmented bar",
-    "blurb": "EXP-1051: the context window's breakdown — the Meter's track, filled left to right by one slice per layer the session's context_layout named (base, tools, playbook, team prompt, project, task) and the derived conversation, in the contract's tones, clipped at 100% and never rescaled; free space is the bare track. Three hairline ticks mark the compaction floor (50%) and the two usage thresholds (75%, 95%). The legend swatch beside each row reuses the slice's tone, so a square and its slice cannot disagree.",
+    "blurb": "The context window's breakdown — the Meter's track, filled left to right by one slice per layer the session's context_layout named (base, tools, playbook, team prompt, project, task) and the derived conversation, in the contract's tones, clipped at 100% and never rescaled; free space is the bare track. Three hairline ticks mark the compaction floor (50%) and the two usage thresholds (75%, 95%). The legend swatch beside each row reuses the slice's tone, so a square and its slice cannot disagree.",
     "components": [
       "Meter"
     ],
@@ -1088,7 +1088,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "empty-state",
     "title": "Empty state",
-    "blurb": "EXP-1274: ONE empty state, two sizes (copy ×4 = `empty-state.json`). `page` = a whole screen with nothing: the 48px icon disc, a semibold title, an optional muted sentence that teaches the next step and an optional actions row, centred on at most 28rem, 48px vertical padding. `list` = inside a section, a sidebar or a picker: a bare 20px muted glyph over ONE muted line, 24px vertical padding, never a description or a button (the band's trailing pill is the call to action). A title is at most four words (`No <noun> yet`, `No <noun>`, `All caught up`) and never explains. A first load is a skeleton or a spinner, a refetch the band's `loading` glyph, and no list over synced or server data carries a Refresh button. `EmptyCta` (next entry) is the dashed box that STARTS a list.",
+    "blurb": "ONE empty state, two sizes (copy ×4 = `empty-state.json`). `page` = a whole screen with nothing: the 48px icon disc, a semibold title, an optional muted sentence that teaches the next step and an optional actions row, centred on at most 28rem, 48px vertical padding. `list` = inside a section, a sidebar or a picker: a bare 20px muted glyph over ONE muted line, 24px vertical padding, never a description or a button (the band's trailing pill is the call to action). A title is at most four words (`No <noun> yet`, `No <noun>`, `All caught up`) and never explains. A first load is a skeleton or a spinner, a refetch the band's `loading` glyph, and no list over synced or server data carries a Refresh button. `EmptyCta` (next entry) is the dashed box that STARTS a list.",
     "components": [
       "EmptyState"
     ],
@@ -1121,7 +1121,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "empty-cta",
     "title": "Empty call to action",
-    "blurb": "EXP-962: the third empty, and the only one that is a BUTTON. A dashed, full-width box standing exactly where the first row will go — a 16px glyph, one title line, one muted sentence under it, the row wash and full-strength text on hover. Dashed because it is a placeholder for the row it invites; clickable because the shortest path to that row is the box itself. `EmptyState` teaches a PAGE with nothing on it, `ListEmpty` reports a list that filtered down to nothing, and this one STARTS a list: the actions panel's \"describe one\" nudge is the call site it was cut from.",
+    "blurb": "The third empty, and the only one that is a BUTTON. A dashed, full-width box standing exactly where the first row will go — a 16px glyph, one title line, one muted sentence under it, the row wash and full-strength text on hover. Dashed because it is a placeholder for the row it invites; clickable because the shortest path to that row is the box itself. `EmptyState` teaches a PAGE with nothing on it, `ListEmpty` reports a list that filtered down to nothing, and this one STARTS a list: the actions panel's \"describe one\" nudge is the call site it was cut from.",
     "components": [
       "EmptyState"
     ],
@@ -1134,7 +1134,7 @@ export const APP_PARITY: readonly AppParity[] = [
       },
       "desktop": {
         "status": "n/a",
-        "note": "the actions panel's nudge went with actions (N-10); no desktop call site renders this box yet"
+        "note": "the actions panel's nudge went with actions; no desktop call site renders this box yet"
       },
       "ios": {
         "status": "n/a",
@@ -1149,7 +1149,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "skeleton",
     "title": "Skeleton",
-    "blurb": "EXP-1259 (feedback-states.json `placeholder`): skeleton ROWS in the real row geometry stand in for a list that is loading: the row's height, a dot where its glyph sits, bars where its text sits, hairlines between rows, one slow opacity pulse (0.45 to 0.9 over 1.6 s), static under reduce motion. It replaces every Loading text and the phones' centred first-load spinners. The catalog's `Skeleton rows` is the same piece.",
+    "blurb": "Skeleton ROWS (feedback-states.json `placeholder`) in the real row geometry stand in for a list that is loading: the row's height, a dot where its glyph sits, bars where its text sits, hairlines between rows, one slow opacity pulse (0.45 to 0.9 over 1.6 s), static under reduce motion. It replaces every Loading text and the phones' centred first-load spinners. The catalog's `Skeleton rows` is the same piece.",
     "components": [
       "Skeleton"
     ],
@@ -1179,7 +1179,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "feedback-inline",
     "title": "Inline spinner",
-    "blurb": "EXP-1259 (feedback-states.json `inline`): a 10 px spinner and a progressive word in a band, header or caption (Saving, then Saved). The list-head spinner of a refetching band is this primitive. The catalog's `Spinner size xs`.",
+    "blurb": "A 10 px spinner (feedback-states.json `inline`) and a progressive word in a band, header or caption (Saving, then Saved). The list-head spinner of a refetching band is this primitive. The catalog's `Spinner size xs`.",
     "components": [
       "Spinner",
       "Section"
@@ -1210,7 +1210,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "feedback-pending",
     "title": "Pending button",
-    "blurb": "EXP-1259 (feedback-states.json `pending`): a button that started something refuses presses at once, then after 150 ms swaps its icon slot for the spinner and its label for the progressive word (Starting), never narrower than it was. The catalog's `Button loading` + `pendingLabel`.",
+    "blurb": "A button that started something refuses presses at once, then after 150 ms swaps its icon slot for the spinner and its label for the progressive word (Starting), never narrower than it was. The catalog's `Button loading` + `pendingLabel`.",
     "components": [
       "Button"
     ],
@@ -1240,7 +1240,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "searchable-list",
     "title": "Search list",
-    "blurb": "EXP-1259 (search-list.json): THE search list. An input row (40 px, the search glyph, the result count once a query is typed) over the picker rows, at most eight visible, the rest scrolling under a 24 px bottom fade. The top row is highlighted, arrows move it, Enter or Tab pick it. It is the `#` typeahead, the issue pickers, the global search and the composer menu's searchable submenus. The catalog's `SearchList` and `menuItem.searchable`.",
+    "blurb": "THE search list (search-list.json). An input row (40 px, the search glyph, the result count once a query is typed) over the picker rows, at most eight visible, the rest scrolling under a 24 px bottom fade. The top row is highlighted, arrows move it, Enter or Tab pick it. It is the `#` typeahead, the issue pickers, the global search and the composer menu's searchable submenus. The catalog's `SearchList` and `menuItem.searchable`.",
     "components": [
       "SearchList",
       "Menu"
@@ -1271,7 +1271,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "tab-strip",
     "title": "Tab strip",
-    "blurb": "EXP-1259 (EXP-1255): the work tabs. The close glyph shows only while its tab is hovered or keyboard-focused (the active one too); a ghost + after the last tab opens a New session tab. The catalog's `Tabs closable: hover` + `addable`.",
+    "blurb": "The work tabs. The close glyph shows only while its tab is hovered or keyboard-focused (the active one too); a ghost + after the last tab opens a New session tab. The catalog's `Tabs closable: hover` + `addable`.",
     "components": [
       "Tabs"
     ],
@@ -1299,7 +1299,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "dialog",
     "title": "Dialog",
-    "blurb": "The centred modal: a radius-16 card on the OPAQUE card fill under a card hairline, a semibold title, one line of body, and a footer whose LAST button is the primary. Cancel is borderless — two boxed buttons side by side ask the reader to choose between two equals. On a phone the same component drops to the bottom sheet arm. A confirm or a choice is never this shell: it is the Prompt (EXP-1215). Hand-written here because a closed Radix portal renders nothing at all statically (PORTAL_ONLY_IDS).",
+    "blurb": "The centred modal: a radius-16 card on the OPAQUE card fill under a card hairline, a semibold title, one line of body, and a footer whose LAST button is the primary. Cancel is borderless — two boxed buttons side by side ask the reader to choose between two equals. On a phone the same component drops to the bottom sheet arm. A confirm or a choice is never this shell: it is the Prompt. Hand-written here because a closed Radix portal renders nothing at all statically (PORTAL_ONLY_IDS).",
     "components": [
       "Dialog"
     ],
@@ -1308,13 +1308,13 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "Dialog / DialogContent",
         "file": "packages/ui/src/dialog.tsx",
-        "note": "a confirm or a choice is the Prompt entry (EXP-1215), never this shell"
+        "note": "a confirm or a choice is the Prompt entry, never this shell"
       },
       "desktop": {
         "status": "ok",
         "symbol": "native_dialog::DialogShell",
         "file": "apps/desktop/crates/ui/src/native_dialog.rs",
-        "note": "EXP-284: every IDE dialog is a real OS window, not an in-window overlay"
+        "note": "every IDE dialog is a real OS window, not an in-window overlay"
       },
       "ios": {
         "status": "n/a",
@@ -1329,7 +1329,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "prompt",
     "title": "Prompt",
-    "blurb": "THE confirm and choice prompt (EXP-1215): every \"Delete X?\", merge confirm and multi-answer choice on the web is this one card, the same on every width, its wording read from the contract fixture `prompts.json` (web mirror `apps/web/src/lib/prompts.ts`, the same strings on iOS and Android). A centred card over the dimmed scrim, no ✕ (scrim tap and Esc are its cancel path); ONE question as the title; a body line only for a fact the title cannot carry (what is deleted, a name, a count, a consequence for other people), never a restatement of the buttons; an optional content slot between the text and the row (the blocked-start graph, an input); ONE row of the 32px `md` Pill capsules; only when that row cannot fit do the pills stack, one per line at their own width, trailing-aligned, in reverse display order: the default on top, Cancel below it, a quiet destructive answer last (iOS `GlassAlertLayout.stacked`); never a two-row hybrid. Roles: `cancel` = the plain pill that only dismisses; `primary` = the safe/expected answer, the accent pill at the trailing edge; `default` = a plain pill that does something; `destructive` = the answer of a plain \"Delete X?\" confirm, the plain pill with a destructive label and tinted border next to Cancel (no primary, Cancel takes focus); `quietDestructive` = destructive TEXT set apart on the leading edge when a safe primary exists too. No solid red blocks, no full-width buttons; initial focus and Enter never land on a destructive answer; a busy answer keeps its label and shows the pill's spinner while the row and the dismiss paths lock. The natives draw the same card (GlassAlert); the IDE asks in native alert windows with the same words, roles and focus (EXP-1230, `AlertSpec::from_prompt`).",
+    "blurb": "THE confirm and choice prompt: every \"Delete X?\", merge confirm and multi-answer choice on the web is this one card, the same on every width, its wording read from the contract fixture `prompts.json` (web mirror `apps/web/src/lib/prompts.ts`, the same strings on iOS and Android). A centred card over the dimmed scrim, no ✕ (scrim tap and Esc are its cancel path); ONE question as the title; a body line only for a fact the title cannot carry (what is deleted, a name, a count, a consequence for other people), never a restatement of the buttons; an optional content slot between the text and the row (the blocked-start graph, an input); ONE row of the 32px `md` Pill capsules; only when that row cannot fit do the pills stack, one per line at their own width, trailing-aligned, in reverse display order: the default on top, Cancel below it, a quiet destructive answer last (iOS `GlassAlertLayout.stacked`); never a two-row hybrid. Roles: `cancel` = the plain pill that only dismisses; `primary` = the safe/expected answer, the accent pill at the trailing edge; `default` = a plain pill that does something; `destructive` = the answer of a plain \"Delete X?\" confirm, the plain pill with a destructive label and tinted border next to Cancel (no primary, Cancel takes focus); `quietDestructive` = destructive TEXT set apart on the leading edge when a safe primary exists too. No solid red blocks, no full-width buttons; initial focus and Enter never land on a destructive answer; a busy answer keeps its label and shows the pill's spinner while the row and the dismiss paths lock. The natives draw the same card (GlassAlert); the IDE asks in native alert windows with the same words, roles and focus (`AlertSpec::from_prompt`).",
     "components": [
       "Dialog"
     ],
@@ -1343,7 +1343,7 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "native_dialog::AlertSpec::from_prompt",
         "file": "apps/desktop/crates/ui/src/native_dialog.rs",
-        "note": "EXP-1230: the fixture's words, roles and focus (domain prompts.rs) in a native alert window"
+        "note": "the fixture's words, roles and focus (domain prompts.rs) in a native alert window"
       },
       "ios": {
         "status": "ok",
@@ -1360,7 +1360,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "picker-surface",
     "title": "Picker surface",
-    "blurb": "The searchable SURFACE every Picker opens (Picker = the only public picker; its Combobox engine is internal since EXP-1249): a popover on a pointer, the bottom sheet on a phone. Selection speaks ONE language: SINGLE marks the picked row with a trailing ui-check, MULTI by the row's own highlight wash (data-picked), and a bulk edit over rows that disagree marks the row mixed; never a checkbox, never a circle pair. `value` is the identity and `keywords` the search text, so two boards may share a name; `noneLabel` renders a row that reports null. Single closes on pick, multi stays open. PickerItem is the row shape; the trigger comes in four `triggerVariant`s, pill | field | row | inline (row = the form ladder's picker row, the catalog `Row chevron: selector`). PickerMenuRows draws the same rows inside a Menu.",
+    "blurb": "The searchable SURFACE every Picker opens (Picker = the only public picker; its Combobox engine is internal): a popover on a pointer, the bottom sheet on a phone. Selection speaks ONE language: SINGLE marks the picked row with a trailing ui-check, MULTI by the row's own highlight wash (data-picked), and a bulk edit over rows that disagree marks the row mixed; never a checkbox, never a circle pair. `value` is the identity and `keywords` the search text, so two boards may share a name; `noneLabel` renders a row that reports null. Single closes on pick, multi stays open. PickerItem is the row shape; the trigger comes in four `triggerVariant`s, pill | field | row | inline (row = the form ladder's picker row, the catalog `Row chevron: selector`). PickerMenuRows draws the same rows inside a Menu.",
     "components": [
       "Select",
       "Row"
@@ -1376,19 +1376,19 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "picker::Picker",
         "file": "apps/desktop/crates/ui/src/picker/mod.rs",
-        "note": "EXP-1021 retired searchable_picker; the primitive owns its query + cursor, so a host holds no picker entities"
+        "note": "searchable_picker is retired; the primitive owns its query + cursor, so a host holds no picker entities"
       },
       "ios": {
         "status": "ok",
         "symbol": "GlassPicker",
         "file": "apps/ios/ExpUI/Sources/Picker/Picker.swift",
-        "note": "EXP-1249 retired GlassPickerSheet: every pick outside the typed subjects goes through GlassPicker"
+        "note": "GlassPickerSheet is retired: every pick outside the typed subjects goes through GlassPicker"
       },
       "android": {
         "status": "leftover",
         "symbol": "GlassSheetRow",
         "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/GlassSheet.kt",
-        "note": "EXP-1021 built the generic picker (Picker, its own entry); this row is what the sheets outside the ten assemble"
+        "note": "the generic picker is Picker, its own entry; this row is what the sheets outside the ten assemble"
       }
     }
   },
@@ -1409,7 +1409,7 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "controls::inputs::search_field",
         "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/inputs.rs",
-        "note": "EXP-963: SearchFieldSize::Md 36 / Sm 28; the diff pane filter, every picker query and the search dialog draw it"
+        "note": "SearchFieldSize::Md 36 / Sm 28; the diff pane filter, every picker query and the search dialog draw it"
       },
       "ios": {
         "status": "ok",
@@ -1481,14 +1481,14 @@ export const APP_PARITY: readonly AppParity[] = [
       },
       "android": {
         "status": "n/a",
-        "note": "no boxed banner: EXP-1249 deleted the caller-less GlassNotice; an error renders as a red Text line"
+        "note": "no boxed banner: the caller-less GlassNotice is gone; an error renders as a red Text line"
       }
     }
   },
   {
     "id": "context-ring",
     "title": "Context ring",
-    "blurb": "EXP-877: how full the agent's context window is, as a 16px radial where the context pill used to be — and the trigger of the usage overlay the session already had. The arc is a stroked circle rotated a quarter turn, the track the same circle at 20% opacity, and the tone is the session's, not the ring's: the app maps its own thresholds onto normal / warning / danger and passes one in. A session nothing has measured renders NOTHING unless `showEmpty` says the session has other usage worth opening.",
+    "blurb": "How full the agent's context window is, as a 16px radial where the context pill used to be — and the trigger of the usage overlay the session already had. The arc is a stroked circle rotated a quarter turn, the track the same circle at 20% opacity, and the tone is the session's, not the ring's: the app maps its own thresholds onto normal / warning / danger and passes one in. A session nothing has measured renders NOTHING unless `showEmpty` says the session has other usage worth opening.",
     "components": [
       "Ring"
     ],
@@ -1520,7 +1520,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "progress-ring",
     "title": "Sub-issue progress ring",
-    "blurb": "EXP-1097: the completion ring that leads the issue detail's Sub-issues band — done of total as an arc over a 20% track, the SAME 16-unit box, 2-unit stroke and track as the context ring (`ringGeometry`), drawn at 14px and painted in the team's COMPLETED status colour. The band reads ring · \"Sub-issues\" · `done/total` · `+` over flat rows (`lib/issue-relations-view.ts`, fixture-locked ×4).",
+    "blurb": "The completion ring that leads the issue detail's Sub-issues band — done of total as an arc over a 20% track, the SAME 16-unit box, 2-unit stroke and track as the context ring (`ringGeometry`), drawn at 14px and painted in the team's COMPLETED status colour. The band reads ring · \"Sub-issues\" · `done/total` · `+` over flat rows (`lib/issue-relations-view.ts`, fixture-locked ×4).",
     "components": [
       "Ring"
     ],
@@ -1535,26 +1535,26 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "issue_relations::render_sub_issues",
         "file": "apps/desktop/crates/ui/src/issue_relations.rs",
-        "note": "EXP-1097: a ProgressCircle on the context ring's geometry, the COMPLETED status colour"
+        "note": "a ProgressCircle on the context ring's geometry, the COMPLETED status colour"
       },
       "ios": {
         "status": "ok",
         "symbol": "ProgressRing",
         "file": "apps/ios/ExpUI/Sources/ProgressRing.swift",
-        "note": "EXP-1097: IssueSubIssuesSection (IssueRelationRows.swift) leads its band with it"
+        "note": "IssueSubIssuesSection (IssueRelationRows.swift) leads its band with it"
       },
       "android": {
         "status": "ok",
         "symbol": "SubIssueProgressRing",
         "file": "apps/android/app/src/main/java/com/exponential/app/ui/issue/RelationsSection.kt",
-        "note": "EXP-1097: SubIssuesSection leads its band with it"
+        "note": "SubIssuesSection leads its band with it"
       }
     }
   },
   {
     "id": "list-empty",
     "title": "In-list empty line",
-    "blurb": "EXP-1274: this IS `EmptyState size=\"list\"` without a glyph — one muted centred line inside a list that filtered down to nothing, the line `CommandEmpty` draws. A search that matched nothing needs a different query, not a next step, so it never teaches.",
+    "blurb": "This IS `EmptyState size=\"list\"` without a glyph — one muted centred line inside a list that filtered down to nothing, the line `CommandEmpty` draws. A search that matched nothing needs a different query, not a next step, so it never teaches.",
     "components": [
       "EmptyState"
     ],
@@ -1588,7 +1588,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "picker",
     "title": "Picker",
-    "blurb": "THE picker primitive: one surface per platform (a popover at the trigger on a pointer, a bottom sheet of plain rows on a phone), single or multi, optional search. Presentation belongs to the primitive, never to the caller — a row is a glyph or a dot, a label and a muted second line, and it is never a card. The selection language is the whole point of EXP-1021: a single pick wears a trailing check, a MULTI pick reads as the row's own highlight, never a leading circle, so the picker that links a relation and the picker that batches issues finally look like one thing. The trigger is the caller's (four shapes: pill, field, row, inline); the surface, the search field and the keys are the primitive's.",
+    "blurb": "THE picker primitive: one surface per platform (a popover at the trigger on a pointer, a bottom sheet of plain rows on a phone), single or multi, optional search. Presentation belongs to the primitive, never to the caller — a row is a glyph or a dot, a label and a muted second line, and it is never a card. The selection language is the whole point: a single pick wears a trailing check, a MULTI pick reads as the row's own highlight, never a leading circle, so the picker that links a relation and the picker that batches issues finally look like one thing. The trigger is the caller's (four shapes: pill, field, row, inline); the surface, the search field and the keys are the primitive's.",
     "components": [
       "Select"
     ],
@@ -1619,7 +1619,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "menu",
     "title": "Menu",
-    "blurb": "The one floating-menu surface (opaque card fill, hairline, radius 12, no blur, no shadow) and the one ROW recipe on it, in two densities from tokens.json `menu`: POINTER for web from md up (36 row · 8 pad · 8 gap · 16 glyph · 180–280 wide), TOUCH for mobile web, iOS and Android (48 row · 12 pad · 12 gap · 16 glyph · 180–280 wide). Every menu-like row on web reads the same --menu-* vars — context and dropdown items, their sub-triggers, Select, Command, the typeahead — so one change moves every menu. A destructive row is red and never fenced off by a divider (EXP-687).",
+    "blurb": "The one floating-menu surface (opaque card fill, hairline, radius 12, no blur, no shadow) and the one ROW recipe on it, in two densities from tokens.json `menu`: POINTER for web from md up (36 row · 8 pad · 8 gap · 16 glyph · 180–280 wide), TOUCH for mobile web, iOS and Android (48 row · 12 pad · 12 gap · 16 glyph · 180–280 wide). Every menu-like row on web reads the same --menu-* vars — context and dropdown items, their sub-triggers, Select, Command, the typeahead — so one change moves every menu. A destructive row is red and never fenced off by a divider.",
     "components": [
       "Menu"
     ],
@@ -1628,7 +1628,7 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "Menu",
         "file": "packages/ui/src/menu.tsx",
-        "note": "EXP-1249: ONE data-driven Menu (MenuEntry[], trigger | pointer | sheet) over the SDK menu + sheet primitives; rows wear menu-surface's --menu-* constants"
+        "note": "ONE data-driven Menu (MenuEntry[], trigger | pointer | sheet) over the SDK menu + sheet primitives; rows wear menu-surface's --menu-* constants"
       },
       "desktop": {
         "status": "leftover",
@@ -1681,7 +1681,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "hover-card",
     "title": "Hover card",
-    "blurb": "EXP-760: the pointer's preview (the catalog `Popover openOn: hover`): the opaque menu card (12 radius, card hairline, no blur, no shadow), 320 wide, padding 12, opening after 400 ms so a pointer crossing a dense list of #IDENT chips never flashes one, closing after 100 ms so the pointer can travel into it. It carries the issue preview body (status · identifier · title · the first lines) and the account picker's usage preview; a tap on touch just activates the trigger, so the phones have none.",
+    "blurb": "The pointer's preview (the catalog `Popover openOn: hover`): the opaque menu card (12 radius, card hairline, no blur, no shadow), 320 wide, padding 12, opening after 400 ms so a pointer crossing a dense list of #IDENT chips never flashes one, closing after 100 ms so the pointer can travel into it. It carries the issue preview body (status · identifier · title · the first lines) and the account picker's usage preview; a tap on touch just activates the trigger, so the phones have none.",
     "components": [
       "Popover"
     ],
@@ -1737,7 +1737,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "menu-family",
     "title": "Menu · Picker · Typeahead",
-    "blurb": "EXP-1074/1249: ONE data-driven Menu for every action menu, a list of MenuEntry rows (item, submenu with more rows or a picker body, toggle, separator, header) under one renderer in three modes: TRIGGER (a dropdown at a button), POINTER (a context menu at the pointer; one gesture host per layout, a row opts in with menuProps(kind, id)) and SHEET (the same rows as a bottom sheet below md, submenus as pushed pages). Every row is the one --menu-* recipe (pointer 36 · 8 · 8 · 16, touch 48 · 12 · 12 · 16), a destructive row red with no divider above it (EXP-687). A submenu's picker body is PickerMenuRows, and Menu, Picker and the typeahead speak ONE highlight language: single = a trailing check, multi = the row's wash, mixed = a softer wash. In the catalog: `Menu` (`openOn: press | contextmenu`, submenu `items` bindable to a host source) and `Select`.",
+    "blurb": "ONE data-driven Menu for every action menu, a list of MenuEntry rows (item, submenu with more rows or a picker body, toggle, separator, header) under one renderer in three modes: TRIGGER (a dropdown at a button), POINTER (a context menu at the pointer; one gesture host per layout, a row opts in with menuProps(kind, id)) and SHEET (the same rows as a bottom sheet below md, submenus as pushed pages). Every row is the one --menu-* recipe (pointer 36 · 8 · 8 · 16, touch 48 · 12 · 12 · 16), a destructive row red with no divider above it. A submenu's picker body is PickerMenuRows, and Menu, Picker and the typeahead speak ONE highlight language: single = a trailing check, multi = the row's wash, mixed = a softer wash. In the catalog: `Menu` (`openOn: press | contextmenu`, submenu `items` bindable to a host source) and `Select`.",
     "components": [
       "Menu",
       "Select"

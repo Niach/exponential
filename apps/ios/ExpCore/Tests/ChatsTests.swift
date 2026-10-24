@@ -239,7 +239,8 @@ final class ChatsTests: XCTestCase {
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])
             let got = Chats.threadMenuEntries(
                 rootStatus: try XCTUnwrap(string(input["rootStatus"])),
-                canSteer: try XCTUnwrap(input["canSteer"] as? Bool)
+                canSteer: try XCTUnwrap(input["canSteer"] as? Bool),
+                canDelete: try XCTUnwrap(input["canDelete"] as? Bool)
             )
             XCTAssertEqual(got.map(\.rawValue), testCase["expected"] as? [String], string(testCase["name"]) ?? "")
         }

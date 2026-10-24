@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { and, asc, eq, inArray, isNull } from "drizzle-orm"
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import {
   AGENT_INSTRUCTIONS_MAX_BYTES,
   agentFacetsSchema,
@@ -10,7 +10,7 @@ import {
   type agentTriggersSchema as AgentTriggersSchema,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { agents, attachments, messages, sessionIssues, sessions, type Agent } from "@/db/schema"
+import { agents, attachments, conversations, messages, sessionIssues, sessions, type Agent } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/auth/membership"
 import { agentMirror, loadAgentForUser } from "@/lib/agents/conversation"
 import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
@@ -180,6 +180,19 @@ export const agentsRouter = router({
               updatedAt: now,
             })
             .where(inArray(sessions.id, ids))
+          if (input.name !== undefined && input.name !== agent.name) {
+            // The chats are titled after the agent: a rename follows them,
+            // except where a member renamed the chat itself.
+            await tx
+              .update(sessions)
+              .set({ title: input.name, updatedAt: now })
+              .where(
+                and(
+                  inArray(sessions.id, ids),
+                  or(sql`coalesce(trim(${sessions.title}), '') = ''`, eq(sessions.title, agent.name))
+                )
+              )
+          }
           if (moved) {
             // The whole trees' visibility mirrors follow the new device.
             await tx
@@ -187,6 +200,15 @@ export const agentsRouter = router({
               .set({ shared: moved.shared, updatedAt: now })
               .where(inArray(sessions.rootId, ids))
             await tx.update(messages).set({ shared: moved.shared }).where(inArray(messages.rootId, ids))
+            await tx
+              .update(conversations)
+              .set({ shared: moved.shared })
+              .where(
+                inArray(
+                  conversations.sessionId,
+                  tx.select({ id: sessions.id }).from(sessions).where(inArray(sessions.rootId, ids))
+                )
+              )
             await tx
               .update(sessionIssues)
               .set({ shared: moved.shared })
