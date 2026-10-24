@@ -42,6 +42,7 @@ cargo run --release --features cactus -- whistle out/kokoro-en-16k/*.wav
 Nemotron 3.5 (transcribe.cpp + the Q8 GGUF) and Qwen3-TTS (llama.cpp `llama-tts`
 + the ggml-org GGUF) were driven by hand; the exact commands and their output
 are in `docs/talk-spike.md`. `scripts/os-voice-capture.sh` records the OS voice
-through a PipeWire sink monitor. `scripts/record.sh` is for a human set of the
+through a PipeWire sink monitor; on macOS `scripts/os-voice-mac.sh` writes
+the `say` clips straight to files and times each call. `scripts/record.sh` is for a human set of the
 same 20 phrases (not recorded yet). `out/` and `models/` are gitignored;
-`numbers.json` is the committed result.
+`numbers.json` (mint) and `numbers-macbook.json` are the committed results.

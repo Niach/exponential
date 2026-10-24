@@ -5,8 +5,8 @@ traits, measured on mint (Linux Mint 22, i9 with 32 threads, RTX 4090 24 GB,
 PipeWire, SteelSeries Arctis Nova 7). The harness is
 `apps/desktop/spikes/talk/` (its README has every command); the folded
 numbers are `apps/desktop/spikes/talk/numbers.json`, the input of the
-`/talk` page's Numbers section (NEW-60). Not measured yet: the macbook (a
-child session runs the same harness), the spec author's notebook, a human voice
+`/talk` page's Numbers section (NEW-60). The macbook has its own section
+below. Not measured yet: the spec author's notebook, a human voice
 (`scripts/record.sh`), a running game beside the engines.
 
 ## Test material
@@ -27,7 +27,7 @@ percentages.
 | `Transcriber` | **Nemotron 3.5 ASR streaming 0.6B** where a GPU exists (through a ggml runtime); **Whistle** as the CPU path for commands; the English streaming Zipformer only as a fallback | Nemotron is the only one of the three that hears German (Zipformer has no German model at all) and it keeps content words nearly perfect on both languages; Whistle is ten times cheaper and normalises identifiers the way the dispatcher wants, but mishears content words |
 | `Vad` | **Silero through sherpa-onnx** | 15 ms of compute per clip, end-of-utterance lag = exactly the `min_silence_duration` knob (500 ms at 0.5 s, 300 ms at 0.3 s) |
 | `WakeWord` | **transcript match** for "hey <agent>"; the sherpa keyword spotter for short idle phrases only | the 3 M spotter fires on `HEY` and `STOP` from a text keyword with no training, but never on the five-syllable `EXPONENTIAL`, boosted or not; a long brand word needs a trained model (openWakeWord) or a shorter idle phrase |
-| `Speaker` | **Qwen3-TTS** on GPU (German and English in one model, 2x faster than real time at 1.7B), **Kokoro** on CPU for English (time to first audio ~0.5 s, RTF 0.19); the Linux OS voice is not a fallback | the owner heard espeak-ng through the headset and judged it unusable on first listen; macOS and Windows OS voices remain to be judged on the macbook and the Windows device |
+| `Speaker` | **Qwen3-TTS** on GPU (German and English in one model, 2x faster than real time at 1.7B), **Kokoro** on CPU for English (time to first audio ~0.5 s, RTF 0.19); the Linux OS voice is not a fallback | the owner heard espeak-ng through the headset and judged it unusable on first listen; the macOS compact voices are measured in the macbook section (not yet heard), Windows voices are untested |
 | channels | **one PipeWire capture per source** works | two sinks recorded at once into two aligned 16 kHz clips; the same call on an app's node is the per-app channel |
 | proposer cards | the interception point exists; a per-session permission posture is the one engine change | see "The card path" |
 
@@ -119,8 +119,8 @@ The Linux OS voice was the only engine that played through the headset
 that it is not acceptable. Decision input for NEW-53: on Linux the
 "OS voices as the CPU fallback" answer means espeak-ng, which is not
 acceptable; Kokoro (English) is the CPU fallback there, and German on a
-CPU-only Linux box has no good voice yet. macOS (`AVSpeechSynthesizer`) and
-Windows (WinRT) voices are untested.
+CPU-only Linux box has no good voice yet. macOS (`say`) is measured in the macbook
+section below, not yet heard; Windows (WinRT) voices are untested.
 
 ## Channels
 
@@ -210,14 +210,14 @@ the human recording set decides between them in #NEW-54.
   transcript match for "hey <agent>" is free.
 - NEW-57 meeting mode: PipeWire per-source capture is confirmed; the merge by
   timestamps is harness work, not research.
-- Open: macbook numbers (child session), Qwen3-TTS 0.6B and CUDA VRAM, the
+- Open: Qwen3-TTS 0.6B on Metal, the
   Linux German CPU voice, a human recording set, false accepts per hour (own and consenting voices
   only, kept out of git), a
   running game beside the engines.
 
 ## macbook
 
-The same harness on Danny's macbook (Apple M4 Pro, 10 performance + 4
+The same harness on the owner's macbook (Apple M4 Pro, 10 performance + 4
 efficiency cores, 24 GB unified memory, macOS 27.0), 2026-10-24, by a child
 session; the folded numbers are `apps/desktop/spikes/talk/numbers-macbook.json`
 (hand-measured values under `manual`). Same 20 phrases, same scoring. Extra
@@ -247,7 +247,8 @@ unter wayland", "wie viele einträge sind in meiner inbox"), the identifiers
 mangled ("ixp1369", "exp12"). Whistle loads in 1.5 s cold (the weights
 download once into its cache) and 13–15 ms warm, 60 MB RSS. The Zipformer
 scores better here than on mint (13.8 % against 35.6 % on the Kokoro set):
-read as the same engine on cleaner clips, not a Mac effect; it still drops
+a hypothesis, not a finding: Kokoro's clips were generated separately on
+each machine, and the mint set was not scored on the Mac; it still drops
 identifiers ("X P THIRTEEN SIXTY NINE TO DUN"). Silero: 10 of 10 segments on
 Kokoro, 20 of 20 on the say set, 4–12 ms per clip, end-of-utterance lag
 exactly the knob (500 ms at 0.5, 300 ms at 0.3). Keyword spotter: `HEY` on
@@ -263,8 +264,9 @@ not, as on mint.
 | macOS `say`: Anna de_DE, Samantha en_US (compact voices) | the system speech daemon | whole clip on disk in 0.75–1.1 s per call, flat regardless of length (first Anna call 4.0 s to load the voice) | 0.33 (en) / 0.39 (de) median | 32 MB in the `say` client; the daemon is not measured | yes |
 
 Quality of the OS voice was NOT judged by ear in this session: the agent
-cannot listen, and the clips wait for Danny in `out/os-voice-mac/` (`afplay
-out/os-voice-mac/de-01.wav`, `en-01.wav`). The recognisers' proxy is clear
+cannot listen. To hear it, regenerate the clips on the Mac in about 20 s
+(`scripts/os-voice-mac.sh out/os-voice-mac < data/phrases.json`, then
+`afplay out/os-voice-mac/de-01.wav`); they are not in git. The recognisers' proxy is clear
 enough to write down: Whistle hears Anna's German at 45.7 % WER against
 27.2 % for Qwen3-TTS's German, and the Zipformer hears Samantha at 24.1 %
 against 13.8 % for Kokoro, so both compact voices are harder to understand
@@ -279,4 +281,4 @@ real time; the Zipformer is English-only and drops the identifiers); `Speaker`
 1.7B on Metal** when German is needed and 7 GB of unified memory are
 acceptable (1.8x faster than real time, not streaming, so 1–4 s per reply);
 German otherwise falls to the macOS compact voice, which the recognisers
-understand half as well as Qwen's German and which Danny still has to hear.
+understand half as well as Qwen's German and which the owner still has to hear.
