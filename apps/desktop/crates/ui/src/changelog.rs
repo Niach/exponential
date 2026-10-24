@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-24-phone-shell",
+    date: "2026-10-24",
+    title: "Phones: one bar for every page, a board menu in the Board tab, search in your team",
+    summary: "The phone bar is now Board · Chats · Apps · Team and you can slide a finger across it; the Board tab shows your board and opens a menu of the team's boards; every page has the same big title with search and inbox; each settings row opens its own page; search only looks in the active team and keeps up with your typing.",
+    body: r#"- **Bottom bar**: Board · Chats · Apps · Team on iPhone, Android and the mobile web. Labels are no longer cut off, and you can slide a finger across the bar: the highlight follows it (Liquid Glass on iOS 26) and lifting picks the tab. Devices moved to a row on the Team page; Apps has its own tab.
+- **Boards**: the Board tab shows the board you are on. Tap it again on the board and the bar turns into a menu of every board in the team, with New board at the end. The board pill at the top of the board is gone.
+- **Headers**: Board, Chats, Apps, Team, Devices and Agent all have the same big title with round search and inbox buttons; the inbox shows a dot while something is unread.
+- **Settings**: each row on the Team page opens its own page instead of one long page of every section, and iPhone, Android and the mobile web show the same rows to the same people.
+- **Search**: searches the active team only, and typing no longer stutters on iPhone or Android."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_79: ChangelogEntry = ChangelogEntry {
     id: "2026-10-24-fast-chats",
     date: "2026-10-24",
     title: "Long chats open instantly, and the Chats list comes to the IDE and the web",

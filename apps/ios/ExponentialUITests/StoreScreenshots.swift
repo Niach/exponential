@@ -9,7 +9,7 @@ import XCTest
 /// live steering, PR review, actions, inbox (the support inbox left with the
 /// helpdesk (gone, SLOP-4)). EXP-1295 walks the issue's thread for the
 /// steering and review shots (Reviews and the work faces are gone). EXP-393 replaced
-/// the comments / board-switcher / agents-list / reviews-list / search shots
+/// the comments / board-picker / agents-list / reviews-list / search shots
 /// with the three that actually differentiate the product (start coding,
 /// steering, diff + merge), and kept the set identical to Android's, where
 /// Play caps phone screenshots at 8.
@@ -72,8 +72,8 @@ final class StoreScreenshots: XCTestCase {
         // EXP-1267: a reused session, no login UI; false = the UI fallback ran.
         let injected = launchSignedIn(app)
 
-        // The app lands on the Agent tab — switch to Issues for the board.
-        let issuesTab = app.buttons["tab-issues"]
+        // The app lands on the Agent tab — switch to the Board tab.
+        let issuesTab = app.buttons["tab-board"]
         expect(issuesTab, within: Wait.sync, "Tab bar never appeared — did the sign-in land?")
         issuesTab.tap()
 
@@ -243,7 +243,7 @@ final class StoreScreenshots: XCTestCase {
         goBack(app)
 
         // ── 01: home issue list (captured last, see above) ──────────────────
-        app.buttons["tab-issues"].tap()
+        showBoard(app)
         expect(showcaseRowTitle, within: Wait.nav, "Board did not come back for the final capture")
         // Opening an issue earlier may have scrolled the list; the board shot
         // has to start at the top of the first group.

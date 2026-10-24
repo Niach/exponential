@@ -88,7 +88,7 @@ export const ISSUE_SEARCH_CLOSED_STATUSES = [
  * exact strings.
  */
 export const ISSUE_SEARCH_PLACEHOLDER = `Search issues`
-export const ISSUE_SEARCH_EMPTY_HINT = `Search issues across all your boards.`
+export const ISSUE_SEARCH_EMPTY_HINT = `Search issues across this team's boards.`
 export const ISSUE_SEARCH_EMPTY_DETAIL = `Matches identifiers, titles, and full text.`
 export const ISSUE_SEARCH_NO_RESULTS = `No issues match`
 
@@ -147,14 +147,31 @@ interface Prepared {
   titleWords: string[]
   readonly description: string
   readonly descriptionWords: string[]
+  /** #EXP-1382: the timestamps parsed ONCE per row (cached across keystrokes). */
+  updatedMs: number
+  createdMs: number
+  identifierNumber: number
+}
+
+// #EXP-1382: a row's preparation is cached by row identity, so a keystroke
+// re-scores the pool without re-lowercasing titles or re-parsing timestamps;
+// a changed row is a new object (Electric replaces rows), so it re-prepares.
+const PREPARED = new WeakMap<IssueSearchRow, Prepared>()
+
+function preparedOf(row: IssueSearchRow): Prepared {
+  let prepared = PREPARED.get(row)
+  if (!prepared) {
+    prepared = prepare(row)
+    PREPARED.set(row, prepared)
+  }
+  return prepared
 }
 
 /**
  * One row's lowercased fields. The DESCRIPTION is lowercased and word-split
  * LAZILY (the Android mirror's rule): a token that already matched the
  * identifier or the title never touches it, and a description is the only
- * unbounded field a ranked pool carries — every keystroke prepares the whole
- * pool.
+ * unbounded field a ranked pool carries. Cached per row (`preparedOf`).
  */
 function prepare(row: IssueSearchRow): Prepared {
   const title = row.title.toLowerCase()
@@ -174,6 +191,9 @@ function prepare(row: IssueSearchRow): Prepared {
       descriptionWords ??= words(this.description)
       return descriptionWords
     },
+    updatedMs: timeOf(row.updatedAt),
+    createdMs: timeOf(row.createdAt),
+    identifierNumber: issueIdentifierNumber(row.identifier),
   }
 }
 
@@ -222,7 +242,7 @@ function scoreRow(prepared: Prepared, tokens: string[]): Scored | null {
 
 /** The row's total score for `tokens`, or null when any token misses. */
 export function issueSearchScore(row: IssueSearchRow, tokens: string[]): number | null {
-  return scoreRow(prepare(row), tokens)?.total ?? null
+  return scoreRow(preparedOf(row), tokens)?.total ?? null
 }
 
 function timeOf(value: string | Date | null | undefined): number {
@@ -232,18 +252,22 @@ function timeOf(value: string | Date | null | undefined): number {
 }
 
 function compareRecency(a: IssueSearchRow, b: IssueSearchRow): number {
+  const pa = preparedOf(a)
+  const pb = preparedOf(b)
   return (
-    timeOf(b.updatedAt) - timeOf(a.updatedAt) ||
-    timeOf(b.createdAt) - timeOf(a.createdAt) ||
-    issueIdentifierNumber(b.identifier) - issueIdentifierNumber(a.identifier) ||
+    pb.updatedMs - pa.updatedMs ||
+    pb.createdMs - pa.createdMs ||
+    pb.identifierNumber - pa.identifierNumber ||
     (a.identifier < b.identifier ? 1 : a.identifier > b.identifier ? -1 : 0)
   )
 }
 
 function compareCreated(a: IssueSearchRow, b: IssueSearchRow): number {
+  const pa = preparedOf(a)
+  const pb = preparedOf(b)
   return (
-    timeOf(b.createdAt) - timeOf(a.createdAt) ||
-    issueIdentifierNumber(b.identifier) - issueIdentifierNumber(a.identifier) ||
+    pb.createdMs - pa.createdMs ||
+    pb.identifierNumber - pa.identifierNumber ||
     (a.identifier < b.identifier ? 1 : a.identifier > b.identifier ? -1 : 0)
   )
 }
@@ -273,7 +297,7 @@ export function rankIssueSearch<T extends IssueSearchRow>(
   }
   const scored: Array<{ row: T; score: number; exact: boolean }> = []
   for (const row of pool) {
-    const score = scoreRow(prepare(row), tokens)
+    const score = scoreRow(preparedOf(row), tokens)
     if (score !== null) scored.push({ row, score: score.total, exact: score.exact })
   }
   scored.sort(

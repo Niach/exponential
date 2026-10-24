@@ -16,7 +16,7 @@ import { AgentBrandMark, AgentWorkingMark, RUN_MARK_BADGE_CLASS } from "./agent-
 import { BoardGlyph } from "./board-glyph"
 import { cn } from "./cn"
 import { EmptyState } from "./empty-state"
-import { FabButton } from "./fab-chrome"
+import { PageHeader } from "./page-header"
 import { conceptIcon } from "./icons.generated"
 import { menuProps } from "./menu"
 import { Pill } from "./pill"
@@ -36,55 +36,18 @@ import { SkeletonRows } from "./skeleton"
 //                    two-line preview, word, unread badge
 //   ChatList         the rows (or the skeleton / the empty state)
 
-const SearchIcon = conceptIcon(`nav-search`)
-const InboxIcon = conceptIcon(`nav-inbox`)
 const ChatsIcon = conceptIcon(`nav-threads`)
 const PrOpenIcon = conceptIcon(`pr-open`)
 const PrMergedIcon = conceptIcon(`pr-merged`)
 const PrStackIcon = conceptIcon(`pr-stack`)
 
-/** The large in-content headline (Android + web-mobile; iOS = the large
- *  nav title) with its two trailing circles (`shell.chatsHeader`): search,
- *  then the inbox wearing a sky dot while a notification is unread. */
+/** The Chats page header: THE page header (`page-header.tsx`, chats.json
+ *  `shell.header`) titled `copy.title`. */
 export function ChatsHeader({
   title = CHATS_COPY.title,
-  inboxUnread = false,
-  onSearch,
-  onInbox,
-  className,
-}: {
-  title?: string
-  inboxUnread?: boolean
-  onSearch?: () => void
-  onInbox?: () => void
-  className?: string
-}) {
-  return (
-    <div className={cn(`flex items-center gap-3`, className)}>
-      <h1 className="min-w-0 flex-1 truncate text-[34px] font-bold leading-tight tracking-tight">
-        {title}
-      </h1>
-      <FabButton aria-label="Search" emphasis="primary" className="size-12" onClick={onSearch}>
-        <SearchIcon className="size-5" />
-      </FabButton>
-      <FabButton
-        aria-label={CHATS_COPY.inbox}
-        data-testid={CHATS_TEST_IDS.inboxButton}
-        emphasis="primary"
-        className="relative size-12"
-        onClick={onInbox}
-      >
-        <InboxIcon className="size-5" />
-        {inboxUnread && (
-          <span
-            aria-hidden
-            data-slot="inbox-dot"
-            className="absolute right-2 top-2 size-2.5 rounded-full bg-sky-500 ring-2 ring-background"
-          />
-        )}
-      </FabButton>
-    </div>
-  )
+  ...props
+}: Omit<ComponentProps<typeof PageHeader>, `title`> & { title?: string }) {
+  return <PageHeader title={title} {...props} />
 }
 
 const BUBBLE_RING: Record<NonNullable<AgentBubble[`ring`]> | `none`, string> = {

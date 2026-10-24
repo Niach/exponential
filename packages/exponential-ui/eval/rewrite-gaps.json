@@ -33,7 +33,6 @@
     { "id": "search", "class": "expressible", "with": "SearchList over Section + Row" },
     { "id": "board-empty", "class": "expressible", "with": "EmptyState + the getting-started block (Section + Meter + Row)" },
     { "id": "board-bulk-edit", "class": "expressible", "with": "Toolbar as the floating selection bar (Chip count + Select ×3 + Button)" },
-    { "id": "board-switcher", "class": "expressible", "with": "Drawer (bottom) + List + Row" },
     { "id": "issue-properties", "class": "expressible", "with": "Drawer + Group + Row (chevron selector) + Select / DatePicker" },
     { "id": "search-list", "class": "expressible", "with": "SearchList (the catalog's own); the caret anchoring is the host's" },
     { "id": "inbox", "class": "expressible", "with": "List sectionBy + Section + Row + LiveDot (app extension)" },
@@ -106,7 +105,9 @@
     { "id": "chat-list", "class": "expressible", "with": "Box header (Heading + two icon Buttons) + a horizontal Row of Avatar bubbles with a ring + Segmented toggles for the chips + Row (Avatar lead, title, meta time, preview subtitle, trailing Badge)" },
     { "id": "chat-menus", "class": "expressible", "with": "Menu as a context menu (the phone look is a bottom Drawer of the same rows) + Dialog for the delete confirm" },
     { "id": "chat-transcript", "class": "expressible", "with": "Box bubbles (Markdown, a meta time) + Chip for the divider pills; the inline preview IS a nested surface, its enter motion the renderer's" },
-    { "id": "phone-tab-bar", "class": "expressible", "with": "Segmented in its full-width bar variant (icon over label, Avatar for Team) beside a two-Button Group capsule" },
+    { "id": "phone-tab-bar", "class": "expressible", "with": "Segmented in its full-width bar variant (icon over label, Avatar for Team, a trailing caret icon on the Board tab) beside a two-Button Group capsule" },
+    { "id": "phone-board-menu", "class": "expressible", "with": "Menu (check items with a leading icon) in a full-width bottom panel" },
+    { "id": "phone-page-header", "class": "expressible", "with": "AppBar with a large title and two icon Buttons in its trailing slot" },
     { "id": "schedule-picker", "class": "expressible", "with": "Section of Rows with trailing Select values (Repeat, Every, Minute, Time, Days, Time zone) + a searchable Select" },
     { "id": "session", "class": "native", "with": "the session feed native; AppBar + Button Stop + Composer otherwise" },
     { "id": "agent-channel", "class": "native", "with": "the conversation feed native; Row + Markdown + Composer otherwise" }

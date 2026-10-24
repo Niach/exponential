@@ -95,7 +95,7 @@ export function IssuesDocsPage() {
             <p>
               The magnifier at the top of the sidebar, or{` `}
               <strong>Cmd/Ctrl+F</strong> anywhere, opens{` `}
-              <strong>Search issues</strong> across all your boards: it
+              <strong>Search issues</strong> across the current team's boards: it
               matches identifiers, titles and full text, and picking a result
               opens it.
             </p>

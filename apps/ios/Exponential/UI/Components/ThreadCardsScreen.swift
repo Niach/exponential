@@ -12,7 +12,7 @@ import SwiftUI
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "chat-transcript", "chat-menus", "schedule-picker"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker"]
 
     var body: some View {
         if kind == "chat-list" {
@@ -41,6 +41,8 @@ struct ThreadCardsScreen: View {
                     case "dock-card": DockCardSpecimens()
                     case "plan-card": PlanCardSpecimens()
                     case "phone-tab-bar": PhoneTabBarSpecimens()
+                    case "phone-board-menu": PhoneBoardMenuSpecimens()
+                    case "phone-page-header": PhonePageHeaderSpecimens()
                     case "chat-transcript": ChatTranscriptSpecimens()
                     case "chat-menus": ChatMenuSpecimens()
                     case "schedule-picker": SchedulePickerSpecimens()

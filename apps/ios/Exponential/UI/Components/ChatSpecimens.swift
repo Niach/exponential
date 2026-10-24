@@ -119,56 +119,163 @@ struct ChatListSpecimens: View {
                 }
                 .tabBarBottomInset()
             }
-            .navigationTitle(Chats.Copy.title)
-            .toolbarTitleDisplayMode(.inlineLarge)
-            .ownChromeToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 10) {
-                    ChatsView.headerCircle(AppIcons.navSearch, dot: false)
-                    ChatsView.headerCircle(AppIcons.navInbox, dot: true)
-                }
-            }
+            .pageHeader(Chats.Copy.Headers.chats)
         }
+        .environment(\.inboxUnread, true)
         .overlay(alignment: .bottom) {
             MobileTabBar(
-                agentActive: false, boardActive: false, devicesActive: false, chatsActive: true,
-                teamActive: false, team: Self.team, chatsRunning: false, chatsNeedYou: true,
-                composeEnabled: true,
-                onBoard: {}, onDevices: {}, onChats: {}, onTeam: {}, onCompose: {}, onChat: {}
+                selected: .chats, board: PhoneShellSpecimen.activeBoard, team: Self.team,
+                chatsNeedYou: true
             )
         }
         .accessibilityIdentifier("chat-list-specimen")
     }
 }
 
-/// `phone-tab-bar`: Board · Devices · Chats · Team beside the launcher.
-struct PhoneTabBarSpecimens: View {
-    private static let team = TeamEntity(
+/// The phone shell specimens' shared values (the web entries' `BOARDS`).
+enum PhoneShellSpecimen {
+    static let team = TeamEntity(
         id: "t1", name: "Acme", slug: "acme", iconUrl: nil, createdAt: "", updatedAt: ""
     )
 
+    static let boards = [
+        board("app", "Mobile App", "code", "#6366f1", 0),
+        board("mkt", "Launch Marketing", "square-kanban", "#f59e0b", 10),
+        board("fb", "Product Feedback", "megaphone", "#22c55e", 20),
+    ]
+
+    static var activeBoard: BoardEntity { boards[0] }
+
+    private static func board(
+        _ id: String, _ name: String, _ icon: String, _ color: String, _ order: Double
+    ) -> BoardEntity {
+        BoardEntity(
+            id: id, teamId: "t1", name: name, slug: id, prefix: id.uppercased(), color: color,
+            sortOrder: order, repositoryId: nil, icon: icon, createdAt: "", updatedAt: ""
+        )
+    }
+
+    static func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            .padding(.horizontal, 16)
+    }
+}
+
+/// `phone-tab-bar` (#EXP-1384): Board · Chats · Apps · Team beside the
+/// launcher — the board view (the caret), Chats and Team selected, the lens
+/// mid-drag between Chats and Apps; the amber dot on Chats.
+struct PhoneTabBarSpecimens: View {
     var body: some View {
-        VStack(spacing: 18) {
-            bar(chats: true)
-            bar(team: true)
-            bar(board: true)
+        VStack(alignment: .leading, spacing: 10) {
+            PhoneShellSpecimen.caption("On the board view (the caret opens the board menu)")
+            bar(.board, onBoardView: true)
+            PhoneShellSpecimen.caption("Chats selected")
+            bar(.chats)
+            PhoneShellSpecimen.caption("Team selected")
+            bar(.team)
+            PhoneShellSpecimen.caption("Dragging: the lens between Chats and Apps")
+            bar(.chats, specimen: .lens(candidate: .apps, offset: -10))
         }
         .padding(.horizontal, -16)
         .accessibilityIdentifier("phone-tab-bar-specimen")
     }
 
-    private func bar(board: Bool = false, chats: Bool = false, team: Bool = false) -> some View {
+    private func bar(
+        _ selected: Chats.Shell.Tab, onBoardView: Bool = false, specimen: MobileTabBar.Specimen? = nil
+    ) -> some View {
         MobileTabBar(
-            agentActive: false,
-            boardActive: board,
-            devicesActive: false,
-            chatsActive: chats,
-            teamActive: team,
-            team: Self.team,
-            chatsRunning: true,
+            selected: selected,
+            board: PhoneShellSpecimen.activeBoard,
+            onBoardView: onBoardView,
+            team: PhoneShellSpecimen.team,
             chatsNeedYou: true,
-            composeEnabled: true,
-            onBoard: {}, onDevices: {}, onChats: {}, onTeam: {}, onCompose: {}, onChat: {}
+            specimen: specimen
         )
+    }
+}
+
+/// `phone-board-menu` (#EXP-1384): the board view's Board tab morphed the
+/// whole strip into the glass board menu, shown OPEN over a dimmed page:
+/// the team's boards (the active one lit with the check) then New board.
+struct PhoneBoardMenuSpecimens: View {
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(PhoneShellSpecimen.activeBoard.name)
+                    .font(.largeTitle.weight(.bold))
+                    .foregroundStyle(.white)
+                ForEach(0..<3, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(GlassTokens.fillCard)
+                        .frame(height: 44)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .opacity(0.4)
+            MobileTabBar(
+                selected: .board,
+                board: PhoneShellSpecimen.activeBoard,
+                onBoardView: true,
+                team: PhoneShellSpecimen.team,
+                boards: PhoneShellSpecimen.boards,
+                onNewBoard: {},
+                specimen: .menuOpen
+            )
+        }
+        .frame(height: 340)
+        .background(DesignTokens.Palette.background, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, -16)
+        .accessibilityIdentifier("phone-board-menu-specimen")
+    }
+}
+
+/// `phone-page-header` (#EXP-1384): THE page header — the large title and
+/// the native search + inbox circles, the inbox's sky dot on and off;
+/// Devices (pushed from the Team page) with the back control.
+struct PhonePageHeaderSpecimens: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            PhoneShellSpecimen.caption("Unread notification (the inbox dot)")
+            header(Chats.Copy.Headers.chats, unread: true)
+            PhoneShellSpecimen.caption("All read")
+            header(PhoneShellSpecimen.activeBoard.name, unread: false)
+            PhoneShellSpecimen.caption("Pushed (Devices, the back control)")
+            header(Chats.Copy.Headers.devices, unread: true, pushed: true)
+        }
+        .padding(.horizontal, -16)
+        .accessibilityIdentifier("phone-page-header-specimen")
+    }
+
+    private func header(_ title: String, unread: Bool, pushed: Bool = false) -> some View {
+        PageHeaderFrame(title: title, pushed: pushed)
+            .environment(\.inboxUnread, unread)
+            .frame(height: 120)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+/// One page header in its own navigation stack (pushed = one page deep).
+private struct PageHeaderFrame: View {
+    let title: String
+    let pushed: Bool
+    @State private var path: [Int] = []
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            page(pushed ? "Team" : title, pushed: false)
+                .navigationDestination(for: Int.self) { _ in page(title, pushed: true) }
+        }
+        .onAppear { if pushed { path = [1] } }
+    }
+
+    private func page(_ title: String, pushed: Bool) -> some View {
+        ZStack {
+            AppBackground()
+        }
+        .pageHeader(title, pushed: pushed)
     }
 }
 

@@ -2,6 +2,7 @@ package com.exponential.app
 
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
+import com.exponential.app.domain.Chats
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.issue.START_CODING_READY_TAG
 import androidx.compose.ui.test.hasText
@@ -146,8 +147,8 @@ class StoreScreenshotsTest {
         // as the fallback (the email field shows once /api/auth-config resolved).
         if (!sessionRule.signedIn) flow.signIn(instanceUrl)
         // The app lands on the Agent tab; the board shot starts on Issues.
-        flow.waitFor(hasTestTag("tab-issues"), SYNC_TIMEOUT)
-        composeRule.onNode(hasTestTag("tab-issues")).performClick()
+        flow.waitFor(hasTestTag(Chats.TestIds.TAB_BOARD), SYNC_TIMEOUT)
+        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_BOARD)).performClick()
 
         // --- Board: wait out session fetch + first Electric sync until the
         // showcase issue row is on screen (in-progress group sits at the top),
@@ -249,7 +250,7 @@ class StoreScreenshotsTest {
         // pullRequests.files — the seed points APP-14 at a real public PR —
         // and with no report its whole diff is ONE Changes row, counted once
         // the files load.
-        flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag("${Chats.TestIds.BOARD_CHIP}-all"), NAV_TIMEOUT)
         composeRule.onNode(hasTestTag("issue-list"))
             .performScrollToNode(hasText(REVIEW_ISSUE_TITLE, substring = true))
         composeRule.onAllNodes(hasText(REVIEW_ISSUE_TITLE, substring = true)).onFirst().performClick()

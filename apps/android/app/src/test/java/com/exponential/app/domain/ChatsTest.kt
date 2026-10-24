@@ -363,10 +363,15 @@ class ChatsTest {
         assertEquals(copy.str("inbox"), Chats.Copy.INBOX)
         assertEquals(copy.str("loadEarlier"), Chats.Copy.LOAD_EARLIER)
         assertEquals(copy.str("working"), Chats.Copy.WORKING)
+        val headers = copy.getValue("headers").jsonObject
+        assertEquals(headers.keys.toList(), Chats.Copy.HEADERS.keys.toList())
+        for ((key, title) in Chats.Copy.HEADERS) assertEquals(headers.str(key), title)
+        assertEquals(copy.getValue("boardMenu").jsonObject.str("newBoard"), Chats.Copy.BOARD_MENU_NEW_BOARD)
+        assertEquals(1, copy.getValue("boardMenu").jsonObject.size)
         assertEquals(
             setOf(
-                "title", "tabs", "filters", "preview", "time", "menu", "confirmDelete", "toasts", "dividers",
-                "superseded", "boardChips", "team", "inbox", "loadEarlier", "working",
+                "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete",
+                "toasts", "dividers", "superseded", "boardChips", "team", "inbox", "loadEarlier", "working",
             ),
             copy.keys,
         )
@@ -377,7 +382,32 @@ class ChatsTest {
         assertEquals(icons.keys, Chats.Shell.TAB_ICONS.keys)
         for ((tab, icon) in Chats.Shell.TAB_ICONS) assertEquals(icons.str(tab), icon)
         assertEquals(shell.getValue("boardChips").jsonArray.map { it.jsonPrimitive.content }, Chats.Shell.BOARD_CHIPS)
-        assertEquals(shell.getValue("chatsHeader").jsonArray.map { it.jsonPrimitive.content }, Chats.Shell.CHATS_HEADER)
+        val bar = shell.getValue("bar").jsonObject
+        assertEquals(bar.getValue("height").jsonPrimitive.int, Chats.Shell.Bar.HEIGHT)
+        assertEquals(bar.getValue("padding").jsonPrimitive.int, Chats.Shell.Bar.PADDING)
+        assertEquals(bar.getValue("gap").jsonPrimitive.int, Chats.Shell.Bar.GAP)
+        assertEquals(bar.getValue("tabMinWidth").jsonPrimitive.int, Chats.Shell.Bar.TAB_MIN_WIDTH)
+        assertEquals(bar.getValue("tabPaddingX").jsonPrimitive.int, Chats.Shell.Bar.TAB_PADDING_X)
+        val drag = bar.getValue("drag").jsonObject
+        assertEquals(drag.str("lensScale")!!.toFloat(), Chats.Shell.Bar.Drag.LENS_SCALE)
+        assertEquals(drag.getValue("cancelDistance").jsonPrimitive.int, Chats.Shell.Bar.Drag.CANCEL_DISTANCE)
+        assertEquals(setOf("height", "padding", "gap", "tabMinWidth", "tabPaddingX", "drag"), bar.keys)
+        val boardTab = shell.getValue("boardTab").jsonObject
+        assertEquals(boardTab.str("caret"), Chats.Shell.BoardTab.CARET)
+        assertEquals(boardTab.getValue("caretSize").jsonPrimitive.int, Chats.Shell.BoardTab.CARET_SIZE)
+        val boardMenu = shell.getValue("boardMenu").jsonObject
+        assertEquals(boardMenu.getValue("rowHeight").jsonPrimitive.int, Chats.Shell.BoardMenu.ROW_HEIGHT)
+        assertEquals(boardMenu.getValue("maxVisibleRows").jsonPrimitive.int, Chats.Shell.BoardMenu.MAX_VISIBLE_ROWS)
+        assertEquals(boardMenu.getValue("radius").jsonPrimitive.int, Chats.Shell.BoardMenu.RADIUS)
+        val menuMotion = boardMenu.getValue("motion").jsonObject
+        assertEquals(menuMotion.str("open"), Chats.Shell.BoardMenu.OPEN)
+        assertEquals(menuMotion.str("openEase"), Chats.Shell.BoardMenu.OPEN_EASE)
+        assertEquals(menuMotion.str("close"), Chats.Shell.BoardMenu.CLOSE)
+        assertEquals(menuMotion.str("closeEase"), Chats.Shell.BoardMenu.CLOSE_EASE)
+        val header = shell.getValue("header").jsonObject
+        assertEquals(header.getValue("pages").jsonArray.map { it.jsonPrimitive.content }, Chats.Shell.Header.PAGES)
+        assertEquals(header.getValue("buttons").jsonArray.map { it.jsonPrimitive.content }, Chats.Shell.Header.BUTTONS)
+        assertEquals(header.getValue("circle").jsonPrimitive.int, Chats.Shell.Header.CIRCLE)
         assertEquals(shell.getValue("leadDisc").jsonPrimitive.int, Chats.Shell.LEAD_DISC)
         assertEquals(shell.getValue("bubble").jsonPrimitive.int, Chats.Shell.BUBBLE)
         assertEquals(shell.getValue("bubbleRing").jsonPrimitive.int, Chats.Shell.BUBBLE_RING)
@@ -392,9 +422,14 @@ class ChatsTest {
         assertEquals(ids.str("boardChip"), Chats.TestIds.BOARD_CHIP)
         assertEquals(ids.str("surfaceCard"), Chats.TestIds.SURFACE_CARD)
         assertEquals(ids.str("divider"), Chats.TestIds.DIVIDER)
+        assertEquals(ids.str("tabBoard"), Chats.TestIds.TAB_BOARD)
+        assertEquals(ids.str("boardMenu"), Chats.TestIds.BOARD_MENU)
+        assertEquals(ids.str("boardMenuRow"), Chats.TestIds.BOARD_MENU_ROW)
+        assertEquals(ids.str("pageHeader"), Chats.TestIds.PAGE_HEADER)
+        assertEquals(ids.str("searchButton"), Chats.TestIds.SEARCH_BUTTON)
+        assertEquals(15, ids.size)
         assertEquals(ids.str("loadEarlier"), Chats.TestIds.LOAD_EARLIER)
         assertEquals(ids.str("jumpToBottom"), Chats.TestIds.JUMP_TO_BOTTOM)
-        assertEquals(10, ids.size)
 
         val transcript = fixture.getValue("transcript").jsonObject
         assertEquals(transcript.getValue("window").jsonPrimitive.int, Chats.Transcript.WINDOW)
@@ -430,6 +465,17 @@ class ChatsTest {
         assertEquals(glow.str("fromOpacity")!!.toFloat(), Chats.SurfaceCard.Glow.FROM_OPACITY)
         assertEquals(glow.str("duration"), Chats.SurfaceCard.Glow.DURATION)
         assertEquals(glow.str("ease"), Chats.SurfaceCard.Glow.EASE)
+    }
+
+    @Test
+    fun `the tabs share the capsule and only the widest give way`() {
+        // Room to spare: each keeps its own width plus an even share.
+        assertEquals(listOf(110f, 70f, 60f, 80f), Chats.Shell.Bar.tabWidths(listOf(100f, 60f, 50f, 70f), 320f))
+        // Exactly full: nothing moves.
+        assertEquals(listOf(100f, 60f), Chats.Shell.Bar.tabWidths(listOf(100f, 60f), 160f))
+        // Too narrow: the widest are capped first, the narrow ones keep theirs.
+        assertEquals(listOf(70f, 60f, 50f, 70f), Chats.Shell.Bar.tabWidths(listOf(100f, 60f, 50f, 90f), 250f))
+        assertEquals(emptyList<Float>(), Chats.Shell.Bar.tabWidths(emptyList(), 100f))
     }
 
     @Test

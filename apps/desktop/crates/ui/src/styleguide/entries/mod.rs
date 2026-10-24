@@ -59,6 +59,8 @@ pub(crate) mod getting_started;
 // Thread 58cb32df (#EXP-1373): Chats.
 pub(crate) mod chat_list;
 pub(crate) mod phone_tab_bar;
+pub(crate) mod phone_board_menu;
+pub(crate) mod phone_page_header;
 pub(crate) mod chat_transcript;
 pub(crate) mod chat_menus;
 
@@ -141,6 +143,8 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: getting_started::ID, owner: getting_started::OWNER, render: getting_started::render },
     Entry { id: chat_list::ID, owner: chat_list::OWNER, render: chat_list::render },
     Entry { id: phone_tab_bar::ID, owner: phone_tab_bar::OWNER, render: phone_tab_bar::render },
+    Entry { id: phone_board_menu::ID, owner: phone_board_menu::OWNER, render: phone_board_menu::render },
+    Entry { id: phone_page_header::ID, owner: phone_page_header::OWNER, render: phone_page_header::render },
     Entry { id: chat_transcript::ID, owner: chat_transcript::OWNER, render: chat_transcript::render },
     Entry { id: chat_menus::ID, owner: chat_menus::OWNER, render: chat_menus::render },
 ];

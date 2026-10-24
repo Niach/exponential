@@ -1,5 +1,12 @@
 package com.exponential.app.ui.styleguide
 
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.graphics.graphicsLayer
+import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PageHeaderActions
+import com.exponential.app.ui.components.PhoneBoardMenu
+import com.exponential.app.ui.theme.glassRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,13 +55,16 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
 // Thread 58cb32df (fixtures/chats.json): the Android twins of the styleguide
-// entries `chat-list`, `phone-tab-bar`, `chat-transcript`, `chat-menus` and
+// entries `chat-list`, `phone-tab-bar`, `phone-board-menu`, `phone-page-header`,
+// `chat-transcript`, `chat-menus` and
 // the updated `schedule-picker` — capture-only screens (no server, no
 // sign-in) drawn by the REAL composables over specimen data, shot by
 // StyleguideScreenshotsTest#captureOnlyScreens.
 
 const val ChatListSpecimenTestId = "chat-list-specimen"
 const val PhoneTabBarSpecimenTestId = "phone-tab-bar-specimen"
+const val PhoneBoardMenuSpecimenTestId = "phone-board-menu-specimen"
+const val PhonePageHeaderSpecimenTestId = "phone-page-header-specimen"
 const val ChatTranscriptSpecimenTestId = "chat-transcript-specimen"
 const val ChatMenusSpecimenTestId = "chat-menus-specimen"
 const val SchedulePickerSpecimenTestId = "schedule-picker-specimen"
@@ -170,40 +180,117 @@ fun ChatListSpecimenScreen() {
     }
 }
 
+// #EXP-1384: the web specimen's boards (chat-specimens.tsx BOARDS).
+private fun specimenBoard(id: String, name: String, icon: String, color: String, order: Double) = BoardEntity(
+    id = id, teamId = "t1", name = name, slug = id, prefix = id.uppercase(), color = color, icon = icon,
+    sortOrder = order, createdAt = "", updatedAt = "",
+)
+
+private val SPECIMEN_BOARDS = listOf(
+    specimenBoard("app", "Mobile App", "code", "#6366f1", 1.0),
+    specimenBoard("mkt", "Launch Marketing", "square-kanban", "#f59e0b", 2.0),
+    specimenBoard("fb", "Product Feedback", "megaphone", "#22c55e", 3.0),
+)
+
 @Composable
-private fun SpecimenTabBar(selected: String, modifier: Modifier = Modifier) {
+private fun SpecimenTabBar(
+    selected: String,
+    modifier: Modifier = Modifier,
+    dragging: Boolean = false,
+    menuOpen: Boolean = false,
+) {
     BottomNavBar(
+        selected = selected,
         agentActive = false,
-        boardActive = selected == "board",
-        devicesActive = selected == "devices",
-        chatsActive = selected == "chats",
-        teamActive = selected == "team",
+        board = SPECIMEN_BOARDS.first(),
+        onBoardView = selected == "board",
         team = ACME,
         chatsRunning = false,
         chatsNeedYou = true,
         composeEnabled = true,
-        onBoard = {},
-        onDevices = {},
-        onChats = {},
-        onTeam = {},
+        onSelectTab = {},
         onCompose = {},
         onChat = {},
         modifier = modifier,
+        boardMenu = PhoneBoardMenu(
+            boards = SPECIMEN_BOARDS,
+            activeBoardId = SPECIMEN_BOARDS.first().id,
+            onSelect = {},
+            onNewBoard = {},
+        ),
+        menuOpen = menuOpen,
+        // The web specimen's static drag: the lens over Apps, the finger
+        // 10 left of its centre.
+        lensPreview = if (dragging) "apps" else null,
+        lensPreviewOffset = if (dragging) (-10).dp else 0.dp,
     )
 }
 
-/** THE phone tab bar, Chats then Team selected (shot `sg_phone-tab-bar`). */
+/** THE phone tab bar: on the board view (the caret), Chats, Team, and the
+ *  drag lens (shot `sg_phone-tab-bar`). */
 @Composable
 fun PhoneTabBarSpecimenScreen() {
     AppBackground {
         Column(
-            modifier = Modifier.fillMaxSize().statusBarsPadding().padding(vertical = 72.dp).testTag(PhoneTabBarSpecimenTestId),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
+            modifier = Modifier.fillMaxSize().statusBarsPadding().padding(vertical = 48.dp).testTag(PhoneTabBarSpecimenTestId),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            listOf("chats", "team", "board").forEach { tab ->
-                Caption("${Chats.Copy.TABS[tab] ?: ACME.name} selected")
-                SpecimenTabBar(selected = tab)
+            Caption("On the board view (the caret opens the board menu)")
+            SpecimenTabBar(selected = "board")
+            Caption("Chats selected")
+            SpecimenTabBar(selected = "chats")
+            Caption("Team selected")
+            SpecimenTabBar(selected = "team")
+            Caption("Dragging: the lens between Chats and Apps")
+            SpecimenTabBar(selected = "chats", dragging = true)
+        }
+    }
+}
+
+/** THE board menu, OPEN over the strip it grew from (shot `sg_phone-board-menu`). */
+@Composable
+fun PhoneBoardMenuSpecimenScreen() {
+    AppBackground {
+        Box(Modifier.fillMaxSize().testTag(PhoneBoardMenuSpecimenTestId)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().statusBarsPadding().graphicsLayer { alpha = 0.4f },
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                PageHeader(title = SPECIMEN_BOARDS.first().name, actions = PageHeaderActions({}, {}, inboxUnread = false))
+                repeat(3) {
+                    Box(
+                        Modifier
+                            .padding(horizontal = 16.dp)
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .glassRow(),
+                    )
+                }
             }
+            SpecimenTabBar(selected = "board", menuOpen = true, modifier = Modifier.align(Alignment.BottomCenter))
+        }
+    }
+}
+
+/** THE page header: the inbox dot on and off, a pushed page's back control
+ *  (shot `sg_phone-page-header`). */
+@Composable
+fun PhonePageHeaderSpecimenScreen() {
+    AppBackground {
+        Column(
+            modifier = Modifier.fillMaxSize().statusBarsPadding().padding(vertical = 24.dp).testTag(PhonePageHeaderSpecimenTestId),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Caption("Unread notification (the inbox dot)")
+            PageHeader(title = Chats.Copy.HEADERS.getValue("chats"), actions = PageHeaderActions({}, {}, inboxUnread = true))
+            Caption("All read")
+            PageHeader(title = SPECIMEN_BOARDS.first().name, actions = PageHeaderActions({}, {}, inboxUnread = false))
+            Caption("Pushed (Devices, the back control)")
+            PageHeader(
+                title = Chats.Copy.HEADERS.getValue("devices"),
+                onBack = {},
+                actions = PageHeaderActions({}, {}, inboxUnread = false),
+            )
         }
     }
 }
