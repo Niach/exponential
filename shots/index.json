@@ -133,36 +133,36 @@
         "file": "shots/app/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 61972,
-        "sha256": "c49cafc30f2a53258be4988f503f4e4c5ff3451d2cc9f76c7202815ada1c2099"
+        "bytes": 61638,
+        "sha256": "490fbd669bacfa05afed19341baac395bb5dc18edcccbfc4728e313c02cf1183"
       },
       "desktop": {
         "file": "shots/app/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 60040,
-        "sha256": "47ef08e23540629c9e2861ac98fac688f3aaff050e9da32a4f37fc7824737ca1"
+        "bytes": 59810,
+        "sha256": "6614f13b8b13880b9c391b2c42afe955298eafea67c37b4e59a3aaf0de771424"
       },
       "ios": {
         "file": "shots/app/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 54358,
-        "sha256": "4b01b64c3f229f3b399eafc44644185ada2c3f9454c5b73ecdb8defd0c4c7d40"
+        "bytes": 55168,
+        "sha256": "ad37a8b5f86e6c94a8838d69b9d9fd36104e51a328eeba66857c9f9ac7df03e4"
       },
       "web": {
         "file": "shots/app/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 61148,
-        "sha256": "9646f77756bbefab6755a601bc89b852c48a772d09e4a2c254f7a22dea02d6f1"
+        "bytes": 43458,
+        "sha256": "cea4ad0bcae20d3f8a843d392f31fe149edf88af080931ae203b087e8df0d204"
       },
       "web-mobile": {
         "file": "shots/app/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 52014,
-        "sha256": "18a372ad17b68d9a102ada79dcf68a5ec5194847a3a99af8e001b5b0c603dc5d"
+        "bytes": 51606,
+        "sha256": "6533cbe7d41668dea784a924b7a3565b1747bdb716c60cded898b2d31222b838"
       }
     },
     "apps": {
@@ -170,29 +170,29 @@
         "file": "shots/apps/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 12418,
-        "sha256": "215e5bd306ac0a2b8c3e1b721ce50c9b130c8c8a65274dc216dac197d62f325e"
+        "bytes": 11058,
+        "sha256": "a9a1baf74a6f532745f3038b420773e782aa3a78368f28d0520e55ec636a5b59"
       },
       "ios": {
         "file": "shots/apps/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 14352,
-        "sha256": "c598fabddaad210ac6198d1088199f6faa17d462cddfb26f9d2eac4c6797d07e"
+        "bytes": 12790,
+        "sha256": "ce0b5b1aa8f3bf8735d07441253610cb5036d168de435bf3dd96a8d68b092038"
       },
       "web": {
         "file": "shots/apps/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 31480,
-        "sha256": "80c5762613fe22180232138c9b5f192f26869685f4b68f25cec86cbb784f7e17"
+        "bytes": 31374,
+        "sha256": "ae4793859b7968fdeea59ffc876db6ad381d0b01c854005f702c5ab3a0453ed5"
       },
       "web-mobile": {
         "file": "shots/apps/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 16384,
-        "sha256": "bf6f3ca588d5f75cc2e9e1dd326945bf1369c1dd4d95436f733f0dad1c64f0d5"
+        "bytes": 14618,
+        "sha256": "0736fc1b2ef75924b019d71f087b0e2dd1cd486315d0c0dd0467906bb42c14ed"
       }
     },
     "ask-dock": {
@@ -4024,22 +4024,22 @@
         "file": "shots/settings-apps/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 26888,
-        "sha256": "6e7ef2da742ae7d857b69f2942fffe14e22b5efdad6a0cf3e3cd7692293c5617"
+        "bytes": 26290,
+        "sha256": "2351b721510820800d7db8831dd7d99087019e1b66fb79af1261ec47eb4d51c5"
       },
       "web": {
         "file": "shots/settings-apps/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 35484,
-        "sha256": "ac2c7cb718ce522f7697cb4507f2b3c83259a4d0c7a6e2f4c88dfe7e6244b332"
+        "bytes": 34320,
+        "sha256": "0afd356ec2377a7ac4e7c1ce7c426b8826a262c1920dc682a973102ee8d4197a"
       },
       "web-mobile": {
         "file": "shots/settings-apps/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 24232,
-        "sha256": "c07978badd9c17655707acafd66f5db2b50cd2e66a8981766696409540812a8f"
+        "bytes": 22560,
+        "sha256": "8dc7f3ca421571541038891bf7c50daf48f3663c73460087a13b44c5d3efd990"
       }
     },
     "settings-boards": {
