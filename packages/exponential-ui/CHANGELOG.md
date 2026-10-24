@@ -5,7 +5,7 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 ## Unreleased
 
-- EXP-1385: a pointer write that lands always reads back. `-` still appends on a write and now reads an array's LAST element (the one the append landed on), so `readPointer(writePointer(data, "-", v).data, "-")` is `v` in every core (it read nothing, which the nightly `pointer` fuzz target caught on two nights). The Rust core's `get_pointer` reads digit-only indices like the TS core (`/+1` no longer reads item 1). New fixture `fixtures/pointer.json` (both fuzz units + the append, remove and refusal cases) and conformance suite `pointer`, replayed by the Rust core, gpui, the web renderers, SwiftUI and Compose. The web `getPointer` is the core's `readPointer`.
+- EXP-1385: a pointer write that lands always reads back. `-` still appends on a write and now reads an array's LAST element (the one the append landed on), so `readPointer(writePointer(data, "-", v).data, "-")` is `v` in every core (it read nothing, which the nightly `pointer` fuzz target caught on two nights). The Rust core's `get_pointer` reads digit-only indices like the TS core (`/+1` no longer reads item 1). New fixture `fixtures/pointer.json` (both fuzz units + the append, remove and refusal cases) and conformance suite `pointer`, replayed by the Rust core, gpui, the web renderers, SwiftUI and Compose. The web `getPointer` is the core's `readPointer`, and the React renderer's live reader follows a `-` binding too (a node bound to `/log/-` repaints on an append).
 
 ## 0.1.1 (2026-10-23)
 
