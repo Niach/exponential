@@ -1,7 +1,7 @@
 {
   "$comment": "NEW-52 exponentialTalk spike numbers. Synthetic clips: the 20 phrases of data/phrases.json spoken by Kokoro (en) and Qwen3-TTS 1.7B (de + en); no human recordings yet (scripts/record.sh). WER is scored against the spoken form; identifiers like 'E X P twelve forty two' count word by word, which penalises engines that normalise them to 'exp1242'.",
   "machine": "macbook (Apple M4 Pro, 10P+4E cores, 24 GB, macOS 27.0)",
-  "platform": "macOS-27.0-arm64-arm-64bit",
+  "os": "Darwin",
   "asr": [
     {
       "engine": "whistle (cactus-rs 0.2.1), CPU",
@@ -111,7 +111,7 @@
         "whistle_tail_ms_median": 17.0,
         "zipformer_tail_ms_median": 7.5
       },
-      "quality": "not judged by ear in this session (the agent cannot listen; clips are in out/os-voice-mac for Danny: `afplay out/os-voice-mac/de-01.wav`). Proxy: Whistle hears Anna's German at 45.7 % WER against 27.2 % for Qwen3-TTS's German, and the Zipformer hears Samantha at 24.1 % against 13.8 % for Kokoro, so both compact voices are harder for the recognisers than the neural engines; Anna is the 2000s concatenative voice."
+      "quality": "not judged by ear in this session (the agent cannot listen; regenerate the clips with `scripts/os-voice-mac.sh out/os-voice-mac < data/phrases.json` (~20 s, not in git) and play `out/os-voice-mac/de-01.wav`). Proxy: Whistle hears Anna's German at 45.7 % WER against 27.2 % for Qwen3-TTS's German, and the Zipformer hears Samantha at 24.1 % against 13.8 % for Kokoro, so both compact voices are harder for the recognisers than the neural engines; Anna is the 2000s concatenative voice."
     },
     "qwen3_tts_1_7b_q4km_llama_cpp_metal": {
       "engine": "Qwen3-TTS-12Hz-1.7B-Base Q4_K_M + mmproj Q8_0 (ggml-org), llama-tts b11846 macOS arm64, Metal on Apple M4 Pro",
