@@ -120,5 +120,16 @@ pub(crate) fn demo_members() -> Vec<domain::rows::User> {
         .collect()
 }
 
+/// #EXP-1383: the demo team's agents (the web entry's `AGENTS`): they follow
+/// the members in the assignee picker, each wearing THE AGENT MARK.
+pub(crate) fn demo_agents() -> Vec<domain::agent_settings::AgentActorRow> {
+    vec![domain::agent_settings::AgentActorRow {
+        id: "sloppy".to_string(),
+        name: "Sloppy".to_string(),
+        icon: Some("bot".to_string()),
+        color: Some("#22c55e".to_string()),
+    }]
+}
+
 /// A demo picker's mode, spelled out so each typed entry reads it.
 pub(crate) const SINGLE: PickerMode = PickerMode::Single;

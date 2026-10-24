@@ -142,6 +142,9 @@ pub(crate) fn relative_time_epoch(then: i64, now_epoch: i64) -> String {
 pub(crate) struct CommentCardProps<'a> {
     pub comment: &'a Comment,
     pub author: Option<&'a User>,
+    /// #EXP-1383 (agent-settings.json `actor`): the agent whose session wrote
+    /// it → the card names the AGENT and wears its mark, never the member's.
+    pub author_agent: Option<domain::agent_settings::AgentActorRow>,
     /// SLOP-4: the issue's widget reporter — names a `source = reporter`
     /// card (the submission's `reporterName`, else the contract's anonymous
     /// name).
@@ -211,8 +214,10 @@ fn comment_author_name(comment: &Comment, author: Option<&User>, reporter_name: 
 
 /// The caption after the time (web `comment-rows/format.ts`
 /// `commentCaption`, fixture `captions`): `reporter` (a reporter's words),
-/// then `to reporter` (a member's words emailed out), then `via MCP` (an
-/// agent posted it). Every part that applies shows, joined by ` · `.
+/// then `to reporter` (a member's words emailed out), then `via MCP` (a
+/// person's MCP client posted it; #EXP-1383: never on an agent's own
+/// comment, which already names the agent). Every part that applies shows,
+/// joined by ` · `.
 fn comment_caption(comment: &Comment) -> Option<String> {
     let mut parts: Vec<&str> = Vec::new();
     if comment.is_from_reporter() {
@@ -220,7 +225,9 @@ fn comment_caption(comment: &Comment) -> Option<String> {
     } else if comment.is_to_reporter() {
         parts.push(domain::reporter_reply::TO_REPORTER_CAPTION);
     }
-    if comment.source.as_deref() == Some(domain::contract::COMMENT_SOURCE_MCP) {
+    if comment.source.as_deref() == Some(domain::contract::COMMENT_SOURCE_MCP)
+        && comment.author_agent_id.as_deref().is_none_or(str::is_empty)
+    {
         parts.push("via MCP");
     }
     (!parts.is_empty()).then(|| parts.join(" · "))
@@ -235,6 +242,35 @@ fn avatar_key<'a>(comment: &'a Comment, name: &'a str) -> &'a str {
     comment.author_id.as_deref().unwrap_or_default()
 }
 
+/// A card's author name: the agent's when an agent's session wrote it
+/// (#EXP-1383), else [`comment_author_name`].
+fn card_author_name(card: &CommentCardProps<'_>) -> String {
+    match &card.author_agent {
+        Some(agent) => agent.name.clone(),
+        None => comment_author_name(card.comment, card.author, card.reporter_name),
+    }
+}
+
+/// A card's avatar: THE AGENT MARK for an agent's comment (#EXP-1383), else
+/// the author's picture / initials.
+fn card_avatar(
+    card: &CommentCardProps<'_>,
+    name: &str,
+    size: gpui_component::Size,
+    cx: &mut gpui::App,
+) -> gpui::AnyElement {
+    match &card.author_agent {
+        Some(agent) => crate::user_avatar::agent_avatar(agent.icon.as_deref(), agent.color.as_deref(), size, cx),
+        None => crate::user_avatar::user_avatar(
+            avatar_key(card.comment, name),
+            name,
+            card.author.and_then(|user| user.image.as_deref()),
+            size,
+            cx,
+        ),
+    }
+}
+
 /// The header line + body/edit form + attachment strip of one comment (web
 /// `CommentCardContent`) — the top-level card's content, and each reply's.
 fn comment_card_content(
@@ -246,7 +282,7 @@ fn comment_card_content(
     emoji_open: bool,
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> gpui::AnyElement {
-    let name = comment_author_name(card.comment, card.author, card.reporter_name);
+    let name = card_author_name(card);
     let comment_id = card.comment.id.clone();
     let created = card.comment.created_at.as_deref().unwrap_or("");
     let mut meta = relative_time(created, now_epoch);
@@ -454,11 +490,7 @@ pub(crate) fn comment_row(
     props: CommentRowProps<'_>,
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> impl IntoElement {
-    let name = comment_author_name(
-        props.card.comment,
-        props.card.author,
-        props.card.reporter_name,
-    );
+    let name = card_author_name(&props.card);
     let comment_id = props.card.comment.id.clone();
 
     let content = comment_card_content(
@@ -483,14 +515,7 @@ pub(crate) fn comment_row(
     // is the marker; it centres in the 28px gutter (gpui-component's `Size`
     // ladder has no 28 rung). SLOP-4: a reporter's card draws the initials
     // of the reporter's name (no user row, no picture).
-    let avatar = crate::user_avatar::user_avatar(
-        avatar_key(props.card.comment, &name),
-        &name,
-        props.card.author.and_then(|user| user.image.as_deref()),
-        gpui_component::Size::Small,
-        cx,
-    )
-    .into_any_element();
+    let avatar = card_avatar(&props.card, &name, gpui_component::Size::Small, cx);
 
     // EXP-741: the replies block + the reply row, behind one hairline.
     let stroke = theme::tokens::glass::STROKE_CARD.to_hsla();
@@ -502,14 +527,8 @@ pub(crate) fn comment_row(
         .border_t_1()
         .border_color(stroke);
     for reply in &props.replies {
-        let reply_name = comment_author_name(reply.comment, reply.author, reply.reporter_name);
-        let reply_avatar = crate::user_avatar::user_avatar(
-            avatar_key(reply.comment, &reply_name),
-            &reply_name,
-            reply.author.and_then(|user| user.image.as_deref()),
-            gpui_component::Size::Size(px(20.)),
-            cx,
-        );
+        let reply_name = card_author_name(reply);
+        let reply_avatar = card_avatar(reply, &reply_name, gpui_component::Size::Size(px(20.)), cx);
         thread = thread.child(
             h_flex()
                 .w_full()
@@ -1194,7 +1213,8 @@ mod tests {
         for case in fixture["captions"]["cases"].as_array().unwrap() {
             let comment: Comment = serde_json::from_value(json!({
                 "id": "c-1", "issue_id": "i-1", "source": case["source"],
-                "audience": case["audience"], "author_id": "u-1"
+                "audience": case["audience"], "author_id": "u-1",
+                "author_agent_id": case["authorAgentId"]
             }))
             .unwrap();
             assert_eq!(

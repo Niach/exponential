@@ -780,7 +780,20 @@ pub(crate) fn issue_row(key: &str, other: &Issue, opts: IssueRowOpts, cx: &mut A
         in_dialog,
     } = opts;
     let status = queries::resolve_issue_status(cx, other);
-    let assignee = other.assignee_id.as_deref().map(|user_id| {
+    // #EXP-1383: an agent assignee draws THE AGENT MARK.
+    let assignee_agent = other
+        .assignee_agent_id
+        .as_deref()
+        .and_then(|agent_id| queries::agent_actor(cx, agent_id))
+        .map(|agent| {
+            crate::user_avatar::agent_avatar(
+                agent.icon.as_deref(),
+                agent.color.as_deref(),
+                gpui_component::Size::XSmall,
+                cx,
+            )
+        });
+    let assignee = assignee_agent.or_else(|| other.assignee_id.as_deref().map(|user_id| {
         let user = Store::try_global(cx)
             .and_then(|store| store.collections().users.read(cx).get(user_id).cloned());
         crate::user_avatar::user_avatar(
@@ -790,7 +803,7 @@ pub(crate) fn issue_row(key: &str, other: &Issue, opts: IssueRowOpts, cx: &mut A
             gpui_component::Size::XSmall,
             cx,
         )
-    });
+    }));
     let issue_id = other.id.clone();
     // EXP-760: the row opens the shared issue hover preview — the same card
     // the `#IDENT` pills in prose show. The row's painted rectangle is the

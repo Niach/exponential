@@ -307,6 +307,7 @@ fn build_snapshot(
         status_id: props.status.status_id.clone(),
         priority: props.priority,
         assignee_id: props.assignee_id.clone(),
+        assignee_agent_id: props.assignee_agent_id.clone(),
         label_ids: props.selected_label_ids.clone(),
         due_date: props.due_date,
         thread_id: target.thread_id.clone(),
