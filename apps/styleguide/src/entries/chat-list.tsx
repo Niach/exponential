@@ -1,39 +1,12 @@
 import chats from "@exp/domain-contract/fixtures/chats.json"
-import type { AgentBubble, ChatFilter, ChatRow as ChatRowModel } from "@exp/domain-contract/chats"
-import { AgentBubbles, ChatFilterChips, ChatList, ChatsHeader } from "@exp/ui"
-import { useState } from "react"
+import { ChatListSpecimen } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
 // Thread 58cb32df (#EXP-1373, `chats.json`): THE phone Chats screen's pieces,
-// the real `@exp/ui` components the web-mobile page mounts, fed the
-// fixture's own expected model: `listCases[0]` (one flat list by activity,
-// leads working / needs you / open PR / merged, the unread badge, the
-// `Yesterday` label) and `bubbleCases[0]` (amber = needs you, white =
-// unread, a hairline = read). The chips filter the same rows locally.
-
-const LIST = chats.listCases[0]!.expected
-const ROWS = LIST.rows as ChatRowModel[]
-const BUBBLES = chats.bubbleCases[0]!.expected as AgentBubble[]
-
-function ChatsSpecimen() {
-  const [filter, setFilter] = useState<ChatFilter>(`all`)
-  const rows = ROWS.filter(
-    (row) =>
-      filter === `all` ||
-      (filter === `needs_you` && row.group === `needs_you`) ||
-      (filter === `running` && row.group === `running`) ||
-      (filter === `unread` && row.unreadCount > 0)
-  )
-  return (
-    <div className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4">
-      <ChatsHeader inboxUnread />
-      <AgentBubbles bubbles={BUBBLES} />
-      <ChatFilterChips value={filter} counts={LIST.counts} onChange={setFilter} />
-      <ChatList rows={rows} agentOf={() => `claude`} />
-    </div>
-  )
-}
+// `@exp/ui` `ChatListSpecimen` (the real components the web-mobile page
+// mounts, fed the fixture's `listCases[0]` + `bubbleCases[0]`); the app's
+// `?dev=chat-list` capture renders the same.
 
 export const entry: StyleguideEntry = {
   id: `chat-list`,
@@ -63,5 +36,5 @@ export const entry: StyleguideEntry = {
       file: `apps/android/app/src/main/java/com/exponential/app/ui/components/ChatComponents.kt`,
     },
   },
-  island: () => <ChatsSpecimen />,
+  island: () => <ChatListSpecimen />,
 }

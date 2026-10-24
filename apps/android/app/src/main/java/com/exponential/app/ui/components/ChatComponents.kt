@@ -475,6 +475,16 @@ fun ChatMenuSheet(
     onDismiss: () -> Unit,
 ) {
     GlassSheet(title = title, onDismiss = onDismiss, modifier = Modifier.testTag("chat-menu")) {
+        ChatMenuRows(items)
+        Spacer(Modifier.height(16.dp))
+    }
+}
+
+/** THE chat menu sheet's rows (the sheet's body; the styleguide's static
+ *  faces draw the same rows). */
+@Composable
+fun ChatMenuRows(items: List<ChatMenuItem>) {
+    Column {
         items.forEach { item ->
             if (item.dividerBefore) {
                 GroupDivider()
@@ -493,7 +503,33 @@ fun ChatMenuSheet(
                 )
             }
         }
-        Spacer(Modifier.height(16.dp))
+    }
+}
+
+/**
+ * THE chat menu sheet's face in place (the styleguide's `chat-menus`, iOS's
+ * static sheet faces line for line): the sheet's fill and top corners, its
+ * title, its rows — what [ChatMenuSheet] shows, without the modal.
+ */
+@Composable
+fun ChatMenuSheetFace(title: String, items: List<ChatMenuItem>, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(GlassSheetDefaults.CornerRadius)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(GlassSheetDefaults.ContainerColor, shape)
+            .padding(top = 14.dp, bottom = 8.dp),
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            color = GlassSheetDefaults.TitleColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = GlassSheetDefaults.HorizontalPadding).padding(bottom = 6.dp),
+        )
+        ChatMenuRows(items)
     }
 }
 

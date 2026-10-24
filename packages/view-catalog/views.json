@@ -5484,6 +5484,15 @@
       "title": "Chat list",
       "blurb": "The phone Chats list ×3 (chats.json): the Chats headline with search + inbox circles, the agent bubbles (amber ring = needs you, white = unread), the filter chips and flat WhatsApp rows (lead disc, title, time, preview, word, unread badge).",
       "order": 32,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=chat-list",
+        "anchor": {
+          "testId": "chat-list-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_chat-list",
         "lane": "styleguide"
@@ -5500,11 +5509,11 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "A styleguide specimen (apps/styleguide entry `chat-list`); the live web screens are their own views.",
+        "web": "The DEV-ONLY `?dev=chat-list` on the Agent route (never parsed in a production build, like `plan-card`): `@exp/ui` `ChatListSpecimen`, the phone Chats screen's real pieces (header, agent bubbles, filter chips, the flat rows) fed chats.json `listCases[0]` + `bubbleCases[0]`, 390px wide.",
         "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_chat-list.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:chat-list`: the IDE styleguide entry drawn full-window.",
-        "web-mobile": "See web: the styleguide entry is the phone-wide specimen."
+        "web-mobile": "Inherits web: the phone frame draws the same 390px specimen at full width."
       }
     },
     {
@@ -5513,6 +5522,15 @@
       "title": "Phone tab bar",
       "blurb": "The phone bottom bar (chats.json shell): Board · Devices · Chats · Team (the team avatar + name), icon over label on the glass capsule, beside the new chat / new issue capsule.",
       "order": 33,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=phone-tab-bar",
+        "anchor": {
+          "testId": "phone-tab-bar-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_phone-tab-bar",
         "lane": "styleguide"
@@ -5529,11 +5547,11 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "A styleguide specimen (apps/styleguide entry `phone-tab-bar`); the live web screens are their own views.",
+        "web": "The DEV-ONLY `?dev=phone-tab-bar` on the Agent route (never parsed in a production build, like `plan-card`): `@exp/ui` `PhoneTabBarSpecimen`, the tab capsule (Board · Devices · Chats · Team) beside the new chat / new issue capsule in three states: Chats, Team and Board selected, the amber dot on Chats.",
         "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_phone-tab-bar.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:phone-tab-bar`: the IDE styleguide entry drawn full-window.",
-        "web-mobile": "See web: the styleguide entry is the phone-wide specimen."
+        "web-mobile": "Inherits web: the same three bars at the phone's width."
       }
     },
     {
@@ -5542,6 +5560,15 @@
       "title": "Chat transcript",
       "blurb": "The chat transcript pieces ×4 (chats.json TRANSCRIPT + SURFACE CARD): the person’s and the agent’s bubbles, the /compact and /new divider pills, an agent’s inline Exponential UI preview, a superseded plan line.",
       "order": 34,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=chat-transcript",
+        "anchor": {
+          "testId": "chat-transcript-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_chat-transcript",
         "lane": "styleguide"
@@ -5558,11 +5585,11 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "A styleguide specimen (apps/styleguide entry `chat-transcript`); the live web screens are their own views.",
+        "web": "The DEV-ONLY `?dev=chat-transcript` on the Agent route (never parsed in a production build, like `plan-card`): `@exp/ui` `ChatTranscriptSpecimen`, the real ThreadConversation in both layouts (phone bubbles, web-wide transcript: the superseded plan, the inline SurfaceCard, the /compact and /new divider pills) plus the standalone SurfaceCard.",
         "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_chat-transcript.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:chat-transcript`: the IDE styleguide entry drawn full-window.",
-        "web-mobile": "See web: the styleguide entry is the phone-wide specimen."
+        "web-mobile": "Inherits web: the three columns stack in the phone frame."
       }
     },
     {
@@ -5571,6 +5598,15 @@
       "title": "Chat menus",
       "blurb": "The chat and agent menus ×4 (chats.json MENUS): Stop · Stop and delete on a live chat, Delete on an ended one, the agent menu (Compact conversation, New conversation, Stop, Agent settings) and the delete confirm.",
       "order": 35,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=chat-menus",
+        "anchor": {
+          "testId": "chat-menus-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_chat-menus",
         "lane": "styleguide"
@@ -5587,11 +5623,11 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "A styleguide specimen (apps/styleguide entry `chat-menus`); the live web screens are their own views.",
+        "web": "The DEV-ONLY `?dev=chat-menus` on the Agent route (never parsed in a production build, like `plan-card`): `@exp/ui` `ChatMenusSpecimen`, the chat menu (live, ended), the agent menu (busy owner, idle member) as pointer panels, the phone long-press sheet and the delete confirm (`PromptLayout` in the dialog frame).",
         "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_chat-menus.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:chat-menus`: the IDE styleguide entry drawn full-window.",
-        "web-mobile": "See web: the styleguide entry is the phone-wide specimen."
+        "web-mobile": "Inherits web: the same panels wrap down the phone column."
       }
     },
     {

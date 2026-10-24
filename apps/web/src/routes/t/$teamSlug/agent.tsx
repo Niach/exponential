@@ -9,6 +9,10 @@ import {
   AskDockSpecimen,
   DockCardSpecimen,
   PlanCardSpecimen,
+  ChatListSpecimen,
+  ChatMenusSpecimen,
+  ChatTranscriptSpecimen,
+  PhoneTabBarSpecimen,
   useKeyboardInset,
 } from "@exp/ui"
 import { HOME_GEOMETRY, HOME_TEST_IDS } from "@exp/domain-contract/home-greeting"
@@ -61,9 +65,21 @@ const str = (value: unknown): string | undefined =>
 // feedback kinds side by side, for the view catalog's `feedback-states`
 // capture; EXP-1324: `?dev=trace` / `?dev=code-block` the Trace and
 // CodeBlock specimens (`?dev=ask-dock` THE ask dock's, EXP-1280 `?dev=plan-card`
-// THE rich plan card's) (identical ×4) for theirs. Never parsed in a
-// production build (`isProductionBuild`).
-const DEV_VIEWS = [`feedback-states`, `trace`, `code-block`, `ask-dock`, `dock-card`, `plan-card`] as const
+// THE rich plan card's; thread 58cb32df `?dev=chat-list` / `chat-menus` /
+// `chat-transcript` / `phone-tab-bar` the chats.json specimens) (identical
+// ×4) for theirs. Never parsed in a production build (`isProductionBuild`).
+const DEV_VIEWS = [
+  `feedback-states`,
+  `trace`,
+  `code-block`,
+  `ask-dock`,
+  `dock-card`,
+  `plan-card`,
+  `chat-list`,
+  `chat-menus`,
+  `chat-transcript`,
+  `phone-tab-bar`,
+] as const
 type DevView = (typeof DEV_VIEWS)[number]
 const devView = (value: unknown): DevView | undefined =>
   !isProductionBuild && DEV_VIEWS.includes(value as DevView)
@@ -107,6 +123,14 @@ function AgentRoute() {
           <DockCardSpecimen />
         ) : dev === `plan-card` ? (
           <PlanCardSpecimen />
+        ) : dev === `chat-list` ? (
+          <ChatListSpecimen />
+        ) : dev === `chat-menus` ? (
+          <ChatMenusSpecimen />
+        ) : dev === `chat-transcript` ? (
+          <ChatTranscriptSpecimen />
+        ) : dev === `phone-tab-bar` ? (
+          <PhoneTabBarSpecimen />
         ) : dev === `code-block` ? (
           <CodeBlockSpecimen />
         ) : (

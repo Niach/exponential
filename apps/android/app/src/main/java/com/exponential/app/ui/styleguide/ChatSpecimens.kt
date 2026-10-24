@@ -32,6 +32,7 @@ import com.exponential.app.domain.Schedule
 import com.exponential.app.domain.SchedulePicker
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.BottomNavBar
+import com.exponential.app.ui.components.ChatMenuSheetFace
 import com.exponential.app.ui.components.ChatLeadDisc
 import com.exponential.app.ui.components.ScheduleFieldsSpecimen
 import com.exponential.app.ui.components.agentMenuItems
@@ -288,19 +289,28 @@ fun ChatTranscriptSpecimenScreen() {
     }
 }
 
-/** THE chat menu as a phone presents it (chats-menu.png): the long-press
- *  sheet titled with the chat's title over the list — a live chat's Stop ·
- *  Stop and delete (shot `sg_chat-menus`). */
+/** THE chat menus as the phone's long-press sheets, in the web entry's
+ *  order (chat-menus.tsx; iOS's faces line for line): a live chat (Stop ·
+ *  Stop and delete), an ended chat (Delete), the agent menu busy + owner
+ *  (Compact conversation · New conversation | Stop · Agent settings)
+ *  (shot `sg_chat-menus`). */
 @Composable
 fun ChatMenusSpecimenScreen() {
-    Box(Modifier.fillMaxSize().testTag(ChatMenusSpecimenTestId)) {
-        ChatListSpecimenScreen()
+    AppBackground {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 24.dp)
+                .testTag(ChatMenusSpecimenTestId),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            ChatMenuSheetFace("Spike: offline queue", chatMenuItems(Chats.threadMenuEntries("running", true), {}, {}))
+            ChatMenuSheetFace("#APP-16 Fix flaky scroll restore", chatMenuItems(Chats.threadMenuEntries("ended", true), {}, {}))
+            ChatMenuSheetFace("Triage", agentMenuItems(Chats.agentMenuEntries(busy = true, isOwner = true)) {})
+        }
     }
-    com.exponential.app.ui.components.ChatMenuSheet(
-        title = "Spike: offline queue",
-        items = chatMenuItems(Chats.threadMenuEntries("running", true), {}, {}),
-        onDismiss = {},
-    )
 }
 
 /** The schedule picker with the new `minutes` repeat (shot

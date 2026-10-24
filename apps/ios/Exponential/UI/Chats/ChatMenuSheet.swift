@@ -26,7 +26,7 @@ struct ChatMenuSheet: View {
         GlassSheetChrome(title: title) {
             VStack(spacing: 0) {
                 ForEach(Array(entries.enumerated()), id: \.element) { index, entry in
-                    if index > 0, separates(entries[index - 1], entry) {
+                    if index > 0, Self.separates(entries[index - 1], entry) {
                         GlassDivider().padding(.vertical, 4)
                     }
                     Button {
@@ -48,7 +48,7 @@ struct ChatMenuSheet: View {
 
     /// The agent menu's sends sit apart from Stop / Agent settings (the
     /// draft's separator); the Guide's Close PR from the chat's entries.
-    private func separates(_ previous: Entry, _ next: Entry) -> Bool {
+    static func separates(_ previous: Entry, _ next: Entry) -> Bool {
         switch (previous, next) {
         case (.agent(.newConversation), .agent): true
         case (.thread, .closePr), (.closePr, .thread): true

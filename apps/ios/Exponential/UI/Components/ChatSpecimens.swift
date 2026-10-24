@@ -277,7 +277,12 @@ struct ChatMenuSpecimens: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
-            ForEach(entries, id: \.self) { entry in
+            ForEach(Array(entries.enumerated()), id: \.element) { index, entry in
+                // The live sheet's own separator rule (Stop / Agent settings
+                // sit apart from the conversation pair).
+                if index > 0, ChatMenuSheet.separates(entries[index - 1], entry) {
+                    GlassDivider().padding(.vertical, 4)
+                }
                 GlassMenuItemLabel(
                     ChatMenuSheet.label(entry),
                     icon: ChatMenuSheet.icon(entry),

@@ -1,25 +1,13 @@
 import fixture from "@exp/domain-contract/fixtures/chats.json"
-import { agentMenuEntries, threadMenuEntries } from "@exp/domain-contract/chats"
-import { agentMenuRows, chatMenuRows, MenuPanel } from "@exp/ui"
+import { ChatMenusSpecimen } from "@exp/ui"
 
-import { PromptSpecimen } from "./dialog-shared.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 // Thread 58cb32df (fixtures/chats.json MENUS ×4): THE chat menu and THE agent
-// menu, the real `@exp/ui` rows (`chatMenuRows` over `threadMenuEntries`,
-// `agentMenuRows` over `agentMenuEntries`) in both looks: the pointer menu a
-// right-click opens and the sheet a phone's long-press opens (titled with the
-// chat's title), plus the delete confirm.
+// menu in both looks plus the delete confirm, `@exp/ui` `ChatMenusSpecimen`
+// (the app's `?dev=chat-menus` capture renders the same).
 
 const COPY = fixture.copy
-const noop = (): void => {}
-
-const LIVE = chatMenuRows(threadMenuEntries({ rootStatus: `running`, canSteer: true }), noop)
-const ENDED = chatMenuRows(threadMenuEntries({ rootStatus: `ended`, canSteer: true }), noop)
-const AGENT_BUSY_OWNER = agentMenuRows(agentMenuEntries({ busy: true, isOwner: true }), noop)
-const AGENT_IDLE = agentMenuRows(agentMenuEntries({ busy: false, isOwner: false }), noop)
-
-const caption = (text: string) => <div className="mb-2 text-xs text-muted-foreground">{text}</div>
 
 export const entry: StyleguideEntry = {
   id: `chat-menus`,
@@ -38,37 +26,5 @@ export const entry: StyleguideEntry = {
     ios: { state: `ok`, symbol: `GlassLongPressMenu`, file: `apps/ios/ExpUI/Sources` },
     android: { state: `ok`, symbol: `combinedClickable + the glass menu sheet`, file: `apps/android/app/src/main/java/com/exponential/app/ui/thread` },
   },
-  island: () => (
-    <div className="flex flex-wrap items-start gap-8">
-      <div>
-        {caption(`A live chat`)}
-        <MenuPanel entries={LIVE} density="pointer" />
-      </div>
-      <div>
-        {caption(`An ended chat`)}
-        <MenuPanel entries={ENDED} density="pointer" />
-      </div>
-      <div>
-        {caption(`The agent menu (busy, owner)`)}
-        <MenuPanel entries={AGENT_BUSY_OWNER} density="pointer" />
-      </div>
-      <div>
-        {caption(`The agent menu (idle, member)`)}
-        <MenuPanel entries={AGENT_IDLE} density="pointer" />
-      </div>
-      <div className="w-[24rem]">
-        {caption(`Phone: the long-press sheet`)}
-        <MenuPanel entries={LIVE} look="sheet" density="touch" title="Spike: offline queue" />
-      </div>
-      <PromptSpecimen
-        caption="The delete confirm"
-        title={COPY.confirmDelete.title}
-        body={COPY.confirmDelete.body}
-        actions={[
-          { label: `Cancel`, role: `cancel` },
-          { label: COPY.menu.delete, role: `destructive` },
-        ]}
-      />
-    </div>
-  ),
+  island: () => <ChatMenusSpecimen />,
 }
