@@ -91,6 +91,22 @@ class AppActionsTest {
     }
 
     @Test
+    fun `the name's op wins over a forged op in the args`() {
+        // Review of #1222: a granted `exponential.issues.get` can never run a delete.
+        val get = AppActions.parseActionName("exponential.issues.get")!!
+        assertEquals(
+            mapOf("op" to JsonValue.Str("get"), "id" to JsonValue.Str("APP-5")),
+            AppActions.arguments(get, mapOf("op" to JsonValue.Str("delete"), "id" to JsonValue.Str("APP-5"))),
+        )
+        assertEquals(
+            mapOf("id" to JsonValue.Str("APP-5"), "op" to JsonValue.Str("get")),
+            AppActions.arguments(get, mapOf("id" to JsonValue.Str("APP-5"))),
+        )
+        val send = AppActions.parseActionName("exponential.sessions.send")!!
+        assertEquals(mapOf("text" to JsonValue.Str("hi")), AppActions.arguments(send, mapOf("text" to JsonValue.Str("hi"))))
+    }
+
+    @Test
     fun `the title is the display row's, the name otherwise`() {
         assertEquals("Set issue status", AppActions.actionTitle("exponential.issues.update_status"))
         assertEquals("harness.toast", AppActions.actionTitle("harness.toast"))

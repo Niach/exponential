@@ -792,8 +792,9 @@ fn mcp_fn() -> HostFunction {
 }
 
 /// VAPP-120: a typed action's MCP `arguments`: `{op, …args}` (the web's
-/// spread: `op` first, an app's own `op` key cannot move it), the args alone
-/// for a verb tool (`op` = `None`); a non-object `args` reads as `{}`.
+/// `{...args, op}`: the NAME's op wins, an app-supplied `op` key is dropped,
+/// so the card and the grant always name the operation that runs), the args
+/// alone for a verb tool (`op` = `None`); a non-object `args` reads as `{}`.
 pub(crate) fn action_arguments(op: Option<&str>, args: &Value) -> Value {
     let mut map = serde_json::Map::new();
     if let Some(op) = op {
@@ -801,6 +802,9 @@ pub(crate) fn action_arguments(op: Option<&str>, args: &Value) -> Value {
     }
     if let Some(given) = args.as_object() {
         for (key, value) in given {
+            if op.is_some() && key == "op" {
+                continue;
+            }
             map.insert(key.clone(), value.clone());
         }
     }
@@ -1649,10 +1653,13 @@ mod tests {
             action_arguments(Some("update_status"), &json!({"id": "APP-5", "status": "done"})).to_string(),
             r#"{"op":"update_status","id":"APP-5","status":"done"}"#
         );
+        // A forged `op` in the args never changes the operation (review of #1222).
         assert_eq!(
             action_arguments(Some("get"), &json!({"op": "delete", "id": "APP-5"})).to_string(),
-            r#"{"op":"delete","id":"APP-5"}"#
+            r#"{"op":"get","id":"APP-5"}"#
         );
+        // The verb tool keeps the app's keys as given (no op to protect).
+        assert_eq!(action_arguments(None, &json!({"op": "x", "text": "hi"})).to_string(), r#"{"op":"x","text":"hi"}"#);
         assert_eq!(action_arguments(None, &json!({"text": "hi"})).to_string(), r#"{"text":"hi"}"#);
         assert_eq!(action_arguments(Some("list"), &Value::Null).to_string(), r#"{"op":"list"}"#);
         // A grant lets a typed action run without asking; harness.mcp never.

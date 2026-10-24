@@ -125,6 +125,12 @@ object AppActions {
     fun declaredActions(functions: List<String>): List<String> =
         ALL.filter { name -> functions.any { matches(it, name) } }
 
+    /** A typed action's MCP `arguments`: `{…args, op}` for a noun's op (the
+     *  NAME's op wins: an app-supplied `op` key cannot change the operation the
+     *  card and the grant name), the args alone for a verb tool. */
+    fun arguments(target: Target, args: Map<String, JsonValue>): Map<String, JsonValue> =
+        if (target.op != null) args + mapOf("op" to JsonValue.Str(target.op)) else args
+
     /** Does the app's `granted_tools` list let [name] run without asking?
      *  Exact names only: a grant is a person's choice, never a pattern. */
     fun grantAllows(granted: List<String>, name: String): Boolean = name in granted

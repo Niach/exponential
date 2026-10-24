@@ -469,8 +469,7 @@ fun rememberAppHost(
         // `op` + the args (no op for a verb tool).
         val actions: Map<String, HostFunction> = AppActions.TOOLS.mapValues { (_, target) ->
             val fn: HostFunction = { args, _ ->
-                val arguments = if (target.op != null) args + mapOf("op" to JsonValue.Str(target.op)) else args
-                callMcp(deps.httpClient(), origin, token, target.tool, JsonValue.Obj(arguments))
+                callMcp(deps.httpClient(), origin, token, target.tool, JsonValue.Obj(AppActions.arguments(target, args)))
             }
             fn
         }

@@ -175,10 +175,10 @@ final class ExpAppHost {
         for name in AppActions.all {
             guard let target = AppActions.parseActionName(name) else { continue }
             functions[name] = { args, _ in
-                var arguments = args
-                if let op = target.op { arguments["op"] = .string(op) }
-                return try await AppHostMcp.call(
-                    tool: target.tool, arguments: arguments, accountId: accountId, base: base, httpClient: httpClient
+                try await AppHostMcp.call(
+                    tool: target.tool,
+                    arguments: AppActions.arguments(args, op: target.op) { .string($0) },
+                    accountId: accountId, base: base, httpClient: httpClient
                 )
             }
         }

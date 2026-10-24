@@ -197,13 +197,22 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     await expect(api.delete({ id: created.app.id, recordId: made.id })).rejects.toMatchObject({ code: `NOT_FOUND` })
     expect((await api.list({ id: created.app.id })).records).toEqual([])
   })
-  // VAPP-120: the grants are exact action names, written by a manager.
-  it(`grants: update keeps exact offered actions, refuses anything else, and only for a manager`, async () => {
+  // VAPP-120: the grants are exact action names the HEAD package declares,
+  // written by a manager; a new version prunes what it no longer declares.
+  it(`grants: update keeps exact declared actions, refuses anything else, only for a manager; a new version prunes`, async () => {
     const w = await world()
-    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours` })
+    const declaring = (functions: string[]) => ({ ...RECORDS_PACKAGE, functions })
+    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: declaring([`exponential.comments.create`, `exponential.issues.*`]) })
     const updated = await caller(w.owner).update({ id: created.app.id, grantedTools: [`exponential.comments.create`, `exponential.issues.update_status`] })
     expect(updated.app.grantedTools).toEqual([`exponential.comments.create`, `exponential.issues.update_status`])
+    // A pattern is not a grant; an offered but undeclared action is refused too (review of #1222).
     await expect(caller(w.owner).update({ id: created.app.id, grantedTools: [`exponential.issues.*`] })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await expect(caller(w.owner).update({ id: created.app.id, grantedTools: [`exponential.boards.delete`] })).rejects.toMatchObject({ code: `BAD_REQUEST` })
     await expect(caller(w.mate).update({ id: created.app.id, grantedTools: [] })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    // A version that drops an action drops its grant; re-declaring it later starts ungranted.
+    await caller(w.mate).upsertPackage({ id: created.app.id, package: declaring([`exponential.comments.create`]) })
+    expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([`exponential.comments.create`])
+    await caller(w.mate).upsertPackage({ id: created.app.id, package: declaring([`exponential.comments.create`, `exponential.issues.update_status`]) })
+    expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([`exponential.comments.create`])
   })
 })

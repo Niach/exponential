@@ -19,7 +19,7 @@ import { validateRecord } from "@exponential_app/ui"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { APP_RECORDS_QUERY } from "@exp/domain-contract/app-records"
-import { APP_ACTIONS } from "@exp/domain-contract/app-actions"
+import { APP_ACTIONS, declaredActions } from "@exp/domain-contract/app-actions"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import type { Tx } from "@/lib/sessions/tx"
 
@@ -67,7 +67,17 @@ async function assertCanManage(userId: string, app: App) {
   }
 }
 
-/** A new version row + the app's head, in one transaction. */
+/** VAPP-120: the typed actions a stored package's `functions` list declares
+ *  (patterns expanded; a missing or malformed list declares none). */
+export function packageActions(pkg: unknown): string[] {
+  const functions = (pkg as { functions?: unknown } | null)?.functions
+  return declaredActions(Array.isArray(functions) ? functions.filter((f): f is string => typeof f === `string`) : [])
+}
+
+/** A new version row + the app's head, in one transaction. VAPP-120: the
+ *  grants follow the head: a name the new package no longer declares loses
+ *  its grant, so a later version re-declaring it asks again (review of
+ *  #1222: a grant is a person's choice about THIS package, never inherited). */
 export async function writeVersionInTx(
   tx: Tx,
   app: App,
@@ -75,11 +85,13 @@ export async function writeVersionInTx(
   args: { note: string | null; sessionId: string | null; createdBy: string | null }
 ): Promise<{ number: number; versionId: string }> {
   const [locked] = await tx
-    .select({ headVersion: apps.headVersion })
+    .select({ headVersion: apps.headVersion, grantedTools: apps.grantedTools })
     .from(apps)
     .where(eq(apps.id, app.id))
     .for(`update`)
   const number = (locked?.headVersion ?? app.headVersion) + 1
+  const declared = packageActions(pkg)
+  const grantedTools = (locked?.grantedTools ?? app.grantedTools ?? []).filter((name) => declared.includes(name))
   const [version] = await tx
     .insert(appVersions)
     .values({
@@ -94,7 +106,7 @@ export async function writeVersionInTx(
     .returning({ id: appVersions.id })
   await tx
     .update(apps)
-    .set({ package: pkg, headVersion: number, updatedAt: new Date() })
+    .set({ package: pkg, headVersion: number, grantedTools, updatedAt: new Date() })
     .where(eq(apps.id, app.id))
   return { number, versionId: version!.id }
 }
@@ -238,6 +250,15 @@ export const appsRouter = router({
       const userId = ctx.session.user.id
       const app = await loadApp(ctx.db, { id: input.id })
       await assertCanManage(userId, app)
+      // VAPP-120: a grant names only what the HEAD package declares (review
+      // of #1222: nothing is granted ahead of a version that would use it).
+      if (input.grantedTools) {
+        const declared = packageActions(app.package)
+        const undeclared = input.grantedTools.filter((name) => !declared.includes(name))
+        if (undeclared.length > 0) {
+          throw new TRPCError({ code: `BAD_REQUEST`, message: `The app's package does not declare ${undeclared.join(`, `)}: a grant names only what the head version calls` })
+        }
+      }
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const { id, ...patch } = input

@@ -76,6 +76,17 @@ public enum AppActions {
         all.filter { name in functions.contains { matches($0, name) } }
     }
 
+    /// A typed action's MCP `arguments`: `{…args, op}` for a noun's op (the
+    /// NAME's op wins: an app-supplied `op` key cannot change the operation
+    /// the card and the grant name), the args alone for a verb tool. Generic
+    /// over the host's JSON value type (`string` makes the op's value).
+    public static func arguments<Value>(_ args: [String: Value], op: String?, string: (String) -> Value) -> [String: Value] {
+        guard let op else { return args }
+        var merged = args
+        merged["op"] = string(op)
+        return merged
+    }
+
     /// Does the app's `granted_tools` list let `name` run without asking?
     /// Exact names only: a grant is a person's choice, never a pattern.
     public static func grantAllows(_ granted: [String], _ name: String) -> Bool {

@@ -111,6 +111,23 @@ final class AppActionsTests: XCTestCase {
         }
     }
 
+    func testTheNamesOpWinsOverAForgedOpInTheArgs() {
+        // Review of #1222: a granted `exponential.issues.get` can never run a delete.
+        let get = AppActions.parseActionName("exponential.issues.get")
+        XCTAssertEqual(
+            AppActions.arguments(["op": "delete", "id": "APP-5"], op: get?.op) { $0 },
+            ["op": "get", "id": "APP-5"]
+        )
+        XCTAssertEqual(AppActions.arguments(["id": "APP-5"], op: get?.op) { $0 }, ["id": "APP-5", "op": "get"])
+        let send = AppActions.parseActionName("exponential.sessions.send")
+        XCTAssertNil(send?.op)
+        XCTAssertEqual(AppActions.arguments(["text": "hi"], op: send?.op) { $0 }, ["text": "hi"])
+        XCTAssertEqual(
+            AppActions.arguments(["op": CardJSON.string("delete")], op: "get") { CardJSON.string($0) },
+            ["op": CardJSON.string("get")]
+        )
+    }
+
     func testActionTitle() {
         XCTAssertEqual(AppActions.actionTitle("exponential.issues.update_status"), "Set issue status")
         XCTAssertEqual(AppActions.actionTitle("exponential.sessions.send"), "Send to session")
