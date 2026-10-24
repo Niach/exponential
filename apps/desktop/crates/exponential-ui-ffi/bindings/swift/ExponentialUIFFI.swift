@@ -7390,6 +7390,18 @@ public func validatePackageJson(packageJson: String, catalogIds: [String]?)throw
 })
 }
 /**
+ * VAPP-122: a record (JSON) against its kind's schema (JSON): the issues
+ * `[{path, message}]` as JSON.
+ */
+public func validateRecordJson(schemaJson: String, dataJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_validate_record_json(
+        FfiConverterString.lower(schemaJson),
+        FfiConverterString.lower(dataJson),$0
+    )
+})
+}
+/**
  * The issues of a style object (`[{path, message}]`).
  */
 public func validateStyleJson(styleJson: String, root: Bool?)throws  -> String  {
@@ -7604,6 +7616,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_validate_package_json() != 13412) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_validate_record_json() != 49853) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_validate_style_json() != 34628) {

@@ -2,18 +2,18 @@
   "$comment": "VAPP-106: the SDK's sizes on record, written by release/size.ts --write (bytes; gzip for what a browser downloads; parts = the chunks of an entry, the thin archs of a slice, the top crates by .text). The budgets live in size-budget.json; CI (exponential-ui.yml) fails a pull request that goes over one.",
   "measured": {
     "npm": {
-      "at": "2026-10-23",
+      "at": "2026-10-24",
       "host": "darwin-arm64",
       "entries": {
         "@exponential_app/ui/index": {
-          "bytes": 395120,
-          "gzip": 111545,
+          "bytes": 402464,
+          "gzip": 113911,
           "parts": {
-            "index.js": 74338,
-            "chunks/index-hmav4nzv.js": 105571,
-            "chunks/index-6w9t5k3b.js": 122723,
-            "chunks/index-kb3b0ex6.js": 11815,
-            "chunks/index-xz1xhawc.js": 80673
+            "index.js": 74604,
+            "chunks/index-h1c8m6zv.js": 110908,
+            "chunks/index-gz6r1stk.js": 124382,
+            "chunks/index-zyw6as1c.js": 11815,
+            "chunks/index-2dv34xze.js": 80755
           }
         },
         "@exponential_app/ui-react/index": {
@@ -37,43 +37,43 @@
           "gzip": 13836
         },
         "@exponential_app/ui/prompt": {
-          "bytes": 133776,
-          "gzip": 33611,
+          "bytes": 134021,
+          "gzip": 33708,
           "parts": {
-            "entries/prompt.js": 8146,
-            "chunks/index-vmfhcx8j.js": 44957,
-            "chunks/index-xz1xhawc.js": 80673
+            "entries/prompt.js": 8100,
+            "chunks/index-wkfqcka2.js": 45166,
+            "chunks/index-2dv34xze.js": 80755
           }
         },
         "@exponential_app/ui/schema": {
-          "bytes": 171014,
-          "gzip": 41753,
+          "bytes": 171305,
+          "gzip": 41861,
           "parts": {
             "entries/schema.js": 33569,
-            "chunks/index-vmfhcx8j.js": 44957,
-            "chunks/index-xz1xhawc.js": 80673,
-            "chunks/index-kb3b0ex6.js": 11815
+            "chunks/index-wkfqcka2.js": 45166,
+            "chunks/index-2dv34xze.js": 80755,
+            "chunks/index-zyw6as1c.js": 11815
           }
         },
         "@exponential_app/ui/conformance": {
-          "bytes": 2028299,
-          "gzip": 177417,
+          "bytes": 2036377,
+          "gzip": 179780,
           "parts": {
-            "conformance.js": 1813088,
-            "chunks/index-6w9t5k3b.js": 122723,
-            "chunks/index-kb3b0ex6.js": 11815,
-            "chunks/index-xz1xhawc.js": 80673
+            "conformance.js": 1819425,
+            "chunks/index-gz6r1stk.js": 124382,
+            "chunks/index-zyw6as1c.js": 11815,
+            "chunks/index-2dv34xze.js": 80755
           }
         },
         "@exponential_app/ui/host": {
-          "bytes": 322546,
-          "gzip": 84628,
+          "bytes": 329890,
+          "gzip": 86982,
           "parts": {
-            "host/index.js": 1764,
-            "chunks/index-hmav4nzv.js": 105571,
-            "chunks/index-6w9t5k3b.js": 122723,
-            "chunks/index-kb3b0ex6.js": 11815,
-            "chunks/index-xz1xhawc.js": 80673
+            "host/index.js": 2030,
+            "chunks/index-h1c8m6zv.js": 110908,
+            "chunks/index-gz6r1stk.js": 124382,
+            "chunks/index-zyw6as1c.js": 11815,
+            "chunks/index-2dv34xze.js": 80755
           }
         },
         "@exponential_app/ui/web": {
@@ -127,8 +127,8 @@
           }
         },
         "@exponential_app/ui-element/standalone.js": {
-          "bytes": 664221,
-          "gzip": 184343
+          "bytes": 667515,
+          "gzip": 185354
         }
       }
     },

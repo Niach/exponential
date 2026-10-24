@@ -2621,6 +2621,17 @@ pub fn validate_package_json(package_json: String, catalog_ids: Option<Vec<Strin
     })
 }
 
+/// VAPP-122: a record (JSON) against its kind's schema (JSON): the issues
+/// `[{path, message}]` as JSON.
+#[uniffi::export]
+pub fn validate_record_json(schema_json: String, data_json: String) -> Result<String, UiError> {
+    guarded("validate_record_json", || {
+        let schema: Value = parse(&schema_json)?;
+        let data: Value = parse(&data_json)?;
+        Ok(json_string(&h::validate_record(&schema, &data)))
+    })
+}
+
 /// A package template as its server messages (JSON array), null when the
 /// package has no such template. `data_json` = the caller's data.
 #[uniffi::export]

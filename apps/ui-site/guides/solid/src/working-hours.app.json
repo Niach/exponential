@@ -1,0 +1,577 @@
+{
+  "id": "acme.working-hours",
+  "name": "Working hours",
+  "version": "1.0.0",
+  "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+  "description": "Your hours per day, a month at a time: log them, see the total against the target, keep the issues you worked on.",
+  "sources": [
+    "exp:records"
+  ],
+  "functions": [
+    "harness.records.*",
+    "bind"
+  ],
+  "records": {
+    "entry": {
+      "title": "Hours entry",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "The day"
+          },
+          "hours": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 24
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "What you did"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxLength": 20,
+            "description": "Issue identifiers"
+          }
+        },
+        "required": [
+          "date",
+          "hours"
+        ]
+      }
+    },
+    "settings": {
+      "title": "Settings",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "hours_per_month": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 744
+          }
+        },
+        "required": [
+          "hours_per_month"
+        ]
+      }
+    }
+  },
+  "templates": {
+    "month": {
+      "data": {
+        "entries": {
+          "rows": [],
+          "count": 0,
+          "sum": 0,
+          "month": {
+            "key": "",
+            "label": "",
+            "prev": "",
+            "next": "",
+            "today": "",
+            "days": [],
+            "labels": [],
+            "counts": [],
+            "sums": []
+          }
+        },
+        "settings": {
+          "rows": [],
+          "count": 0
+        },
+        "draft": {
+          "open": false,
+          "id": null,
+          "date": "",
+          "hours": null,
+          "note": "",
+          "issues": []
+        },
+        "targetDraft": null
+      },
+      "bindings": [
+        {
+          "path": "/entries",
+          "source": "exp:records?kind=entry&mine=1&by=date&sum=hours&sort=date&order=desc"
+        },
+        {
+          "path": "/settings",
+          "source": "exp:records?kind=settings&mine=1&limit=1"
+        }
+      ],
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "Working hours",
+          "subtitle": {
+            "path": "/entries/month/label"
+          },
+          "children": [
+            "toolbar",
+            "stats",
+            "entries",
+            "target",
+            "editor"
+          ]
+        },
+        {
+          "id": "toolbar",
+          "component": "Toolbar",
+          "children": [
+            "prev",
+            "monthLabel",
+            "next"
+          ],
+          "slots": {
+            "trailing": "log"
+          }
+        },
+        {
+          "id": "prev",
+          "component": "Button",
+          "icon": "ui-chevron-left",
+          "variant": "outline",
+          "size": "sm",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "bind",
+                "args": {
+                  "path": "/entries",
+                  "source": "exp:records?kind=entry&mine=1&by=date&sum=hours&sort=date&order=desc",
+                  "params": {
+                    "month": {
+                      "path": "/entries/month/prev"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "monthLabel",
+          "component": "Text",
+          "text": {
+            "path": "/entries/month/label"
+          },
+          "variant": "title"
+        },
+        {
+          "id": "next",
+          "component": "Button",
+          "icon": "ui-chevron-right",
+          "variant": "outline",
+          "size": "sm",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "bind",
+                "args": {
+                  "path": "/entries",
+                  "source": "exp:records?kind=entry&mine=1&by=date&sum=hours&sort=date&order=desc",
+                  "params": {
+                    "month": {
+                      "path": "/entries/month/next"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "log",
+          "component": "Button",
+          "label": "Log hours",
+          "icon": "ui-add",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/draft",
+                  "value": {
+                    "open": true,
+                    "id": null,
+                    "date": {
+                      "path": "/entries/month/today"
+                    },
+                    "hours": null,
+                    "note": "",
+                    "issues": []
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "stats",
+          "component": "Grid",
+          "columns": 3,
+          "gap": "sm",
+          "children": [
+            "statTotal",
+            "statTarget",
+            "statLeft"
+          ]
+        },
+        {
+          "id": "statTotal",
+          "component": "StatTile",
+          "label": "Logged",
+          "value": {
+            "call": "concat",
+            "args": {
+              "values": [
+                {
+                  "path": "/entries/sum"
+                },
+                " h"
+              ]
+            }
+          },
+          "trend": {
+            "path": "/entries/month/sums"
+          }
+        },
+        {
+          "id": "statTarget",
+          "component": "StatTile",
+          "label": "Target",
+          "value": {
+            "call": "concat",
+            "args": {
+              "values": [
+                {
+                  "call": "fallback",
+                  "args": {
+                    "value": {
+                      "path": "/settings/rows/0/hours_per_month"
+                    },
+                    "default": 40
+                  }
+                },
+                " h"
+              ]
+            }
+          }
+        },
+        {
+          "id": "statLeft",
+          "component": "StatTile",
+          "label": "Left",
+          "value": {
+            "call": "concat",
+            "args": {
+              "values": [
+                {
+                  "call": "sub",
+                  "args": {
+                    "a": {
+                      "call": "fallback",
+                      "args": {
+                        "value": {
+                          "path": "/settings/rows/0/hours_per_month"
+                        },
+                        "default": 40
+                      }
+                    },
+                    "b": {
+                      "path": "/entries/sum"
+                    }
+                  }
+                },
+                " h"
+              ]
+            }
+          }
+        },
+        {
+          "id": "entries",
+          "component": "Section",
+          "title": "Entries",
+          "count": {
+            "path": "/entries/count"
+          },
+          "children": [
+            "entryList"
+          ]
+        },
+        {
+          "id": "entryList",
+          "component": "List",
+          "divided": true,
+          "children": {
+            "componentId": "entryRow",
+            "path": "/entries/rows",
+            "key": "id"
+          }
+        },
+        {
+          "id": "entryRow",
+          "component": "Row",
+          "title": {
+            "call": "fallback",
+            "args": {
+              "value": {
+                "path": "note"
+              },
+              "default": "No note"
+            }
+          },
+          "subtitle": {
+            "path": "date"
+          },
+          "value": {
+            "call": "concat",
+            "args": {
+              "values": [
+                {
+                  "path": "hours"
+                },
+                " h"
+              ]
+            }
+          },
+          "pressable": true,
+          "chevron": "right",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/draft",
+                  "value": {
+                    "open": true,
+                    "id": {
+                      "path": "id"
+                    },
+                    "date": {
+                      "path": "date"
+                    },
+                    "hours": {
+                      "path": "hours"
+                    },
+                    "note": {
+                      "path": "note"
+                    },
+                    "issues": {
+                      "path": "issues"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "target",
+          "component": "Card",
+          "title": "Monthly target",
+          "children": [
+            "targetRow"
+          ]
+        },
+        {
+          "id": "targetRow",
+          "component": "Toolbar",
+          "children": [
+            "targetField"
+          ],
+          "slots": {
+            "trailing": "targetSave"
+          }
+        },
+        {
+          "id": "targetField",
+          "component": "NumberField",
+          "label": "Hours per month",
+          "name": "hours_per_month",
+          "value": {
+            "path": "/targetDraft"
+          },
+          "min": 0,
+          "max": 744,
+          "placeholder": "40"
+        },
+        {
+          "id": "targetSave",
+          "component": "Button",
+          "label": "Save target",
+          "variant": "outline",
+          "size": "sm",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "harness.records.upsert",
+                "args": {
+                  "kind": "settings",
+                  "id": {
+                    "path": "/settings/rows/0/id"
+                  },
+                  "data": {
+                    "hours_per_month": {
+                      "path": "/targetDraft"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "editor",
+          "component": "Dialog",
+          "title": "Log hours",
+          "open": {
+            "path": "/draft/open"
+          },
+          "children": [
+            "form"
+          ],
+          "slots": {
+            "footer": "deleteEntry"
+          }
+        },
+        {
+          "id": "form",
+          "component": "Form",
+          "name": "entry",
+          "children": [
+            "fields",
+            "actions"
+          ],
+          "on": {
+            "submit": {
+              "functionCall": {
+                "call": "harness.records.upsert",
+                "args": {
+                  "kind": "entry",
+                  "id": {
+                    "path": "/draft/id"
+                  },
+                  "data": {
+                    "date": {
+                      "path": "/draft/date"
+                    },
+                    "hours": {
+                      "path": "/draft/hours"
+                    },
+                    "note": {
+                      "path": "/draft/note"
+                    },
+                    "issues": {
+                      "path": "/draft/issues"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "fields",
+          "component": "FieldGroup",
+          "columns": 2,
+          "children": [
+            "date",
+            "hours",
+            "note",
+            "issues"
+          ]
+        },
+        {
+          "id": "date",
+          "component": "DatePicker",
+          "label": "Day",
+          "name": "date",
+          "value": {
+            "path": "/draft/date"
+          }
+        },
+        {
+          "id": "hours",
+          "component": "NumberField",
+          "label": "Hours",
+          "name": "hours",
+          "value": {
+            "path": "/draft/hours"
+          },
+          "min": 0,
+          "max": 24,
+          "step": 0.25,
+          "unit": "h"
+        },
+        {
+          "id": "note",
+          "component": "Textarea",
+          "label": "What you did",
+          "name": "note",
+          "value": {
+            "path": "/draft/note"
+          },
+          "rows": 2
+        },
+        {
+          "id": "issues",
+          "component": "ChipInput",
+          "label": "Issues",
+          "name": "issues",
+          "values": {
+            "path": "/draft/issues"
+          },
+          "placeholder": "MET-1437"
+        },
+        {
+          "id": "actions",
+          "component": "FormActions",
+          "submit": "Save",
+          "cancel": true,
+          "on": {
+            "cancel": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/draft/open",
+                  "value": false
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "deleteEntry",
+          "component": "Button",
+          "label": "Delete entry",
+          "variant": "ghost",
+          "visible": {
+            "path": "/draft/id"
+          },
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "harness.records.delete",
+                "args": {
+                  "id": {
+                    "path": "/draft/id"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

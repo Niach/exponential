@@ -1280,6 +1280,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_tokenize_code_json(RustBuffer code,
 RustBuffer uniffi_exponential_ui_ffi_fn_func_validate_package_json(RustBuffer package_json, RustBuffer catalog_ids, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_VALIDATE_RECORD_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_VALIDATE_RECORD_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_validate_record_json(RustBuffer schema_json, RustBuffer data_json, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_VALIDATE_STYLE_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_VALIDATE_STYLE_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_validate_style_json(RustBuffer style_json, RustBuffer root, RustCallStatus *_Nonnull out_status
@@ -1895,6 +1900,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_tokenize_code_json(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_VALIDATE_PACKAGE_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_VALIDATE_PACKAGE_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_validate_package_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_VALIDATE_RECORD_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_VALIDATE_RECORD_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_validate_record_json(void
     
 );
 #endif

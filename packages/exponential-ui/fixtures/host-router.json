@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake.",
+  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform.",
   "packages": {
     "acme.devices": {
       "id": "acme.devices",
@@ -197,10 +197,6 @@
                 "minimum": 0,
                 "maximum": 24
               },
-              "note": {
-                "type": "string",
-                "maxLength": 500
-              },
               "issues": {
                 "type": "array",
                 "items": {
@@ -215,6 +211,10 @@
                   "meeting",
                   "support"
                 ]
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 500
               }
             },
             "required": [
@@ -227,12 +227,12 @@
           "schema": {
             "type": "object",
             "properties": {
-              "month": {
-                "type": "string"
-              },
               "hours": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "month": {
+                "type": "string"
               }
             },
             "required": [
@@ -267,16 +267,6 @@
               "id": {
                 "type": "string"
               },
-              "when": {
-                "type": "datetime"
-              },
-              "tags": {
-                "type": "array"
-              },
-              "size": {
-                "type": "number",
-                "maximum": "big"
-              },
               "mood": {
                 "type": "number",
                 "enum": [
@@ -289,6 +279,16 @@
                   "type": "string"
                 },
                 "format": "email"
+              },
+              "size": {
+                "type": "number",
+                "maximum": "big"
+              },
+              "tags": {
+                "type": "array"
+              },
+              "when": {
+                "type": "datetime"
               }
             },
             "required": [
@@ -298,10 +298,10 @@
             "additionalProperties": "no"
           }
         },
+        "list": "nope",
         "ok_kind": {
           "title": "No schema"
-        },
-        "list": "nope"
+        }
       }
     }
   },
@@ -1436,18 +1436,6 @@
           "message": "id is a reserved record key"
         },
         {
-          "path": "/records/Entry/schema/properties/when",
-          "message": "a field is {type: string|number|integer|boolean|array}"
-        },
-        {
-          "path": "/records/Entry/schema/properties/tags/items",
-          "message": "items is {type: string|number|integer|boolean}"
-        },
-        {
-          "path": "/records/Entry/schema/properties/size/maximum",
-          "message": "maximum is a number"
-        },
-        {
           "path": "/records/Entry/schema/properties/mood/enum",
           "message": "enum is a non-empty list of strings on a string field"
         },
@@ -1460,6 +1448,18 @@
           "message": "format is date|date-time|time on a string field"
         },
         {
+          "path": "/records/Entry/schema/properties/size/maximum",
+          "message": "maximum is a number"
+        },
+        {
+          "path": "/records/Entry/schema/properties/tags/items",
+          "message": "items is {type: string|number|integer|boolean}"
+        },
+        {
+          "path": "/records/Entry/schema/properties/when",
+          "message": "a field is {type: string|number|integer|boolean|array}"
+        },
+        {
           "path": "/records/Entry/schema/required/1",
           "message": "missing is not a declared field"
         },
@@ -1468,12 +1468,12 @@
           "message": "additionalProperties is a boolean"
         },
         {
-          "path": "/records/ok_kind/schema",
-          "message": "a record schema is {type: \"object\", properties}"
-        },
-        {
           "path": "/records/list",
           "message": "a kind is {schema, title?}"
+        },
+        {
+          "path": "/records/ok_kind/schema",
+          "message": "a record schema is {type: \"object\", properties}"
         }
       ]
     }
