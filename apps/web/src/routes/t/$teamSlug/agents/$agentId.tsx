@@ -10,6 +10,7 @@ import {
 } from "@exp/ui"
 import type { User } from "@/db/schema"
 import { SessionComposer } from "@/components/session-composer"
+import { SessionLiveTail } from "@/components/agent-session"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AgentChannel, AgentComposer } from "@/components/thread/agent-channel"
 import { AgentHeaderMenu } from "@/components/thread/chat-menu"
@@ -173,6 +174,14 @@ function AgentChannelPage() {
               onOpenSession={openSession}
               layout={isMobile ? `bubbles` : `transcript`}
               onSurfaceReply={permissions.isMember ? sendSurfaceReply : undefined}
+              scrollRef={follow.scrollRef}
+              tail={
+                // #EXP-1380 (chats.json WORKING): the run view's ONE status
+                // line while the conversation works.
+                conversation && conversation.status !== `ended` ? (
+                  <SessionLiveTail session={conversation} />
+                ) : undefined
+              }
             />
           </div>
         </div>

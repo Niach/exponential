@@ -9,6 +9,8 @@ import {
   EmptyState,
   FloatingComposer,
   JumpToBottomButton,
+  LoadEarlierButton,
+  useTranscriptWindow,
   Menu,
   MenuGestureHost,
   menuProps,
@@ -842,6 +844,8 @@ function ConversationBody({
   // follow effect each tick.
   const lastRowId = view.rows.at(-1)?.id ?? null
   const follow = useFollowScroll([view.rows.length, lastRowId])
+  // #EXP-1380 (chats.json WINDOW): the newest rows, `Load earlier` widens.
+  const transcript = useTranscriptWindow(view.rows, follow.scrollRef)
   const isMobile = useIsMobile()
   const suggestions = useSuggestionActions({ teamId, enabled: canReply, agentFor })
   // THE ask dock (ask-dock.json ×4): the tree's waiting cards take the
@@ -899,8 +903,9 @@ function ConversationBody({
           className="mx-auto w-full max-w-4xl px-3 pt-8 md:px-5"
           style={{ paddingBottom: dockHeight + 16 }}
         >
+          {transcript.canLoadEarlier ? <LoadEarlierButton onClick={transcript.loadEarlier} /> : null}
           <ThreadConversation
-            rows={view.rows}
+            rows={transcript.rows}
             renderText={renderThreadText}
             attachmentSrc={(id) => `/api/attachments/${id}`}
             messageCaption={(row) => {
