@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-24-fast-chats`,
+    date: `2026-10-24`,
+    title: `Long chats open instantly, and the Chats list comes to the IDE and the web`,
+    summary: `Long chats open in a fraction of a second on every platform and stay light while open; the web loads only what you look at, and the IDE and wide web get the same Chats list as phones.`,
+    body: `- **Fast chats**: a chat shows its newest 100 messages and opens at once, however long it is; Load earlier above them brings the next 100 and keeps your place. An open chat no longer works in the background, so long agent chats stop stuttering and Android no longer runs out of memory on them.
+- **Web**: the Chats list loads without downloading any transcript, and a chat loads only its newest messages when you open it, so the first load is much lighter.
+- **Chats list**: the IDE and the web on wide screens show the same Chats list as phones: agent bubbles, filter chips and one row per chat with its last message, time and unread count.
+- **Jump to bottom**: the jump button shows as soon as you scroll up in any chat, phones included, and takes you back to the newest message.
+- **Working**: an agent chat ends on the same Working line as a session while the agent works.`,
+  },
+  {
     id: `2026-10-24-release-train`,
     date: `2026-10-24`,
     title: `Release 2026-10-24: Chats on every platform, with the train's fixes`,
