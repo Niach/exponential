@@ -56,9 +56,14 @@ export function readPath(data: unknown, path: string, scope: DataScope = {}): un
   return readPointer(data, absolutePath(path, scope))
 }
 
+/** An array index token: ASCII digits only (a read and a write alike). */
+const INDEX = /^[0-9]+$/
+
 /** The value at an absolute pointer; undefined when any step is missing.
  *  `` and `/` = the whole model (as `writeTokens` writes it); only OWN
- *  keys and real indices are read (`/constructor` names nothing). */
+ *  keys and real indices are read (`/constructor` names nothing); `-` reads
+ *  an array's LAST element, the one an append just landed on (EXP-1385:
+ *  a landed write reads back, `fixtures/pointer.json`). */
 export function readPointer(data: unknown, pointer: string): unknown {
   if (pointer === `` || pointer === `/`) return data
   let cur: unknown = data
@@ -68,7 +73,7 @@ export function readPointer(data: unknown, pointer: string): unknown {
   for (const raw of (pointer.startsWith(`/`) ? pointer.slice(1) : pointer).split(`/`)) {
     if (cur === undefined || cur === null || typeof cur !== `object`) return undefined
     const token = unescape(raw)
-    if (Array.isArray(cur)) cur = /^[0-9]+$/.test(token) ? cur[Number(token)] : undefined
+    if (Array.isArray(cur)) cur = token === `-` ? cur.at(-1) : INDEX.test(token) ? cur[Number(token)] : undefined
     else cur = Object.prototype.hasOwnProperty.call(cur, token) ? (cur as Record<string, unknown>)[token] : undefined
   }
   return cur
@@ -104,7 +109,7 @@ export const POINTER_ISSUES = {
  *  never a gap, never a key). */
 function arrayIndex(token: string, length: number): number | string {
   if (token === `-`) return length
-  if (!/^[0-9]+$/.test(token)) return POINTER_ISSUES.notIndex(token)
+  if (!INDEX.test(token)) return POINTER_ISSUES.notIndex(token)
   const index = Number(token)
   return index <= length ? index : POINTER_ISSUES.pastEnd(token, length)
 }

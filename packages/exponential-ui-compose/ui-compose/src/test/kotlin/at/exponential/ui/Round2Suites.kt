@@ -2,6 +2,7 @@ package at.exponential.ui
 
 import at.exponential.ui.ffi.Surface
 import at.exponential.ui.ffi.Theme
+import at.exponential.ui.ffi.UiException
 import at.exponential.ui.ffi.animationFrameJson
 import at.exponential.ui.ffi.bindRowSlotJson
 import at.exponential.ui.ffi.bindTreeJson
@@ -15,6 +16,7 @@ import at.exponential.ui.ffi.reduceNestedJson
 import at.exponential.ui.ffi.reduceSurfaceJson
 import at.exponential.ui.ffi.resizableJson
 import at.exponential.ui.ffi.resolveConditionsJson
+import at.exponential.ui.ffi.resolveDynamicJson
 import at.exponential.ui.ffi.runActionJson
 import at.exponential.ui.ffi.textShimmerJson
 import at.exponential.ui.ffi.tokenizeCodeJson
@@ -383,6 +385,33 @@ object Round2Suites {
             "${css((k["offset"]?.number ?: 0.0) * 100)}%{${decl.joinToString(";")}}"
         }
         return "@keyframes xui-$name{$steps}"
+    }
+
+    /** EXP-1385: `pointer.json` through the facade: a surface's `setData`
+     *  writes (the core's set_pointer), a `{path}` binding reads (get_pointer). */
+    fun pointer(): List<Pair<String, String?>> {
+        val f = json("pointer.json")
+        fun read(data: String, pointer: String, want: JsonValue?): String? {
+            val got = resolveDynamicJson(JsonValue.Obj(mapOf("path" to JsonValue.Str(pointer))).orderedJson, data, "")
+            return if (got == null || want == null) (if (got == null && want == null) null else "read $got / expected ${want?.json}") else same(got, want)?.let { "read $it" }
+        }
+        val writes = list(f, "writes").map { c ->
+            case("write: ${s(c, "name")}") {
+                Surface("pointer", coreCatalogId(), "", "light").use { surface ->
+                    surface.setData("", c["data"]!!.orderedJson)
+                    val error = try {
+                        surface.setData(s(c, "pointer"), c["value"]?.orderedJson)
+                        null
+                    } catch (e: UiException.Invalid) {
+                        e.reason
+                    }
+                    if (error != c["error"]?.string) return@case "error $error / expected ${c["error"]?.string}"
+                    same(surface.dataJson(), c["error"]?.let { c["data"]!! } ?: c["expected"]!!)?.let { return@case "data $it" }
+                    if (error == null) read(surface.dataJson(), s(c, "pointer"), c["read"]) else null
+                }
+            }
+        }
+        return writes + list(f, "reads").map { c -> case("read: ${s(c, "name")}") { read(c["data"]!!.orderedJson, s(c, "pointer"), c["expected"]) } }
     }
 
     fun animations(): List<Pair<String, String?>> {

@@ -276,7 +276,7 @@ export function ansiRuns(source: string): AnsiRun[] {
   let text = ``
   const flush = () => {
     if (text === ``) return
-    const last = runs[runs.length - 1]
+    const last = runs.at(-1)
     if (last && last.kind === kind) last.text += text
     else runs.push({ kind, text })
     text = ``
@@ -339,8 +339,8 @@ export function tokenizeCode(source: string, language: string): CodeToken[][] {
     pieces.forEach((piece, index) => {
       if (index > 0) lines.push([])
       if (piece === ``) return
-      const line = lines[lines.length - 1]
-      const last = line[line.length - 1]
+      const line = lines.at(-1)!
+      const last = line.at(-1)
       if (last && last.kind === token.kind) last.text += piece
       else line.push({ kind: token.kind, text: piece })
     })

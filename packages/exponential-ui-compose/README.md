@@ -303,7 +303,7 @@ bash packages/exponential-ui-compose/release/central-bundle.sh -PuiVersion=0.1.1
   - `src/test/snapshots/components.json`, the painted tree of every component case under the fixed measure;
   - Roborazzi image snapshots (`src/test/snapshots/images/`);
   - `HostTest`: the host runtime (router ops, sources + cancel, the function gate + consent + package narrowing, the URL policy, media requests, the in-memory transport, actions → client messages, catalog negotiation);
-  - `ConformanceTest`: every suite of `packages/exponential-ui/conformance/manifest.json` (version 2, 24 suites).
+  - `ConformanceTest`: every suite of `packages/exponential-ui/conformance/manifest.json` (version 2, 25 suites).
     - The painted suites run THROUGH this painter: catalog and replay composed by `ExponentialSurface`, control geometry from `SurfaceMeasurer`.
     - `format` runs through the painter's `IcuFormatter` (en-US, UTC); the animation timings and the leaves' direction come from a live surface's visuals.
     - The pure suites run through the bindings.

@@ -539,6 +539,7 @@ class ConformanceTest {
         "resizable" -> Round2Suites.resizable().map(::Case)
         "virtual-list" -> Round2Suites.virtualList().map(::Case)
         "animations" -> Round2Suites.animations().map(::Case)
+        "pointer" -> Round2Suites.pointer().map(::Case)
         else -> error("the runner does not know the suite $id: add it")
     }
 

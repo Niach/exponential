@@ -100,12 +100,13 @@ export function nodeDeps(node: UiNode, scope: string, ctx: SurfaceContextValue):
 const INDEX = /^[0-9]+$/
 
 /** `getPointer` over pre-split tokens (the same rule: real indices and
- *  OWN keys only). */
+ *  OWN keys only; `-` = the last element, EXP-1385, so a node bound to
+ *  `/log/-` repaints on an append). */
 function readTokens(data: unknown, tokens: readonly string[]): unknown {
   let cur = data
   for (const token of tokens) {
     if (cur === null || typeof cur !== `object`) return undefined
-    if (Array.isArray(cur)) cur = INDEX.test(token) ? cur[Number(token)] : undefined
+    if (Array.isArray(cur)) cur = token === `-` ? cur[cur.length - 1] : INDEX.test(token) ? cur[Number(token)] : undefined
     else cur = Object.prototype.hasOwnProperty.call(cur, token) ? (cur as Record<string, unknown>)[token] : undefined
   }
   return cur
