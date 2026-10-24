@@ -39,6 +39,7 @@ import { sessionCollection } from "@/lib/collections"
 import { cn } from "@/lib/utils"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { useNow } from "@/hooks/use-now"
+import type { MessagePage } from "@/hooks/use-session-tree"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { messageCollection } from "@/lib/collections"
 import {
@@ -183,10 +184,14 @@ export function AgentChannel({
   )
   const ownScrollRef = useRef<HTMLElement | null>(null)
   // #EXP-1380 (chats.json WINDOW): the newest rows, `Load earlier` widens.
-  const transcript = useTranscriptWindow(allRows, scrollRef ?? ownScrollRef)
+  // #EXP-1380: `useTreeMessages` loads the newest messages (its `page`),
+  // the window pages more in.
+  const page = (messages as { page?: MessagePage }).page
+  const transcript = useTranscriptWindow(allRows, scrollRef ?? ownScrollRef, {
+    resetKey: conversation?.id ?? null,
+    ...page,
+  })
   const rows = transcript.rows
-  // #EXP-1380: `useTreeMessages` loads the newest; `more` = older exist.
-  const moreMessages = Boolean((messages as { more?: boolean }).more)
   const messagesById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages])
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users])
   const sessionsById = useMemo(
@@ -288,15 +293,7 @@ export function AgentChannel({
 
   return (
     <div data-testid="agent-channel" data-layout={layout} className={cn(`flex flex-col`, bubbles ? `gap-2.5` : `gap-4`)}>
-      {transcript.canLoadEarlier || moreMessages ? (
-        <LoadEarlierButton
-          onClick={() => {
-            // #EXP-1380: the next older messages load as the window widens.
-            if (moreMessages) (messages as { loadEarlier?: () => void }).loadEarlier?.()
-            transcript.loadEarlier()
-          }}
-        />
-      ) : null}
+      {transcript.canLoadEarlier ? <LoadEarlierButton onClick={transcript.loadEarlier} /> : null}
       {rows.map((row) => (
         <StableRow
           key={row.id}

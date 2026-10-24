@@ -497,26 +497,76 @@ CREATE OR REPLACE TRIGGER sync_session_conversation_mirrors
 -- Mirrors domain-contract `conversationDigest` (chats.ts; chats.test.ts
 -- locks that the rules answer the same over it). Times are millisecond ISO
 -- strings (two messages inside one millisecond order by the microsecond
--- here, by id there); text is cut to 500 characters.
+-- here, by id there); text is cut to 500 characters (code points). The
+-- first prompt's body starts at its first usable line (`digestFirstBody`:
+-- the blank / image lines the title rule skips are dropped BEFORE the cut),
+-- so the title reads the same line as over the whole message; every other
+-- text drops its leading blank / image-only lines (`digestText`) likewise.
 CREATE OR REPLACE FUNCTION conversation_digest_ms(at timestamptz)
 RETURNS text AS $$
   SELECT to_char(at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 $$ LANGUAGE sql IMMUTABLE;
 
-CREATE OR REPLACE FUNCTION conversation_digest_message(m messages)
+-- JS `String.prototype.trim`'s whitespace (a line never holds a \n).
+CREATE OR REPLACE FUNCTION conversation_digest_ws()
+RETURNS text AS $$
+  SELECT E' \t\r\f\x0B' || U&'\00A0\FEFF\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
+$$ LANGUAGE sql IMMUTABLE;
+
+-- The 1-based index of a body's first usable line (non-blank, not an image
+-- embed: session-title `firstLine`), NULL = none.
+CREATE OR REPLACE FUNCTION conversation_digest_first_line_at(body text)
+RETURNS integer AS $$
+  SELECT min(t.n)::integer
+  FROM regexp_split_to_table(body, E'\n') WITH ORDINALITY AS t(line, n)
+  WHERE btrim(t.line, conversation_digest_ws()) <> ''
+    AND btrim(t.line, conversation_digest_ws()) NOT LIKE '![%'
+$$ LANGUAGE sql IMMUTABLE;
+
+-- `digestFirstBody`: the body from its first usable line on.
+CREATE OR REPLACE FUNCTION conversation_digest_first_body(body text)
+RETURNS text AS $$
+  SELECT CASE WHEN k IS NULL OR k <= 1 THEN body
+    ELSE array_to_string((string_to_array(body, E'\n'))[k:], E'\n') END
+  FROM (SELECT conversation_digest_first_line_at(body) AS k) x
+$$ LANGUAGE sql IMMUTABLE;
+
+-- `digestText`: a text from its first line `plainLine` keeps anything of
+-- (blank and image-only lines dropped before the cut); none = its first
+-- non-blank line.
+CREATE OR REPLACE FUNCTION conversation_digest_text(body text)
+RETURNS text AS $$
+  SELECT CASE
+    WHEN x.k IS NOT NULL THEN CASE WHEN x.k <= 1 THEN body ELSE array_to_string(x.lines[x.k:], E'\n') END
+    WHEN x.b IS NOT NULL THEN x.lines[x.b]
+    ELSE body END
+  FROM (SELECT a.lines,
+      (SELECT min(i) FROM generate_subscripts(a.lines, 1) i
+        WHERE btrim(regexp_replace(a.lines[i], '!\[[^]]*\]\([^)]*\)', '', 'g'), conversation_digest_ws()) <> '') AS k,
+      (SELECT min(i) FROM generate_subscripts(a.lines, 1) i
+        WHERE btrim(a.lines[i], conversation_digest_ws()) <> '') AS b
+    FROM (SELECT string_to_array(body, E'\n') AS lines) a) x
+$$ LANGUAGE sql IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION conversation_digest_message(m messages, body text)
 RETURNS jsonb AS $$
   SELECT jsonb_build_object(
     'id', m.id,
     'authorKind', m.author_kind::text,
     'authorSessionId', m.author_session_id,
-    'body', left(m.body, 500),
+    'body', left(body, 500),
     'card', CASE WHEN m.card IS NULL OR jsonb_typeof(m.card) <> 'object' THEN NULL ELSE jsonb_strip_nulls(jsonb_build_object(
       'kind', m.card->>'kind',
-      'question', CASE WHEN jsonb_typeof(m.card->'question') = 'string' THEN left(m.card->>'question', 500) END,
-      'plan', CASE WHEN jsonb_typeof(m.card->'plan') = 'string' THEN left(m.card->>'plan', 500) END,
+      'question', CASE WHEN jsonb_typeof(m.card->'question') = 'string' THEN left(conversation_digest_text(m.card->>'question'), 500) END,
+      'plan', CASE WHEN jsonb_typeof(m.card->'plan') = 'string' THEN left(conversation_digest_text(m.card->>'plan'), 500) END,
       'title', CASE WHEN jsonb_typeof(m.card->'title') = 'string' THEN left(m.card->>'title', 500) END)) END,
     'answeredAt', CASE WHEN m.answered_at IS NULL THEN NULL ELSE conversation_digest_ms(m.answered_at) END,
     'createdAt', conversation_digest_ms(m.created_at))
+$$ LANGUAGE sql STABLE;
+
+CREATE OR REPLACE FUNCTION conversation_digest_message(m messages)
+RETURNS jsonb AS $$
+  SELECT conversation_digest_message(m, conversation_digest_text(m.body))
 $$ LANGUAGE sql STABLE;
 
 CREATE OR REPLACE FUNCTION conversation_digest(conv uuid)
@@ -524,15 +574,13 @@ RETURNS jsonb AS $$
   -- Each part walks idx_messages_conversation_created and stops early.
   SELECT jsonb_build_object(
     'first', (
-      SELECT conversation_digest_message(m) FROM messages m
+      SELECT conversation_digest_message(m, conversation_digest_first_body(m.body)) FROM messages m
       WHERE m.conversation_id = conv
         AND (m.card IS NULL OR jsonb_typeof(m.card) <> 'object')
         AND (m.author_kind = 'user'
           OR (m.author_session_id IS NOT NULL AND m.author_session_id IS DISTINCT FROM
             (SELECT c.session_id FROM conversations c WHERE c.id = conv)))
-        AND EXISTS (
-          SELECT 1 FROM regexp_split_to_table(m.body, E'\n') AS line
-          WHERE btrim(line, E' \t\r\f\v') <> '' AND btrim(line, E' \t\r\f\v') NOT LIKE '![%')
+        AND conversation_digest_first_line_at(m.body) IS NOT NULL
       ORDER BY m.created_at, m.id LIMIT 1),
     'preview', (
       SELECT conversation_digest_message(m) FROM messages m
@@ -597,6 +645,19 @@ CREATE OR REPLACE TRIGGER refresh_conversation_digests_delete
 -- Backfill (idempotent, every boot): conversations from before the column
 -- (a digest is never NULL once computed, an empty one included).
 UPDATE conversations SET digest = conversation_digest(id) WHERE digest IS NULL;
+
+-- Review of #1218: the first prompt's body moved to its first usable line
+-- (and cuts count code points): recompute every digest ONCE (the marker
+-- function records it; a later boot skips this).
+DO $$
+BEGIN
+  IF to_regprocedure('conversation_digest_rev_2()') IS NULL THEN
+    UPDATE conversations c SET digest = d.digest
+      FROM (SELECT id, conversation_digest(id) AS digest FROM conversations) d
+      WHERE c.id = d.id AND c.digest IS DISTINCT FROM d.digest;
+    CREATE FUNCTION conversation_digest_rev_2() RETURNS integer AS 'SELECT 2' LANGUAGE sql IMMUTABLE;
+  END IF;
+END $$;
 
 -- The pre-EXP-1291 run/thread functions (their tables are gone, so are
 -- their triggers): dropped so no stale body lingers.

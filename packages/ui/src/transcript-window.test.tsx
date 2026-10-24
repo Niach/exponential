@@ -1,4 +1,4 @@
-import { useRef } from "react"
+import { useRef, useState } from "react"
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/chats.json"
@@ -11,9 +11,11 @@ import { LoadEarlierButton, StableRow, sameData, useTranscriptWindow } from "./t
 const { window: WINDOW, windowStep: STEP } = fixture.transcript
 const make = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `m${i}`, body: `${i}` }))
 
-function Harness({ rows }: { rows: { id: string; body: string }[] }) {
+type Row = { id: string; body: string; type?: string; answered?: boolean }
+
+function Harness({ rows, resetKey }: { rows: Row[]; resetKey?: string }) {
   const ref = useRef<HTMLDivElement | null>(null)
-  const win = useTranscriptWindow(rows, ref)
+  const win = useTranscriptWindow(rows, ref, { resetKey })
   return (
     <div ref={ref}>
       {win.canLoadEarlier ? <LoadEarlierButton onClick={win.loadEarlier} /> : null}
@@ -46,9 +48,88 @@ describe(`useTranscriptWindow`, () => {
     expect(screen.getByTestId(`count`).textContent).toBe(String(WINDOW + 1))
   })
 
+  it(`reaches up to an older waiting card`, () => {
+    const rows: Row[] = make(WINDOW + 150)
+    rows[30] = { id: `q`, body: `q`, type: `question`, answered: false }
+    render(<Harness rows={rows} />)
+    expect(screen.getByTestId(`first`).textContent).toBe(`q`)
+    expect(screen.getByTestId(`count`).textContent).toBe(String(rows.length - 30))
+  })
+
+  it(`keeps the pinned start when an answered card or an arrival changes the rows`, () => {
+    const rows: Row[] = make(WINDOW + 150)
+    rows[30] = { id: `q`, body: `q`, type: `question`, answered: false }
+    const { rerender } = render(<Harness rows={rows} />)
+    const answered = rows.map((row) => (row.id === `q` ? { ...row, answered: true } : row))
+    rerender(<Harness rows={[...answered, { id: `new`, body: `new` }]} />)
+    expect(screen.getByTestId(`first`).textContent).toBe(`q`)
+  })
+
+  it(`restarts at the newest window on a reopen`, () => {
+    const rows = make(WINDOW + 10)
+    const { rerender } = render(<Harness rows={rows} resetKey="a" />)
+    fireEvent.click(screen.getByTestId(fixture.testIds.loadEarlier))
+    expect(screen.getByTestId(`count`).textContent).toBe(String(rows.length))
+    rerender(<Harness rows={[...rows, ...make(5).map((r) => ({ ...r, id: `x${r.id}` }))]} resetKey="b" />)
+    expect(screen.getByTestId(`count`).textContent).toBe(String(WINDOW))
+  })
+
   it(`shows everything without a button under the window`, () => {
     render(<Harness rows={make(3)} />)
     expect(screen.getByTestId(`count`).textContent).toBe(`3`)
+    expect(screen.queryByTestId(fixture.testIds.loadEarlier)).toBeNull()
+  })
+})
+
+// Review of #1218: a busy tree's message pages are mostly its children's
+// messages (no row of their own), so the loaded rows can fall short of one
+// step; ONE press pages messages in until the step is filled.
+function Paged({ total, perPage, rowsPerPage }: { total: number; perPage: number; rowsPerPage: number }) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [pages, setPages] = useState(1)
+  const loaded = Math.min(total, pages * perPage)
+  // Every message page holds `rowsPerPage` rows (the rest are children's).
+  const rowCount = Math.ceil((loaded / perPage) * rowsPerPage)
+  const all = make(Math.ceil((total / perPage) * rowsPerPage))
+  const rows = all.slice(all.length - rowCount)
+  const win = useTranscriptWindow(rows, ref, {
+    more: loaded < total,
+    loaded,
+    loadMore: () => setPages((n) => n + 1),
+  })
+  return (
+    <div ref={ref}>
+      {win.canLoadEarlier ? <LoadEarlierButton onClick={win.loadEarlier} /> : null}
+      <span data-testid="count">{win.rows.length}</span>
+      <span data-testid="pages">{pages}</span>
+    </div>
+  )
+}
+
+describe(`Load earlier over on-demand messages`, () => {
+  it(`shows one full step of earlier rows in one press`, async () => {
+    // 200 messages loaded = 120 rows: the window (100) plus 20 above.
+    render(<Paged total={2_000} perPage={200} rowsPerPage={120} />)
+    expect(screen.getByTestId(`count`).textContent).toBe(String(WINDOW))
+    await act(async () => fireEvent.click(screen.getByTestId(fixture.testIds.loadEarlier)))
+    expect(screen.getByTestId(`count`).textContent).toBe(String(WINDOW + STEP))
+  })
+
+  it(`pages through messages that paint no row`, async () => {
+    // A page of 200 messages adds only 10 rows (children's work).
+    render(<Paged total={6_000} perPage={200} rowsPerPage={10} />)
+    // The first paint pages in until the window fills.
+    expect(screen.getByTestId(`count`).textContent).toBe(String(WINDOW))
+    await act(async () => fireEvent.click(screen.getByTestId(fixture.testIds.loadEarlier)))
+    expect(screen.getByTestId(`count`).textContent).toBe(String(WINDOW + STEP))
+  })
+
+  it(`stops at the oldest message`, async () => {
+    // 200 of 300 messages = 120 of 180 rows.
+    render(<Paged total={300} perPage={200} rowsPerPage={120} />)
+    expect(screen.getByTestId(`count`).textContent).toBe(String(WINDOW))
+    await act(async () => fireEvent.click(screen.getByTestId(fixture.testIds.loadEarlier)))
+    expect(screen.getByTestId(`count`).textContent).toBe(`180`)
     expect(screen.queryByTestId(fixture.testIds.loadEarlier)).toBeNull()
   })
 })

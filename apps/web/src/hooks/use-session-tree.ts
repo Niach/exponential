@@ -524,6 +524,16 @@ function useChatMessageLimit(key: string | null | undefined): number {
   )
 }
 
+/** A chat's loaded page of messages (`useTranscriptWindow`'s options):
+ *  `more` = older ones exist unloaded, `loaded` = how many are loaded,
+ *  `loadMore` = one `windowStep` more. */
+export interface MessagePage {
+  more: boolean
+  loaded: number
+  ready: boolean
+  loadMore: () => void
+}
+
 /** The chat's newest messages (by `rootId`, or by `conversationIds`) plus
  *  its conversations' waiting cards; `more` = older ones exist unloaded. */
 function useNewestMessages(input: {
@@ -600,10 +610,9 @@ export function useSessionThread(
   titleReady: boolean
   /** EXP-1341: every tree session's `sessionTitle`, off the SAME inputs. */
   titles: Map<string, string>
-  /** #EXP-1380: older messages exist beyond the loaded newest ones. */
-  moreMessages: boolean
-  /** #EXP-1380: load one `windowStep` more of them. */
-  loadEarlierMessages: () => void
+  /** #EXP-1380: the loaded newest messages (the transcript window pages
+   *  them through `useTranscriptWindow`). */
+  messagePage: MessagePage
 } {
   const { rows, tree, isReady } = useTreeSessions(rootId)
   const root = rows.find((row) => row.id === rootId) ?? null
@@ -720,9 +729,13 @@ export function useSessionThread(
     isReady,
     titleReady,
     titles,
-    moreMessages: newest.more,
-    loadEarlierMessages: () => {
-      if (rootId) loadEarlierMessages(rootId)
+    messagePage: {
+      more: newest.more,
+      loaded: newest.rows.length,
+      ready: newest.isReady,
+      loadMore: () => {
+        if (rootId) loadEarlierMessages(rootId)
+      },
     },
   }
 }
@@ -763,8 +776,7 @@ export function useSessionMessages(sessionId: string | null | undefined): Messag
  *  through `conversations`, oldest first. #EXP-1380: the NEWEST ones, the
  *  tree's waiting cards always; `more` + `loadEarlier` page further back. */
 export function useTreeMessages(rootId: string | null | undefined): MessageRow[] & {
-  more?: boolean
-  loadEarlier?: () => void
+  page?: MessagePage
 } {
   const { rows: sessions } = useTreeSessions(rootId)
   const sessionIds = useMemo(
@@ -776,12 +788,16 @@ export function useTreeMessages(rootId: string | null | undefined): MessageRow[]
   return useMemo(
     () =>
       Object.assign(keyMessageRows(newest.rows, conversations), {
-        more: newest.more,
-        loadEarlier: () => {
-          if (rootId) loadEarlierMessages(rootId)
-        },
+        page: {
+          more: newest.more,
+          loaded: newest.rows.length,
+          ready: newest.isReady,
+          loadMore: () => {
+            if (rootId) loadEarlierMessages(rootId)
+          },
+        } satisfies MessagePage,
       }),
-    [newest.rows, newest.more, conversations, rootId]
+    [newest.rows, newest.more, newest.isReady, conversations, rootId]
   )
 }
 

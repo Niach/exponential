@@ -5,7 +5,8 @@
 //! [`chat_preview`], [`chat_time_label`], [`chat_filter_label`],
 //! [`unread_count`]), the bubbles ([`agent_bubbles`]), the context menus ×4
 //! ([`thread_menu_entries`], [`agent_menu_entries`]), the transcript's
-//! command dividers ([`command_divider`]) + its window ([`TranscriptSpec`]),
+//! command dividers ([`command_divider`]) + its window ([`TranscriptSpec`],
+//! [`transcript_window_start`]),
 //! the surface card's reply rule ([`surface_reply`]) + its ENTER motion
 //! spec, and [`plain_line`]. Byte-locked by `fixtures/chats.json`; pure.
 
@@ -875,10 +876,25 @@ pub fn agent_bubbles(
         .collect()
 }
 
-/// WINDOW (#EXP-1380): the first index painted of `total` rows under a
-/// window of `window` rows (the newest `window`; 0 = everything).
-pub fn transcript_window_start(total: usize, window: usize) -> usize {
-    total.saturating_sub(window)
+/// WINDOW (#EXP-1380, review of #1218; `windowCases`, the twin of TS
+/// `transcriptWindowStart`): the index of a chat's first painted row of
+/// `row_count`. The newest `transcript.window` rows, or from `pinned_start`
+/// once the first paint fixed it (arrivals append, never re-slide; a shrink
+/// only grows the window); reached up to the oldest WAITING plan / question
+/// / ask card (`waiting_indexes`, out-of-range ones ignored) so it is never
+/// cut off; then `loaded_steps` × `transcript.windowStep` earlier (one
+/// `Load earlier` press = one step). Reopening = (`None`, 0) again.
+pub fn transcript_window_start(
+    row_count: usize,
+    waiting_indexes: &[usize],
+    pinned_start: Option<usize>,
+    loaded_steps: usize,
+) -> usize {
+    let spec = &CHATS.transcript;
+    let tail = row_count.saturating_sub(spec.window);
+    let base = pinned_start.map_or(tail, |pinned| pinned.min(tail));
+    let base = waiting_indexes.iter().copied().filter(|&index| index < row_count).fold(base, usize::min);
+    base.saturating_sub(loaded_steps.saturating_mul(spec.window_step))
 }
 
 #[cfg(test)]
@@ -1154,10 +1170,26 @@ mod tests {
         let spec = &CHATS.transcript;
         assert_eq!((spec.window, spec.window_step), (100, 100));
         assert_eq!(spec.follow_slack, 32.);
-        assert_eq!(transcript_window_start(1500, 100), 1400);
-        assert_eq!(transcript_window_start(40, 100), 0);
         assert_eq!(CHATS.copy.load_earlier, "Load earlier");
         assert_eq!(CHATS.test_ids.jump_to_bottom, "jump-to-bottom");
     }
 
+    #[test]
+    fn window_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["windowCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let index = |value: &Value| value.as_u64().unwrap() as usize;
+            let waiting: Vec<usize> = case["waitingIndexes"].as_array().unwrap().iter().map(index).collect();
+            let pinned = case["pinnedStart"].as_u64().map(|pinned| pinned as usize);
+            let start = transcript_window_start(
+                index(&case["rowCount"]),
+                &waiting,
+                pinned,
+                index(&case["loadedSteps"]),
+            );
+            assert_eq!(start, index(&case["start"]), "{}", case["name"]);
+        }
+    }
 }

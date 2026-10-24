@@ -20,7 +20,7 @@ import org.junit.Test
 /**
  * Thread 58cb32df: Chats is fixture-locked ×4 — every case group of
  * `chats.json` (previewCases, timeCases, listCases, bubbleCases, menuCases,
- * agentMenuCases, replyCases, dividerCases, plainCases) runs here (TS
+ * agentMenuCases, replyCases, dividerCases, plainCases, windowCases) runs here (TS
  * `chats.test.ts`, iOS `ChatsTests`, desktop `domain::chats`). Outputs are
  * re-encoded in the fixture's JSON shape and compared WHOLE; the embedded
  * copy is proved equal to the fixture's.
@@ -267,6 +267,19 @@ class ChatsTest {
         }
         for (case in cases("plainCases")) {
             assertEquals(case.str("text"), case.str("expected"), Chats.plainLine(case.str("text")!!))
+        }
+    }
+
+    @Test
+    fun `every window case matches the fixture (review of #1218)`() {
+        for (case in cases("windowCases")) {
+            val start = Chats.transcriptWindowStart(
+                rowCount = case.getValue("rowCount").jsonPrimitive.int,
+                waitingIndexes = case.getValue("waitingIndexes").jsonArray.map { it.jsonPrimitive.int },
+                pinnedStart = case["pinnedStart"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.int,
+                loadedSteps = case.getValue("loadedSteps").jsonPrimitive.int,
+            )
+            assertEquals(case.str("name"), case.getValue("start").jsonPrimitive.int, start)
         }
     }
 

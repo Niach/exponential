@@ -17,6 +17,7 @@ import {
   plainLine,
   surfaceReply,
   threadMenuEntries,
+  transcriptWindowStart,
 } from "./chats"
 
 // Thread 58cb32df: the Chats reference replays every case group of
@@ -31,6 +32,7 @@ describe(`chats.json`, () => {
   for (const c of fixture.replyCases) test(`reply: ${c.name}`, () => expect(surfaceReply(c.event)).toEqual(c.expected as never))
   for (const c of fixture.dividerCases) test(`divider: ${JSON.stringify(c.body)}`, () => expect(commandDivider(c.body)).toBe(c.expected as never))
   for (const c of fixture.agentHint.cases) test(`agent hint: ${c.name}`, () => expect(agentInstructionsChanged(c.input)).toBe(c.expected))
+  for (const c of fixture.windowCases) test(`window: ${c.name}`, () => expect(transcriptWindowStart(c)).toBe(c.start))
   for (const c of fixture.plainCases) test(`plain: ${JSON.stringify(c.text)}`, () => expect(plainLine(c.text)).toBe(c.expected))
   test(`every menu entry and tab has copy`, () => {
     for (const e of [`stop`, `stopAndDelete`, `delete`, `compact`, `newConversation`, `settings`]) expect(fixture.copy.menu[e as keyof typeof fixture.copy.menu]).toBeTruthy()
@@ -109,6 +111,34 @@ describe(`conversation digest`, () => {
         chatList({ groups: groups(messages), messages, reads, filter: `all`, now: `2026-10-02T00:00:00.000Z`, utcOffsetMinutes: 0 })
       )
     }
+  })
+
+  // Review of #1218: the cut runs AFTER the leading blank / image lines are
+  // dropped, so a long first prompt titles (and previews) the same.
+  test(`long bodies keep the title and the preview's words`, () => {
+    const images = Array.from({ length: 14 }, (_, i) => `![shot ${i}](/api/attachments/0000000${i}-aaaa-bbbb-cccc-dddddddddddd)`).join(`\n`)
+    const long = `Fix the window so the waiting card is never cut off, `.repeat(14).trim()
+    const bodies = [`\n \n${images}\n\u00a0\n${long}\nsecond`, `${images}\n![a](b) caption ${long}`, `${long} ${long}`, `😀`.repeat(520), images]
+    for (const body of bodies) {
+      const messages: TreeMessage[] = [
+        { id: `u1`, sessionId: `s1`, authorKind: `user`, authorId: null, authorSessionId: null, body, card: null, answeredAt: null, consumedAt: null, createdAt: `2026-10-24T12:00:01.000Z` },
+        { id: `a1`, sessionId: `s1`, authorKind: `agent`, authorId: null, authorSessionId: null, body, card: null, answeredAt: null, consumedAt: null, createdAt: `2026-10-24T12:00:02.000Z` },
+        { id: `p1`, sessionId: `s1`, authorKind: `agent`, authorId: null, authorSessionId: null, body: ``, card: { kind: `plan`, plan: body }, answeredAt: null, consumedAt: null, createdAt: `2026-10-24T12:00:03.000Z` },
+      ]
+      const session = { id: `s1`, rootId: `s1`, title: null }
+      expect(sessionTitle(session, [], [], viaDigest(messages))).toBe(sessionTitle(session, [], [], messages))
+      for (const needsYou of [false, true]) {
+        const whole = chatPreview({ rootId: `s1`, messages, needsYou, busy: false }).text
+        const digested = chatPreview({ rootId: `s1`, messages: viaDigest(messages), needsYou, busy: false }).text
+        expect(whole.startsWith(digested)).toBe(true)
+        expect(digested.length).toBeGreaterThanOrEqual(Math.min(whole.length, 60))
+      }
+    }
+    // Cuts count code points (SQL `left()`), never splitting a pair.
+    const digest = conversationDigest(`s1`, [
+      { id: `a1`, sessionId: `s1`, authorKind: `agent`, authorId: null, authorSessionId: null, body: `😀`.repeat(520), card: null, answeredAt: null, consumedAt: null, createdAt: `2026-10-24T12:00:02.000Z` },
+    ])
+    expect(digest.preview!.body).toBe(`😀`.repeat(500))
   })
 
   test(`the unread tail is capped`, () => {

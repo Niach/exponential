@@ -22,6 +22,36 @@ export const CHATS_SHELL = fixture.shell
 /** #EXP-1380: the transcript window, its step and the follow slack (px). */
 export const CHATS_TRANSCRIPT = fixture.transcript
 
+/** The window's first painted row (`windowCases`, the WINDOW rule):
+ *  `pinnedStart` = the start the chat's FIRST paint fixed (null before it /
+ *  on reopen), `loadedSteps` = Load earlier presses since. A waiting
+ *  plan / question / ask card is never cut off; arrivals never re-slide the
+ *  start; one press = one `windowStep`. */
+export function transcriptWindowStart(input: {
+  rowCount: number
+  waitingIndexes: readonly number[]
+  pinnedStart: number | null
+  loadedSteps: number
+}): number {
+  const tail = Math.max(0, input.rowCount - CHATS_TRANSCRIPT.window)
+  let base = input.pinnedStart === null ? tail : Math.min(Math.max(0, input.pinnedStart), tail)
+  for (const index of input.waitingIndexes) if (index >= 0 && index < input.rowCount && index < base) base = index
+  return Math.max(0, base - Math.max(0, input.loadedSteps) * CHATS_TRANSCRIPT.windowStep)
+}
+
+/** The indexes of a transcript's WAITING cards (buildSessionThread rows):
+ *  a plan without a decision, an unanswered question (an `ask` draws no
+ *  row of its own). `transcriptWindowStart`'s `waitingIndexes`. */
+export function transcriptWaitingIndexes(
+  rows: readonly { type: string; decision?: string | null; answered?: boolean }[]
+): number[] {
+  const out: number[] = []
+  rows.forEach((row, index) => {
+    if ((row.type === `plan` && row.decision === null) || (row.type === `question` && row.answered === false)) out.push(index)
+  })
+  return out
+}
+
 export type ChatFilter = `all` | `needs_you` | `running` | `unread`
 export const CHAT_FILTERS = fixture.filters as readonly ChatFilter[]
 
@@ -354,27 +384,57 @@ export interface ConversationDigest {
 
 const msOr0 = (iso: string | null | undefined) => ms(iso) ?? 0
 
-function firstUsableLine(body: string): boolean {
-  return body.split(`\n`).some((part) => {
+/** The index of a body's first usable line (the title rule's `firstLine`:
+ *  non-blank, not an image embed), -1 = none. */
+function firstUsableLineAt(body: string): number {
+  return body.split(`\n`).findIndex((part) => {
     const line = part.trim()
     return line.length > 0 && !line.startsWith(`![`)
   })
 }
 
-function digestMessage(m: TreeMessage): DigestMessage {
+/** Cut to `DIGEST_TEXT_MAX` characters (code points, SQL `left()`'s count). */
+function cut(text: string): string {
+  if (text.length <= DIGEST_TEXT_MAX) return text
+  const chars = Array.from(text)
+  return chars.length > DIGEST_TEXT_MAX ? chars.slice(0, DIGEST_TEXT_MAX).join(``) : text
+}
+
+/** The first prompt's body from its first usable line on (the skipped
+ *  blank / image lines dropped BEFORE the cut), so the title rule reads the
+ *  same line over the digest as over the whole message (review of #1218). */
+export function digestFirstBody(body: string): string {
+  const at = firstUsableLineAt(body)
+  return at <= 0 ? body : body.split(`\n`).slice(at).join(`\n`)
+}
+
+const IMAGE_EMBED = /!\[[^\]]*\]\([^)]*\)/g
+
+/** A text from its first line `plainLine` keeps anything of (the blank and
+ *  image-only lines before it dropped BEFORE the cut, so the preview reads
+ *  the same words); none = its first non-blank line (an image-only body
+ *  stays one). */
+export function digestText(text: string): string {
+  const lines = text.split(`\n`)
+  const at = lines.findIndex((line) => line.replace(IMAGE_EMBED, ``).trim() !== ``)
+  if (at !== -1) return at === 0 ? text : lines.slice(at).join(`\n`)
+  return lines.find((line) => line.trim() !== ``) ?? text
+}
+
+function digestMessage(m: TreeMessage, body: string = digestText(m.body)): DigestMessage {
   const card = m.card
     ? {
         kind: String(m.card.kind),
-        ...(typeof m.card.question === `string` ? { question: m.card.question.slice(0, DIGEST_TEXT_MAX) } : {}),
-        ...(typeof m.card.plan === `string` ? { plan: m.card.plan.slice(0, DIGEST_TEXT_MAX) } : {}),
-        ...(typeof m.card.title === `string` ? { title: m.card.title.slice(0, DIGEST_TEXT_MAX) } : {}),
+        ...(typeof m.card.question === `string` ? { question: cut(digestText(m.card.question)) } : {}),
+        ...(typeof m.card.plan === `string` ? { plan: cut(digestText(m.card.plan)) } : {}),
+        ...(typeof m.card.title === `string` ? { title: cut(m.card.title) } : {}),
       }
     : null
   return {
     id: m.id,
     authorKind: m.authorKind,
     authorSessionId: m.authorSessionId ?? null,
-    body: m.body.slice(0, DIGEST_TEXT_MAX),
+    body: cut(body),
     card,
     answeredAt: m.answeredAt,
     createdAt: m.createdAt,
@@ -392,7 +452,7 @@ export function conversationDigest(sessionId: string, messages: readonly TreeMes
         (m) =>
           (m.card === null || m.card === undefined) &&
           (m.authorKind === `user` || (!!m.authorSessionId && m.authorSessionId !== sessionId)) &&
-          firstUsableLine(m.body)
+          firstUsableLineAt(m.body) !== -1
       )
       .sort(oldestFirst)[0] ?? null
   const candidates = own
@@ -406,7 +466,7 @@ export function conversationDigest(sessionId: string, messages: readonly TreeMes
   const agents = own.filter((m) => m.authorKind === `agent`).sort(oldestFirst)
   const tail = agents.filter((m) => m.card?.kind !== `event`).slice(-DIGEST_AGENT_TAIL)
   return {
-    first: first ? digestMessage(first) : null,
+    first: first ? digestMessage(first, digestFirstBody(first.body)) : null,
     preview: candidates[0] ? digestMessage(candidates[0]) : null,
     waiting: waiting ? digestMessage(waiting) : null,
     agentAt: agents.length > 0 ? agents[agents.length - 1]!.createdAt : null,

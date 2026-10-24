@@ -67,7 +67,7 @@ import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
 import { useSuggestionActions } from "@/hooks/use-suggestion-actions"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useSession } from "@/hooks/use-session"
-import { loadEarlierMessages, useSessionMessages, useSessionThread } from "@/hooks/use-session-tree"
+import { useSessionMessages, useSessionThread, type MessagePage } from "@/hooks/use-session-tree"
 import { useTeamBoards, useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -248,7 +248,7 @@ function ThreadPage() {
       rows={thread.rows}
       titles={thread.titles}
       pullRequests={thread.pullRequests}
-      moreMessages={thread.moreMessages}
+      messagePage={thread.messagePage}
     />
   )
 }
@@ -261,7 +261,7 @@ function ThreadScreen({
   rows,
   titles,
   pullRequests,
-  moreMessages,
+  messagePage,
 }: {
   team: Team
   teamSlug: string
@@ -272,8 +272,8 @@ function ThreadScreen({
   /** EXP-1341: every tree session's `sessionTitle` (the chips' names). */
   titles: ReadonlyMap<string, string>
   pullRequests: PullRequestRow[]
-  /** #EXP-1380: older messages exist beyond the loaded newest ones. */
-  moreMessages: boolean
+  /** #EXP-1380: the loaded newest messages (Load earlier pages more). */
+  messagePage: MessagePage
 }) {
   const navigate = useNavigate()
   const search = Route.useSearch()
@@ -646,7 +646,7 @@ function ThreadScreen({
         onOpenSession={openSession}
         agentFor={agentFor}
         topInset={topInset}
-        moreMessages={moreMessages}
+        messagePage={messagePage}
       />
     )
   }
@@ -821,7 +821,7 @@ function ConversationBody({
   onOpenSession,
   agentFor,
   topInset = 0,
-  moreMessages,
+  messagePage,
 }: {
   teamId: string
   view: SessionThreadView
@@ -837,8 +837,8 @@ function ConversationBody({
   agentFor: (sessionId: string) => string | null | undefined
   /** Phones: the overlay header band's height (the scroller pads by it). */
   topInset?: number
-  /** #EXP-1380: older messages exist beyond the loaded newest ones. */
-  moreMessages: boolean
+  /** #EXP-1380: the loaded newest messages (Load earlier pages more). */
+  messagePage: MessagePage
 }) {
   const messages = useSessionMessages(view.rootId)
   const messagesById = useMemo(
@@ -857,7 +857,7 @@ function ConversationBody({
   const lastRowId = view.rows.at(-1)?.id ?? null
   const follow = useFollowScroll([view.rows.length, lastRowId])
   // #EXP-1380 (chats.json WINDOW): the newest rows, `Load earlier` widens.
-  const transcript = useTranscriptWindow(view.rows, follow.scrollRef)
+  const transcript = useTranscriptWindow(view.rows, follow.scrollRef, { resetKey: view.rootId, ...messagePage })
   const isMobile = useIsMobile()
   const suggestions = useSuggestionActions({ teamId, enabled: canReply, agentFor })
   // THE ask dock (ask-dock.json ×4): the tree's waiting cards take the
@@ -915,15 +915,7 @@ function ConversationBody({
           className="mx-auto w-full max-w-4xl px-3 pt-8 md:px-5"
           style={{ paddingBottom: dockHeight + 16 }}
         >
-          {transcript.canLoadEarlier || moreMessages ? (
-            <LoadEarlierButton
-              onClick={() => {
-                // #EXP-1380: the next older messages load as the window widens.
-                if (moreMessages) loadEarlierMessages(view.rootId)
-                transcript.loadEarlier()
-              }}
-            />
-          ) : null}
+          {transcript.canLoadEarlier ? <LoadEarlierButton onClick={transcript.loadEarlier} /> : null}
           <ThreadConversation
             rows={transcript.rows}
             renderText={renderThreadText}

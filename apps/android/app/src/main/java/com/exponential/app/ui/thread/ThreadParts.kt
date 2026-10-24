@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import com.exponential.app.domain.Chats
@@ -1054,35 +1055,45 @@ fun ThreadConversation(
     var follow by rememberSaveable(rootId) { mutableStateOf(true) }
     val followSlackPx = with(LocalDensity.current) { Chats.Transcript.FOLLOW_SLACK.dp.toPx() }
     val jumpScope = rememberCoroutineScope()
-    // chats.json WINDOW (#EXP-1380): the newest `transcript.window` rows; a
-    // pinned start ([windowFrom], set once the reader leaves the tail or
-    // presses Load earlier) keeps every arrival (the window never shrinks).
-    var windowFrom by rememberSaveable(rootId) { mutableStateOf<String?>(null) }
-    val windowStart = remember(shown, windowFrom) { transcriptWindowStart(shown, windowFrom) }
+    // chats.json WINDOW (#EXP-1380, review of #1218: `windowCases`): the
+    // newest `transcript.window` rows, the start reaching up to the oldest
+    // WAITING plan / question card. The FIRST paint pins the start
+    // ([pinnedStart]): arrivals append below it whether the reader follows
+    // or not, so the window only grows; Load earlier = ONE press, one
+    // `windowStep` up ([loadedSteps]). A reopen starts again at the newest.
+    var pinnedStart by rememberSaveable(rootId) { mutableStateOf<Int?>(null) }
+    var loadedSteps by rememberSaveable(rootId) { mutableStateOf(0) }
+    val waitingIndexes = remember(shown) { transcriptWaitingIndexes(shown) }
+    val windowStart = Chats.transcriptWindowStart(shown.size, waitingIndexes, pinnedStart, loadedSteps)
     val painted = remember(shown, windowStart) { if (windowStart == 0) shown else shown.subList(windowStart, shown.size) }
     val header = if (windowStart > 0) 1 else 0
+    val itemCount = header + painted.size + (if (tail != null) 1 else 0)
     // Load earlier keeps the reader's place: the row that was first on screen
-    // returns to the same offset once the rows above it land.
+    // stays at its offset once the rows above it land.
     var anchor by remember(rootId) { mutableStateOf<Pair<String, Int>?>(null) }
-    LaunchedEffect(windowStart, anchor) {
-        val (key, offset) = anchor ?: return@LaunchedEffect
-        val index = painted.indexOfFirst { it.id == key }
-        if (index >= 0) {
-            state.scrollToItem(index + header)
-            val now = state.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }?.offset
-            if (now != null) state.scrollBy((now - offset).toFloat())
+    // The last item count a scroll was placed for (not state: no recompose).
+    val placedCount = remember(rootId) { intArrayOf(-1) }
+    // No flash of the window's top: the landing (open, a follower's arrival)
+    // and the Load earlier anchor are REQUESTED in the composition's own
+    // frame (`requestScrollToItem`), so the first measure of the new rows is
+    // already at its place — never a frame of the window start first.
+    SideEffect {
+        if (painted.isEmpty()) return@SideEffect
+        if (pinnedStart == null) pinnedStart = windowStart
+        val held = anchor
+        if (held != null) {
+            val index = painted.indexOfFirst { it.id == held.first }
+            if (index >= 0) state.requestScrollToItem(index + header, -held.second)
+            anchor = null
+        } else if (follow && itemCount != placedCount[0]) {
+            state.requestScrollToItem(itemCount - 1, PIN_END_OFFSET)
         }
-        anchor = null
+        placedCount[0] = itemCount
     }
     LaunchedEffect(state, followSlackPx) {
         snapshotFlow { state.isScrollInProgress to state.isNearBottom(followSlackPx) }
             .distinctUntilChanged()
             .collect { (dragging, nearBottom) -> if (dragging) follow = nearBottom }
-    }
-    // Leaving the tail pins the window's start: rows never vanish above a
-    // reader while new ones arrive below.
-    LaunchedEffect(follow) {
-        if (!follow && windowFrom == null) windowFrom = shown.getOrNull(windowStart)?.id
     }
     // The floating band's height lands after the first layout: a follower
     // re-pins to the true end when it does (the session view's rule).
@@ -1115,7 +1126,7 @@ fun ThreadConversation(
                         onClick = {
                             val first = state.layoutInfo.visibleItemsInfo.firstOrNull { it.key != "load-earlier" }
                             anchor = (first?.key as? String)?.let { it to first.offset }
-                            windowFrom = shown[maxOf(0, windowStart - Chats.Transcript.WINDOW_STEP)].id
+                            loadedSteps += 1
                         },
                     )
                 }
@@ -1176,8 +1187,8 @@ fun ThreadConversation(
             visible = !follow && shown.isNotEmpty(),
             // #EXP-1383 (owner 2026-10-24: "exactly as in sessions"): the run
             // view's tap — animate to the newest row (the pinned window still
-            // ends on it), finish on the true end, then drop the pin and
-            // resume following.
+            // ends on it), finish on the true end and resume following; the
+            // start stays pinned (chats.json WINDOW: never re-slides).
             onClick = {
                 jumpScope.launch {
                     val last = state.layoutInfo.totalItemsCount - 1
@@ -1185,7 +1196,6 @@ fun ThreadConversation(
                         state.animateScrollToItem(last)
                         state.scrollBy(100_000f)
                     }
-                    windowFrom = null
                     follow = true
                 }
             },
@@ -1198,12 +1208,21 @@ fun ThreadConversation(
     }
 }
 
-/** #EXP-1380: the index the painted window starts at — [windowFrom]'s row
- *  when pinned (and still there), else the newest `transcript.window`. */
-internal fun transcriptWindowStart(rows: List<SessionTree.ThreadRow>, windowFrom: String?): Int {
-    val pinned = windowFrom?.let { id -> rows.indexOfFirst { it.id == id } }?.takeIf { it >= 0 }
-    return pinned ?: maxOf(0, rows.size - Chats.Transcript.WINDOW)
-}
+/** chats.json WINDOW: the indexes of the WAITING plan / question cards
+ *  (a plan without a decision, an unanswered question) — the window's start
+ *  never cuts one off. */
+internal fun transcriptWaitingIndexes(rows: List<SessionTree.ThreadRow>): List<Int> =
+    rows.indices.filter { i ->
+        when (val row = rows[i]) {
+            is SessionTree.ThreadRow.Plan -> row.decision == null
+            is SessionTree.ThreadRow.Question -> !row.answered
+            else -> false
+        }
+    }
+
+/** A requested end landing: past the last item's size, so the measure
+ *  settles it flush with the viewport's end (the list clamps the overshoot). */
+private const val PIN_END_OFFSET = 100_000
 
 /** Scroll to the very end through the LAST item (only the rows on screen
  *  compose; a long scrollBy from far up composes every row it passes). */

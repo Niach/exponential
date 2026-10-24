@@ -24,7 +24,6 @@ import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueStatusEntity
-import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.data.db.PullRequestIssueEntity
 import com.exponential.app.data.db.SessionEntity
@@ -49,6 +48,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.shareIn
@@ -129,11 +129,6 @@ class ThreadViewModel @Inject constructor(
         links.mapNotNull { byId[it.issueId] }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Every message of the tree (the root's conversation + its children's). */
-    val messages: StateFlow<List<MessageEntity>> =
-        dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeByRoot(rootId) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
     /** The thread's pull requests (opening order) — the Guide's PRs. */
     val pullRequests: StateFlow<List<PullRequestEntity>> =
         dbFlow.scopedQuery(emptyList<PullRequestEntity>()) { it.pullRequestDao().observeByRoot(rootId) }
@@ -177,11 +172,20 @@ class ThreadViewModel @Inject constructor(
      *  their conversations — the transcript reads THIS tree, never every
      *  synced message. */
     private val treeMessages: Flow<List<SessionTree.Message>> =
-        dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { it.keyedMessages(it.messageDao().observeByRoot(rootId)) }
+        // Only the account's REAL rows (never the signed-out placeholder): the
+        // view's first build already holds the whole tree, so the window's
+        // first paint pins on the loaded transcript (chats.json WINDOW).
+        dbFlow.filterNotNull().flatMapLatest { it.keyedMessages(it.messageDao().observeByRoot(rootId)) }
             // One query + one card parse per change, shared by the view and
             // the referenced-session lookup.
             .flowOn(Dispatchers.Default)
             .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    /** Every message of the tree (the root's conversation + its children's):
+     *  the SAME [treeMessages] the view builds from (review of #1218: the
+     *  tree's rows are queried once, never twice). */
+    val messages: StateFlow<List<SessionTree.Message>> =
+        treeMessages.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** EXP-1341: the sessions the tree's cards name outside the tree (an
      *  agent channel's `thread_started` → another root): their rows + the

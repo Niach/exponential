@@ -3,12 +3,14 @@
 //! chat: both paint their rows through a virtualised `gpui::list` whose
 //! [`ListState`] follows the tail.
 //!
-//! WINDOW: the newest `transcript.window` rows; a `Load earlier` ghost button
-//! above them widens it by `transcript.windowStep` (the run view's look; the
-//! front splice keeps the reader's scroll anchor). While the list follows the
-//! tail the window slides with the newest rows (what drops off the top is
-//! out of view); once the reader leaves the tail the start is PINNED, so a
-//! new arrival never shrinks it.
+//! WINDOW (review of #1218, [`domain::chats::transcript_window_start`]): the
+//! newest `transcript.window` rows, the start reaching up to the oldest
+//! WAITING plan / question card (never cut off); a `Load earlier` ghost
+//! button above them moves the start up by `transcript.windowStep` in ONE
+//! press (the run view's look; the front splice keeps the reader's scroll
+//! anchor). Once painted the start is PINNED: arrivals append below it
+//! whether the reader follows the tail or not; a reopened chat (a new view)
+//! starts again at the newest window.
 //!
 //! FOLLOW + JUMP: the list follows the tail (gpui `FollowMode::Tail`); a
 //! reader within `transcript.followSlack` px of the bottom is still on it (an
@@ -23,38 +25,50 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{h_flex, ActiveTheme as _, Sizable as _};
 
 use domain::chats::CHATS;
+use domain::session_tree::SessionThreadRow;
 
-/// The window's start over a projection of rows (indices into it).
+/// The window's start over a projection of rows (indices into it): the
+/// fixture's `pinnedStart` + `loadedSteps`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct TranscriptWindow {
-    /// `None` = the newest `transcript.window` rows (sliding); `Some` = the
-    /// pinned first row.
+    /// The start the first painted (non-empty) projection fixed; `None`
+    /// before it.
     pinned: Option<usize>,
+    /// `Load earlier` presses since the open.
+    loaded_steps: usize,
 }
 
 impl TranscriptWindow {
-    /// The first row painted of `total`.
-    pub(crate) fn start(&self, total: usize) -> usize {
-        let tail = domain::chats::transcript_window_start(total, CHATS.transcript.window);
-        match self.pinned {
-            Some(start) => start.min(tail),
-            None => tail,
+    /// The first row painted of `total`, `waiting` = the projection's
+    /// indexes of WAITING cards ([`waiting_indexes`]). The first call over
+    /// a non-empty projection pins the start.
+    pub(crate) fn start(&mut self, total: usize, waiting: &[usize]) -> usize {
+        let start = domain::chats::transcript_window_start(total, waiting, self.pinned, self.loaded_steps);
+        if self.pinned.is_none() && total > 0 {
+            self.pinned = Some(start);
         }
+        start
     }
 
-    /// Slide with the tail while `following`, else pin where it stands.
-    pub(crate) fn reanchor(&mut self, following: bool, total: usize) {
-        if following {
-            self.pinned = None;
-        } else if self.pinned.is_none() {
-            self.pinned = Some(self.start(total));
-        }
+    /// `Load earlier`: one press = one `transcript.windowStep`.
+    pub(crate) fn load_earlier(&mut self) {
+        self.loaded_steps += 1;
     }
+}
 
-    /// `Load earlier`: widen by `transcript.windowStep`.
-    pub(crate) fn load_earlier(&mut self, total: usize) {
-        self.pinned = Some(self.start(total).saturating_sub(CHATS.transcript.window_step));
-    }
+/// The indexes (into `rows`) of WAITING plan / question cards: a plan with
+/// no decision, an unanswered question (`ask_dock::thread_pending_asks`).
+pub(crate) fn waiting_indexes<'a>(rows: impl IntoIterator<Item = &'a SessionThreadRow>) -> Vec<usize> {
+    rows.into_iter()
+        .enumerate()
+        .filter(|(_, row)| {
+            matches!(
+                row,
+                SessionThreadRow::Plan { decision: None, .. } | SessionThreadRow::Question { answered: false, .. }
+            )
+        })
+        .map(|(index, _)| index)
+        .collect()
 }
 
 /// How far (px) the list sits above its bottom; `None` before a layout.
@@ -167,24 +181,70 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_window_slides_then_pins_then_widens() {
+    fn the_window_pins_on_first_paint_then_grows_by_one_step() {
         let mut window = TranscriptWindow::default();
-        assert_eq!(window.start(1500), 1400);
-        assert_eq!(window.start(40), 0);
-        // Following: it slides with every arrival.
-        window.reanchor(true, 1501);
-        assert_eq!(window.start(1501), 1401);
-        // Scrolled up: pinned, an arrival never shrinks it.
-        window.reanchor(false, 1501);
-        assert_eq!(window.start(1510), 1401);
-        // Load earlier widens by the step.
-        window.load_earlier(1510);
-        assert_eq!(window.start(1510), 1301);
-        window.load_earlier(1510);
-        window.load_earlier(1510);
-        assert_eq!(window.start(1510), 1101);
-        // Back on the tail: the newest window again.
-        window.reanchor(true, 1510);
-        assert_eq!(window.start(1510), 1410);
+        // Nothing synced yet: no pin.
+        assert_eq!(window.start(0, &[]), 0);
+        assert_eq!(window.start(250, &[]), 150);
+        // Arrivals append, the start stays (following or not).
+        assert_eq!(window.start(260, &[]), 150);
+        // One press = one step.
+        window.load_earlier();
+        assert_eq!(window.start(270, &[]), 50);
+        window.load_earlier();
+        assert_eq!(window.start(270, &[]), 0);
+        // A reopened chat (a new view) starts at the newest window again.
+        assert_eq!(TranscriptWindow::default().start(260, &[]), 160);
+    }
+
+    #[test]
+    fn a_waiting_card_is_never_cut_off() {
+        let mut window = TranscriptWindow::default();
+        assert_eq!(window.start(250, &[30]), 30);
+        window.load_earlier();
+        assert_eq!(window.start(250, &[30]), 0);
+    }
+
+    #[test]
+    fn waiting_rows_are_open_plans_and_unanswered_questions() {
+        let rows: Vec<SessionThreadRow> = vec![
+            SessionThreadRow::Event { id: "e".into(), event: "linked".into(), text: "Linked".into() },
+            plan("p1", None),
+            plan("p2", Some("approved")),
+            question("q1", false),
+            question("q2", true),
+        ];
+        assert_eq!(waiting_indexes(&rows), vec![1, 3]);
+    }
+
+    fn plan(id: &str, decision: Option<&str>) -> SessionThreadRow {
+        SessionThreadRow::Plan {
+            id: id.into(),
+            session_id: "s".into(),
+            plan: "Plan".into(),
+            questions: Vec::new(),
+            surface: None,
+            decision: decision.map(Into::into),
+            fresh: false,
+            answers: None,
+            feedback: None,
+            surface_data: None,
+        }
+    }
+
+    fn question(id: &str, answered: bool) -> SessionThreadRow {
+        SessionThreadRow::Question {
+            id: id.into(),
+            session_id: "s".into(),
+            question: "Which?".into(),
+            options: Vec::new(),
+            custom: true,
+            multi: false,
+            surface: None,
+            answer: None,
+            answers: None,
+            surface_data: None,
+            answered,
+        }
     }
 }

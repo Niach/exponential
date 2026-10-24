@@ -127,6 +127,26 @@ object Chats {
         const val FOLLOW_SLACK = 32
     }
 
+    /** chats.json WINDOW (`windowCases`, review of #1218; TS
+     *  `transcriptWindowStart`): the index of the window's first painted row.
+     *  The newest [Transcript.WINDOW] rows, the start reaching up to the
+     *  oldest WAITING plan / question card ([waitingIndexes]: never cut off);
+     *  [pinnedStart] = the start the FIRST paint returned (null = not painted
+     *  yet / reopened): arrivals append below it, a shrink only grows the
+     *  window; each Load earlier press ([loadedSteps]) moves the start up by
+     *  [Transcript.WINDOW_STEP]. `start > 0` shows Load earlier. */
+    fun transcriptWindowStart(
+        rowCount: Int,
+        waitingIndexes: List<Int>,
+        pinnedStart: Int?,
+        loadedSteps: Int,
+    ): Int {
+        val tail = maxOf(0, rowCount - Transcript.WINDOW)
+        var base = if (pinnedStart == null) tail else minOf(maxOf(0, pinnedStart), tail)
+        for (index in waitingIndexes) if (index in 0 until rowCount && index < base) base = index
+        return maxOf(0, base - maxOf(0, loadedSteps) * Transcript.WINDOW_STEP)
+    }
+
     /** `agentMenu.sends`: what Compact / New conversation send (one path
      *  with the typed lines). */
     object Sends {

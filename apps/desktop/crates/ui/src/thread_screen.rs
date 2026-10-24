@@ -2709,8 +2709,10 @@ struct ConversationRows {
     all: Vec<usize>,
     /// The window's first row in `all`.
     start: usize,
-    /// The window (`transcript.window`, pinned off the tail).
+    /// The window (`transcript.window`, pinned once painted).
     window: crate::chat_transcript::TranscriptWindow,
+    /// The indexes (into `all`) of WAITING plan / question cards.
+    waiting: Vec<usize>,
     /// What the keys were built for (the inputs, the start).
     windowed: Option<((u64, u64, bool, bool), usize)>,
 }
@@ -3336,16 +3338,18 @@ impl ThreadScreenView {
                 .filter(|(_, row)| !docked.contains(row.id()))
                 .map(|(index, _)| index)
                 .collect();
+            self.conv.waiting =
+                crate::chat_transcript::waiting_indexes(self.conv.all.iter().map(|&index| &model.view.rows[index]));
             self.conv.tail = self.tail.is_some();
             // #EXP-1380 FOLLOW: an arrival keeps a reader inside the slack
             // on the tail.
             crate::chat_transcript::rearm_near_tail(&self.list);
         }
-        // #EXP-1380 WINDOW: the newest rows, pinned once the reader leaves
-        // the tail; only the window is fingerprinted and measured.
+        // #EXP-1380 WINDOW: the newest rows (up to the oldest waiting
+        // card), pinned once painted; only the window is fingerprinted and
+        // measured.
         let total = self.conv.all.len();
-        self.conv.window.reanchor(self.list.is_following_tail(), total);
-        let start = self.conv.window.start(total);
+        let start = self.conv.window.start(total, &self.conv.waiting);
         if self.conv.windowed == Some((inputs, start)) {
             return;
         }
@@ -3408,8 +3412,7 @@ impl ThreadScreenView {
         let earlier = (ix == 0 && self.conv.start > 0).then(|| {
             crate::chat_transcript::load_earlier_button(
                 cx.listener(|this, _: &ClickEvent, _window, cx| {
-                    let total = this.conv.all.len();
-                    this.conv.window.load_earlier(total);
+                    this.conv.window.load_earlier();
                     this.list.pause_following_tail();
                     cx.notify();
                 }),

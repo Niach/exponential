@@ -7,34 +7,41 @@ import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** #EXP-1380 (chats.json WINDOW): the painted window + the sessions a chat's
- *  cards name outside its tree. */
+/** #EXP-1380 (chats.json WINDOW): the waiting cards the window never cuts
+ *  off (the rule itself replays `windowCases` in ChatsTest) + the sessions a
+ *  chat's cards name outside its tree. */
 class TranscriptWindowTest {
 
-    private fun rows(n: Int) = (0 until n).map { SessionTree.ThreadRow.Divider("r$it", "new", "") }
+    private fun plan(id: String, decision: String?) = SessionTree.ThreadRow.Plan(id = id, sessionId = "root", plan = "", decision = decision)
+
+    private fun question(id: String, answered: Boolean) = SessionTree.ThreadRow.Question(
+        id = id,
+        sessionId = "root",
+        question = "",
+        options = emptyList(),
+        custom = true,
+        answer = null,
+        answered = answered,
+    )
 
     @Test
-    fun aShortChatPaintsEveryRow() {
-        assertEquals(0, transcriptWindowStart(rows(40), null))
+    fun theWaitingCardsAreTheUndecidedPlansAndUnansweredQuestions() {
+        val rows = listOf(
+            SessionTree.ThreadRow.Divider("d", "new", ""),
+            plan("p1", decision = "approved"),
+            question("q1", answered = false),
+            plan("p2", decision = null),
+            question("q2", answered = true),
+        )
+        assertEquals(listOf(2, 3), transcriptWaitingIndexes(rows))
     }
 
     @Test
-    fun aLongChatPaintsItsNewestWindow() {
-        assertEquals(1500 - Chats.Transcript.WINDOW, transcriptWindowStart(rows(1500), null))
-    }
-
-    @Test
-    fun aPinnedStartKeepsEveryArrivalAndLoadEarlierWidens() {
-        val before = rows(1500)
-        val pinned = before[transcriptWindowStart(before, null)].id
-        // An arrival never shrinks the window: the pinned start stays.
-        val after = rows(1501)
-        assertEquals(1400, transcriptWindowStart(after, pinned))
-        // Load earlier = the row `windowStep` above the start.
-        val wider = after[1400 - Chats.Transcript.WINDOW_STEP].id
-        assertEquals(1300, transcriptWindowStart(after, wider))
-        // A start that left the transcript falls back to the newest window.
-        assertEquals(1501 - Chats.Transcript.WINDOW, transcriptWindowStart(after, "gone"))
+    fun aWaitingCardOlderThanTheWindowIsNeverCutOff() {
+        val rows = (0 until 250).map { i ->
+            if (i == 30) question("q", answered = false) else SessionTree.ThreadRow.Divider("r$i", "new", "")
+        }
+        assertEquals(30, Chats.transcriptWindowStart(rows.size, transcriptWaitingIndexes(rows), null, 0))
     }
 
     private fun message(id: String, card: String?) = SessionTree.Message(
