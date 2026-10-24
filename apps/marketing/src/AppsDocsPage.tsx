@@ -299,6 +299,15 @@ export function AppsDocsPage() {
               as you without asking; anything else asks every time, worded for
               the operation and with the arguments shown.
             </p>
+            <h3>Share an app as a file</h3>
+            <p>
+              Export an app from its menu, its editor or its settings page: you
+              get one <code>.app.json</code> file with its name, icon, colour,
+              current version and, if you switch Include records on, its
+              records. To use one, open New app, choose Import… and paste the
+              file or pick it. Anything wrong with it is listed under the field
+              before you import. An imported app starts with no tools granted.
+            </p>
             <h3>Records: an app&apos;s own data</h3>
             <p>
               An app can keep data of its own. Its package declares record

@@ -100,6 +100,8 @@ pub mod agent_settings;
 pub mod apps;
 // VAPP-120: typed host actions (`exponential.<noun>.<op>`), fixture-locked ×4.
 pub mod app_actions;
+// VAPP-121: an app as one JSON file (export name + file), fixture-locked ×4.
+pub mod app_export;
 // VAPP-122: app records (the `exp:records` query + value), fixture-locked ×4.
 pub mod app_records;
 // VAPP-119: the `exp:` binding sources (issues, boards, members, sessions,

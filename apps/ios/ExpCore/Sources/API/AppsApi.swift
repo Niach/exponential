@@ -70,6 +70,24 @@ private struct AppCreateResult: Decodable {
     let app: AppCreated
 }
 
+/// VAPP-121 `apps.validateImport` / `apps.import` input: the file's text.
+private struct AppImportInput: Encodable {
+    let teamId: String
+    let text: String
+}
+
+/// VAPP-121 `apps.validateImport`'s answer: the server's issues (JSON
+/// pointers into the file), the app's name and the record count.
+public struct AppImportCheck: Decodable, Sendable, Equatable {
+    public let issues: [ImportIssue]
+    public let name: String?
+    public let records: Int
+}
+
+private struct AppImportResult: Decodable {
+    let app: AppCreated
+}
+
 private struct AppIdInput: Encodable {
     let id: String
 }
@@ -168,6 +186,23 @@ public final class AppsApi: Sendable {
     /// Member-gated `apps.create`; the editor opens on the returned slug.
     public func create(accountId: String, _ input: AppCreateInput) async throws -> AppCreated {
         let result: AppCreateResult = try await trpc.mutation(accountId: accountId, path: "apps.create", input: input)
+        return result.app
+    }
+
+    /// VAPP-121 `apps.validateImport`: the server's issues for a pasted or
+    /// chosen app file (the one authority ×4).
+    public func validateImport(accountId: String, teamId: String, text: String) async throws -> AppImportCheck {
+        try await trpc.mutation(
+            accountId: accountId, path: "apps.validateImport", input: AppImportInput(teamId: teamId, text: text)
+        )
+    }
+
+    /// VAPP-121 `apps.import`: creates the app from the file (v1 noted
+    /// `Imported`, its records as mine); the editor opens on it like Create.
+    public func importApp(accountId: String, teamId: String, text: String) async throws -> AppCreated {
+        let result: AppImportResult = try await trpc.mutation(
+            accountId: accountId, path: "apps.import", input: AppImportInput(teamId: teamId, text: text)
+        )
         return result.app
     }
 

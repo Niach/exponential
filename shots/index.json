@@ -181,6 +181,38 @@
         "sha256": "8191d37434942715e1774ade1c2d8be8cb89ac784b97b3644fdc564cd21e35cc"
       }
     },
+    "app-export": {
+      "web": {
+        "file": "shots/app-export/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 11666,
+        "sha256": "fd6fa8dcdd7018141d4647dff3df9e892dd7cf79964bc2daa5c67732dd19e215"
+      },
+      "web-mobile": {
+        "file": "shots/app-export/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 11056,
+        "sha256": "2dc0e97a9aa1510a9cdf5f6d41930eb6673c6033362041ae08f09ece124f735a"
+      }
+    },
+    "app-import": {
+      "web": {
+        "file": "shots/app-import/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 14962,
+        "sha256": "a4c83de2ef46610c0cd845e2c3a04bf1aebb2f9f78f8b77b821bd98d5e9ea23e"
+      },
+      "web-mobile": {
+        "file": "shots/app-import/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 15622,
+        "sha256": "dcc3d77a45ceaf85bab8b2de963d5969f6502d81752bc003a4dd4d24b552832b"
+      }
+    },
     "apps": {
       "android": {
         "file": "shots/apps/android.webp",
