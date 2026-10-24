@@ -33,6 +33,14 @@ final class SearchViewModel {
     /// What the page renders — always state, never computed in a body.
     private(set) var results: [Result] = []
 
+    /// A rank is still owed for the typed query (the debounce, the detached
+    /// rank, or the index not built yet): the page keeps its rows and never
+    /// shows the empty state meanwhile (feedback-states.json: no false
+    /// "No issues match" while the work is pending).
+    var isRanking: Bool {
+        !query.isEmpty && teamId != nil && (index == nil || localQuery != query)
+    }
+
     private var teamId: String?
     private var query = ""
     /// The active team's issues, prepared once per snapshot.

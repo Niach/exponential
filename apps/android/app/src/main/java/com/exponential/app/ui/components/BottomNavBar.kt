@@ -3,6 +3,7 @@ package com.exponential.app.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -533,9 +535,15 @@ private fun TabItem(
     lensOffset: Dp,
     onSelect: () -> Unit,
 ) {
+    // The lens settles ON the active tab and vanishes the moment the lift
+    // ends, so the pill must be back at once: a fade-in here would leave the
+    // selected tab bare for one standard beat (review #1220).
+    var wasLifted by remember { mutableStateOf(lifted) }
+    val justSettled = wasLifted && !lifted
+    SideEffect { wasLifted = lifted }
     val pillFill by animateColorAsState(
         targetValue = if (active && !lifted) GlassTokens.RowFillActive else Color.Transparent,
-        animationSpec = Motion.standard(),
+        animationSpec = if (justSettled) snap() else Motion.standard(),
         label = "nav-tab-pill",
     )
     val lit = if (lifted) candidate else active

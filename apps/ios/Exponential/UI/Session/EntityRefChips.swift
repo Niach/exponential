@@ -88,7 +88,8 @@ struct EntityRefChips: View {
         case .prompts:
             openTeamSettings(.prompts)
         case .devices:
-            pushRoute(.agents)
+            // #EXP-1384: Devices is the Team page's row (settings-nav.json).
+            openTeamSettings(.devices)
         case let .teamSettings(section):
             openTeamSettings(section)
         case .myWork:

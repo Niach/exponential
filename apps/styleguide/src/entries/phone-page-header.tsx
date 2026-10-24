@@ -24,8 +24,8 @@ export const entry: StyleguideEntry = {
     },
     desktop: {
       state: `ok`,
-      symbol: `page_header`,
-      file: `apps/desktop/crates/ui/src/styleguide/entries/page_header.rs`,
+      symbol: `phone_page_header`,
+      file: `apps/desktop/crates/ui/src/styleguide/entries/phone_page_header.rs`,
       note: `the IDE has no phone shell; the styleguide twin paints the same header`,
     },
     ios: {

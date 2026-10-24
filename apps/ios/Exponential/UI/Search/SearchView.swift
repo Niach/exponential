@@ -37,7 +37,8 @@ struct SearchView: View {
                     placeholder: "Search issues",
                     inputIdentifier: "search-field",
                     autofocus: true,
-                    emptyText: trimmed.isEmpty ? nil : "No issues match",
+                    // No empty state while the rank is still owed (#EXP-1382).
+                    emptyText: trimmed.isEmpty || vm.isRanking ? nil : "No issues match",
                     onPick: { issueId in
                         pushRoute(.issue(accountId: accountId, id: issueId))
                     }
