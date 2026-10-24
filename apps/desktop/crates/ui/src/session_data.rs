@@ -178,7 +178,6 @@ pub(crate) fn session_title_of(session_id: &str, cx: &App) -> Option<String> {
         collections.sessions.read(cx).revision(),
         collections.session_issues.read(cx).revision(),
         collections.issues.read(cx).revision(),
-        collections.messages.read(cx).revision(),
         collections.conversations.read(cx).revision(),
     ];
     if let Some(title) = TITLE_MEMO.with(|memo| {
@@ -203,7 +202,7 @@ pub(crate) fn session_title_of(session_id: &str, cx: &App) -> Option<String> {
 thread_local! {
     /// [`session_title_of`]'s memo: session id → (the store revisions it
     /// was derived at, the title).
-    static TITLE_MEMO: std::cell::RefCell<HashMap<String, ([u64; 5], Option<String>)>> =
+    static TITLE_MEMO: std::cell::RefCell<HashMap<String, ([u64; 4], Option<String>)>> =
         std::cell::RefCell::new(HashMap::new());
 }
 
@@ -225,10 +224,12 @@ fn derive_session_title(session_id: &str, cx: &App) -> Option<String> {
         .filter_map(|link| all_issues.get(&link.issue_id))
         .map(TreeIssue::from_issue)
         .collect();
-    // Only the first-prompt candidates are ever read (no clone of a long
-    // chat's every message).
-    let messages: Vec<MessageRow> =
-        keyed_messages(cx, |owner, message| owner == session_id && is_first_prompt_candidate(message, owner));
+    // Thread e4a04d22: the first prompt is the conversation digest's
+    // `first` (no read of a long chat's messages at all).
+    let messages: Vec<MessageRow> = digest_messages(cx, |owner| owner == session_id)
+        .into_iter()
+        .filter(|message| is_first_prompt_candidate(message, session_id))
+        .collect();
     let link_refs: Vec<&SessionIssueRow> = links.iter().collect();
     let message_refs: Vec<&MessageRow> = messages.iter().collect();
     Some(domain::session_title::session_title(&row, &link_refs, &issues, &message_refs))
@@ -325,6 +326,31 @@ pub(crate) fn conversation_sessions(cx: &App) -> ConversationSessions {
         return ConversationSessions::new();
     };
     domain::message_conversation::conversation_sessions(store.collections().conversations.read(cx).iter())
+}
+
+/// Thread e4a04d22 (#EXP-1380 on every form factor): THE lists' messages —
+/// each session conversation's synced DIGEST read back
+/// ([`domain::chats::digest_messages`]), kept where `keep(session_id)`
+/// holds. The titles, the Threads bands and the Chats list read these and
+/// never the transcript; the open chat, unread marking and pickup stay on
+/// [`keyed_messages`].
+pub(crate) fn digest_messages(cx: &App, keep: impl Fn(&str) -> bool) -> Vec<MessageRow> {
+    let Some(store) = Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let conversations = store.collections().conversations.read(cx);
+    let mut out: Vec<MessageRow> = Vec::new();
+    for conversation in conversations.iter() {
+        let Some(session_id) = conversation.session_id.as_deref().filter(|id| !id.is_empty() && keep(id)) else {
+            continue;
+        };
+        let digest = domain::chats::ConversationDigest::decode(conversation.digest.as_ref());
+        out.extend(domain::chats::digest_messages(session_id, digest.as_ref()).into_iter().map(|message| MessageRow {
+            conversation_id: conversation.id.clone(),
+            ..message
+        }));
+    }
+    out
 }
 
 /// NEW-8: the synced messages KEYED through their conversation (each
@@ -749,7 +775,7 @@ pub(crate) fn agents_in_team(team_id: &str, cx: &App) -> Vec<AgentRow> {
 #[derive(Clone, PartialEq, Eq)]
 struct ListsKey {
     team_id: String,
-    revisions: [u64; 6],
+    revisions: [u64; 5],
 }
 
 #[derive(Default)]
@@ -770,7 +796,6 @@ pub(crate) fn thread_lists(team_id: &str, cx: &mut App) -> Rc<Vec<ThreadsListGro
         revisions: [
             collections.sessions.read(cx).revision(),
             collections.session_issues.read(cx).revision(),
-            collections.messages.read(cx).revision(),
             collections.conversations.read(cx).revision(),
             collections.issues.read(cx).revision(),
             collections.session_reads.read(cx).revision(),
@@ -813,9 +838,9 @@ fn derive_thread_lists(team_id: &str, cx: &App) -> Vec<ThreadsListGroup> {
     // A session's own messages title it; EXP-1323: the tree's agent messages
     // decide its unread bold (and each child's own).
     let in_team: HashSet<&str> = rows.iter().map(|session| session.id.as_str()).collect();
-    // EXP-1341: every session's own first prompt names it (NEW-8: keyed
-    // through its conversation).
-    let keyed: Vec<MessageRow> = keyed_messages(cx, |owner, _| in_team.contains(owner));
+    // EXP-1341: every session's own first prompt names it; thread e4a04d22:
+    // read off each conversation's digest, never the transcript.
+    let keyed: Vec<MessageRow> = digest_messages(cx, |owner| in_team.contains(owner));
     let messages: Vec<&MessageRow> = keyed.iter().collect();
     let session_reads = collections.session_reads.read(cx);
     let reads: Vec<&SessionReadRow> = session_reads
@@ -848,7 +873,7 @@ pub(crate) struct ChatsModel {
 #[derive(Clone, PartialEq, Eq)]
 struct ChatsKey {
     team_id: String,
-    revisions: [u64; 8],
+    revisions: [u64; 7],
     /// The time labels move with the local hour (today → Yesterday).
     hour: i64,
 }
@@ -870,7 +895,6 @@ pub(crate) fn chats_model(team_id: &str, cx: &mut App) -> Rc<ChatsModel> {
         revisions: [
             collections.sessions.read(cx).revision(),
             collections.session_issues.read(cx).revision(),
-            collections.messages.read(cx).revision(),
             collections.conversations.read(cx).revision(),
             collections.issues.read(cx).revision(),
             collections.session_reads.read(cx).revision(),
@@ -912,7 +936,8 @@ fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> C
                 .map(|session| session.id.as_str()),
         )
         .collect();
-    let keyed: Vec<MessageRow> = keyed_messages(cx, |owner, _| roots.contains(owner));
+    // Thread e4a04d22: the digest's messages, never the transcript.
+    let keyed: Vec<MessageRow> = digest_messages(cx, |owner| roots.contains(owner));
     let messages: Vec<&MessageRow> = keyed.iter().collect();
     let session_reads = collections.session_reads.read(cx);
     let reads: Vec<&SessionReadRow> = session_reads

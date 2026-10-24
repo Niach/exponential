@@ -732,7 +732,9 @@ struct ThreadScreen: View {
                 db: deps.db,
                 onOpen: { [deps, accountId, issueOutlet] issueId in
                     openIssueInnermost(issueId, outlet: issueOutlet, deps: deps, accountId: accountId)
-                }
+                },
+                mentionMembers: ChatMentionMembers.members(
+                    teamId: rows.root.teamId, db: deps.db, accountId: accountId)
             )
         )
     }

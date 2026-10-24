@@ -114,11 +114,20 @@ public enum MentionRefs {
         // Replacements change the length, so walk back-to-front to keep every
         // earlier match range valid (the `IssueRefs.decorateForDisplay` pattern).
         for match in found.reversed() {
+            let email = ns.substring(with: match.range(at: 1))
+            // Thread e4a04d22: a display render with `.autolinkBareURLs` (the
+            // chat feed) turns the address of `@email` into its own
+            // `mailto:` link; that run is the mention, styled like the `@`.
+            let autolinked = isAutolinkedMailto(attributed, range: match.range(at: 1), email: email)
             var effective = NSRange(location: 0, length: 0)
-            let attrs = attributed.attributes(
-                at: match.range.location, longestEffectiveRange: &effective, in: match.range)
-            guard effective.location == match.range.location, effective.length == match.range.length else {
-                continue
+            let attrs = autolinked
+                ? attributed.attributes(at: match.range.location, effectiveRange: nil)
+                : attributed.attributes(
+                    at: match.range.location, longestEffectiveRange: &effective, in: match.range)
+            if !autolinked {
+                guard effective.location == match.range.location, effective.length == match.range.length else {
+                    continue
+                }
             }
             if attrs[.markdownInlineCode] != nil || attrs[.markdownCodeBlock] != nil || attrs[.link] != nil {
                 continue
@@ -129,7 +138,6 @@ public enum MentionRefs {
                 continue
             }
             if attrs[.markdownMention] != nil { continue }
-            let email = ns.substring(with: match.range(at: 1))
             guard let name = resolver(email) else { continue }
             var chipAttrs = attrs
             for (key, value) in expChipAttributes(baseColor: attrs[.foregroundColor] as? PlatformColor) {
@@ -142,6 +150,19 @@ public enum MentionRefs {
             mutable = target
         }
         return mutable ?? attributed
+    }
+
+    /// The whole `range` is ONE link run whose target is `mailto:<email>` —
+    /// cmark's autolink extension's form for a bare address.
+    static func isAutolinkedMailto(_ attributed: NSAttributedString, range: NSRange, email: String) -> Bool {
+        guard range.length > 0, NSMaxRange(range) <= attributed.length else { return false }
+        var effective = NSRange(location: 0, length: 0)
+        guard let link = attributed.attribute(
+            .link, at: range.location, longestEffectiveRange: &effective, in: range),
+            effective == range
+        else { return false }
+        let target = (link as? URL)?.absoluteString ?? (link as? String) ?? ""
+        return target.lowercased() == "mailto:\(email.lowercased())"
     }
 
     /// `@<name>` with the name's internal whitespace made non-breaking; a

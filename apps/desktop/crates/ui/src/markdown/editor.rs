@@ -4828,6 +4828,29 @@ mod tests {
         });
     }
 
+    /// Thread e4a04d22 (mention pills in chats ×4): a chat row's text — the
+    /// chat flag and the thread resolver's BARE mode `message_markdown`
+    /// builds — paints a member's `@email` as THE comments' round pill with
+    /// the member's name; an unknown address stays the written text.
+    #[gpui::test]
+    async fn a_chat_row_paints_member_mentions_as_pills(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            let line = "@ada@example.com can you check EXP-42? cc @x@y.com";
+            let display = build_display_line(line, &[], Some(&bare_resolver()), true, cx);
+            let mention = display.text.find("@Ada").expect("the member's pill");
+            assert_eq!(mention, 0);
+            assert_eq!(
+                display.mention_pill_ranges,
+                vec![mention..mention + "@Ada".len()],
+                "one round mention pill, over the member's name"
+            );
+            assert!(!display.text.contains("@ada@example.com"));
+            assert!(display.text.ends_with("cc @x@y.com"), "{}", display.text);
+            assert_eq!(display.issue_pill_ranges.len(), 1, "the bare ref still chips");
+        });
+    }
+
     /// An unresolved token stays plain text: no pill, no mono, no click.
     #[gpui::test]
     async fn unresolved_tokens_stay_plain(cx: &mut gpui::TestAppContext) {

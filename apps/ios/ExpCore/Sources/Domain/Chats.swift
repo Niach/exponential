@@ -702,3 +702,84 @@ public enum Chats {
         return trimmed.isEmpty ? nil : trimmed
     }
 }
+
+// MARK: - Digest (thread e4a04d22)
+
+extension Chats {
+    /// `digestMessages` (chats.json `digestCases`, TS `chats.ts`): a
+    /// conversation's server-kept digest (`conversations.digest`) back as the
+    /// TreeMessages every list rule reads — its messages (first, preview,
+    /// waiting; once each), one bodiless agent message per kept agent time
+    /// (a time a kept agent message already stands for is skipped, compared
+    /// as instants), and the newest agent time as an event card. The open
+    /// chat's transcript, unread marking and pickup keep reading messages.
+    public static func digestMessages(sessionId: String, digest raw: String?) -> [TreeMessage] {
+        digestMessages(sessionId: sessionId, digest: SessionTree.jsonObject(raw))
+    }
+
+    public static func digestMessages(sessionId: String, digest: [String: Any]?) -> [TreeMessage] {
+        guard let digest else { return [] }
+        func text(_ value: Any?) -> String? { value as? String }
+        func msOr0(_ iso: String) -> Double { SessionTree.ms(iso) ?? 0 }
+        let agent = DomainContract.messageAuthorKindAgent
+        var out: [TreeMessage] = []
+        var seen = Set<String>()
+        // Kept agent messages by instant (a multiset: two may share one).
+        var counted: [Double: Int] = [:]
+        for key in ["first", "preview", "waiting"] {
+            guard let m = digest[key] as? [String: Any], let id = text(m["id"]) else { continue }
+            guard seen.insert(id).inserted else { continue }
+            let authorKind = text(m["authorKind"]) ?? ""
+            let createdAt = text(m["createdAt"]) ?? ""
+            let card = (m["card"] as? [String: Any]).map(TreeMessageCard.init(object:))
+            out.append(TreeMessage(
+                id: id,
+                sessionId: sessionId,
+                authorKind: authorKind,
+                authorId: nil,
+                body: text(m["body"]) ?? "",
+                card: card,
+                answeredAt: text(m["answeredAt"]),
+                consumedAt: nil,
+                createdAt: createdAt,
+                authorSessionId: text(m["authorSessionId"])
+            ))
+            if authorKind == agent, card?.kind != "event" {
+                counted[msOr0(createdAt), default: 0] += 1
+            }
+        }
+        let times = (digest["agentTimes"] as? [Any])?.compactMap { $0 as? String } ?? []
+        for (index, at) in times.enumerated() {
+            let instant = msOr0(at)
+            if let kept = counted[instant], kept > 0 {
+                counted[instant] = kept - 1
+                continue
+            }
+            out.append(TreeMessage(
+                id: "digest:\(sessionId):\(index)",
+                sessionId: sessionId,
+                authorKind: agent,
+                authorId: nil,
+                body: "",
+                card: nil,
+                answeredAt: nil,
+                consumedAt: nil,
+                createdAt: at
+            ))
+        }
+        if let agentAt = text(digest["agentAt"]), !agentAt.isEmpty {
+            out.append(TreeMessage(
+                id: "digest:\(sessionId):agent",
+                sessionId: sessionId,
+                authorKind: agent,
+                authorId: nil,
+                body: "",
+                card: TreeMessageCard(object: ["kind": "event"]),
+                answeredAt: nil,
+                consumedAt: nil,
+                createdAt: agentAt
+            ))
+        }
+        return out
+    }
+}

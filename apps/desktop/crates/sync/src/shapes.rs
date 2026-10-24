@@ -496,7 +496,8 @@ pub const SHAPES: [ShapeSpec; 31] = [
         // NEW-8: the conversation every message lives in (kind `session`,
         // one per session, or `dm` / `channel` with no session). Byte-matches
         // the proxy's allowlist (apps/web routes/api/shapes/conversations.ts).
-        columns: &["id", "team_id", "kind", "session_id", "title", "created_at", "updated_at"],
+        // #EXP-1380: `digest` = the lists' digest of the messages.
+        columns: &["id", "team_id", "kind", "session_id", "title", "digest", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
     ShapeSpec {
@@ -1195,7 +1196,7 @@ mod tests {
         assert!(!messages.columns.contains(&"session_id"));
         assert_eq!(
             shape_by_name("conversations").unwrap().columns,
-            &["id", "team_id", "kind", "session_id", "title", "created_at", "updated_at"]
+            &["id", "team_id", "kind", "session_id", "title", "digest", "created_at", "updated_at"]
         );
         assert_eq!(shape_by_name("conversations").unwrap().path, "/api/shapes/conversations");
         let pulls = shape_by_name("pull_requests").unwrap();

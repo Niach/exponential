@@ -8,11 +8,11 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill"]
 
     var body: some View {
         if kind == "chat-list" {
@@ -46,6 +46,7 @@ struct ThreadCardsScreen: View {
                     case "chat-transcript": ChatTranscriptSpecimens()
                     case "chat-menus": ChatMenuSpecimens()
                     case "schedule-picker": SchedulePickerSpecimens()
+                    case "mention-pill": MentionPillSpecimens()
                     default: workCards
                     }
                 }

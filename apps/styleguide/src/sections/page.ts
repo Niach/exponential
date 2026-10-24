@@ -142,6 +142,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`pr-graph-badge`]: `Buttons & chips`,
   [`jump-to-bottom`]: `Buttons & chips`,
   [`strip-chip`]: `Buttons & chips`,
+  [`mention-pill`]: `Buttons & chips`,
   [`team-agents-settings`]: `Surfaces`,
   [`voice-call-overlay`]: `Surfaces`,
   [`computer-use-banner`]: `Feedback`,

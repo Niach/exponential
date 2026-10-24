@@ -425,6 +425,27 @@ val MIGRATION_96_97: Migration = object : Migration(96, 97) {
     }
 }
 
+/**
+ * v98 (thread e4a04d22): `conversations.digest`, the Chats list's
+ * per-conversation digest (JSON text). Only the conversations shape
+ * refetches so already-synced rows re-arrive carrying it.
+ */
+val MIGRATION_97_98: Migration = object : Migration(97, 98) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        val present = db.query("PRAGMA table_info(`conversations`)").use { cursor ->
+            val name = cursor.getColumnIndex("name")
+            var found = false
+            while (cursor.moveToNext()) if (cursor.getString(name) == "digest") found = true
+            found
+        }
+        if (!present) db.execSQL("ALTER TABLE `conversations` ADD COLUMN `digest` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'conversations'",
+        )
+    }
+}
+
 internal val AGENT_ACTOR_COLUMNS_V97: List<Pair<String, String>> = listOf(
     "agents" to "instructions_updated_at",
     "sessions" to "agent_instructions_at",

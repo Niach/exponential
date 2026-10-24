@@ -34,6 +34,8 @@ describe(`chats.json`, () => {
   for (const c of fixture.agentHint.cases) test(`agent hint: ${c.name}`, () => expect(agentInstructionsChanged(c.input)).toBe(c.expected))
   for (const c of fixture.windowCases) test(`window: ${c.name}`, () => expect(transcriptWindowStart(c)).toBe(c.start))
   for (const c of fixture.plainCases) test(`plain: ${JSON.stringify(c.text)}`, () => expect(plainLine(c.text)).toBe(c.expected))
+  for (const c of fixture.digestCases)
+    test(`digest: ${c.name}`, () => expect(digestMessages(c.sessionId, c.digest as never)).toEqual(c.messages as never))
   test(`every menu entry and tab has copy`, () => {
     for (const e of [`stop`, `stopAndDelete`, `delete`, `compact`, `newConversation`, `settings`]) expect(fixture.copy.menu[e as keyof typeof fixture.copy.menu]).toBeTruthy()
     for (const t of fixture.shell.tabs) expect(fixture.copy.tabs[t as keyof typeof fixture.copy.tabs]).toBeTruthy()

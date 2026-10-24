@@ -455,8 +455,11 @@ import androidx.room.TypeConverters
     //      the instructions stamps on agents and sessions. Explicit
     //      [MIGRATION_96_97] adds the nullable columns and refetches those
     //      six shapes.
+    // v98 (thread e4a04d22): conversations.digest (the Chats list's
+    //      per-conversation digest). Explicit [MIGRATION_97_98] adds the
+    //      nullable column and refetches only the conversations shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 97,
+    version = 98,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

@@ -394,10 +394,6 @@ interface MessageDao {
     )
     fun observeBySession(sessionId: String): Flow<List<MessageEntity>>
 
-    // #EXP-1380: one team's messages (the chat list reads the ACTIVE team only).
-    @Query("SELECT * FROM messages WHERE team_id = :teamId ORDER BY created_at, id")
-    fun observeByTeam(teamId: String): Flow<List<MessageEntity>>
-
     // Every message of one tree (the root's conversation + its children's).
     @Query("SELECT * FROM messages WHERE root_id = :rootId ORDER BY created_at, id")
     fun observeByRoot(rootId: String): Flow<List<MessageEntity>>
@@ -460,6 +456,10 @@ interface ConversationDao {
     // NEW-8: every message is keyed through these ([com.exponential.app.domain.MessageConversation]).
     @Query("SELECT * FROM conversations")
     fun observeAll(): Flow<List<ConversationEntity>>
+
+    // Thread e4a04d22: one team's conversations (the Chats list reads their digests).
+    @Query("SELECT * FROM conversations WHERE team_id = :teamId")
+    fun observeByTeam(teamId: String): Flow<List<ConversationEntity>>
 
     @Query("SELECT * FROM conversations WHERE session_id = :sessionId LIMIT 1")
     fun observeBySession(sessionId: String): Flow<ConversationEntity?>

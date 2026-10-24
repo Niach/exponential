@@ -28,7 +28,7 @@ import XCTest
 ///   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
 ///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header ·
-///   sg_chat-transcript · sg_chat-menus · sg_schedule-picker
+///   sg_chat-transcript · sg_chat-menus · sg_schedule-picker · sg_mention-pill
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
@@ -925,11 +925,11 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_plan-card", settle: 2)
         // ── sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu ·
         // sg_phone-page-header · sg_chat-transcript ·
-        // sg_chat-menus · sg_schedule-picker (thread 58cb32df, chats.json +
+        // sg_chat-menus · sg_schedule-picker · sg_mention-pill (thread 58cb32df / e4a04d22, chats.json +
         // schedule-picker.json): the styleguide entries' specimens.
         for entry in [
             "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
-            "chat-menus", "schedule-picker",
+            "chat-menus", "schedule-picker", "mention-pill",
         ] {
             guard ScreenshotShots.isWanted("sg_\(entry)") else { continue }
             openThreadCards(app, entry)
@@ -940,6 +940,7 @@ final class StyleguideScreenshots: XCTestCase {
             case "phone-page-header": snapshot("sg_phone-page-header", settle: 2)
             case "chat-transcript": snapshot("sg_chat-transcript", settle: 2)
             case "chat-menus": snapshot("sg_chat-menus", settle: 2)
+            case "mention-pill": snapshot("sg_mention-pill", settle: 2)
             default: snapshot("sg_schedule-picker", settle: 2)
             }
         }

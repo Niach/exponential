@@ -885,6 +885,10 @@ data class ConversationEntity(
     val title: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+    // Thread e4a04d22: the Chats list's per-conversation digest (jsonb kept
+    // by the server's `conversation_digest` trigger), stored as JSON text
+    // like messages.card; read through [com.exponential.app.domain.Chats.digestMessages].
+    @Serializable(with = JsonAsStringSerializer::class) val digest: String? = null,
 )
 
 // EXP-1323: the viewer's read mark of one session (a thread = its root's

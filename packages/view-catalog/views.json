@@ -5706,6 +5706,35 @@
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:schedule-picker`: the IDE styleguide entry drawn full-window.",
         "web-mobile": "See web: the styleguide entry is the phone-wide specimen."
       }
+    },
+    {
+      "id": "mention-pill",
+      "group": "coding",
+      "title": "Mention pill",
+      "blurb": "THE round @member pill ×4 in every chat's text (thread e4a04d22): a team member's @email paints as the comments' pill with the member's name, an unresolved @x@y.com stays the written text.",
+      "order": 39,
+      "ios": {
+        "shot": "sg_mention-pill",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_mention-pill",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:mention-pill"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "A styleguide specimen (apps/styleguide entry `mention-pill`, the real `@exp/ui` `MentionPill`); the live chats are their own views.",
+        "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_mention-pill.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:mention-pill`: the IDE styleguide entry drawn full-window.",
+        "web-mobile": "See web: the styleguide entry is the phone-wide specimen."
+      }
     }
   ]
 }

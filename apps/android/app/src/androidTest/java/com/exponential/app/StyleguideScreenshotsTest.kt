@@ -55,6 +55,8 @@ import com.exponential.app.ui.styleguide.ChatMenusSpecimenScreen
 import com.exponential.app.ui.styleguide.ChatMenusSpecimenTestId
 import com.exponential.app.ui.styleguide.ChatTranscriptSpecimenScreen
 import com.exponential.app.ui.styleguide.ChatTranscriptSpecimenTestId
+import com.exponential.app.ui.styleguide.MentionPillSpecimenScreen
+import com.exponential.app.ui.styleguide.MentionPillSpecimenTestId
 import com.exponential.app.ui.styleguide.PhoneTabBarSpecimenScreen
 import com.exponential.app.domain.SettingsNav
 import com.exponential.app.ui.styleguide.PhonePageHeaderSpecimenTestId
@@ -111,7 +113,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
- *   sg_chat-menus · sg_schedule-picker
+ *   sg_chat-menus · sg_schedule-picker · sg_mention-pill
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -187,6 +189,8 @@ class StyleguideScreenshotsTest {
             "sg_trace", "sg_code-block", "sg_ask-dock", "sg_dock-card", "sg_plan-card",
             // Thread 58cb32df: the Chats pieces + the minutes schedule.
             "sg_chat-list", "sg_phone-tab-bar", "sg_phone-board-menu", "sg_phone-page-header", "sg_chat-transcript", "sg_chat-menus", "sg_schedule-picker",
+            // Thread e4a04d22: the member pill in a chat.
+            "sg_mention-pill",
         )
 
         /** #EXP-1384: the Board tab's root is up (its All issues chip). */
@@ -1145,6 +1149,10 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_chat-menus")
         show(SchedulePickerSpecimenTestId) { SchedulePickerSpecimenScreen() }
         flow.screenshot("sg_schedule-picker")
+        // Thread e4a04d22: `@email` as the member's pill in a chat, an
+        // unknown address as plain text (styleguide entry mention-pill).
+        show(MentionPillSpecimenTestId) { MentionPillSpecimenScreen() }
+        flow.screenshot("sg_mention-pill")
 
         finished = true
     }

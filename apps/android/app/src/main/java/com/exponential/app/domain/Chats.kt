@@ -374,6 +374,96 @@ object Chats {
         return session < agent
     }
 
+    // ── the list's per-conversation DIGEST (`digestCases`, TS `digestMessages`) ──
+    // The Chats list never reads a transcript: the server keeps, on each
+    // conversation row (`conversations.digest`), exactly the messages the
+    // list's rules read; [digestMessages] turns it back into tree messages so
+    // `partitionThreads`, `chatList` and `agentBubbles` run UNCHANGED over it.
+
+    /** `conversations.digest` (JSON text) → its object; null / bad = none. */
+    fun parseDigest(text: String?): JsonObject? {
+        if (text.isNullOrBlank()) return null
+        return runCatching { kotlinx.serialization.json.Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+    }
+
+    /** A digest back as the tree messages the list reads: its first /
+     *  preview / waiting messages (once each), one bodiless agent message
+     *  per kept agent time (the one a kept message already stands for
+     *  skipped, matched as INSTANTS), and the newest agent time as an event
+     *  card. Output times are the digest's strings verbatim. */
+    fun digestMessages(sessionId: String, digest: JsonObject?): List<SessionTree.Message> {
+        if (digest == null) return emptyList()
+        val out = mutableListOf<SessionTree.Message>()
+        val seen = mutableSetOf<String>()
+        // Kept agent messages by instant (a multiset: two may share a time).
+        val counted = mutableMapOf<Long, Int>()
+        for (key in listOf("first", "preview", "waiting")) {
+            val m = digest[key] as? JsonObject ?: continue
+            val id = m.textOf("id")
+            if (!seen.add(id)) continue
+            val authorKind = m.textOf("authorKind")
+            val card = m["card"] as? JsonObject
+            val createdAt = m.textOf("createdAt")
+            out += SessionTree.Message(
+                id = id,
+                sessionId = sessionId,
+                authorKind = authorKind,
+                authorId = null,
+                body = m.textOf("body"),
+                card = card,
+                answeredAt = m.optText("answeredAt"),
+                consumedAt = null,
+                createdAt = createdAt,
+                authorSessionId = m.optText("authorSessionId"),
+            )
+            if (authorKind == "agent" && card?.kind() != "event") {
+                val at = ms(createdAt) ?: 0L
+                counted[at] = (counted[at] ?: 0) + 1
+            }
+        }
+        val times = (digest["agentTimes"] as? kotlinx.serialization.json.JsonArray).orEmpty()
+        times.forEachIndexed { index, element ->
+            val at = (element as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return@forEachIndexed
+            val instant = ms(at) ?: 0L
+            val kept = counted[instant] ?: 0
+            if (kept > 0) {
+                counted[instant] = kept - 1
+                return@forEachIndexed
+            }
+            out += SessionTree.Message(
+                id = "digest:$sessionId:$index",
+                sessionId = sessionId,
+                authorKind = "agent",
+                authorId = null,
+                body = "",
+                card = null,
+                answeredAt = null,
+                consumedAt = null,
+                createdAt = at,
+                authorSessionId = null,
+            )
+        }
+        val agentAt = digest.optText("agentAt")
+        if (!agentAt.isNullOrEmpty()) {
+            out += SessionTree.Message(
+                id = "digest:$sessionId:agent",
+                sessionId = sessionId,
+                authorKind = "agent",
+                authorId = null,
+                body = "",
+                card = JsonObject(mapOf("kind" to JsonPrimitive("event"))),
+                answeredAt = null,
+                consumedAt = null,
+                createdAt = agentAt,
+                authorSessionId = null,
+            )
+        }
+        return out
+    }
+
+    private fun JsonObject.optText(key: String): String? =
+        (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+
     /** A builtin command line a person sent (`/new`, `/compact …`): the
      *  transcript paints it as a divider, never a bubble (`dividerCases`). */
     fun commandDivider(body: String): String? {

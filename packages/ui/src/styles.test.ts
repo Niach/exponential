@@ -36,6 +36,14 @@ describe(`@exp/ui styles.css`, () => {
     expect(block.slice(0, block.indexOf(`}`))).toContain(`border-radius: 6px`)
   })
 
+  it(`carries the round mention pill, unscoped`, () => {
+    // Thread e4a04d22: `<MentionPill>` (chat text) and the editors' `@email`
+    // decoration share this box; it must reach text outside the editor.
+    const block = css.slice(css.indexOf(`\n.mention-pill {`))
+    expect(css.indexOf(`\n.mention-pill {`)).toBeGreaterThan(-1)
+    expect(block.slice(0, block.indexOf(`}`))).toContain(`border-radius: 9999px`)
+  })
+
   it(`owns every shared utility the app used to declare`, () => {
     // The motion durations, the glass recipes and the full-screen gradient.
     // EXP-961: `emoji-glyph` joined them when the picker moved in — the colour

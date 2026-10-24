@@ -528,7 +528,9 @@ struct AgentSessionView: View {
                 db: deps.db,
                 onOpen: { [threadIssueOutlet] issueId in
                     openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
-                }
+                },
+                mentionMembers: ChatMentionMembers.members(
+                    teamId: session.teamId, db: deps.db, accountId: accountId)
             )
         )
     }

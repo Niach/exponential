@@ -1,6 +1,5 @@
 package com.exponential.app.ui.threads
 
-import com.exponential.app.data.db.keyedMessages
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.auth.AuthRepository
@@ -68,12 +67,19 @@ class ThreadsViewModel @Inject constructor(
         sessions,
         dbFlow.scopedQuery(emptyList()) { it.sessionIssueDao().observeAll() }.map { it.map(SessionTree::sessionIssue) },
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }.map { it.map(SessionTree::issue) },
-        // #EXP-1380: the ACTIVE team's messages only — every list row,
-        // preview, unread count and bubble ring is of that team, and another
-        // team's long transcripts never load here.
+        // #EXP-1380 / thread e4a04d22: the ACTIVE team's conversation
+        // DIGESTS, never its messages — every list row, preview, unread count
+        // and bubble ring reads the server-kept digest turned back into
+        // messages (`Chats.digestMessages`, chats.json `digestCases`), so no
+        // transcript loads here and a new message re-reads one row.
         activeTeam.flatMapLatest { team ->
             dbFlow.scopedQuery(emptyList()) {
-                it.keyedMessages(if (team == null) it.messageDao().observeAll() else it.messageDao().observeByTeam(team))
+                if (team == null) it.conversationDao().observeAll() else it.conversationDao().observeByTeam(team)
+            }
+        }.map { rows ->
+            rows.flatMap { row ->
+                val session = row.sessionId ?: return@flatMap emptyList()
+                Chats.digestMessages(session, Chats.parseDigest(row.digest))
             }
         },
         // EXP-1323: the viewer's read marks (bold rows + the nav dot).

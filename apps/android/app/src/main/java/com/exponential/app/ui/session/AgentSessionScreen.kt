@@ -688,6 +688,10 @@ private fun RunFaceContent(
             searchServer = viewModel::searchIssueRefs,
         ) { target -> currentOnOpenIssue(target.issueId) }
     }
+    // Inline `@email` mention pills in the transcript: the run team's
+    // members (the composer's `@` vocabulary); unknown addresses stay text.
+    val mentionMembers by viewModel.mentionMembers.collectAsStateWithLifecycle()
+    val mentionResolver = remember(mentionMembers) { MentionResolver(mentionMembers) }
     // EXP-1188: links the agent writes to this instance open in the app.
     val appLinkHandler = rememberAppLinkHandler()
     val answerStates = activity.answerLocks
@@ -1065,6 +1069,7 @@ private fun RunFaceContent(
             // `#IDENTIFIER` contract.
             LocalIssueRefs provides issueRefHandler,
             LocalIssueRefBare provides true,
+            LocalMentions provides mentionResolver,
             // EXP-920: what a tool row's entity chips resolve
             // their preview sheets against — the run's team.
             LocalEntityRefResolver provides entityRefResolver,

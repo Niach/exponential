@@ -5,7 +5,7 @@ import XCTest
 // Thread 58cb32df: Chats, locked ×4 (TS `chats.test.ts`, Android `ChatsTest`,
 // desktop `domain::chats`) against fixtures/chats.json: every case group
 // (previewCases, timeCases, listCases, bubbleCases, menuCases,
-// agentMenuCases, replyCases, dividerCases, plainCases, windowCases) plus the copy, test
+// agentMenuCases, replyCases, dividerCases, plainCases, windowCases, digestCases) plus the copy, test
 // ids, shell and surface-card constants. Whole expected objects are compared
 // as JSON values.
 final class ChatsTests: XCTestCase {
@@ -327,6 +327,23 @@ final class ChatsTests: XCTestCase {
                 loadedSteps: try XCTUnwrap(testCase["loadedSteps"] as? Int, name)
             )
             XCTAssertEqual(start, testCase["start"] as? Int, name)
+        }
+    }
+
+    /// Thread e4a04d22 `digestCases`: the digest back as messages, the WHOLE
+    /// list compared (order + every field; the card as the parsed card).
+    func testDigestCases() throws {
+        for testCase in try cases("digestCases") {
+            let name = string(testCase["name"]) ?? ""
+            let sessionId = try XCTUnwrap(string(testCase["sessionId"]), name)
+            let digest = testCase["digest"] as? [String: Any]
+            let got = Chats.digestMessages(sessionId: sessionId, digest: digest)
+            XCTAssertEqual(got, try messages(testCase["messages"]), name)
+            // The synced JSON text reads the same as the object.
+            let raw = try digest.map {
+                String(decoding: try JSONSerialization.data(withJSONObject: $0), as: UTF8.self)
+            }
+            XCTAssertEqual(Chats.digestMessages(sessionId: sessionId, digest: raw), got, name)
         }
     }
 

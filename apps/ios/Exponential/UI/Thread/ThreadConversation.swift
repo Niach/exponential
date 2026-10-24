@@ -340,7 +340,8 @@ struct ThreadConversationRow: View, Equatable {
                 db: deps.db,
                 onOpen: { [deps, accountId, threadIssueOutlet] issueId in
                     openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
-                }
+                },
+                mentionMembers: ChatMentionMembers.members(teamId: teamId, db: deps.db, accountId: accountId)
             )
         )
     }

@@ -20,7 +20,7 @@ import org.junit.Test
 /**
  * Thread 58cb32df: Chats is fixture-locked ×4 — every case group of
  * `chats.json` (previewCases, timeCases, listCases, bubbleCases, menuCases,
- * agentMenuCases, replyCases, dividerCases, plainCases, windowCases) runs here (TS
+ * agentMenuCases, replyCases, dividerCases, plainCases, windowCases, digestCases) runs here (TS
  * `chats.test.ts`, iOS `ChatsTests`, desktop `domain::chats`). Outputs are
  * re-encoded in the fixture's JSON shape and compared WHOLE; the embedded
  * copy is proved equal to the fixture's.
@@ -280,6 +280,32 @@ class ChatsTest {
                 loadedSteps = case.getValue("loadedSteps").jsonPrimitive.int,
             )
             assertEquals(case.str("name"), case.getValue("start").jsonPrimitive.int, start)
+        }
+    }
+
+    @Test
+    fun `every digest case matches the fixture (thread e4a04d22)`() {
+        for (case in cases("digestCases")) {
+            val sessionId = case.str("sessionId")!!
+            // Decoded the way the list reads it: the row's JSON text.
+            val digest = case["digest"]?.takeUnless { it is JsonNull }?.toString()
+            val actual = Chats.digestMessages(sessionId, Chats.parseDigest(digest)).map { m ->
+                JsonObject(
+                    mapOf(
+                        "id" to JsonPrimitive(m.id),
+                        "sessionId" to JsonPrimitive(m.sessionId),
+                        "authorKind" to JsonPrimitive(m.authorKind),
+                        "authorId" to nullable(m.authorId),
+                        "authorSessionId" to nullable(m.authorSessionId),
+                        "body" to JsonPrimitive(m.body),
+                        "card" to (m.card ?: JsonNull),
+                        "answeredAt" to nullable(m.answeredAt),
+                        "consumedAt" to nullable(m.consumedAt),
+                        "createdAt" to JsonPrimitive(m.createdAt),
+                    ),
+                )
+            }
+            assertEquals(case.str("name"), case.getValue("messages").jsonArray.toList(), actual)
         }
     }
 

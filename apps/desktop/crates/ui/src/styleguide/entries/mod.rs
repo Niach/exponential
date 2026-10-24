@@ -63,6 +63,8 @@ pub(crate) mod phone_board_menu;
 pub(crate) mod phone_page_header;
 pub(crate) mod chat_transcript;
 pub(crate) mod chat_menus;
+// Thread e4a04d22: mention pills in chats.
+pub(crate) mod mention_pill;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
 /// than a demo. EXP-1268 landed its design draft on the web page first; its
@@ -110,6 +112,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: toast::ID, owner: toast::OWNER, render: toast::render },
     Entry { id: jump_to_bottom::ID, owner: jump_to_bottom::OWNER, render: jump_to_bottom::render },
     Entry { id: strip_chip::ID, owner: strip_chip::OWNER, render: strip_chip::render },
+    Entry { id: mention_pill::ID, owner: mention_pill::OWNER, render: mention_pill::render },
     Entry { id: feedback_states::ID, owner: feedback_states::OWNER, render: feedback_states::render },
     Entry { id: trace::ID, owner: trace::OWNER, render: trace::render },
     Entry { id: code_block::ID, owner: code_block::OWNER, render: code_block::render },

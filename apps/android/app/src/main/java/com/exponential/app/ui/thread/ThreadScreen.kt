@@ -80,6 +80,9 @@ import com.exponential.app.ui.issue.toDiffFile
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.IssueSearchSheet
 import com.exponential.app.ui.markdown.LocalIssueRefs
+import com.exponential.app.ui.markdown.LocalMentions
+import com.exponential.app.ui.markdown.MentionMember
+import com.exponential.app.ui.markdown.MentionResolver
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.work.ChangesLoadState
@@ -131,6 +134,7 @@ fun ThreadScreen(
     val isAgent by viewModel.isAgent.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val users by viewModel.users.collectAsStateWithLifecycle()
+    val teamUsers by viewModel.teamUsers.collectAsStateWithLifecycle()
     val me by viewModel.currentUserId.collectAsStateWithLifecycle()
     val statuses by viewModel.statuses.collectAsStateWithLifecycle()
     val issues by viewModel.issues.collectAsStateWithLifecycle()
@@ -320,6 +324,12 @@ fun ThreadScreen(
         viewModel.decidePlan(id, d.approved, d.fresh, d.feedback, settled, d.answers, d.surfaceData)
     }
 
+    // Inline `@email` mention pills in the chat rows: the team's synced
+    // members (issue detail's resolver); unknown addresses stay plain text.
+    val mentionResolver = remember(teamUsers) {
+        MentionResolver(teamUsers.map { MentionMember(it.name ?: it.email, it.email) })
+    }
+
     val hazeState = rememberHazeState()
     val titleCollapse = remember { TitleCollapseState() }
     ProvideMarkdownToolbar {
@@ -327,6 +337,7 @@ fun ThreadScreen(
             LocalDetailHaze provides hazeState,
             LocalTitleCollapse provides titleCollapse,
             LocalIssueRefs provides issueRefHandler,
+            LocalMentions provides mentionResolver,
         ) {
             ThreadContent(
                 view = view,

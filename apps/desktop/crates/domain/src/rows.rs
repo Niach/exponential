@@ -933,6 +933,10 @@ pub struct ConversationRow {
     pub session_id: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
+    /// #EXP-1380: the list's digest of the messages (trigger-written jsonb;
+    /// [`crate::chats::digest_messages`] reads it back).
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub digest: Option<serde_json::Value>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

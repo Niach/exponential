@@ -191,4 +191,24 @@ final class MentionDisplayTests: XCTestCase {
         guard case let .text(_, after) = display.blocks[0] else { return XCTFail("expected a text block") }
         XCTAssertEqual(after.string, "Ping @Ada\u{00A0}Lovelace")
     }
+
+    /// Thread e4a04d22: the chat feed renders with `.autolinkBareURLs`, which
+    /// links the address of `@email` as `mailto:`; a member still pills, an
+    /// unknown address keeps its link and stays text.
+    func testAnAutolinkedMentionStillPills() {
+        let display = IssueEditorModel()
+        display.isDisplayOnly = true
+        display.issueRefResolver = { _ in nil }
+        display.issueRefTitleResolver = { _ in nil }
+        display.mentionMembers = [MentionMember(name: "Ada Lovelace", email: "ada@example.com")]
+        display.load(
+            markdown: "Ask @ada@example.com and @x@y.com", baseURL: nil,
+            options: [.autolinkBareURLs, .hardLineBreaks]
+        )
+        guard case let .text(_, shown) = display.blocks[0] else { return XCTFail("expected a text block") }
+        XCTAssertEqual(shown.string, "Ask @Ada\u{00A0}Lovelace and @x@y.com")
+        let pill = (shown.string as NSString).range(of: "@Ada")
+        XCTAssertEqual(shown.attribute(.markdownMention, at: pill.location, effectiveRange: nil) as? String, "Ada Lovelace")
+        XCTAssertNil(shown.attribute(.link, at: pill.location + 1, effectiveRange: nil))
+    }
 }

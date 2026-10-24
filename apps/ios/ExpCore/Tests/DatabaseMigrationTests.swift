@@ -136,7 +136,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
-             "v79_agent_actors"]
+             "v79_agent_actors", "v80_conversation_digest"]
         )
     }
 
@@ -194,7 +194,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
-             "v79_agent_actors"]
+             "v79_agent_actors", "v80_conversation_digest"]
         )
     }
 
@@ -724,7 +724,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
-             "v79_agent_actors"]
+             "v79_agent_actors", "v80_conversation_digest"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -830,7 +830,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
-             "v79_agent_actors"]
+             "v79_agent_actors", "v80_conversation_digest"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -3350,6 +3350,48 @@ final class DatabaseMigrationTests: XCTestCase {
         let read = try pool.read { db in try IssueEventEntity.fetchOne(db, key: "e-1") }
         XCTAssertEqual(read?.actorAgentId, "g-1")
         // Re-running converges (the guarded ALTERs add nothing twice).
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // Thread e4a04d22: v80 adds `conversations.digest`, resetting ONLY the
+    // conversations cursor; a synced row decodes the jsonb (object or text)
+    // and saves it as JSON text.
+    func testConversationDigestColumnAdded() throws {
+        let pool = try makePool("e4a04d22-conversation-digest")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v79_agent_actors")
+        try pool.write { db in
+            for shape in ["conversations", "messages"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertTrue(try columnNames(pool, "conversations").contains("digest"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["conversations"])
+        }
+        let wire = Data("""
+            {"id":"c-1","team_id":"t","kind":"session","session_id":"s-1","title":null,
+             "created_at":"x","updated_at":"x","digest":{"agentAt":"2026-10-24T12:00:00Z","agentTimes":[]}}
+            """.utf8)
+        let row = try JSONDecoder().decode(ConversationEntity.self, from: wire)
+        try pool.write { db in try row.save(db) }
+        let read = try pool.read { db in try ConversationEntity.fetchOne(db, key: "c-1") }
+        let digest = try XCTUnwrap(read?.digest)
+        XCTAssertEqual(
+            Chats.digestMessages(sessionId: "s-1", digest: digest).map(\.id),
+            ["digest:s-1:agent"]
+        )
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

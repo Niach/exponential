@@ -796,6 +796,10 @@ public struct ConversationEntity: FetchableRecord, PersistableRecord, Identifiab
     public let title: String?
     public let createdAt: String
     public let updatedAt: String
+    /// Thread e4a04d22: the server-kept list digest (`conversations.digest`
+    /// jsonb, stored as its JSON text like `messages.card`): every Chats list
+    /// reads `Chats.digestMessages` over it instead of the synced messages.
+    public let digest: String?
 
     public init(
         id: String,
@@ -804,7 +808,8 @@ public struct ConversationEntity: FetchableRecord, PersistableRecord, Identifiab
         sessionId: String? = nil,
         title: String? = nil,
         createdAt: String,
-        updatedAt: String
+        updatedAt: String,
+        digest: String? = nil
     ) {
         self.id = id
         self.teamId = teamId
@@ -813,10 +818,11 @@ public struct ConversationEntity: FetchableRecord, PersistableRecord, Identifiab
         self.title = title
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.digest = digest
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, title
+        case id, kind, title, digest
         case teamId = "team_id"
         case sessionId = "session_id"
         case createdAt = "created_at"
@@ -834,6 +840,7 @@ extension ConversationEntity: Codable {
         title = try c.decodeIfPresent(String.self, forKey: .title)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
+        digest = c.decodeWireJsonString(forKey: .digest)
     }
 }
 

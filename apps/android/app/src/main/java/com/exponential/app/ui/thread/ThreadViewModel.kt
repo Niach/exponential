@@ -556,6 +556,15 @@ class ThreadViewModel @Inject constructor(
 
     private val teamId: Flow<String?> = root.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } }.distinctUntilChanged()
 
+    /** The thread team's users: the chat rows' `@email` mention pills
+     *  (LocalMentions), like the issue detail's comment thread. */
+    val teamUsers: StateFlow<List<UserEntity>> = teamId
+        .flatMapLatest { team ->
+            if (team == null) flowOf(emptyList())
+            else dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeam(team) }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** EXP-1307: the viewer is a member of the thread's team (the Guide
      *  `…`'s Close PR, `SessionTree.guideMenuEntries`). */
     val isMember: StateFlow<Boolean> = combine(teamId, auth.userId) { team, user -> team to user }

@@ -8,7 +8,8 @@
 //! command dividers ([`command_divider`]) + its window ([`TranscriptSpec`],
 //! [`transcript_window_start`]),
 //! the surface card's reply rule ([`surface_reply`]) + its ENTER motion
-//! spec, and [`plain_line`]. Byte-locked by `fixtures/chats.json`; pure.
+//! spec, [`plain_line`], and the lists' per-conversation digest
+//! ([`digest_messages`], `digestCases`). Byte-locked by `fixtures/chats.json`; pure.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::LazyLock;
@@ -965,6 +966,112 @@ pub fn transcript_window_start(
     base.saturating_sub(loaded_steps.saturating_mul(spec.window_step))
 }
 
+// ── #EXP-1380 / thread e4a04d22: the list's per-conversation DIGEST ────────
+// The lists never read a transcript: the server keeps, on each conversation
+// row (`conversations.digest`, trigger-written), exactly the messages the
+// list's rules read; [`digest_messages`] turns it back into the keyed
+// [`MessageRow`]s those rules take (`digestCases`, the twin of TS
+// `digestMessages`).
+
+/// One message a digest keeps (TS `DigestMessage`).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DigestMessage {
+    pub id: String,
+    #[serde(default)]
+    pub author_kind: String,
+    #[serde(default)]
+    pub author_session_id: Option<String>,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub card: Option<Value>,
+    #[serde(default)]
+    pub answered_at: Option<String>,
+    #[serde(default)]
+    pub created_at: String,
+}
+
+/// `conversations.digest` (TS `ConversationDigest`).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationDigest {
+    #[serde(default)]
+    pub first: Option<DigestMessage>,
+    #[serde(default)]
+    pub preview: Option<DigestMessage>,
+    #[serde(default)]
+    pub waiting: Option<DigestMessage>,
+    #[serde(default)]
+    pub agent_at: Option<String>,
+    #[serde(default)]
+    pub agent_times: Vec<String>,
+}
+
+impl ConversationDigest {
+    /// The synced jsonb cell; anything that is not a digest object = none.
+    pub fn decode(value: Option<&Value>) -> Option<Self> {
+        value.filter(|value| value.is_object()).and_then(|value| serde_json::from_value(value.clone()).ok())
+    }
+}
+
+/// A digest back as the messages the list's rules read, keyed to
+/// `session_id` (`conversation_id` stays empty): its messages once each,
+/// one bodiless agent message per kept agent time (the one a kept message
+/// already stands for skipped, times compared as instants) and the newest
+/// agent time as an `event` card.
+pub fn digest_messages(session_id: &str, digest: Option<&ConversationDigest>) -> Vec<MessageRow> {
+    let Some(digest) = digest else {
+        return Vec::new();
+    };
+    let at = |iso: &str| ms(Some(iso)).unwrap_or(0);
+    let bare = |id: String, created_at: &str, card: Option<Value>| MessageRow {
+        id,
+        session_id: session_id.to_string(),
+        author_kind: Some("agent".to_string()),
+        body: Some(String::new()),
+        card,
+        created_at: Some(created_at.to_string()),
+        ..MessageRow::default()
+    };
+    let mut out: Vec<MessageRow> = Vec::new();
+    let mut seen: Vec<&str> = Vec::new();
+    // Kept agent messages by instant (a multiset: two may share a time).
+    let mut counted: HashMap<i64, usize> = HashMap::new();
+    for message in [&digest.first, &digest.preview, &digest.waiting].into_iter().flatten() {
+        if seen.contains(&message.id.as_str()) {
+            continue;
+        }
+        seen.push(&message.id);
+        out.push(MessageRow {
+            id: message.id.clone(),
+            session_id: session_id.to_string(),
+            author_kind: Some(message.author_kind.clone()),
+            author_session_id: message.author_session_id.clone(),
+            body: Some(message.body.clone()),
+            card: message.card.clone(),
+            answered_at: message.answered_at.clone(),
+            created_at: Some(message.created_at.clone()),
+            ..MessageRow::default()
+        });
+        let event = message.card.as_ref().and_then(|card| card.get("kind")).and_then(Value::as_str) == Some("event");
+        if message.author_kind == "agent" && !event {
+            *counted.entry(at(&message.created_at)).or_default() += 1;
+        }
+    }
+    for (index, time) in digest.agent_times.iter().enumerate() {
+        if let Some(kept) = counted.get_mut(&at(time)).filter(|kept| **kept > 0) {
+            *kept -= 1;
+            continue;
+        }
+        out.push(bare(format!("digest:{session_id}:{index}"), time, None));
+    }
+    if let Some(agent_at) = digest.agent_at.as_deref().filter(|agent_at| !agent_at.is_empty()) {
+        out.push(bare(format!("digest:{session_id}:agent"), agent_at, Some(serde_json::json!({ "kind": "event" }))));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1260,5 +1367,36 @@ mod tests {
             );
             assert_eq!(start, index(&case["start"]), "{}", case["name"]);
         }
+    }
+    #[test]
+    fn digest_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["digestCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let digest = ConversationDigest::decode(Some(&case["digest"]));
+            assert_eq!(digest.is_none(), case["digest"].is_null(), "{name}");
+            let got: Vec<Value> = digest_messages(case["sessionId"].as_str().unwrap(), digest.as_ref())
+                .into_iter()
+                .map(|m| {
+                    serde_json::json!({
+                        "id": m.id,
+                        "sessionId": m.session_id,
+                        "authorKind": m.author_kind,
+                        "authorId": m.author_id,
+                        "authorSessionId": m.author_session_id,
+                        "body": m.body,
+                        "card": m.card,
+                        "answeredAt": m.answered_at,
+                        "consumedAt": m.consumed_at,
+                        "createdAt": m.created_at,
+                    })
+                })
+                .collect();
+            assert_eq!(Value::Array(got), case["messages"], "{name}");
+        }
+        // A cell that is not a digest object = no digest.
+        assert!(ConversationDigest::decode(Some(&Value::Bool(true))).is_none());
     }
 }

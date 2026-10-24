@@ -2,6 +2,7 @@ import { Extension } from "@tiptap/core"
 import { Plugin, PluginKey } from "@tiptap/pm/state"
 import { Decoration, DecorationSet } from "@tiptap/pm/view"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
+import { MENTION_PILL_CLASS } from "@exp/ui"
 import { createMentionRegExp } from "@/lib/mention-refs"
 
 // Renders `@email` mentions as name pills via decorations — the document text
@@ -46,7 +47,7 @@ function buildDecorations(
       if (editable) {
         decorations.push(
           Decoration.inline(from, to, {
-            class: `mention-pill`,
+            class: MENTION_PILL_CLASS,
             "data-mention-email": email,
             title: resolved.name,
           })
@@ -58,7 +59,7 @@ function buildDecorations(
             from,
             () => {
               const el = document.createElement(`span`)
-              el.className = `mention-pill`
+              el.className = MENTION_PILL_CLASS
               el.textContent = `@${resolved.name}`
               el.title = email
               return el

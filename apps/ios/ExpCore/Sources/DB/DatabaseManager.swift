@@ -2758,6 +2758,26 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v80 (thread e4a04d22): `conversations.digest` — the server-kept
+        // list digest every Chats list reads (JSON text, like `messages.card`).
+        // A guarded additive ALTER; the conversations cursor resets only when
+        // the column was added, so synced rows re-arrive carrying it.
+        migrator.registerMigration("v80_conversation_digest") { db in
+            guard try db.tableExists("conversations") else { return }
+            let existing = Set(try db.columns(in: "conversations").map(\.name))
+            guard !existing.contains("digest") else { return }
+            try db.alter(table: "conversations") { t in
+                t.add(column: "digest", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'conversations'
+                    """)
+            }
+        }
+
         return migrator
     }
 

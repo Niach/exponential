@@ -421,3 +421,39 @@ struct SchedulePickerSpecimens: View {
         .accessibilityIdentifier("schedule-picker-specimen")
     }
 }
+
+/// `mention-pill` (thread e4a04d22): a chat's `@email` renders as the
+/// comments' round name pill once it resolves to a team member; an address
+/// that is no member stays text. The REAL bubbles over the real markdown
+/// path (`AgentIssueRefContext.mentionMembers`).
+struct MentionPillSpecimens: View {
+    @Environment(AppDependencies.self) private var deps
+
+    static let members = [MentionMember(name: "Ada Lovelace", email: "ada@example.com")]
+
+    private var context: AgentMarkdownContext {
+        AgentMarkdownContext(
+            baseURL: nil, accountId: "", httpClient: deps.httpClient,
+            issueRefs: AgentIssueRefContext(
+                teamId: "", db: deps.db, onOpen: { _ in }, mentionMembers: Self.members
+            )
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            UserMessageBubble(
+                text: "Ask @ada@example.com to review the sign-in fix.",
+                context: context,
+                caption: "09:12"
+            )
+            AgentChatBubble(time: "09:13") {
+                AgentMarkdownText(
+                    text: "Pinged @ada@example.com on the PR. @x@y.com is not on the team, so it stays text.",
+                    context: context,
+                    options: [.hardLineBreaks]
+                )
+            }
+        }
+    }
+}
