@@ -173,7 +173,7 @@ struct AppEditorScreen: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier(Apps.TestIds.viewing)
                 }
-                AppPreview(packageJSON: viewing != nil ? viewingPackage : app.package)
+                AppPreview(packageJSON: viewing != nil ? viewingPackage : app.package, appId: app.id, teamId: app.teamId)
             }
             .padding(16)
         }

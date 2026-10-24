@@ -505,6 +505,25 @@ interface AppVersionDao {
     suspend fun clear()
 }
 
+// VAPP-122: an app's records (the `exp:records` binding derives over them).
+@Dao
+interface AppRecordDao {
+    @Query("SELECT * FROM app_records WHERE app_id = :appId ORDER BY created_at DESC, id")
+    fun observeByApp(appId: String): Flow<List<AppRecordEntity>>
+
+    @Query("SELECT * FROM app_records WHERE team_id = :teamId ORDER BY created_at DESC, id")
+    fun observeByTeam(teamId: String): Flow<List<AppRecordEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: AppRecordEntity)
+
+    @Query("DELETE FROM app_records WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM app_records")
+    suspend fun clear()
+}
+
 // NEW-2: the member teams' events, newest first.
 @Dao
 interface EventDao {

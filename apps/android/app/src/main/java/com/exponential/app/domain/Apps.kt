@@ -38,6 +38,11 @@ object Apps {
         const val TAB_CHAT = "Chat"
         const val TAB_PREVIEW = "Preview"
         const val TAB_VERSIONS = "Versions"
+        // VAPP-122: the app's records count (Settings → Apps → the app).
+        const val RECORDS = "{n} records"
+        const val RECORDS_ONE = "1 record"
+        const val RECORDS_OF = "{n} of {max} records"
+        const val RECORDS_NONE = "No records"
     }
 
     object Preview {
@@ -69,6 +74,10 @@ object Apps {
     const val NAME_MAX = 64
     const val DESCRIPTION_MAX = 2000
     const val NOTE_MAX = 500
+    // VAPP-122 records: a kind's name, one record's `data` JSON, kinds per manifest.
+    const val KIND_PATTERN = "^[a-z][a-z0-9_]{0,31}$"
+    const val RECORD_MAX_BYTES = 16384
+    const val RECORD_KINDS_MAX = 16
 
     /** `v{n}`, or the "no version" copy while an app has no head. */
     fun versionLabel(headVersion: Int): String =

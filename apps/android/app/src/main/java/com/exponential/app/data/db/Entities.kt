@@ -776,6 +776,26 @@ data class AppVersionEntity(
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
 )
 
+// VAPP-122: one RECORD of an app (its own data): a JSON object `data` of a
+// `kind` the app's manifest declares. Trash never reaches a client (the
+// shape's static predicates), so a delete is the row leaving the shape.
+@Entity(
+    tableName = "app_records",
+    indices = [Index(value = ["app_id", "kind"]), Index("team_id")],
+)
+@Serializable
+data class AppRecordEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "app_id") @SerialName("app_id") @JsonNames("appId") val appId: String = "",
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    val kind: String = "",
+    @ColumnInfo(name = "data") @SerialName("data")
+    @Serializable(with = JsonAsStringSerializer::class) val data: String? = null,
+    @ColumnInfo(name = "created_by") @SerialName("created_by") @JsonNames("createdBy") val createdBy: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
 // NEW-2: a saved prompt (replaces actions): name + curated icon; the body is
 // server-only (tRPC `prompts.get`).
 @Entity(

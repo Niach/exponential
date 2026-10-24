@@ -24,6 +24,9 @@ pub struct PlanLimits {
     pub storage_mb: Option<f64>,
     #[serde(default)]
     pub widget_configs: Option<f64>,
+    /// VAPP-122: the team's app records quota (`None` = unlimited).
+    #[serde(default)]
+    pub app_records: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

@@ -22,8 +22,10 @@ import {
   mediaRequest,
   messagesFromMcpResult,
   parseSource,
+  sourceWithParams,
   supportedCatalogIds,
   validatePackage,
+  validateRecord,
 } from "../src/host"
 import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, MediaOptions, UrlPolicy, AppPackage } from "../src/host"
 
@@ -58,6 +60,7 @@ export function renderHost(): Record<string, string> {
   policy.combine = policy.combine.map((c: Case) => ({ ...c, expected: combineDecisions(c.a as FunctionDecision, c.b as FunctionDecision) }))
   policy.urls = policy.urls.map((c: Case) => ({ ...c, expected: decideUrl(c.policy as UrlPolicy | undefined, c.url as string) }))
   policy.media = policy.media.map((c: Case) => ({ ...c, expected: mediaRequest(c.url as string, c.options as MediaOptions) }))
+  policy.sourceParams = policy.sourceParams.map((c: Case) => ({ ...c, expected: sourceWithParams(c.source as string, c.params as Record<string, unknown>) }))
   policy.sources = policy.sources.map((c: Case) => ({ ...c, expected: parseSource(c.uri as string) }))
   policy.negotiation = policy.negotiation.map((c: Case) => ({
     ...c,
@@ -67,6 +70,7 @@ export function renderHost(): Record<string, string> {
   const router = read(`fixtures/host-router.json`)
   const packages = router.packages as Record<string, AppPackage>
   router.validation = Object.entries(packages).map(([id, pkg]) => ({ package: id, expected: validatePackage(pkg) }))
+  router.records = router.records.map((c: Case) => ({ ...c, expected: validateRecord(packages[c.package as string]!.records![c.kind as string]!.schema, c.data) }))
   router.flows = router.flows.map((flow: Case & { steps: { message?: unknown }[] | unknown[] }) => {
     const r = new HostRouter({ extensionIds: (flow.extensionIds as string[]) ?? [] })
     const installIssues: Record<string, unknown> = {}

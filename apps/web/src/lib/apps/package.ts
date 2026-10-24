@@ -8,7 +8,9 @@ import {
 } from "@exponential_app/ui"
 import { catalogPrompt } from "@exponential_app/ui/prompt"
 import extensionJson from "@exp/ui/exponential-ui/extension.json"
-import { APP_PACKAGE_MAX_BYTES, APP_TEMPLATE_MAX_COMPONENTS } from "@exp/domain-contract/apps"
+import { APP_PACKAGE_MAX_BYTES, APP_RECORD_KINDS_MAX, APP_RECORD_MAX_BYTES, APP_TEMPLATE_MAX_COMPONENTS } from "@exp/domain-contract/apps"
+import { APP_RECORD_ROW_KEYS } from "@exp/domain-contract/app-records"
+import type { RecordSchema } from "@exponential_app/ui"
 
 // VAPP-110: what an app's PACKAGE may be, server-side (tRPC `apps.upsertPackage`
 // and MCP `apps upsert` both land here). The SDK's `validatePackage` checks the
@@ -60,7 +62,18 @@ export function validateAppPackage(pkg: unknown): AppPackage {
       throw bad(`template ${id} has ${template.components.length} components; the cap is ${APP_TEMPLATE_MAX_COMPONENTS}`)
     }
   }
+  // VAPP-122: the SDK checked every kind's schema; the contract caps how many.
+  const kinds = Object.keys(valid.records ?? {})
+  if (kinds.length > APP_RECORD_KINDS_MAX) {
+    throw bad(`records declares ${kinds.length} kinds; the cap is ${APP_RECORD_KINDS_MAX}`)
+  }
   return valid
+}
+
+/** VAPP-122: a kind's schema out of a package (null = not declared). */
+export function recordKindSchema(pkg: unknown, kind: string): RecordSchema | null {
+  const records = pkg && typeof pkg === `object` ? (pkg as { records?: Record<string, { schema?: RecordSchema }> }).records : undefined
+  return records?.[kind]?.schema ?? null
 }
 
 /** The bindings and host functions the Exponential clients resolve for an
@@ -69,6 +82,10 @@ export function validateAppPackage(pkg: unknown): AppPackage {
 export const APP_HOST_SOURCES: readonly { source: string; value: string }[] = [
   { source: `exp:devices`, value: `{rows: [{id, label, detail, icon, discTone, tone, status}], count, online}: the team's devices, live` },
   { source: `exp:issues?board=<boardId>&limit=<n>`, value: `{rows: [{id, identifier, title, status}], count}: a board's issues in list order, live` },
+  {
+    source: `exp:records?kind=<kind>&mine=1&sort=<field>&order=asc|desc&limit=<n>&sum=<field>&by=<dateField>&month=YYYY-MM&<field>=<v>&<field>.gte=<v>`,
+    value: `{rows: [{…data, id, createdAt, updatedAt, createdBy, author}], count, sum?, month?: {key, label, prev, next, days: [{date, day, weekday, count, sum}]}}: the app's OWN records of a kind, live (kind required; mine = the viewer's rows; any other key filters a data field: equals, or .gt .gte .lt .lte; sum = Σ of a number field; by + month = one month's rows and every day of it; app=<slug> reads another app's records)`,
+  },
 ]
 /** The source names (`scheme:name`) the app hosts resolve ×4. */
 export const APP_SOURCE_NAMES: readonly string[] = APP_HOST_SOURCES.map((s) => s.source.split(`?`)[0]!)
@@ -78,6 +95,8 @@ export const APP_HOST_FUNCTIONS: readonly { name: string; args: string; effect: 
   { name: `harness.openIssue`, args: `{identifier}`, effect: `opens the issue` },
   { name: `harness.openDevice`, args: `{id, label?}`, effect: `opens the device` },
   { name: `harness.mcp`, args: `{tool, arguments}`, effect: `a tools/call on Exponential's MCP as the viewer, after the person allows it` },
+  { name: `harness.records.upsert`, args: `{kind, data, id?}`, effect: `creates a record of the app (or, with id, patches that record's data); no consent card: the app's own rows` },
+  { name: `harness.records.delete`, args: `{id}`, effect: `deletes one record of the app` },
 ]
 
 /** MCP `apps catalog`: everything an agent needs to write a package. */
@@ -94,6 +113,10 @@ export function appCatalogText(): string {
     ``,
     `# Host functions (on: {press: {functionCall: {call, args}}}; list the ones you use in functions)`,
     functions,
+    `- bind({path, source, params?}): a built-in: re-follows a data model path from a source with params appended as its query (the month switcher: bind {path: "/entries", source: "exp:records?kind=entry&by=date", params: {month: {path: "/entries/month/prev"}}}); list it in functions too`,
+    ``,
+    `# Records (the app's own data)`,
+    `Declare every kind in the manifest: records: {<kind>: {title?, schema: {type: "object", properties: {<field>: {type: string|number|integer|boolean|array, enum?, items? ({type}), maxLength?, minimum?, maximum?, format?: date|date-time|time, description?}}, required?: [fields], additionalProperties?: false}}} (a kind is lowercase letters, digits, underscores; ${APP_RECORD_KINDS_MAX} kinds at most; a record's data at most ${APP_RECORD_MAX_BYTES} bytes; the keys ${APP_RECORD_ROW_KEYS.join(`, `)} are reserved). Read with the exp:records binding, write with harness.records.upsert (bind a Form's fields to /draft/*, then call it with data: {path: "/draft"}; a row's Checkbox: id: {path: "id"}, data: {done: {path: "done"}}) and harness.records.delete. A write is validated against the kind's schema and lands in every client's binding live. Seed or inspect records yourself with exponential_apps {op: "records_upsert" | "records_list" | "records_delete", slug, kind, data}.`,
     ``,
     catalogPrompt({ extensions: [appExtension] }),
   ].join(`\n`)

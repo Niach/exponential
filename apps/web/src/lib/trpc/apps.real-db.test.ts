@@ -2,7 +2,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { appVersions, apps, devices, sessions, teamMembers, teams } from "@/db/schema"
+import { appRecords, appVersions, apps, devices, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 
 // Release train 2026-10-23 (VAPP-110 review): the apps router against the
@@ -12,7 +12,7 @@ import { probeRealDb } from "@/test/real-db"
 // always names its author and keeps only the caller's own editor session.
 
 // The package format is VAPP-107's concern: any object passes here.
-vi.mock(`@/lib/apps/package`, () => ({ validateAppPackage: (pkg: unknown) => pkg }))
+vi.mock(`@/lib/apps/package`, async (importOriginal) => ({ ...((await importOriginal()) as Record<string, unknown>), validateAppPackage: (pkg: unknown) => pkg }))
 
 const ready = await probeRealDb(`
   SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'uniq_apps_team_slug') AS ok
@@ -141,5 +141,60 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     expect(await write(elsewhere)).toMatchObject({ sessionId: null, createdBy: w.mate })
     expect(await write(crypto.randomUUID())).toMatchObject({ sessionId: null, createdBy: w.mate })
     expect(await write()).toMatchObject({ sessionId: null, createdBy: w.mate })
+  })
+  // VAPP-122: records (fixtures/app-records.json): validated against the
+  // head package's kind schema, patched by id, trashed with the app.
+  const RECORDS_PACKAGE = {
+    id: `t.hours`,
+    name: `Hours`,
+    version: `1.0.0`,
+    catalogId: `https://ui.exponential.at/catalogs/core/v1`,
+    templates: { m: { components: [{ id: `root`, component: `Column` }] } },
+    sources: [`exp:records`],
+    records: {
+      entry: {
+        schema: {
+          type: `object`,
+          properties: { date: { type: `string`, format: `date` }, hours: { type: `number`, minimum: 0, maximum: 24 }, note: { type: `string`, maxLength: 20 } },
+          required: [`date`, `hours`],
+        },
+      },
+    },
+  }
+
+  it(`records: a write follows the kind's schema, patches by id, and leaves with the app`, async () => {
+    const w = await world()
+    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: RECORDS_PACKAGE })
+    const appId = created.app.id
+    const api = caller(w.mate).records
+    await expect(api.upsert({ id: appId, kind: `todo`, data: {} })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await expect(api.upsert({ id: appId, kind: `entry`, data: { date: `5.10.`, hours: 30 } })).rejects.toThrow(/\/date: a date \(YYYY-MM-DD\); \/hours: at most 24/)
+    const first = await api.upsert({ id: appId, kind: `entry`, data: { date: `2026-10-05`, hours: 3, note: `meet` } })
+    expect(first.created).toBe(true)
+    const patched = await api.upsert({ id: appId, kind: `entry`, data: { hours: 3.5 }, recordId: first.id })
+    expect(patched).toMatchObject({ id: first.id, created: false })
+    const [row] = await db.select().from(appRecords).where(eq(appRecords.id, first.id))
+    expect(row!.data).toEqual({ date: `2026-10-05`, hours: 3.5, note: `meet` })
+    expect(row!.createdBy).toBe(w.mate)
+    expect(row!.appDeletedAt).toBeNull()
+    const listed = await api.list({ id: appId, kind: `entry` })
+    expect(listed.records.map((r) => r.id)).toEqual([first.id])
+    // Trashing the app mirrors onto its records (the shape's static predicate).
+    await caller(w.owner).delete({ id: appId })
+    const [after] = await db.select().from(appRecords).where(eq(appRecords.id, first.id))
+    expect(after!.appDeletedAt).not.toBeNull()
+    await expect(api.delete({ id: appId, recordId: first.id })).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+
+  it(`records: delete trashes one row and a second delete is NOT_FOUND`, async () => {
+    const w = await world()
+    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: RECORDS_PACKAGE })
+    const api = caller(w.owner).records
+    const made = await api.upsert({ id: created.app.id, kind: `entry`, data: { date: `2026-10-06`, hours: 1 } })
+    await api.delete({ id: created.app.id, recordId: made.id })
+    const [row] = await db.select().from(appRecords).where(eq(appRecords.id, made.id))
+    expect(row!.deletedAt).not.toBeNull()
+    await expect(api.delete({ id: created.app.id, recordId: made.id })).rejects.toMatchObject({ code: `NOT_FOUND` })
+    expect((await api.list({ id: created.app.id })).records).toEqual([])
   })
 })

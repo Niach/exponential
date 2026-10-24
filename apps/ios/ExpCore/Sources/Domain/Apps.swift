@@ -42,6 +42,11 @@ public enum Apps {
         public static let dockToSide = "Move to the side"
         public static let float = "Minimize"
         public static let working = "Working"
+        // VAPP-122: an app's records (Settings → Apps → the app).
+        public static let records = "{n} records"
+        public static let recordsOne = "1 record"
+        public static let recordsOf = "{n} of {max} records"
+        public static let recordsNone = "No records"
 
         public enum Menu {
             public static let rename = "Rename"
@@ -111,6 +116,11 @@ public enum Apps {
     public static let packageMaxBytes = 131_072
     public static let templateMaxComponents = 500
     public static let slugPattern = "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+    /// VAPP-122: a record kind's name, one record's `data` JSON cap, the
+    /// kinds one manifest may declare.
+    public static let kindPattern = "^[a-z][a-z0-9_]{0,31}$"
+    public static let recordMaxBytes = 16_384
+    public static let recordKindsMax = 16
 
     // MARK: - The model
 

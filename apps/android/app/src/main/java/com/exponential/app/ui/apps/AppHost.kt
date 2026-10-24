@@ -52,7 +52,13 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.images.resolveAccountForUrl
+import com.exponential.app.data.api.AppsApi
+import com.exponential.app.data.db.AppEntity
+import com.exponential.app.data.db.AppRecordEntity
+import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.AppHostValues
+import com.exponential.app.domain.AppRecords
+import com.exponential.app.ui.components.failedAction
 import com.exponential.app.domain.classifyAppLink
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.Prompts
@@ -80,6 +86,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -97,7 +104,12 @@ import kotlinx.coroutines.launch
  *    toast with its name, the web's default), `harness.mcp` (a `tools/call` on
  *    the instance's own `/api/mcp` as the signed-in account);
  *  - bindings: the `exp:` scheme over Room (`exp:devices`, re-derived on the
- *    liveness tick; `exp:issues?board=…&limit=…`), [AppHostValues];
+ *    liveness tick; `exp:issues?board=…&limit=…`), [AppHostValues]; VAPP-122
+ *    `exp:records?kind=…` over the hosting app's synced records (or the
+ *    `app=<slug>` app of the same team), [AppRecords];
+ *  - VAPP-122 `harness.records.upsert {kind, data, id?}` and
+ *    `harness.records.delete {id}`: tRPC `apps.records.*` as the viewer, no
+ *    consent card (the app's own rows), a refusal = the failed-action toast;
  *  - extensions: the app extension (`packages/ui/exponential-ui/extension.json`)
  *    with Compose painters for its `IconDisc` and `LiveDot` natives (Exponential
  *    ships no built-in apps: only the team's packages are installed);
@@ -112,6 +124,7 @@ interface AppHostEntryPoint {
     fun authRepository(): AuthRepository
     fun databaseHolder(): DatabaseHolder
     fun httpClient(): HttpClient
+    fun appsApi(): AppsApi
 }
 
 /** The package files every host installs (read from the shared assets). */
@@ -287,11 +300,18 @@ const val APP_THEME_ID = "exponential"
  * A host over [packages] (package JSON texts), alive while the caller is composed. [onOpenIssue] =
  * `harness.openIssue` for a synced issue (by row id).
  */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @Composable
 fun rememberAppHost(
     packages: List<String>,
     consent: AppConsentGate,
     onOpenIssue: (issueId: String) -> Unit,
+    /** VAPP-122: the hosting app (its records; null = none: `exp:records` is null, writes fail). */
+    appId: String? = null,
+    /** The hosting app's team (an `app=<slug>` names an app of this team). */
+    teamId: String? = null,
+    /** The viewer's user id (`mine=1`). */
+    me: String? = null,
     /** The package's `theme` (a built-in id); null = [APP_THEME_ID]. */
     themeId: String? = null,
 ): ExponentialHost {
@@ -302,12 +322,17 @@ fun rememberAppHost(
     // instance link opens in-app, anything else in the Custom Tab; no
     // instance known = the SDK's system opener.
     val links = rememberAppLinkHandler()
-    val host = remember(packages, consent, themeId, links) {
+    val host = remember(packages, consent, themeId, links, appId, teamId, me) {
         val deps = EntryPointAccessors.fromApplication(context.applicationContext, AppHostEntryPoint::class.java)
         val auth = deps.authRepository()
         val db = accountDatabaseFlow(auth, deps.databaseHolder())
         val devices: Flow<List<DeviceEntity>> = db.scopedQuery(emptyList()) { it.deviceDao().observeAll() }
         val issues: Flow<List<IssueEntity>> = db.scopedQuery(emptyList()) { it.issueDao().observeAll() }
+        val users: Flow<List<UserEntity>> = db.scopedQuery(emptyList()) { it.userDao().observeAll() }
+        val teamApps: Flow<List<AppEntity>> =
+            if (teamId == null) flowOf(emptyList()) else db.scopedQuery(emptyList()) { it.appDao().observeByTeam(teamId) }
+        fun recordsOf(app: String?): Flow<List<AppRecordEntity>> =
+            if (app == null) flowOf(emptyList()) else db.scopedQuery(emptyList()) { it.appRecordDao().observeByApp(app) }
         val origin = auth.instanceUrl.value?.trimEnd('/')
         val ownHost = origin?.let { runCatching { java.net.URI(it).host }.getOrNull() }?.let { listOf(it) }
         val token = origin?.let { resolveAccountForUrl(auth.accounts.value, auth.activeAccountId.value, it)?.token }
@@ -319,6 +344,24 @@ fun rememberAppHost(
                     AppHostValues.devices(rows, now)
                 }
                 "issues" -> issues.map { AppHostValues.issues(it, source.params) }
+                "records" -> {
+                    val query = AppRecords.parseRecordsQuery(source.params)
+                    // The app whose records are read: the hosting app, or
+                    // (`app=`) another app of the same team by slug (it may
+                    // sync later, so the lookup follows the apps).
+                    val target: Flow<String?> = if (query.app == null) {
+                        flowOf(appId)
+                    } else {
+                        teamApps.map { rows -> rows.firstOrNull { it.slug == query.app }?.id }.distinctUntilChanged()
+                    }
+                    val rows = target.flatMapLatest { recordsOf(it) }
+                    combine(rows, users) { records, people ->
+                        val mapped = records.map(AppRecords::row)
+                        val wanted = mapped.mapNotNullTo(HashSet()) { it.createdBy }
+                        val names = people.filter { it.id in wanted }.associate { it.id to it.name.orEmpty() }
+                        AppRecords.recordsValue(mapped, query, me, AppRecords.isoNow(), names)
+                    }
+                }
                 else -> flowOf(null)
             }
             val job = scope.launch { values.distinctUntilChanged().collect { emit(it) } }
@@ -338,7 +381,43 @@ fun rememberAppHost(
         val mcp: HostFunction = { args, _ ->
             callMcp(deps.httpClient(), origin, token, args["tool"]?.string.orEmpty(), args["arguments"])
         }
+        // VAPP-122: the app's own rows (no consent card); a refusal (the
+        // kind's schema, the caps, the plan quota) is a failed action.
+        val api = deps.appsApi()
+        val recordsUpsert: HostFunction = { args, _ ->
+            try {
+                val account = auth.activeAccountId.value ?: error("Not signed in")
+                val app = appId ?: error("No app to keep records for")
+                val data = (args["data"] as? JsonValue.Obj) ?: JsonValue.Obj(emptyMap())
+                val result = api.recordsUpsert(
+                    account,
+                    app,
+                    kind = args["kind"]?.string.orEmpty(),
+                    data = kotlinx.serialization.json.Json.parseToJsonElement(data.orderedJson) as kotlinx.serialization.json.JsonObject,
+                    recordId = args["id"]?.string,
+                )
+                JsonValue.Obj(mapOf("id" to JsonValue.Str(result.id)))
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                toaster.failedAction("save", "the record", e.message)
+                throw e
+            }
+        }
+        val recordsDelete: HostFunction = { args, _ ->
+            try {
+                val account = auth.activeAccountId.value ?: error("Not signed in")
+                val app = appId ?: error("No app to keep records for")
+                api.recordsDelete(account, app, args["id"]?.string.orEmpty())
+                null
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                toaster.failedAction("delete", "the record", e.message)
+                throw e
+            }
+        }
         val functions = mapOf(
+            "harness.records.upsert" to recordsUpsert,
+            "harness.records.delete" to recordsDelete,
             "harness.toast" to toast,
             "harness.openIssue" to openIssueFn,
             "harness.openDevice" to openDevice,

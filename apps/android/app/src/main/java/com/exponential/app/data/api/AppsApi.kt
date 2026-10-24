@@ -4,6 +4,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 // VAPP-110: the team's APPS (apps/web/src/lib/trpc/apps.ts). The list and
 // the head package sync on the `apps` shape, the versions on `app_versions`;
@@ -52,6 +53,17 @@ data class AppGetResult(val version: Int = 0, val `package`: JsonElement? = null
 
 @Serializable
 private data class TxResult(val txid: Long? = null)
+
+// VAPP-122: `apps.records.upsert` / `apps.records.delete` (an app's own
+// rows; `id` = the APP, `recordId` = the record).
+@Serializable
+private data class AppRecordUpsertInput(val id: String, val kind: String, val data: JsonObject, val recordId: String? = null)
+
+@Serializable
+data class AppRecordUpsertResult(val id: String, val created: Boolean = false, val txid: Long? = null)
+
+@Serializable
+private data class AppRecordDeleteInput(val id: String, val recordId: String)
 
 @Singleton
 class AppsApi @Inject constructor(private val trpc: TrpcClient) {
@@ -107,4 +119,27 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = AppVersionInput.serializer(),
             outputSerializer = AppGetResult.serializer(),
         ).`package`?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.toString()
+
+    /** VAPP-122: create a record of [kind] in app [appId], or (with
+     *  [recordId]) shallow-patch that record's data. The server validates
+     *  [data] against the kind's schema, the byte cap and the plan quota. */
+    suspend fun recordsUpsert(accountId: String, appId: String, kind: String, data: JsonObject, recordId: String?): AppRecordUpsertResult =
+        trpc.mutation(
+            accountId,
+            path = "apps.records.upsert",
+            input = AppRecordUpsertInput(appId, kind, data, recordId),
+            inputSerializer = AppRecordUpsertInput.serializer(),
+            outputSerializer = AppRecordUpsertResult.serializer(),
+        )
+
+    /** VAPP-122: trash record [recordId] of app [appId]. */
+    suspend fun recordsDelete(accountId: String, appId: String, recordId: String) {
+        trpc.mutation(
+            accountId,
+            path = "apps.records.delete",
+            input = AppRecordDeleteInput(appId, recordId),
+            inputSerializer = AppRecordDeleteInput.serializer(),
+            outputSerializer = TxResult.serializer(),
+        )
+    }
 }

@@ -41,6 +41,8 @@ import {
   supportedCatalogIds,
   tryLoadTheme,
   validatePackage,
+  validateRecord,
+  sourceWithParams,
   DEFAULT_STRINGS,
   animationFrame,
   displayString,
@@ -310,11 +312,13 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       for (const c of p.urls) record(`host-policy`, `url: ${c.name}`, () => canon(decideUrl(c.policy, c.url)) === canon(c.expected))
       for (const c of p.media) record(`host-policy`, `media: ${c.name}`, () => canon(mediaRequest(c.url, c.options)) === canon(c.expected))
       for (const c of p.sources) record(`host-policy`, `source: ${c.uri}`, () => canon(parseSource(c.uri)) === canon(c.expected))
+      for (const c of p.sourceParams) record(`host-policy`, `sourceParams: ${c.expected}`, () => sourceWithParams(c.source, c.params) === c.expected)
       for (const c of p.negotiation)
         record(`host-policy`, `negotiation: ${c.extensionIds.length}`, () => canon(supportedCatalogIds(c.extensionIds)) === canon(c.expected.supportedCatalogIds) && canon(clientCapabilities(c.extensionIds)) === canon(c.expected.clientCapabilities))
       const r = fixture(`host-router.json`)
       const packages = r.packages as Record<string, AppPackage>
       for (const v of r.validation) record(`host-router`, `validation: ${v.package}`, () => canon(validatePackage(packages[v.package])) === canon(v.expected))
+      for (const c of r.records) record(`host-router`, `records: ${c.name}`, () => canon(validateRecord(packages[c.package]!.records![c.kind]!.schema, c.data)) === canon(c.expected))
       for (const flow of r.flows as { name: string; extensionIds?: string[]; packages?: string[]; installIssues?: Record<string, unknown>; steps: { message: unknown; expected: unknown }[] }[])
         record(`host-router`, `flow: ${flow.name}`, () => {
           const router = new HostRouter({ extensionIds: flow.extensionIds ?? [] })

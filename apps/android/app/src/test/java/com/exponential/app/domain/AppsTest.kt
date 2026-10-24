@@ -71,6 +71,9 @@ class AppsTest {
             tabs["chat"]!!.jsonPrimitive.content to Apps.Copy.TAB_CHAT,
             tabs["preview"]!!.jsonPrimitive.content to Apps.Copy.TAB_PREVIEW,
             tabs["versions"]!!.jsonPrimitive.content to Apps.Copy.TAB_VERSIONS,
+            c("records") to Apps.Copy.RECORDS,
+            c("recordsOne") to Apps.Copy.RECORDS_ONE, c("recordsOf") to Apps.Copy.RECORDS_OF,
+            c("recordsNone") to Apps.Copy.RECORDS_NONE,
         )
         for ((want, got) in expected) assertEquals(want, got)
 
@@ -102,6 +105,9 @@ class AppsTest {
         assertEquals(apps["nameMax"]!!.jsonPrimitive.int, Apps.NAME_MAX)
         assertEquals(apps["descriptionMax"]!!.jsonPrimitive.int, Apps.DESCRIPTION_MAX)
         assertEquals(apps["noteMax"]!!.jsonPrimitive.int, Apps.NOTE_MAX)
+        assertEquals(apps["kindPattern"]!!.jsonPrimitive.content, Apps.KIND_PATTERN)
+        assertEquals(apps["recordMaxBytes"]!!.jsonPrimitive.int, Apps.RECORD_MAX_BYTES)
+        assertEquals(apps["recordKindsMax"]!!.jsonPrimitive.int, Apps.RECORD_KINDS_MAX)
     }
 
     @Test

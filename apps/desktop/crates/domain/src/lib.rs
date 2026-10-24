@@ -98,6 +98,8 @@ pub mod ask_dock;
 pub mod agent_settings;
 // VAPP-110: Exponential apps (slugify, version label, list order), fixture-locked ×4.
 pub mod apps;
+// VAPP-122: app records (the `exp:records` query + value), fixture-locked ×4.
+pub mod app_records;
 // EXP-1188: what a clicked link in agent prose opens, fixture-locked ×4.
 pub mod app_link;
 pub mod board;

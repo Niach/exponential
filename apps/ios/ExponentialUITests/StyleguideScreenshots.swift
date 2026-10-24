@@ -158,11 +158,10 @@ final class StyleguideScreenshots: XCTestCase {
     private static let sessionTitle = "Profile the launch path"
     /// Its id (`DEMO_SESSION_ID`): the strip chip of its thread page.
     private static let sessionId = "7c1f0a52-6f3c-4e19-9a2b-2d5d0f7c8e41"
-    /// VAPP-110: the seeded Team dashboard app (`DEMO_APP_SLUG`) and the
-    /// last agent line of the demo user's editor session with it.
-    private static let appSlug = "team-dashboard"
-    private static let appName = "Team dashboard"
-    private static let appChatReply = "the six newest issues as rows"
+    /// VAPP-122: the seeded Working hours app (`DEMO_APP_SLUG`, with
+    /// records), whose editor's Preview tab is the `app` shot.
+    private static let appSlug = "working-hours"
+    private static let appName = "Working hours"
 
     @MainActor
     func testCaptureStyleguideScreenshots() throws {
@@ -964,9 +963,10 @@ final class StyleguideScreenshots: XCTestCase {
         )
     }
 
-    /// VAPP-110: the Team tab's Apps row → the list (gated on the
-    /// seeded Team dashboard row) → the Team
-    /// dashboard editor (gated on its seeded chat) → back to the Threads tab.
+    /// VAPP-110: the Team tab's Apps row → the list (gated on the seeded
+    /// Working hours row) → its editor → the Preview tab (VAPP-122: the app
+    /// rendered through the host over its records, gated on the preview
+    /// frame) → back to the Threads tab.
     @MainActor
     private func walkApps(_ app: XCUIApplication) {
         app.buttons["tab-team"].tap()
@@ -974,21 +974,24 @@ final class StyleguideScreenshots: XCTestCase {
         scrollUntilVisible(app, appsButton, attempts: 4)
         expect(appsButton, within: Wait.nav, "The Team tab has no Apps row")
         appsButton.tap()
-        let dashboardRow = anyElement(app, identified: "apps-row-\(Self.appSlug)")
-        expect(dashboardRow, within: Wait.sync, "The Apps list has no \(Self.appName) row — reseed with `bun run seed:screenshots`")
+        let appRow = anyElement(app, identified: "apps-row-\(Self.appSlug)")
+        expect(appRow, within: Wait.sync, "The Apps list has no \(Self.appName) row — reseed with `bun run seed:screenshots`")
         snapshot("sg_apps", settle: 2)
         guard ScreenshotShots.isWanted("sg_app") else {
             goBack(app)
             return
         }
-        app.staticTexts[Self.appName].firstMatch.tap()
+        appRow.tap()
+        expect(anyElement(app, identified: "app-editor-tabs"), within: Wait.sync, "The editor drew no Chat | Preview | Versions control")
+        let previewTab = anyElement(app, identified: "app-editor-tabs-preview")
+        expect(previewTab, within: Wait.nav, "The editor's control has no Preview segment")
+        previewTab.tap()
         expect(
-            anyElement(app, containing: Self.appChatReply),
+            anyElement(app, identified: "app-editor-preview"),
             within: Wait.sync,
-            "The \(Self.appName) editor never drew its seeded chat"
+            "The \(Self.appName) editor never drew its preview"
         )
-        expect(anyElement(app, identified: "app-editor-tabs"), within: Wait.nav, "The editor drew no Chat | Preview | Versions control")
-        snapshot("sg_app", settle: 2)
+        snapshot("sg_app", settle: 3)
         goBack(app)
         goBack(app)
         settle(1)

@@ -2730,6 +2730,13 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v79 (VAPP-122): `app_records` — an app's own data, a brand-new
+        // synced table (no cursor yet, nothing to reset) mirroring the shape
+        // allowlist (`/api/shapes/app-records`).
+        migrator.registerMigration("v79_app_records") { db in
+            try createAppRecordsTable(db)
+        }
+
         return migrator
     }
 
@@ -2773,6 +2780,25 @@ public final class DatabaseManager: @unchecked Sendable {
             t.column("created_by", .text)
             t.column("created_at", .text).notNull()
         }
+    }
+
+    /// VAPP-122: the `app_records` table, mirroring the shape allowlist
+    /// (`/api/shapes/app-records`); `data` (jsonb) is stored as its JSON text.
+    static func createAppRecordsTable(_ db: Database) throws {
+        try db.create(table: "app_records", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("app_id", .text).notNull()
+            t.column("team_id", .text).notNull().indexed()
+            t.column("kind", .text).notNull().defaults(to: "")
+            t.column("data", .text).notNull().defaults(to: "{}")
+            t.column("created_by", .text)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
+        try db.execute(sql: """
+            CREATE INDEX IF NOT EXISTS "app_records_on_app_id_kind"
+            ON "app_records"("app_id", "kind")
+            """)
     }
 
     /// NEW-3: the `conversations` table, mirroring the shape allowlist
@@ -2971,7 +2997,8 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM conversations")
             try db.execute(sql: "DELETE FROM session_issues")
             try db.execute(sql: "DELETE FROM sessions")
-            // VAPP-110: the team's apps and their versions.
+            // VAPP-110: the team's apps, their records (VAPP-122) and versions.
+            try db.execute(sql: "DELETE FROM app_records")
             try db.execute(sql: "DELETE FROM app_versions")
             try db.execute(sql: "DELETE FROM apps")
             // EXP-481: child before parent, like the issue tables below.

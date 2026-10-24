@@ -586,7 +586,8 @@
       "set",
       "formatPercent",
       "formatRelativeTime",
-      "filter"
+      "filter",
+      "bind"
     ],
     "core": {
       "percent": {
@@ -715,6 +716,14 @@
           "where": "object"
         },
         "returns": "array"
+      },
+      "bind": {
+        "args": {
+          "path": "string",
+          "source": "string",
+          "params": "object"
+        },
+        "returns": "void"
       }
     },
     "basic": {

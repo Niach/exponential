@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use super::policy::matches_pattern;
+use super::records::{is_record_kind, validate_record_schema};
 use super::sources::parse_source;
 use crate::catalog::{A2UI_BASIC_CATALOG_ID, A2UI_VERSION, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID};
 
@@ -122,6 +123,27 @@ pub fn validate_package<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S]) -> Vec<Pa
         let ok = functions.as_array().is_some_and(|list| list.iter().all(|f| f.as_str().is_some_and(|s| !s.is_empty())));
         if !ok {
             issues.push(issue("/functions", "functions is a list of names or prefix* patterns"));
+        }
+    }
+    // VAPP-122: `records` = the app's kinds, each with a schema.
+    if let Some(records) = p.get("records") {
+        match records.as_object() {
+            None => issues.push(issue("/records", "records is an object of kinds")),
+            Some(kinds) => {
+                let mut names: Vec<&String> = kinds.keys().collect();
+                names.sort();
+                for kind in names {
+                    let def = &kinds[kind];
+                    let at = format!("/records/{kind}");
+                    if !is_record_kind(kind) {
+                        issues.push(issue(&at, "a kind is lowercase letters, digits and underscores"));
+                    }
+                    match def.as_object() {
+                        None => issues.push(issue(&at, "a kind is {schema, title?}")),
+                        Some(def) => issues.extend(validate_record_schema(def.get("schema").unwrap_or(&Value::Null), &format!("{at}/schema"))),
+                    }
+                }
+            }
         }
     }
     // VAPP-107: `sources` = the binding sources the package's surfaces may

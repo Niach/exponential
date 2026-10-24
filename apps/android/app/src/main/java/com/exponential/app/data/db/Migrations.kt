@@ -397,6 +397,23 @@ val MIGRATION_95_96: Migration = object : Migration(95, 96) {
     }
 }
 
+/**
+ * v97 (VAPP-122): the `app_records` table (an app's own data, the 32nd
+ * shape), created EMPTY; every other table and offset is untouched. DDL
+ * verbatim from the generated ExponentialDatabase_Impl.
+ */
+val MIGRATION_96_97: Migration = object : Migration(96, 97) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `app_records` (`id` TEXT NOT NULL, `app_id` TEXT NOT NULL, " +
+                "`team_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `data` TEXT, `created_by` TEXT, " +
+                "`created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_app_records_app_id_kind` ON `app_records` (`app_id`, `kind`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_app_records_team_id` ON `app_records` (`team_id`)")
+    }
+}
+
 private const val PINS_V96 =
     "CREATE TABLE IF NOT EXISTS `pins` (`id` TEXT NOT NULL, `user_id` TEXT NOT NULL, " +
         "`team_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `issue_id` TEXT, `session_id` TEXT, " +

@@ -36,13 +36,13 @@ export interface PromptOptions {
 /** The rules every surface author (a model) must follow, shared by the core
  *  and the basic catalog. Kept to a few lines on purpose. */
 export const PROMPT_RULES: readonly string[] = [
-  `Reply with A2UI v0.9 messages: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]} (one has id "root"; resend an id to change it) and updateDataModel{surfaceId, path, value} (writes the JSON pointer; no value removes it). Keep data in the model and bind to it.`,
+  `Reply with A2UI v0.9 messages: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]} (one has id "root"; resend an id to change it) and updateDataModel{surfaceId, path, value} (no value removes the pointer). Keep data in the model; bind to it.`,
   `A component = {id, component, …props, children?: [ids] | {componentId, path, key?}, slots?: {name: id}, on?: {event: action}, style?, visible?}. Children are ids, never inline; {componentId, path} repeats per item, key = the item field naming it.`,
-  `Include every required prop. A ~ prop may be a binding {path: "/json/pointer"} or a call {call, args} (live). visible: false (or a binding) hides any component.`,
-  `An action (on: {event: action}) = {event: {name, context?}} (sent to you; context values may be bindings, read AFTER the component's own write) and/or {functionCall: {call, args}} (runs on the client: a function below, or a namespaced host function like app.toast).`,
-  `Lay out with Page, Stack, Grid, Card, SplitView, Sidebar and List (anything longer than a screen); a row of controls is a Toolbar, fields side by side a FieldGroup, the Cancel/submit row FormActions; Box + style only for the rest. Wrap fields in Form; a valid submit closes the Dialog or Drawer around it.`,
+  `Include every required prop. A ~ prop may be a binding {path: "/json/pointer"} or a call {call, args} (live). visible: false (or a binding) hides a component.`,
+  `An action (on: {event: action}) = {event: {name, context?}} (sent to you; context may hold bindings, read after the component's own write) and/or {functionCall: {call, args}} (runs on the client: a function below, or a namespaced host function like app.toast).`,
+  `Lay out with Page, Stack, Grid, Card, SplitView, Sidebar and List (anything past a screen); a row of controls is a Toolbar, fields side by side a FieldGroup, the Cancel/submit row FormActions; Box + style only for the rest. Wrap fields in Form; a valid submit closes the Dialog or Drawer around it.`,
   `Responsive: a ^ prop also takes {base, sm?, md?, lg?, xl?} (from that breakpoint up). Style conditions, one level, narrow first: "@media (min-width: $breakpoint.md)": {…} (also max-width, min-height, max-height in px or $breakpoint.sm|md|lg|xl; orientation: portrait|landscape; hover: hover|none; prefers-reduced-motion: reduce), then ":hover", ":focus-visible", ":pressed". display: "none" hides.`,
-  `Prefer catalog components over Markdown (feature lists = List + Row, not bullets), labels and tones over colours; a colour is a $color.* token, never #hex (light and dark both apply). Built-in copy (Cancel, Search…) is localized: leave it unset.`,
+  `Prefer catalog components over Markdown (feature lists = List + Row), labels and tones over colours; a colour is a $color.* token, never #hex (light and dark both apply). Built-in copy (Cancel, Search…) is localized: leave it unset.`,
   `One default Button per screen (the FormActions submit or the main action); the rest outline, secondary or ghost.`,
 ]
 

@@ -87,3 +87,45 @@ pub fn parse_source(uri: &str) -> Option<ParsedSource> {
     }
     Some(ParsedSource { uri: uri.to_string(), scheme: scheme.to_lowercase(), name, params })
 }
+
+/// JavaScript's `encodeURIComponent`: every UTF-8 byte but
+/// `A-Z a-z 0-9 - _ . ! ~ * ' ( )` as `%XX` (upper-case hex).
+fn encode_component(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// VAPP-122: `source` with `params` appended as its query, for the `bind`
+/// action (`sourceWithParams`): keys sorted, key and value percent-encoded,
+/// a null value skipped, an object or array as JSON, after `?` or `&`. A
+/// repeated key parses with the last value, so a param overrides the
+/// source's own.
+pub fn source_with_params(source: &str, params: Option<&serde_json::Value>) -> String {
+    let Some(params) = params.and_then(serde_json::Value::as_object) else { return source.to_string() };
+    let mut keys: Vec<&String> = params.keys().collect();
+    keys.sort();
+    let mut pairs = Vec::new();
+    for key in keys {
+        let v = &params[key];
+        if v.is_null() {
+            continue;
+        }
+        let text = match v {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Object(_) | serde_json::Value::Array(_) => v.to_string(),
+            other => crate::json::to_js_string(other),
+        };
+        pairs.push(format!("{}={}", encode_component(key), encode_component(&text)));
+    }
+    if pairs.is_empty() {
+        return source.to_string();
+    }
+    format!("{source}{}{}", if source.contains('?') { '&' } else { '?' }, pairs.join("&"))
+}

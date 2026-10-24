@@ -1,0 +1,1125 @@
+{
+  "$comment": "VAPP-122 app RECORDS ×4: an app's own data. A record = one JSON object (`data`) of a `kind` the app's manifest declares (`records: {<kind>: {schema}}`, the schema a JSON Schema subset the SDK validates: packages/exponential-ui host-router.json `records`), stored per TEAM under the app (`app_records`, one synced shape `app-records`, member-only, team-scoped, `deleted_at` + the `app_deleted_at` mirror = the static trash predicates: trash never reaches a client). READ = the binding `exp:records?kind=<kind>&…` every app host resolves over the synced rows (web TanStack DB, desktop store, GRDB, Room) with the SAME derivation: the TS reference `app-records.ts` (`parseRecordsQuery` + `recordsValue`); desktop `domain::app_records`, iOS `AppRecords.swift`, Android `AppRecords.kt` replay `queryCases` and `valueCases`. QUERY: `kind` (required; none = null, the value is null), `app=<slug>` (another app's records; default = the hosting app), `mine=1` (the viewer's own rows), `user=<id>`, `sort=<field|createdAt|updatedAt>` (`sortDefault`), `order=asc|desc` (`orderDefault`), `limit` (`limitDefault`, capped at `limitMax`), `sum=<field>` (Σ over the matching rows, before the limit), `by=<dateField>&month=YYYY-MM` (the month view: rows of that month only, `month` = {key, label, prev, next, today (now's date), days: every day of the month with its count and sum, labels/counts/sums: the same days as chart-ready arrays}; no `month` = the month of `now`), and any OTHER key = a filter on a data field: `<field>=v` equals (as text), `<field>.gt|gte|lt|lte=v` (numbers when both parse, else text). VALUE = {rows: [{…data, id, createdAt, updatedAt, createdBy, author}] sorted then cut at the limit (ties by id), count: the matches before the limit, sum?: number, month?}. The `rowKeys` are RESERVED: a kind's schema may not declare them. WRITE = the host functions `harness.records.upsert {kind, data, id?}` (create, or update = a shallow patch of `data` when `id` names the viewer's team's row) and `harness.records.delete {id}`, NO consent card (an app's own rows; the package still lists them in `functions`), tRPC `apps.records.*` as the viewer; the server validates `data` against the kind's schema, caps it at contract `apps.recordMaxBytes` and the team's quota (plan-limits `appRecords`; over = the plan-limit error → a toast, feedback-states.json). MCP: the apps noun's `records_list {slug, kind?, limit?, offset?}`, `records_upsert {slug, kind, data, id?}`, `records_delete {slug, id}` (an agent fills an app's data). Copy ×4 = apps.json `copy.records*`.",
+  "query": {
+    "reserved": [
+      "kind",
+      "app",
+      "mine",
+      "user",
+      "sort",
+      "order",
+      "limit",
+      "sum",
+      "by",
+      "month"
+    ],
+    "sortDefault": "createdAt",
+    "orderDefault": "desc",
+    "limitDefault": 100,
+    "limitMax": 500,
+    "operators": [
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte"
+    ]
+  },
+  "rowKeys": [
+    "id",
+    "createdAt",
+    "updatedAt",
+    "createdBy",
+    "author"
+  ],
+  "weekdays": [
+    "Sun",
+    "Mon",
+    "Tue",
+    "Wed",
+    "Thu",
+    "Fri",
+    "Sat"
+  ],
+  "months": [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
+  ],
+  "queryCases": [
+    {
+      "name": "kind only",
+      "params": {
+        "kind": "entry"
+      },
+      "expected": {
+        "kind": "entry",
+        "app": null,
+        "mine": false,
+        "user": null,
+        "sort": "createdAt",
+        "order": "desc",
+        "limit": 100,
+        "filters": [],
+        "sum": null,
+        "by": null,
+        "month": null
+      }
+    },
+    {
+      "name": "every reserved key, a limit over the cap, a month view",
+      "params": {
+        "kind": "entry",
+        "app": "working-hours",
+        "mine": "1",
+        "user": "u2",
+        "sort": "date",
+        "order": "asc",
+        "limit": "900",
+        "sum": "hours",
+        "by": "date",
+        "month": "2026-10"
+      },
+      "expected": {
+        "kind": "entry",
+        "app": "working-hours",
+        "mine": true,
+        "user": "u2",
+        "sort": "date",
+        "order": "asc",
+        "limit": 500,
+        "filters": [],
+        "sum": "hours",
+        "by": "date",
+        "month": "2026-10"
+      }
+    },
+    {
+      "name": "filters: equals, ranges; a bad limit and order fall back",
+      "params": {
+        "kind": "todo",
+        "done": "false",
+        "hours.gte": "2",
+        "date.lt": "2026-10-15",
+        "limit": "x",
+        "order": "sideways",
+        "mine": "0"
+      },
+      "expected": {
+        "kind": "todo",
+        "app": null,
+        "mine": false,
+        "user": null,
+        "sort": "createdAt",
+        "order": "desc",
+        "limit": 100,
+        "filters": [
+          {
+            "field": "date",
+            "op": "lt",
+            "value": "2026-10-15"
+          },
+          {
+            "field": "done",
+            "op": "eq",
+            "value": "false"
+          },
+          {
+            "field": "hours",
+            "op": "gte",
+            "value": "2"
+          }
+        ],
+        "sum": null,
+        "by": null,
+        "month": null
+      }
+    },
+    {
+      "name": "no kind, a malformed month",
+      "params": {
+        "month": "October"
+      },
+      "expected": {
+        "kind": null,
+        "app": null,
+        "mine": false,
+        "user": null,
+        "sort": "createdAt",
+        "order": "desc",
+        "limit": 100,
+        "filters": [],
+        "sum": null,
+        "by": null,
+        "month": null
+      }
+    }
+  ],
+  "valueCases": [
+    {
+      "name": "no kind = null",
+      "params": {},
+      "me": "u1",
+      "now": "2026-10-24T09:00:00Z",
+      "names": {},
+      "rows": [],
+      "expected": null
+    },
+    {
+      "name": "the month view: mine, summed, every day listed, the other month and the other member left out",
+      "params": {
+        "kind": "entry",
+        "mine": "1",
+        "by": "date",
+        "month": "2026-10",
+        "sum": "hours",
+        "sort": "date",
+        "order": "asc"
+      },
+      "me": "u1",
+      "now": "2026-10-24T09:00:00Z",
+      "names": {
+        "u1": "Danny",
+        "u2": "Chris"
+      },
+      "rows": [
+        {
+          "id": "r1",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-05",
+            "hours": 3,
+            "note": "leaderboard, meet",
+            "issues": [
+              "MET-1437"
+            ]
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-05T18:00:00Z",
+          "updatedAt": "2026-10-05T18:00:00Z"
+        },
+        {
+          "id": "r2",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-05",
+            "hours": 4,
+            "note": "Memleak"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-05T18:10:00Z",
+          "updatedAt": "2026-10-05T18:10:00Z"
+        },
+        {
+          "id": "r3",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-21",
+            "hours": 8,
+            "note": "docs, admin"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-21T18:00:00Z",
+          "updatedAt": "2026-10-21T18:30:00Z"
+        },
+        {
+          "id": "r4",
+          "kind": "entry",
+          "data": {
+            "date": "2026-09-30",
+            "hours": 2,
+            "note": "last month"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-09-30T18:00:00Z",
+          "updatedAt": "2026-09-30T18:00:00Z"
+        },
+        {
+          "id": "r5",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-05",
+            "hours": 0.5,
+            "note": "stats"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-05T19:00:00Z",
+          "updatedAt": "2026-10-05T19:00:00Z"
+        },
+        {
+          "id": "r6",
+          "kind": "todo",
+          "data": {
+            "date": "2026-10-05",
+            "hours": 99
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-05T19:00:00Z",
+          "updatedAt": "2026-10-05T19:00:00Z"
+        }
+      ],
+      "expected": {
+        "rows": [
+          {
+            "date": "2026-10-05",
+            "hours": 3,
+            "note": "leaderboard, meet",
+            "issues": [
+              "MET-1437"
+            ],
+            "id": "r1",
+            "createdAt": "2026-10-05T18:00:00Z",
+            "updatedAt": "2026-10-05T18:00:00Z",
+            "createdBy": "u1",
+            "author": "Danny"
+          },
+          {
+            "date": "2026-10-05",
+            "hours": 0.5,
+            "note": "stats",
+            "id": "r5",
+            "createdAt": "2026-10-05T19:00:00Z",
+            "updatedAt": "2026-10-05T19:00:00Z",
+            "createdBy": "u1",
+            "author": "Danny"
+          },
+          {
+            "date": "2026-10-21",
+            "hours": 8,
+            "note": "docs, admin",
+            "id": "r3",
+            "createdAt": "2026-10-21T18:00:00Z",
+            "updatedAt": "2026-10-21T18:30:00Z",
+            "createdBy": "u1",
+            "author": "Danny"
+          }
+        ],
+        "count": 3,
+        "sum": 11.5,
+        "month": {
+          "key": "2026-10",
+          "label": "October 2026",
+          "prev": "2026-09",
+          "next": "2026-11",
+          "today": "2026-10-24",
+          "days": [
+            {
+              "date": "2026-10-01",
+              "day": 1,
+              "weekday": "Thu",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-02",
+              "day": 2,
+              "weekday": "Fri",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-03",
+              "day": 3,
+              "weekday": "Sat",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-04",
+              "day": 4,
+              "weekday": "Sun",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-05",
+              "day": 5,
+              "weekday": "Mon",
+              "count": 2,
+              "sum": 3.5
+            },
+            {
+              "date": "2026-10-06",
+              "day": 6,
+              "weekday": "Tue",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-07",
+              "day": 7,
+              "weekday": "Wed",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-08",
+              "day": 8,
+              "weekday": "Thu",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-09",
+              "day": 9,
+              "weekday": "Fri",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-10",
+              "day": 10,
+              "weekday": "Sat",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-11",
+              "day": 11,
+              "weekday": "Sun",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-12",
+              "day": 12,
+              "weekday": "Mon",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-13",
+              "day": 13,
+              "weekday": "Tue",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-14",
+              "day": 14,
+              "weekday": "Wed",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-15",
+              "day": 15,
+              "weekday": "Thu",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-16",
+              "day": 16,
+              "weekday": "Fri",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-17",
+              "day": 17,
+              "weekday": "Sat",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-18",
+              "day": 18,
+              "weekday": "Sun",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-19",
+              "day": 19,
+              "weekday": "Mon",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-20",
+              "day": 20,
+              "weekday": "Tue",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-21",
+              "day": 21,
+              "weekday": "Wed",
+              "count": 1,
+              "sum": 8
+            },
+            {
+              "date": "2026-10-22",
+              "day": 22,
+              "weekday": "Thu",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-23",
+              "day": 23,
+              "weekday": "Fri",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-24",
+              "day": 24,
+              "weekday": "Sat",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-25",
+              "day": 25,
+              "weekday": "Sun",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-26",
+              "day": 26,
+              "weekday": "Mon",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-27",
+              "day": 27,
+              "weekday": "Tue",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-28",
+              "day": 28,
+              "weekday": "Wed",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-29",
+              "day": 29,
+              "weekday": "Thu",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-30",
+              "day": 30,
+              "weekday": "Fri",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-31",
+              "day": 31,
+              "weekday": "Sat",
+              "count": 0,
+              "sum": 0
+            }
+          ],
+          "labels": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+            "12",
+            "13",
+            "14",
+            "15",
+            "16",
+            "17",
+            "18",
+            "19",
+            "20",
+            "21",
+            "22",
+            "23",
+            "24",
+            "25",
+            "26",
+            "27",
+            "28",
+            "29",
+            "30",
+            "31"
+          ],
+          "counts": [
+            0,
+            0,
+            0,
+            0,
+            2,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "sums": [
+            0,
+            0,
+            0,
+            0,
+            3.5,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            8,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "filters, the default sort (newest first, ties by id), the limit, the count before it, a missing author",
+      "params": {
+        "kind": "todo",
+        "done": "false",
+        "limit": "2",
+        "priority.gte": "2"
+      },
+      "me": null,
+      "now": "2026-10-24T09:00:00Z",
+      "names": {
+        "u1": "Danny"
+      },
+      "rows": [
+        {
+          "id": "b",
+          "kind": "todo",
+          "data": {
+            "title": "B",
+            "done": false,
+            "priority": 2
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-20T10:00:00Z",
+          "updatedAt": "2026-10-20T10:00:00Z"
+        },
+        {
+          "id": "a",
+          "kind": "todo",
+          "data": {
+            "title": "A",
+            "done": false,
+            "priority": 3
+          },
+          "createdBy": "u9",
+          "createdAt": "2026-10-20T10:00:00Z",
+          "updatedAt": "2026-10-20T10:00:00Z"
+        },
+        {
+          "id": "c",
+          "kind": "todo",
+          "data": {
+            "title": "C",
+            "done": true,
+            "priority": 5
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-22T10:00:00Z",
+          "updatedAt": "2026-10-22T10:00:00Z"
+        },
+        {
+          "id": "d",
+          "kind": "todo",
+          "data": {
+            "title": "D",
+            "done": false,
+            "priority": 10
+          },
+          "createdBy": null,
+          "createdAt": "2026-10-19T10:00:00Z",
+          "updatedAt": "2026-10-19T10:00:00Z"
+        },
+        {
+          "id": "e",
+          "kind": "todo",
+          "data": {
+            "title": "E",
+            "done": false,
+            "priority": 1
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-23T10:00:00Z",
+          "updatedAt": "2026-10-23T10:00:00Z"
+        }
+      ],
+      "expected": {
+        "rows": [
+          {
+            "title": "A",
+            "done": false,
+            "priority": 3,
+            "id": "a",
+            "createdAt": "2026-10-20T10:00:00Z",
+            "updatedAt": "2026-10-20T10:00:00Z",
+            "createdBy": "u9",
+            "author": ""
+          },
+          {
+            "title": "B",
+            "done": false,
+            "priority": 2,
+            "id": "b",
+            "createdAt": "2026-10-20T10:00:00Z",
+            "updatedAt": "2026-10-20T10:00:00Z",
+            "createdBy": "u1",
+            "author": "Danny"
+          }
+        ],
+        "count": 3
+      }
+    },
+    {
+      "name": "the month of now when month is unset; a text sort ascending; a data key never shadows a row key",
+      "params": {
+        "kind": "entry",
+        "by": "date",
+        "sort": "note",
+        "order": "asc"
+      },
+      "me": "u1",
+      "now": "2026-02-10T12:00:00Z",
+      "names": {},
+      "rows": [
+        {
+          "id": "x",
+          "kind": "entry",
+          "data": {
+            "date": "2026-02-03",
+            "note": "b",
+            "id": "shadow"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-02-03T10:00:00Z",
+          "updatedAt": "2026-02-03T10:00:00Z"
+        },
+        {
+          "id": "y",
+          "kind": "entry",
+          "data": {
+            "date": "2026-02-01",
+            "note": "a"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-02-01T10:00:00Z",
+          "updatedAt": "2026-02-01T10:00:00Z"
+        },
+        {
+          "id": "z",
+          "kind": "entry",
+          "data": {
+            "date": "2026-03-01",
+            "note": "c"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-03-01T10:00:00Z",
+          "updatedAt": "2026-03-01T10:00:00Z"
+        }
+      ],
+      "expected": {
+        "rows": [
+          {
+            "date": "2026-02-01",
+            "note": "a",
+            "id": "y",
+            "createdAt": "2026-02-01T10:00:00Z",
+            "updatedAt": "2026-02-01T10:00:00Z",
+            "createdBy": "u1",
+            "author": ""
+          },
+          {
+            "date": "2026-02-03",
+            "note": "b",
+            "id": "x",
+            "createdAt": "2026-02-03T10:00:00Z",
+            "updatedAt": "2026-02-03T10:00:00Z",
+            "createdBy": "u1",
+            "author": ""
+          }
+        ],
+        "count": 2,
+        "month": {
+          "key": "2026-02",
+          "label": "February 2026",
+          "prev": "2026-01",
+          "next": "2026-03",
+          "today": "2026-02-10",
+          "days": [
+            {
+              "date": "2026-02-01",
+              "day": 1,
+              "weekday": "Sun",
+              "count": 1,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-02",
+              "day": 2,
+              "weekday": "Mon",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-03",
+              "day": 3,
+              "weekday": "Tue",
+              "count": 1,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-04",
+              "day": 4,
+              "weekday": "Wed",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-05",
+              "day": 5,
+              "weekday": "Thu",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-06",
+              "day": 6,
+              "weekday": "Fri",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-07",
+              "day": 7,
+              "weekday": "Sat",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-08",
+              "day": 8,
+              "weekday": "Sun",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-09",
+              "day": 9,
+              "weekday": "Mon",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-10",
+              "day": 10,
+              "weekday": "Tue",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-11",
+              "day": 11,
+              "weekday": "Wed",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-12",
+              "day": 12,
+              "weekday": "Thu",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-13",
+              "day": 13,
+              "weekday": "Fri",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-14",
+              "day": 14,
+              "weekday": "Sat",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-15",
+              "day": 15,
+              "weekday": "Sun",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-16",
+              "day": 16,
+              "weekday": "Mon",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-17",
+              "day": 17,
+              "weekday": "Tue",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-18",
+              "day": 18,
+              "weekday": "Wed",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-19",
+              "day": 19,
+              "weekday": "Thu",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-20",
+              "day": 20,
+              "weekday": "Fri",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-21",
+              "day": 21,
+              "weekday": "Sat",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-22",
+              "day": 22,
+              "weekday": "Sun",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-23",
+              "day": 23,
+              "weekday": "Mon",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-24",
+              "day": 24,
+              "weekday": "Tue",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-25",
+              "day": 25,
+              "weekday": "Wed",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-26",
+              "day": 26,
+              "weekday": "Thu",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-27",
+              "day": 27,
+              "weekday": "Fri",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-02-28",
+              "day": 28,
+              "weekday": "Sat",
+              "count": 0,
+              "sum": 0
+            }
+          ],
+          "labels": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+            "12",
+            "13",
+            "14",
+            "15",
+            "16",
+            "17",
+            "18",
+            "19",
+            "20",
+            "21",
+            "22",
+            "23",
+            "24",
+            "25",
+            "26",
+            "27",
+            "28"
+          ],
+          "counts": [
+            1,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "sums": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    }
+  ],
+  "countLabelCases": [
+    {
+      "count": 0,
+      "max": null,
+      "label": "No records"
+    },
+    {
+      "count": 1,
+      "max": null,
+      "label": "1 record"
+    },
+    {
+      "count": 1240,
+      "max": null,
+      "label": "1,240 records"
+    },
+    {
+      "count": 1240,
+      "max": 25000,
+      "label": "1,240 of 25,000 records"
+    }
+  ]
+}

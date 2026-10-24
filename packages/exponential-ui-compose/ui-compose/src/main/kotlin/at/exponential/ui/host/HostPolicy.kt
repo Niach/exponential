@@ -198,6 +198,17 @@ data class ParsedSource(val uri: String, val scheme: String, val name: String, v
 }
 
 /**
+ * VAPP-122: [source] with [params] appended as its query, for the `bind`
+ * action (`{functionCall: {call: "bind", args: {path, source, params}}}`):
+ * keys sorted, key and value percent-encoded (everything but
+ * `A-Z a-z 0-9 - _ . ! ~ * ' ( )`), a null value skipped, an object or array
+ * as JSON, after `?` or `&` (catalog/host.json `sources.paramsEncoding`; the
+ * core's rule through the facade).
+ */
+fun sourceWithParams(source: String, params: JsonValue.Obj?): String =
+    at.exponential.ui.ffi.sourceWithParamsJson(source, params?.json)
+
+/**
  * One resolver per source scheme: subscribe the source; every `emit`
  * writes the value at the bound path (null removes it). Returns the cancel
  * (called when the surface goes away), or null.

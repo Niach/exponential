@@ -25,6 +25,11 @@ export type PlanLimits = {
   // (lib/widget/submit-limit.ts); the per-IP abuse bucket stays global and
   // plan-independent.
   widgetSubmissionsPerHour: number
+  // VAPP-122: records an app may keep, counted per TEAM across its apps
+  // (every record syncs to every member's clients). Free = 1,000, Team =
+  // 25,000, self-hosted unlimited. One record's data is capped by contract
+  // `apps.recordMaxBytes` on every tier.
+  appRecords: number
 }
 
 // NOTE: the `seats` value on the paid tier is only a placeholder — the real
@@ -37,17 +42,20 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     storageMb: 250,
     widgetConfigs: 1,
     widgetSubmissionsPerHour: 60,
+    appRecords: 1000,
   },
   team: {
     seats: 1,
     storageMb: 10240,
     widgetConfigs: Infinity,
     widgetSubmissionsPerHour: Infinity,
+    appRecords: 25000,
   },
   unlimited: {
     seats: Infinity,
     storageMb: Infinity,
     widgetConfigs: Infinity,
     widgetSubmissionsPerHour: Infinity,
+    appRecords: Infinity,
   },
 }

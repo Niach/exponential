@@ -13,9 +13,12 @@ import ExponentialUI
 // `HostSurface`), like a third party's host would:
 //   - bindings: the `exp:` scheme over the synced GRDB store
 //     (`exp:devices`, `exp:issues?board=…&limit=…`), derived by
-//     `AppHostSources` exactly like the web host;
+//     `AppHostSources` exactly like the web host; VAPP-122
+//     `exp:records?kind=…` over the app's own rows (`AppRecords`);
 //   - functions: `harness.toast`, `harness.openIssue`, `harness.openDevice`,
-//     `harness.mcp` (a tools/call on the instance's /api/mcp as the viewer);
+//     `harness.mcp` (a tools/call on the instance's /api/mcp as the viewer),
+//     `harness.records.upsert` / `.delete` (tRPC `apps.records.*`, no
+//     consent card: the app's own rows; a refusal = the failed-action toast);
 //   - extensions: the app extension (`packages/ui/exponential-ui/extension.json`,
 //     bundled) with the `IconDisc` + `LiveDot` painters (Exponential ships
 //     no built-in apps: only the team's packages install);
@@ -149,6 +152,9 @@ final class ExpAppHost {
 
     init(
         packages: [String],
+        appId: String?,
+        teamId: String?,
+        me: String?,
         accountId: String,
         deps: AppDependencies,
         consent: AppConsentGate,
@@ -168,6 +174,8 @@ final class ExpAppHost {
             ]))
         }
         let installed = packages
+        let scope = AppHostStore.RecordsScope(appId: appId, teamId: teamId, me: me)
+        let appsApi = deps.appsApi
 
         let schemes = ["https"] + (base?.scheme == "http" ? ["http"] : [])
         host = ExponentialHost(HostOptions(
@@ -208,6 +216,46 @@ final class ExpAppHost {
                         httpClient: deps.httpClient
                     )
                 },
+                // VAPP-122: the app's own rows (no consent card); a refusal
+                // (the kind's schema, the caps, the plan quota) = the
+                // failed-action toast, and the call fails.
+                "harness.records.upsert": { args, _ in
+                    do {
+                        guard let appId = scope.appId else { throw AppHostMcp.CallError(message: "No app to keep records for") }
+                        let data = args["data"]?.object.flatMap { object in
+                            CardJSON(any: try? JSONSerialization.jsonObject(with: Data(JSONValue.object(object).json.utf8)))?.objectValue
+                        } ?? [:]
+                        let result = try await appsApi.recordsUpsert(
+                            accountId: accountId,
+                            appId: appId,
+                            kind: args["kind"]?.displayText ?? "",
+                            data: data,
+                            recordId: args["id"]?.string
+                        )
+                        return ["id": result.id]
+                    } catch {
+                        Toaster.shared.error(
+                            FeedbackStates.Errors.title(verb: "save", thing: "the record"),
+                            description: error.trpcUserMessage
+                        )
+                        throw error
+                    }
+                },
+                "harness.records.delete": { args, _ in
+                    do {
+                        guard let appId = scope.appId else { throw AppHostMcp.CallError(message: "No app to keep records for") }
+                        try await appsApi.recordsDelete(
+                            accountId: accountId, appId: appId, recordId: args["id"]?.displayText ?? ""
+                        )
+                        return nil
+                    } catch {
+                        Toaster.shared.error(
+                            FeedbackStates.Errors.title(verb: "delete", thing: "the record"),
+                            description: error.trpcUserMessage
+                        )
+                        throw error
+                    }
+                },
             ],
             sources: [
                 "exp": { source, emit in
@@ -217,6 +265,8 @@ final class ExpAppHost {
                         return AppHostStore.issues(
                             pool: pool, board: source.params["board"], limit: source.params["limit"], emit: emit
                         )
+                    case "records":
+                        return AppHostStore.records(pool: pool, scope: scope, params: source.params, emit: emit)
                     default:
                         emit(.null)
                         return nil
@@ -407,6 +457,72 @@ enum AppHostStore {
                     guard json != last else { continue }
                     last = json
                     emit(JSONValue.parse(json))
+                }
+            } catch {}
+        }
+        return { observe.cancel() }
+    }
+
+    /// VAPP-122: the app whose records `exp:records` reads (the hosting app,
+    /// or `app=<slug>`: another app of the same team) and the viewer.
+    struct RecordsScope: Sendable {
+        let appId: String?
+        let teamId: String?
+        let me: String?
+    }
+
+    /// What one records read sees: the app's rows and their authors' names.
+    private struct RecordsSnapshot: Sendable {
+        var rows: [AppRecordEntity] = []
+        var names: [String: String] = [:]
+    }
+
+    /// `exp:records?kind=…`: the fixture's value (`AppRecords.recordsValue`)
+    /// over the synced `app_records` rows of the app, names off `users`, on
+    /// every change of the records, the users or the apps (an `app=` slug
+    /// may sync later); a value equal to the last one is not re-emitted.
+    static func records(
+        pool: DatabasePool?, scope: RecordsScope, params: [String: String], emit: @escaping (JSONValue?) -> Void
+    ) -> (() -> Void)? {
+        let query = AppRecords.parseRecordsQuery(params)
+        var last: String?
+        let push = { (snapshot: RecordsSnapshot) in
+            let value = AppRecords.recordsValue(
+                rows: snapshot.rows.map(AppRecords.Row.init), query: query, me: scope.me, now: Date(), names: snapshot.names
+            )
+            let json = value?.compactString ?? "null"
+            guard json != last else { return }
+            last = json
+            emit(JSONValue.parse(json))
+        }
+        guard let pool else {
+            push(RecordsSnapshot())
+            return nil
+        }
+        let observation = ValueObservation.tracking { db -> RecordsSnapshot in
+            var appId = scope.appId
+            if let slug = query.app {
+                appId = try String.fetchOne(
+                    db,
+                    sql: #"SELECT "id" FROM "apps" WHERE "slug" = ? AND "team_id" = ? AND "deleted_at" IS NULL LIMIT 1"#,
+                    arguments: [slug, scope.teamId ?? ""]
+                )
+            }
+            guard let appId else { return RecordsSnapshot() }
+            let rows = try AppRecordEntity.filter(Column("app_id") == appId).fetchAll(db)
+            var names: [String: String] = [:]
+            let authors = Array(Set(rows.compactMap(\.createdBy)))
+            if !authors.isEmpty {
+                for user in try UserEntity.filter(keys: authors).fetchAll(db) {
+                    names[user.id] = user.name ?? ""
+                }
+            }
+            return RecordsSnapshot(rows: rows, names: names)
+        }
+        let observe = Task { @MainActor in
+            do {
+                for try await snapshot in observation.values(in: pool) {
+                    push(snapshot)
                 }
             } catch {}
         }

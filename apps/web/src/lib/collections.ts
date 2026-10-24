@@ -12,6 +12,7 @@ import {
   selectSyncedPromptSchema,
   selectAppSchema,
   selectSyncedAppVersionSchema,
+  selectSyncedAppRecordSchema,
   selectSyncedConversationSchema,
   selectSyncedSessionSchema,
   selectSyncedSessionIssueSchema,
@@ -223,6 +224,16 @@ export const appVersionCollection = createCollection(
     id: `app_versions`,
     shapeOptions: shapeOptions(`/api/shapes/app-versions`),
     schema: selectSyncedAppVersionSchema,
+    getKey: (item) => item.id,
+  })
+)
+// VAPP-122: the apps' records (their own data; `exp:records` resolves over
+// it, the app settings page counts it).
+export const appRecordCollection = createCollection(
+  electricCollectionOptions({
+    id: `app_records`,
+    shapeOptions: shapeOptions(`/api/shapes/app-records`),
+    schema: selectSyncedAppRecordSchema,
     getKey: (item) => item.id,
   })
 )

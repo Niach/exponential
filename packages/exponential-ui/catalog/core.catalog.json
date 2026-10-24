@@ -627,7 +627,7 @@
     }
   },
   "functions": {
-    "$comment": "The core catalog exposes the A2UI basic catalog's 14 client-side functions, same names and arguments (vendor/a2ui/v0_9/basic_catalog.json#/functions; a basic surface calls them unchanged; the format* functions format in the SURFACE locale, docs/round-1-contract.md §4), plus the 15 CORE functions of round 1 (and round 4's `filter`) (`core` below: named args, what they return) so a macro whose input is a data binding expands into a value the renderer computes at bind time (docs/round-1-contract.md §1; the expander emits them, an author may call them too). Round 2 (docs/round-2-contract.md §3): `formatPercent` and `formatRelativeTime` join them, and EVERY format function (the basic formatNumber/formatCurrency/formatDate/pluralize too) runs through the surface's host-supplied Formatter (locale + timeZone from SurfaceSettings; the English fallback = Intl en-US). Truthiness everywhere = src/expr.ts `truthy`: undefined, null, false and \"\" are false, 0 is TRUE. Arguments are resolved at ANY depth (an array or object argument may hold bindings and calls). `basic` = the basic functions' signatures (vendor/a2ui, flattened) so the prompt lists every function with its arguments. `set` is the one ACTION function: in an Action's `functionCall` it writes `value` to the data model at `path` (two-way binding for macros; an Action may carry `functionCall` AND `event`: every argument and the event context are evaluated FIRST, then the write, then the event).",
+    "$comment": "The core catalog exposes the A2UI basic catalog's 14 client-side functions, same names and arguments (vendor/a2ui/v0_9/basic_catalog.json#/functions; a basic surface calls them unchanged; the format* functions format in the SURFACE locale, docs/round-1-contract.md §4), plus the 15 CORE functions of round 1 (and round 4's `filter`) (`core` below: named args, what they return) so a macro whose input is a data binding expands into a value the renderer computes at bind time (docs/round-1-contract.md §1; the expander emits them, an author may call them too). Round 2 (docs/round-2-contract.md §3): `formatPercent` and `formatRelativeTime` join them, and EVERY format function (the basic formatNumber/formatCurrency/formatDate/pluralize too) runs through the surface's host-supplied Formatter (locale + timeZone from SurfaceSettings; the English fallback = Intl en-US). Truthiness everywhere = src/expr.ts `truthy`: undefined, null, false and \"\" are false, 0 is TRUE. Arguments are resolved at ANY depth (an array or object argument may hold bindings and calls). `basic` = the basic functions' signatures (vendor/a2ui, flattened) so the prompt lists every function with its arguments. `set` and `bind` are the two ACTION functions (`bind` = VAPP-122: `{path, source, params?}` re-follows a data model path from a binding source, see catalog/host.json `functions`); `set`: in an Action's `functionCall` it writes `value` to the data model at `path` (two-way binding for macros; an Action may carry `functionCall` AND `event`: every argument and the event context are evaluated FIRST, then the write, then the event).",
     "names": [
       "required",
       "regex",
@@ -660,7 +660,8 @@
       "set",
       "formatPercent",
       "formatRelativeTime",
-      "filter"
+      "filter",
+      "bind"
     ],
     "core": {
       "percent": {
@@ -807,6 +808,15 @@
           "where": "object"
         },
         "returns": "array"
+      },
+      "bind": {
+        "description": "Action only (VAPP-122): re-follows path from source with params appended as its query (sourceWithParams); the package's sources allowlist applies and the earlier subscription at that path is cancelled.",
+        "args": {
+          "path": "string",
+          "source": "string",
+          "params": "object"
+        },
+        "returns": "void"
       }
     },
     "basic": {

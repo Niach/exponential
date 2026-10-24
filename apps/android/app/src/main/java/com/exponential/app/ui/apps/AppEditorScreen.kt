@@ -121,6 +121,7 @@ fun AppEditorScreen(
     val viewing by viewModel.viewing.collectAsStateWithLifecycle()
     val restoring by viewModel.restoring.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
+    val me by viewModel.me.collectAsStateWithLifecycle()
     val toastLine by viewModel.toast.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
     val toaster = LocalToaster.current
@@ -202,6 +203,9 @@ fun AppEditorScreen(
                     onRestore = viewModel::restore,
                     onHead = viewModel::clearViewing,
                     onOpenIssue = onOpenIssue,
+                    appId = viewModel.appId,
+                    teamId = entry.teamId,
+                    me = me,
                     modifier = Modifier.padding(padding),
                 )
                 EditorTab.Versions -> AppVersionsList(
@@ -234,6 +238,9 @@ private fun AppPreviewPane(
     onRestore: () -> Unit,
     onHead: () -> Unit,
     onOpenIssue: (String) -> Unit,
+    appId: String,
+    teamId: String?,
+    me: String?,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -270,7 +277,7 @@ private fun AppPreviewPane(
             if (pkg != null) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Apps.Preview.PADDING.dp)) {
                     // A new package = a new host (the key): every synced upsert repaints.
-                    androidx.compose.runtime.key(pkg) { AppPackageSurface(pkg, onOpenIssue) }
+                    androidx.compose.runtime.key(pkg) { AppPackageSurface(pkg, onOpenIssue, appId, teamId, me) }
                 }
             } else {
                 EmptyState(
@@ -286,7 +293,7 @@ private fun AppPreviewPane(
 
 /** One package's first template on the app host (`applyTemplate`). */
 @Composable
-private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit) {
+private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit, appId: String, teamId: String?, me: String?) {
     val parsed = remember(packageJson) { runCatching { JsonValue.parse(packageJson) }.getOrNull() }
     val packageId = parsed?.get("id")?.string
     val templateId = parsed?.get("templates")?.obj?.keys?.firstOrNull()
@@ -295,6 +302,9 @@ private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit
         packages = listOf(packageJson),
         consent = consent,
         onOpenIssue = onOpenIssue,
+        appId = appId,
+        teamId = teamId,
+        me = me,
         themeId = parsed?.get("theme")?.string,
     )
     LaunchedEffect(host, packageId, templateId) {

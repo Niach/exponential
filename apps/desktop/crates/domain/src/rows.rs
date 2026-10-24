@@ -1162,6 +1162,36 @@ pub struct AppVersionRow {
     pub created_at: Option<String>,
 }
 
+/// VAPP-122: `app_records` shape row: one record of an app's own data. The
+/// trash columns stay server-side (a trashed record leaves the shape);
+/// `data` is the record's JSON object (a stringified cell re-parses, null or
+/// garbage reads as `null`, never a dropped row).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AppRecordRow {
+    pub id: String,
+    #[serde(default)]
+    pub app_id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default, deserialize_with = "tolerant_json")]
+    pub data: serde_json::Value,
+    #[serde(default)]
+    pub created_by: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+fn tolerant_json<'de, D>(deserializer: D) -> Result<serde_json::Value, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(tolerant_opt_json(deserializer)?.unwrap_or(serde_json::Value::Null))
+}
+
 /// `issue_statuses` shape row (EXP-314) — the 16th shape: one team's status
 /// vocabulary. `category` stays a RAW wire string (typed at use through
 /// [`crate::statuses::IssueStatusCategory::from_wire`]) so a newer server's

@@ -14,7 +14,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState, Textarea, TextareaState},
-    v_flex, Disableable as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -87,6 +87,10 @@ pub struct AppDetailPane {
     color: String,
     loaded: Option<Loaded>,
     pending: crate::feedback::Pending,
+    /// VAPP-122: the team's records quota (`None` = unlimited, or the plan
+    /// still loading) and the team it was read for.
+    records_max: Option<u64>,
+    records_plan_team: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -107,6 +111,7 @@ impl AppDetailPane {
             cx.observe(&shared, |_, _, cx| cx.notify()),
             cx.observe(&collections.apps, |_, _, cx| cx.notify()),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
+            cx.observe(&collections.app_records, |_, _, cx| cx.notify()),
             cx.subscribe(&name_input, |this, _, event: &InputEvent, cx| match event {
                 InputEvent::Blur => this.commit_rename(cx),
                 InputEvent::PressEnter { .. } => this.commit_rename(cx),
@@ -128,6 +133,8 @@ impl AppDetailPane {
             color: DEFAULT_COLOR.to_string(),
             loaded: None,
             pending: crate::feedback::Pending::default(),
+            records_max: None,
+            records_plan_team: None,
             _subscriptions: subscriptions,
         }
     }
@@ -175,6 +182,40 @@ impl AppDetailPane {
             }
         });
         self.description.update(cx, |input, cx| input.set_value(description, window, cx));
+        if let Some(team_id) = row.and_then(|row| row.team_id.clone()) {
+            self.load_records_max(team_id, cx);
+        }
+    }
+
+    /// VAPP-122: the team's `appRecords` quota off `billing.teamPlan` (the
+    /// web's; a failure keeps the count without a max).
+    fn load_records_max(&mut self, team_id: String, cx: &mut gpui::Context<Self>) {
+        if self.records_plan_team.as_deref() == Some(team_id.as_str()) {
+            return;
+        }
+        self.records_plan_team = Some(team_id.clone());
+        self.records_max = None;
+        let Some(trpc) = crate::queries::trpc_client(cx) else { return };
+        cx.spawn(async move |this, cx| {
+            let plan_team = team_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::billing::billing_team_plan(&trpc, &team_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.records_plan_team.as_deref() != Some(plan_team.as_str()) {
+                    return; // superseded
+                }
+                match result {
+                    Ok(plan) => {
+                        this.records_max = plan.limits.app_records.filter(|max| max.is_finite()).map(|max| max as u64);
+                        cx.notify();
+                    }
+                    Err(err) => log::warn!("[ui] billing.teamPlan failed: {err}"),
+                }
+            });
+        })
+        .detach();
     }
 
     fn can_manage(&self, row: &AppRow, cx: &App) -> bool {
@@ -414,6 +455,24 @@ impl Render for AppDetailPane {
                         .py_3(),
                 ),
             )
+            .when_some(row.as_ref(), |body, row| {
+                // VAPP-122: the app's live records against the quota.
+                let count = Store::global(cx)
+                    .collections()
+                    .app_records
+                    .read(cx)
+                    .iter()
+                    .filter(|record| record.app_id == row.id)
+                    .count() as u64;
+                body.child(
+                    div()
+                        .id("app-settings-records")
+                        .px_1()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(domain::app_records::records_count_label(count, self.records_max)),
+                )
+            })
             .child(actions);
         v_flex().child(body).into_any_element()
     }

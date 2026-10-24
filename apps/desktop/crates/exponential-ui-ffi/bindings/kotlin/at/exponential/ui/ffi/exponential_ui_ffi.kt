@@ -851,6 +851,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_run_action_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_source_with_params_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_string_table_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_supported_catalog_ids_for(
@@ -866,6 +868,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_theme_issues_json(
 external fun uniffi_exponential_ui_ffi_checksum_func_tokenize_code_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_validate_package_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_validate_record_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_validate_style_json(
 ): Short
@@ -1452,6 +1456,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(`themeJson`: 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_run_action_json(`actionJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_source_with_params_json(`source`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_string_table_json(`overridesJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_supported_catalog_ids_for(`extensionIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1467,6 +1473,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_theme_issues_json(`themeJson`: Ru
 external fun uniffi_exponential_ui_ffi_fn_func_tokenize_code_json(`code`: RustBuffer.ByValue,`language`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_validate_package_json(`packageJson`: RustBuffer.ByValue,`catalogIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_validate_record_json(`schemaJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_validate_style_json(`styleJson`: RustBuffer.ByValue,`root`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -9971,6 +9979,20 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * VAPP-122: `source` with `params` (a JSON object, or null) appended as
+         * its query, for the `bind` action (`sourceWithParams`).
+         */ fun `sourceWithParamsJson`(`source`: kotlin.String, `paramsJson`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_source_with_params_json(
+    
+        FfiConverterString.lower(`source`),FfiConverterOptionalString.lower(`paramsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
          * The built-in strings with `overrides_json` merged over them.
          */
     @Throws(UiException::class) fun `stringTableJson`(`overridesJson`: kotlin.String?): kotlin.String {
@@ -10075,6 +10097,21 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_validate_package_json(
     
         FfiConverterString.lower(`packageJson`),FfiConverterOptionalSequenceString.lower(`catalogIds`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-122: a record (JSON) against its kind's schema (JSON): the issues
+         * `[{path, message}]` as JSON.
+         */
+    @Throws(UiException::class) fun `validateRecordJson`(`schemaJson`: kotlin.String, `dataJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_validate_record_json(
+    
+        FfiConverterString.lower(`schemaJson`),FfiConverterString.lower(`dataJson`),_status)
 }
     )
     }

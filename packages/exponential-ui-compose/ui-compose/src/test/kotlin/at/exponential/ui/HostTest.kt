@@ -19,6 +19,7 @@ import at.exponential.ui.host.SourceResolver
 import at.exponential.ui.host.TransportStatus
 import at.exponential.ui.host.UrlPolicy
 import at.exponential.ui.host.Utf8Chunks
+import at.exponential.ui.host.sourceWithParams
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.fire
@@ -168,6 +169,61 @@ class HostTest {
         // Deleting the surface cancels its subscriptions.
         t.feed(msg("""{"version":"v0.9","deleteSurface":{"surfaceId":"s1"}}"""))
         assertEquals(1, cancelled)
+    }
+
+    @Test
+    fun bindActionRefollowsAPathAndCancelsTheEarlierSubscription() = runBlocking {
+        val t = MemoryTransport()
+        val subscribed = ArrayList<String>()
+        val cancelled = ArrayList<String>()
+        val h = host(
+            HostOptions(
+                transport = t,
+                sources = mapOf(
+                    "exp" to SourceResolver { source, e ->
+                        val uri = source.uri
+                        subscribed.add(uri)
+                        e(JsonValue.Str(uri))
+                        ({ cancelled.add(uri) })
+                    },
+                ),
+            ),
+        )
+        h.connect()
+        t.feed(create())
+        t.feed(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/records","source":"exp:records?kind=entry"}}"""))
+        t.feed(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/other","source":"exp:devices"}}"""))
+        val args = mapOf(
+            "path" to JsonValue.Str("/records"),
+            "source" to JsonValue.Str("exp:records?kind=entry"),
+            "params" to JsonValue.Obj(mapOf("month" to JsonValue.Str("2026-10"))),
+        )
+        val outcome = h.callFunction(FunctionCallInfo("s1", "c", "bind", args))
+        assertEquals(FunctionDecision.Allow, outcome.decision)
+        assertEquals(listOf("exp:records?kind=entry", "exp:devices", "exp:records?kind=entry&month=2026-10"), subscribed)
+        // Only the re-bound path's earlier subscription was cancelled.
+        assertEquals(listOf("exp:records?kind=entry"), cancelled)
+        assertEquals("exp:records?kind=entry&month=2026-10", h.surface("s1")!!.data["records"]?.string)
+        // No source, or no such surface = Deny.
+        assertEquals(FunctionDecision.Deny, h.callFunction(FunctionCallInfo("s1", "c", "bind", mapOf("path" to JsonValue.Str("/x")))).decision)
+        assertEquals(FunctionDecision.Deny, h.callFunction(FunctionCallInfo("nope", "c", "bind", args)).decision)
+        // Deleting the surface cancels the remaining two.
+        t.feed(msg("""{"version":"v0.9","deleteSurface":{"surfaceId":"s1"}}"""))
+        assertEquals(3, cancelled.size)
+    }
+
+    @Test
+    fun sourceWithParamsMatchesTheFixture() {
+        // packages/exponential-ui/fixtures/host-policy.json `sourceParams`.
+        assertEquals(
+            "exp:x?q=a%20b%26c%3Dd%2F%C3%BC",
+            sourceWithParams("exp:x", JsonValue.Obj(mapOf("q" to JsonValue.Str("a b&c=d/ü"), "skip" to JsonValue.Null, "gone" to JsonValue.Null))),
+        )
+        assertEquals(
+            "exp:records?kind=entry&limit=50&mine=true",
+            sourceWithParams("exp:records", JsonValue.Obj(mapOf("mine" to JsonValue.Bool(true), "kind" to JsonValue.Str("entry"), "limit" to JsonValue.Num(50.0)))),
+        )
+        assertEquals("exp:x", sourceWithParams("exp:x", null))
     }
 
     @Test

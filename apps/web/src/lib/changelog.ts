@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-24-app-records`,
+    date: `2026-10-24`,
+    title: `Apps keep their own data: records`,
+    summary: `An app declares record kinds in its manifest, reads them live through exp:records and writes them without a consent card; agents fill them through the apps MCP noun.`,
+    body: `- **Records**: an app's manifest declares its kinds with a small JSON schema; the server validates every write, every client syncs the rows, and the editor's preview shows them live.
+- **Bindings**: exp:records?kind=... filters, sorts, sums and lays out a month; the new bind action re-follows a path from a button, so a month switcher is one action.
+- **Agents**: exponential_apps gained records_list, records_upsert and records_delete, so an agent or another app can fill an app's data.
+- **Quota**: Free teams keep 1,000 records, Team plans 25,000, one record at most 16 KB; the app's settings page shows the count.
+- **Working hours**: the demo app that replaces a spreadsheet: a month view with a switcher, hours and notes per day, built through the editor and seeded as the Apps pictures.`,
+  },
+  {
     id: `2026-10-24-release-train`,
     date: `2026-10-24`,
     title: `Release 2026-10-24: Chats on every platform, with the train's fixes`,

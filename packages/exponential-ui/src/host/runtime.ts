@@ -17,7 +17,8 @@ import type { PackageIssue, AppPackage } from "./package"
 import { combineDecisions, decideFunction, decideUrl, mediaRequest, packagePolicy } from "./policy"
 import type { FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, UrlPolicy } from "./policy"
 import { HostRouter } from "./router"
-import { parseSource } from "./sources"
+import { parseSource, sourceWithParams } from "./sources"
+import { A2UI_VERSION } from "../catalog"
 import type { SourceResolvers } from "./sources"
 
 export type TransportStatus = `connecting` | `open` | `closed` | `error`
@@ -216,7 +217,9 @@ export class SurfaceStore {
 export class ExponentialHost {
   readonly router: HostRouter
   private stores = new Map<string, SurfaceStore>()
-  private subscriptions = new Map<string, (() => void)[]>()
+  /** Per surface, one entry per bound path (VAPP-122: a re-bind of a path
+   *  cancels the earlier subscription at that path). */
+  private subscriptions = new Map<string, { path: string; cancel: () => void }[]>()
   /** Per surface: the FLAT component owning a failed node → that
    *  component as it was when it failed + the node ids already reported. */
   private paintErrors = new Map<string, Map<string, { component: FlatComponent | undefined; ids: Set<string> }>>()
@@ -389,8 +392,11 @@ export class ExponentialHost {
           this.send(errorMessage(`VALIDATION_FAILED`, op.surfaceId, `no resolver for the source scheme ${source.scheme}`, op.path || `/`))
           return
         }
+        const earlier = this.subscriptions.get(op.surfaceId) ?? []
+        for (const sub of earlier) if (sub.path === op.path) sub.cancel()
+        const kept = earlier.filter((sub) => sub.path !== op.path)
         const cancel = resolver(source, (value) => this.stores.get(op.surfaceId)?.setData(op.path, value))
-        if (cancel) this.subscriptions.set(op.surfaceId, [...(this.subscriptions.get(op.surfaceId) ?? []), cancel])
+        this.subscriptions.set(op.surfaceId, cancel ? [...kept, { path: op.path, cancel }] : kept)
         return
       }
       case `delete`:
@@ -412,7 +418,7 @@ export class ExponentialHost {
   }
 
   private unbind(surfaceId: string): void {
-    for (const cancel of this.subscriptions.get(surfaceId) ?? []) cancel()
+    for (const sub of this.subscriptions.get(surfaceId) ?? []) sub.cancel()
     this.subscriptions.delete(surfaceId)
   }
 
@@ -444,12 +450,13 @@ export class ExponentialHost {
   }
 
   /** An action `functionCall` to a host function: gate, consent, run. A
-   *  built-in other than openUrl has no effect as an action. */
+   *  built-in other than openUrl and bind has no effect as an action. */
   async callFunction(call: FunctionCallInfo): Promise<FunctionOutcome> {
     if (call.name === `openUrl`) {
       const url = typeof call.args.url === `string` ? call.args.url : ``
       return { decision: this.openUrl(url) ? `allow` : `deny` }
     }
+    if (call.name === `bind`) return { decision: this.bind(call.surfaceId, call.args) ? `allow` : `deny` }
     let decision = this.decide(call.surfaceId, call.name)
     if (decision === `not_found`) {
       this.send(errorMessage(`FUNCTION_NOT_FOUND`, call.surfaceId, `no function ${call.name}`))
@@ -478,6 +485,20 @@ export class ExponentialHost {
     } catch (e) {
       return { decision: `allow`, error: e instanceof Error ? e.message : String(e) }
     }
+  }
+
+  /** VAPP-122: the `bind` action: re-follow `path` from `source` with
+   *  `params` appended (`sourceWithParams`), through the router like a
+   *  server's bindDataModel (the surface's package allowlist applies; a
+   *  refusal is the usual SOURCE_DENIED / VALIDATION_FAILED error). True
+   *  when the bind op ran. */
+  bind(surfaceId: string, args: Record<string, unknown>): boolean {
+    const path = typeof args.path === `string` ? args.path : ``
+    const source = typeof args.source === `string` ? args.source : ``
+    if (!source || !this.stores.has(surfaceId)) return false
+    const params = args.params && typeof args.params === `object` && !Array.isArray(args.params) ? (args.params as Record<string, unknown>) : undefined
+    const ops = this.receive({ version: A2UI_VERSION, bindDataModel: { surfaceId, path, source: sourceWithParams(source, params) } })
+    return ops.some((op) => op.op === `bind`)
   }
 
   /** The URL policy every href passes (relative urls against the urls' or

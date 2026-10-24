@@ -3,6 +3,10 @@
 All notable changes to this package. The SDK packages share one version and
 release together from a `ui-v<version>` tag (`packages/exponential-ui/release/README.md`).
 
+## Unreleased
+
+- VAPP-122: `bind` is an action the host runs like `openUrl`: `{path, source, params?}` re-follows a path (`BindingSource.sourceWithParams` over the core's `sourceWithParamsJson`), subscriptions are keyed by path so the earlier one at that path is cancelled; the conformance suite replays the new `sourceParams` and `records` cases over `validateRecordJson`.
+
 ## 0.1.1 (2026-10-23)
 
 - Version-only release: the SDK's npm packages moved to the `@exponential_app` scope and every package shares one version. `ExponentialUI` is unchanged from 0.1.0.

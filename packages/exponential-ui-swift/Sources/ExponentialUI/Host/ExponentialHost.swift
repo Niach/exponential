@@ -85,7 +85,9 @@ public final class ExponentialHost {
     @ObservationIgnored private var sources: [String: SourceResolver]
     @ObservationIgnored private var extensions: [HostExtension]
     @ObservationIgnored private var packages: [String: JSONValue] = [:]
-    @ObservationIgnored private var subscriptions: [String: [() -> Void]] = [:]
+    /// Per surface, one entry per bound path (VAPP-122: a re-bind of a path
+    /// cancels the earlier subscription at that path).
+    @ObservationIgnored private var subscriptions: [String: [(path: String, cancel: () -> Void)]] = [:]
     @ObservationIgnored private var sendDataModel: Set<String> = []
     /// `surfaceId\0componentId\0message` of the paint errors already sent.
     @ObservationIgnored private var paintErrors: Set<String> = []
@@ -242,10 +244,14 @@ public final class ExponentialHost {
                 send(errorMessageJson(code: "VALIDATION_FAILED", surfaceId: surfaceId, message: "no resolver for the source scheme \(source.scheme)", path: path.isEmpty ? "/" : path))
                 return
             }
+            let earlier = subscriptions[surfaceId] ?? []
+            for sub in earlier where sub.path == path { sub.cancel() }
+            var kept = earlier.filter { $0.path != path }
             let cancel = resolver(source) { [weak self] value in
                 self?.surfaces[surfaceId]?.setData(path: path, value: value)
             }
-            if let cancel { subscriptions[surfaceId, default: []].append(cancel) }
+            if let cancel { kept.append((path: path, cancel: cancel)) }
+            subscriptions[surfaceId] = kept
         case "delete":
             unbind(surfaceId)
             forgetPaintErrors(surfaceId)
@@ -265,7 +271,7 @@ public final class ExponentialHost {
     }
 
     private func unbind(_ surfaceId: String) {
-        for cancel in subscriptions[surfaceId] ?? [] { cancel() }
+        for sub in subscriptions[surfaceId] ?? [] { sub.cancel() }
         subscriptions[surfaceId] = nil
     }
 
@@ -295,12 +301,16 @@ public final class ExponentialHost {
         return FunctionDecision(rawValue: decision) ?? .deny
     }
 
-    /// An action `functionCall`: `openUrl` through the URL policy, anything
-    /// else through the gate, the consent hook and the registry.
+    /// An action `functionCall`: `openUrl` through the URL policy, `bind`
+    /// through the router (VAPP-122), anything else through the gate, the
+    /// consent hook and the registry.
     @discardableResult
     public func callFunction(_ call: FunctionCallInfo) async -> FunctionOutcome {
         if call.name == "openUrl" {
             return FunctionOutcome(decision: openURL(call.args["url"]?.string ?? "") ? .allow : .deny)
+        }
+        if call.name == "bind" {
+            return FunctionOutcome(decision: bind(surfaceId: call.surfaceId, args: call.args) ? .allow : .deny)
         }
         var decision = decide(surfaceId: call.surfaceId, name: call.name)
         if decision == .notFound {
@@ -322,6 +332,31 @@ public final class ExponentialHost {
             return FunctionOutcome(decision: .allow, error: error.localizedDescription)
         }
     }
+
+    /// VAPP-122: the `bind` action: re-follow `path` from `source` with
+    /// `params` appended (`BindingSource.sourceWithParams`), through the
+    /// router like a server's bindDataModel (the surface's package
+    /// allowlist applies; a refusal is the usual SOURCE_DENIED /
+    /// VALIDATION_FAILED error). True when the bind op ran.
+    @discardableResult
+    public func bind(surfaceId: String, args: Props) -> Bool {
+        let path = args["path"]?.string ?? ""
+        let source = args["source"]?.string ?? ""
+        guard !source.isEmpty, surfaces[surfaceId] != nil else { return false }
+        let params: JSONValue? = args["params"]?.object.map { .object($0) }
+        let message: JSONValue = .object([
+            "version": .string(Self.a2uiVersion),
+            "bindDataModel": .object([
+                "surfaceId": .string(surfaceId),
+                "path": .string(path),
+                "source": .string(BindingSource.sourceWithParams(source, params: params)),
+            ]),
+        ])
+        return receive(message).contains { $0["op"]?.string == "bind" }
+    }
+
+    /// The A2UI protocol version the host speaks (`catalog` `A2UI_VERSION`).
+    public static let a2uiVersion = "v0.9"
 
     /// The URL policy every href passes (relative urls against the urls'
     /// or the media `baseUrl`).

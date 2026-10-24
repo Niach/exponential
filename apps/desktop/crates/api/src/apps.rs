@@ -118,6 +118,48 @@ pub fn get_version(trpc: &TrpcClient, id: &str, version: i64) -> Result<GetOutpu
     trpc.query_with_input("apps.get", &VersionInput { id, version })
 }
 
+/// VAPP-122 `apps.records.upsert` input: `id` = the APP, `record_id` = the
+/// record to patch (`None` = create).
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordUpsertInput {
+    pub id: String,
+    pub kind: String,
+    pub data: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_id: Option<String>,
+}
+
+/// `apps.records.upsert` output: the record's id, `created` = a new row.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordUpsertOutput {
+    #[serde(default, alias = "txid")]
+    pub tx_id: Option<i64>,
+    pub id: String,
+    #[serde(default)]
+    pub created: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecordIdInput<'a> {
+    id: &'a str,
+    record_id: &'a str,
+}
+
+/// VAPP-122 `apps.records.upsert`: create a record, or shallow-patch the
+/// team's row `record_id` names (the server validates the kind's schema,
+/// the size cap and the plan quota).
+pub fn records_upsert(trpc: &TrpcClient, input: &RecordUpsertInput) -> Result<RecordUpsertOutput, ApiError> {
+    trpc.mutation("apps.records.upsert", input)
+}
+
+/// VAPP-122 `apps.records.delete`: the record's trash.
+pub fn records_delete(trpc: &TrpcClient, app_id: &str, record_id: &str) -> Result<TxOutput, ApiError> {
+    trpc.mutation("apps.records.delete", &RecordIdInput { id: app_id, record_id })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,5 +179,21 @@ mod tests {
         );
         let restore: RestoreOutput = serde_json::from_value(serde_json::json!({"txid": 9, "version": 4, "restored": 1})).unwrap();
         assert_eq!((restore.tx_id, restore.version, restore.restored), (Some(9), 4, 1));
+        let upsert = RecordUpsertInput {
+            id: "app".into(),
+            kind: "entry".into(),
+            data: serde_json::json!({"hours": 3}),
+            record_id: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&upsert).unwrap(),
+            serde_json::json!({"id": "app", "kind": "entry", "data": {"hours": 3}})
+        );
+        assert_eq!(
+            serde_json::to_value(RecordIdInput { id: "app", record_id: "r1" }).unwrap(),
+            serde_json::json!({"id": "app", "recordId": "r1"})
+        );
+        let out: RecordUpsertOutput = serde_json::from_value(serde_json::json!({"txid": 3, "id": "r1", "created": true})).unwrap();
+        assert_eq!((out.tx_id, out.id.as_str(), out.created), (Some(3), "r1", true));
     }
 }

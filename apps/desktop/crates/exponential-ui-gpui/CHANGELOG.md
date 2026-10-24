@@ -3,6 +3,10 @@
 All notable changes to this package. The SDK packages share one version and
 release together from a `ui-v<version>` tag (`packages/exponential-ui/release/README.md`).
 
+## Unreleased
+
+- VAPP-122: `ExponentialHost::bind` runs the `bind` action (`{path, source, params?}` through the router like a server's bindDataModel); subscriptions are keyed by path, so a re-bind cancels the earlier one at that path. The conformance suite replays the new host cases.
+
 ## 0.1.1 (2026-10-23)
 
 - Version-only bump with the SDK (the npm packages moved to the `@exponential_app` scope); unchanged from 0.1.0.

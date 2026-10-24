@@ -29,6 +29,10 @@ export const APP_NOTE_MAX = contract.apps.noteMax
 export const APP_PACKAGE_MAX_BYTES = contract.apps.packageMaxBytes
 export const APP_TEMPLATE_MAX_COMPONENTS = contract.apps.templateMaxComponents
 export const APP_SLUG_PATTERN = new RegExp(contract.apps.slugPattern)
+// VAPP-122 records.
+export const APP_RECORD_KIND_PATTERN = new RegExp(contract.apps.kindPattern)
+export const APP_RECORD_MAX_BYTES = contract.apps.recordMaxBytes
+export const APP_RECORD_KINDS_MAX = contract.apps.recordKindsMax
 
 /** `v{n}`, or the "no version" copy while an app has no head. */
 export function versionLabel(headVersion: number): string {
@@ -72,7 +76,7 @@ export function sortApps<T extends AppListLike>(apps: readonly T[]): T[] {
 export function editorBrief(app: { name: string; slug: string; headVersion: number; description?: string | null }): string {
   const lines = [
     `You are the editor session of the Exponential app "${app.name}" (slug \`${app.slug}\`, ${versionLabel(app.headVersion)}).${app.description?.trim() ? ` It is for: ${app.description.trim()}` : ``}`,
-    `An app is a declarative Exponential UI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: "get", slug: "${app.slug}"}; learn the components, bindings and functions with exponential_apps {op: "catalog"}; publish every change as a new version with exponential_apps {op: "upsert", slug: "${app.slug}", package, note}. The person sees the live preview beside this chat, so keep replies to one or two lines and publish early.`,
+    `An app is a declarative Exponential UI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: "get", slug: "${app.slug}"}; learn the components, bindings, host functions and records with exponential_apps {op: "catalog"}; publish every change as a new version with exponential_apps {op: "upsert", slug: "${app.slug}", package, note}. An app keeps its own data as RECORDS (declare the kinds in the manifest, bind exp:records, write with harness.records.upsert); seed or inspect them with exponential_apps {op: "records_upsert" | "records_list", slug: "${app.slug}", kind, data}. The person sees the live preview beside this chat, so keep replies to one or two lines and publish early.`,
   ]
   return lines.join(`\n`)
 }

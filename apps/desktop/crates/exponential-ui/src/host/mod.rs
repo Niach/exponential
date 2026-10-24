@@ -14,6 +14,7 @@ pub mod contract;
 pub mod decoders;
 pub mod package;
 pub mod policy;
+pub mod records;
 pub mod router;
 pub mod sources;
 
@@ -25,7 +26,8 @@ pub use policy::{
     safe_href, FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, MediaRule, UrlDecision, UrlPolicy, BUILTIN_FUNCTIONS,
 };
 pub use router::{normalize_path, HostRouter, SurfaceInfo};
-pub use sources::{parse_source, ParsedSource};
+pub use records::{is_record_kind, validate_record, validate_record_schema, RECORD_FIELD_TYPES, RECORD_FORMATS, RECORD_RESERVED_KEYS};
+pub use sources::{parse_source, source_with_params, ParsedSource};
 
 /// JavaScript's `String.prototype.trim` (WhiteSpace + LineTerminator).
 pub(crate) fn js_trim(s: &str) -> &str {

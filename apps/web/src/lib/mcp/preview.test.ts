@@ -81,6 +81,10 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   // VAPP-110: apps answer plain JSON (no entity chips yet).
   exponential_apps_catalog: [],
   exponential_apps_delete: [],
+  // VAPP-122
+  exponential_apps_records_delete: [],
+  exponential_apps_records_list: [],
+  exponential_apps_records_upsert: [],
   exponential_apps_get: [],
   exponential_apps_list: [],
   exponential_apps_upsert: [],
