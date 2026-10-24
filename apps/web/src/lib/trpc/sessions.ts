@@ -31,7 +31,7 @@ import {
   assertDeviceHost,
   loadSessionForUser,
 } from "@/lib/sessions/access"
-import { composeSessionBrief } from "@/lib/sessions/brief"
+import { composeSessionBrief, stampAgentInstructionsAt } from "@/lib/sessions/brief"
 import { configureSession, mcpPicks } from "@/lib/sessions/configure"
 import {
   cardAnswerInput,
@@ -417,7 +417,12 @@ export const sessionsRouter = router({
     .query(async ({ ctx, input }) => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
       await assertDeviceHost(ctx.session.user.id, session)
-      return composeSessionBrief(session.id)
+      const brief = await composeSessionBrief(session.id)
+      // #EXP-1383 (chats.json `agentHint`): the instructions this launch
+      // runs on are the ones of THIS moment (stamped after the compose read
+      // them, so an edit racing the fetch still reads as changed).
+      await stampAgentInstructionsAt(session.id)
+      return brief
     }),
 
   /** EXP-1334: the session's server-only MCP pick (sorted ids) — for

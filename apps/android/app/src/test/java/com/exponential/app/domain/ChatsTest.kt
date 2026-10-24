@@ -271,6 +271,30 @@ class ChatsTest {
     }
 
     @Test
+    fun `every agent hint case and the banner equal the fixture (EXP-1383)`() {
+        val hint = fixture.getValue("agentHint").jsonObject
+        val cases = hint.list("cases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            assertEquals(
+                case.str("name"),
+                case.bool("expected"),
+                Chats.agentInstructionsChanged(input.str("sessionStamp"), input.str("agentStamp")),
+            )
+        }
+        val banner = hint.getValue("banner").jsonObject
+        val row = Chats.AgentHint.banner
+        assertEquals(banner.str("id"), row.id)
+        assertEquals(banner.str("icon"), row.icon)
+        assertEquals(banner.str("label"), row.label)
+        assertEquals(banner.str("text"), row.text)
+        assertEquals(banner.str("tone"), row.tone.wire)
+        assertEquals(banner.str("action"), row.action)
+        assertEquals(hint.str("sends"), Chats.AgentHint.SENDS)
+    }
+
+    @Test
     fun `the copy, shell, sends and surface card equal the fixture`() {
         val copy = fixture.getValue("copy").jsonObject
         assertEquals(copy.str("title"), Chats.Copy.TITLE)
@@ -324,6 +348,8 @@ class ChatsTest {
         assertEquals(team.str("meta"), Chats.Copy.TEAM_META)
         assertEquals(team.str("switch"), Chats.Copy.TEAM_SWITCH)
         assertEquals(copy.str("inbox"), Chats.Copy.INBOX)
+        assertEquals(copy.str("loadEarlier"), Chats.Copy.LOAD_EARLIER)
+        assertEquals(copy.str("working"), Chats.Copy.WORKING)
         val headers = copy.getValue("headers").jsonObject
         assertEquals(headers.keys.toList(), Chats.Copy.HEADERS.keys.toList())
         for ((key, title) in Chats.Copy.HEADERS) assertEquals(headers.str(key), title)
@@ -332,7 +358,7 @@ class ChatsTest {
         assertEquals(
             setOf(
                 "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete",
-                "toasts", "dividers", "superseded", "boardChips", "team", "inbox",
+                "toasts", "dividers", "superseded", "boardChips", "team", "inbox", "loadEarlier", "working",
             ),
             copy.keys,
         )
@@ -388,7 +414,15 @@ class ChatsTest {
         assertEquals(ids.str("boardMenuRow"), Chats.TestIds.BOARD_MENU_ROW)
         assertEquals(ids.str("pageHeader"), Chats.TestIds.PAGE_HEADER)
         assertEquals(ids.str("searchButton"), Chats.TestIds.SEARCH_BUTTON)
-        assertEquals(13, ids.size)
+        assertEquals(15, ids.size)
+        assertEquals(ids.str("loadEarlier"), Chats.TestIds.LOAD_EARLIER)
+        assertEquals(ids.str("jumpToBottom"), Chats.TestIds.JUMP_TO_BOTTOM)
+
+        val transcript = fixture.getValue("transcript").jsonObject
+        assertEquals(transcript.getValue("window").jsonPrimitive.int, Chats.Transcript.WINDOW)
+        assertEquals(transcript.getValue("windowStep").jsonPrimitive.int, Chats.Transcript.WINDOW_STEP)
+        assertEquals(transcript.getValue("followSlack").jsonPrimitive.int, Chats.Transcript.FOLLOW_SLACK)
+        assertEquals(3, transcript.size)
 
         val sends = fixture.getValue("agentMenu").jsonObject.getValue("sends").jsonObject
         assertEquals(sends.str("compact"), Chats.agentMenuSend(Chats.AgentMenuEntry.Compact))

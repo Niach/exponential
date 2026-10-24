@@ -36,6 +36,8 @@ import { countThreadedComments, threadComments } from "@/lib/comment-threads"
 import { TimelineRow } from "@/components/comment-rows/timeline-row"
 import { relativeTime } from "@/components/comment-rows/format"
 import { displayUserName } from "@/lib/user-display"
+import { issueActor } from "@exp/domain-contract/agent-settings"
+import { useAllAgentRows } from "@/hooks/use-agent-row"
 import { getCommentBodyText } from "@/lib/domain"
 import type { WidgetSubmission } from "@/hooks/use-widget-submission"
 import {
@@ -167,6 +169,9 @@ export function IssueTimeline({
   }, [focusCommentId, commentCount])
 
   const userMap = useMemo(() => new Map(users.map((u) => [u.id, u])), [users])
+  // #EXP-1383: agent actors (events, comments, the creation row) resolve
+  // against the synced agents (`issueActor`).
+  const agents = useAllAgentRows()
   const labelMap = useMemo(
     () => new Map((labels ?? []).map((l) => [l.id, l as Label])),
     [labels]
@@ -213,6 +218,7 @@ export function IssueTimeline({
     const barriers: ActivityBarrier[] = list.map((comment) => ({
       issueId: comment.issueId,
       actorUserId: comment.authorId,
+      actorAgentId: comment.authorAgentId,
       createdAt: comment.createdAt,
     }))
     const folded = showAllActivity
@@ -311,29 +317,42 @@ export function IssueTimeline({
   // SLOP-4: a reporter comment (no author) edits for nobody and deletes for
   // any member — moderation of a stranger's words.
   const reporterName = submission?.reporterName ?? null
-  const cardProps = (comment: Comment): CommentCardProps => ({
-    author: comment.authorId ? userMap.get(comment.authorId) : undefined,
-    comment,
-    attachments: commentAttachmentMap.get(comment.id) ?? [],
-    canEdit: comment.authorId !== null && comment.authorId === currentUserId,
-    canDelete:
-      comment.source === `reporter` ||
-      (comment.authorId !== null && comment.authorId === currentUserId),
-    reporterName,
-    editing: editingCommentId === comment.id,
-    users,
-    onCancelEdit: () => setEditingCommentId(null),
-    onDelete: () => void handleDelete(comment.id),
-    onEdit: () => setEditingCommentId(comment.id),
-    onSaveEdit: (text, attachmentIds) =>
-      handleEditSave(comment, text, attachmentIds),
-  })
+  const cardProps = (comment: Comment): CommentCardProps => {
+    const who = issueActor(
+      { actorAgentId: comment.authorAgentId, actorUserId: comment.authorId },
+      agents
+    )
+    return {
+      author: comment.authorId ? userMap.get(comment.authorId) : undefined,
+      authorAgent: who?.kind === `agent` ? who : null,
+      comment,
+      attachments: commentAttachmentMap.get(comment.id) ?? [],
+      canEdit: comment.authorId !== null && comment.authorId === currentUserId,
+      canDelete:
+        comment.source === `reporter` ||
+        (comment.authorId !== null && comment.authorId === currentUserId),
+      reporterName,
+      editing: editingCommentId === comment.id,
+      users,
+      onCancelEdit: () => setEditingCommentId(null),
+      onDelete: () => void handleDelete(comment.id),
+      onEdit: () => setEditingCommentId(comment.id),
+      onSaveEdit: (text, attachmentIds) =>
+        handleEditSave(comment, text, attachmentIds),
+    }
+  }
 
   // Widget- and agent-filed issues have no creator (`creatorId` is NULL by
   // design), so they read as filed by their origin — the wording every client
-  // shares.
+  // shares. #EXP-1383: an agent session's issue names the AGENT.
+  const creator = issueActor(
+    { actorAgentId: issue.creatorAgentId, actorUserId: issue.creatorId },
+    agents
+  )
   const createdWho =
-    issue.source === `widget`
+    creator?.kind === `agent`
+      ? creator.name
+      : issue.source === `widget`
       ? `Feedback widget`
       : issue.source === `agent`
         ? `Agent`
@@ -404,6 +423,7 @@ export function IssueTimeline({
               userMap={userMap}
               labelMap={labelMap}
               boardMap={boardMap}
+              agents={agents}
               lineBelow={lineBelow}
             />
           )

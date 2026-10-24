@@ -1,10 +1,13 @@
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState, type ReactNode, type RefObject } from "react"
 import { SESSIONS_SEND_TEXT_MAX } from "@exp/db-schema/domain"
 import {
   AttachmentFileTile,
   AttachmentThumb,
   BoardGlyph,
   CHAT_BUBBLE_ENTER_CLASS,
+  LoadEarlierButton,
+  StableRow,
+  useTranscriptWindow,
   ChannelMessageRow,
   ChatBubble,
   Composer,
@@ -124,6 +127,8 @@ export function AgentChannel({
   onOpenSession,
   layout = `transcript`,
   onSurfaceReply,
+  scrollRef,
+  tail,
 }: {
   /** Thread 58cb32df (chats.json TRANSCRIPT): `bubbles` = the phones' chat
    *  bubbles (the person right, the agent left in bg-card). */
@@ -141,11 +146,27 @@ export function AgentChannel({
   canAnswer: boolean
   /** A card was tapped: its session row (a root opens its thread). */
   onOpenSession: (session: SessionRow) => void
+  /** #EXP-1380: the transcript's scroller (Load earlier keeps its place). */
+  scrollRef?: RefObject<HTMLElement | null>
+  /** #EXP-1380 (chats.json WORKING): the status line after the last row. */
+  tail?: ReactNode
 }) {
-  const now = useNow(1_000)
+  // #EXP-1380 (chats.json PERF): the clock only drives the session cards'
+  // elapsed time, so it ticks only while a card's session is live.
+  const liveCard = useMemo(() => {
+    const targets = new Set<string>()
+    for (const message of messages) {
+      const card = message.card as { kind?: unknown; sessionId?: unknown } | null
+      if ((card?.kind === `session` || card?.kind === `thread_started`) && typeof card.sessionId === `string`) {
+        targets.add(card.sessionId)
+      }
+    }
+    return teamSessions.some((row) => targets.has(row.id) && row.status !== `ended`)
+  }, [messages, teamSessions])
+  const now = useNow(liveCard ? 1_000 : 3_600_000)
   // EXP-1334: the thread has no root card any more, so every row is a
   // channel row (the first one is the agent's first message).
-  const rows = useMemo(
+  const allRows = useMemo(
     () =>
       conversation
         ? buildSessionThread({
@@ -160,6 +181,12 @@ export function AgentChannel({
         : [],
     [conversation, teamSessions, messages, now]
   )
+  const ownScrollRef = useRef<HTMLElement | null>(null)
+  // #EXP-1380 (chats.json WINDOW): the newest rows, `Load earlier` widens.
+  const transcript = useTranscriptWindow(allRows, scrollRef ?? ownScrollRef)
+  const rows = transcript.rows
+  // #EXP-1380: `useTreeMessages` loads the newest; `more` = older exist.
+  const moreMessages = Boolean((messages as { more?: boolean }).more)
   const messagesById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages])
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users])
   const sessionsById = useMemo(
@@ -167,6 +194,9 @@ export function AgentChannel({
     [teamSessions]
   )
   const { answer, pending } = useAnswerMessage()
+  // The callbacks a skipped (memoized) row holds read the latest ones.
+  const latest = useRef({ onOpenSession, onSurfaceReply, sessionsById })
+  latest.current = { onOpenSession, onSurfaceReply, sessionsById }
 
   const agentName = agent.name
   const agentLead = (
@@ -183,16 +213,19 @@ export function AgentChannel({
     const message = messagesById.get(id)
     return message ? userMessageTime(new Date(message.createdAt)) : null
   }
+  const authorOf = (row: ThreadRow) =>
+    row.type === `message` && row.author === `user` && row.authorId
+      ? usersById.get(row.authorId)
+      : undefined
 
   const render = (row: ThreadRow) => {
     if (row.type === `divider`) {
-      return <TranscriptDivider key={row.id} kind={row.kind} at={row.at} />
+      return <TranscriptDivider kind={row.kind} at={row.at} />
     }
     if (row.type === `message` && bubbles && row.author !== `system`) {
       const enter = arrived(row.id) ? CHAT_BUBBLE_ENTER_CLASS : undefined
       return row.author === `user` ? (
         <UserMessageBubble
-          key={row.id}
           variant="chat"
           text={row.body}
           renderText={renderThreadText}
@@ -201,17 +234,16 @@ export function AgentChannel({
           className={enter}
         />
       ) : (
-        <ChatBubble key={row.id} time={clock(row.id)} className={enter}>
+        <ChatBubble time={clock(row.id)} className={enter}>
           {renderThreadText(row.body)}
         </ChatBubble>
       )
     }
     if (row.type === `message`) {
-      const user = row.author === `user` && row.authorId ? usersById.get(row.authorId) : undefined
+      const user = authorOf(row)
       const name = row.author === `agent` ? agentName : (user?.name ?? ``)
       return (
         <ChannelMessageRow
-          key={row.id}
           lead={row.author === `agent` ? agentLead : <UserAvatar user={user} size={32} />}
           name={name}
           time={[time(row.id), row.queued ? `queued` : null].filter(Boolean).join(` · `)}
@@ -221,26 +253,33 @@ export function AgentChannel({
       )
     }
     if (row.type === `session`) {
-      const target = sessionsById.get(row.card.sessionId)
+      const sessionId = row.card.sessionId
       return (
-        <div key={row.id} className={bubbles ? undefined : `pl-11`}>
+        <div className={bubbles ? undefined : `pl-11`}>
           <SessionCard
             card={row.card}
-            onOpen={target ? () => onOpenSession(target) : undefined}
+            onOpen={
+              sessionsById.has(sessionId)
+                ? () => {
+                    const target = latest.current.sessionsById.get(sessionId)
+                    if (target) latest.current.onOpenSession(target)
+                  }
+                : undefined
+            }
           />
         </div>
       )
     }
     return (
-      <div key={row.id} className={bubbles ? undefined : `pl-11`}>
+      <div className={bubbles ? undefined : `pl-11`}>
         <ThreadConversation
           rows={[row]}
           renderText={renderThreadText}
-          attachmentSrc={(id) => `/api/attachments/${id}`}
+          attachmentSrc={attachmentSrc}
           onAnswer={canAnswer ? (id, input) => void answer(id, input) : undefined}
           onDecide={canAnswer ? (id, input) => void answer(id, input) : undefined}
           pending={pending}
-          onSurfaceReply={onSurfaceReply}
+          onSurfaceReply={onSurfaceReply ? (text) => latest.current.onSurfaceReply?.(text) : undefined}
           arrived={arrived}
         />
       </div>
@@ -249,10 +288,42 @@ export function AgentChannel({
 
   return (
     <div data-testid="agent-channel" data-layout={layout} className={cn(`flex flex-col`, bubbles ? `gap-2.5` : `gap-4`)}>
-      {rows.map(render)}
+      {transcript.canLoadEarlier || moreMessages ? (
+        <LoadEarlierButton
+          onClick={() => {
+            // #EXP-1380: the next older messages load as the window widens.
+            if (moreMessages) (messages as { loadEarlier?: () => void }).loadEarlier?.()
+            transcript.loadEarlier()
+          }}
+        />
+      ) : null}
+      {rows.map((row) => (
+        <StableRow
+          key={row.id}
+          row={row}
+          render={render}
+          deps={[
+            bubbles,
+            arrived(row.id),
+            row.type === `message` ? clock(row.id) : null,
+            row.type === `message` ? time(row.id) : null,
+            row.type === `message` ? authorOf(row) : null,
+            row.type === `session` ? sessionsById.has(row.card.sessionId) : null,
+            pending.has(row.id),
+            canAnswer,
+            !onSurfaceReply,
+            agentName,
+            agent.icon,
+            agent.color,
+          ]}
+        />
+      ))}
+      {tail}
     </div>
   )
 }
+
+const attachmentSrc = (id: string) => `/api/attachments/${id}`
 
 interface PendingFile {
   key: string

@@ -88,6 +88,10 @@ object Chats {
 
         const val INBOX = "Inbox"
 
+        /** #EXP-1380: the transcript's window button and its status line. */
+        const val LOAD_EARLIER = "Load earlier"
+        const val WORKING = "Working…"
+
         /** A divider kind's words (`copy.dividers`). */
         fun divider(kind: String): String = if (kind == DIVIDER_KIND_COMPACT) DIVIDER_COMPACT else DIVIDER_NEW
 
@@ -198,6 +202,17 @@ object Chats {
         const val BOARD_MENU_ROW = "board-menu-row"
         const val PAGE_HEADER = "page-header"
         const val SEARCH_BUTTON = "header-search"
+        const val LOAD_EARLIER = "transcript-load-earlier"
+        const val JUMP_TO_BOTTOM = "jump-to-bottom"
+    }
+
+    /** #EXP-1380 `transcript`: a chat paints its newest [WINDOW] rows, `Load
+     *  earlier` widens by [WINDOW_STEP]; the tail is followed within
+     *  [FOLLOW_SLACK] px of the bottom. */
+    object Transcript {
+        const val WINDOW = 100
+        const val WINDOW_STEP = 100
+        const val FOLLOW_SLACK = 32
     }
 
     /** `agentMenu.sends`: what Compact / New conversation send (one path
@@ -308,6 +323,36 @@ object Chats {
         DomainContract.messageCardKindPicture,
         DomainContract.messageCardKindSurface,
     )
+
+    /** #EXP-1383 (`agentHint.banner`): the agent chat's "Instructions
+     *  changed" Dock banner row; its action sends [AGENT_HINT_SENDS]. */
+    object AgentHint {
+        const val ID = "instructions"
+        const val ICON = "ui-info"
+        const val LABEL = "Instructions changed"
+        const val TEXT = "This conversation still follows the previous instructions"
+        const val TONE = "muted"
+        const val ACTION = "Start new conversation"
+        const val SENDS = Sends.NEW_CONVERSATION
+        /** The Dock row id the banner draws as. */
+        const val ROW_ID = "banner:$ID"
+
+        val banner: Dock.Source.Banner
+            get() = Dock.Source.Banner(id = ID, icon = ICON, label = LABEL, text = TEXT, tone = Dock.Tint.Muted, action = ACTION)
+    }
+
+    /**
+     * #EXP-1383 (`agentHint.cases`): the agent chat's root fetched its brief
+     * ([sessionStamp] = `sessions.agent_instructions_at`) before the agent's
+     * instructions last changed ([agentStamp] =
+     * `agents.instructions_updated_at`). Either stamp missing = no hint;
+     * equal = current.
+     */
+    fun agentInstructionsChanged(sessionStamp: String?, agentStamp: String?): Boolean {
+        val session = ms(sessionStamp) ?: return false
+        val agent = ms(agentStamp) ?: return false
+        return session < agent
+    }
 
     /** A builtin command line a person sent (`/new`, `/compact …`): the
      *  transcript paints it as a divider, never a bubble (`dividerCases`). */

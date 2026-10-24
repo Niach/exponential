@@ -135,7 +135,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
-             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns"]
+             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
+             "v79_agent_actors"]
         )
     }
 
@@ -192,7 +193,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
-             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns"]
+             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
+             "v79_agent_actors"]
         )
     }
 
@@ -494,7 +496,8 @@ final class DatabaseMigrationTests: XCTestCase {
                     """, arguments: [shape])
             }
         }
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        // Up to v78: v79 (#EXP-1383) adds new `issues` columns and resets it.
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v78_drop_actions_and_legacy_session_columns"))
         for shape in ["issues", "teams"] {
             let untouched = try pool.read { db in
                 try Row.fetchOne(
@@ -720,7 +723,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
-             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns"]
+             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
+             "v79_agent_actors"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -825,7 +829,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
-             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns"]
+             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
+             "v79_agent_actors"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1438,7 +1443,8 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        // Up to v78: v79 (#EXP-1383) adds new `issues` columns and resets it.
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v78_drop_actions_and_legacy_session_columns"))
         XCTAssertTrue(try pool.read { db in try db.tableExists("issue_drafts") })
         XCTAssertEqual(
             try columnNames(pool, "issue_drafts"),
@@ -1850,7 +1856,7 @@ final class DatabaseMigrationTests: XCTestCase {
             draftCols,
             ["id", "user_id", "team_id", "board_id", "title", "description",
              "status_id", "priority", "assignee_id", "label_ids", "due_date",
-             "created_at", "updated_at", "session_id"]
+             "created_at", "updated_at", "session_id", "assignee_agent_id"]
         )
 
         // status_id is NULLABLE: NULL means the team's Backlog builtin.
@@ -1868,14 +1874,16 @@ final class DatabaseMigrationTests: XCTestCase {
              "device_id", "cli", "account", "model", "effort", "plan_mode",
              "computer_use", "ultracode", "repository_id", "branch", "status", "busy",
              "needs_input", "blocked", "started_at", "last_turn_at", "ended_at",
-             "shared", "title", "guide", "created_at", "updated_at", "agent_id", "app_id"]
+             "shared", "title", "guide", "created_at", "updated_at", "agent_id", "app_id",
+             "agent_instructions_at", "started_by_agent_id"]
         )
         // NEW-2: agent definitions, events and prompts carry exactly the
         // shape allowlists (`instructions`, `trigger_state`, `body` never).
         XCTAssertEqual(
             try columnNames(pool, "agents"),
             ["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli",
-             "account", "model", "owner_id", "sort_order", "created_at", "updated_at"]
+             "account", "model", "owner_id", "sort_order", "created_at", "updated_at",
+             "instructions_updated_at"]
         )
         XCTAssertEqual(
             try columnNames(pool, "events"),
@@ -3217,7 +3225,7 @@ final class DatabaseMigrationTests: XCTestCase {
                     """, arguments: [id, conversation])
             }
         }
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v78_drop_actions_and_legacy_session_columns"))
         XCTAssertFalse(try columnNames(pool, "messages").contains("session_id"))
         try pool.read { db in
             XCTAssertEqual(try String.fetchAll(db, sql: "SELECT \"id\" FROM \"messages\""), ["m-kept"])
@@ -3272,7 +3280,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 VALUES ('si-1', 's-1', 'i-1', 't', 's-2', 'x', 'x')
                 """)
         }
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v78_drop_actions_and_legacy_session_columns"))
         let sessionCols = Set(try columnNames(pool, "sessions"))
         for (table, columns) in DatabaseManager.newEightDeadColumns {
             let cols = Set(try columnNames(pool, table))
@@ -3299,6 +3307,49 @@ final class DatabaseMigrationTests: XCTestCase {
         // The synced row still decodes and saves without the dropped columns.
         let row = try pool.read { db in try SessionEntity.fetchOne(db, key: "s-1") }
         XCTAssertEqual(row?.deviceId, "d")
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // #EXP-1383: v79 adds the agent-actor columns; a shape's cursor resets
+    // only when one of its columns was added, every other cursor stays, and
+    // a synced row decodes and saves carrying them.
+    func testAgentActorColumnsAdded() throws {
+        let pool = try makePool("exp1383-agent-actors")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v78_drop_actions_and_legacy_session_columns")
+        try pool.write { db in
+            for shape in ["issues", "comments", "issue-events", "pins"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        for (table, _, columns) in DatabaseManager.agentActorColumns {
+            let cols = Set(try columnNames(pool, table))
+            for column in columns {
+                XCTAssertTrue(cols.contains(column), "\(table).\(column)")
+            }
+        }
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["comments", "issue-events", "issues"])
+        }
+        let event = IssueEventEntity(
+            id: "e-1", issueId: "i-1", teamId: "t", actorUserId: "u", type: "status_changed",
+            payload: nil, createdAt: "x", updatedAt: "x", actorAgentId: "g-1"
+        )
+        try pool.write { db in try event.save(db) }
+        let read = try pool.read { db in try IssueEventEntity.fetchOne(db, key: "e-1") }
+        XCTAssertEqual(read?.actorAgentId, "g-1")
+        // Re-running converges (the guarded ALTERs add nothing twice).
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

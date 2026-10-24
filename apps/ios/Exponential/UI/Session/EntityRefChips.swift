@@ -352,7 +352,12 @@ enum EntityRefResolver {
             }
         }
         var subtitle = board?.name
-        if let assigneeId = issue.assigneeId {
+        if let agentId = issue.assigneeAgentId {
+            // #EXP-1383: an agent assignee reads by its name.
+            let name = try AgentDefinitionEntity.fetchOne(db, key: agentId)?.name
+                ?? AgentSettings.AssigneeCopy.agentFallback
+            subtitle = [subtitle, "Assigned to \(name)"].compactMap { $0 }.joined(separator: " · ")
+        } else if let assigneeId = issue.assigneeId {
             let assignee = try UserEntity.fetchOne(db, key: assigneeId)
             let name = memberDisplayName(assignee, id: assigneeId)
             subtitle = [subtitle, "Assigned to \(name)"].compactMap { $0 }.joined(separator: " · ")
@@ -428,11 +433,17 @@ enum EntityRefResolver {
         // SLOP-4: the same caption and name the comment card carries. A
         // reporter's reply reads as the anonymous reporter here (the issue
         // card names the submission's reporter).
-        let caption = ReporterReply.caption(source: comment.source, audience: comment.audience)
+        let caption = ReporterReply.caption(source: comment.source, audience: comment.audience, authorAgentId: comment.authorAgentId)
         let eyebrow = caption.map { "Comment · \($0)" } ?? "Comment"
         let title: String
         let icon: EntityPreviewModel.Icon
-        if let override = ReporterReply.authorNameOverride(
+        let agent = try comment.authorAgentId.flatMap { try AgentDefinitionEntity.fetchOne(db, key: $0) }
+        if let agent {
+            // #EXP-1383: an agent's comment names the AGENT, in its mark.
+            let mark = UserAvatarAgent(agent)
+            title = agent.name
+            icon = .glyph(mark.iconName, mark.tint)
+        } else if let override = ReporterReply.authorNameOverride(
             source: comment.source, authorSynced: author != nil, reporterName: nil
         ) {
             title = override

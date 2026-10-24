@@ -85,6 +85,24 @@ public enum Chats {
             }
         }
         public static let inbox = "Inbox"
+        /// #EXP-1380: the transcript window's ghost button.
+        public static let loadEarlier = "Load earlier"
+        /// #EXP-1380: the transcript's ONE status line while the chat works.
+        public static let working = "Working…"
+    }
+
+    /// Fixture `transcript` (#EXP-1380 WINDOW + FOLLOW ×4): a chat paints
+    /// its newest `window` rows, `Load earlier` widens by `windowStep`, the
+    /// tail is followed within `followSlack` px of the bottom.
+    public enum Transcript {
+        public static let window = 100
+        public static let windowStep = 100
+        public static let followSlack: Double = 32
+
+        /// The index of the first painted row: the newest `limit` of `count`.
+        public static func windowStart(count: Int, limit: Int) -> Int {
+            max(0, count - max(0, limit))
+        }
     }
 
     /// Fixture `testIds`.
@@ -102,6 +120,8 @@ public enum Chats {
         public static let boardMenuRow = "board-menu-row"
         public static let pageHeader = "page-header"
         public static let searchButton = "header-search"
+        public static let loadEarlier = "transcript-load-earlier"
+        public static let jumpToBottom = "jump-to-bottom"
     }
 
     /// Fixture `shell`.
@@ -227,6 +247,32 @@ public enum Chats {
         public static func childDelayMs(_ index: Int) -> Double {
             Children.startAfterMs + Children.staggerMs * Double(min(max(index, 0), Children.maxStaggered - 1))
         }
+    }
+
+    /// #EXP-1383 fixture `agentHint`: the agent chat's "Instructions
+    /// changed" Dock banner (dock.json kind `banner`, no new component); its
+    /// action sends `sends` exactly like the agent menu's New conversation.
+    public enum AgentHint {
+        public static let id = "instructions"
+        public static let icon = "ui-info"
+        public static let label = "Instructions changed"
+        public static let text = "This conversation still follows the previous instructions"
+        public static let tone = "muted"
+        public static let action = "Start new conversation"
+        public static let sends = "/new"
+        /// The Dock row id of the banner (`banner:<id>`).
+        public static let rowId = "banner:\(id)"
+    }
+
+    /// #EXP-1383 (`agentHint.cases`): the root session fetched its brief
+    /// before the agent's instructions last changed. Either stamp missing (or
+    /// unreadable) = no hint; equal = current.
+    public static func agentInstructionsChanged(sessionStamp: String?, agentStamp: String?) -> Bool {
+        guard let sessionStamp, !sessionStamp.isEmpty, let agentStamp, !agentStamp.isEmpty,
+              let session = WireTimestamps.parse(sessionStamp),
+              let agent = WireTimestamps.parse(agentStamp)
+        else { return false }
+        return session < agent
     }
 
     /// Fixture `agentMenu.sends`.

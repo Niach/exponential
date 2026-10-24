@@ -1,14 +1,10 @@
-import { useMemo, type ComponentProps } from "react"
+import { useMemo } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { ThreadsList } from "@exp/ui"
-import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
-import { useEnteringRows } from "@/hooks/use-entering-rows"
 import { pullRequestCollection } from "@/lib/collections"
 import type { PullRequestRow } from "@/lib/session-tree"
 
-// EXP-1293 Threads v2: the Threads page's list = `@exp/ui` `ThreadsList`
-// (THE one the styleguide renders, EXP-1339) fed the synced devices and
-// the band-change motion.
+// The team's pull requests by thread (the rail and the Chats list read them;
+// #EXP-1380 moved the Chats page itself onto `@exp/ui` `ChatList`).
 
 export { threadWordOf } from "@exp/ui"
 
@@ -35,14 +31,4 @@ export function useTeamPullRequestsByRoot(teamId: string | undefined): {
     }
     return { byRoot, all }
   }, [data])
-}
-
-export function ThreadsListView(
-  props: Omit<ComponentProps<typeof ThreadsList>, `deviceGlyph` | `entering`>
-) {
-  const deviceGlyph = useDeviceGlyphs()
-  const entering = useEnteringRows(
-    props.groups.flatMap((group) => group.rows.map((row) => `${group.key}:${row.sessionId}`))
-  )
-  return <ThreadsList {...props} deviceGlyph={deviceGlyph} entering={entering} />
 }

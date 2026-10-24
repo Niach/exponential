@@ -63,6 +63,10 @@ export const SESSION_COLUMNS = [
   `color`,
   `triggers`,
   `sort_order`,
+  // #EXP-1383: when the device last fetched the brief (`sessions.brief`).
+  `agent_instructions_at`,
+  // #EXP-1383: the agent whose session started this root.
+  `started_by_agent_id`,
   `created_at`,
   `updated_at`,
 ]

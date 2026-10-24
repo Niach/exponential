@@ -78,6 +78,7 @@ object AgentSettings {
         val EVENTS: Map<String, String> = mapOf(
             "issue.created" to "When an issue is created",
             "issue.status_changed" to "When an issue's status changes",
+            "issue.assigned" to "When an issue is assigned",
             "pr.opened" to "When a pull request opens",
             "pr.merged" to "When a pull request merges",
             "session.ended" to "When a session ends",
@@ -170,4 +171,85 @@ object AgentSettings {
             ?: options.firstOrNull { it.isLastUsed }
             ?: options.firstOrNull()
     }
+
+    /** #EXP-1383: a synced agent row as [issueActor] / [assigneeOptions] read it. */
+    data class AgentRowLike(
+        val id: String,
+        val name: String,
+        val icon: String?,
+        val color: String?,
+        val sortOrder: Double = 0.0,
+    )
+
+    /** #EXP-1383: who an issue event / comment / issue creation reads as. */
+    sealed interface IssueActor {
+        data class Agent(val id: String, val name: String, val icon: String?, val color: String?) : IssueActor
+        data class User(val id: String) : IssueActor
+    }
+
+    /**
+     * #EXP-1383 (`actor.actorCases`): a synced agent first, else the member,
+     * else null (the server / a widget reporter). An unsynced agent falls back
+     * to the member.
+     */
+    fun issueActor(actorAgentId: String?, actorUserId: String?, agents: List<AgentRowLike>): IssueActor? {
+        val agent = actorAgentId?.takeIf { it.isNotEmpty() }?.let { id -> agents.firstOrNull { it.id == id } }
+        if (agent != null) return IssueActor.Agent(agent.id, agent.name, agent.icon, agent.color)
+        if (!actorUserId.isNullOrEmpty()) return IssueActor.User(actorUserId)
+        return null
+    }
+
+    /** #EXP-1383: the assignee option id prefixes (`assignee.optionCases`). */
+    const val ASSIGNEE_UNASSIGNED = "unassigned"
+    const val ASSIGNEE_USER_PREFIX = "user:"
+    const val ASSIGNEE_AGENT_PREFIX = "agent:"
+
+    /** #EXP-1383: `assignee.copy.unassigned`. */
+    const val ASSIGNEE_UNASSIGNED_LABEL = "Unassigned"
+
+    /** The team's agents in assignee-picker order: sortOrder, then name, then id. */
+    fun <T> sortedAssigneeAgents(agents: List<T>, row: (T) -> AgentRowLike): List<T> =
+        agents.sortedWith(
+            compareBy<T> { row(it).sortOrder }
+                .thenComparator { a, b -> compareNames(row(a).name, row(b).name) }
+                .thenBy { row(it).id },
+        )
+
+    /** `localeCompare`-like: case-insensitive first, then exact. */
+    private fun compareNames(a: String, b: String): Int {
+        val folded = a.compareTo(b, ignoreCase = true)
+        return if (folded != 0) folded else a.compareTo(b)
+    }
+
+    /**
+     * #EXP-1383: the assignee picker's option ids ×4: unassigned, the members
+     * in the given order, then the team's agents by sortOrder then name.
+     */
+    fun assigneeOptions(memberIds: List<String>, agents: List<AgentRowLike>): List<String> =
+        listOf(ASSIGNEE_UNASSIGNED) +
+            memberIds.map { "$ASSIGNEE_USER_PREFIX$it" } +
+            sortedAssigneeAgents(agents) { it }.map { "$ASSIGNEE_AGENT_PREFIX${it.id}" }
+
+    /**
+     * #EXP-1383: an issue's assignee = ONE of two exclusive columns. Every
+     * write sends BOTH, the cleared one as an explicit null: an agent wins and
+     * clears the person.
+     */
+    data class Assignee(val userId: String?, val agentId: String?) {
+        val isEmpty: Boolean get() = userId.isNullOrEmpty() && agentId.isNullOrEmpty()
+
+        /** The two-column write. */
+        fun write(): Assignee = if (!agentId.isNullOrEmpty()) Assignee(null, agentId) else Assignee(userId?.takeIf { it.isNotEmpty() }, null)
+
+        companion object {
+            val NONE = Assignee(null, null)
+        }
+    }
+
+    /**
+     * #EXP-1383: a solo team hides its assignee control only while it has no
+     * agents (an agent is someone to assign to); a set agent assignee keeps it.
+     */
+    fun hidesAssigneeControl(memberCount: Int, agentCount: Int, assigneeAgentId: String? = null): Boolean =
+        memberCount == 1 && agentCount == 0 && assigneeAgentId.isNullOrEmpty()
 }

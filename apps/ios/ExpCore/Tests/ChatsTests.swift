@@ -261,6 +261,35 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(mirrored, sends)
     }
 
+    /// #EXP-1383 `agentHint`: the stamp compare and the banner row.
+    func testAgentHintCases() throws {
+        let hint = try XCTUnwrap(try fixture()["agentHint"] as? [String: Any])
+        let cases = try XCTUnwrap(hint["cases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            XCTAssertEqual(
+                Chats.agentInstructionsChanged(
+                    sessionStamp: input["sessionStamp"] as? String,
+                    agentStamp: input["agentStamp"] as? String
+                ),
+                try XCTUnwrap(testCase["expected"] as? Bool),
+                string(testCase["name"]) ?? ""
+            )
+        }
+        let banner = try XCTUnwrap(hint["banner"] as? [String: String])
+        XCTAssertEqual(banner, [
+            "id": Chats.AgentHint.id,
+            "icon": Chats.AgentHint.icon,
+            "label": Chats.AgentHint.label,
+            "text": Chats.AgentHint.text,
+            "tone": Chats.AgentHint.tone,
+            "action": Chats.AgentHint.action,
+        ])
+        XCTAssertEqual(hint["sends"] as? String, Chats.AgentHint.sends)
+        XCTAssertEqual(Chats.AgentHint.sends, Chats.agentMenuSends[.newConversation])
+    }
+
     func testReplyCases() throws {
         for testCase in try cases("replyCases") {
             let name = try XCTUnwrap(string(testCase["name"]))
@@ -334,9 +363,11 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(copy["team"] as? [String: String], ["meta": C.Team.meta, "switch": C.Team.`switch`])
         XCTAssertEqual(C.Team.metaLine(members: 8, boards: 3), "8 members · 3 boards")
         XCTAssertEqual(copy["inbox"] as? String, C.inbox)
+        XCTAssertEqual(copy["loadEarlier"] as? String, C.loadEarlier)
+        XCTAssertEqual(copy["working"] as? String, C.working)
         XCTAssertEqual(Set(copy.keys), [
             "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete", "toasts", "dividers",
-            "superseded", "boardChips", "team", "inbox",
+            "superseded", "boardChips", "team", "inbox", "loadEarlier", "working",
         ])
         XCTAssertEqual(AskDock.Copy.superseded, C.superseded)
     }
@@ -350,7 +381,14 @@ final class ChatsTests: XCTestCase {
             "surfaceCard": T.surfaceCard, "divider": T.divider, "tabBoard": T.tabBoard,
             "boardMenu": T.boardMenu, "boardMenuRow": T.boardMenuRow, "pageHeader": T.pageHeader,
             "searchButton": T.searchButton,
+            "loadEarlier": T.loadEarlier, "jumpToBottom": T.jumpToBottom,
         ])
+        let transcript = try XCTUnwrap(fixture["transcript"] as? [String: Any])
+        XCTAssertEqual(transcript["window"] as? Int, Chats.Transcript.window)
+        XCTAssertEqual(transcript["windowStep"] as? Int, Chats.Transcript.windowStep)
+        XCTAssertEqual(transcript["followSlack"] as? Double, Chats.Transcript.followSlack)
+        XCTAssertEqual(Chats.Transcript.windowStart(count: 1500, limit: 100), 1400)
+        XCTAssertEqual(Chats.Transcript.windowStart(count: 40, limit: 100), 0)
         XCTAssertEqual(fixture["filters"] as? [String], Chats.filters.map(\.rawValue))
 
         let shell = try XCTUnwrap(fixture["shell"] as? [String: Any])

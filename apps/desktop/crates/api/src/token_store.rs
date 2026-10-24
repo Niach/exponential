@@ -43,7 +43,21 @@ pub enum SecretKind {
     /// the tag existed, which `ensure_personal_key` regenerates once so the
     /// server can tell the agent's key from the person's.
     PersonalApiKeyPurpose,
+    /// #EXP-1383: the hidden `expu_` agent key scoped to ONE team (the
+    /// value = that team's id), minted for the sessions of an agent's
+    /// conversation tree in that team (`users::ensure_agent_team_key`) and
+    /// valid on `/api/mcp` only. Never the device's full
+    /// [`SecretKind::PersonalApiKey`]: a prompt-injected agent holding it
+    /// reaches nothing outside its team.
+    AgentTeamKey(String),
+    /// #EXP-1383: the server row id of [`SecretKind::AgentTeamKey`] for the
+    /// same team (not a secret; kept so a re-mint revokes the old row).
+    AgentTeamKeyId(String),
 }
+
+/// #EXP-1383: the per-team agent keys' directory under an account
+/// (`accounts/<id>/agent-team-keys/`).
+const AGENT_TEAM_KEYS_DIR: &str = "agent-team-keys";
 
 impl SecretKind {
     /// Stable file name per kind. `SessionToken` is literally `token`,
@@ -54,7 +68,29 @@ impl SecretKind {
             SecretKind::PersonalApiKey => PathBuf::from("personal-key"),
             SecretKind::PersonalApiKeyId => PathBuf::from("personal-key-id"),
             SecretKind::PersonalApiKeyPurpose => PathBuf::from("personal-key-purpose"),
+            SecretKind::AgentTeamKey(team_id) => {
+                PathBuf::from(AGENT_TEAM_KEYS_DIR).join(team_file_name(team_id))
+            }
+            SecretKind::AgentTeamKeyId(team_id) => {
+                PathBuf::from(AGENT_TEAM_KEYS_DIR).join(format!("{}.id", team_file_name(team_id)))
+            }
         }
+    }
+}
+
+/// A team id as ONE safe file name: server ids are untrusted here, so only
+/// `[A-Za-z0-9_-]` survives (a crafted `../x` can never leave the keys
+/// dir); an id with nothing left keys the `_` file, which no real team id
+/// (a uuid) ever collides with.
+fn team_file_name(team_id: &str) -> String {
+    let clean: String = team_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if clean.is_empty() {
+        "_".to_string()
+    } else {
+        clean
     }
 }
 
@@ -113,6 +149,8 @@ impl TokenStore {
         ] {
             self.delete(account_id, kind);
         }
+        // #EXP-1383: every per-team agent key of the account goes with it.
+        let _ = fs::remove_dir_all(self.account_dir(account_id).join(AGENT_TEAM_KEYS_DIR));
         self.purge_retired_mcp(account_id);
     }
 
@@ -345,6 +383,48 @@ mod tests {
                 .as_deref(),
             Some("expu_k")
         );
+    }
+
+    /// #EXP-1383: a team's agent key is its own slot per (account, team),
+    /// stored 0600 under `agent-team-keys/`, a crafted team id never leaves
+    /// that dir, and `delete_all` takes every team's key with the account.
+    #[test]
+    fn agent_team_keys_are_per_team_slots() {
+        let dir = TempDir::new("teamkeys");
+        let store = TokenStore::new(dir.0.clone());
+        let team = |id: &str| SecretKind::AgentTeamKey(id.to_string());
+        store.set("a", SecretKind::PersonalApiKey, "expu_device").unwrap();
+        store.set("a", team("t-1"), "expu_t1").unwrap();
+        store.set("a", SecretKind::AgentTeamKeyId("t-1".to_string()), "row-1").unwrap();
+        store.set("a", team("t-2"), "expu_t2").unwrap();
+        assert_eq!(store.get("a", team("t-1")).as_deref(), Some("expu_t1"));
+        assert_eq!(store.get("a", team("t-2")).as_deref(), Some("expu_t2"));
+        assert_eq!(
+            store.get("a", SecretKind::AgentTeamKeyId("t-1".to_string())).as_deref(),
+            Some("row-1")
+        );
+        assert_eq!(store.get("b", team("t-1")), None);
+        assert_eq!(store.get("a", SecretKind::PersonalApiKey).as_deref(), Some("expu_device"));
+        let keys = dir.0.join("accounts").join("a").join("agent-team-keys");
+        assert!(keys.join("t-1").is_file());
+        assert!(keys.join("t-1.id").is_file());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(keys.join("t-1")).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+            let dir_mode = fs::metadata(&keys).unwrap().permissions().mode() & 0o777;
+            assert_eq!(dir_mode, 0o700);
+        }
+        // A crafted id stays inside the keys dir.
+        store.set("a", team("../../escape"), "expu_x").unwrap();
+        assert!(keys.join("escape").is_file());
+        assert!(!dir.0.join("accounts").join("escape").exists());
+
+        store.delete_all("a");
+        assert_eq!(store.get("a", team("t-1")), None);
+        assert_eq!(store.get("a", team("t-2")), None);
+        assert!(!keys.exists());
     }
 
     #[test]

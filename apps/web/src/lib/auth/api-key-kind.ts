@@ -18,6 +18,8 @@
 // refuses it (lib/auth/resolve-bearer.ts), the way OAuth tokens are refused
 // there. A key without a stored scope (every key minted before FEED-76,
 // device keys, agent keys, "Everything" picks) stays a full key.
+// #EXP-1383: a TEAM agent's key (`mintPersonalApiKey({purpose: 'agent',
+// teamId})`) stores the one-team scope and is MCP-only the same way.
 //
 // How a request maps to its key: the Better Auth api-key plugin
 // (`enableSessionForAPIKeys`) builds a mock session whose `session.id` IS
@@ -181,3 +183,6 @@ export const SCOPED_API_KEY_MESSAGE = `This API key is scoped to selected teams/
 /** FEED-76: the agent's hidden key must keep the launcher's full access. */
 export const AGENT_KEY_SCOPE_MESSAGE = `An agent key cannot be scoped`
 export const AGENT_KEY_MANAGES_MCP_MESSAGE = `Agent keys cannot manage MCP servers or their credentials`
+/** #EXP-1383: `teamId` confines an AGENT key to one team (never with a
+ *  consent `scope`, never on a person's key). */
+export const AGENT_KEY_TEAM_MESSAGE = `teamId mints a team agent's key: pass it with purpose 'agent' and no scope`

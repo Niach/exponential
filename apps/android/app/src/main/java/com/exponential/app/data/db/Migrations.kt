@@ -397,6 +397,45 @@ val MIGRATION_95_96: Migration = object : Migration(95, 96) {
     }
 }
 
+/**
+ * v97 (#EXP-1383, agents act as themselves): `agents.instructions_updated_at`,
+ * `sessions.agent_instructions_at` + `started_by_agent_id`,
+ * `issues.assignee_agent_id` + `creator_agent_id`,
+ * `issue_drafts.assignee_agent_id`, `issue_events.actor_agent_id` and
+ * `comments.author_agent_id`, all nullable. The six shapes refetch so
+ * already-synced rows re-arrive carrying them.
+ */
+val MIGRATION_96_97: Migration = object : Migration(96, 97) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        for ((table, column) in AGENT_ACTOR_COLUMNS_V97) {
+            // Idempotent: a file that already carries the column keeps it.
+            val present = db.query("PRAGMA table_info(`$table`)").use { cursor ->
+                val name = cursor.getColumnIndex("name")
+                var found = false
+                while (cursor.moveToNext()) if (cursor.getString(name) == column) found = true
+                found
+            }
+            if (!present) db.execSQL("ALTER TABLE `$table` ADD COLUMN `$column` TEXT")
+        }
+        val shapes = AGENT_ACTOR_COLUMNS_V97.map { it.first }.distinct().joinToString(", ") { "'$it'" }
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` IN ($shapes)",
+        )
+    }
+}
+
+internal val AGENT_ACTOR_COLUMNS_V97: List<Pair<String, String>> = listOf(
+    "agents" to "instructions_updated_at",
+    "sessions" to "agent_instructions_at",
+    "sessions" to "started_by_agent_id",
+    "issues" to "assignee_agent_id",
+    "issues" to "creator_agent_id",
+    "issue_drafts" to "assignee_agent_id",
+    "issue_events" to "actor_agent_id",
+    "comments" to "author_agent_id",
+)
+
 private const val PINS_V96 =
     "CREATE TABLE IF NOT EXISTS `pins` (`id` TEXT NOT NULL, `user_id` TEXT NOT NULL, " +
         "`team_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `issue_id` TEXT, `session_id` TEXT, " +

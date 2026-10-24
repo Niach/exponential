@@ -20,6 +20,11 @@ const USERS = [
   { id: `u-2`, name: `Alan Turing`, email: `alan@example.com`, image: null },
 ] as unknown as User[]
 
+const AGENTS = [
+  { id: `g-2`, name: `Zed`, icon: `bot`, color: `#22c55e`, sortOrder: 0 },
+  { id: `g-1`, name: `Sloppy`, icon: `bot`, color: `#3b82f6`, sortOrder: 0 },
+]
+
 const rows = () =>
   Array.from(document.querySelectorAll(`[data-slot=command-item]`))
 
@@ -27,11 +32,13 @@ describe(`AssigneePicker`, () => {
   const onSelect = vi.fn()
   beforeEach(() => onSelect.mockReset())
 
-  const open = (selectedUserId: string | null) => {
+  const open = (selectedUserId: string | null, selectedAgentId: string | null = null) => {
     render(
       <AssigneePicker
         users={USERS}
+        agents={AGENTS}
         selectedUserId={selectedUserId}
+        selectedAgentId={selectedAgentId}
         onSelect={onSelect}
       />
     )
@@ -41,13 +48,13 @@ describe(`AssigneePicker`, () => {
   it(`offers Unassign with no sentinel value and reports null`, () => {
     open(`u-1`)
     const all = rows()
-    expect(all).toHaveLength(3)
+    expect(all).toHaveLength(5)
     expect(all[0]!.textContent).toContain(`Unassign`)
     for (const row of all) {
       expect(row.outerHTML).not.toContain(`__`)
     }
     fireEvent.click(all[0]!)
-    expect(onSelect).toHaveBeenCalledWith(null)
+    expect(onSelect).toHaveBeenCalledWith({ assigneeId: null, assigneeAgentId: null })
   })
 
   it(`checks the assigned row and reports the pick`, () => {
@@ -56,7 +63,7 @@ describe(`AssigneePicker`, () => {
       rows()[2]!.querySelector(`[data-selected-glyph=check]`)
     ).toBeTruthy()
     fireEvent.click(rows()[1]!)
-    expect(onSelect).toHaveBeenCalledWith(`u-1`)
+    expect(onSelect).toHaveBeenCalledWith({ assigneeId: `u-1`, assigneeAgentId: null })
   })
 
   it(`searches on the email as well as the name`, () => {
@@ -73,5 +80,35 @@ describe(`AssigneePicker`, () => {
     expect(
       row.querySelector(`[data-slot=picker-description]`)?.textContent
     ).toBe(`alan@example.com`)
+  })
+
+  // #EXP-1383 (agent-settings.json `assignee`): the team's agents follow the
+  // members (sortOrder, then name), each with THE AGENT MARK.
+  it(`lists the agents after the members, with their mark`, () => {
+    open(null)
+    const labels = rows().map((row) => row.textContent)
+    expect(labels.slice(3)).toEqual([`Sloppy`, `Zed`])
+    expect(rows()[3]!.querySelector(`[data-slot=agent-avatar]`)).toBeTruthy()
+  })
+
+  it(`picking an agent clears the person`, () => {
+    open(`u-1`)
+    fireEvent.click(rows()[4]!)
+    expect(onSelect).toHaveBeenCalledWith({ assigneeId: null, assigneeAgentId: `g-2` })
+  })
+
+  it(`checks the assigned agent`, () => {
+    open(null, `g-1`)
+    expect(rows()[3]!.querySelector(`[data-selected-glyph=check]`)).toBeTruthy()
+    expect(rows()[1]!.querySelector(`[data-selected-glyph=check]`)).toBeFalsy()
+  })
+
+  it(`searches agent names`, () => {
+    open(null)
+    fireEvent.change(
+      document.querySelector(`[data-slot=command-input]`) as HTMLInputElement,
+      { target: { value: `slop` } }
+    )
+    expect(rows().map((row) => row.textContent)).toEqual([`Sloppy`])
   })
 })

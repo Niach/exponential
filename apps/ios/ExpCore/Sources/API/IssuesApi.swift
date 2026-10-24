@@ -13,6 +13,9 @@ public struct CreateIssueInput: Encodable, Sendable {
     public var statusId: String?
     public var priority: String?
     public var assigneeId: String?
+    /// #EXP-1383: a team AGENT assignee (exclusive with `assigneeId`; the
+    /// server takes the agent when both are set). Nil is omitted.
+    public var assigneeAgentId: String?
     public var description: String?
     public var dueDate: String?
     public var labelIds: [String]?
@@ -43,8 +46,10 @@ public struct CreateIssueInput: Encodable, Sendable {
         labelIds: [String]? = nil,
         draftId: String? = nil,
         parentId: String? = nil,
-        sessionId: String? = nil
+        sessionId: String? = nil,
+        assigneeAgentId: String? = nil
     ) {
+        self.assigneeAgentId = assigneeAgentId
         self.boardId = boardId
         self.title = title
         self.status = status
@@ -70,6 +75,8 @@ public struct UpdateIssueInput: Encodable, Sendable {
     public var statusId: String?
     public var priority: String?
     public var assigneeId: String?
+    /// #EXP-1383: a team AGENT assignee (exclusive with `assigneeId`).
+    public var assigneeAgentId: String?
     public var description: String?
     public var dueDate: String?
     /// Canonical issue this one duplicates — set together with
@@ -110,7 +117,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, status, statusId, priority, assigneeId, description
+        case id, title, status, statusId, priority, assigneeId, assigneeAgentId, description
         case dueDate
         case duplicateOfId
         case estimate
@@ -124,6 +131,7 @@ public struct UpdateIssueInput: Encodable, Sendable {
         try c.encodeIfPresent(statusId, forKey: .statusId)
         try c.encodeIfPresent(priority, forKey: .priority)
         try encodeNullable(assigneeId, forKey: .assigneeId, in: &c)
+        try encodeNullable(assigneeAgentId, forKey: .assigneeAgentId, in: &c)
         try encodeNullable(description, forKey: .description, in: &c)
         try encodeNullable(dueDate, forKey: .dueDate, in: &c)
         try encodeNullable(duplicateOfId, forKey: .duplicateOfId, in: &c)
@@ -161,6 +169,8 @@ public struct BulkUpdateIssuesInput: Encodable, Sendable {
     public var statusId: String?
     public var priority: String?
     public var assigneeId: String?
+    /// #EXP-1383: a team AGENT assignee (exclusive with `assigneeId`).
+    public var assigneeAgentId: String?
 
     /// Fields listed here are encoded as JSON null (not omitted).
     public var explicitNulls: Set<String> = []
@@ -184,7 +194,7 @@ public struct BulkUpdateIssuesInput: Encodable, Sendable {
     enum CodingKeys: String, CodingKey {
         // EXP-707: the wire name is `issueIds` (renamed from `ids`).
         case ids = "issueIds"
-        case status, statusId, priority, assigneeId
+        case status, statusId, priority, assigneeId, assigneeAgentId
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -197,6 +207,11 @@ public struct BulkUpdateIssuesInput: Encodable, Sendable {
             try c.encode(assigneeId, forKey: .assigneeId)
         } else if explicitNulls.contains(CodingKeys.assigneeId.rawValue) {
             try c.encodeNil(forKey: .assigneeId)
+        }
+        if assigneeAgentId != nil {
+            try c.encode(assigneeAgentId, forKey: .assigneeAgentId)
+        } else if explicitNulls.contains(CodingKeys.assigneeAgentId.rawValue) {
+            try c.encodeNil(forKey: .assigneeAgentId)
         }
     }
 }
@@ -346,6 +361,9 @@ public struct FetchedIssue: Decodable, Sendable {
     public let draftId: String?
     public let createdAt: String
     public let updatedAt: String
+    /// #EXP-1383: optional, so a server that predates the columns decodes.
+    public let assigneeAgentId: String?
+    public let creatorAgentId: String?
 }
 
 /// `issues.create`'s envelope. The id is the only REQUIRED part; the full

@@ -10,6 +10,8 @@ import {
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
 import {
+  agents,
+  apps,
   attachments,
   boards,
   devices,
@@ -103,6 +105,66 @@ async function loadCallerSession(userId: string, callerSessionId?: string | null
     .limit(1)
   if (!row || !(await isSessionPrincipal(userId, row))) return null
   return row
+}
+
+export const AGENT_TEAM_ONLY_MESSAGE = `A team agent works only in its own team`
+
+/** #EXP-1383: a tree's ACTING agent: the agent of a conversation root,
+ *  else the agent whose session started the root (`started_by_agent_id`). */
+export function treeAgentId(root: Pick<Session, `agentId` | `startedByAgentId`>): string | null {
+  return root.agentId ?? root.startedByAgentId ?? null
+}
+
+/** The acting agent of the caller's tree (null = not an agent tree). */
+async function callerTreeAgentId(caller: Session | null): Promise<string | null> {
+  if (!caller) return null
+  if (caller.rootId === caller.id) return treeAgentId(caller)
+  const [root] = await db
+    .select({ agentId: sessions.agentId, startedByAgentId: sessions.startedByAgentId })
+    .from(sessions)
+    .where(eq(sessions.id, caller.rootId))
+    .limit(1)
+  return root ? treeAgentId(root) : null
+}
+
+/** #EXP-1383: the team an AGENT-tree caller is confined to, or null for
+ *  every other caller. */
+async function agentTreeTeam(caller: Session | null): Promise<string | null> {
+  return (await callerTreeAgentId(caller)) ? caller!.teamId : null
+}
+
+/** The team a send lands in (null = its target does not exist: the form's
+ *  own lookup answers NOT_FOUND). */
+async function sendTargetTeam(input: SessionsSendInput, caller: Session | null): Promise<string | null> {
+  const sessionTeam = async (id: string) =>
+    (await db.select({ teamId: sessions.teamId }).from(sessions).where(eq(sessions.id, id)).limit(1))[0]?.teamId ??
+    null
+  if (input.sessionId) return sessionTeam(input.sessionId)
+  if (input.agentId) {
+    return (
+      (await db.select({ teamId: agents.teamId }).from(agents).where(eq(agents.id, input.agentId)).limit(1))[0]
+        ?.teamId ?? null
+    )
+  }
+  if (input.appId) {
+    return (
+      (await db.select({ teamId: apps.teamId }).from(apps).where(eq(apps.id, input.appId)).limit(1))[0]?.teamId ??
+      null
+    )
+  }
+  if (input.parentId) return sessionTeam(input.parentId)
+  return input.teamId ?? caller?.teamId ?? null
+}
+
+/** #EXP-1383: a caller speaking for an agent-tree session sends into, and
+ *  starts sessions in, that session's team only (FORBIDDEN else). */
+async function assertAgentTreeTeam(input: SessionsSendInput, caller: Session | null): Promise<void> {
+  const teamId = await agentTreeTeam(caller)
+  if (!teamId) return
+  const target = await sendTargetTeam(input, caller)
+  if ((input.teamId && input.teamId !== teamId) || (target && target !== teamId)) {
+    throw new TRPCError({ code: `FORBIDDEN`, message: AGENT_TEAM_ONLY_MESSAGE })
+  }
 }
 
 /**
@@ -385,6 +447,7 @@ export async function sendSession(args: {
   const uploaderIds = [...new Set([args.userId, starter])]
   const { input } = args
   if (!input.sessionId && !input.agentId) assertRunnerVocabulary(input)
+  await assertAgentTreeTeam(input, caller)
 
   const extras = args.extras ?? {}
   let outcome: SendOutcome
@@ -1017,7 +1080,10 @@ async function startRoot(
         ? caller
         : ((await db.select().from(sessions).where(eq(sessions.id, caller.rootId)).limit(1))[0] ?? null)
       : null
-  const deviceId = input.deviceId ?? (callerRoot?.agentId ? callerRoot.deviceId : undefined)
+  const deviceId = input.deviceId ?? (callerRoot && treeAgentId(callerRoot) ? callerRoot.deviceId : undefined)
+  // #EXP-1383: a root an agent tree starts stays that agent's tree (its
+  // team boundary, its actor stamps, its team key on the device).
+  const startedByAgentId = await callerTreeAgentId(caller)
   if (!deviceId) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `Pick a device for the new session` })
   }
@@ -1058,6 +1124,7 @@ async function startRoot(
       kind: `thread`,
       userId,
       deviceId,
+      startedByAgentId,
       // NEW-1: the root WORKS: the composer's picks are its own.
       ...runnerFields(input),
       mcpServerIds,

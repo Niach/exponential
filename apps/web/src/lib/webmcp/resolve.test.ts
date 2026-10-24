@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   resolveAssignee,
+  resolveAssigneeRef,
   resolveBoard,
   resolveIssue,
   resolveLabels,
@@ -88,6 +89,23 @@ describe(`resolveAssignee`, () => {
     expect(() => resolveAssignee(`nobody`, users)).toThrow(
       /danny@example\.com/
     )
+  })
+})
+
+describe(`resolveAssigneeRef (#EXP-1383)`, () => {
+  const users = [{ id: `u1`, name: `Danny`, email: `danny@example.com` }]
+  const agents = [{ id: `g1`, name: `Sloppy` }]
+  it(`resolves an agent by name`, () => {
+    expect(resolveAssigneeRef(`sloppy`, users, agents)).toEqual({ assigneeId: null, assigneeAgentId: `g1` })
+  })
+  it(`resolves a member by email first`, () => {
+    expect(resolveAssigneeRef(`danny@example.com`, users, agents).assigneeAgentId).toBeNull()
+  })
+  it(`null clears both`, () => {
+    expect(resolveAssigneeRef(null, users, agents)).toEqual({ assigneeId: null, assigneeAgentId: null })
+  })
+  it(`lists agents when nothing matches`, () => {
+    expect(() => resolveAssigneeRef(`nobody`, users, agents)).toThrow(/Agents: Sloppy/)
   })
 })
 

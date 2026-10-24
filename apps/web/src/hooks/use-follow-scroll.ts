@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
+import { CHATS_TRANSCRIPT } from "@exp/domain-contract/chats"
 
 // EXP-1316 (1n): THE bottom-anchored feed's scroll, ×web — the session view's
 // transcript and a thread's Conversation (a thread is basically a session):
@@ -7,8 +8,9 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 // EXP-440: rows finish laying out AFTER the pin effect (deferred markdown,
 // decoded images), so every growth of the content column re-pins too.
 
-/** Within this many px of the tail counts as "at the bottom". */
-export const FOLLOW_SCROLL_SLACK = 32
+/** Within this many px of the tail counts as "at the bottom"
+ *  (chats.json `transcript.followSlack`, #EXP-1383). */
+export const FOLLOW_SCROLL_SLACK = CHATS_TRANSCRIPT.followSlack
 
 export interface FollowScroll {
   /** The scroller. */
@@ -30,10 +32,16 @@ export function useFollowScroll(deps: readonly unknown[]): FollowScroll {
   const [atBottom, setAtBottom] = useState(true)
   const [scrolled, setScrolled] = useState(false)
 
+  // #EXP-1383: the re-pin below reads this ref, written on the scroll event
+  // itself: a reader who scrolled up is never yanked back by a row that
+  // grows before React commits the state (a busy main thread).
+  const atBottomRef = useRef(true)
   const onScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
-    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SCROLL_SLACK)
+    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_SCROLL_SLACK
+    atBottomRef.current = bottom
+    setAtBottom(bottom)
     setScrolled(el.scrollTop > 0)
   }, [])
 
@@ -43,11 +51,10 @@ export function useFollowScroll(deps: readonly unknown[]): FollowScroll {
       if (typeof el.scrollTo === `function`) el.scrollTo({ top: el.scrollHeight })
       else el.scrollTop = el.scrollHeight
     }
+    atBottomRef.current = true
     setAtBottom(true)
   }, [])
 
-  const atBottomRef = useRef(atBottom)
-  atBottomRef.current = atBottom
   const observerRef = useRef<ResizeObserver | null>(null)
   const contentRef = useCallback((node: HTMLDivElement | null) => {
     observerRef.current?.disconnect()

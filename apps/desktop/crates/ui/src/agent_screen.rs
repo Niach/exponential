@@ -25,8 +25,8 @@ use std::time::Instant;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle,
-    Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render,
-    ScrollHandle, SharedString, Styled, Subscription, Window,
+    Focusable, FollowMode, FontWeight, InteractiveElement as _, IntoElement, ListAlignment, ListState,
+    ParentElement, Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::input::{InputEvent, TextareaState};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _};
@@ -40,6 +40,7 @@ use crate::controls::WebControl as _;
 use gpui_component::button::ButtonVariants as _;
 use crate::icons::registry;
 use crate::markdown::ImageCache;
+use crate::transcript_rows::{plan_list_sync, ListOp, RowKey, WORKING_ROW_ID};
 
 /// The channel's reading column.
 const CHANNEL_W: f32 = 1040.;
@@ -52,6 +53,24 @@ const MARKER_PX: f32 = 24.;
 /// A card row lines up with the comment cards: the timeline gutter (28px)
 /// plus its gap.
 const CARD_INSET: f32 = 36.;
+
+/// #EXP-1380: how far beyond the viewport the conversation renders and
+/// measures rows (the thread's `CONVERSATION_OVERDRAW`).
+const CHANNEL_OVERDRAW: gpui::Pixels = px(1024.);
+
+/// #EXP-1380: the conversation list's projection (the thread screen's
+/// recipe): the window over the rows, what the list was last told.
+#[derive(Default)]
+struct ChannelRows {
+    /// The window's first row in the model's rows.
+    start: usize,
+    /// Whether the Working… tail is the last list row.
+    tail: bool,
+    keys: Vec<RowKey>,
+    window: crate::chat_transcript::TranscriptWindow,
+    /// What the keys were built for (rows generation, tail, start).
+    synced: Option<(u64, bool, usize)>,
+}
 
 /// The page whose agent is not (or no longer) there (web `$agentId.tsx`).
 const AGENT_NOT_FOUND: &str = "Not found";
@@ -132,7 +151,10 @@ pub struct AgentScreenView {
     /// The caller's own conversation session with the agent (a root with
     /// that `agent_id` and `user_id` = me); `None` before the first message.
     conversation: Option<SessionRow>,
-    rows: Vec<SessionThreadRow>,
+    /// #EXP-1380: shared, never deep-cloned per frame.
+    rows: std::rc::Rc<Vec<SessionThreadRow>>,
+    /// Bumped on every [`Self::refresh`]: what the list sync diffs on.
+    rows_gen: u64,
     messages: std::collections::HashMap<String, MessageRow>,
     images: Entity<ImageCache>,
     /// THE session composer, targeting the conversation root (keyed by its
@@ -149,9 +171,14 @@ pub struct AgentScreenView {
     on_dock_side: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App)>>,
     /// The name the placeholder was built for.
     placeholder_name: Option<String>,
-    scroll: ScrollHandle,
-    /// EXP-1316 (1n): the channel follows its tail like the session feed.
-    follow: crate::controls::TailFollow,
+    /// #EXP-1380: a [`Self::queue_refresh`] is pending.
+    refresh_queued: bool,
+    /// #EXP-1380 PERF: the virtualised conversation (`gpui::list` renders
+    /// and measures only the rows in and around the viewport);
+    /// [`FollowMode::Tail`] = EXP-1316 (1n)'s follow (opens on the newest
+    /// row, pinned until the reader scrolls up).
+    list: ListState,
+    conv: ChannelRows,
     opened_at: Instant,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
@@ -181,23 +208,23 @@ impl AgentScreenView {
         if let Some(store) = Store::try_global(cx) {
             let collections = store.collections().clone();
             subscriptions.push(cx.observe_in(&collections.agents, window, |this, _, window, cx| {
-                this.refresh(window, cx)
+                this.queue_refresh(window, cx)
             }));
             subscriptions.push(cx.observe_in(&collections.apps, window, |this, _, window, cx| {
-                this.refresh(window, cx)
+                this.queue_refresh(window, cx)
             }));
             subscriptions.push(cx.observe_in(&collections.devices, window, |this, _, window, cx| {
-                this.refresh(window, cx)
+                this.queue_refresh(window, cx)
             }));
             subscriptions.push(cx.observe_in(&collections.sessions, window, |this, _, window, cx| {
-                this.refresh(window, cx)
+                this.queue_refresh(window, cx)
             }));
             subscriptions.push(cx.observe_in(&collections.messages, window, |this, _, window, cx| {
-                this.refresh(window, cx)
+                this.queue_refresh(window, cx)
             }));
             // NEW-8: a message's session is its conversation's.
             subscriptions.push(cx.observe_in(&collections.conversations, window, |this, _, window, cx| {
-                this.refresh(window, cx)
+                this.queue_refresh(window, cx)
             }));
             subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
         }
@@ -219,7 +246,8 @@ impl AgentScreenView {
             app: None,
             device_id: None,
             conversation: None,
-            rows: Vec::new(),
+            rows: Default::default(),
+            rows_gen: 0,
             messages: std::collections::HashMap::new(),
             images,
             composer: None,
@@ -235,8 +263,13 @@ impl AgentScreenView {
             floating: false,
             on_dock_side: None,
             placeholder_name: None,
-            scroll: ScrollHandle::new(),
-            follow: crate::controls::TailFollow::default(),
+            refresh_queued: false,
+            list: {
+                let list = ListState::new(0, ListAlignment::Top, CHANNEL_OVERDRAW);
+                list.set_follow_mode(FollowMode::Tail);
+                list
+            },
+            conv: ChannelRows::default(),
             opened_at: Instant::now(),
             focus_handle: cx.focus_handle(),
             _subscriptions: subscriptions,
@@ -285,6 +318,20 @@ impl AgentScreenView {
         }
     }
 
+    /// #EXP-1380: one [`Self::refresh`] per effect cycle, however many
+    /// collections synced in it (a sync burst touched sessions, messages and
+    /// conversations at once: three full rebuilds of a 1200-row chat).
+    fn queue_refresh(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.refresh_queued {
+            return;
+        }
+        self.refresh_queued = true;
+        cx.defer_in(window, |this, window, cx| {
+            this.refresh_queued = false;
+            this.refresh(window, cx);
+        });
+    }
+
     fn refresh(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         match self.subject.clone() {
             ChannelSubject::Agent(requested) => {
@@ -329,33 +376,24 @@ impl AgentScreenView {
         // The conversation's own card leads the contract's rows; the header
         // already names the agent.
         let editor = matches!(self.subject, ChannelSubject::App(_));
-        self.rows = conversation_id
+        // #EXP-1380: the rows and the messages off ONE scan.
+        let (rows, messages) = conversation_id
             .as_deref()
             .and_then(|id| {
                 let now = crate::session_data::now_ms();
                 // VAPP-110: an editor's chat is its whole tree (a
                 // revived root keeps its rows, FEED-134).
-                if editor {
-                    crate::session_data::editor_thread_view(id, now, cx)
-                } else {
-                    crate::session_data::session_thread_view(id, None, now, cx)
-                }
-                .map(|view| view.rows.into_iter().filter(|row| row.id() != id).collect())
+                crate::session_data::thread_view_and_messages(id, None, now, editor, cx).map(|(view, messages)| {
+                    (view.rows.into_iter().filter(|row| row.id() != id).collect(), messages)
+                })
             })
             .unwrap_or_default();
-        self.messages = conversation_id
-            .as_deref()
-            .map(|id| {
-                if editor {
-                    crate::session_data::tree_messages(id, cx)
-                } else {
-                    crate::session_data::messages_of_session(id, cx)
-                }
-            })
-            .unwrap_or_default()
-            .into_iter()
-            .map(|message| (message.id.clone(), message))
-            .collect();
+        self.rows = std::rc::Rc::new(rows);
+        self.rows_gen = self.rows_gen.wrapping_add(1);
+        // #EXP-1380 FOLLOW: an arrival keeps a reader inside the slack on
+        // the tail.
+        crate::chat_transcript::rearm_near_tail(&self.list);
+        self.messages = messages.into_iter().map(|message| (message.id.clone(), message)).collect();
         let _ = name;
         // Thread 58cb32df: a surface card arriving while the chat is open
         // plays its entrance once.
@@ -869,14 +907,11 @@ impl Render for AgentScreenView {
             None => (None, None, HashSet::new()),
         };
         let band_height = if band.is_some() { self.dock.read(cx).band_height() } else { 0. };
-        let rows: Vec<AnyElement> = rows_snapshot
-            .iter()
-            .filter(|row| !docked.contains(row.id()))
-            .map(|row| self.render_row(row, window, cx))
-            .collect();
+        let _ = docked;
+        self.sync_list(cx);
         // VAPP-110: an editor chat with nothing in it yet = the fixture's
         // `chatEmpty` (the list-size empty state).
-        let chat_empty = (editor && rows.is_empty()).then(|| {
+        let chat_empty = (editor && rows_snapshot.is_empty()).then(|| {
             crate::controls::empty_state_list(
                 Icon::new(registry::NAV_APPS),
                 domain::apps::APPS.copy.chat_empty.clone(),
@@ -884,16 +919,18 @@ impl Render for AgentScreenView {
             )
             .py_12()
         });
-        let column = v_flex()
-            .w_full()
-            .max_w(px(CHANNEL_W))
-            .mx_auto()
-            .px(px(crate::work_header::WORK_GUTTER))
-            .pt_8()
-            .pb(px(band_height.max(16.) + crate::dock::DOCK_GAP))
-            .gap_4()
-            .children(rows)
-            .children(chat_empty);
+        let conversation: AnyElement = match chat_empty {
+            Some(empty) => div().flex_1().min_h_0().w_full().pt_8().child(empty).into_any_element(),
+            None => {
+                let list = gpui::list(
+                    self.list.clone(),
+                    cx.processor(|this, ix: usize, window, cx| this.render_list_row(ix, window, cx)),
+                )
+                .pt_8()
+                .pb(px(band_height.max(16.) + crate::dock::DOCK_GAP));
+                crate::scroll_pane::v_list_pane(list, &self.list).into_any_element()
+            }
+        };
         v_flex()
             .track_focus(&self.focus_handle)
             .size_full()
@@ -902,22 +939,119 @@ impl Render for AgentScreenView {
             .when(!editor, |this| this.child(self.render_header(cx)))
             .child(
                 div()
+                    .id(if editor { "app-editor-chat-scroll" } else { "agent-conversation-scroll" })
                     .relative()
                     .flex()
                     .flex_col()
                     .flex_1()
                     .min_h_0()
                     .w_full()
-                    .child(self.follow.scroller(
-                        if editor { "app-editor-chat-scroll" } else { "agent-conversation-scroll" },
-                        &self.scroll,
-                        column,
+                    .child(conversation)
+                    .children(band)
+                    .child(crate::chat_transcript::jump_overlay(
+                        "agent-conversation-scroll-jump-to-bottom",
+                        &self.list,
+                        self.conv.keys.len(),
+                        band_height,
                         cx.entity_id(),
                         cx,
                     ))
-                    .children(band)
                     .children(sheet),
             )
+    }
+}
+
+impl AgentScreenView {
+    /// #EXP-1380: tell the list what changed — only when the rows, the
+    /// Working… tail or the window moved, never per frame. Rows key by
+    /// ABSOLUTE position with a content fingerprint, so an append is one
+    /// splice, `Load earlier` a front splice, and a changed row re-measures.
+    fn sync_list(&mut self, cx: &App) {
+        let tail = self.conversation.as_ref().is_some_and(|row| !row.is_ended()) && self.composer.is_some();
+        let total = self.rows.len();
+        self.conv.window.reanchor(self.list.is_following_tail(), total);
+        let start = self.conv.window.start(total);
+        let inputs = (self.rows_gen, tail, start);
+        if self.conv.synced == Some(inputs) {
+            return;
+        }
+        self.conv.synced = Some(inputs);
+        self.conv.start = start;
+        self.conv.tail = tail;
+        let mut keys: Vec<RowKey> = self.rows[start..]
+            .iter()
+            .enumerate()
+            .map(|(offset, row)| {
+                let at = match row {
+                    SessionThreadRow::Message { id, .. } => {
+                        self.messages.get(id).and_then(|message| message.created_at.as_deref())
+                    }
+                    _ => None,
+                };
+                let mut fingerprint = crate::thread_screen::conversation_fingerprint(row, at, 0);
+                if offset == 0 && start > 0 {
+                    fingerprint = fingerprint.rotate_left(1) ^ 1;
+                }
+                RowKey { id: (start + offset) as u64, fingerprint }
+            })
+            .collect();
+        if tail {
+            keys.push(RowKey { id: WORKING_ROW_ID, fingerprint: 0 });
+        }
+        for op in plan_list_sync(&self.conv.keys, &keys) {
+            match op {
+                ListOp::Splice { range, count } => self.list.splice(range, count),
+                ListOp::Remeasure(range) => self.list.remeasure_items(range),
+            }
+        }
+        self.conv.keys = keys;
+        let _ = cx;
+    }
+
+    /// One conversation list row: the reading column, the row gap above
+    /// every row but the first; `Load earlier` over the window's first row;
+    /// the last row = the run view's ONE Working… line while the chat works
+    /// (#EXP-1380 WORKING).
+    fn render_list_row(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let rows = self.rows.clone();
+        let content = match rows.get(self.conv.start + ix) {
+            Some(row) if ix < self.conv.keys.len() && self.conv.keys[ix].id != WORKING_ROW_ID => {
+                Some(self.render_row(row, window, cx))
+            }
+            _ => self
+                .composer
+                .as_ref()
+                .map(|(_, composer)| composer.clone())
+                .and_then(|composer| composer.update(cx, |composer, cx| composer.live_tail(window, cx)))
+                .map(|tail| div().w_full().pl(px(CARD_INSET)).child(tail).into_any_element()),
+        };
+        let Some(content) = content else {
+            return div().into_any_element();
+        };
+        let earlier = (ix == 0 && self.conv.start > 0).then(|| {
+            crate::chat_transcript::load_earlier_button(
+                cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    let total = this.rows.len();
+                    this.conv.window.load_earlier(total);
+                    this.list.pause_following_tail();
+                    cx.notify();
+                }),
+                cx,
+            )
+        });
+        div()
+            .w_full()
+            .child(
+                v_flex()
+                    .w_full()
+                    .max_w(px(CHANNEL_W))
+                    .mx_auto()
+                    .px(px(crate::work_header::WORK_GUTTER))
+                    .when(ix > 0, |this| this.pt_4())
+                    .children(earlier)
+                    .child(content),
+            )
+            .into_any_element()
     }
 }
 

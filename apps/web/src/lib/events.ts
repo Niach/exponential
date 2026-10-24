@@ -7,7 +7,7 @@ import { fireEventTriggersInTx } from "@/lib/agents/triggers"
 import type { Tx } from "@/lib/sessions/tx"
 
 // NEW-2: EVENTS, the team's event stream (synced `events` shape). A row =
-// a name + a payload + who emitted it. The server builtins (`issue.created`,
+// a name + a payload + who emitted it. The server builtins (`issue.created`, `issue.assigned`,
 // `issue.status_changed`, `pr.opened`, `pr.merged`, `session.ended`) are
 // emitted by the writers that make those moments; anything else comes over
 // MCP `events_emit`. Every emit fans out to the agents listening on the
@@ -47,7 +47,7 @@ export async function pruneEvents(now: Date = new Date()): Promise<number> {
   return gone.length
 }
 
-/** The builtin `issue.created` / `issue.status_changed` events: the issue's
+/** The builtin `issue.created` / `issue.status_changed` / `issue.assigned` events: the issue's
  *  identity rides the payload (plus the writer's extras). A vanished issue
  *  emits nothing. */
 export async function emitIssueEventInTx(
@@ -55,7 +55,7 @@ export async function emitIssueEventInTx(
   args: {
     issueId: string
     teamId: string
-    name: `issue.created` | `issue.status_changed`
+    name: `issue.created` | `issue.status_changed` | `issue.assigned`
     payload: Record<string, unknown>
     emittedBy: EmitEventArgs[`emittedBy`]
   }

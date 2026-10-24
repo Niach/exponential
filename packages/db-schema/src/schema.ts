@@ -486,6 +486,13 @@ export const issues = pgTable(
     assigneeId: text(`assignee_id`).references(() => users.id, {
       onDelete: `set null`,
     }),
+    // #EXP-1383: an issue assigned to a team AGENT instead of a person.
+    // Mutually exclusive with `assignee_id` (issues_single_assignee_check).
+    // SYNCED.
+    assigneeAgentId: uuid(`assignee_agent_id`).references(
+      (): AnyPgColumn => agents.id,
+      { onDelete: `set null` }
+    ),
     // NULLABLE: widget-filed feedback issues have no user creator (EXP: the
     // synthetic per-widget bot user was removed). `set null` (not cascade):
     // deleting a user now leaves their authored issues in place with a null
@@ -498,6 +505,12 @@ export const issues = pgTable(
     // widget; pairs with a null creator_id). Clients key the "Feedback widget"
     // origin off this.
     source: issueSourceEnum().notNull().default(`user`),
+    // #EXP-1383: the agent whose session created the issue (`creator_id`
+    // keeps the member behind it). SYNCED.
+    creatorAgentId: uuid(`creator_agent_id`).references(
+      (): AnyPgColumn => agents.id,
+      { onDelete: `set null` }
+    ),
     dueDate: date(`due_date`),
     // EXP-630: story points. A plain non-negative integer (Linear's
     // fibonacci/linear/t-shirt scales all import as their point value);
@@ -529,6 +542,13 @@ export const issues = pgTable(
       .where(sql`draft_id IS NOT NULL`),
     index(`idx_issues_team`).on(table.teamId),
     index(`idx_issues_assignee`).on(table.assigneeId),
+    index(`idx_issues_assignee_agent`)
+      .on(table.assigneeAgentId)
+      .where(sql`assignee_agent_id IS NOT NULL`),
+    check(
+      `issues_single_assignee_check`,
+      sql`assignee_id IS NULL OR assignee_agent_id IS NULL`
+    ),
     index(`idx_issues_creator`).on(table.creatorId),
     index(`idx_issues_due_date`).on(table.dueDate),
     // The duplicate_of_id SET NULL RI trigger fires on every issue delete;
@@ -755,6 +775,12 @@ export const comments = pgTable(
     // SLOP-4: `reporter` when the widget reporter wrote it through their
     // magic-link page (author_id NULL, body server-escaped GFM).
     source: commentSourceEnum().notNull().default(`user`),
+    // #EXP-1383: the agent whose session wrote it (`author_id` keeps the
+    // member behind it); the card names the agent. SYNCED.
+    authorAgentId: uuid(`author_agent_id`).references(
+      (): AnyPgColumn => agents.id,
+      { onDelete: `set null` }
+    ),
     // SLOP-4: who may read it. `team` (default) never leaves the team;
     // `reporter` shows on the reporter's magic-link page and, from a member,
     // is emailed to the submission's reporter address. Reporter-written rows
@@ -1754,6 +1780,14 @@ export const sessions = pgTable(
     agentId: uuid(`agent_id`).references((): AnyPgColumn => agents.id, {
       onDelete: `cascade`,
     }),
+    // #EXP-1383: a ROOT a team agent's session started (a thread its
+    // conversation spawned): the tree acts as that agent and stays in its
+    // team like the conversation itself (acting agent = `agent_id ??
+    // started_by_agent_id`). SYNCED.
+    startedByAgentId: uuid(`started_by_agent_id`).references(
+      (): AnyPgColumn => agents.id,
+      { onDelete: `set null` }
+    ),
     // VAPP-110: the APP this is a member's EDITOR session OF (a root; one
     // per (app, user_id), live only while that member has the editor open:
     // leaving ends the tree, the next message revives the same root). NULL = not an
@@ -1852,6 +1886,12 @@ export const sessions = pgTable(
       .notNull()
       .default(sql`'[]'::jsonb`),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
+    // #EXP-1383: when this session's device last fetched its brief
+    // (`sessions.brief` stamps it): the agent instructions it runs on are
+    // the ones of that moment. SYNCED (chats.json `agentHint`).
+    agentInstructionsAt: timestamp(`agent_instructions_at`, {
+      withTimezone: true,
+    }),
     ...timestamps,
   },
   (table) => [
@@ -1905,6 +1945,12 @@ export const agents = pgTable(
     color: varchar({ length: 7 }),
     // SERVER-ONLY (tRPC `agents.get`).
     instructions: text().notNull().default(``),
+    // #EXP-1383: when `instructions` last CHANGED (create + an update that
+    // edits the text; nothing else). SYNCED: the chat's "Instructions
+    // changed" hint compares it with `sessions.agent_instructions_at`.
+    instructionsUpdatedAt: timestamp(`instructions_updated_at`, {
+      withTimezone: true,
+    }),
     triggers: jsonb()
       .$type<AgentTrigger[]>()
       .notNull()
@@ -2127,6 +2173,24 @@ export const sessionIssues = pgTable(
 // Visibility: a session conversation follows the session rule through the
 // mirrored `shared` / `owner_id` (trigger-written, immutable like a
 // message's), a dm/channel = its members. Synced (`/api/shapes/conversations`).
+/** #EXP-1380: `conversations.digest` (domain-contract `ConversationDigest`). */
+export interface ConversationDigestJson {
+  first: ConversationDigestMessageJson | null
+  preview: ConversationDigestMessageJson | null
+  waiting: ConversationDigestMessageJson | null
+  agentAt: string | null
+  agentTimes: string[]
+}
+export interface ConversationDigestMessageJson {
+  id: string
+  authorKind: string
+  authorSessionId: string | null
+  body: string
+  card: { kind: string; question?: string; plan?: string; title?: string } | null
+  answeredAt: string | null
+  createdAt: string
+}
+
 export const conversations = pgTable(
   `conversations`,
   {
@@ -2145,6 +2209,10 @@ export const conversations = pgTable(
     // dm/channel, whose readers are its members.
     shared: boolean().notNull().default(false),
     ownerId: text(`owner_id`).references(() => users.id, { onDelete: `cascade` }),
+    // #EXP-1380: the list's digest of the messages (trigger-written,
+    // `conversation_digest`; domain-contract `conversationDigest`), so the
+    // web list never syncs a transcript. NULL until the first boot fills it.
+    digest: jsonb().$type<ConversationDigestJson>(),
     ...timestamps,
   },
   (table) => [
@@ -2372,6 +2440,11 @@ export const issueDrafts = pgTable(
     assigneeId: text(`assignee_id`).references(() => users.id, {
       onDelete: `set null`,
     }),
+    // #EXP-1383: an agent assignee (exclusive with `assignee_id`).
+    assigneeAgentId: uuid(`assignee_agent_id`).references(
+      (): AnyPgColumn => agents.id,
+      { onDelete: `set null` }
+    ),
     labelIds: uuid(`label_ids`)
       .array()
       .notNull()
@@ -2389,6 +2462,10 @@ export const issueDrafts = pgTable(
     index(`idx_issue_drafts_user`).on(table.userId),
     index(`idx_issue_drafts_team`).on(table.teamId),
     index(`idx_issue_drafts_board`).on(table.boardId),
+    check(
+      `issue_drafts_single_assignee_check`,
+      sql`assignee_id IS NULL OR assignee_agent_id IS NULL`
+    ),
   ]
 )
 
@@ -2418,6 +2495,12 @@ export const issueEvents = pgTable(
     actorUserId: text(`actor_user_id`).references(() => users.id, {
       onDelete: `set null`,
     }),
+    // #EXP-1383: the agent whose session acted (`actor_user_id` keeps the
+    // member behind it); the timeline names the agent. SYNCED.
+    actorAgentId: uuid(`actor_agent_id`).references(
+      (): AnyPgColumn => agents.id,
+      { onDelete: `set null` }
+    ),
     // FEED-87: who acted — `via_mcp` = an MCP call (an agent), `session_id`
     // = the coding run that made it (X-Exp-Session-Id; no FK, runs purge).
     // Server-only, shape-excluded; read by exponential_issues_activity.

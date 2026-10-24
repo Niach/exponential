@@ -38,7 +38,8 @@ final class ActivityFoldTests: XCTestCase {
             type: try XCTUnwrap(row["type"] as? String),
             payload: try payloadString(row["payload"]),
             createdAt: createdAt,
-            updatedAt: createdAt
+            updatedAt: createdAt,
+            actorAgentId: row["actorAgentId"] as? String
         )
     }
 
@@ -46,6 +47,7 @@ final class ActivityFoldTests: XCTestCase {
         ActivityBarrier(
             issueId: try XCTUnwrap(row["issueId"] as? String),
             actorUserId: row["actorUserId"] as? String,
+            actorAgentId: row["actorAgentId"] as? String,
             createdAt: try XCTUnwrap(row["createdAt"] as? String)
         )
     }

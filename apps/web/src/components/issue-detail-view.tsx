@@ -491,6 +491,7 @@ export function IssueDetailView({
       status={statusOption}
       priority={issue.priority}
       assigneeId={issue.assigneeId}
+      assigneeAgentId={issue.assigneeAgentId}
       selectedLabelIds={issueLabelIds}
       teamId={teamId}
       users={users}

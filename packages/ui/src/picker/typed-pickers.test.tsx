@@ -2,6 +2,11 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { describe, expect, it, vi } from "vitest"
 
 import { Menu } from "../menu"
+import {
+  assigneeFromPickerValue,
+  assigneePickerItems,
+  assigneePickerValue,
+} from "./assignee-picker"
 import { BranchPicker } from "./branch-picker"
 import { EffortPicker, ModelPicker } from "./model-picker"
 import { PickerMenuRows } from "./picker-menu-rows"
@@ -205,5 +210,35 @@ describe(`PickerMenuRows`, () => {
     expect(menu.querySelectorAll(`[data-selected-glyph]`)).toHaveLength(0)
     fireEvent.click(within(menu).getByText(`Unassigned`))
     expect(onNone).toHaveBeenCalledTimes(1)
+  })
+})
+
+// #EXP-1383 (agent-settings.json `assignee`): the agents follow the members
+// in `assigneeOptions` order and pick into the exclusive agent column.
+describe(`assignee picker agents`, () => {
+  const members = [{ id: `U1`, name: `Danny` }]
+  const agents = [
+    { id: `G2`, name: `Zed`, icon: `bot`, color: null, sortOrder: 0 },
+    { id: `G1`, name: `Sloppy`, icon: `bot`, color: null, sortOrder: 0 },
+    { id: `G3`, name: `Alpha`, icon: `bot`, color: null, sortOrder: 1 },
+  ]
+
+  it(`lists members, then agents by sortOrder then name`, () => {
+    expect(assigneePickerItems(members, agents).map((item) => item.value)).toEqual([
+      `U1`,
+      `agent:G1`,
+      `agent:G2`,
+      `agent:G3`,
+    ])
+    expect(assigneePickerItems(members, agents)[1]!.keywords).toEqual([`Sloppy`])
+  })
+
+  it(`maps the two columns to one value and back`, () => {
+    expect(assigneePickerValue({ assigneeId: `U1`, assigneeAgentId: null })).toBe(`U1`)
+    expect(assigneePickerValue({ assigneeId: null, assigneeAgentId: `G1` })).toBe(`agent:G1`)
+    expect(assigneePickerValue({ assigneeId: null })).toBeNull()
+    expect(assigneeFromPickerValue(`agent:G1`)).toEqual({ assigneeId: null, assigneeAgentId: `G1` })
+    expect(assigneeFromPickerValue(`U1`)).toEqual({ assigneeId: `U1`, assigneeAgentId: null })
+    expect(assigneeFromPickerValue(null)).toEqual({ assigneeId: null, assigneeAgentId: null })
   })
 })

@@ -1,4 +1,5 @@
 //! EXP-1021 — the `picker-assignee` styleguide entry: the assignee picker — the member's avatar + name, the email muted.
+//! #EXP-1383: the team's agents follow the members (the agent mark + name).
 //!
 //! Filled by EXP-1021; never edits `entries/mod.rs` nor the index.
 
@@ -11,10 +12,12 @@ pub(crate) const OWNER: &str = "EXP-1021";
 
 pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
     column(vec![
-        demo("assignee — single; `Unassigned` is a real row, not a placeholder", |window, cx| {
+        demo("assignee — single; `Unassigned` is a real row, not a placeholder; the agents follow the members", |window, cx| {
             let members = super::picker::demo_members();
+            let agents = super::picker::demo_agents();
             crate::picker::assignee_picker::assignee_picker(
                 &members,
+                &agents,
                 crate::picker::PickerMode::Single,
                 vec!["user-1".to_string()],
                 true,
@@ -28,6 +31,7 @@ pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
             let members = super::picker::demo_members();
             crate::picker::assignee_picker::assignee_picker(
                 &members,
+                &[],
                 crate::picker::PickerMode::Multi,
                 vec!["user-2".to_string()],
                 false,

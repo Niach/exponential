@@ -54,6 +54,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+import com.exponential.app.domain.AgentSettings
+import com.exponential.app.ui.components.actorRow
+
 data class CommentThreadState(
     val issue: IssueEntity? = null,
     val comments: List<CommentEntity> = emptyList(),
@@ -69,6 +72,10 @@ data class CommentThreadState(
     /** The issue's team `estimation_type` (EXP-630) — the scale an
      *  `estimate_changed` row phrases on. Null until the team row syncs. */
     val estimationType: String? = null,
+    /** #EXP-1383: every synced agent definition: an agent actor (event,
+     *  comment, the creation row) and an agent assignee resolve against it
+     *  (`AgentSettings.issueActor`). */
+    val agents: List<AgentSettings.AgentRowLike> = emptyList(),
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -147,10 +154,13 @@ class CommentThreadViewModel @Inject constructor(
                 if (db == null || id == null) flowOf(null) else db.issueDao().observeById(id)
             },
         commentsEventsLabels,
-        dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
+        combine(
+            dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
+            dbFlow.scopedQuery(emptyList()) { it.agentDefinitionDao().observeAll() },
+        ) { users, agents -> users to agents.map { it.actorRow() } },
         auth.userId,
         teamVocabulary,
-    ) { issue, (comments, events, labels), users, userId, (statusRows, team) ->
+    ) { issue, (comments, events, labels), (users, agents), userId, (statusRows, team) ->
         CommentThreadState(
             issue = issue,
             comments = comments,
@@ -160,6 +170,7 @@ class CommentThreadViewModel @Inject constructor(
             currentUserId = userId,
             statuses = IssueStatusResolver.teamStatuses(statusRows),
             estimationType = team?.estimationType,
+            agents = agents,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CommentThreadState())
 

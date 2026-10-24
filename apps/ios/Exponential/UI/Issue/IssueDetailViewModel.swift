@@ -129,6 +129,11 @@ final class IssueDetailViewModel {
     /// True when the issue's team has exactly one human member: the
     /// assignee picker row is hidden (nothing to reassign to) — EXP-50.
     var singleMemberTeam = false
+    /// #EXP-1383: a solo team hides its assignee control only while it has
+    /// no agents (an agent is someone to assign to).
+    var hidesAssignee = false
+    /// #EXP-1383: the issue's team's agents in the assignee picker's order.
+    var teamAgents: [AgentDefinitionEntity] = []
 
     /// EXP-496: the widget/agent submission metadata behind this issue
     /// (`widgets.submissionForIssue`, server-only). `nil` = loading, fetch
@@ -457,6 +462,8 @@ final class IssueDetailViewModel {
                     self.permissions = snapshot.permissions
                     self.permissionsPending = snapshot.permissionsPending
                     self.singleMemberTeam = snapshot.singleMemberTeam
+                    self.hidesAssignee = snapshot.hidesAssignee
+                    self.teamAgents = snapshot.agents
                 }
             } catch {}
         })
@@ -569,6 +576,12 @@ final class IssueDetailViewModel {
     func assignee() -> UserEntity? {
         guard let id = issue?.assigneeId else { return nil }
         return users.first { $0.id == id }
+    }
+
+    /// #EXP-1383: the issue's agent assignee's row (nil while unsynced).
+    func assigneeAgent() -> AgentDefinitionEntity? {
+        guard let id = issue?.assigneeAgentId else { return nil }
+        return teamAgents.first { $0.id == id }
     }
 
     /// EXP-496: fetch the widget/agent submission metadata card's data.
@@ -892,15 +905,10 @@ final class IssueDetailViewModel {
         await update(UpdateIssueInput(id: issue.id, priority: priority.rawValue))
     }
 
-    func setAssignee(_ userId: String?) async {
+    /// #EXP-1383: both columns, the cleared one as an explicit null.
+    func setAssignee(_ assignee: IssueAssignee) async {
         guard let issue else { return }
-        if let userId {
-            await update(UpdateIssueInput(id: issue.id, assigneeId: userId))
-        } else {
-            var input = UpdateIssueInput(id: issue.id)
-            input.explicitNulls.insert("assigneeId")
-            await update(input)
-        }
+        await update(UpdateIssueInput(id: issue.id, assignee: assignee))
     }
 
     func setDueDate(_ date: Date?) async {
@@ -1048,6 +1056,12 @@ final class IssueDetailViewModel {
     /// A counterpart's status, resolved against the team's rows (EXP-314).
     func relationStatus(id: String) -> ResolvedIssueStatus? {
         relationOthers[id].map { IssueStatusResolver.resolve($0, team: teamStatuses) }
+    }
+
+    /// #EXP-1383: a counterpart's agent assignee, for the row's agent mark.
+    func relationAssigneeAgent(id: String) -> AgentDefinitionEntity? {
+        guard let agentId = relationOthers[id]?.assigneeAgentId else { return nil }
+        return teamAgents.first { $0.id == agentId }
     }
 
     /// A counterpart's assignee, for the row's avatar.

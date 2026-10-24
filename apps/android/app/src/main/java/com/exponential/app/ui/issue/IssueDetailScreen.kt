@@ -69,6 +69,10 @@ import com.exponential.app.ui.components.issuePriorityPickerOptions
 import com.exponential.app.ui.components.pickedPriority
 import com.exponential.app.ui.components.toPickerBoard
 import com.exponential.app.ui.components.toPickerMember
+import com.exponential.app.ui.components.toPickerAgent
+import com.exponential.app.ui.components.actorRow
+import com.exponential.app.ui.components.picker.assigneeFromPickerValue
+import com.exponential.app.ui.components.picker.assigneePickerValue
 import com.exponential.app.ui.components.toPickerRow
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.FloatingBarEdge
@@ -288,6 +292,11 @@ fun IssueFace(
     // EXP-487: the issue team's members — the assignee-picker + @-mention
     // vocabulary. state.users stays account-wide for display lookups.
     val teamUsers by viewModel.teamUsers.collectAsStateWithLifecycle()
+    // #EXP-1383: the team's agents (picker rows + an agent assignee), and the
+    // solo rule: a solo team keeps the assignee control while it has agents.
+    val teamAgents by viewModel.teamAgents.collectAsStateWithLifecycle()
+    val assigneeAgent = state.issue?.assigneeAgentId?.let { id -> teamAgents.firstOrNull { it.id == id }?.actorRow() }
+    val hideAssignee = soloMemberId != null && teamAgents.isEmpty() && state.issue?.assigneeAgentId == null
     // EXP-630: the team's estimate scale — `none` hides the chip + sheet row.
     val estimationType by viewModel.estimationType.collectAsStateWithLifecycle()
     // EXP-57: same-team boards the issue can move to.
@@ -658,9 +667,10 @@ fun IssueFace(
                     subject = IssuePropertySubject.fromIssue(issue),
                     status = status,
                     assignee = state.assignee,
+                    assigneeAgent = assigneeAgent,
                     issueLabels = state.issueLabels,
                     isModerator = isModerator,
-                    hideAssignee = soloMemberId != null,
+                    hideAssignee = hideAssignee,
                     estimationType = estimationType,
                     onOpenStatus = { controller.activeSheet = IssueSheet.Status },
                     onOpenPriority = { controller.activeSheet = IssueSheet.Priority },
@@ -721,6 +731,7 @@ fun IssueFace(
                         issuesById = relationsUi.issuesById,
                         users = state.users,
                         statuses = teamStatuses,
+                        agents = teamAgents.map { it.actorRow() },
                         onAdd = addSubIssue,
                         onOpenIssue = onOpenIssue,
                         onRemove = if (isModerator) {
@@ -866,7 +877,8 @@ fun IssueFace(
             status = IssueStatusResolver.resolve(issue, teamStatuses),
             priority = IssuePriority.fromWire(issue.priority),
             assignee = state.assignee,
-            hideAssignee = soloMemberId != null,
+            hideAssignee = hideAssignee,
+            assigneeAgent = assigneeAgent,
             teamLabels = state.teamLabels,
             issueLabels = state.issueLabels,
             currentBoard = state.board,
@@ -883,6 +895,7 @@ fun IssueFace(
             relationIssues = relationsUi.issuesById,
             users = state.users,
             teamStatuses = teamStatuses,
+            agents = teamAgents.map { it.actorRow() },
             onOpenRelations = { controller.activeSheet = IssueSheet.AddRelation },
             onToggleRelationBand = viewModel::toggleRelationBand,
             onShowAllRelations = viewModel::setRelationBandShowAll,
@@ -939,9 +952,10 @@ fun IssueFace(
     if (activeSheet == IssueSheet.Assignee && issue != null && isModerator) {
         AssigneePicker(
             members = teamUsers.map { it.toPickerMember() },
-            value = setOfNotNull(issue.assigneeId),
+            agents = teamAgents.map { it.toPickerAgent() },
+            value = assigneePickerValue(issue.assigneeId, issue.assigneeAgentId),
             // An empty set IS unassigned (the contract's single-mode arm).
-            onChange = { picked -> viewModel.updateAssignee(picked.firstOrNull()) },
+            onChange = { picked -> viewModel.updateAssignee(assigneeFromPickerValue(picked.firstOrNull())) },
             open = true,
             onOpenChange = { open -> if (!open) controller.activeSheet = null },
         )

@@ -1,6 +1,7 @@
 package com.exponential.app.data.api
 
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.domain.AgentSettings
 import com.exponential.app.domain.IssueSearch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -26,6 +27,9 @@ data class CreateIssueInput(
     val priority: String? = null,
     val description: String? = null,
     @SerialName("assigneeId") val assigneeId: String? = null,
+    // #EXP-1383: a team AGENT as the assignee (exclusive with assigneeId);
+    // omitted when null.
+    @SerialName("assigneeAgentId") val assigneeAgentId: String? = null,
     @SerialName("dueDate") val dueDate: String? = null,
     // Team label ids assigned at create (issues.create inserts the
     // issue_labels joins in the same transaction). Null = none.
@@ -208,15 +212,11 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
      * missing key as "leave the assignee alone" — clearing an assignee was a
      * silent no-op. Same explicit-JSON-null escape hatch as [setDuplicateOf].
      */
-    suspend fun setAssignee(accountId: String, issueId: String, assigneeId: String?): IssueEntity =
+    suspend fun setAssignee(accountId: String, issueId: String, assignee: AgentSettings.Assignee): IssueEntity =
         trpc.mutation(
             accountId,
             path = "issues.update",
-            input = buildJsonObject {
-                put("id", issueId)
-                if (assigneeId != null) put("assigneeId", assigneeId)
-                else put("assigneeId", JsonNull)
-            },
+            input = assigneeUpdateInput(issueId, assignee),
             inputSerializer = JsonObject.serializer(),
             outputSerializer = IssueResult.serializer(),
         ).issue
@@ -280,6 +280,8 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
         priority: String? = null,
         assigneeId: String? = null,
         clearAssignee: Boolean = false,
+        /** #EXP-1383: a team agent for every id (clears the person). */
+        assigneeAgentId: String? = null,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -290,8 +292,13 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
                 if (status != null) put("status", status)
                 if (statusId != null) put("statusId", statusId)
                 if (priority != null) put("priority", priority)
-                if (assigneeId != null) put("assigneeId", assigneeId)
-                else if (clearAssignee) put("assigneeId", JsonNull)
+                // #EXP-1383: an assignee write sends BOTH columns, the
+                // cleared one as an explicit null.
+                if (assigneeId != null || assigneeAgentId != null || clearAssignee) {
+                    val next = AgentSettings.Assignee(assigneeId, assigneeAgentId).write()
+                    put("assigneeId", next.userId?.let(::JsonPrimitive) ?: JsonNull)
+                    put("assigneeAgentId", next.agentId?.let(::JsonPrimitive) ?: JsonNull)
+                }
             },
             inputSerializer = JsonObject.serializer(),
         )
@@ -343,4 +350,18 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = JsonObject.serializer(),
             outputSerializer = IssueResult.serializer(),
         ).issue
+}
+
+/**
+ * #EXP-1383: `issues.update`'s assignee body: BOTH exclusive columns, the
+ * cleared one as an explicit JSON null (the shared Json would drop a null
+ * property), so picking an agent unassigns the person and vice versa.
+ */
+internal fun assigneeUpdateInput(issueId: String, assignee: AgentSettings.Assignee): JsonObject {
+    val next = assignee.write()
+    return buildJsonObject {
+        put("id", issueId)
+        put("assigneeId", next.userId?.let(::JsonPrimitive) ?: JsonNull)
+        put("assigneeAgentId", next.agentId?.let(::JsonPrimitive) ?: JsonNull)
+    }
 }

@@ -198,6 +198,77 @@ pub fn agent_account_value(
     })
 }
 
+/// #EXP-1383: a synced agent row as an actor / assignee resolves it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AgentActorRow {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+}
+
+impl AgentActorRow {
+    /// The actor row of a synced `agents` definition (the Agents list's
+    /// name rule).
+    pub fn of(row: &crate::rows::AgentDefRow) -> Self {
+        Self {
+            id: row.id.clone(),
+            name: row.name.clone().unwrap_or_default(),
+            icon: row.icon.clone(),
+            color: row.color.clone(),
+        }
+    }
+}
+
+/// #EXP-1383 (`actor.actorCases`): who an issue event / comment / issue
+/// creation reads as.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IssueActor {
+    Agent(AgentActorRow),
+    User(String),
+}
+
+/// #EXP-1383 (TS `issueActor`): a synced agent first, else the member, else
+/// `None` (the server / a widget reporter).
+pub fn issue_actor(
+    actor_agent_id: Option<&str>,
+    actor_user_id: Option<&str>,
+    agents: &[AgentActorRow],
+) -> Option<IssueActor> {
+    if let Some(agent) = actor_agent_id
+        .filter(|id| !id.is_empty())
+        .and_then(|id| agents.iter().find(|row| row.id == id))
+    {
+        return Some(IssueActor::Agent(agent.clone()));
+    }
+    actor_user_id
+        .filter(|id| !id.is_empty())
+        .map(|id| IssueActor::User(id.to_string()))
+}
+
+/// The id prefix of an agent assignee option (`assignee.optionCases`).
+pub const ASSIGNEE_AGENT_PREFIX: &str = "agent:";
+
+/// #EXP-1383 (TS `assigneeOptions`): the assignee picker's option ids ×4:
+/// `unassigned`, the members in the given order, then the team's agents by
+/// sortOrder then name.
+pub fn assignee_options(member_ids: &[String], agents: &[(String, String, f64)]) -> Vec<String> {
+    let mut sorted: Vec<&(String, String, f64)> = agents.iter().collect();
+    sorted.sort_by(|a, b| {
+        a.2.partial_cmp(&b.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    std::iter::once("unassigned".to_string())
+        .chain(member_ids.iter().map(|id| format!("user:{id}")))
+        .chain(sorted.into_iter().map(|(id, _, _)| format!("{ASSIGNEE_AGENT_PREFIX}{id}")))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,6 +277,61 @@ mod tests {
         serde_json::from_str(AGENT_SETTINGS_JSON).unwrap()
     }
 
+
+    #[test]
+    fn actor_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["actor"]["actorCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let agents: Vec<AgentActorRow> = serde_json::from_value(case["agents"].clone()).unwrap();
+            let actual = issue_actor(
+                case["input"]["actorAgentId"].as_str(),
+                case["input"]["actorUserId"].as_str(),
+                &agents,
+            );
+            let actual = match actual {
+                None => Value::Null,
+                Some(IssueActor::User(id)) => serde_json::json!({"kind": "user", "id": id}),
+                Some(IssueActor::Agent(agent)) => serde_json::json!({
+                    "kind": "agent", "id": agent.id, "name": agent.name, "icon": agent.icon, "color": agent.color,
+                }),
+            };
+            assert_eq!(actual, case["expected"], "{name}");
+        }
+    }
+
+    #[test]
+    fn assignee_option_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["assignee"]["optionCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        assert_eq!(fixture["assignee"]["copy"]["unassigned"].as_str(), Some("Unassigned"));
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let members: Vec<String> = case["input"]["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|member| member["id"].as_str().unwrap().to_string())
+                .collect();
+            let agents: Vec<(String, String, f64)> = case["input"]["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|agent| {
+                    (
+                        agent["id"].as_str().unwrap().to_string(),
+                        agent["name"].as_str().unwrap().to_string(),
+                        agent["sortOrder"].as_f64().unwrap(),
+                    )
+                })
+                .collect();
+            let expected: Vec<String> = serde_json::from_value(case["expected"].clone()).unwrap();
+            assert_eq!(assignee_options(&members, &agents), expected, "{name}");
+        }
+    }
     #[test]
     fn the_spec_parses_from_the_fixture() {
         let keys: Vec<&str> = AGENT_SETTINGS.fields.iter().map(|field| field.key.as_str()).collect();

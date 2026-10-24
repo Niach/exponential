@@ -22,13 +22,14 @@ import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
 import {
   AGENT_KEY_MANAGES_KEYS_MESSAGE,
   AGENT_KEY_SCOPE_MESSAGE,
+  AGENT_KEY_TEAM_MESSAGE,
   API_KEY_KINDS,
   assertNotAgentApiKeySession,
   assertNotApiKeySession,
   parseApiKeyMetadata,
   type ApiKeyScope,
 } from "@/lib/auth/api-key-kind"
-import { getUserTeamIds } from "@/lib/auth/membership"
+import { assertTeamMember, getUserTeamIds } from "@/lib/auth/membership"
 import { boardVisible } from "@/lib/board-visibility"
 import {
   clampScopeSelection,
@@ -130,8 +131,16 @@ export const usersRouter = router({
   // FEED-76: `scope` = the consent screen's team/board selection. Clamped to
   // membership and stored in the key's metadata; the key then works on
   // /api/mcp only, confined like an OAuth grant. "Everything" (or no scope)
-  // stores NO scope: an ordinary full key. The agent's key is never scoped
-  // (the launcher needs its full tRPC/shape access).
+  // stores NO scope: an ordinary full key. The agent's key never takes a
+  // consent `scope`.
+  //
+  // #EXP-1383: `purpose: 'agent'` + `teamId` mints a TEAM agent's key: the
+  // same stored scope `{allTeams: false, teamIds: [teamId], boardIds: []}`,
+  // so it works on /api/mcp only, confined to that one team (the launcher
+  // writes it into an agent-tree session's MCP config; it reaches no tRPC,
+  // no shapes, no attachments route). The caller must be a member of the
+  // team. Without `teamId` the agent key stays the full key a normal coding
+  // thread runs on.
   mintPersonalApiKey: authedProcedure
     .input(
       z
@@ -139,6 +148,7 @@ export const usersRouter = router({
           name: z.string().min(1).max(180).optional(),
           purpose: z.enum(API_KEY_KINDS).optional(),
           scope: scopeSelectionInput.optional(),
+          teamId: z.string().uuid().optional(),
         })
         .optional()
     )
@@ -150,7 +160,16 @@ export const usersRouter = router({
       )
       const kind = input?.purpose ?? `personal`
       let scope: ApiKeyScope | null = null
-      if (input?.scope) {
+      if (input?.teamId) {
+        if (kind !== `agent` || input.scope) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: AGENT_KEY_TEAM_MESSAGE,
+          })
+        }
+        await assertTeamMember(ctx.session.user.id, input.teamId)
+        scope = { allTeams: false, teamIds: [input.teamId], boardIds: [] }
+      } else if (input?.scope) {
         if (kind === `agent`) {
           throw new TRPCError({
             code: `BAD_REQUEST`,

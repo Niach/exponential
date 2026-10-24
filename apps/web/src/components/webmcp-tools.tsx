@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { useWebMCP } from "@mcp-b/react-webmcp"
 import {
+  agentCollection,
   boardCollection,
   commentCollection,
   issueCollection,
@@ -20,7 +21,7 @@ import {
 } from "@/lib/domain"
 import { getWebMcpAppContext } from "@/lib/webmcp/app-context"
 import {
-  resolveAssignee,
+  resolveAssigneeRef,
   resolveBoard,
   resolveIssue,
   resolveLabels,
@@ -67,6 +68,22 @@ async function getTeamMembers(teamId: string) {
       .map((member) => member.userId)
   )
   return userCollection.toArray.filter((user) => memberIds.has(user.id))
+}
+
+// #EXP-1383: the team's agents, assignable like members.
+async function getTeamAgents(teamId: string) {
+  await agentCollection.preload()
+  return agentCollection.toArray.filter((agent) => agent.teamId === teamId)
+}
+
+async function getAgentNameById() {
+  await agentCollection.preload()
+  return new Map(agentCollection.toArray.map((agent) => [agent.id, agent.name]))
+}
+
+async function resolveTeamAssignee(teamId: string, ref: string | null) {
+  const [members, agents] = await Promise.all([getTeamMembers(teamId), getTeamAgents(teamId)])
+  return resolveAssigneeRef(ref, members, agents)
 }
 
 async function getTeamLabels(teamId: string) {
@@ -131,7 +148,7 @@ const boardRefSchema = z
 const assigneeRefSchema = z
   .string()
   .nullable()
-  .describe(`Team member email or display name; null to unassign`)
+  .describe(`Team member email or display name, or an agent name; null to unassign`)
 
 const readAnnotations = { readOnlyHint: true, idempotentHint: true }
 
@@ -191,7 +208,7 @@ export function WebMcpReadTools() {
       assignee: z
         .string()
         .optional()
-        .describe(`Only issues assigned to this member (email or name)`),
+        .describe(`Only issues assigned to this member (email or name) or agent (name)`),
       limit: z.number().int().min(1).max(100).optional(),
     },
     annotations: readAnnotations,
@@ -205,20 +222,22 @@ export function WebMcpReadTools() {
         rows = rows.filter((issue) => wanted.has(issue.status))
       }
       if (input.assignee !== undefined) {
-        const assigneeId = resolveAssignee(
-          input.assignee,
-          await getTeamMembers(ctx.teamId)
+        const wanted = await resolveTeamAssignee(ctx.teamId, input.assignee)
+        rows = rows.filter(
+          (issue) =>
+            (issue.assigneeId ?? null) === wanted.assigneeId &&
+            (issue.assigneeAgentId ?? null) === wanted.assigneeAgentId
         )
-        rows = rows.filter((issue) => issue.assigneeId === assigneeId)
       }
       rows = [...rows].sort(
         (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
       )
       const limit = input.limit ?? 50
-      const [labelNames, userNames, prOf] = await Promise.all([
+      const [labelNames, userNames, prOf, agentNames] = await Promise.all([
         getLabelNamesByIssue(),
         getUserNameById(),
         getPullRequestByIssue(),
+        getAgentNameById(),
       ])
       return {
         board: board.slug,
@@ -230,7 +249,8 @@ export function WebMcpReadTools() {
               issue,
               labelNames.get(issue.id) ?? [],
               userNames,
-              prOf(issue.id)
+              prOf(issue.id),
+              agentNames
             )
           ),
       }
@@ -278,10 +298,11 @@ export function WebMcpReadTools() {
       const { boardById, issues } = await getTeamIssues(ctx.teamId)
       const issue = resolveIssue(input.issue, ctx.issueIdentifier, issues)
       await commentCollection.preload()
-      const [labelNames, userNames, prOf] = await Promise.all([
+      const [labelNames, userNames, prOf, agentNames] = await Promise.all([
         getLabelNamesByIssue(),
         getUserNameById(),
         getPullRequestByIssue(),
+        getAgentNameById(),
       ])
       const comments = commentCollection.toArray
         .filter((comment) => comment.issueId === issue.id)
@@ -292,7 +313,8 @@ export function WebMcpReadTools() {
           issue,
           labelNames.get(issue.id) ?? [],
           userNames,
-          prOf(issue.id)
+          prOf(issue.id),
+          agentNames
         ),
         description: issue.description,
         board: boardSlug,
@@ -401,7 +423,7 @@ export function WebMcpWriteTools() {
       assignee: z
         .string()
         .optional()
-        .describe(`Team member email or display name`),
+        .describe(`Team member email or display name, or an agent name`),
       dueDate: dateOnlySchema.optional().describe(`YYYY-MM-DD`),
       labels: z.array(z.string()).optional().describe(`Existing label names`),
     },
@@ -412,10 +434,10 @@ export function WebMcpWriteTools() {
         ctx.boardSlug,
         await getTeamBoards(ctx.teamId)
       )
-      const assigneeId =
+      const assignee =
         input.assignee === undefined
           ? undefined
-          : resolveAssignee(input.assignee, await getTeamMembers(ctx.teamId))
+          : await resolveTeamAssignee(ctx.teamId, input.assignee)
       const labelIds =
         input.labels && input.labels.length > 0
           ? resolveLabels(input.labels, await getTeamLabels(ctx.teamId)).map(
@@ -428,7 +450,7 @@ export function WebMcpWriteTools() {
         description: input.description,
         status: input.status,
         priority: input.priority,
-        assigneeId,
+        ...assignee,
         dueDate: input.dueDate,
         labelIds,
       })
@@ -459,16 +481,16 @@ export function WebMcpWriteTools() {
       const ctx = getWebMcpAppContext()
       const { issues } = await getTeamIssues(ctx.teamId)
       const issue = resolveIssue(input.issue, ctx.issueIdentifier, issues)
-      const assigneeId =
+      const assignee =
         input.assignee === undefined
           ? undefined
-          : resolveAssignee(input.assignee, await getTeamMembers(ctx.teamId))
+          : await resolveTeamAssignee(ctx.teamId, input.assignee)
       await trpc.issues.update.mutate({
         id: issue.id,
         ...(input.title !== undefined && { title: input.title }),
         ...(input.status !== undefined && { status: input.status }),
         ...(input.priority !== undefined && { priority: input.priority }),
-        ...(assigneeId !== undefined && { assigneeId }),
+        ...assignee,
         ...(input.description !== undefined && {
           description: input.description,
         }),

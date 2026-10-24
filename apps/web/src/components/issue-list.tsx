@@ -4,6 +4,8 @@ import { StatusDropdown } from "@/components/issue-properties/status-dropdown"
 import { IssueGroupHeader } from "@/components/issue-group-header"
 import { PriorityDropdown } from "@/components/issue-properties/priority-dropdown"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
+import type { SyncedAgent } from "@/components/team/agents-section"
+import { assigneeWrite } from "@/lib/issue-assignee"
 import { issueMenuProps } from "@/components/issue-context-menu/attr"
 import { useIssueMenuSelection } from "@/components/issue-context-menu/selection"
 import {
@@ -69,6 +71,9 @@ interface IssueListProps {
   issueLabelMap: Map<string, Label[]>
   users: User[]
   userMap: Map<string, User>
+  /** #EXP-1383: the team's agents (`useAgentRows(teamId)`): agent assignees
+   *  and the picker's agent rows. */
+  agents?: readonly SyncedAgent[]
   onNewIssue: (status?: StatusRowOption) => void
   onIssueClick: (issue: Issue) => void
   canCreate?: boolean
@@ -116,6 +121,7 @@ const noopSetSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>> =
 // Shared empty-labels instance — a fresh `[]` per label-less row would break
 // the row memo on every parent render.
 const NO_LABELS: Label[] = []
+const NO_AGENTS: readonly SyncedAgent[] = []
 
 /** EXP-1259 D8: the first-load placeholder in the issue row's geometry
  *  (48px phone rows, 40px from md up, the status glyph's dot leading). */
@@ -136,15 +142,23 @@ function AssigneeCell({
   issue,
   users,
   userMap,
+  agents,
   canMutate,
 }: {
   issue: Issue
   users: User[]
   userMap: Map<string, User>
+  agents: readonly SyncedAgent[]
   canMutate: boolean
 }) {
+  // #EXP-1383: an agent assignee wears THE AGENT MARK.
+  const agent = issue.assigneeAgentId
+    ? agents.find((row) => row.id === issue.assigneeAgentId)
+    : undefined
   const assignee = issue.assigneeId ? userMap.get(issue.assigneeId) : undefined
-  const avatar = assignee ? (
+  const avatar = agent ? (
+    <UserAvatar size={20} user={null} agent={agent} />
+  ) : assignee ? (
     <UserAvatar size={20} user={assignee} />
   ) : (
     <div className="size-5 rounded-full border border-dashed border-border flex items-center justify-center">
@@ -161,9 +175,11 @@ function AssigneeCell({
   return (
     <AssigneePicker
       users={users}
+      agents={agents}
       selectedUserId={issue.assigneeId}
-      onSelect={(userId) => {
-        void trpc.issues.update.mutate({ id: issue.id, assigneeId: userId })
+      selectedAgentId={issue.assigneeAgentId}
+      onSelect={(next) => {
+        void trpc.issues.update.mutate({ id: issue.id, ...assigneeWrite(next) })
       }}
       align="end"
       trigger={
@@ -180,6 +196,8 @@ interface IssueRowProps {
   issueLabels: Label[]
   users: User[]
   userMap: Map<string, User>
+  /** #EXP-1383: the team's agents (a stable array). */
+  agents: readonly SyncedAgent[]
   menuFrom: string | undefined
   rowGridClass: string
   today: string
@@ -223,6 +241,7 @@ const IssueRow = memo(function IssueRow({
   issueLabels,
   users,
   userMap,
+  agents,
   menuFrom,
   rowGridClass,
   today,
@@ -417,13 +436,14 @@ const IssueRow = memo(function IssueRow({
             My issues. */}
         {!isSolo && (
           <div
-            className={`flex items-center justify-center max-md:order-1 ${!issue.assigneeId || hideAssigneeOnPhone ? `max-md:hidden` : ``}`}
+            className={`flex items-center justify-center max-md:order-1 ${(!issue.assigneeId && !issue.assigneeAgentId) || hideAssigneeOnPhone ? `max-md:hidden` : ``}`}
             onClick={(e) => e.stopPropagation()}
           >
             <AssigneeCell
               issue={issue}
               users={users}
               userMap={userMap}
+              agents={agents}
               canMutate={canMutateRow}
             />
           </div>
@@ -467,6 +487,7 @@ export function IssueList({
   issueLabelMap,
   users,
   userMap,
+  agents = NO_AGENTS,
   onNewIssue,
   onIssueClick,
   canCreate = true,
@@ -673,7 +694,8 @@ export function IssueList({
   // entirely (EXP-247 — nothing to reassign). `users` is the bot-excluded
   // member list; length 0 means still loading (never a genuine empty), so a
   // multi-member team never briefly reads as solo.
-  const isSolo = users.length === 1
+  // #EXP-1383: a team agent is someone to assign to as well.
+  const isSolo = users.length === 1 && agents.length === 0
 
   // EXP-1023: a due-date column nobody in this list fills is pure empty space
   // to the right of the label chips — the IDE, whose row is a flex line with
@@ -852,6 +874,7 @@ export function IssueList({
                     issueLabels={issueLabelMap.get(issue.id) ?? NO_LABELS}
                     users={users}
                     userMap={userMap}
+                    agents={agents}
                     menuFrom={menuFrom}
                     rowGridClass={rowGridClass}
                     today={today}

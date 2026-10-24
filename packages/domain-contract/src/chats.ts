@@ -1,8 +1,8 @@
 // Thread 58cb32df (owner 2026-10-23, #EXP-1373): Chats, the phone app's
 // WhatsApp-like list and the context menus ×4. Pure and byte-locked by
 // `fixtures/chats.json` (its `$comment` holds the rules); mirrors: iOS ExpCore
-// `Chats.swift`, Android `domain/Chats.kt`, desktop `domain::chats` (the menu
-// and transcript parts; desktop has no phone list).
+// `Chats.swift`, Android `domain/Chats.kt`, desktop `domain::chats` (every
+// group: the list is on every form factor since #EXP-1380).
 
 import fixture from "../fixtures/chats.json" with { type: "json" }
 import {
@@ -19,6 +19,8 @@ import {
 export const CHATS_COPY = fixture.copy
 export const CHATS_TEST_IDS = fixture.testIds
 export const CHATS_SHELL = fixture.shell
+/** #EXP-1380: the transcript window, its step and the follow slack (px). */
+export const CHATS_TRANSCRIPT = fixture.transcript
 
 export type ChatFilter = `all` | `needs_you` | `running` | `unread`
 export const CHAT_FILTERS = fixture.filters as readonly ChatFilter[]
@@ -310,3 +312,184 @@ export function surfaceReply(event: { name?: unknown; context?: unknown }): Surf
   const text = typeof context?.text === `string` ? context.text.trim() : ``
   return text ? { text } : null
 }
+
+// ── #EXP-1380: the list's per-conversation DIGEST (web) ──────────────────
+// The web list never syncs a transcript: the server keeps, on each
+// conversation row (`conversations.digest`, trigger `conversation_digest`
+// in 0001_triggers.sql), exactly the messages the list's rules read, and
+// `digestMessages` turns it back into TreeMessages, so `sessionTitle`,
+// `partitionThreads`, `chatList` and `agentBubbles` run UNCHANGED over it
+// and answer as they would over the whole conversation (an unread count
+// past `DIGEST_AGENT_TAIL` reads `DIGEST_AGENT_TAIL`). The SQL mirrors
+// `conversationDigest` below; `chats.test.ts` locks the equivalence.
+
+/** The newest non-event agent messages a digest keeps the times of. */
+export const DIGEST_AGENT_TAIL = 100
+/** A digest message's body / card text is cut to this many characters. */
+export const DIGEST_TEXT_MAX = 500
+
+export interface DigestMessage {
+  id: string
+  authorKind: string
+  authorSessionId: string | null
+  body: string
+  card: { kind: string; question?: string; plan?: string; title?: string } | null
+  answeredAt: string | null
+  createdAt: string
+}
+
+export interface ConversationDigest {
+  /** `firstPrompt`'s message (the title's last rung). */
+  first: DigestMessage | null
+  /** The newest preview message (`chatPreview`'s candidates). */
+  preview: DigestMessage | null
+  /** The newest WAITING question / plan / ask among them. */
+  waiting: DigestMessage | null
+  /** The newest agent message, event cards included (`partitionThreads`). */
+  agentAt: string | null
+  /** The newest `DIGEST_AGENT_TAIL` non-event agent messages' times,
+   *  oldest first (`unreadCount`). */
+  agentTimes: string[]
+}
+
+const msOr0 = (iso: string | null | undefined) => ms(iso) ?? 0
+
+function firstUsableLine(body: string): boolean {
+  return body.split(`\n`).some((part) => {
+    const line = part.trim()
+    return line.length > 0 && !line.startsWith(`![`)
+  })
+}
+
+function digestMessage(m: TreeMessage): DigestMessage {
+  const card = m.card
+    ? {
+        kind: String(m.card.kind),
+        ...(typeof m.card.question === `string` ? { question: m.card.question.slice(0, DIGEST_TEXT_MAX) } : {}),
+        ...(typeof m.card.plan === `string` ? { plan: m.card.plan.slice(0, DIGEST_TEXT_MAX) } : {}),
+        ...(typeof m.card.title === `string` ? { title: m.card.title.slice(0, DIGEST_TEXT_MAX) } : {}),
+      }
+    : null
+  return {
+    id: m.id,
+    authorKind: m.authorKind,
+    authorSessionId: m.authorSessionId ?? null,
+    body: m.body.slice(0, DIGEST_TEXT_MAX),
+    card,
+    answeredAt: m.answeredAt,
+    createdAt: m.createdAt,
+  }
+}
+
+/** THE digest of one session's conversation (`sessionId` = its session). */
+export function conversationDigest(sessionId: string, messages: readonly TreeMessage[]): ConversationDigest {
+  const own = messages.filter((m) => m.sessionId === sessionId)
+  const oldestFirst = (a: TreeMessage, b: TreeMessage) =>
+    msOr0(a.createdAt) - msOr0(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  const first =
+    own
+      .filter(
+        (m) =>
+          (m.card === null || m.card === undefined) &&
+          (m.authorKind === `user` || (!!m.authorSessionId && m.authorSessionId !== sessionId)) &&
+          firstUsableLine(m.body)
+      )
+      .sort(oldestFirst)[0] ?? null
+  const candidates = own
+    .filter((m) => m.authorKind === `user` || m.authorKind === `agent`)
+    .filter((m) => (m.card ? PREVIEW_CARDS.has(String(m.card.kind)) : m.body.trim() !== ``))
+    .sort((a, b) => oldestFirst(b, a))
+  const waiting =
+    candidates.find(
+      (m) => m.answeredAt === null && (m.card?.kind === `question` || m.card?.kind === `plan` || m.card?.kind === `ask`)
+    ) ?? null
+  const agents = own.filter((m) => m.authorKind === `agent`).sort(oldestFirst)
+  const tail = agents.filter((m) => m.card?.kind !== `event`).slice(-DIGEST_AGENT_TAIL)
+  return {
+    first: first ? digestMessage(first) : null,
+    preview: candidates[0] ? digestMessage(candidates[0]) : null,
+    waiting: waiting ? digestMessage(waiting) : null,
+    agentAt: agents.length > 0 ? agents[agents.length - 1]!.createdAt : null,
+    agentTimes: tail.map((m) => m.createdAt),
+  }
+}
+
+/** A digest back as the TreeMessages the list's rules read: its messages
+ *  (once each) plus one bodiless agent message per kept time (the one a
+ *  kept message already stands for skipped) and the newest agent time as an
+ *  event card. */
+export function digestMessages(sessionId: string, digest: ConversationDigest | null | undefined): TreeMessage[] {
+  if (!digest) return []
+  const out: TreeMessage[] = []
+  const seen = new Set<string>()
+  // Kept agent messages by time (a multiset: two may share a time).
+  const counted = new Map<number, number>()
+  for (const m of [digest.first, digest.preview, digest.waiting]) {
+    if (!m || seen.has(m.id)) continue
+    seen.add(m.id)
+    out.push({
+      id: m.id,
+      sessionId,
+      authorKind: m.authorKind,
+      authorId: null,
+      authorSessionId: m.authorSessionId,
+      body: m.body,
+      card: m.card,
+      answeredAt: m.answeredAt,
+      consumedAt: null,
+      createdAt: m.createdAt,
+    })
+    if (m.authorKind === `agent` && m.card?.kind !== `event`) {
+      const at = msOr0(m.createdAt)
+      counted.set(at, (counted.get(at) ?? 0) + 1)
+    }
+  }
+  digest.agentTimes.forEach((at, index) => {
+    const kept = counted.get(msOr0(at)) ?? 0
+    if (kept > 0) {
+      counted.set(msOr0(at), kept - 1)
+      return
+    }
+    out.push({
+      id: `digest:${sessionId}:${index}`,
+      sessionId,
+      authorKind: `agent`,
+      authorId: null,
+      authorSessionId: null,
+      body: ``,
+      card: null,
+      answeredAt: null,
+      consumedAt: null,
+      createdAt: at,
+    })
+  })
+  if (digest.agentAt) {
+    out.push({
+      id: `digest:${sessionId}:agent`,
+      sessionId,
+      authorKind: `agent`,
+      authorId: null,
+      authorSessionId: null,
+      body: ``,
+      card: { kind: `event` },
+      answeredAt: null,
+      consumedAt: null,
+      createdAt: digest.agentAt,
+    })
+  }
+  return out
+}
+
+/** #EXP-1383: the agent chat's "Instructions changed" Dock banner
+ *  (`agentHint.cases`): the root session fetched its brief before the
+ *  agent's instructions last changed. Either stamp missing = no hint. */
+export function agentInstructionsChanged(input: {
+  sessionStamp: string | null | undefined
+  agentStamp: string | null | undefined
+}): boolean {
+  if (!input.sessionStamp || !input.agentStamp) return false
+  return new Date(input.sessionStamp).getTime() < new Date(input.agentStamp).getTime()
+}
+
+/** #EXP-1383: the banner row itself (dock.json kind `banner`). */
+export const AGENT_HINT_BANNER = fixture.agentHint.banner
