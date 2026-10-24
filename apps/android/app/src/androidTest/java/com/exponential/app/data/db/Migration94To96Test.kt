@@ -47,7 +47,7 @@ class Migration94To96Test {
     fun migrates94To96AndValidates() {
         createVersion94(TEST_DB)
         val db = Room.databaseBuilder(context, ExponentialDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_94_95, MIGRATION_95_96, MIGRATION_96_97, MIGRATION_97_98, MIGRATION_98_99)
+            .addMigrations(MIGRATION_94_95, MIGRATION_95_96, MIGRATION_96_97, MIGRATION_97_98, MIGRATION_98_99, MIGRATION_99_100)
             .allowMainThreadQueries()
             .build()
         try {
@@ -70,7 +70,7 @@ class Migration94To96Test {
 
     private fun assertMigrated(db: ExponentialDatabase) {
         val sql = db.openHelper.writableDatabase
-        assertEquals(99, sql.version)
+        assertEquals(100, sql.version)
 
         // sessions: every kept column carries its v94 value.
         val root = runBlocking { db.sessionDao().getById("s1") }!!

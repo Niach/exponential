@@ -3,12 +3,14 @@
 //! name: icon and colour save at once, the name on blur / Enter), the
 //! description card (saved on blur), then Open in the editor, the version
 //! pill and "Delete app" (the creator or an owner). Everyone else reads the
-//! page. [`SettingsSection::NewApp`] = the same page in CREATE mode: every
+//! page. VAPP-120: under the records line, the Tools group: one row per
+//! typed action the head package declares, its title, the function name
+//! muted and a switch = the app's grant (`apps.granted_tools`). [`SettingsSection::NewApp`] = the same page in CREATE mode: every
 //! field local until Create app, which opens the editor.
 
 use gpui::{
-    div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
-    Subscription, Window,
+    div, App, AppContext as _, Entity, FontWeight, IntoElement, ParentElement, Render, SharedString,
+    Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -18,6 +20,7 @@ use gpui_component::{
 };
 use sync::Store;
 
+use domain::app_actions::{action_grantable, action_title, can_grant_actions, declared_actions, APP_ACTIONS_COPY};
 use domain::apps::{APPS, APPS_CAPS};
 use domain::rows::AppRow;
 
@@ -70,6 +73,27 @@ fn update_app(cx: &mut App, verb: &'static str, row: &AppRow, patch: impl FnOnce
     .detach();
 }
 
+/// VAPP-120: the typed actions a head package's `functions` declares
+/// (patterns expanded, the contract's order); no package = none.
+pub(crate) fn declared_tools(package: Option<&serde_json::Value>) -> Vec<String> {
+    let functions: Vec<String> = package
+        .and_then(|p| p.get("functions"))
+        .and_then(serde_json::Value::as_array)
+        .map(|list| list.iter().filter_map(|f| f.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    declared_actions(&functions)
+}
+
+/// VAPP-120: the whole grant list after one switch (the web's `toggleTool`):
+/// on = appended once, off = removed.
+pub(crate) fn toggled_grants(granted: &[String], name: &str, on: bool) -> Vec<String> {
+    let mut next: Vec<String> = granted.iter().filter(|g| g.as_str() != name).cloned().collect();
+    if on {
+        next.push(name.to_string());
+    }
+    next
+}
+
 /// Which page the inputs were seeded for: one app, or the create page.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Loaded {
@@ -91,6 +115,8 @@ pub struct AppDetailPane {
     /// still loading) and the team it was read for.
     records_max: Option<u64>,
     records_plan_team: Option<String>,
+    /// VAPP-120: the tool whose grant is being written (its switch waits).
+    tool_busy: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -135,6 +161,7 @@ impl AppDetailPane {
             pending: crate::feedback::Pending::default(),
             records_max: None,
             records_plan_team: None,
+            tool_busy: None,
             _subscriptions: subscriptions,
         }
     }
@@ -248,6 +275,110 @@ impl AppDetailPane {
             return;
         }
         update_app(cx, "save", &row, |input| input.description = Some(drafted));
+    }
+
+    /// VAPP-120 (the 2026-10-24 ruling): only a team OWNER sets the app's
+    /// grants; the creator gets no grant power from creating it.
+    fn can_grant(&self, row: &AppRow, cx: &App) -> bool {
+        row.team_id
+            .as_deref()
+            .is_some_and(|team| can_grant_actions(super::is_owner(cx, team).then_some(domain::app_actions::GRANT_ROLE)))
+    }
+
+    /// VAPP-120: one switch of the Tools group: `apps.update` with the whole
+    /// new `granted_tools` list (owners only, never a destructive action); a
+    /// refusal toasts.
+    fn toggle_tool(&mut self, name: String, on: bool, cx: &mut gpui::Context<Self>) {
+        let Some(row) = self.loaded_row(cx) else { return };
+        if !self.can_grant(&row, cx) || !action_grantable(&name) || self.tool_busy.is_some() {
+            return;
+        }
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("save", "the app", None, cx);
+            return;
+        };
+        let input = api::apps::AppInput {
+            id: Some(row.id.clone()),
+            name: row.name.clone(),
+            icon: row.icon.clone().unwrap_or_else(|| DEFAULT_ICON.to_string()),
+            color: row.color.clone().unwrap_or_else(|| DEFAULT_COLOR.to_string()),
+            description: row.description.clone(),
+            granted_tools: Some(toggled_grants(&row.granted_tools, &name, on)),
+            ..Default::default()
+        };
+        self.tool_busy = Some(name);
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::apps::update(&trpc, &input) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.tool_busy = None;
+                if let Err(err) = result {
+                    crate::action_error::failed_action_err("save", "the app", &err, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// VAPP-120: the Tools group (the web's `app-settings-tools`): the title
+    /// and hint, then one row per declared action with its switch, or the
+    /// none line.
+    fn tools_group(&self, row: &AppRow, _manage: bool, cx: &mut gpui::Context<Self>) -> gpui::Stateful<gpui::Div> {
+        let copy = *APP_ACTIONS_COPY;
+        let muted = cx.theme().muted_foreground;
+        let mono = cx.theme().mono_font_family.clone();
+        let declared = declared_tools(row.package.as_ref());
+        // The ruling: owners grant; a destructive action is never grantable.
+        let grant = self.can_grant(row, cx);
+        let group = if declared.is_empty() {
+            crate::surface::glass_group().child(
+                div().px_4().py_3().text_sm().text_color(muted).child(copy.none.clone()),
+            )
+        } else {
+            let rows = declared
+                .into_iter()
+                .map(|name| {
+                    let checked = row.granted_tools.iter().any(|g| g == &name);
+                    let busy = self.tool_busy.as_deref() == Some(name.as_str());
+                    let toggle = name.clone();
+                    crate::surface::glass_row_shell()
+                        .justify_between()
+                        .gap_3()
+                        .child(
+                            v_flex()
+                                .min_w_0()
+                                .child(div().text_sm().truncate().child(action_title(&name)))
+                                .child(div().text_xs().font_family(mono.clone()).text_color(muted).truncate().child(name.clone())),
+                        )
+                        .child(if action_grantable(&name) {
+                            crate::controls::web_switch(SharedString::from(format!("app-tool-switch-{name}")))
+                                .checked(checked)
+                                .disabled(!grant || busy)
+                                .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                                    this.toggle_tool(toggle.clone(), *checked, cx)
+                                }))
+                                .into_any_element()
+                        } else {
+                            div().flex_shrink_0().text_sm().text_color(muted).child(copy.always.clone()).into_any_element()
+                        })
+                })
+                .collect::<Vec<_>>();
+            crate::surface::glass_group_rows(rows)
+        };
+        v_flex()
+            .id("app-settings-tools")
+            .gap_1()
+            .child(
+                v_flex()
+                    .px_1()
+                    .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(copy.title.clone()))
+                    .child(div().text_sm().text_color(muted).child(copy.hint.clone())),
+            )
+            .child(group)
     }
 
     /// Create app: `apps.create`, then the editor opens on the synced row.
@@ -472,6 +603,7 @@ impl Render for AppDetailPane {
                         .text_color(cx.theme().muted_foreground)
                         .child(domain::app_records::records_count_label(count, self.records_max)),
                 )
+                .child(self.tools_group(row, manage, cx))
             })
             .child(actions);
         v_flex().child(body).into_any_element()
@@ -480,3 +612,48 @@ impl Render for AppDetailPane {
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::InteractiveElement as _;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn the_tools_group_lists_the_declared_actions() {
+        // VAPP-120: patterns expand, non-actions drop, the contract's order.
+        let package = json!({"functions": ["harness.toast", "exponential.issues.update_status", "exponential.comments.create"]});
+        assert_eq!(
+            declared_tools(Some(&package)),
+            vec!["exponential.comments.create".to_string(), "exponential.issues.update_status".to_string()]
+        );
+        assert!(declared_tools(None).is_empty());
+        assert!(declared_tools(Some(&json!({"functions": "nope"}))).is_empty());
+        assert_eq!(action_title("exponential.issues.update_status"), "Set issue status");
+        assert!(!APP_ACTIONS_COPY.none.is_empty());
+    }
+
+    #[test]
+    fn a_switch_writes_the_whole_grant_list() {
+        let granted = vec!["exponential.comments.create".to_string()];
+        assert_eq!(
+            toggled_grants(&granted, "exponential.issues.update", true),
+            vec!["exponential.comments.create".to_string(), "exponential.issues.update".to_string()]
+        );
+        assert_eq!(toggled_grants(&granted, "exponential.comments.create", true), granted);
+        assert!(toggled_grants(&granted, "exponential.comments.create", false).is_empty());
+    }
+
+    #[test]
+    fn the_app_row_reads_its_grants_tolerantly() {
+        let row: AppRow = serde_json::from_value(json!({"id": "a", "granted_tools": ["exponential.issues.update"]})).unwrap();
+        assert_eq!(row.granted_tools, vec!["exponential.issues.update".to_string()]);
+        let text: AppRow = serde_json::from_value(json!({"id": "a", "granted_tools": "[\"exponential.issues.get\"]"})).unwrap();
+        assert_eq!(text.granted_tools, vec!["exponential.issues.get".to_string()]);
+        for garbage in [json!(null), json!(7), json!({"x": 1})] {
+            let row: AppRow = serde_json::from_value(json!({"id": "a", "granted_tools": garbage})).unwrap();
+            assert!(row.granted_tools.is_empty());
+        }
+        let absent: AppRow = serde_json::from_value(json!({"id": "a"})).unwrap();
+        assert!(absent.granted_tools.is_empty());
+    }
+}

@@ -2194,6 +2194,28 @@
       }
     },
     {
+      "id": "app-consent",
+      "group": "coding",
+      "title": "App · consent card",
+      "blurb": "VAPP-120: the consent card an app surface raises for a typed action nobody granted (fixtures/app-actions.json): the operation's own words (\"Allow this surface to comment on issue APP-15?\"), the arguments it would send, Deny and Allow. A granted action never shows it; a destructive one always does (the 2026-10-24 ruling).",
+      "order": 40,
+      "ios": {
+        "shot": "sg_app-consent",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-consent",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "Not captured: the same card (ConsentCard in lib/exponential-ui-host.tsx) sits under the app's preview; the Working hours entry dialog's Post to the issue raises it.",
+        "desktop": "Not captured: the same card over the app screen (exponential_ui_host.rs).",
+        "ios": "The capture-only specimen `-uiTestingStyleguide app-consent` (AppConsentSpecimens): the REAL AppConsentCard over a stand-in surface, asked for exponential.comments.create on APP-15 with the words of actionConsent. The painted app surface exposes no rows to XCUITest, so the live walk cannot raise it.",
+        "android": "See ios: the capture-only AppConsentSpecimenScreen in captureOnlyScreens (the Compose painter's rows carry no text semantics for the test either).",
+        "web-mobile": "Not captured: the web card at the phone's width."
+      }
+    },
+    {
       "id": "exponential-ui-box",
       "group": "exponential-ui-catalog",
       "title": "Exponential UI · Box",

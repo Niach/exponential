@@ -44,12 +44,12 @@ class Migration95To96Test {
         createVersion95()
 
         val db = Room.databaseBuilder(context, ExponentialDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_95_96, MIGRATION_96_97, MIGRATION_97_98, MIGRATION_98_99)
+            .addMigrations(MIGRATION_95_96, MIGRATION_96_97, MIGRATION_97_98, MIGRATION_98_99, MIGRATION_99_100)
             .allowMainThreadQueries()
             .build()
         try {
             val sql = db.openHelper.writableDatabase
-            assertEquals(99, sql.version)
+            assertEquals(100, sql.version)
 
             val session = runBlocking { db.sessionDao().getById("s1") }!!
             assertEquals("Fix it", session.title)
@@ -100,6 +100,8 @@ class Migration95To96Test {
         file.parentFile?.mkdirs()
         SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
             for (statement in schema) db.execSQL(statement)
+            // v100 (VAPP-120) added `apps.granted_tools`: an older file has none.
+            db.execSQL("ALTER TABLE `apps` DROP COLUMN `granted_tools`")
             db.execSQL(
                 "CREATE TABLE IF NOT EXISTS `actions` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
                     "`name` TEXT NOT NULL, `description` TEXT, `icon` TEXT, `inputs` TEXT, " +

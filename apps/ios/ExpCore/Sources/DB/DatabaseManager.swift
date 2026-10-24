@@ -2785,6 +2785,19 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v82 (VAPP-120): `apps.granted_tools` (jsonb string[] on the wire,
+        // stored as its JSON text, '[]' = none): the typed host actions an
+        // app may run as the viewer without the consent card. A new feature
+        // = no grant exists yet, so no cursor reset: a grant arrives as the
+        // row's update.
+        migrator.registerMigration("v82_apps_granted_tools") { db in
+            if try db.columns(in: "apps").contains(where: { $0.name == "granted_tools" }) == false {
+                try db.alter(table: "apps") { t in
+                    t.add(column: "granted_tools", .text).notNull().defaults(to: "[]")
+                }
+            }
+        }
+
         return migrator
     }
 

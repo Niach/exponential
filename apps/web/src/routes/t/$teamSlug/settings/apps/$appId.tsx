@@ -30,7 +30,7 @@ function SettingsApp() {
   return (
     <SettingsSectionGuard resolved={resolved} allowed={permissions.isMember}>
       {team && app && (
-        <AppSettingsPage key={app.id} team={team} app={app} canManage={permissions.isOwner || app.createdBy === me} />
+        <AppSettingsPage key={app.id} team={team} app={app} canManage={permissions.isOwner || app.createdBy === me} canGrant={permissions.isOwner} />
       )}
     </SettingsSectionGuard>
   )

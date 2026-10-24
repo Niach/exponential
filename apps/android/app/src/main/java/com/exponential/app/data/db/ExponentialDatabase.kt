@@ -462,8 +462,12 @@ import androidx.room.TypeConverters
     // v99 (thread e4a04d22): conversations.digest (the Chats list's
     //      per-conversation digest). Explicit [MIGRATION_98_99] adds the
     //      nullable column and refetches only the conversations shape.
+    // v100 (VAPP-120): apps.granted_tools (the typed actions an app may run
+    //      without asking, a JSON string[]). Explicit [MIGRATION_99_100] adds
+    //      the column with "[]"; no offset resets (the apps shape's next
+    //      change carries the real value).
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 99,
+    version = 100,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

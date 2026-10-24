@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-24-app-actions",
+    date: "2026-10-24",
+    title: "Apps act as you: every Exponential operation, granted per app",
+    summary: "An app calls any Exponential operation as a typed function (exponential.issues.update, exponential.comments.create, exponential.sessions.send, …); its settings page lists what it uses and you decide which run without asking; the rest ask with the operation's own words.",
+    body: r#"- **Typed actions**: every MCP operation is a host function an app may call, run as you; the package lists what it uses and nothing else is reachable.
+- **Grants**: Settings → Apps → the app shows a Tools group with one switch per declared action; a granted action runs without the consent card, an ungranted one asks each time, worded for the operation ("Allow this surface to set issue status APP-5?"). Only a team owner grants, and a destructive operation (delete, merge, close, end, remove, trash) can never be granted: it always asks, for everyone.
+- **Working hours**: v5 posts a logged day to its issue as a comment through the typed action.
+- **Platforms**: the grants sync to the IDE, iOS and Android, whose hosts honour them the same way."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_82: ChangelogEntry = ChangelogEntry {
     id: "2026-10-24-phone-shell",
     date: "2026-10-24",
     title: "Phones: one bar for every page, a board menu in the Board tab, search in your team",

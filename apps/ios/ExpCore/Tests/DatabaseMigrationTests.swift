@@ -136,7 +136,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
-             "v79_app_records", "v80_agent_actors", "v81_conversation_digest"]
+             "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools"]
         )
     }
 
@@ -194,7 +194,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
-             "v79_app_records", "v80_agent_actors", "v81_conversation_digest"]
+             "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools"]
         )
     }
 
@@ -724,7 +724,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
-             "v79_app_records", "v80_agent_actors", "v81_conversation_digest"]
+             "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -830,7 +830,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
-             "v79_app_records", "v80_agent_actors", "v81_conversation_digest"]
+             "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -3183,7 +3183,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(
             try columnNames(pool, "apps"),
             ["id", "team_id", "slug", "name", "icon", "color", "description", "package",
-             "head_version", "created_by", "deleted_at", "created_at", "updated_at"]
+             "head_version", "created_by", "deleted_at", "created_at", "updated_at",
+             "granted_tools"]
         )
         XCTAssertEqual(
             try columnNames(pool, "app_versions"),
@@ -3198,6 +3199,59 @@ final class DatabaseMigrationTests: XCTestCase {
             XCTAssertEqual(reset, ["sessions"])
         }
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // VAPP-120: v82 adds `apps.granted_tools` (JSON text, '[]' = none) to
+    // existing rows without a cursor reset; a synced row's jsonb list
+    // decodes from the wire and round-trips through the store.
+    func testAppsGrantedToolsColumn() throws {
+        let pool = try makePool("vapp120-granted-tools")
+        let migrator = DatabaseManager.makeMigrator()
+        // A device on master's head (v81) upgrades to this build.
+        try migrator.migrate(pool, upTo: "v81_conversation_digest")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "apps" ("id", "team_id", "slug", "name", "created_at", "updated_at")
+                VALUES ('a0', 't1', 'old', 'Old', '2026-10-05T18:00:00Z', '2026-10-05T18:00:00Z')
+                """)
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('apps', 'h', '0_0', 0, 1)
+                ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                    "needs_refetch" = 0, "is_live" = 1
+                """)
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertTrue(try columnNames(pool, "apps").contains("granted_tools"))
+        try pool.read { db in
+            let old = try AppEntity.fetchOne(db, key: "a0")
+            XCTAssertEqual(old?.grantedTools, [])
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, [])
+        }
+        for (wireValue, expected) in [
+            (#"["exponential.issues.update","exponential.sessions.send"]"#, ["exponential.issues.update", "exponential.sessions.send"]),
+            (#""[\"exponential.issues.update\"]""#, ["exponential.issues.update"]),
+            ("null", []),
+        ] {
+            let wire = Data("""
+                {"id":"a1","team_id":"t1","slug":"hours","name":"Hours","granted_tools":\(wireValue),
+                 "created_at":"2026-10-05T18:00:00Z","updated_at":"2026-10-05T18:00:00Z"}
+                """.utf8)
+            let decoded = try JSONDecoder().decode(AppEntity.self, from: wire)
+            XCTAssertEqual(decoded.grantedTools, expected, wireValue)
+            try pool.write { db in try decoded.save(db) }
+            let stored = try pool.read { db in try AppEntity.fetchOne(db, key: "a1") }
+            XCTAssertEqual(stored?.grantedTools, expected, wireValue)
+        }
+        let missing = try JSONDecoder().decode(AppEntity.self, from: Data(#"""
+            {"id":"a2","team_id":"t1","created_at":"2026-10-05T18:00:00Z","updated_at":"2026-10-05T18:00:00Z"}
+            """#.utf8))
+        XCTAssertEqual(missing.grantedTools, [])
     }
 
     // VAPP-122: v79 adds `app_records` (the shape allowlist) with its

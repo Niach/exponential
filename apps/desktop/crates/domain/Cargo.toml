@@ -7,7 +7,9 @@ publish = false
 
 [dependencies]
 serde.workspace = true
-serde_json.workspace = true
+# VAPP-120: `preserve_order`: an action's args render in the GIVEN key order
+# (`app_actions::action_consent`, like the TS reference's JSON.stringify).
+serde_json = { workspace = true, features = ["preserve_order"] }
 # EXP-825: the image-message embed/marker patterns (moved here from steer).
 regex = "1"
 # VAPP-110: `apps::slugify` strips diacritics (NFKD), like the TS reference.

@@ -1345,6 +1345,13 @@
       "when": 1792850500000,
       "tag": "0191_conversation_digest",
       "breakpoints": true
+    },
+    {
+      "idx": 192,
+      "version": "7",
+      "when": 1792860000000,
+      "tag": "0192_app_granted_tools",
+      "breakpoints": true
     }
   ]
 }

@@ -943,6 +943,15 @@ final class StyleguideScreenshots: XCTestCase {
             default: snapshot("sg_schedule-picker", settle: 2)
             }
         }
+        // ── sg_app-consent (VAPP-120, app-actions.json): the consent card an
+        // app raises for an ungranted typed action, with the operation's own
+        // words, drawn by the real card over a stand-in surface (the painted
+        // surface's rows are not reachable from XCUITest, so no live walk).
+        if ScreenshotShots.isWanted("sg_app-consent") {
+            openThreadCards(app, "app-consent")
+            expect(anyElement(app, containing: "Allow this surface to comment on issue APP-15?"), within: Wait.nav, "The app-consent specimen raised no consent card")
+            snapshot("sg_app-consent", settle: 2)
+        }
 
         finished = true
     }

@@ -770,6 +770,10 @@ data class AppEntity(
     // Release train 2026-10-23: apps.created_by is nullable server-side (migration 0186, ON DELETE SET NULL); Room keeps NOT NULL, "" means no creator.
     @ColumnInfo(name = "created_by") @SerialName("created_by") @JsonNames("createdBy")
     @Serializable(with = NullAsEmptyStringSerializer::class) val createdBy: String = "",
+    // VAPP-120: the typed actions the app may run as the viewer without asking
+    // (a JSON string[] of exact `exponential.<noun>.<op>` names; "[]" = none).
+    @ColumnInfo(name = "granted_tools") @SerialName("granted_tools") @JsonNames("grantedTools")
+    @Serializable(with = JsonAsStringSerializer::class) val grantedTools: String? = "[]",
     @ColumnInfo(name = "deleted_at") @SerialName("deleted_at") @JsonNames("deletedAt") val deletedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",

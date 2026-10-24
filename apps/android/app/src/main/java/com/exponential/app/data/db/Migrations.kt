@@ -474,6 +474,17 @@ internal val AGENT_ACTOR_COLUMNS_V98: List<Pair<String, String>> = listOf(
     "comments" to "author_agent_id",
 )
 
+/**
+ * v100 (VAPP-120): `apps.granted_tools`, the typed actions an app may run as
+ * the viewer without asking (a JSON string[]), added as "[]"; every table
+ * and offset is untouched.
+ */
+val MIGRATION_99_100: Migration = object : Migration(99, 100) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `apps` ADD COLUMN `granted_tools` TEXT DEFAULT '[]'")
+    }
+}
+
 private const val PINS_V96 =
     "CREATE TABLE IF NOT EXISTS `pins` (`id` TEXT NOT NULL, `user_id` TEXT NOT NULL, " +
         "`team_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `issue_id` TEXT, `session_id` TEXT, " +

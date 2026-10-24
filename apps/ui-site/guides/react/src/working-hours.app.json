@@ -1,7 +1,7 @@
 {
   "id": "acme.working-hours",
   "name": "Working hours",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "description": "Your hours per day, a month at a time: log them, see the total against the target, link the issues you worked on, and look at a teammate's month.",
   "sources": [
@@ -11,7 +11,8 @@
   ],
   "functions": [
     "harness.records.*",
-    "bind"
+    "bind",
+    "exponential.comments.create"
   ],
   "records": {
     "entry": {
@@ -539,7 +540,7 @@
             "form"
           ],
           "slots": {
-            "footer": "deleteEntry"
+            "footer": "editorFooter"
           }
         },
         {
@@ -666,6 +667,53 @@
                 "args": {
                   "id": {
                     "path": "/draft/id"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "editorFooter",
+          "component": "Stack",
+          "direction": "horizontal",
+          "gap": "sm",
+          "align": "center",
+          "children": [
+            "deleteEntry",
+            "postComment"
+          ]
+        },
+        {
+          "id": "postComment",
+          "component": "Button",
+          "label": "Post to the issue",
+          "variant": "outline",
+          "visible": {
+            "path": "/draft/issues/0"
+          },
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "exponential.comments.create",
+                "args": {
+                  "issueId": {
+                    "path": "/draft/issues/0"
+                  },
+                  "body": {
+                    "call": "concat",
+                    "args": {
+                      "values": [
+                        "Logged ",
+                        {
+                          "path": "/draft/hours"
+                        },
+                        " h: ",
+                        {
+                          "path": "/draft/note"
+                        }
+                      ]
+                    }
                   }
                 }
               }

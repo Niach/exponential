@@ -1256,6 +1256,9 @@ public struct AppEntity: FetchableRecord, PersistableRecord, Identifiable, Equat
     public let package: String?
     public let headVersion: Int
     public let createdBy: String
+    /// VAPP-120: the exact `exponential.*` function names the app may run as
+    /// the viewer without the consent card (`AppActions.grantAllows`).
+    public let grantedTools: [String]
     public let deletedAt: String?
     public let createdAt: String
     public let updatedAt: String
@@ -1271,6 +1274,7 @@ public struct AppEntity: FetchableRecord, PersistableRecord, Identifiable, Equat
         package: String? = nil,
         headVersion: Int = 0,
         createdBy: String,
+        grantedTools: [String] = [],
         deletedAt: String? = nil,
         createdAt: String,
         updatedAt: String
@@ -1285,6 +1289,7 @@ public struct AppEntity: FetchableRecord, PersistableRecord, Identifiable, Equat
         self.package = package
         self.headVersion = headVersion
         self.createdBy = createdBy
+        self.grantedTools = grantedTools
         self.deletedAt = deletedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -1292,6 +1297,7 @@ public struct AppEntity: FetchableRecord, PersistableRecord, Identifiable, Equat
 
     enum CodingKeys: String, CodingKey {
         case id, slug, name, icon, color, description, package
+        case grantedTools = "granted_tools"
         case teamId = "team_id"
         case headVersion = "head_version"
         case createdBy = "created_by"
@@ -1314,6 +1320,10 @@ extension AppEntity: Codable {
         package = c.decodeWireJsonString(forKey: .package)
         headVersion = try c.decodeWireInt(forKey: .headVersion) ?? 0
         createdBy = try c.decodeIfPresent(String.self, forKey: .createdBy) ?? ""
+        // The jsonb list as its JSON text (wire or store); missing or
+        // garbage = no grants.
+        grantedTools = c.decodeWireJsonString(forKey: .grantedTools)
+            .flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) } ?? []
         deletedAt = try c.decodeIfPresent(String.self, forKey: .deletedAt)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
