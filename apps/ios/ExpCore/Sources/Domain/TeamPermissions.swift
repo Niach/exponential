@@ -130,6 +130,10 @@ public struct TeamPermissionsSnapshot: Sendable, Equatable {
     public var membersLive: Bool
     public var humanCount: Int
     public var members: [TeamMemberEntity]
+    /// #EXP-1383: the team's agents in the assignee picker's order
+    /// (`AgentSettings.assigneeAgents`) — the picker's agent rows, and what
+    /// an agent assignee resolves against.
+    public var agents: [AgentDefinitionEntity] = []
 
     public static let empty = TeamPermissionsSnapshot(
         team: nil, permissions: .denied, membersLive: false, humanCount: 0, members: []
@@ -146,6 +150,12 @@ public struct TeamPermissionsSnapshot: Sendable, Equatable {
     /// of 0 means the member list hasn't synced yet (never a genuine empty
     /// team — the viewer is a member). Same contract as web's issue-list.tsx.
     public var singleMemberTeam: Bool { humanCount == 1 }
+
+    /// #EXP-1383: a solo team hides its assignee control only while it has
+    /// no agents (`AgentSettings.showsAssignee`).
+    public var hidesAssignee: Bool {
+        !AgentSettings.showsAssignee(memberCount: humanCount, agentCount: agents.count)
+    }
 
     /// The snapshot for `teamId` (nil = no team resolvable: denied).
     public static func read(
@@ -167,12 +177,14 @@ public struct TeamPermissionsSnapshot: Sendable, Equatable {
         }
         let team = try TeamEntity.fetchOne(db, key: teamId)
         let own = members.filter { $0.teamId == teamId }
+        let agents = try AgentDefinitionEntity.filter(Column("team_id") == teamId).fetchAll(db)
         return TeamPermissionsSnapshot(
             team: team,
             permissions: try TeamPermissions.resolve(team: team, currentUserId: currentUserId, isAdmin: isAdmin, db: db),
             membersLive: live,
             humanCount: own.count,
-            members: members
+            members: members,
+            agents: AgentSettings.assigneeAgents(agents)
         )
     }
 }

@@ -288,7 +288,8 @@ struct CommentCallRow: View {
     private var caption: String {
         let source = ReporterReply.caption(
             source: comment?.source ?? DomainContract.commentSourceMcp,
-            audience: comment?.audience ?? "team"
+            audience: comment?.audience ?? "team",
+            authorAgentId: comment?.authorAgentId
         )
         let time: String? = if let comment {
             RelativeTime.long(wire: comment.createdAt)
@@ -353,6 +354,10 @@ struct CommentCallRow: View {
             guard let row = try CommentEntity.fetchOne(db, key: commentId) else { return (nil, nil, nil) }
             let author = try row.authorId.flatMap { try UserEntity.fetchOne(db, key: $0) }
             let issue = try IssueEntity.fetchOne(db, key: row.issueId)
+            // #EXP-1383: an agent's comment names the AGENT.
+            if let agent = try row.authorAgentId.flatMap({ try AgentDefinitionEntity.fetchOne(db, key: $0) }) {
+                return (row, agent.name, issue?.identifier)
+            }
             return (row, memberDisplayName(author, id: row.authorId), issue?.identifier)
         }
         do {

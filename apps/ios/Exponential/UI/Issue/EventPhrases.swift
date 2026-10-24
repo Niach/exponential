@@ -107,7 +107,8 @@ func eventPhrase(
     users: [String: UserEntity],
     labels: [String: LabelEntity]?,
     boards: [String: BoardEntity]? = nil,
-    estimationType: String? = nil
+    estimationType: String? = nil,
+    agents: [String: AgentDefinitionEntity] = [:]
 ) -> String? {
     switch event.type {
     case "created":
@@ -125,6 +126,10 @@ func eventPhrase(
             toAnchor: eventField(event.payload, "to")
         )
     case "assignee_changed":
+        // #EXP-1383: an agent assignee rides `toAgentId` (`assigned Sloppy`).
+        if let toAgentId = eventField(event.payload, "toAgentId") {
+            return "assigned \(agents[toAgentId]?.name ?? AgentSettings.AssigneeCopy.agentFallback)"
+        }
         guard let to = eventField(event.payload, "to") else { return "unassigned this issue" }
         return "assigned \(memberDisplayName(users[to], id: to))"
     case "label_added":

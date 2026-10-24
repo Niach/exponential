@@ -12,9 +12,12 @@ protocol IssuePropertyActions: AnyObject {
     var teamStatuses: [ResolvedIssueStatus] { get }
     var pickedStatus: ResolvedIssueStatus { get }
     var pickedPriority: IssuePriority { get }
-    var pickedAssigneeId: String? { get }
+    /// #EXP-1383: the pick across both exclusive columns (a member or an agent).
+    var pickedAssignee: IssueAssignee { get }
     /// The assignee picker's members, display-name ordered.
     var teamUsers: [UserEntity] { get }
+    /// #EXP-1383: the team's agents, listed after the members.
+    var teamAgents: [AgentDefinitionEntity] { get }
     /// The team's labels, name-sorted.
     var teamLabels: [LabelEntity] { get }
     var assignedLabelIds: Set<String> { get }
@@ -24,7 +27,7 @@ protocol IssuePropertyActions: AnyObject {
 
     func pickStatus(_ status: ResolvedIssueStatus)
     func pickPriority(_ priority: IssuePriority)
-    func pickAssignee(_ userId: String?)
+    func pickAssignee(_ assignee: IssueAssignee)
     func toggleLabelPick(_ labelId: String)
     func createLabelPick(named name: String)
 }
@@ -90,10 +93,12 @@ struct IssuePropertyPickers<Model: IssuePropertyActions>: View {
 
             AssigneePicker(
                 members: model.teamUsers.map(AssigneePickerMember.init),
+                agents: model.teamAgents.map(AssigneePickerAgent.init),
                 // An EMPTY set is unassigned; the picker offers the row that
-                // clears the pick and reports it back as nothing.
-                value: model.pickedAssigneeId.map { [$0] } ?? [],
-                onChange: { picked in model.pickAssignee(picked.first) },
+                // clears the pick and reports it back as nothing. An agent
+                // row's value is `agent:<id>` (#EXP-1383).
+                value: model.pickedAssignee.isUnassigned ? [] : [model.pickedAssignee.pickerValue],
+                onChange: { picked in model.pickAssignee(IssueAssignee(pickerValue: picked.first)) },
                 open: issuePickerOpen(child, .assignee),
                 hideTrigger: true,
                 onDismiss: onDismiss,
@@ -125,7 +130,9 @@ struct IssuePropertyPickers<Model: IssuePropertyActions>: View {
 extension IssueDetailViewModel: IssuePropertyActions {
     var pickedStatus: ResolvedIssueStatus { resolvedStatus }
     var pickedPriority: IssuePriority { IssuePriority.from(issue?.priority) }
-    var pickedAssigneeId: String? { issue?.assigneeId }
+    var pickedAssignee: IssueAssignee {
+        IssueAssignee(assigneeId: issue?.assigneeId, assigneeAgentId: issue?.assigneeAgentId)
+    }
     var pickerBoards: [BoardEntity] { moveTargetBoards }
     var pickedBoardId: String { issue?.boardId ?? "" }
 
@@ -137,8 +144,8 @@ extension IssueDetailViewModel: IssuePropertyActions {
         Task { await setPriority(priority) }
     }
 
-    func pickAssignee(_ userId: String?) {
-        Task { await setAssignee(userId) }
+    func pickAssignee(_ assignee: IssueAssignee) {
+        Task { await setAssignee(assignee) }
     }
 
     func toggleLabelPick(_ labelId: String) {

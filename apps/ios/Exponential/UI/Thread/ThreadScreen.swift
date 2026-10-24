@@ -596,7 +596,9 @@ struct ThreadScreen: View {
                         openId: $dockOpenId,
                         renderSheet: { row, close in conversationDockSheet(row, rows: rows, view: view, close: close) },
                         renderAction: { row in
-                            row.id == "banner:closed" ? liveModel.map(SessionDock.reconnect) : nil
+                            row.id == "banner:closed"
+                                ? liveModel.map(SessionDock.reconnect)
+                                : SessionDock.agentHintAction(row) { text in reply(text, sessionId: rows.root.id) }
                         }
                     ) {
                         // EXP-1211: the agent's quick replies, directly above
@@ -668,7 +670,9 @@ struct ThreadScreen: View {
         guard canEdit else { return [] }
         let asks = AskDock.threadPendingAsks(view.rows, sessionName: AskDock.threadSessionNames(view.tabs))
         let live = liveModel.map { SessionDock.sources($0, session: rows.root) } ?? []
-        return Dock.rows(asks.map(\.dockSource) + Dock.suggestionSources(view.rows) + live)
+        // #EXP-1383: the agent chat's "Instructions changed" banner.
+        let hint = SessionDock.agentHint(root: rows.root, agent: rows.agent).map { [$0] } ?? []
+        return Dock.rows(asks.map(\.dockSource) + Dock.suggestionSources(view.rows) + live + hint)
     }
 
     /// A card's sheet: an ask = THE plan / question sheet, the root's Queue

@@ -39,6 +39,11 @@ final class IssueListViewModel {
     /// True when the board's team has one human member: the selection bar's
     /// assignee button and the row assignee avatar are hidden (EXP-50 parity).
     var singleMemberTeam = false
+    /// #EXP-1383: a solo team hides its assignee affordances only while it
+    /// has no agents.
+    var hidesAssignee = false
+    /// #EXP-1383: the board's team's agents in the assignee picker's order.
+    var teamAgents: [AgentDefinitionEntity] = []
     var error: String?
 
     private let accountId: String
@@ -229,6 +234,8 @@ final class IssueListViewModel {
                     // EXP-1358 review: no team yet (board row unsynced) isn't "Syncing team…" — the old `refreshPermissions(for: nil)` forced the banner off.
                     self.permissionsPending = snapshot.team != nil && snapshot.permissionsPending
                     self.singleMemberTeam = snapshot.singleMemberTeam
+                    self.hidesAssignee = snapshot.hidesAssignee
+                    self.teamAgents = snapshot.agents
                 }
             } catch {}
         })
@@ -461,17 +468,11 @@ final class IssueListViewModel {
         }
     }
 
-    /// Set (or clear, when nil) an issue's assignee — mirrors the detail
-    /// view's explicit-null path for "Unassigned".
-    func setAssignee(issueId: String, assigneeId: String?) async {
+    /// Set (or clear) an issue's assignee — #EXP-1383: both columns, the
+    /// cleared one as an explicit null (the detail view's path).
+    func setAssignee(issueId: String, assignee: IssueAssignee) async {
         do {
-            if let assigneeId {
-                try await issuesApi.update(accountId: accountId, UpdateIssueInput(id: issueId, assigneeId: assigneeId))
-            } else {
-                var input = UpdateIssueInput(id: issueId)
-                input.explicitNulls.insert("assigneeId")
-                try await issuesApi.update(accountId: accountId, input)
-            }
+            try await issuesApi.update(accountId: accountId, UpdateIssueInput(id: issueId, assignee: assignee))
         } catch {
             self.error = error.userFacingMessage
         }
@@ -506,16 +507,21 @@ final class IssueListViewModel {
         }
     }
 
-    /// nil ⇒ unassign, which only works when `assigneeId` reaches the server
-    /// as an explicit JSON null — the same distinction `setAssignee` makes.
-    func bulkSetAssignee(issueIds: [String], assigneeId: String?) async {
+    /// Unassigned only works when the columns reach the server as explicit
+    /// JSON nulls — #EXP-1383: both columns, the cleared one null.
+    func bulkSetAssignee(issueIds: [String], assignee: IssueAssignee) async {
         await runBulk(issueIds) { ids in
-            var input = BulkUpdateIssuesInput(ids: ids, assigneeId: assigneeId)
-            if assigneeId == nil {
-                input.explicitNulls.insert("assigneeId")
-            }
-            try await self.issuesApi.bulkUpdate(accountId: self.accountId, input)
+            try await self.issuesApi.bulkUpdate(
+                accountId: self.accountId,
+                BulkUpdateIssuesInput(ids: ids, assignee: assignee)
+            )
         }
+    }
+
+    /// #EXP-1383: an agent assignee's row (nil while unsynced).
+    func agentFor(id: String?) -> AgentDefinitionEntity? {
+        guard let id else { return nil }
+        return teamAgents.first { $0.id == id }
     }
 
     /// Delete the whole selection (EXP-698 r5 — the bulk bar's trash, gated on

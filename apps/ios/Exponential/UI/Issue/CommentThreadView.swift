@@ -84,6 +84,9 @@ struct CommentThreadView: View {
     @State private var comments: [CommentEntity] = []
     @State private var events: [IssueEventEntity] = []
     @State private var users: [String: UserEntity] = [:]
+    /// #EXP-1383: every synced agent definition — agent actors (events,
+    /// comments, the creation row) and agent assignees resolve against it.
+    @State private var agents: [String: AgentDefinitionEntity] = [:]
     @State private var labels: [String: LabelEntity] = [:]
     @State private var boards: [String: BoardEntity] = [:]
     /// EXP-630: every synced team row — the `estimate_changed` rows render
@@ -139,7 +142,23 @@ struct CommentThreadView: View {
     }
 
     private func phrase(_ event: IssueEventEntity) -> String? {
-        eventPhrase(event, users: users, labels: labels, boards: boards, estimationType: estimationType)
+        eventPhrase(
+            event, users: users, labels: labels, boards: boards, estimationType: estimationType, agents: agents
+        )
+    }
+
+    /// #EXP-1383 (agent-settings.json `actor`): who a row reads as — the
+    /// AGENT when its session acted, else the member.
+    private func actor(agentId: String?, userId: String?) -> AgentSettings.IssueActor? {
+        AgentSettings.issueActor(
+            actorAgentId: agentId, actorUserId: userId, agents: Array(agents.values)
+        )
+    }
+
+    /// The display name of an actor: the agent's name, else the member's.
+    private func actorName(agentId: String?, userId: String?) -> String {
+        if let agent = actor(agentId: agentId, userId: userId)?.agent { return agent.name }
+        return memberDisplayName(userId.flatMap { users[$0] }, id: userId)
     }
 
     /// EXP-900: the events this timeline draws. The fold runs over the FULL
@@ -156,6 +175,7 @@ struct CommentThreadView: View {
                     // A reporter's reply (author NULL) is a barrier like any
                     // other person's words.
                     actorUserId: $0.authorId,
+                    actorAgentId: $0.authorAgentId,
                     createdAt: $0.createdAt
                 )
             }
@@ -178,6 +198,7 @@ struct CommentThreadView: View {
     private var timeline: [TimelineItem] {
         let created = TimelineItem.created(
             actorId: issue.creatorId,
+            agentId: issue.creatorAgentId,
             createdAt: issue.createdAt,
             source: issue.source
         )
@@ -262,8 +283,11 @@ struct CommentThreadView: View {
         switch row {
         case .item(let item):
             switch item {
-            case let .created(actorId, createdAt, source):
-                createdRow(actorId: actorId, createdAt: createdAt, source: source, showTop: showTop, showBottom: showBottom)
+            case let .created(actorId, agentId, createdAt, source):
+                createdRow(
+                    actorId: actorId, agentId: agentId, createdAt: createdAt, source: source,
+                    showTop: showTop, showBottom: showBottom
+                )
             case .comment(let comment):
                 commentRow(comment, showTop: showTop, showBottom: showBottom)
             case .event(let event):
@@ -277,8 +301,14 @@ struct CommentThreadView: View {
     /// Synthesized first item: "«creator» created the issue" (widget/agent
     /// issues have no user creator — their origin is the actor).
     @ViewBuilder
-    private func createdRow(actorId: String?, createdAt: String, source: String?, showTop: Bool, showBottom: Bool) -> some View {
-        let who = source == DomainContract.issueSourceWidget
+    private func createdRow(
+        actorId: String?, agentId: String?, createdAt: String, source: String?, showTop: Bool, showBottom: Bool
+    ) -> some View {
+        // #EXP-1383: an agent session's issue names the AGENT.
+        let agent = actor(agentId: agentId, userId: actorId)?.agent
+        let who = agent != nil
+            ? agent?.name ?? ""
+            : source == DomainContract.issueSourceWidget
             ? "Feedback widget"
             : source == DomainContract.issueSourceAgent
                 ? "Agent"
@@ -302,7 +332,9 @@ struct CommentThreadView: View {
     // label/PR changes).
     @ViewBuilder
     private func eventRow(_ event: IssueEventEntity, showTop: Bool, showBottom: Bool) -> some View {
-        let who = memberDisplayName(event.actorUserId.flatMap { users[$0] }, id: event.actorUserId)
+        // #EXP-1383: an agent's session acted → the AGENT's name, the same
+        // per-type copy.
+        let who = actorName(agentId: event.actorAgentId, userId: event.actorUserId)
         // Nil phrase = a suppressed event type (the timeline filter already
         // drops them; this guard keeps a stray one from rendering munged).
         if let phrase = phrase(event) {
@@ -395,6 +427,7 @@ struct CommentThreadView: View {
                 attachmentsByComment: attachmentsByComment,
                 issueId: issue.id,
                 users: users,
+                agents: agents,
                 reporterName: reporterName,
                 currentUserId: deps.auth.userId,
                 editingCommentId: editingCommentId,
@@ -412,7 +445,7 @@ struct CommentThreadView: View {
                 onReply: {
                     replyTarget = CommentReplyTarget(
                         parentId: comment.id,
-                        authorName: commentAuthorName(comment, users: users, reporterName: reporterName)
+                        authorName: commentAuthorName(comment, users: users, agents: agents, reporterName: reporterName)
                     )
                 }
             )
@@ -423,7 +456,7 @@ struct CommentThreadView: View {
     /// or initials chip; a reporter's reply wears the initials of the name its
     /// card reads (SLOP-4), never a member's.
     private func commentAvatar(_ comment: CommentEntity, size: CGFloat) -> some View {
-        commentAvatarView(comment, users: users, reporterName: reporterName, size: size)
+        commentAvatarView(comment, users: users, agents: agents, reporterName: reporterName, size: size)
     }
 
     /// One comment's edit/delete callbacks — the same for a top-level card and
@@ -552,6 +585,18 @@ struct CommentThreadView: View {
             do {
                 for try await rows in userObs.values(in: pool) {
                     self.users = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+                }
+            } catch {}
+        })
+
+        // #EXP-1383: the synced agents an agent actor resolves to.
+        let agentObs = ValueObservation.tracking { db in
+            try AgentDefinitionEntity.fetchAll(db)
+        }
+        observationTasks.append(Task {
+            do {
+                for try await rows in agentObs.values(in: pool) {
+                    self.agents = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 }
             } catch {}
         })
@@ -705,6 +750,8 @@ private struct RegularCommentRow: View {
     let attachmentsByComment: [String: [AttachmentEntity]]
     let issueId: String
     let users: [String: UserEntity]
+    /// #EXP-1383: the synced agents an agent author resolves to.
+    let agents: [String: AgentDefinitionEntity]
     /// SLOP-4: the submission's reporter, named on `source == reporter` rows.
     let reporterName: String?
     let currentUserId: String?
@@ -736,7 +783,7 @@ private struct RegularCommentRow: View {
                 .padding(.bottom, 4)
             ForEach(replies) { reply in
                 HStack(alignment: .top, spacing: 8) {
-                    commentAvatarView(reply, users: users, reporterName: reporterName, size: 20)
+                    commentAvatarView(reply, users: users, agents: agents, reporterName: reporterName, size: 20)
                         .padding(.top, 2)
                     content(for: reply)
                 }
@@ -768,7 +815,7 @@ private struct RegularCommentRow: View {
             comment: row,
             attachments: attachmentsByComment[row.id] ?? [],
             issueId: issueId,
-            authorName: commentAuthorName(row, users: users, reporterName: reporterName),
+            authorName: commentAuthorName(row, users: users, agents: agents, reporterName: reporterName),
             isAuthor: row.authorId != nil && row.authorId == currentUserId,
             isEditing: editingCommentId == row.id,
             editEditor: editEditor,
@@ -869,7 +916,7 @@ private struct CommentCardContent: View {
     /// The caption after the time: `reporter`, then `to reporter` (SLOP-4),
     /// then `via MCP` (EXP-741); every part that applies shows, or none.
     private var sourceCaption: String? {
-        ReporterReply.caption(source: comment.source, audience: comment.audience)
+        ReporterReply.caption(source: comment.source, audience: comment.audience, authorAgentId: comment.authorAgentId)
     }
 
     var body: some View {
@@ -1170,9 +1217,13 @@ private struct CommentCardContent: View {
 /// names the submission's reporter (else the anonymous visitor); a comment
 /// with no synced author row (left the team, deleted) reads "Former member";
 /// a synced author resolves through the shared member display rule.
+/// #EXP-1383 (agent-settings.json `actor`): an agent's session wrote it → the
+/// card names the AGENT, never the member.
 private func commentAuthorName(
-    _ comment: CommentEntity, users: [String: UserEntity], reporterName: String?
+    _ comment: CommentEntity, users: [String: UserEntity], agents: [String: AgentDefinitionEntity],
+    reporterName: String?
 ) -> String {
+    if let agent = commentAuthorAgent(comment, agents: agents) { return agent.name }
     let author = comment.authorId.flatMap { users[$0] }
     if let override = ReporterReply.authorNameOverride(
         source: comment.source, authorSynced: author != nil, reporterName: reporterName
@@ -1189,14 +1240,28 @@ private func commentAuthorName(
 // of the name their card reads.
 @ViewBuilder
 private func commentAvatarView(
-    _ comment: CommentEntity, users: [String: UserEntity], reporterName: String?, size: CGFloat
+    _ comment: CommentEntity, users: [String: UserEntity], agents: [String: AgentDefinitionEntity],
+    reporterName: String?, size: CGFloat
 ) -> some View {
-    if let authorId = comment.authorId, let user = users[authorId], !comment.isFromReporter {
+    if let agent = commentAuthorAgent(comment, agents: agents) {
+        // #EXP-1383: THE AGENT MARK, never the member's avatar.
+        UserAvatar(agent: UserAvatarAgent(agent), size: size)
+    } else if let authorId = comment.authorId, let user = users[authorId], !comment.isFromReporter {
         UserAvatar(user: user, id: authorId, size: size)
     } else {
-        let name = commentAuthorName(comment, users: users, reporterName: reporterName)
+        let name = commentAuthorName(comment, users: users, agents: agents, reporterName: reporterName)
         UserAvatar(image: nil, initials: memberInitials(forDisplayName: name), hueKey: name, size: size)
     }
+}
+
+/// #EXP-1383: the agent whose session wrote a comment (`issueActor`), nil
+/// for a person's (or an unsynced agent's) comment.
+private func commentAuthorAgent(
+    _ comment: CommentEntity, agents: [String: AgentDefinitionEntity]
+) -> AgentSettings.ActorAgent? {
+    AgentSettings.issueActor(
+        actorAgentId: comment.authorAgentId, actorUserId: comment.authorId, agents: Array(agents.values)
+    )?.agent
 }
 
 /// Activity and comment times = the LONG wording ×4 ("5 minutes ago",
