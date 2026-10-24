@@ -18,7 +18,7 @@ import { useState, useSyncExternalStore } from "react"
 import { ExponentialHost, isPrivateHost } from "@exponential_app/ui"
 import type { FunctionCallInfo, ParsedSource, SourceEmit, Transport } from "@exponential_app/ui"
 import { useHostStatus } from "@exponential_app/ui-react"
-import { Button, CodeBlock, CodeBlockContent, Collapsible, CollapsibleContent, CollapsibleTrigger, Prompt, appExtensionCatalog, devicesPackage, toast } from "@exp/ui"
+import { Button, CodeBlock, CodeBlockContent, Collapsible, CollapsibleContent, CollapsibleTrigger, Prompt, appExtensionCatalog, toast } from "@exp/ui"
 import type { AppPackage } from "@exponential_app/ui"
 import { getDeviceIconName } from "@exp/ui"
 import { boardCollection, deviceCollection, issueCollection, teamCollection } from "@/lib/collections"
@@ -223,7 +223,7 @@ export function createAppHost(options: AppHostOptions): ExponentialHost {
   return new ExponentialHost({
     transport: options.transport,
     extensions: [appExtensionCatalog],
-    packages: [devicesPackage as unknown as AppPackage, ...(options.packages ?? [])],
+    packages: options.packages ?? [],
     sources: {
       exp: (source, emit) => {
         if (source.name === `devices`) return devicesSource(source, emit)

@@ -393,8 +393,8 @@ export async function sectionBand(platform: Platform): Promise<SectionBand> {
 
 if (import.meta.main) {
   // VAPP-128: the template's own view (exponential-ui-devices) left the store
-  // with its dev routes in VAPP-111 (the template now runs as the built-in
-  // Devices app inside the editor); without its shot a platform's row stays
+  // with its dev routes in VAPP-111 (the template stays the SDK's example
+  // package; the product ships no built-in apps); without its shot a platform's row stays
   // the one on record.
   const recorded = ((readReport() as { parity?: { rows?: ParityRow[] } }).parity?.rows ?? []) as ParityRow[]
   const rows: ParityRow[] = []

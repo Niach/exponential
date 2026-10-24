@@ -1,7 +1,7 @@
 //! VAPP-110 — Exponential apps, the Rust twin of
 //! `packages/domain-contract/src/apps.ts` (iOS `Apps.swift`, Android
 //! `domain/Apps.kt`), byte-locked by `fixtures/apps.json` (`slugifyCases`,
-//! `versionLabelCases`, `sortAppsCases`). The copy, the built-in app, the
+//! `versionLabelCases`, `sortAppsCases`). The copy, the
 //! pane ratio and the preview frame come FROM the fixture ([`APPS`]); the
 //! caps from the contract (`apps`).
 
@@ -31,7 +31,6 @@ pub struct AppsCopy {
     pub nav: String,
     pub title: String,
     pub new_app: String,
-    pub builtin: String,
     /// `v{n}`.
     pub version: String,
     pub no_version: String,
@@ -70,17 +69,6 @@ pub struct AppsCopy {
     pub float: String,
     /// VAPP-129: the chat card's caption while the session works.
     pub working: String,
-}
-
-/// The BUILT-IN app every client ships (the Devices package).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AppsBuiltin {
-    pub slug: String,
-    pub name: String,
-    pub icon: String,
-    pub package_id: String,
-    pub template_id: String,
 }
 
 /// The editor's two panes (fr) and the chat's floor.
@@ -128,7 +116,6 @@ pub struct AppsTestIds {
 #[serde(rename_all = "camelCase")]
 pub struct AppsSpec {
     pub copy: AppsCopy,
-    pub builtin: AppsBuiltin,
     pub panes: AppsPanes,
     pub preview: AppsPreview,
     pub test_ids: AppsTestIds,
@@ -302,17 +289,12 @@ pub fn slugify(name: &str, taken: &[&str]) -> String {
 /// What [`sort_apps`] orders.
 pub trait AppListLike {
     fn name(&self) -> &str;
-    fn builtin(&self) -> bool;
 }
 
-/// The list order: the built-in app first, then by name (case- and
-/// accent-insensitive, the web's `localeCompare` at `base`), stable.
+/// The list order: by name (case- and accent-insensitive, the web's
+/// `localeCompare` at `base`), stable. Exponential ships no built-in apps.
 pub fn sort_apps<T: AppListLike>(apps: &mut [T]) {
-    apps.sort_by(|a, b| {
-        b.builtin()
-            .cmp(&a.builtin())
-            .then_with(|| fold(a.name()).to_lowercase().cmp(&fold(b.name()).to_lowercase()))
-    });
+    apps.sort_by(|a, b| fold(a.name()).to_lowercase().cmp(&fold(b.name()).to_lowercase()));
 }
 
 #[cfg(test)]
@@ -328,8 +310,6 @@ mod tests {
     #[test]
     fn the_fixture_parses() {
         assert_eq!(APPS.copy.nav, "Apps");
-        assert_eq!(APPS.builtin.slug, "devices");
-        assert_eq!(APPS.builtin.package_id, "exponential.devices");
         assert_eq!(APPS.preview.surface_id, "app");
         assert_eq!(APPS_CAPS.slug_max, 64);
         assert_eq!(delete_title("Team dashboard"), "Delete Team dashboard?");
@@ -376,15 +356,11 @@ mod tests {
     struct Row {
         slug: String,
         name: String,
-        builtin: bool,
     }
 
     impl AppListLike for Row {
         fn name(&self) -> &str {
             &self.name
-        }
-        fn builtin(&self) -> bool {
-            self.builtin
         }
     }
 
@@ -398,7 +374,6 @@ mod tests {
                 .map(|a| Row {
                     slug: a["slug"].as_str().unwrap().into(),
                     name: a["name"].as_str().unwrap().into(),
-                    builtin: a["builtin"].as_bool().unwrap(),
                 })
                 .collect();
             sort_apps(&mut rows);

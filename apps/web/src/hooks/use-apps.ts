@@ -1,7 +1,6 @@
 import { useMemo } from "react"
 import { and, eq, isNull, useLiveQuery } from "@tanstack/react-db"
-import { APPS_BUILTIN, sortApps } from "@exp/domain-contract/apps"
-import { devicesPackage } from "@exp/ui"
+import { sortApps } from "@exp/domain-contract/apps"
 import type { App, SyncedAppVersion } from "@/db/schema"
 import { appCollection, appVersionCollection } from "@/lib/collections"
 import { useTeamSessions } from "@/hooks/use-session-tree"
@@ -11,8 +10,7 @@ import type { SessionRow } from "@/lib/session-tree"
 // their versions off `app_versions`, and a member's EDITOR SESSION for one
 // (a root with `appId` + `userId` = me) off the sessions shape.
 
-/** A list entry: a synced app, or the one BUILT-IN app every client ships
- *  (the Devices package: no row, no versions, no editor). */
+/** A list entry: one synced app (Exponential ships no built-in apps). */
 export interface AppListEntry {
   id: string
   slug: string
@@ -21,26 +19,9 @@ export interface AppListEntry {
   color: string | null
   description: string
   headVersion: number
-  builtin: boolean
   createdBy: string | null
   row: App | null
 }
-
-export const BUILTIN_APP: AppListEntry = {
-  id: `builtin:${APPS_BUILTIN.slug}`,
-  slug: APPS_BUILTIN.slug,
-  name: APPS_BUILTIN.name,
-  icon: APPS_BUILTIN.icon,
-  color: null,
-  description: ``,
-  headVersion: 0,
-  builtin: true,
-  createdBy: null,
-  row: null,
-}
-
-/** The built-in app's package (the Devices template). */
-export const BUILTIN_APP_PACKAGE = devicesPackage as unknown as Record<string, unknown>
 
 export function toListEntry(row: App): AppListEntry {
   return {
@@ -51,7 +32,6 @@ export function toListEntry(row: App): AppListEntry {
     color: row.color,
     description: row.description,
     headVersion: row.headVersion,
-    builtin: false,
     createdBy: row.createdBy,
     row,
   }
@@ -68,13 +48,13 @@ export function useApps(teamId: string | null | undefined): { apps: AppListEntry
     [teamId]
   )
   const apps = useMemo(
-    () => sortApps([BUILTIN_APP, ...((data ?? []) as App[]).map(toListEntry)]),
+    () => sortApps(((data ?? []) as App[]).map(toListEntry)),
     [data]
   )
   return { apps, isReady: Boolean(teamId) && isReady }
 }
 
-/** One app by slug (the built-in one included). `null` while the shape has
+/** One app by slug. `null` while the shape has
  *  no such row (it may still be syncing: the caller waits a grace). */
 export function useApp(teamId: string | null | undefined, slug: string): { app: AppListEntry | null; isReady: boolean } {
   const { data, isReady } = useLiveQuery(
@@ -87,7 +67,6 @@ export function useApp(teamId: string | null | undefined, slug: string): { app: 
     [teamId, slug]
   )
   const app = useMemo(() => {
-    if (slug === BUILTIN_APP.slug) return BUILTIN_APP
     const row = ((data ?? []) as App[])[0]
     return row ? toListEntry(row) : null
   }, [data, slug])

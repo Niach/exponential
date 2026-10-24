@@ -41,7 +41,7 @@ use domain::rows::AppVersionRow;
 
 use crate::apps_view::{find_app, version_pill, AppEntry};
 use crate::controls::WebControl as _;
-use crate::exponential_ui_host::{IdeHost, DEVICES_PACKAGE_JSON, THEME_ID};
+use crate::exponential_ui_host::{IdeHost, THEME_ID};
 use crate::icons::registry;
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
 
@@ -96,8 +96,7 @@ pub struct AppScreenView {
     nav: Entity<Navigation>,
     app: Option<AppEntry>,
     versions: Vec<AppVersionRow>,
-    /// The chat pane, built once the app resolves (`None` for the built-in
-    /// app, which has no editor).
+    /// The chat pane, built once the app resolves.
     chat: Option<Entity<crate::agent_screen::AgentScreenView>>,
     preview: Option<Preview>,
     /// The version being previewed (`None` = the head) and its package.
@@ -193,7 +192,7 @@ impl AppScreenView {
     fn refresh(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let team_id = active_team_id(&self.nav, cx);
         self.app = find_app(&self.requested, team_id.as_deref(), cx);
-        let app_id = self.app.as_ref().filter(|app| !app.builtin).map(|app| app.id.clone());
+        let app_id = self.app.as_ref().map(|app| app.id.clone());
         self.versions = app_id
             .as_deref()
             .and_then(|app_id| {
@@ -230,16 +229,12 @@ impl AppScreenView {
         cx.notify();
     }
 
-    /// The package the preview shows: the picked version's, else the head's
-    /// (the built-in app: the Devices package the host ships).
+    /// The package the preview shows: the picked version's, else the head's.
     fn shown_package(&self) -> Option<Value> {
         if self.viewing.is_some() {
             return self.viewing_package.clone();
         }
         let app = self.app.as_ref()?;
-        if app.builtin {
-            return serde_json::from_str(DEVICES_PACKAGE_JSON).ok();
-        }
         app.row.as_ref()?.package.clone().filter(Value::is_object)
     }
 
@@ -255,10 +250,8 @@ impl AppScreenView {
             old.ide.host.update(cx, |host, cx| host.close(cx));
         }
         let Some(pkg) = pkg else { return };
-        let builtin = self.app.as_ref().is_some_and(|app| app.builtin);
-        let extra = if builtin { Vec::new() } else { vec![pkg.clone()] };
         let theme = pkg.get("theme").and_then(Value::as_str).unwrap_or(THEME_ID).to_string();
-        let ide = IdeHost::with_packages(ide_mode(cx), &extra, Some(&theme), cx);
+        let ide = IdeHost::with_packages(ide_mode(cx), std::slice::from_ref(&pkg), Some(&theme), cx);
         if let Some(message) = apply_template_message(&pkg) {
             ide.host.update(cx, |host, cx| {
                 host.receive(&message, cx);
@@ -288,7 +281,7 @@ impl AppScreenView {
     /// demand.
     fn pick_version(&mut self, number: i64, window: &mut Window, cx: &mut gpui::Context<Self>) {
         window.close_sheet(cx);
-        let Some(app) = self.app.clone().filter(|app| !app.builtin) else { return };
+        let Some(app) = self.app.clone() else { return };
         if number == app.head_version {
             self.viewing = None;
             self.viewing_package = None;
@@ -383,7 +376,7 @@ impl AppScreenView {
 
     fn render_header(&self, app: &AppEntry, cx: &mut gpui::Context<Self>) -> AnyElement {
         let theme = cx.theme();
-        let versions = (!app.builtin).then(|| {
+        let versions = {
             let count = self.versions.len();
             Button::new("app-editor-versions-button")
                 .outline()
@@ -408,7 +401,7 @@ impl AppScreenView {
                         }),
                 )
                 .on_click(cx.listener(|this, _, window, cx| this.open_versions(window, cx)))
-        });
+        };
         h_flex()
             .flex_shrink_0()
             .items_center()
@@ -429,34 +422,17 @@ impl AppScreenView {
             )
             .child(version_pill("app-editor-version", app, cx))
             .child(div().flex_1())
-            .children(versions)
+            .child(versions)
             .into_any_element()
     }
 
-    fn render_chat(&self, app: &AppEntry, cx: &App) -> AnyElement {
-        match &self.chat {
-            Some(chat) => div()
-                .id(SharedString::from(APPS.test_ids.chat.clone()))
-                .size_full()
-                .min_h_0()
-                .child(chat.clone())
-                .into_any_element(),
-            // The built-in app ships with Exponential and has no editor (no
-            // explanatory subtitle: the title says it).
-            None => div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .p_6()
-                .child(crate::controls::empty_state(
-                    Icon::new(registry::NAV_APPS),
-                    APPS.copy.builtin.clone(),
-                    None,
-                    cx,
-                ))
-                .into_any_element(),
-        }
+    fn render_chat(&self, chat: &Entity<crate::agent_screen::AgentScreenView>) -> AnyElement {
+        div()
+            .id(SharedString::from(APPS.test_ids.chat.clone()))
+            .size_full()
+            .min_h_0()
+            .child(chat.clone())
+            .into_any_element()
     }
 
     fn render_preview(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
@@ -678,7 +654,8 @@ impl Render for AppScreenView {
         let panes = &APPS.panes;
         let chat_share = panes.chat / (panes.chat + panes.preview);
         let body = match (&self.chat, self.layout) {
-            // The built-in app has no chat: the preview alone.
+            // The chat is built with the app (refresh): the preview alone
+            // until then.
             (None, _) => div().flex_1().min_h_0().w_full().child(self.render_preview(cx)).into_any_element(),
             (Some(chat), EditorLayout::Floating) => {
                 let band = chat.read(cx).band_height(cx);
@@ -692,7 +669,8 @@ impl Render for AppScreenView {
                     .child(div().absolute().top_0().left_0().size_full().child(chat.clone()))
                     .into_any_element()
             }
-            (Some(_), EditorLayout::Docked) => {
+            (Some(chat), EditorLayout::Docked) => {
+                let chat = chat.clone();
                 let header = h_flex()
                     .flex_shrink_0()
                     .h(px(panes.header_height))
@@ -731,7 +709,7 @@ impl Render for AppScreenView {
                             .border_r_1()
                             .border_color(cx.theme().border)
                             .child(header)
-                            .child(div().flex_1().min_h_0().child(self.render_chat(&app, cx))),
+                            .child(div().flex_1().min_h_0().child(self.render_chat(&chat))),
                     )
                     .child(div().h_full().min_h_0().min_w_0().flex_1().child(self.render_preview(cx)))
                     .into_any_element()
@@ -754,11 +732,11 @@ mod tests {
 
     #[test]
     fn the_preview_applies_the_first_template_of_the_package() {
-        let pkg: Value = serde_json::from_str(DEVICES_PACKAGE_JSON).unwrap();
+        let pkg: Value = serde_json::from_str(crate::exponential_ui_host::DEVICES_PACKAGE_JSON).unwrap();
         let message = apply_template_message(&pkg).expect("the Devices package has a template");
         assert_eq!(message["applyTemplate"]["surfaceId"], "app");
-        assert_eq!(message["applyTemplate"]["templateId"], APPS.builtin.template_id.as_str());
-        assert_eq!(message["applyTemplate"]["packageId"], APPS.builtin.package_id.as_str());
+        assert_eq!(message["applyTemplate"]["templateId"], "devices");
+        assert_eq!(message["applyTemplate"]["packageId"], "exponential.devices");
         assert!(apply_template_message(&json!({"id": "x", "templates": {}})).is_none());
     }
 

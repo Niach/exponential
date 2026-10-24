@@ -6,6 +6,7 @@
 import type { ComponentType, CSSProperties } from "react"
 import {
   Bot,
+  Rocket,
   Brain,
   Bug,
   CalendarDays,
@@ -149,6 +150,7 @@ export const IcMegaphone = wrap(Megaphone)
 export const IcBug = wrap(Bug)
 export const IcPalette = wrap(Palette)
 export const IcPackage = wrap(Package)
+export const IcRocket = wrap(Rocket) // an app glyph (pickable rocket)
 
 /* inbox (notification-*) */
 export const IcUserPlus = wrap(UserPlus) // notification-issue-assigned

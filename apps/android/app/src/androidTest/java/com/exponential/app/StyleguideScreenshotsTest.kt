@@ -744,8 +744,8 @@ class StyleguideScreenshotsTest {
         flow.settle(longer = true)
 
         // --- sg_apps / sg_app (VAPP-116): the Threads header's Apps entry
-        // opens the selected team's Apps (the built-in Devices app first,
-        // then the seeded Team dashboard + the version-less app); the
+        // opens the selected team's Apps (no built-in apps: the seeded Team
+        // dashboard + the version-less app, by name); the
         // dashboard opens its editor on the Chat tab, the demo user's editor
         // session (web-mobile's `app` shot). Leaving it ends that session,
         // exactly as the web capture does.

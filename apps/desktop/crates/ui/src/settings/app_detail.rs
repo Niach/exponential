@@ -137,7 +137,6 @@ impl AppDetailPane {
             // The dev `app:<slug>` seed names a slug: resolve it to the id.
             SettingsSection::App(id) => Some(Loaded::App(
                 crate::apps_view::find_app(&id, active_team_id(&self.nav, cx).as_deref(), cx)
-                    .filter(|app| !app.builtin)
                     .map(|app| app.id)
                     .unwrap_or(id),
             )),

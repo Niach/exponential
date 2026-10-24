@@ -2131,7 +2131,7 @@
       "id": "apps",
       "group": "coding",
       "title": "Apps",
-      "blurb": "VAPP-110: the team's Exponential apps (fixtures/apps.json): the band with New app, one row per app (glyph, name, the version pill, the … menu with Rename and Delete), the built-in Devices app first with its Built-in pill. An app is a declarative Exponential UI package every client renders; the list is where apps are created, renamed, deleted and opened.",
+      "blurb": "VAPP-110: the team's Exponential apps (fixtures/apps.json): the band with New app, one row per app (glyph, name, the version pill, the … menu with Rename and Delete), the team's apps only (Exponential ships no built-in apps). An app is a declarative Exponential UI package every client renders; the list is where apps are created, renamed, deleted and opened.",
       "order": 30,
       "web": {
         "route": "/t/$teamSlug/apps",
@@ -2147,7 +2147,7 @@
         "lane": "styleguide"
       },
       "notes": {
-        "ios": "VAPP-112: the LIVE walk: the Threads tab's Apps button (phones have no sixth tab), gated on the seeded Team dashboard row and the built-in Devices row.",
+        "ios": "VAPP-112: the LIVE walk: the Threads tab's Apps button (phones have no sixth tab), gated on the seeded Team dashboard row.",
         "android": "VAPP-116: the LIVE walk (signed in, the seeded demo apps): Threads → the header's Apps entry. The phone reaches Apps from the Threads tab (no sidebar).",
         "desktop": "The IDE has no Apps page: the rail lists the apps as a group (like Agents), and Settings → Apps (`settings-apps`) draws this list band."
       },

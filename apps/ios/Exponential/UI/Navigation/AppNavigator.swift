@@ -19,8 +19,7 @@ enum AppRoute: Hashable {
     /// VAPP-110: the team's Apps (fixtures/apps.json), pushed from the
     /// Threads tab's header.
     case apps(accountId: String)
-    /// VAPP-110: one app's editor (`appId` = its row id, or the built-in's
-    /// `AppListEntry.builtinId`).
+    /// VAPP-110: one app's editor (`appId` = its row id).
     case app(accountId: String, appId: String)
     /// My Work (EXP-58): Inbox + My Issues merged behind one destination.
     case myWork

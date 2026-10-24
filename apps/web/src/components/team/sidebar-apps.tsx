@@ -20,19 +20,16 @@ import { cn } from "@/lib/utils"
 
 // VAPP-110 (fixtures/apps.json): the rail's APPS section, drawn exactly like
 // Agents and Boards — the label, a "+" that opens the New app form, one row
-// per app (its glyph in its colour + its name; the built-in Devices app
-// first) opening the editor, and the hover gear (the creator or an owner)
+// per app (its glyph in its colour + its name) opening the editor, and the hover gear (the creator or an owner)
 // to the app's settings page. Desktop widths only: phones keep the Apps
 // list route.
 
 const UiAddIcon = conceptIcon(`ui-add`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
-const NavDevicesIcon = conceptIcon(`nav-devices`)
 
-/** An app's glyph: the curated set boards and agents share; the built-in
- *  Devices app wears the Devices nav glyph. */
-export function AppIcon({ app, className }: { app: Pick<AppListEntry, `icon` | `color` | `builtin`>; className?: string }) {
-  const Icon = app.builtin ? NavDevicesIcon : getActionIcon({ icon: app.icon })
+/** An app's glyph: the curated set boards and agents share. */
+export function AppIcon({ app, className }: { app: Pick<AppListEntry, `icon` | `color`>; className?: string }) {
+  const Icon = getActionIcon({ icon: app.icon })
   return <Icon className={cn(`size-4 shrink-0`, className)} style={{ color: app.color ?? undefined }} />
 }
 
@@ -52,7 +49,7 @@ export function SidebarAppsSection({
   activeAppSlug: string | null
 }) {
   const [creating, setCreating] = useState(false)
-  const canManage = (app: AppListEntry) => !app.builtin && (isOwner || app.createdBy === me)
+  const canManage = (app: AppListEntry) => isOwner || app.createdBy === me
   return (
     <SidebarGroup data-testid="sidebar-apps">
       <SidebarGroupLabel>{APPS_COPY.title}</SidebarGroupLabel>

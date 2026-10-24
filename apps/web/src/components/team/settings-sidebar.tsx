@@ -260,7 +260,7 @@ export function SettingsSidebar({
                   )}
                   {withApps && (
                     <Fragment>
-                      {apps.filter((app) => !app.builtin).map((app) => (
+                      {apps.map((app) => (
                         <SidebarMenuItem key={app.id}>
                           <SidebarMenuButton asChild>
                             <Link

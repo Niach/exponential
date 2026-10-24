@@ -4,7 +4,7 @@ import XCTest
 
 // VAPP-110: Exponential apps, locked ×4 against
 // packages/domain-contract/fixtures/apps.json (TS `apps.test.ts`, desktop
-// `domain::apps`, Android `AppsTest`): the copy, the built-in app, the
+// `domain::apps`, Android `AppsTest`): the copy, the
 // panes, the preview frame and the test ids are pinned; `slugifyCases`,
 // `versionLabelCases` and `sortAppsCases` replay. The caps pin to
 // `contract.json` `apps`. The `exp:` source derivations pin to the web host.
@@ -35,7 +35,7 @@ final class AppsTests: XCTestCase {
         let copy = try XCTUnwrap(try fixture()["copy"] as? [String: Any])
         let flat: [String: String] = [
             "nav": Apps.Copy.nav, "title": Apps.Copy.title, "newApp": Apps.Copy.newApp,
-            "builtin": Apps.Copy.builtin, "version": Apps.Copy.version, "noVersion": Apps.Copy.noVersion,
+            "version": Apps.Copy.version, "noVersion": Apps.Copy.noVersion,
             "versions": Apps.Copy.versions, "head": Apps.Copy.head, "noNote": Apps.Copy.noNote,
             "byAgent": Apps.Copy.byAgent, "viewing": Apps.Copy.viewing, "restore": Apps.Copy.restore,
             "restored": Apps.Copy.restored, "restoredNote": Apps.Copy.restoredNote, "empty": Apps.Copy.empty,
@@ -59,12 +59,10 @@ final class AppsTests: XCTestCase {
         XCTAssertEqual(Apps.Copy.deleteTitle("Team dashboard"), "Delete Team dashboard?")
     }
 
-    func testBuiltinPanesPreviewAndTestIdsMatchTheFixture() throws {
+    func testPanesPreviewAndTestIdsMatchTheFixture() throws {
         let fixture = try fixture()
-        XCTAssertEqual(fixture["builtin"] as? [String: String], [
-            "slug": Apps.Builtin.slug, "name": Apps.Builtin.name, "icon": Apps.Builtin.icon,
-            "packageId": Apps.Builtin.packageId, "templateId": Apps.Builtin.templateId,
-        ])
+        // Exponential ships no built-in apps (2026-10-24).
+        XCTAssertNil(fixture["builtin"])
         XCTAssertEqual(fixture["panes"] as? [String: Double], [
             "chat": Apps.Panes.chat, "preview": Apps.Panes.preview,
             "chatMinWidth": Apps.Panes.chatMinWidth, "breakpoint": Apps.Panes.breakpoint,
@@ -119,12 +117,13 @@ final class AppsTests: XCTestCase {
     }
 
     func testSortAppsCases() throws {
-        struct Row { let slug: String; let name: String; let builtin: Bool }
+        struct Row { let slug: String; let name: String }
         for item in try cases("sortAppsCases") {
             let rows = try XCTUnwrap(item["apps"] as? [[String: Any]]).map {
-                Row(slug: $0["slug"] as? String ?? "", name: $0["name"] as? String ?? "", builtin: $0["builtin"] as? Bool ?? false)
+                XCTAssertNil($0["builtin"])
+                return Row(slug: $0["slug"] as? String ?? "", name: $0["name"] as? String ?? "")
             }
-            let sorted = Apps.sortApps(rows, builtin: \.builtin, name: \.name).map(\.slug)
+            let sorted = Apps.sortApps(rows, name: \.name).map(\.slug)
             XCTAssertEqual(sorted, item["order"] as? [String])
         }
     }

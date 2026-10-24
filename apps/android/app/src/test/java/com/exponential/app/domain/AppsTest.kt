@@ -3,7 +3,6 @@ package com.exponential.app.domain
 import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -23,7 +22,7 @@ class AppsTest {
     private val fixture = read("packages/domain-contract/fixtures/apps.json")
     private val contract = read("packages/domain-contract/contract.json")
 
-    private data class Row(override val slug: String, override val name: String, override val builtin: Boolean) : Apps.ListLike
+    private data class Row(override val slug: String, override val name: String) : Apps.ListLike
 
     @Test
     fun `slugify replays the fixture`() {
@@ -44,21 +43,21 @@ class AppsTest {
     fun `sortApps replays the fixture`() {
         for (case in fixture["sortAppsCases"]!!.jsonArray.map { it.jsonObject }) {
             val apps = case["apps"]!!.jsonArray.map { it.jsonObject }.map {
-                Row(it["slug"]!!.jsonPrimitive.content, it["name"]!!.jsonPrimitive.content, it["builtin"]!!.jsonPrimitive.boolean)
+                Row(it["slug"]!!.jsonPrimitive.content, it["name"]!!.jsonPrimitive.content)
             }
             assertEquals(case["order"]!!.jsonArray.map { it.jsonPrimitive.content }, Apps.sortApps(apps).map { it.slug })
         }
     }
 
     @Test
-    fun `the copy, built-in, preview and test ids match the fixture`() {
+    fun `the copy, preview and test ids match the fixture`() {
         val copy = fixture["copy"]!!.jsonObject
         fun c(key: String) = copy[key]!!.jsonPrimitive.content
         val menu = copy["menu"]!!.jsonObject
         val tabs = copy["tabs"]!!.jsonObject
         val expected = listOf(
             c("nav") to Apps.Copy.NAV, c("title") to Apps.Copy.TITLE, c("newApp") to Apps.Copy.NEW_APP,
-            c("builtin") to Apps.Copy.BUILTIN, c("version") to Apps.Copy.VERSION, c("noVersion") to Apps.Copy.NO_VERSION,
+            c("version") to Apps.Copy.VERSION, c("noVersion") to Apps.Copy.NO_VERSION,
             c("versions") to Apps.Copy.VERSIONS, c("head") to Apps.Copy.HEAD, c("noNote") to Apps.Copy.NO_NOTE,
             c("byAgent") to Apps.Copy.BY_AGENT, c("viewing") to Apps.Copy.VIEWING, c("restore") to Apps.Copy.RESTORE,
             c("restored") to Apps.Copy.RESTORED, c("restoredNote") to Apps.Copy.RESTORED_NOTE, c("empty") to Apps.Copy.EMPTY,
@@ -75,12 +74,9 @@ class AppsTest {
         )
         for ((want, got) in expected) assertEquals(want, got)
 
-        val builtin = fixture["builtin"]!!.jsonObject
-        assertEquals(builtin["slug"]!!.jsonPrimitive.content, Apps.Builtin.SLUG)
-        assertEquals(builtin["name"]!!.jsonPrimitive.content, Apps.Builtin.NAME)
-        assertEquals(builtin["icon"]!!.jsonPrimitive.content, Apps.Builtin.ICON)
-        assertEquals(builtin["packageId"]!!.jsonPrimitive.content, Apps.Builtin.PACKAGE_ID)
-        assertEquals(builtin["templateId"]!!.jsonPrimitive.content, Apps.Builtin.TEMPLATE_ID)
+        // Exponential ships no built-in apps (2026-10-24).
+        assertEquals(null, fixture["builtin"])
+        assertEquals(null, copy["builtin"])
 
         val preview = fixture["preview"]!!.jsonObject
         assertEquals(preview["radius"]!!.jsonPrimitive.int, Apps.Preview.RADIUS)

@@ -45,11 +45,11 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 // VAPP-110 (fixtures/apps.json, web `hooks/use-apps.ts`): the SELECTED team's
-// APPS off the synced `apps` shape (trashed rows hidden) with the BUILT-IN
-// Devices app first, their versions off `app_versions`, and the member's
+// APPS off the synced `apps` shape (trashed rows hidden; Exponential ships no
+// built-in apps), their versions off `app_versions`, and the member's
 // EDITOR SESSION for one (a root with `app_id` + `user_id` = me).
 
-/** A list entry: a synced app, or the one built-in app every client ships. */
+/** A list entry: one synced app. */
 data class AppListEntry(
     val id: String,
     override val slug: String,
@@ -58,29 +58,11 @@ data class AppListEntry(
     val color: String?,
     val description: String,
     val headVersion: Int,
-    override val builtin: Boolean,
     val createdBy: String?,
     val teamId: String?,
     /** The head package (JSON text); null = no version yet. */
     val packageJson: String?,
 ) : Apps.ListLike
-
-/** The built-in app's route key (it has no row). */
-const val BUILTIN_APP_ID = "builtin"
-
-val BUILTIN_APP = AppListEntry(
-    id = BUILTIN_APP_ID,
-    slug = Apps.Builtin.SLUG,
-    name = Apps.Builtin.NAME,
-    icon = Apps.Builtin.ICON,
-    color = null,
-    description = "",
-    headVersion = 0,
-    builtin = true,
-    createdBy = null,
-    teamId = null,
-    packageJson = null,
-)
 
 fun AppEntity.toListEntry() = AppListEntry(
     id = id,
@@ -90,7 +72,6 @@ fun AppEntity.toListEntry() = AppListEntry(
     color = color,
     description = description,
     headVersion = headVersion ?: 0,
-    builtin = false,
     createdBy = createdBy,
     teamId = teamId,
     packageJson = packageJson?.takeIf { it.isNotBlank() && it != "null" },
@@ -113,12 +94,12 @@ class AppsViewModel @Inject constructor(
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    /** The selected team's apps, the built-in one first (null = loading). */
+    /** The selected team's apps by name (null = loading). */
     val apps: StateFlow<List<AppListEntry>?> = combine(dbFlow, selection.selectedId) { db, team -> db to team }
         .flatMapLatest { (db, team) ->
             if (db == null || team == null) flowOf(null) else db.appDao().observeByTeam(team).map { rows -> rows }
         }
-        .map { rows -> rows?.let { Apps.sortApps(listOf(BUILTIN_APP) + it.map(AppEntity::toListEntry)) } }
+        .map { rows -> rows?.let { Apps.sortApps(it.map(AppEntity::toListEntry)) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val me: StateFlow<String?> = auth.userId
@@ -136,9 +117,9 @@ class AppsViewModel @Inject constructor(
         _failure.value = null
     }
 
-    /** Members may manage their own apps, owners every app; never the built-in one. */
+    /** Members may manage their own apps, owners every app. */
     fun canManage(app: AppListEntry, me: String?, owner: Boolean): Boolean =
-        !app.builtin && (owner || (me != null && app.createdBy == me))
+        owner || (me != null && app.createdBy == me)
 
     /** New app → `apps.create` in the selected team; [onCreated] opens its editor. */
     fun create(name: String, icon: String, color: String, description: String, onCreated: (String) -> Unit) {
@@ -197,22 +178,18 @@ class AppEditorViewModel @Inject constructor(
 ) : ViewModel() {
 
     val appId: String = savedStateHandle["appId"] ?: ""
-    val builtin: Boolean = appId == BUILTIN_APP_ID
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    /** The app (the built-in one at once); null while syncing or once gone. */
-    val app: StateFlow<AppListEntry?> = if (builtin) {
-        MutableStateFlow(BUILTIN_APP)
-    } else {
+    /** The app; null while syncing or once gone. */
+    val app: StateFlow<AppListEntry?> =
         dbFlow.scopedQuery<AppEntity?>(null) { it.appDao().observeById(appId) }
             .map { it?.toListEntry() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-    }
 
     /** Newest first. */
     val versions: StateFlow<List<AppVersionEntity>> =
-        (if (builtin) flowOf(emptyList()) else dbFlow.scopedQuery(emptyList()) { it.appVersionDao().observeByApp(appId) })
+        dbFlow.scopedQuery(emptyList<AppVersionEntity>()) { it.appVersionDao().observeByApp(appId) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val users: StateFlow<Map<String, UserEntity>> =
@@ -225,7 +202,7 @@ class AppEditorViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAll() },
         auth.userId,
     ) { rows, me ->
-        if (builtin || me == null) null else rows.firstOrNull { it.appId == appId && it.userId == me && it.parentId == null }
+        if (me == null) null else rows.firstOrNull { it.appId == appId && it.userId == me && it.parentId == null }
     }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** The device the FIRST send runs on: my default online one, else the first. */
@@ -261,7 +238,7 @@ class AppEditorViewModel @Inject constructor(
 
     /** The first message: `sessions.send({appId, text, deviceId})` opens my editor session. */
     fun send(text: String, onSent: () -> Unit) {
-        if (text.isBlank() || _sending.value || builtin) return
+        if (text.isBlank() || _sending.value) return
         _sending.value = true
         viewModelScope.launch {
             try {

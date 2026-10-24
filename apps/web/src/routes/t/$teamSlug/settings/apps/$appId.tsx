@@ -17,7 +17,7 @@ function SettingsApp() {
   const { teamSlug, appId } = Route.useParams()
   const { session, team, permissions, resolved } = useSettingsPage(teamSlug)
   const { apps, isReady } = useApps(team?.id)
-  const app = useMemo(() => apps.find((entry) => entry.id === appId && !entry.builtin) ?? null, [apps, appId])
+  const app = useMemo(() => apps.find((entry) => entry.id === appId) ?? null, [apps, appId])
   usePageTitle(app ? pageTitle(app.name, `Settings`) : undefined)
   const navigate = useNavigate()
 

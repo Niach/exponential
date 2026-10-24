@@ -513,7 +513,7 @@ fn valid_app_ids(
     let Some(team_id) = active_team_id(nav, cx) else {
         return Some(Default::default());
     };
-    Some(crate::apps_view::team_apps(&team_id, cx).into_iter().map(|app| app.id).collect())
+    Some(crate::apps_view::app_entries(&team_id, cx).into_iter().map(|app| app.id).collect())
 }
 
 /// EXP-1294: `Agent("")` (the DEV `EXP_DEV_SETTINGS=agent` seed) = the
@@ -532,7 +532,7 @@ fn first_agent_resolved(
         // `app:<slug>`) names its app.
         SettingsSection::App(id) => {
             let apps = active_team_id(nav, cx)
-                .map(|team_id| crate::apps_view::team_apps(&team_id, cx))
+                .map(|team_id| crate::apps_view::app_entries(&team_id, cx))
                 .unwrap_or_default();
             let hit = if id.is_empty() {
                 apps.first()
@@ -1134,7 +1134,7 @@ impl Render for SettingsNavPanel {
         // VAPP-110: the Apps group's rows = the apps the viewer manages.
         let apps = team_id
             .as_deref()
-            .map(|team_id| crate::apps_view::team_apps(team_id, cx))
+            .map(|team_id| crate::apps_view::app_entries(team_id, cx))
             .unwrap_or_default();
 
         let mut list = v_flex().p_2().gap_0p5();
