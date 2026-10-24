@@ -165,6 +165,22 @@
         "sha256": "0a12c84e30a24fa25441dafb2aac5a668b54e2f9011c49d1ca5aa4b4e15f3621"
       }
     },
+    "app-consent": {
+      "android": {
+        "file": "shots/app-consent/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 17692,
+        "sha256": "c7659c71957aae4e41fdc583cc563c5801bb806539de25602eb00881b05129c6"
+      },
+      "ios": {
+        "file": "shots/app-consent/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 18394,
+        "sha256": "8191d37434942715e1774ade1c2d8be8cb89ac784b97b3644fdc564cd21e35cc"
+      }
+    },
     "apps": {
       "android": {
         "file": "shots/apps/android.webp",

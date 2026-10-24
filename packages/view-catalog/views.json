@@ -2198,7 +2198,7 @@
       "group": "coding",
       "title": "App · consent card",
       "blurb": "VAPP-120: the consent card an app surface raises for a typed action nobody granted (fixtures/app-actions.json): the operation's own words (\"Allow this surface to comment on issue APP-15?\"), the arguments it would send, Deny and Allow. A granted action never shows it; a destructive one always does (the 2026-10-24 ruling).",
-      "order": 37,
+      "order": 40,
       "ios": {
         "shot": "sg_app-consent",
         "lane": "styleguide"
