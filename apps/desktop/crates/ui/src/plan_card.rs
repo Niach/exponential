@@ -489,6 +489,13 @@ pub(crate) fn card_surface_view(
         // `None`: the surface follows its frame's width (a fixed width
         // left the surface's equal tile columns short of the frame).
         width: None,
+        // Reduce motion (`theme::motion::reduce_motion`, the one place): the
+        // surface's own transitions become 0 ms.
+        settings: theme::motion::reduce_motion().then(|| exponential_ui::surface::SurfaceSettings {
+            mode: exponential_ui::theme::ModeSetting::Dark,
+            reduced_motion: true,
+            ..Default::default()
+        }),
         ..Default::default()
     };
     let data = surface.data.clone();

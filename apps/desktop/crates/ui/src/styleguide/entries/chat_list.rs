@@ -80,6 +80,17 @@ fn word_of(key: &str) -> Option<domain::session_tree::ThreadRowWord> {
     [W::Stack, W::ReadyToMerge, W::Merged, W::Question].into_iter().find(|word| word.key() == key)
 }
 
+/// The glyph before a row word ×4 (Android `ChatComponents`, iOS
+/// `wordIcon`): a stack = `pr-stack`, ready to merge = `pr-open`.
+fn word_glyph(word: domain::session_tree::ThreadRowWord) -> Option<crate::icons::ExpIcon> {
+    use domain::session_tree::ThreadRowWord as W;
+    match word {
+        W::Stack => Some(registry::PR_STACK),
+        W::ReadyToMerge => Some(registry::PR_OPEN),
+        W::Merged | W::Question => None,
+    }
+}
+
 /// A chip's label (`chatFilterLabel`): its copy, then a non-zero count.
 fn filter_label(label: &str, count: Option<usize>) -> String {
     match count {
@@ -219,7 +230,7 @@ fn row(row: &Row, cx: &App) -> AnyElement {
         .word
         .as_deref()
         .and_then(word_of)
-        .and_then(|word| word.text());
+        .and_then(|word| word.text().map(|text| (word_glyph(word), text)));
     let badge = unread.then(|| {
         let (fill, text) = if row.needs_you {
             (theme::tokens::YELLOW.to_hsla(), gpui::black())
@@ -294,7 +305,16 @@ fn row(row: &Row, cx: &App) -> AnyElement {
                         .gap_2()
                         .items_start()
                         .child(preview)
-                        .children(word.map(|text| div().text_xs().text_color(theme.muted_foreground).child(text)))
+                        .children(word.map(|(glyph, text)| {
+                            h_flex()
+                                .flex_shrink_0()
+                                .gap_1()
+                                .items_center()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .children(glyph.map(|glyph| Icon::new(glyph).with_size(px(13.)).text_color(theme.muted_foreground)))
+                                .child(text)
+                        }))
                         .children(badge),
                 ),
         )

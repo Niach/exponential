@@ -280,6 +280,7 @@ fn chevron(id: &ElementId, open: bool, size: TraceSize, color: Hsla) -> AnyEleme
                 SharedString::from(format!("trace-chevron-{id:?}-{at:?}")),
                 Animation::new(theme::motion::STANDARD).with_easing(theme::motion::standard()),
                 move |this, delta| {
+                    let delta = theme::motion::settle(delta);
                     this.transform(Transformation::rotate(percentage(from + (to - from) * delta)))
                 },
             )
@@ -493,6 +494,10 @@ pub(crate) fn shimmer_text(
             })
         }))
     };
+    // Reduce motion: the ambient sweep stops (the plain title stays).
+    if theme::motion::reduce_motion() {
+        return paint(0.).into_any_element();
+    }
     paint(0.)
         .with_animation(id, Animation::new(duration).repeat(), move |_, delta| paint(delta))
         .into_any_element()

@@ -2459,7 +2459,7 @@ impl ScreensPanel {
             return main;
         }
         let transition = || {
-            gpui_component::animation::EffectTransition::new(theme::motion::STANDARD)
+            gpui_component::animation::EffectTransition::new(theme::motion::movement(theme::motion::STANDARD))
                 .ease(theme::motion::standard())
         };
         let (from_w, to_w) = (width(anim.from), width(anim.to));

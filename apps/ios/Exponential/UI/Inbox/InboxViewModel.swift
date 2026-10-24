@@ -270,17 +270,8 @@ final class InboxViewModel {
     }
 
     func markAllRead() {
-        // EXP-1373: one team in view — mark what this inbox shows.
-        guard teamId == nil else {
-            markRead(entries.flatMap { entry -> [NotificationEntity] in
-                switch entry {
-                case let .issue(group): group.notifications
-                case let .message(message): [message.notification]
-                case let .blockedRun(run): [run.notification]
-                }
-            })
-            return
-        }
-        Task { try? await notificationsApi.markAllRead(accountId: accountId) }
+        // EXP-1373: one team in view — the server clears that team's rows.
+        let teamId = teamId
+        Task { try? await notificationsApi.markAllRead(accountId: accountId, teamId: teamId) }
     }
 }

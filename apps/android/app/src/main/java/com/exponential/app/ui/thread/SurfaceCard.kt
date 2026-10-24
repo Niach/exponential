@@ -12,13 +12,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -55,7 +54,8 @@ private val SurfaceFrameFill: Color = DesignTokens.Palette.Background
  * over `frame.duration` / `frame.ease`; its hairline starts at the primary
  * colour at `glow.fromOpacity` and settles to the normal stroke; after
  * `children.startAfterMs` the root's first-level children come in one by one
- * (`staggerMs` apart, the ones past `maxStaggered` together). Reduce motion =
+ * (opacity + a `fromTranslateY` rise, `staggerMs` apart, the ones past
+ * `maxStaggered` together; the renderer's `SurfaceModel.nodeModifier` hook). Reduce motion =
  * a plain opacity fade of the frame.
  */
 @Composable
@@ -145,31 +145,30 @@ fun SurfaceCard(
             .testTag(Chats.TestIds.SURFACE_CARD),
     ) {
         if (model != null) {
-            Box(
-                Modifier.drawWithContent {
-                    drawContent()
-                    // The children's stagger: each first-level child of the
-                    // root is veiled in the frame's own fill until its turn.
-                    val root = model.node(0) ?: return@drawWithContent
-                    val origin = model.frame(0)
-                    root.children.forEachIndexed { index, child ->
-                        val p = children[minOf(index, children.lastIndex)].value
-                        if (p >= 1f) return@forEachIndexed
-                        val rect = model.frame(child)
-                        val rise = (1f - p) * Chats.SurfaceCard.Children.FROM_TRANSLATE_Y.dp.toPx()
-                        drawRect(
-                            color = SurfaceFrameFill.copy(alpha = 1f - p),
-                            topLeft = Offset(
-                                (rect.left - origin.left).dp.toPx(),
-                                (rect.top - origin.top).dp.toPx() - rise,
-                            ),
-                            size = Size(rect.width.dp.toPx(), rect.height.dp.toPx() + rise),
-                        )
+            // The children's stagger through the renderer's paint-only node
+            // hook: each first-level child of the root fades in AND rises
+            // `children.fromTranslateY` px, `staggerMs` apart (the ones past
+            // `maxStaggered` together), read per frame inside the layer.
+            DisposableEffect(model) {
+                model.nodeModifier = { index ->
+                    val node = model.node(index)
+                    val root = model.node(0)
+                    val position = if (node?.parent == 0) root?.children?.indexOf(index) ?: -1 else -1
+                    if (position < 0) {
+                        null
+                    } else {
+                        val anim = children[minOf(position, children.lastIndex)]
+                        Modifier.graphicsLayer {
+                            val p = anim.value
+                            val from = Chats.SurfaceCard.Children.FROM_OPACITY
+                            alpha = from + (1f - from) * p
+                            translationY = (1f - p) * Chats.SurfaceCard.Children.FROM_TRANSLATE_Y * density
+                        }
                     }
-                },
-            ) {
-                ExponentialSurface(model)
+                }
+                onDispose { model.nodeModifier = null }
             }
+            ExponentialSurface(model)
         } else {
             // A surface the core refuses: the empty frame.
             Box(Modifier.size(1.dp).offset(0.dp, 0.dp))

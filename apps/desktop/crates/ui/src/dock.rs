@@ -265,7 +265,7 @@ pub(crate) fn dock_card(row: &DockRow, hidden: f32, action: Option<AnyElement>, 
 }
 
 fn slow() -> Transition {
-    Transition::new(theme::motion::SLOW).ease(theme::motion::standard())
+    Transition::new(theme::motion::movement(theme::motion::SLOW)).ease(theme::motion::standard())
 }
 
 /// THE band's facts.
@@ -683,7 +683,7 @@ pub(crate) fn sheet(state: &Entity<DockState>, row: &DockRow, content: SheetCont
     // The sheet's travel: 0 = in place, 1 = below the window edge.
     let progress = match &closing {
         Some((since, _)) => {
-            let raw = (since.elapsed().as_secs_f32() / theme::motion::STANDARD.as_secs_f32()).min(1.);
+            let raw = theme::motion::settle((since.elapsed().as_secs_f32() / theme::motion::STANDARD.as_secs_f32()).min(1.));
             if raw >= 1. {
                 state.update(cx, |state, _| state.closing = None);
                 return div().into_any_element();
@@ -694,7 +694,7 @@ pub(crate) fn sheet(state: &Entity<DockState>, row: &DockRow, content: SheetCont
             let raw = opened_at
                 .map(|since| (since.elapsed().as_secs_f32() / theme::motion::SLOW.as_secs_f32()).min(1.))
                 .unwrap_or(1.);
-            theme::motion::decelerate()(raw)
+            theme::motion::decelerate()(theme::motion::settle(raw))
         }
     };
     let animating = closing.is_some() || progress < 1.;

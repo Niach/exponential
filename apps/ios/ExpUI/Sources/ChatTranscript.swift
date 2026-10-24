@@ -94,12 +94,6 @@ public extension View {
         modifier(ChatBubbleArrival(animate: animate))
     }
 
-    /// `surfaceCard.enter.children`: the surface root's first-level child
-    /// `index` enters after `startAfterMs + index · staggerMs` (children
-    /// past `maxStaggered` share the last delay).
-    func surfaceChildEnter(index: Int, animate: Bool) -> some View {
-        modifier(SurfaceChildEnter(index: index, animate: animate))
-    }
 }
 
 private struct ChatBubbleArrival: ViewModifier {
@@ -127,28 +121,6 @@ private func motionDuration(_ name: String) -> TimeInterval {
     case "fast": DesignTokens.Motion.Duration.fast
     case "slow": DesignTokens.Motion.Duration.slow
     default: DesignTokens.Motion.Duration.standard
-    }
-}
-
-private struct SurfaceChildEnter: ViewModifier {
-    let index: Int
-    let animate: Bool
-    @Environment(\.motion) private var motion
-    @State private var shown = false
-
-    func body(content: Content) -> some View {
-        // Reduce motion: no stagger (the frame's fade carries it).
-        let hidden = animate && !shown && !motion.reduceMotion
-        content
-            .opacity(hidden ? Chats.SurfaceEnter.Children.fromOpacity : 1)
-            .offset(y: hidden ? Chats.SurfaceEnter.Children.fromTranslateY : 0)
-            .onAppear {
-                guard animate, !shown, !motion.reduceMotion else { return }
-                let delay = Chats.SurfaceEnter.childDelayMs(index) / 1000
-                withAnimation(
-                    motion.decelerate(motionDuration(Chats.SurfaceEnter.Children.duration))?.delay(delay)
-                ) { shown = true }
-            }
     }
 }
 

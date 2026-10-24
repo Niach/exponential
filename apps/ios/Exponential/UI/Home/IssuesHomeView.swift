@@ -137,13 +137,12 @@ struct IssuesHomeView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        // EXP-1373: the board switcher pill leads, search trails (the
+        // settings gear moved to the Team tab).
+        .ownChromeToolbarItem(placement: .topBarLeading) {
+            switcherControl
+        }
         .toolbar {
-            // EXP-1373: the board switcher pill leads, search trails (the
-            // settings gear moved to the Team tab).
-            ToolbarItem(placement: .topBarLeading) {
-                switcherControl
-            }
-            .ownChrome()
             // The pill IS the title: the board list's own title stands down.
             ToolbarItem(placement: .principal) {
                 Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)

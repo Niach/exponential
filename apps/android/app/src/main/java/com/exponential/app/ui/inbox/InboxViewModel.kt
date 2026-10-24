@@ -218,15 +218,12 @@ class InboxViewModel @Inject constructor(
         }
     }
 
-    /** Mark all read = the rows THIS page lists (the active team's). */
+    /** Mark all read = the ACTIVE team's rows (thread 58cb32df:
+     *  `notifications.markAllRead({ teamId })`; no team yet = every team). */
     fun markAllRead() {
-        val shown = state.value.entries.flatMap { entry ->
-            when (entry) {
-                is InboxEntry.Issue -> entry.group.notifications
-                is InboxEntry.Message -> listOf(entry.notification)
-                is InboxEntry.Session -> listOf(entry.notification)
-            }
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching { notificationsApi.markAllRead(accountId, activeTeam.value) }
         }
-        markRead(shown)
     }
 }

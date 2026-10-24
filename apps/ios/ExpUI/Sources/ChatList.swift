@@ -255,16 +255,40 @@ public struct ChatsHeaderCircle: View {
     }
 }
 
-public extension ToolbarContent {
+public extension View {
     /// EXP-1373: a toolbar item that paints its OWN chrome (the board
     /// switcher pill, the chat header's title block, the Chats header
     /// circles) opts out of iOS 26's shared Liquid Glass item background.
-    @ToolbarContentBuilder
-    func ownChrome() -> some ToolbarContent {
-        if #available(iOS 26.0, *) {
-            sharedBackgroundVisibility(.hidden)
+    /// The availability check lives in a VIEW builder, never inside a
+    /// `ToolbarContentBuilder`: the toolbar builder's limited-availability
+    /// symbol does not exist below iOS 26 and the app links against 17.4.
+    /// `enabled: false` adds nothing (the caller's other toolbar owns the slot).
+    func ownChromeToolbarItem<Item: View>(
+        placement: ToolbarItemPlacement,
+        enabled: Bool = true,
+        @ViewBuilder item: @escaping () -> Item
+    ) -> some View {
+        modifier(OwnChromeToolbarItem(placement: placement, enabled: enabled, item: item))
+    }
+}
+
+private struct OwnChromeToolbarItem<Item: View>: ViewModifier {
+    let placement: ToolbarItemPlacement
+    let enabled: Bool
+    let item: () -> Item
+
+    func body(content: Content) -> some View {
+        if !enabled {
+            content
+        } else if #available(iOS 26.0, *) {
+            content.toolbar {
+                ToolbarItem(placement: placement) { item() }
+                    .sharedBackgroundVisibility(.hidden)
+            }
         } else {
-            self
+            content.toolbar {
+                ToolbarItem(placement: placement) { item() }
+            }
         }
     }
 }

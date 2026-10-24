@@ -2062,14 +2062,15 @@ mod tests {
             recorded.inputs.lock().unwrap().as_slice(),
             &[b"just a message".to_vec(), b"\r".to_vec()]
         );
-        // A command name that is not in claude's catalog is prose too.
+        // A command name that is not in claude's catalog is prose too
+        // (thread 58cb32df: `/new` IS one now; `/cost` never was).
         recorded.inputs.lock().unwrap().clear();
-        send("/new");
+        send("/cost");
         send("\r");
         wait_for(|| recorded.inputs.lock().unwrap().len() >= 2);
         assert_eq!(
             recorded.inputs.lock().unwrap().as_slice(),
-            &[b"/new".to_vec(), b"\r".to_vec()]
+            &[b"/cost".to_vec(), b"\r".to_vec()]
         );
         assert!(link.try_recv().is_none());
         handle.shutdown(None);

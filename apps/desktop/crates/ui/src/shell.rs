@@ -598,7 +598,7 @@ impl Shell {
         let anim = self.left_anim;
         let easing = theme::motion::standard;
         let transition = || {
-            gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
+            gpui_component::animation::EffectTransition::new(theme::motion::movement(LEFT_COL_ANIM_DURATION))
                 .ease(easing())
         };
         // EXP-1156: every width is the occupant's remembered drag width,

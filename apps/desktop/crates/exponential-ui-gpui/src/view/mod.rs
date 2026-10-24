@@ -47,6 +47,7 @@ use motion::Motion;
 use state::NodeCache;
 
 pub(crate) use input::Field;
+pub use motion::NodeEntrance;
 pub use state::{focus_order, is_focusable, next_focus, NodeFlags};
 
 /// The surface width before the element knows its own (no host width and
@@ -325,6 +326,8 @@ pub struct SurfaceView {
     sticky: HashMap<u32, (f32, f32)>,
     /// Round 2: when each animated node entered the tree (by painted id).
     anim_start: RefCell<HashMap<SharedString, Instant>>,
+    /// A host-driven entrance ([`SurfaceView::set_entrance`]).
+    entrance: Option<NodeEntrance>,
     slider_bounds: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
     motion: Motion,
     toast_timers: HashMap<String, ToastTimer>,
@@ -514,6 +517,7 @@ impl SurfaceView {
             resize_drag: None,
             sticky: HashMap::new(),
             anim_start: RefCell::new(HashMap::new()),
+            entrance: None,
             slider_bounds: Rc::new(RefCell::new(HashMap::new())),
             motion: Motion::default(),
             toast_timers: HashMap::new(),
@@ -593,6 +597,13 @@ impl SurfaceView {
         let out = self.surface.set_nested(tree);
         cx.notify();
         out
+    }
+
+    /// Play a HOST-driven entrance over the named nodes ([`NodeEntrance`];
+    /// `None` clears it). Paint-only; the surface's reduced motion skips it.
+    pub fn set_entrance(&mut self, entrance: Option<NodeEntrance>, cx: &mut Context<Self>) {
+        self.entrance = entrance;
+        cx.notify();
     }
 
     /// Write `value` at `path` of the data model (`None` removes); a

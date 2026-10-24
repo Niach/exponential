@@ -217,7 +217,7 @@ pub(crate) fn collapsed_title(
         None => block.into_any_element(),
         Some(id) => {
             use gpui::AnimationExt as _;
-            let rise = domain::detail_chrome::COLLAPSE_RISE;
+            let rise = theme::motion::travel(domain::detail_chrome::COLLAPSE_RISE);
             block
                 .with_animation(
                     id,

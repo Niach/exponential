@@ -1138,6 +1138,8 @@ export function useMenuGestures(
   React.useEffect(() => {
     let timer: number | null = null
     let press: { x: number; y: number; hit: MenuHit } | null = null
+    /** A touch long-press opened the menu; its release is still to come. */
+    let pressOpened = false
     const clearPress = () => {
       if (timer !== null) {
         window.clearTimeout(timer)
@@ -1159,10 +1161,13 @@ export function useMenuGestures(
       window.clearTimeout(tail.timer)
       tail = null
     }
-    const swallowClickTail = (element: HTMLElement) => {
+    // `element` null = the click lands anywhere: after a touch long-press
+    // the menu (a sheet on a phone) is already up under the finger, so the
+    // release's synthesized click hits its overlay, not the row.
+    const swallowClickTail = (element: HTMLElement | null) => {
       clearTail()
       const onClick = (click: MouseEvent) => {
-        if (!(click.target instanceof Node) || !element.contains(click.target)) return
+        if (element && (!(click.target instanceof Node) || !element.contains(click.target))) return
         click.stopPropagation()
         click.preventDefault()
         clearTail()
@@ -1200,6 +1205,7 @@ export function useMenuGestures(
 
     const onPointerDown = (event: PointerEvent) => {
       if (!isTouchOrPen(event)) return
+      pressOpened = false
       const hit = accepted(findMenuElement(event.target))
       if (!hit) return
       clearPress()
@@ -1207,7 +1213,10 @@ export function useMenuGestures(
       timer = window.setTimeout(() => {
         const current = press
         clearPress()
-        if (current) onOpenRef.current(targetOf(current.hit, { x: current.x, y: current.y }))
+        if (current) {
+          pressOpened = true
+          onOpenRef.current(targetOf(current.hit, { x: current.x, y: current.y }))
+        }
       }, LONG_PRESS_MS)
     }
 
@@ -1218,7 +1227,16 @@ export function useMenuGestures(
       }
     }
 
-    const onPointerEnd = () => clearPress()
+    const onPointerEnd = (event: PointerEvent) => {
+      clearPress()
+      // The release of a press that opened the menu: its click is the
+      // gesture's tail (it would dismiss the sheet just opened, or open the
+      // row under it), never a new tap.
+      if (pressOpened) {
+        pressOpened = false
+        if (event.type === `pointerup`) swallowClickTail(null)
+      }
+    }
 
     document.addEventListener(`contextmenu`, onContextMenu)
     document.addEventListener(`pointerdown`, onPointerDown, { passive: true })

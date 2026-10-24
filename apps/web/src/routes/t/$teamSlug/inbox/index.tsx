@@ -77,7 +77,7 @@ function PhoneInboxPage() {
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
   const { boards, boardsReady } = useTeamBoardsWithReady(team?.id)
-  const unread = useUnreadNotificationCount()
+  const unread = useUnreadNotificationCount(team?.id)
 
   useEffect(() => {
     if (!search.tab || !boardsReady) return
@@ -112,7 +112,7 @@ function PhoneInboxPage() {
               mode="action"
               size="md"
               className="shrink-0"
-              onClick={() => void trpc.notifications.markAllRead.mutate()}
+              onClick={() => void trpc.notifications.markAllRead.mutate(team ? { teamId: team.id } : undefined)}
             >
               Mark all read
             </Pill>

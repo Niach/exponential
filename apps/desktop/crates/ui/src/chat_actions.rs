@@ -17,7 +17,6 @@
 
 use gpui::{App, SharedString, Window};
 use gpui_component::menu::PopupMenu;
-use gpui_component::Icon;
 
 use domain::chats::{agent_menu_entries, thread_menu_entries, AgentMenuEntry, ThreadMenuEntry, CHATS};
 use domain::rows::SessionRow;
@@ -62,7 +61,7 @@ pub(crate) fn chat_menu_items(mut menu: PopupMenu, root_id: &str, separator: boo
 }
 
 /// THE chat menu's rows for `entries` (the styleguide's specimen too).
-pub(crate) fn chat_entry_items(mut menu: PopupMenu, root_id: &str, entries: &[ThreadMenuEntry], cx: &App) -> PopupMenu {
+pub(crate) fn chat_entry_items(mut menu: PopupMenu, root_id: &str, entries: &[ThreadMenuEntry], _cx: &App) -> PopupMenu {
     for entry in entries.iter().copied() {
         let root_id = root_id.to_string();
         menu = match entry {
@@ -72,8 +71,9 @@ pub(crate) fn chat_entry_items(mut menu: PopupMenu, root_id: &str, entries: &[Th
                 }),
             ),
             ThreadMenuEntry::StopAndDelete | ThreadMenuEntry::Delete => menu.item(
-                crate::controls::danger_menu_item(entry.label(), Icon::new(registry::UI_DELETE), cx)
-                    .on_click(move |_, window, cx| confirm_delete(&root_id, window, cx)),
+                crate::controls::danger_pointer_menu_item(registry::UI_DELETE, entry.label(), move |window, cx| {
+                    confirm_delete(&root_id, window, cx)
+                }),
             ),
         };
     }

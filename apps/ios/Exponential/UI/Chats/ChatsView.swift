@@ -49,24 +49,21 @@ struct ChatsView: View {
         .navigationTitle(Chats.Copy.title)
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 10) {
-                    NavigationLink(value: AppRoute.search) {
-                        Self.headerCircle(AppIcons.navSearch, dot: false)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Search")
-                    .accessibilityIdentifier("chats-search")
-                    NavigationLink(value: AppRoute.myWork) {
-                        Self.headerCircle(AppIcons.navInbox, dot: inboxUnread)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Chats.Copy.inbox)
-                    .accessibilityIdentifier(Chats.TestIds.inboxButton)
+        .ownChromeToolbarItem(placement: .topBarTrailing) {
+            HStack(spacing: 10) {
+                NavigationLink(value: AppRoute.search) {
+                    Self.headerCircle(AppIcons.navSearch, dot: false)
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Search")
+                .accessibilityIdentifier("chats-search")
+                NavigationLink(value: AppRoute.myWork) {
+                    Self.headerCircle(AppIcons.navInbox, dot: inboxUnread)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Chats.Copy.inbox)
+                .accessibilityIdentifier(Chats.TestIds.inboxButton)
             }
-            .ownChrome()
         }
         .sheet(item: $menu, onDismiss: runPendingPick) { target in
             ChatMenuSheet(title: target.title, entries: target.entries) { entry in

@@ -126,12 +126,13 @@ mod tests {
             .iter()
             .any(|c| c.name == "compact"));
         // NEW-2: compact/model/effort for both agents, none confirms
-        // (`/clear` and `/btw` are gone).
+        // (`/clear` and `/btw` are gone). Thread 58cb32df: `/new` (a fresh
+        // conversation in the same session) joins them, without an argument.
         for agent in [SessionAgent::Claude, SessionAgent::Codex] {
             let rows = catalog_for(agent);
-            assert_eq!(rows.iter().map(|c| c.name).collect::<Vec<_>>(), vec!["compact", "model", "effort"]);
+            assert_eq!(rows.iter().map(|c| c.name).collect::<Vec<_>>(), vec!["compact", "new", "model", "effort"]);
             assert!(rows.iter().all(|c| !c.confirm));
-            assert_eq!(rows.iter().map(|c| c.arg_hint).collect::<Vec<_>>(), vec!["instructions", "model", "level"]);
+            assert_eq!(rows.iter().map(|c| c.arg_hint).collect::<Vec<_>>(), vec!["instructions", "", "model", "level"]);
         }
         // EXP-746: an external ACP agent matches no contract row, so its
         // catalog is empty and `/compact` is prose to it.
@@ -155,7 +156,8 @@ mod tests {
         assert_eq!(parse_command("/effort high", SessionAgent::Codex).unwrap().command.name, "effort");
         // Not in the catalog at all.
         assert_eq!(parse_command("/cost", SessionAgent::Claude), None);
-        assert_eq!(parse_command("/new", SessionAgent::Codex), None);
+        // Thread 58cb32df: `/new` is a catalog row now.
+        assert_eq!(parse_command("/new", SessionAgent::Codex).unwrap().command.name, "new");
         assert_eq!(parse_command("/clear", SessionAgent::Codex), None);
         assert_eq!(parse_command("/btw why", SessionAgent::Claude), None);
         // Prose, paths and a bare slash are never commands.

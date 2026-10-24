@@ -142,6 +142,8 @@ struct SurfaceCards {
     /// Per screen view: the surface ids it has synced (first sync = history).
     seen: HashMap<EntityId, HashSet<String>>,
     arrivals: HashMap<String, Instant>,
+    /// The arrivals whose children stagger was handed to their view.
+    staggered: HashSet<String>,
 }
 
 impl gpui::Global for SurfaceCards {}
@@ -213,22 +215,74 @@ fn token_ease(token: &str) -> Box<dyn Fn(f32) -> f32> {
     }
 }
 
-/// The frame's look `elapsed` into its entrance: (opacity, rise px, glow
-/// 0..1 = the primary hairline's share); `None` = settled.
-pub(crate) fn enter_frame(elapsed: Duration) -> Option<(f32, f32, f32)> {
+/// The frame's look mid-entrance.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct EnterLook {
+    pub opacity: f32,
+    /// px below its place.
+    pub rise: f32,
+    /// 0..1: the primary hairline's share.
+    pub glow: f32,
+    /// The frame's scale (gpui scales no box: the frame narrows about its
+    /// centre to this share of the column).
+    pub scale: f32,
+}
+
+/// The frame's look `elapsed` into its entrance (`surfaceCard.enter.frame`
+/// + `glow`); `None` = settled. `reduced` (Reduce motion): a plain opacity
+/// fade of the frame, no rise, scale or glow.
+pub(crate) fn enter_frame(elapsed: Duration, reduced: bool) -> Option<EnterLook> {
     let enter = &CHATS.surface_card.enter;
     let frame_d = token_duration(&enter.frame.duration);
-    let glow_d = token_duration(&enter.glow.duration);
+    let glow_d = if reduced { frame_d } else { token_duration(&enter.glow.duration) };
     if elapsed >= frame_d.max(glow_d) {
         return None;
     }
     let t = (elapsed.as_secs_f32() / frame_d.as_secs_f32()).min(1.);
     let e = token_ease(&enter.frame.ease)(t);
     let opacity = enter.frame.from_opacity + (1. - enter.frame.from_opacity) * e;
+    if reduced {
+        return Some(EnterLook { opacity, rise: 0., glow: 0., scale: 1. });
+    }
     let rise = enter.frame.from_translate_y * (1. - e);
+    let scale = enter.frame.from_scale + (1. - enter.frame.from_scale) * e;
     let g = (elapsed.as_secs_f32() / glow_d.as_secs_f32()).min(1.);
     let glow = 1. - token_ease(&enter.glow.ease)(g);
-    Some((opacity, rise, glow))
+    Some(EnterLook { opacity, rise, glow, scale })
+}
+
+/// The surface ROOT's first-level children's entrance
+/// (`surfaceCard.enter.children`): one by one after `startAfterMs`,
+/// `staggerMs` apart (past `maxStaggered` they share the last delay), each
+/// an opacity + `fromTranslateY` rise over its token duration. `None` when
+/// the root has no children.
+pub(crate) fn children_entrance(started: Instant, surface: &CardSurface) -> Option<exponential_ui_gpui::view::NodeEntrance> {
+    let enter = &CHATS.surface_card.enter;
+    let ids: Vec<String> = surface
+        .root
+        .get("children")?
+        .as_array()?
+        .iter()
+        .filter_map(|child| child.get("id")?.as_str().map(str::to_string))
+        .collect();
+    if ids.is_empty() {
+        return None;
+    }
+    let delays_ms = (0..ids.len()).map(|index| enter.child_delay_ms(index) as f32).collect();
+    let easing = match enter.children.ease.as_str() {
+        "standard" => theme::tokens::motion::ease::STANDARD,
+        "accelerate" => theme::tokens::motion::ease::ACCELERATE,
+        _ => theme::tokens::motion::ease::DECELERATE,
+    };
+    Some(exponential_ui_gpui::view::NodeEntrance {
+        started,
+        ids,
+        from_opacity: enter.children.from_opacity,
+        from_translate_y: enter.children.from_translate_y,
+        duration_ms: token_duration(&enter.children.duration).as_secs_f32() * 1000.,
+        easing,
+        delays_ms,
+    })
 }
 
 /// THE surface card: the title caption (else `copy.preview.surface`) over
@@ -242,10 +296,19 @@ pub(crate) fn surface_row(
     cx: &mut App,
 ) -> AnyElement {
     ensure_view(id, session_id, surface, window, cx);
+    let reduced = theme::motion::reduce_motion();
     let cards = cx.default_global::<SurfaceCards>();
     let view = cards.views.get(id).cloned().flatten();
     let arrival = cards.arrivals.get(id).copied();
-    let look = arrival.and_then(|at| enter_frame(at.elapsed()));
+    // The root's children stagger in once the view exists (never under
+    // Reduce motion), timed from the arrival like the frame.
+    if let (Some(at), Some(view), false) = (arrival, view.as_ref(), reduced) {
+        if cx.default_global::<SurfaceCards>().staggered.insert(id.to_string()) {
+            let entrance = children_entrance(at, surface);
+            view.update(cx, |view, cx| view.set_entrance(entrance, cx));
+        }
+    }
+    let look = arrival.and_then(|at| enter_frame(at.elapsed(), reduced));
     if look.is_some() {
         window.request_animation_frame();
     } else if arrival.is_some() {
@@ -260,13 +323,13 @@ pub(crate) fn surface_frame(
     id: &str,
     title: Option<&str>,
     body: Option<AnyElement>,
-    look: Option<(f32, f32, f32)>,
+    look: Option<EnterLook>,
     cx: &App,
 ) -> AnyElement {
     let card = domain::plan_card::card();
     let stroke = theme::tokens::glass::STROKE_CARD.to_hsla();
     let glow_from = CHATS.surface_card.enter.glow.from_opacity;
-    let (opacity, rise, glow) = look.unwrap_or((1., 0., 0.));
+    let EnterLook { opacity, rise, glow, scale } = look.unwrap_or(EnterLook { opacity: 1., rise: 0., glow: 0., scale: 1. });
     let border = if glow > 0. {
         let primary = cx.theme().primary.opacity(glow_from);
         stroke.blend(primary.opacity(glow * glow_from))
@@ -282,8 +345,9 @@ pub(crate) fn surface_frame(
         .id(SharedString::from(format!("{}-{id}", CHATS.test_ids.surface_card)))
         .relative()
         .top(px(rise))
+        .mx_auto()
+        .w(gpui::relative(scale))
         .opacity(opacity)
-        .w_full()
         .min_w_0()
         .gap(px(card.surface_label_gap))
         .child(
@@ -408,10 +472,32 @@ mod tests {
     #[test]
     fn the_enter_frame_starts_from_the_spec_and_settles() {
         let enter = &CHATS.surface_card.enter;
-        let (opacity, rise, glow) = enter_frame(Duration::ZERO).unwrap();
-        assert_eq!(opacity, enter.frame.from_opacity);
-        assert_eq!(rise, enter.frame.from_translate_y);
-        assert_eq!(glow, 1.);
-        assert!(enter_frame(Duration::from_secs(5)).is_none());
+        let look = enter_frame(Duration::ZERO, false).unwrap();
+        assert_eq!(look.opacity, enter.frame.from_opacity);
+        assert_eq!(look.rise, enter.frame.from_translate_y);
+        assert_eq!(look.scale, enter.frame.from_scale);
+        assert_eq!(look.glow, 1.);
+        assert!(enter_frame(Duration::from_secs(5), false).is_none());
+        // Reduce motion: an opacity fade only.
+        let reduced = enter_frame(Duration::ZERO, true).unwrap();
+        assert_eq!((reduced.rise, reduced.glow, reduced.scale), (0., 0., 1.));
+        assert_eq!(reduced.opacity, enter.frame.from_opacity);
+    }
+
+    /// The root's first-level children stagger: `startAfterMs`, then
+    /// `staggerMs` apart, the last delay shared past `maxStaggered`.
+    #[test]
+    fn the_children_stagger_after_the_frame() {
+        let enter = &CHATS.surface_card.enter;
+        let children: Vec<serde_json::Value> = (0..10).map(|i| serde_json::json!({"id": format!("c{i}")})).collect();
+        let surface = CardSurface { root: serde_json::json!({"id": "root", "children": children}), data: None };
+        let entrance = children_entrance(Instant::now(), &surface).unwrap();
+        assert_eq!(entrance.ids.len(), 10);
+        assert_eq!(entrance.delays_ms[0], enter.children.start_after_ms as f32);
+        assert_eq!(entrance.delays_ms[1] - entrance.delays_ms[0], enter.children.stagger_ms as f32);
+        assert_eq!(entrance.delays_ms[9], entrance.delays_ms[enter.children.max_staggered - 1]);
+        assert_eq!(entrance.from_translate_y, enter.children.from_translate_y);
+        let leaf = CardSurface { root: serde_json::json!({"id": "root"}), data: None };
+        assert!(children_entrance(Instant::now(), &leaf).is_none());
     }
 }

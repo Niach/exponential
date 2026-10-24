@@ -1402,6 +1402,7 @@ impl DiffView {
                         Animation::new(theme::motion::STANDARD)
                             .with_easing(theme::motion::standard()),
                         move |this, delta| {
+                            let delta = theme::motion::settle(delta);
                             this.transform(Transformation::rotate(percentage(
                                 from + (to - from) * delta,
                             )))

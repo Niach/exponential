@@ -59,7 +59,7 @@ function PhoneChatsPage() {
   const [filter, setFilter] = useState<ChatFilter>(`all`)
   const { list, bubbles, cliOf, isReady } = useChatList(team?.id, authSession?.user?.id, filter)
   const entering = useEnteringRows(list.rows.map((row) => row.sessionId))
-  const unread = useUnreadNotificationCount()
+  const unread = useUnreadNotificationCount(team?.id)
   const issueSearch = useIssueSearch()
 
   return (

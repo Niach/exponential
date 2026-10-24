@@ -121,14 +121,11 @@ struct ChatListSpecimens: View {
             }
             .navigationTitle(Chats.Copy.title)
             .toolbarTitleDisplayMode(.inlineLarge)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 10) {
-                        ChatsView.headerCircle(AppIcons.navSearch, dot: false)
-                        ChatsView.headerCircle(AppIcons.navInbox, dot: true)
-                    }
+            .ownChromeToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 10) {
+                    ChatsView.headerCircle(AppIcons.navSearch, dot: false)
+                    ChatsView.headerCircle(AppIcons.navInbox, dot: true)
                 }
-                .ownChrome()
             }
         }
         .overlay(alignment: .bottom) {
@@ -175,57 +172,89 @@ struct PhoneTabBarSpecimens: View {
     }
 }
 
-/// `chat-transcript`: the phone's chat bubbles, the divider pills, the
-/// superseded plan line and the inline surface card's frame.
+/// `chat-transcript`: the web entry's phone column — the person's and the
+/// agent's bubbles, the superseded plan line, the agent's inline preview
+/// (THE surface card through the real renderer, its two `reply` presses),
+/// the divider pills; "Replay the enter" re-mounts the card as a LIVE
+/// arrival (`surfaceCard.enter`).
 struct ChatTranscriptSpecimens: View {
     @Environment(AppDependencies.self) private var deps
+    @State private var replay = 0
+    @State private var replied: String?
+
+    /// The web entry's `LAUNCH_SURFACE` (the core catalog).
+    static let launchSurface: CardSurface? = {
+        func press(_ text: String) -> [String: Any] {
+            ["press": ["event": ["name": Chats.SurfaceEnter.replyEvent, "context": ["text": text]]]]
+        }
+        let root: [String: Any] = [
+            "id": "root", "component": "Stack", "props": ["gap": "md"],
+            "children": [
+                [
+                    "id": "stat", "component": "StatTile",
+                    "props": [
+                        "label": "Cold start, Pixel 6a", "value": "740 ms", "delta": "−47 %", "tone": "success",
+                        "trend": [1400, 1310, 1180, 980, 820, 740],
+                    ],
+                    "children": [] as [Any],
+                ],
+                [
+                    "id": "actions", "component": "Stack", "props": ["direction": "horizontal", "gap": "sm"],
+                    "children": [
+                        ["id": "ship", "component": "Button", "props": ["label": "Ship snapshot"],
+                         "children": [] as [Any], "on": press("Ship the snapshot")],
+                        ["id": "keep", "component": "Button", "props": ["label": "Keep profiling", "variant": "secondary"],
+                         "children": [] as [Any], "on": press("Keep profiling")],
+                    ] as [Any],
+                ],
+            ] as [Any],
+        ]
+        return CardSurface.parse(["root": root, "data": [String: Any]()])
+    }()
 
     private var context: AgentMarkdownContext {
         AgentMarkdownContext(baseURL: nil, accountId: "", httpClient: deps.httpClient)
     }
 
+    private func agent(_ text: String, _ time: String) -> some View {
+        AgentChatBubble(time: time) {
+            AgentMarkdownText(text: text, context: context, options: [.hardLineBreaks])
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             UserMessageBubble(
-                text: "Triage everything that came in from the widget today.",
+                text: "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it.",
                 context: context,
-                caption: "18:10"
+                caption: "21:02"
             )
-            AgentChatBubble(time: "18:14") {
-                AgentMarkdownText(
-                    text: "Filed 6 issues on Product Feedback, merged 2 duplicates into #FB-3.",
-                    context: context,
-                    options: [.hardLineBreaks]
-                )
-            }
-            TranscriptDividerPill(
-                icon: AppIcons.codingCompact,
-                text: "\(Chats.Copy.Dividers.compact) · 18:20"
-            )
-            UserMessageBubble(text: "Anything new overnight?", context: context, caption: "09:02")
-            AgentChatBubble(time: "09:03") {
-                AgentMarkdownText(
-                    text: "Three reports, all about the iPad sign-in. I linked them to #APP-19.",
-                    context: context,
-                    options: [.hardLineBreaks]
-                )
-            }
             HStack(spacing: 8) {
                 AppIcon(AppIcons.codingPlan, size: 13)
                 Text(Chats.Copy.superseded).font(.footnote)
             }
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            HStack(spacing: 0) {
-                SurfaceCardFrame(title: "Cold start, Pixel 6a", animate: false) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("740 ms").font(.title2.weight(.semibold)).foregroundStyle(.white)
-                        Text("−47 %").font(.footnote).foregroundStyle(DesignTokens.Semantic.green)
-                    }
+            agent("Deferred the shape subscribe until after the first frame and added a board snapshot cache. Here's where the time went:", "21:09")
+            if let surface = Self.launchSurface {
+                SurfaceCardRow(surface: surface, title: "Launch path", animate: replay > 0) { text in
+                    replied = text
                 }
-                Spacer(minLength: ChatBubbleMetrics.agentTrailingGap)
+                .id(replay)
             }
+            if let replied {
+                Text("reply → \(replied)")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(DesignTokens.Semantic.green)
+                    .accessibilityIdentifier("surface-reply-echo")
+            }
+            TranscriptDividerPill(icon: AppIcons.codingCompact, text: "\(Chats.Copy.Dividers.compact) · 18:20")
+            UserMessageBubble(text: "Anything new overnight?", context: context, caption: "09:02")
+            agent("Three reports, all about the iPad sign-in. I linked them to #APP-19.", "09:03")
             TranscriptDividerPill(icon: AppIcons.uiClean, text: "\(Chats.Copy.Dividers.new) · 09:30")
+            GlassPill("Replay the enter", size: .md, mode: .action { replay += 1 })
+                .accessibilityIdentifier("surface-replay-enter")
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat-transcript-specimen")
     }
 }

@@ -4507,7 +4507,8 @@ pub(crate) fn ask_body_text(cx: &App) -> gpui::Div {
 
 /// EXP-1175 → EXP-1294 — the session view's status row: the agent's mark
 /// for `state` ([`crate::run_rows::run_mark`]) beside the state word in its
-/// tone (`session-card.json`). Also the styleguide's `run-status-row`.
+/// tone (`session-card.json`): the styleguide's `run-status-row` (N-11: the
+/// session view no longer draws it over the transcript).
 pub(crate) fn session_status_row(
     id: impl Into<gpui::ElementId>,
     agent: Option<coding::CodingAgent>,
@@ -4534,43 +4535,6 @@ pub(crate) fn session_status_row(
 }
 
 impl SteerSessionView {
-    /// EXP-1294 — the session's state as the status row shows it: the
-    /// synced state (`session_tree::session_state`) with the viewer's own
-    /// live signals folded over it — a pending card on a live run waits on
-    /// the reader, the working predicate moves the mark.
-    fn view_state(&self) -> Option<domain::session_tree::SessionState> {
-        use domain::session_tree::SessionState;
-        let row = self.row.as_ref()?;
-        if self.session_over() {
-            return Some(SessionState::Ended);
-        }
-        if self.answerable_run() && !self.active.is_empty() {
-            return Some(SessionState::NeedsYou);
-        }
-        if self.working_now() {
-            return Some(SessionState::Working);
-        }
-        Some(domain::session_tree::session_state(row))
-    }
-
-    /// EXP-1294 — the status row over the transcript: the agent's mark (it
-    /// works while the agent does, badges while it waits), the state word
-    /// in its tone (`session-card.json`). No device caption.
-    fn render_status_row(&self, cx: &App) -> Option<AnyElement> {
-        let row = self.row.as_ref()?;
-        let state = self.view_state()?;
-        // NEW-1: a blocked session names its kind (`copy.blockedKinds`).
-        let word = domain::session_tree::session_kind_word(row, state);
-        let element = session_status_row(
-            "steer-run-status-row",
-            crate::run_rows::run_agent(row.cli.as_deref()),
-            state,
-            &word,
-            cx,
-        );
-        Some(work_column_row(element).py_2().into_any_element())
-    }
-
     fn render_feed(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         if self.feed.is_empty() {
@@ -8652,9 +8616,8 @@ impl Render for SteerSessionView {
         self.sync_card_focus(window, cx);
         // EXP-789: the subagent strip sits between the header and the feed.
         let strip = self.render_subagent_strip(cx);
-        // EXP-1294: the session view ALWAYS shows the full transcript, under
-        // its status row.
-        let status_row = self.render_status_row(cx);
+        // N-11 (owner 2026-10-24): no status row over the transcript; the
+        // live "Working…" row at its bottom is the one working signal.
         // N-12: THE Dock (the waiting cards, THE Queue, the queued messages,
         // the banners, then THE composer) floats over the transcript's
         // bottom edge; the transcript is the ONE scroll region and pads by
@@ -8672,7 +8635,6 @@ impl Render for SteerSessionView {
             .min_h_0()
             .overflow_hidden()
             .children(strip)
-            .children(status_row)
             .child(
                 div()
                     .relative()

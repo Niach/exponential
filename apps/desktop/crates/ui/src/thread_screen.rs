@@ -953,8 +953,18 @@ pub(crate) fn plan_card(
     cx: &mut App,
 ) -> AnyElement {
     if facts.decision == Some("superseded") {
+        // Web `session-thread-view.tsx`: the muted close glyph + the muted
+        // line, the card at 80 %.
         let label = domain::ask_dock::plan_decision_label("superseded", false);
-        let line = crate::steer_viewer::ask_resolved_line(Some(&label), false, cx);
+        let muted = cx.theme().muted_foreground;
+        let line = h_flex()
+            .gap_1p5()
+            .items_center()
+            .mt_1()
+            .text_xs()
+            .text_color(muted)
+            .child(Icon::new(registry::UI_CLOSE).xsmall().text_color(muted))
+            .child(div().min_w_0().truncate().child(SharedString::from(label)));
         return crate::steer_viewer::ask_card_chrome(
             true,
             Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone())),
@@ -963,6 +973,7 @@ pub(crate) fn plan_card(
             v_flex().w_full().min_w_0().child(line),
             cx,
         )
+        .opacity(0.8)
         .id(SharedString::from(format!("{}-{}", domain::plan_card::test_ids().card, facts.message_id)))
         .into_any_element();
     }

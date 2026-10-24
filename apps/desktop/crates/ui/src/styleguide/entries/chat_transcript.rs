@@ -117,7 +117,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let images = window.use_keyed_state("sg-chat-transcript-images", cx, |_, _| ImageCache::new(None)).clone();
     let muted = cx.theme().muted_foreground;
     let rows: Vec<AnyElement> = rows().iter().map(|(row, time)| paint(row, time, &images, window, cx)).collect();
-    let third = crate::surface_card::enter_frame(Duration::from_millis(120));
+    let third = crate::surface_card::enter_frame(Duration::from_millis(120), false);
     v_flex()
         .w(px(720.))
         .gap_5()

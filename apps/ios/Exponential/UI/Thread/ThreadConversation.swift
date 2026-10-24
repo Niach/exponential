@@ -979,7 +979,7 @@ struct SurfaceCardRow: View {
             SurfaceCardFrame(title: title, animate: animate) {
                 PlanCardSurfaceView(
                     surface: surface, handle: handle, editable: onReply != nil,
-                    onReply: onReply, bare: true
+                    onReply: onReply, bare: true, staggerChildren: animate
                 )
             }
             Spacer(minLength: ChatBubbleMetrics.agentTrailingGap)

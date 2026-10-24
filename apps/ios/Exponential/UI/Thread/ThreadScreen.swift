@@ -229,31 +229,30 @@ struct ThreadScreen: View {
         // The header band draws the bar's material — the nav bar's own
         // background and divider stand down (EXP-1150).
         .toolbarBackground(.hidden, for: .navigationBar)
+        // EXP-1373: back · the lead disc · title over the subtitle, outside
+        // the toolbar builder (its own chrome, iOS 26: no shared glass).
+        .ownChromeToolbarItem(placement: .principal, enabled: editor == nil) {
+            if let rows, let view = model?.view {
+                ChatHeaderTitle(
+                    title: rows.isAgent && !rows.agentName.isEmpty ? rows.agentName : view.title,
+                    subtitle: ChatHeaderTitle.subtitle(rows: rows),
+                    subtitleTone: ChatHeaderTitle.tone(rows: rows),
+                    isPrivate: view.isPrivate,
+                    agentIcon: rows.isAgent ? rows.agentIcon : nil,
+                    agentColor: rows.isAgent ? rows.agentColor : nil,
+                    cli: rows.root.cli,
+                    mark: SessionTree.threadRowMarkState(
+                        needsYou: rows.sessions.contains { $0.needsInput && $0.status != DomainContract.sessionStatusEnded },
+                        busy: rows.sessions.contains { $0.busy && $0.status != DomainContract.sessionStatusEnded }
+                    )
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
         .toolbar {
             // EXP-1316: the title, ONE line, not tappable, the lock beside it.
             if let editor {
                 ToolbarItem(placement: .principal) { editor.title }
-            } else {
-                // EXP-1373: back · the lead disc · title over the subtitle.
-                ToolbarItem(placement: .principal) {
-                    if let rows, let view = model?.view {
-                        ChatHeaderTitle(
-                            title: rows.isAgent && !rows.agentName.isEmpty ? rows.agentName : view.title,
-                            subtitle: ChatHeaderTitle.subtitle(rows: rows),
-                            subtitleTone: ChatHeaderTitle.tone(rows: rows),
-                            isPrivate: view.isPrivate,
-                            agentIcon: rows.isAgent ? rows.agentIcon : nil,
-                            agentColor: rows.isAgent ? rows.agentColor : nil,
-                            cli: rows.root.cli,
-                            mark: SessionTree.threadRowMarkState(
-                                needsYou: rows.sessions.contains { $0.needsInput && $0.status != DomainContract.sessionStatusEnded },
-                                busy: rows.sessions.contains { $0.busy && $0.status != DomainContract.sessionStatusEnded }
-                            )
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .ownChrome()
             }
             // EXP-1307/1316: ONE `…` rides the header's action slot on every
             // tab while it has an entry — Close PR (EXP-1338: no GitHub
