@@ -20,7 +20,7 @@ use gpui_component::{
 };
 use sync::Store;
 
-use domain::app_actions::{action_title, declared_actions, APP_ACTIONS_COPY};
+use domain::app_actions::{action_grantable, action_title, can_grant_actions, declared_actions, APP_ACTIONS_COPY};
 use domain::apps::{APPS, APPS_CAPS};
 use domain::rows::AppRow;
 
@@ -277,11 +277,20 @@ impl AppDetailPane {
         update_app(cx, "save", &row, |input| input.description = Some(drafted));
     }
 
+    /// VAPP-120 (the 2026-10-24 ruling): only a team OWNER sets the app's
+    /// grants; the creator gets no grant power from creating it.
+    fn can_grant(&self, row: &AppRow, cx: &App) -> bool {
+        row.team_id
+            .as_deref()
+            .is_some_and(|team| can_grant_actions(super::is_owner(cx, team).then_some(domain::app_actions::GRANT_ROLE)))
+    }
+
     /// VAPP-120: one switch of the Tools group: `apps.update` with the whole
-    /// new `granted_tools` list (managers only); a refusal toasts.
+    /// new `granted_tools` list (owners only, never a destructive action); a
+    /// refusal toasts.
     fn toggle_tool(&mut self, name: String, on: bool, cx: &mut gpui::Context<Self>) {
         let Some(row) = self.loaded_row(cx) else { return };
-        if !self.can_manage(&row, cx) || self.tool_busy.is_some() {
+        if !self.can_grant(&row, cx) || !action_grantable(&name) || self.tool_busy.is_some() {
             return;
         }
         let Some(trpc) = crate::queries::trpc_client(cx) else {
@@ -318,11 +327,13 @@ impl AppDetailPane {
     /// VAPP-120: the Tools group (the web's `app-settings-tools`): the title
     /// and hint, then one row per declared action with its switch, or the
     /// none line.
-    fn tools_group(&self, row: &AppRow, manage: bool, cx: &mut gpui::Context<Self>) -> gpui::Stateful<gpui::Div> {
+    fn tools_group(&self, row: &AppRow, _manage: bool, cx: &mut gpui::Context<Self>) -> gpui::Stateful<gpui::Div> {
         let copy = *APP_ACTIONS_COPY;
         let muted = cx.theme().muted_foreground;
         let mono = cx.theme().mono_font_family.clone();
         let declared = declared_tools(row.package.as_ref());
+        // The ruling: owners grant; a destructive action is never grantable.
+        let grant = self.can_grant(row, cx);
         let group = if declared.is_empty() {
             crate::surface::glass_group().child(
                 div().px_4().py_3().text_sm().text_color(muted).child(copy.none.clone()),
@@ -343,14 +354,17 @@ impl AppDetailPane {
                                 .child(div().text_sm().truncate().child(action_title(&name)))
                                 .child(div().text_xs().font_family(mono.clone()).text_color(muted).truncate().child(name.clone())),
                         )
-                        .child(
+                        .child(if action_grantable(&name) {
                             crate::controls::web_switch(SharedString::from(format!("app-tool-switch-{name}")))
                                 .checked(checked)
-                                .disabled(!manage || busy)
+                                .disabled(!grant || busy)
                                 .on_click(cx.listener(move |this, checked: &bool, _, cx| {
                                     this.toggle_tool(toggle.clone(), *checked, cx)
-                                })),
-                        )
+                                }))
+                                .into_any_element()
+                        } else {
+                            div().flex_shrink_0().text_sm().text_color(muted).child(copy.always.clone()).into_any_element()
+                        })
                 })
                 .collect::<Vec<_>>();
             crate::surface::glass_group_rows(rows)

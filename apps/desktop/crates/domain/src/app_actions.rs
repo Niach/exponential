@@ -24,6 +24,8 @@ pub struct ActionsCopy {
     pub hint: String,
     pub none: String,
     pub granted: String,
+    /// The row of a destructive action, in place of its switch.
+    pub always: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -35,6 +37,8 @@ struct ToolRow {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 struct ActionsSpec {
     prefix: String,
+    #[serde(rename = "grantRole")]
+    grant_role: String,
     functions: Vec<String>,
     tools: BTreeMap<String, ToolRow>,
     copy: ActionsCopy,
@@ -81,13 +85,38 @@ pub fn declared_actions<S: AsRef<str>>(functions: &[S]) -> Vec<String> {
         .collect()
 }
 
-/// Does the app's `granted_tools` list let `name` run without asking?
-/// Exact names only: a grant is a person's choice, never a pattern.
-pub fn grant_allows<S: AsRef<str>>(granted: &[S], name: &str) -> bool {
-    granted.iter().any(|g| g.as_ref() == name)
+/// The team role that sets or changes an app's grants (the fixture's
+/// `grantRole`, `owner`): the creator gets no grant power from creating it.
+pub const GRANT_ROLE: &str = "owner";
+
+/// May a member with `role` set an app's grants? Owners only.
+pub fn can_grant_actions(role: Option<&str>) -> bool {
+    role == Some(GRANT_ROLE)
 }
 
 const DESTRUCTIVE_WORDS: &[&str] = &["delete", "merge", "close", "end", "remove", "trash"];
+
+/// A destructive action: a word of its tool name or op is delete, merge,
+/// close, end, remove or trash. Never grantable; always asks.
+pub fn action_destructive(name: &str) -> bool {
+    let Some(target) = parse_action_name(name) else { return false };
+    let words = format!("{} {}", target.tool, target.op.as_deref().unwrap_or("")).to_lowercase();
+    words
+        .split(|c: char| !c.is_ascii_lowercase())
+        .any(|w| DESTRUCTIVE_WORDS.contains(&w))
+}
+
+/// May `name` be granted at all: an offered, non-destructive action.
+pub fn action_grantable(name: &str) -> bool {
+    parse_action_name(name).is_some() && !action_destructive(name)
+}
+
+/// Does the app's `granted_tools` list let `name` run without asking?
+/// Exact names only (a grant is a person's choice, never a pattern), and a
+/// destructive action ignores a stored grant: it always asks.
+pub fn grant_allows<S: AsRef<str>>(granted: &[S], name: &str) -> bool {
+    action_grantable(name) && granted.iter().any(|g| g.as_ref() == name)
+}
 
 /// The consent card's words for a typed action call.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -147,10 +176,7 @@ pub fn action_consent(name: &str, args: &Map<String, Value>) -> Option<ActionCon
         Some(subject) => format!("Allow this surface to {base} {subject}?"),
         None => format!("Allow this surface to {base}?"),
     };
-    let words = format!("{} {}", target.tool, target.op.as_deref().unwrap_or("")).to_lowercase();
-    let destructive = words
-        .split(|c: char| !c.is_ascii_lowercase())
-        .any(|w| DESTRUCTIVE_WORDS.contains(&w));
+    let destructive = action_destructive(name);
     let args = (!args.is_empty()).then(|| Value::Object(args.clone()).to_string());
     Some(ActionConsent { tool: target.tool, title, destructive, args })
 }
@@ -205,6 +231,24 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn grantable_cases() {
+        for case in cases("grantableCases") {
+            let name = case["name"].as_str().unwrap();
+            assert_eq!(action_grantable(name), case["expected"].as_bool().unwrap(), "{name}");
+        }
+        assert_eq!(SPEC.grant_role, GRANT_ROLE);
+    }
+
+    #[test]
+    fn can_grant_cases() {
+        for case in cases("canGrantCases") {
+            let role = case["role"].as_str().unwrap();
+            assert_eq!(can_grant_actions(Some(role)), case["expected"].as_bool().unwrap(), "{role}");
+        }
+        assert!(!can_grant_actions(None));
     }
 
     #[test]

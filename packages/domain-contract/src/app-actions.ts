@@ -38,13 +38,36 @@ export function declaredActions(functions: readonly string[]): string[] {
   return APP_ACTIONS.filter((name) => functions.some((pattern) => matches(pattern, name)))
 }
 
-/** Does the app's `granted_tools` list let `name` run without asking?
- *  Exact names only: a grant is a person's choice, never a pattern. */
-export function grantAllows(granted: readonly string[], name: string): boolean {
-  return granted.includes(name)
+/** The team role that sets or changes an app's grants (`owner`): the app's
+ *  creator gets no grant power from creating it (the 2026-10-24 ruling). */
+export const APP_ACTION_GRANT_ROLE: string = fixture.grantRole
+const DESTRUCTIVE_WORDS: readonly string[] = fixture.destructiveWords
+
+/** May a member with `role` set an app's grants? Owners only. */
+export function canGrantActions(role: string | null | undefined): boolean {
+  return role === APP_ACTION_GRANT_ROLE
 }
 
-const DESTRUCTIVE_WORDS: readonly string[] = [`delete`, `merge`, `close`, `end`, `remove`, `trash`]
+/** A destructive action: a word of its tool name or op is delete, merge,
+ *  close, end, remove or trash. Never grantable; always asks. */
+export function actionDestructive(name: string): boolean {
+  const target = parseActionName(name)
+  if (!target) return false
+  const words = `${target.tool} ${target.op ?? ``}`.toLowerCase().split(/[^a-z]+/)
+  return words.some((w) => DESTRUCTIVE_WORDS.includes(w))
+}
+
+/** May `name` be granted at all: an offered, non-destructive action. */
+export function actionGrantable(name: string): boolean {
+  return parseActionName(name) !== null && !actionDestructive(name)
+}
+
+/** Does the app's `granted_tools` list let `name` run without asking?
+ *  Exact names only (a grant is a person's choice, never a pattern), and a
+ *  destructive action ignores a stored grant: it always asks. */
+export function grantAllows(granted: readonly string[], name: string): boolean {
+  return actionGrantable(name) && granted.includes(name)
+}
 
 export interface ActionConsent {
   tool: string
@@ -79,7 +102,6 @@ export function actionConsent(name: string, args: Record<string, unknown>): Acti
   const base = row ? `${row.title.charAt(0).toLowerCase()}${row.title.slice(1)}` : name
   const subject = row?.subjectKey ? args[row.subjectKey] : undefined
   const title = `Allow this surface to ${base}${typeof subject === `string` && subject ? ` ${subject}` : ``}?`
-  const words = `${target.tool} ${target.op ?? ``}`.toLowerCase().split(/[^a-z]+/)
   const json = JSON.stringify(args)
-  return { tool: target.tool, title, destructive: words.some((w) => DESTRUCTIVE_WORDS.includes(w)), args: json === `{}` ? null : json }
+  return { tool: target.tool, title, destructive: actionDestructive(name), args: json === `{}` ? null : json }
 }

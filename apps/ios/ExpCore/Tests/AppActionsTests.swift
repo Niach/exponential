@@ -42,6 +42,8 @@ final class AppActionsTests: XCTestCase {
         XCTAssertEqual(copy["hint"], AppActions.Copy.hint)
         XCTAssertEqual(copy["none"], AppActions.Copy.none)
         XCTAssertEqual(copy["granted"], AppActions.Copy.granted)
+        XCTAssertEqual(copy["always"], AppActions.Copy.always)
+        XCTAssertEqual(fixture["grantRole"] as? String, AppActions.grantRole)
     }
 
     func testParseCases() throws {
@@ -63,6 +65,21 @@ final class AppActionsTests: XCTestCase {
             let granted = try XCTUnwrap(item["granted"] as? [String])
             XCTAssertEqual(AppActions.grantAllows(granted, name), try XCTUnwrap(item["expected"] as? Bool), "\(granted) \(name)")
         }
+    }
+
+    func testGrantableCases() throws {
+        for item in try cases("grantableCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            XCTAssertEqual(AppActions.actionGrantable(name), try XCTUnwrap(item["expected"] as? Bool), name)
+        }
+    }
+
+    func testCanGrantCases() throws {
+        for item in try cases("canGrantCases") {
+            let role = try XCTUnwrap(item["role"] as? String)
+            XCTAssertEqual(AppActions.canGrantActions(role), try XCTUnwrap(item["expected"] as? Bool), role)
+        }
+        XCTAssertFalse(AppActions.canGrantActions(nil))
     }
 
     func testDeclaredCases() throws {

@@ -38,6 +38,8 @@ class AppActionsTest {
         assertEquals(copy["hint"]!!.string, AppActions.Copy.HINT)
         assertEquals(copy["none"]!!.string, AppActions.Copy.NONE)
         assertEquals(copy["granted"]!!.string, AppActions.Copy.GRANTED)
+        assertEquals(copy["always"]!!.string, AppActions.Copy.ALWAYS)
+        assertEquals(fixture["grantRole"]!!.string, AppActions.GRANT_ROLE)
         for (excluded in strings(fixture["excluded"])) {
             assert(AppActions.ALL.none { it.startsWith("${AppActions.PREFIX}$excluded.") }) { excluded }
         }
@@ -63,6 +65,23 @@ class AppActionsTest {
             val name = case["name"]!!.string!!
             assertEquals(name, case["expected"] == JsonValue.Bool(true), AppActions.grantAllows(strings(case["granted"]), name))
         }
+    }
+
+    @Test
+    fun grantableCases() {
+        for (case in cases("grantableCases")) {
+            val name = case["name"]!!.string!!
+            assertEquals(name, case["expected"] == JsonValue.Bool(true), AppActions.actionGrantable(name))
+        }
+    }
+
+    @Test
+    fun canGrantCases() {
+        for (case in cases("canGrantCases")) {
+            val role = case["role"]!!.string!!
+            assertEquals(role, case["expected"] == JsonValue.Bool(true), AppActions.canGrantActions(role))
+        }
+        assertEquals(false, AppActions.canGrantActions(null))
     }
 
     @Test

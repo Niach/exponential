@@ -4,7 +4,7 @@ import type { BoardIcon } from "@exp/db-schema/domain"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { APPS_COPY, APP_DESCRIPTION_MAX, versionLabel } from "@exp/domain-contract/apps"
 import { recordsCountLabel } from "@exp/domain-contract/app-records"
-import { APP_ACTIONS_COPY, actionTitle, declaredActions } from "@exp/domain-contract/app-actions"
+import { APP_ACTIONS_COPY, actionGrantable, actionTitle, declaredActions } from "@exp/domain-contract/app-actions"
 import { Button, conceptIcon, FEEDBACK_WORDS, GlassGroup, Pill, Prompt, Switch, Textarea } from "@exp/ui"
 import type { Team } from "@/db/schema"
 import { BoardIdentityRow } from "@/components/board-form-fields"
@@ -28,12 +28,16 @@ export function AppSettingsPage({
   team,
   app,
   canManage,
+  canGrant = false,
 }: {
   team: Team
   /** The live app entry; null = the create page. */
   app: AppListEntry | null
   /** The creator or an owner may rename, describe and delete. */
   canManage: boolean
+  /** VAPP-120 (the ruling): only a team OWNER sets the app's grants; the
+   *  creator gets no grant power from creating it. */
+  canGrant?: boolean
 }) {
   const navigate = useNavigate()
   const creating = app === null
@@ -58,7 +62,7 @@ export function AppSettingsPage({
   const granted = (app?.row?.grantedTools ?? []) as string[]
   const [toolBusy, setToolBusy] = useState<string | null>(null)
   const toggleTool = async (name: string, on: boolean) => {
-    if (!app || readOnly) return
+    if (!app || !canGrant || !actionGrantable(name)) return
     setToolBusy(name)
     try {
       const next = on ? [...granted.filter((g) => g !== name), name] : granted.filter((g) => g !== name)
@@ -203,12 +207,17 @@ export function AppSettingsPage({
                     <div className="truncate text-sm">{actionTitle(name)}</div>
                     <div className="truncate font-mono text-xs text-muted-foreground">{name}</div>
                   </div>
-                  <Switch
-                    checked={granted.includes(name)}
-                    disabled={readOnly || toolBusy === name}
-                    onCheckedChange={(next) => void toggleTool(name, next)}
-                    aria-label={`${APP_ACTIONS_COPY.granted}: ${actionTitle(name)}`}
-                  />
+                  {actionGrantable(name) ? (
+                    <Switch
+                      checked={granted.includes(name)}
+                      disabled={!canGrant || toolBusy === name}
+                      onCheckedChange={(next) => void toggleTool(name, next)}
+                      aria-label={`${APP_ACTIONS_COPY.granted}: ${actionTitle(name)}`}
+                    />
+                  ) : (
+                    // The ruling: a destructive action is never grantable.
+                    <span className="shrink-0 text-sm text-muted-foreground">{APP_ACTIONS_COPY.always}</span>
+                  )}
                 </div>
               ))
             )}

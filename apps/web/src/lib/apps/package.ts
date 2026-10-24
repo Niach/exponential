@@ -122,7 +122,7 @@ export function appCatalogText(): string {
     ``,
     `# Host functions (on: {press: {functionCall: {call, args}}}; list the ones you use in functions)`,
     functions,
-    `- exponential.<noun>.<op>({…the op's fields}): VAPP-120: every Exponential MCP operation as a typed function, run as the viewer (${APP_ACTIONS.length} names; list what you call in functions, exactly or as exponential.<noun>.*): ${APP_ACTIONS.map((n) => n.slice(`exponential.`.length)).join(`, `)}. A call asks the person with the operation's own words unless the app's settings page granted that action (then it runs without asking); harness.mcp stays the raw escape hatch and always asks.`,
+    `- exponential.<noun>.<op>({…the op's fields}): VAPP-120: every Exponential MCP operation as a typed function, run as the viewer (${APP_ACTIONS.length} names; list what you call in functions, exactly or as exponential.<noun>.*): ${APP_ACTIONS.map((n) => n.slice(`exponential.`.length)).join(`, `)}. A call asks the person with the operation's own words unless a team owner granted that action on the app's settings page (then it runs without asking); a destructive operation (delete, merge, close, end, remove, trash) can never be granted and always asks; harness.mcp stays the raw escape hatch and always asks.`,
     `- bind({path, source, params?}): a built-in: re-follows a data model path from a source with params appended as its query (the month switcher: bind {path: "/entries", source: "exp:records?kind=entry&by=date", params: {month: {path: "/entries/month/prev"}}}); list it in functions too`,
     ``,
     `# Records (the app's own data)`,

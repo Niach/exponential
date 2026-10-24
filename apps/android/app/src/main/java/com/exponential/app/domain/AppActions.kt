@@ -110,7 +110,27 @@ object AppActions {
         const val HINT = "What this app may do as you without asking. Anything else asks each time."
         const val NONE = "This app uses no tools."
         const val GRANTED = "Allowed"
+        /** The row of a destructive action, in place of its switch. */
+        const val ALWAYS = "Always asks"
     }
+
+    /** The team role that sets or changes an app's grants (the fixture's
+     *  `grantRole`): the creator gets no grant power from creating it. */
+    const val GRANT_ROLE = "owner"
+
+    /** May a member with [role] set an app's grants? Owners only. */
+    fun canGrantActions(role: String?): Boolean = role == GRANT_ROLE
+
+    /** A destructive action: a word of its tool name or op is delete, merge,
+     *  close, end, remove or trash. Never grantable; always asks. */
+    fun actionDestructive(name: String): Boolean {
+        val target = parseActionName(name) ?: return false
+        val words = "${target.tool} ${target.op.orEmpty()}".lowercase().split(Regex("[^a-z]+"))
+        return words.any { it in DESTRUCTIVE_WORDS }
+    }
+
+    /** May [name] be granted at all: an offered, non-destructive action. */
+    fun actionGrantable(name: String): Boolean = parseActionName(name) != null && !actionDestructive(name)
 
     /** `exponential.issues.update_status` → the tool and op it runs; null for
      *  anything that is not an offered action. */
@@ -132,8 +152,9 @@ object AppActions {
         if (target.op != null) args + mapOf("op" to JsonValue.Str(target.op)) else args
 
     /** Does the app's `granted_tools` list let [name] run without asking?
-     *  Exact names only: a grant is a person's choice, never a pattern. */
-    fun grantAllows(granted: List<String>, name: String): Boolean = name in granted
+     *  Exact names only (a grant is a person's choice, never a pattern), and
+     *  a destructive action ignores a stored grant: it always asks. */
+    fun grantAllows(granted: List<String>, name: String): Boolean = actionGrantable(name) && name in granted
 
     /** An `apps.granted_tools` column (a JSON string[]) as a list; null,
      *  malformed or non-string entries read as none. */
@@ -175,12 +196,11 @@ object AppActions {
         val base = title?.let { it.take(1).lowercase() + it.drop(1) } ?: name
         val subjectKey = DomainContract.expToolSubjectKeys.getOrNull(at).orEmpty()
         val subject = if (title != null && subjectKey.isNotEmpty()) args[subjectKey]?.string else null
-        val words = "${target.tool} ${target.op.orEmpty()}".lowercase().split(Regex("[^a-z]+"))
         val json = JsonValue.Obj(args).orderedJson
         return ActionConsent(
             tool = target.tool,
             title = "Allow this surface to $base${if (!subject.isNullOrEmpty()) " $subject" else ""}?",
-            destructive = words.any { it in DESTRUCTIVE_WORDS },
+            destructive = actionDestructive(name),
             args = json.takeIf { it != "{}" },
         )
     }

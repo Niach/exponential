@@ -199,7 +199,7 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
   })
   // VAPP-120: the grants are exact action names the HEAD package declares,
   // written by a manager; a new version prunes what it no longer declares.
-  it(`grants: update keeps exact declared actions, refuses anything else, only for a manager; a new version prunes`, async () => {
+  it(`grants: update keeps exact declared non-destructive actions, refuses anything else, owners only; a new version prunes`, async () => {
     const w = await world()
     const declaring = (functions: string[]) => ({ ...RECORDS_PACKAGE, functions })
     const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: declaring([`exponential.comments.create`, `exponential.issues.*`]) })
@@ -209,6 +209,13 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     await expect(caller(w.owner).update({ id: created.app.id, grantedTools: [`exponential.issues.*`] })).rejects.toMatchObject({ code: `BAD_REQUEST` })
     await expect(caller(w.owner).update({ id: created.app.id, grantedTools: [`exponential.boards.delete`] })).rejects.toMatchObject({ code: `BAD_REQUEST` })
     await expect(caller(w.mate).update({ id: created.app.id, grantedTools: [] })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    // The 2026-10-24 ruling: a destructive action is never grantable, even when declared.
+    await expect(caller(w.owner).update({ id: created.app.id, grantedTools: [`exponential.issues.delete`] })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    // …and the creator gets no grant power from creating the app: owners only.
+    const mine = await caller(w.mate).create({ teamId: w.teamId, name: `Mine`, package: declaring([`exponential.comments.create`]) })
+    await expect(caller(w.mate).update({ id: mine.app.id, grantedTools: [`exponential.comments.create`] })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    expect((await caller(w.mate).update({ id: mine.app.id, description: `still mine to edit` })).app.description).toBe(`still mine to edit`)
+    expect((await caller(w.owner).update({ id: mine.app.id, grantedTools: [`exponential.comments.create`] })).app.grantedTools).toEqual([`exponential.comments.create`])
     // A version that drops an action drops its grant; re-declaring it later starts ungranted.
     await caller(w.mate).upsertPackage({ id: created.app.id, package: declaring([`exponential.comments.create`]) })
     expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([`exponential.comments.create`])

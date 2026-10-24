@@ -19,7 +19,7 @@ import { validateRecord } from "@exponential_app/ui"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { APP_RECORDS_QUERY } from "@exp/domain-contract/app-records"
-import { APP_ACTIONS, declaredActions } from "@exp/domain-contract/app-actions"
+import { APP_ACTIONS, actionGrantable, canGrantActions, declaredActions } from "@exp/domain-contract/app-actions"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import type { Tx } from "@/lib/sessions/tx"
 
@@ -56,6 +56,16 @@ async function loadApp(tx: Tx | typeof import("@/db/connection").db, ref: AppRef
   const [app] = await tx.select().from(apps).where(and(where, isNull(apps.deletedAt))).limit(1)
   if (!app) throw new TRPCError({ code: `NOT_FOUND`, message: `App not found` })
   return app
+}
+
+/** VAPP-120 (the 2026-10-24 ruling): only a team OWNER sets or changes an
+ *  app's grants; the creator gets no grant power from creating it. */
+async function assertCanGrant(userId: string, app: App) {
+  const member = await getTeamMember(userId, app.teamId)
+  if (!member) throw new TRPCError({ code: `NOT_FOUND`, message: `App not found` })
+  if (!canGrantActions(member.role)) {
+    throw new TRPCError({ code: `FORBIDDEN`, message: `Only a team owner can change what an app runs without asking` })
+  }
 }
 
 async function assertCanManage(userId: string, app: App) {
@@ -132,7 +142,16 @@ export const appUpdateInputSchema = z.object({
   description: descriptionSchema.optional(),
   // VAPP-120: the typed host actions the app may run without asking (exact
   // names out of the contract's list; the creator or an owner).
-  grantedTools: z.array(z.string().refine((name) => APP_ACTIONS.includes(name), { message: `not an offered action` })).max(200).optional(),
+  grantedTools: z
+    .array(
+      z
+        .string()
+        .refine((name) => APP_ACTIONS.includes(name), { message: `not an offered action` })
+        // The ruling: a destructive action can never be granted; it always asks.
+        .refine((name) => actionGrantable(name), { message: `a destructive action always asks and cannot be granted` })
+    )
+    .max(200)
+    .optional(),
 })
 
 async function takenSlugs(tx: Tx, teamId: string): Promise<string[]> {
@@ -251,8 +270,10 @@ export const appsRouter = router({
       const app = await loadApp(ctx.db, { id: input.id })
       await assertCanManage(userId, app)
       // VAPP-120: a grant names only what the HEAD package declares (review
-      // of #1222: nothing is granted ahead of a version that would use it).
+      // of #1222: nothing is granted ahead of a version that would use it),
+      // and only an OWNER grants (the ruling: the creator gets no grant power).
       if (input.grantedTools) {
+        await assertCanGrant(userId, app)
         const declared = packageActions(app.package)
         const undeclared = input.grantedTools.filter((name) => !declared.includes(name))
         if (undeclared.length > 0) {

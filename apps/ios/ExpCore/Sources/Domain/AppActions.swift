@@ -33,6 +33,32 @@ public enum AppActions {
         public static let hint = "What this app may do as you without asking. Anything else asks each time."
         public static let none = "This app uses no tools."
         public static let granted = "Allowed"
+        /// The row of a destructive action, in place of its switch.
+        public static let always = "Always asks"
+    }
+
+    /// The team role that sets or changes an app's grants (the fixture's
+    /// `grantRole`): the creator gets no grant power from creating it.
+    public static let grantRole = "owner"
+
+    /// May a member with `role` set an app's grants? Owners only.
+    public static func canGrantActions(_ role: String?) -> Bool {
+        role == grantRole
+    }
+
+    private static let destructiveWords: Set<String> = ["delete", "merge", "close", "end", "remove", "trash"]
+
+    /// A destructive action: a word of its tool name or op is delete, merge,
+    /// close, end, remove or trash. Never grantable; always asks.
+    public static func actionDestructive(_ name: String) -> Bool {
+        guard let target = parseActionName(name) else { return false }
+        let words = "\(target.tool) \(target.op ?? "")".lowercased().split(whereSeparator: { !$0.isLetter })
+        return words.contains { destructiveWords.contains(String($0)) }
+    }
+
+    /// May `name` be granted at all: an offered, non-destructive action.
+    public static func actionGrantable(_ name: String) -> Bool {
+        parseActionName(name) != nil && !actionDestructive(name)
     }
 
     /// The verb tools: a function that maps to a whole tool, no op.
@@ -88,9 +114,10 @@ public enum AppActions {
     }
 
     /// Does the app's `granted_tools` list let `name` run without asking?
-    /// Exact names only: a grant is a person's choice, never a pattern.
+    /// Exact names only (a grant is a person's choice, never a pattern), and
+    /// a destructive action ignores a stored grant: it always asks.
     public static func grantAllows(_ granted: [String], _ name: String) -> Bool {
-        granted.contains(name)
+        actionGrantable(name) && granted.contains(name)
     }
 
     public struct ActionConsent: Equatable, Sendable {
@@ -147,7 +174,7 @@ public enum AppActions {
         return ActionConsent(
             tool: target.tool,
             title: title,
-            destructive: Prompts.destructiveTool(target.tool, op: target.op),
+            destructive: actionDestructive(name),
             args: json == "{}" ? nil : json
         )
     }
