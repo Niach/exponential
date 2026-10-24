@@ -1,4 +1,4 @@
-import { Fragment } from "react"
+import { Fragment, useEffect, useRef, useState } from "react"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { IssueChip } from "@/components/issue-chip"
 import { useIssueRefs } from "@/components/issue-ref-provider"
@@ -56,20 +56,64 @@ export function FeedText({
   text,
   ariaLabel,
   hardBreaks,
+  deferred,
 }: {
   text: string
   ariaLabel: string
   hardBreaks?: boolean
+  /** #EXP-1380: mount the markdown renderer only near the viewport. */
+  deferred?: boolean
 }) {
   const onLinkClick = useAppLinkClick()
   if (looksLikeMarkdown(text)) {
-    return (
+    return deferred ? (
+      <DeferredFeedMarkdown text={text} ariaLabel={ariaLabel} hardBreaks={hardBreaks} />
+    ) : (
       <FeedMarkdown text={text} ariaLabel={ariaLabel} hardBreaks={hardBreaks} />
     )
   }
   return (
     <div className="whitespace-pre-wrap break-words" onClickCapture={onLinkClick}>
       <IssueRefText text={text} />
+    </div>
+  )
+}
+
+/** How far outside the viewport a deferred row already renders. */
+const DEFER_MARGIN = `1200px 0px`
+
+/** #EXP-1380 (chats.json PERF): a chat's markdown rows mount the renderer
+ *  once they come within `DEFER_MARGIN` of the viewport (a long chat opens
+ *  at its tail: a handful of editors, not a window's worth); until then the
+ *  text paints as plain prose. Once mounted it stays. */
+function DeferredFeedMarkdown({
+  text,
+  ariaLabel,
+  hardBreaks,
+}: {
+  text: string
+  ariaLabel: string
+  hardBreaks?: boolean
+}) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [near, setNear] = useState(() => typeof IntersectionObserver === `undefined`)
+  useEffect(() => {
+    if (near) return
+    const node = ref.current
+    if (!node) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setNear(true)
+      },
+      { rootMargin: DEFER_MARGIN }
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [near])
+  if (near) return <FeedMarkdown text={text} ariaLabel={ariaLabel} hardBreaks={hardBreaks} />
+  return (
+    <div ref={ref} className="whitespace-pre-wrap break-words" aria-label={ariaLabel}>
+      {text}
     </div>
   )
 }

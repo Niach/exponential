@@ -66,7 +66,7 @@ import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
 import { useSuggestionActions } from "@/hooks/use-suggestion-actions"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useSession } from "@/hooks/use-session"
-import { useSessionMessages, useSessionThread } from "@/hooks/use-session-tree"
+import { loadEarlierMessages, useSessionMessages, useSessionThread } from "@/hooks/use-session-tree"
 import { useTeamBoards, useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -244,6 +244,7 @@ function ThreadPage() {
       rows={thread.rows}
       titles={thread.titles}
       pullRequests={thread.pullRequests}
+      moreMessages={thread.moreMessages}
     />
   )
 }
@@ -256,6 +257,7 @@ function ThreadScreen({
   rows,
   titles,
   pullRequests,
+  moreMessages,
 }: {
   team: Team
   teamSlug: string
@@ -266,6 +268,8 @@ function ThreadScreen({
   /** EXP-1341: every tree session's `sessionTitle` (the chips' names). */
   titles: ReadonlyMap<string, string>
   pullRequests: PullRequestRow[]
+  /** #EXP-1380: older messages exist beyond the loaded newest ones. */
+  moreMessages: boolean
 }) {
   const navigate = useNavigate()
   const search = Route.useSearch()
@@ -638,6 +642,7 @@ function ThreadScreen({
         onOpenSession={openSession}
         agentFor={agentFor}
         topInset={topInset}
+        moreMessages={moreMessages}
       />
     )
   }
@@ -812,6 +817,7 @@ function ConversationBody({
   onOpenSession,
   agentFor,
   topInset = 0,
+  moreMessages,
 }: {
   teamId: string
   view: SessionThreadView
@@ -827,6 +833,8 @@ function ConversationBody({
   agentFor: (sessionId: string) => string | null | undefined
   /** Phones: the overlay header band's height (the scroller pads by it). */
   topInset?: number
+  /** #EXP-1380: older messages exist beyond the loaded newest ones. */
+  moreMessages: boolean
 }) {
   const messages = useSessionMessages(view.rootId)
   const messagesById = useMemo(
@@ -903,7 +911,15 @@ function ConversationBody({
           className="mx-auto w-full max-w-4xl px-3 pt-8 md:px-5"
           style={{ paddingBottom: dockHeight + 16 }}
         >
-          {transcript.canLoadEarlier ? <LoadEarlierButton onClick={transcript.loadEarlier} /> : null}
+          {transcript.canLoadEarlier || moreMessages ? (
+            <LoadEarlierButton
+              onClick={() => {
+                // #EXP-1380: the next older messages load as the window widens.
+                if (moreMessages) loadEarlierMessages(view.rootId)
+                transcript.loadEarlier()
+              }}
+            />
+          ) : null}
           <ThreadConversation
             rows={transcript.rows}
             renderText={renderThreadText}
