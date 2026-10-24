@@ -16,7 +16,7 @@ describe(`apps (VAPP-110)`, () => {
     const brief = editorBrief({ name: `Team dashboard`, slug: `team-dashboard`, headVersion: 3 })
     expect(brief).toContain(`slug \`team-dashboard\``)
     expect(brief).toContain(`v3`)
-    for (const op of [`"get"`, `"catalog"`, `"upsert"`]) expect(brief).toContain(op)
+    for (const op of [`"get"`, `"catalog"`, `"upsert"`, `"records_upsert"`, `"records_list"`]) expect(brief).toContain(op)
   })
   test.each(fixture.chatCardCases)(`chatCard %j`, (c) => {
     const row = chatCard(c.messages, c.busy)

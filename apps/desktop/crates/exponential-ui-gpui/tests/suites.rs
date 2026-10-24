@@ -21,7 +21,7 @@ use exponential_ui::catalog::{component_def, CatalogView};
 use exponential_ui::extension::define_extension;
 use exponential_ui::host::{
     client_capabilities, combine_decisions, decide_function, decide_url, mcp_action_call, media_request, messages_from_mcp_result, parse_source,
-    supported_catalog_ids, validate_package, Decoded, FunctionDecision, FunctionPolicy, HostRouter, JsonlDecoder, MediaOptions, SseDecoder, UrlPolicy,
+    source_with_params, supported_catalog_ids, validate_package, validate_record, Decoded, FunctionDecision, FunctionPolicy, HostRouter, JsonlDecoder, MediaOptions, SseDecoder, UrlPolicy,
 };
 use exponential_ui::json;
 use exponential_ui::measure::FixedMeasure;
@@ -598,6 +598,11 @@ fn host_suite(id: &str) -> Vec<Case> {
                 let uri = c["uri"].as_str().unwrap();
                 out.push((format!("source: {uri}"), same(&to_value(&parse_source(uri)), &c["expected"])));
             }
+            // VAPP-122: the bind action's params encoding.
+            for c in list(&f, "sourceParams") {
+                let got = source_with_params(c["source"].as_str().unwrap(), c.get("params"));
+                out.push((format!("sourceParams: {}", c["expected"].as_str().unwrap_or("")), same(&Value::String(got), &c["expected"])));
+            }
             for c in list(&f, "negotiation") {
                 let ids: Vec<String> = serde_json::from_value(c["extensionIds"].clone()).unwrap();
                 let r = same(&to_value(&supported_catalog_ids(&ids)), &c["expected"]["supportedCatalogIds"]).and_then(|_| same(&client_capabilities(&ids), &c["expected"]["clientCapabilities"]));
@@ -610,6 +615,11 @@ fn host_suite(id: &str) -> Vec<Case> {
             for v in list(&f, "validation") {
                 let id = v["package"].as_str().unwrap();
                 out.push((format!("validation: {id}"), same(&to_value(&validate_package(&packages[id], &supported_catalog_ids::<&str>(&[]))), &v["expected"])));
+            }
+            // VAPP-122: a record against its kind's schema.
+            for c in list(&f, "records") {
+                let schema = &packages[c["package"].as_str().unwrap()]["records"][c["kind"].as_str().unwrap()]["schema"];
+                out.push((format!("records: {}", c["name"].as_str().unwrap()), same(&to_value(&validate_record(schema, &c["data"])), &c["expected"])));
             }
             for flow in list(&f, "flows") {
                 let ext: Vec<String> = flow.get("extensionIds").map(|e| serde_json::from_value(e.clone()).unwrap()).unwrap_or_default();
@@ -653,6 +663,7 @@ fn suite(id: &str, p: &mut Painter) -> Vec<Case> {
         "resizable" => round2::resizable_cases(),
         "virtual-list" => round2::virtual_list_cases(),
         "animations" => round2::animation_cases(),
+        "pointer" => round2::pointer_cases(),
         other => panic!("the runner does not know the suite {other}: add it"),
     }
 }

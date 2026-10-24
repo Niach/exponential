@@ -1974,11 +1974,11 @@
       "desktop": {
         "drive": {
           "kind": "settings",
-          "value": "app:team-dashboard"
+          "value": "app:working-hours"
         }
       },
       "notes": {
-        "web": "`$appId` resolves to DEMO_APP_ID (apps/web/scripts/screenshot-demo.ts), the Team dashboard app.",
+        "web": "`$appId` resolves to DEMO_APP_ID (apps/web/scripts/screenshot-demo.ts), the Working hours app (VAPP-122: its records count under the identity row).",
         "desktop": "`app:<slug>` resolves the app in the active team: the seeded Team dashboard.",
         "ios": "Phones have no settings mirror in slice 1.",
         "android": "Phones have no settings mirror in slice 1."
@@ -2152,7 +2152,7 @@
       "id": "app",
       "group": "coding",
       "title": "App editor",
-      "blurb": "VAPP-110: one app's editor (fixtures/apps.json): the member's editor session (the chat: channel rows + the composer) beside the live preview of the head package rendered by the Exponential UI renderer through the app host; Versions opens the history (restore = a new head). Phones show Chat | Preview | Versions as a segmented control.",
+      "blurb": "VAPP-110 + VAPP-122: one app's editor (fixtures/apps.json): the member's editor session (the chat: channel rows + the composer) beside the live preview of the head package rendered by the Exponential UI renderer through the app host, its records (fixtures/app-records.json) live; Versions opens the history (restore = a new head). Phones show Chat | Preview | Versions as a segmented control and the shot opens Preview.",
       "order": 31,
       "web": {
         "route": "/t/$teamSlug/apps/$appSlug",
@@ -2164,8 +2164,9 @@
       },
       "webMobile": {
         "route": "/t/$teamSlug/apps/$appSlug",
+        "recipe": "openAppPreviewTab",
         "anchor": {
-          "testId": "app-editor-tabs",
+          "testId": "app-editor-preview",
           "timeoutMs": 30000
         },
         "settleMs": 1500
@@ -2173,7 +2174,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "app:team-dashboard"
+          "value": "app:working-hours"
         },
         "anchorDelayMs": 1500
       },
@@ -2182,10 +2183,10 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "`$appSlug` resolves to DEMO_APP_SLUG (apps/web/scripts/screenshot-demo.ts), the seeded Team dashboard app with three versions and the demo user's editor session.",
-        "ios": "VAPP-112: the LIVE walk: the Apps list's Team dashboard row, the Chat tab gated on the seeded editor chat.",
-        "android": "VAPP-116: Apps → Team dashboard (DEMO_APP_SLUG) on its Chat tab (the web-mobile `app` shot's tab), the head package rendering on Preview through the Compose app host.",
-        "desktop": "`app:<slug>` opens the editor by slug in the active team: the seeded Team dashboard app (DEMO_APP_SLUG) with its versions and the demo user's editor session."
+        "web": "`$appSlug` resolves to DEMO_APP_SLUG (apps/web/scripts/screenshot-demo.ts), the seeded Working hours app (VAPP-122: a month of the demo user's hours as records) with three versions and the demo user's editor session.",
+        "ios": "VAPP-112 / VAPP-122: the LIVE walk: the Apps list's Working hours row, then the Preview tab (the app rendered through the GRDB-backed host with its records).",
+        "android": "VAPP-116 / VAPP-122: Apps → Working hours (DEMO_APP_SLUG) on its Preview tab, the head package rendering through the Compose app host with its records.",
+        "desktop": "`app:<slug>` opens the editor by slug in the active team: the seeded Working hours app (DEMO_APP_SLUG) with its versions, records and the demo user's editor session."
       },
       "android": {
         "shot": "sg_app",

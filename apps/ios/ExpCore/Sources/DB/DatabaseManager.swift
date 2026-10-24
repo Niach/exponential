@@ -2730,11 +2730,18 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
-        // v79 (#EXP-1383): agents act as themselves and take assignments —
+        // v79 (VAPP-122): `app_records` — an app's own data, a brand-new
+        // synced table (no cursor yet, nothing to reset) mirroring the shape
+        // allowlist (`/api/shapes/app-records`).
+        migrator.registerMigration("v79_app_records") { db in
+            try createAppRecordsTable(db)
+        }
+
+        // v80 (#EXP-1383): agents act as themselves and take assignments —
         // the synced agent-actor columns, each a guarded additive ALTER; a
         // shape's cursor resets only when one of its columns was added, so
         // synced rows re-arrive carrying them.
-        migrator.registerMigration("v79_agent_actors") { db in
+        migrator.registerMigration("v80_agent_actors") { db in
             for addition in DatabaseManager.agentActorColumns {
                 guard try db.tableExists(addition.table) else { continue }
                 let existing = Set(try db.columns(in: addition.table).map(\.name))
@@ -2758,11 +2765,11 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
-        // v80 (thread e4a04d22): `conversations.digest` — the server-kept
+        // v81 (thread e4a04d22): `conversations.digest` — the server-kept
         // list digest every Chats list reads (JSON text, like `messages.card`).
         // A guarded additive ALTER; the conversations cursor resets only when
         // the column was added, so synced rows re-arrive carrying it.
-        migrator.registerMigration("v80_conversation_digest") { db in
+        migrator.registerMigration("v81_conversation_digest") { db in
             guard try db.tableExists("conversations") else { return }
             let existing = Set(try db.columns(in: "conversations").map(\.name))
             guard !existing.contains("digest") else { return }
@@ -2781,7 +2788,7 @@ public final class DatabaseManager: @unchecked Sendable {
         return migrator
     }
 
-    /// #EXP-1383: the columns v79 adds (table, its shape, the text columns).
+    /// #EXP-1383: the columns v80 adds (table, its shape, the text columns).
     static let agentActorColumns: [(table: String, shape: String, columns: [String])] = [
         ("agents", "agents", ["instructions_updated_at"]),
         ("sessions", "sessions", ["agent_instructions_at", "started_by_agent_id"]),
@@ -2831,6 +2838,25 @@ public final class DatabaseManager: @unchecked Sendable {
             t.column("created_by", .text)
             t.column("created_at", .text).notNull()
         }
+    }
+
+    /// VAPP-122: the `app_records` table, mirroring the shape allowlist
+    /// (`/api/shapes/app-records`); `data` (jsonb) is stored as its JSON text.
+    static func createAppRecordsTable(_ db: Database) throws {
+        try db.create(table: "app_records", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("app_id", .text).notNull()
+            t.column("team_id", .text).notNull().indexed()
+            t.column("kind", .text).notNull().defaults(to: "")
+            t.column("data", .text).notNull().defaults(to: "{}")
+            t.column("created_by", .text)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
+        try db.execute(sql: """
+            CREATE INDEX IF NOT EXISTS "app_records_on_app_id_kind"
+            ON "app_records"("app_id", "kind")
+            """)
     }
 
     /// NEW-3: the `conversations` table, mirroring the shape allowlist
@@ -3029,7 +3055,8 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM conversations")
             try db.execute(sql: "DELETE FROM session_issues")
             try db.execute(sql: "DELETE FROM sessions")
-            // VAPP-110: the team's apps and their versions.
+            // VAPP-110: the team's apps, their records (VAPP-122) and versions.
+            try db.execute(sql: "DELETE FROM app_records")
             try db.execute(sql: "DELETE FROM app_versions")
             try db.execute(sql: "DELETE FROM apps")
             // EXP-481: child before parent, like the issue tables below.

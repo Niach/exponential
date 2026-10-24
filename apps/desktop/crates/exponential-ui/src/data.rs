@@ -60,12 +60,26 @@ pub fn get_pointer<'a>(data: &'a Value, pointer: &str) -> Option<&'a Value> {
         let token: std::borrow::Cow<str> = if raw.contains('~') { unescape(raw).into() } else { raw.into() };
         let token = token.as_ref();
         cur = match cur {
-            Value::Array(items) => items.get(token.parse::<usize>().ok()?)?,
+            Value::Array(items) => items.get(read_index(token, items.len())?)?,
             Value::Object(map) => map.get(token)?,
             _ => return None,
         };
     }
     Some(cur)
+}
+
+/// The element a token READS in an array of `len` items: digits only (the
+/// tokens [`array_index`] writes; never `+1`), and `-` = the LAST element,
+/// the one an append (`-`) just landed on: a landed write reads back
+/// (EXP-1385, `fixtures/pointer.json`; RFC 6901 leaves `-` to the application).
+fn read_index(token: &str, len: usize) -> Option<usize> {
+    if token == "-" {
+        return len.checked_sub(1);
+    }
+    if token.is_empty() || !token.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    token.parse::<usize>().ok()
 }
 
 /// A pointer's tokens for a WRITE (`` and `/` = the whole model), or the

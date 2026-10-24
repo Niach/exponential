@@ -3,6 +3,10 @@
 All notable changes to this package. The SDK packages share one version and
 release together from a `ui-v<version>` tag (`packages/exponential-ui/release/README.md`).
 
+## Unreleased
+
+- VAPP-122: `host::records` (`validate_record_schema`, `validate_record`, the reserved row keys), the `records` block in `validate_package`, `source_with_params` (the `bind` action's params encoding) and the contract's `package.records` / `sources.paramsEncoding`; the host fixtures replay the new `sourceParams` and `records` cases. The catalog's 33rd built-in is `bind`.
+
 ## 0.1.1 (2026-10-23)
 
 - Version-only release: the SDK's npm packages moved from the `@exponential-at` scope to `@exponential_app` and every package shares one version. The crate is unchanged from 0.1.0.

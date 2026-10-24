@@ -39,7 +39,9 @@ import at.exponential.ui.ffi.reduceSurfaceJson
 import at.exponential.ui.ffi.resolveRecipeJson
 import at.exponential.ui.ffi.supportedCatalogIdsFor
 import at.exponential.ui.ffi.themeIssuesJson
+import at.exponential.ui.ffi.sourceWithParamsJson
 import at.exponential.ui.ffi.validatePackageJson
+import at.exponential.ui.ffi.validateRecordJson
 import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.OverlayPresentation
@@ -473,6 +475,8 @@ class ConformanceTest {
         for (c in list(f, "urls")) out.add(case("url: ${s(c, "name")}") { same(decideUrlJson(c["policy"]?.json, s(c, "url")), c["expected"]!!) })
         for (c in list(f, "media")) out.add(case("media: ${s(c, "name")}") { same(mediaRequestJson(s(c, "url"), c["options"]!!.json) ?: "null", c["expected"] ?: JsonValue.Null) })
         for (c in list(f, "sources")) out.add(case("source: ${s(c, "uri")}") { same(parseSourceJson(s(c, "uri")) ?: "null", c["expected"] ?: JsonValue.Null) })
+        // VAPP-122: the bind action's params encoding.
+        for (c in list(f, "sourceParams")) out.add(case("sourceParams: ${s(c, "expected")}") { same(JsonValue.Str(sourceWithParamsJson(s(c, "source"), c["params"]?.json)).json, c["expected"]!!) })
         for (c in list(f, "negotiation")) {
             val ids = c["extensionIds"]!!.array!!.map { it.string!! }
             out.add(
@@ -492,6 +496,11 @@ class ConformanceTest {
         for (v in list(f, "validation")) {
             val id = s(v, "package")
             out.add(case("validation: $id") { same(validatePackageJson(packages[id]!!.json, null), v["expected"]!!) })
+        }
+        // VAPP-122: a record against its kind's schema.
+        for (c in list(f, "records")) {
+            val schema = packages[s(c, "package")]!!["records"]!![s(c, "kind")]!!["schema"]!!
+            out.add(case("records: ${s(c, "name")}") { same(validateRecordJson(schema.json, c["data"]!!.json), c["expected"]!!) })
         }
         for (flow in list(f, "flows")) {
             out.add(
@@ -539,6 +548,7 @@ class ConformanceTest {
         "resizable" -> Round2Suites.resizable().map(::Case)
         "virtual-list" -> Round2Suites.virtualList().map(::Case)
         "animations" -> Round2Suites.animations().map(::Case)
+        "pointer" -> Round2Suites.pointer().map(::Case)
         else -> error("the runner does not know the suite $id: add it")
     }
 

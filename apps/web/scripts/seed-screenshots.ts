@@ -38,6 +38,7 @@ import {
   attachments,
   agents,
   apps,
+  appRecords,
   appVersions,
   comments,
   devices,
@@ -70,6 +71,7 @@ import {
   widgetSubmissions,
 } from "@/db/schema"
 import type { AgentTrigger, GuideEntry, MessageCard } from "@exp/db-schema/domain"
+import workingHoursTemplate from "@exp/ui/exponential-ui/templates/working-hours.json"
 import { auth } from "@/lib/auth"
 import {
   buildAttachmentStorageKey,
@@ -103,6 +105,10 @@ import {
   DEMO_APP_EDITOR_SESSION_ID,
   DEMO_APP_EMPTY_ID,
   DEMO_APP_ID,
+  DEMO_APP_DASHBOARD_ID,
+  DEMO_APP_DASHBOARD_SLUG,
+  DEMO_APP_DASHBOARD_VERSION_IDS,
+  DEMO_APP_RECORD_IDS,
   DEMO_APP_SLUG,
   DEMO_APP_VERSION_IDS,
   DEMO_AGENT_TRIGGER_ID,
@@ -691,11 +697,14 @@ async function seedSessionTree(ctx: {
     )
   )
 
-  // ── VAPP-110: the team's apps (the `apps` / `app` views) ──────────────
-  // The Team dashboard app: three versions (the head binds the feedback
-  // board's issues) and the demo user's EDITOR SESSION with it (a root with
-  // `app_id`, idle: the person is in the editor). A second app has no
-  // version yet (the list's "No version yet" pill).
+  // ── VAPP-110 + VAPP-122: the team's apps (the `apps` / `app` views) ────
+  // The Working hours app (DEMO_APP_ID, the `app` view's subject): three
+  // versions, the demo user's EDITOR SESSION with it (a root with `app_id`,
+  // idle: the person is in the editor) and its RECORDS (a month of the demo
+  // user's hours, a settings record, two of Jonas's days). The Team
+  // dashboard app keeps its three versions (the head binds the feedback
+  // board's issues). A third app has no version yet (the list's "No version
+  // yet" pill).
   const feedbackBoardId = issue(`FB-3`).boardId
   const appPackage = (version: `1.0.0` | `1.1.0` | `1.2.0`) => {
     const components: Record<string, unknown>[] = [
@@ -749,11 +758,71 @@ async function seedSessionTree(ctx: {
       },
     }
   }
+  // The Working hours package, by version: v1 = the month, the total and the
+  // Log hours form; v2 = the target (a settings record) and what is left;
+  // v3 = previous months through `bind` and the per-day trend (the SDK's
+  // example package, packages/ui/exponential-ui/templates/working-hours.json).
+  // v4 (VAPP-119) = the whole template: a teammate's month through
+  // exp:members + bind, the issues you worked on as exp:issues suggestions.
+  const hoursPackage = (version: `1.0.0` | `1.1.0` | `1.2.0` | `1.3.0`) => {
+    const full = workingHoursTemplate as unknown as {
+      version: string
+      sources: string[]
+      templates: { month: { components: Record<string, unknown>[]; bindings: { path: string; source: string }[]; data: Record<string, unknown> } }
+    }
+    if (version === `1.3.0`) return { ...full, version }
+    const dropped = new Set<string>([
+      `toolbarActions`,
+      `who`,
+      ...(version === `1.0.0` ? [`prev`, `next`, `statTarget`, `statLeft`, `target`, `targetRow`, `targetField`, `targetSave`] : version === `1.1.0` ? [`prev`, `next`] : []),
+    ])
+    const components = full.templates.month.components
+      .filter((c) => !dropped.has(c.id as string))
+      .map((c) => {
+        const out: Record<string, unknown> = { ...c }
+        if (Array.isArray(out.children)) out.children = (out.children as string[]).filter((id) => !dropped.has(id))
+        // Before v4 the Log hours button sits in the toolbar's trailing slot itself.
+        if (out.id === `toolbar`) out.slots = { trailing: `log` }
+        if (out.id === `issues`) {
+          delete out.suggestions
+          out.placeholder = `MET-1437`
+        }
+        if ((out.id === `prev` || out.id === `next`) && out.on) {
+          const on = JSON.parse(JSON.stringify(out.on)) as { press: { functionCall: { args: { params: Record<string, unknown> } } } }
+          delete on.press.functionCall.args.params.user
+          out.on = on
+        }
+        if (version !== `1.2.0` && out.id === `statTotal`) delete out.trend
+        if (version === `1.0.0` && out.id === `stats`) out.columns = 1
+        return out
+      })
+    const { members: _m, issues: _i, who: _w, ...data } = full.templates.month.data
+    return {
+      ...full,
+      version,
+      sources: [`exp:records`],
+      templates: { month: { ...full.templates.month, data, bindings: full.templates.month.bindings.filter((b) => b.source.startsWith(`exp:records`)), components } },
+    }
+  }
   await db.insert(apps).values([
     {
       id: DEMO_APP_ID,
       teamId,
       slug: DEMO_APP_SLUG,
+      name: `Working hours`,
+      icon: `clock`,
+      color: `#10b981`,
+      description: `Your hours per day, a month at a time: log them, see the total against the target, keep the issues you worked on.`,
+      package: hoursPackage(`1.3.0`),
+      headVersion: 4,
+      createdBy: demoId,
+      createdAt: daysAgo(6),
+      updatedAt: DEMO_APP_CHAT_TIMES.fourth,
+    },
+    {
+      id: DEMO_APP_DASHBOARD_ID,
+      teamId,
+      slug: DEMO_APP_DASHBOARD_SLUG,
       name: `Team dashboard`,
       icon: `chart-line`,
       color: `#0ea5e9`,
@@ -761,8 +830,8 @@ async function seedSessionTree(ctx: {
       package: appPackage(`1.2.0`),
       headVersion: 3,
       createdBy: demoId,
-      createdAt: daysAgo(6),
-      updatedAt: DEMO_APP_CHAT_TIMES.third,
+      createdAt: daysAgo(9),
+      updatedAt: daysAgo(8),
     },
     {
       id: DEMO_APP_EMPTY_ID,
@@ -782,34 +851,90 @@ async function seedSessionTree(ctx: {
   await db.insert(sessions).values([
     root(DEMO_APP_EDITOR_SESSION_ID, {
       appId: DEMO_APP_ID,
-      title: `Team dashboard`,
+      title: `Working hours`,
       repositoryId: null,
       status: `idle`,
       startedAt: DEMO_APP_CHAT_TIMES.request,
-      lastTurnAt: DEMO_APP_CHAT_TIMES.third,
+      lastTurnAt: DEMO_APP_CHAT_TIMES.fourth,
       createdAt: DEMO_APP_CHAT_TIMES.request,
-      updatedAt: DEMO_APP_CHAT_TIMES.third,
+      updatedAt: DEMO_APP_CHAT_TIMES.fourth,
     }),
   ])
-  await db.insert(appVersions).values(
-    (
+  await db.insert(appVersions).values([
+    ...(
       [
-        [DEMO_APP_VERSION_IDS[0], 1, `1.0.0`, `First cut: open issues and the rollout`, DEMO_APP_CHAT_TIMES.first],
-        [DEMO_APP_VERSION_IDS[1], 2, `1.1.0`, `Added the reports chart`, DEMO_APP_CHAT_TIMES.second],
-        [DEMO_APP_VERSION_IDS[2], 3, `1.2.0`, `Newest reports as rows, open on tap`, DEMO_APP_CHAT_TIMES.third],
+        [DEMO_APP_VERSION_IDS[0], 1, `1.0.0`, `First cut: the month, the total and a Log hours form`, DEMO_APP_CHAT_TIMES.first],
+        [DEMO_APP_VERSION_IDS[1], 2, `1.1.0`, `A monthly target and what is left`, DEMO_APP_CHAT_TIMES.second],
+        [DEMO_APP_VERSION_IDS[2], 3, `1.2.0`, `Previous months with the switcher, the per-day trend`, DEMO_APP_CHAT_TIMES.third],
+        [DEMO_APP_VERSION_IDS[3], 4, `1.3.0`, `A teammate's month, the issues you worked on`, DEMO_APP_CHAT_TIMES.fourth],
       ] as const
     ).map(([id, number, version, note, at]) => ({
       id,
       appId: DEMO_APP_ID,
       teamId,
       number,
-      package: appPackage(version),
+      package: hoursPackage(version),
       note,
       sessionId: DEMO_APP_EDITOR_SESSION_ID,
       createdBy: null,
       createdAt: at,
-    }))
-  )
+    })),
+    ...(
+      [
+        [DEMO_APP_DASHBOARD_VERSION_IDS[0], 1, `1.0.0`, `First cut: open issues and the rollout`, daysAgo(9)],
+        [DEMO_APP_DASHBOARD_VERSION_IDS[1], 2, `1.1.0`, `Added the reports chart`, daysAgo(8.5)],
+        [DEMO_APP_DASHBOARD_VERSION_IDS[2], 3, `1.2.0`, `Newest reports as rows, open on tap`, daysAgo(8)],
+      ] as const
+    ).map(([id, number, version, note, at]) => ({
+      id,
+      appId: DEMO_APP_DASHBOARD_ID,
+      teamId,
+      number,
+      package: appPackage(version),
+      note,
+      sessionId: null,
+      createdBy: demoId,
+      createdAt: at,
+    })),
+  ])
+  // VAPP-122: the Working hours records: the demo user's October (26.5 h, the
+  // spreadsheet it replaces), two September days (the month switcher), the
+  // target, and two of Jonas's days (`mine` keeps them out of the view).
+  const entry = (id: string, by: string, date: string, hours: number, note: string, issues: string[] = []) => ({
+    id,
+    appId: DEMO_APP_ID,
+    teamId,
+    kind: `entry`,
+    data: { date, hours, note, issues },
+    createdBy: by,
+    createdAt: new Date(`${date}T18:00:00Z`),
+    updatedAt: new Date(`${date}T18:00:00Z`),
+  })
+  await db.insert(appRecords).values([
+    entry(DEMO_APP_RECORD_IDS[0], demoId, `2026-10-05`, 3, `leaderboard, meet`, [`APP-3`]),
+    entry(DEMO_APP_RECORD_IDS[1], demoId, `2026-10-09`, 3, `academy hiding, mcp`, [`APP-6`]),
+    entry(DEMO_APP_RECORD_IDS[2], demoId, `2026-10-12`, 3, `support`),
+    entry(DEMO_APP_RECORD_IDS[3], demoId, `2026-10-15`, 2, `leaderboard, stripe, templates`, [`APP-10`]),
+    entry(DEMO_APP_RECORD_IDS[4], demoId, `2026-10-17`, 0.5, `statistics lifetime`),
+    entry(DEMO_APP_RECORD_IDS[5], demoId, `2026-10-19`, 1, `meet, stats, support`),
+    entry(DEMO_APP_RECORD_IDS[6], demoId, `2026-10-21`, 8, `docs, admin`, [`APP-15`]),
+    entry(DEMO_APP_RECORD_IDS[7], demoId, `2026-10-22`, 3, `admin`),
+    entry(DEMO_APP_RECORD_IDS[8], demoId, `2026-10-23`, 3, `support, admin, orgs`),
+    entry(DEMO_APP_RECORD_IDS[9], demoId, `2026-09-29`, 4, `release train`),
+    entry(DEMO_APP_RECORD_IDS[10], demoId, `2026-09-30`, 2, `docs`),
+    entry(DEMO_APP_RECORD_IDS[11], ctx.jonas, `2026-10-02`, 2, `Memleak`, [`APP-5`]),
+    entry(DEMO_APP_RECORD_IDS[12], ctx.jonas, `2026-10-05`, 4, `MET sync`),
+    {
+      id: DEMO_APP_RECORD_IDS[13],
+      appId: DEMO_APP_ID,
+      teamId,
+      kind: `settings`,
+      data: { hours_per_month: 40 },
+      createdBy: demoId,
+      createdAt: DEMO_APP_CHAT_TIMES.second,
+      updatedAt: DEMO_APP_CHAT_TIMES.second,
+    },
+  ])
 
   // ── the thread roots ───────────────────────────────────────────────────
   const batchGuide = [
@@ -1172,43 +1297,55 @@ async function seedSessionTree(ctx: {
         body: `Done, 3 issues labelled android.`,
         at: DEMO_AGENT_CHANNEL_TIMES.reply,
       },
-      // VAPP-110: the demo user's editor session with the Team dashboard app
-      // (the `app` view's chat), one exchange per version.
+      // VAPP-110 + VAPP-122: the demo user's editor session with the Working
+      // hours app (the `app` view's chat), one exchange per version.
       {
         sessionId: DEMO_APP_EDITOR_SESSION_ID,
         author: `user`,
-        body: `A dashboard for Product Feedback: how many issues are open and how far this week's rollout is.`,
+        body: `Replace my hours spreadsheet: every day of the month, how many hours I worked and what I did. Mine only, with the month's total.`,
         at: DEMO_APP_CHAT_TIMES.request,
       },
       {
         sessionId: DEMO_APP_EDITOR_SESSION_ID,
         author: `agent`,
-        body: `Published v1: two cards, open issues bound to the board and the rollout as a progress bar.`,
+        body: `Published v1: a month view bound to your own records (kind entry), a Log hours form that writes them, the total at the top.`,
         at: DEMO_APP_CHAT_TIMES.first,
       },
       {
         sessionId: DEMO_APP_EDITOR_SESSION_ID,
         author: `user`,
-        body: `Add a chart of reports per day under the cards.`,
+        body: `Add a monthly target and show what is left. I want to change the target in the app.`,
         at: DEMO_APP_CHAT_TIMES.change,
       },
       {
         sessionId: DEMO_APP_EDITOR_SESSION_ID,
         author: `agent`,
-        body: `v2 has the line chart, last seven days.`,
+        body: `v2: a settings record keeps the target; the tiles show the target and what is left, Save target writes it.`,
         at: DEMO_APP_CHAT_TIMES.second,
       },
       {
         sessionId: DEMO_APP_EDITOR_SESSION_ID,
         author: `user`,
-        body: `List the newest reports below it and open one when I tap it.`,
+        body: `Let me switch to previous months, and show the days as a small trend.`,
         at: DEMO_APP_CHAT_TIMES.polish,
       },
       {
         sessionId: DEMO_APP_EDITOR_SESSION_ID,
         author: `agent`,
-        body: `v3: the six newest issues as rows; a tap opens the issue.`,
+        body: `v3: previous and next re-bind the month through bind, the total tile carries the per-day sparkline, an entry opens for editing.`,
         at: DEMO_APP_CHAT_TIMES.third,
+      },
+      {
+        sessionId: DEMO_APP_EDITOR_SESSION_ID,
+        author: `user`,
+        body: `Let me look at a teammate's month too, and suggest my open issues when I log a day.`,
+        at: DEMO_APP_CHAT_TIMES.team,
+      },
+      {
+        sessionId: DEMO_APP_EDITOR_SESSION_ID,
+        author: `agent`,
+        body: `v4: a member picker from exp:members re-binds the month for that person; the issues field suggests your assigned issues from exp:issues.`,
+        at: DEMO_APP_CHAT_TIMES.fourth,
       },
     ].map((spec) => message(spec as MessageSpec))
   )

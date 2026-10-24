@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use exponential_ui::host::{
-    action_message, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source,
+    action_message, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source, source_with_params,
     FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, UrlPolicy, FUNCTION_DENIED, FUNCTION_NOT_FOUND,
     RENDER_FAILED, UNSUPPORTED_CATALOG, VALIDATION_FAILED,
 };
@@ -233,7 +233,9 @@ struct SurfaceEntry {
 pub struct ExponentialHost {
     router: HostRouter,
     surfaces: Vec<SurfaceEntry>,
-    subscriptions: HashMap<String, Vec<(Arc<AtomicBool>, Cancel)>>,
+    /// Per surface, one entry per bound path (VAPP-122: a re-bind of a
+    /// path cancels the earlier subscription at that path).
+    subscriptions: HashMap<String, Vec<(String, Arc<AtomicBool>, Cancel)>>,
     transport: Option<Box<dyn Transport>>,
     functions: HashMap<String, HostFunction>,
     sources: HashMap<String, SourceResolver>,
@@ -657,8 +659,15 @@ impl ExponentialHost {
                         }
                     })
                 };
+                let subs = self.subscriptions.entry(sid).or_default();
+                let (same, kept): (Vec<_>, Vec<_>) = subs.drain(..).partition(|(p, _, _)| *p == path);
+                *subs = kept;
+                for (_, alive, cancel) in same {
+                    alive.store(false, Ordering::SeqCst);
+                    cancel();
+                }
                 let cancel = resolver(source, emit);
-                self.subscriptions.entry(sid).or_default().push((alive, cancel));
+                subs.push((path, alive, cancel));
             }
             "delete" => {
                 self.forget_paint_errors(&sid);
@@ -683,7 +692,7 @@ impl ExponentialHost {
     }
 
     fn unbind(&mut self, surface_id: &str) {
-        for (alive, cancel) in self.subscriptions.remove(surface_id).unwrap_or_default() {
+        for (_, alive, cancel) in self.subscriptions.remove(surface_id).unwrap_or_default() {
             alive.store(false, Ordering::SeqCst);
             cancel();
         }
@@ -714,12 +723,16 @@ impl ExponentialHost {
     }
 
     /// An action `functionCall` to a host function: gate, consent, run. A
-    /// built-in other than `openUrl` has no effect as an action.
+    /// built-in other than `openUrl` and `bind` has no effect as an action.
     pub fn call_function(&mut self, call: FunctionCallInfo, cx: &mut Context<Self>) -> Task<FunctionOutcome> {
         if call.name == "openUrl" {
             let url = call.args.get("url").and_then(Value::as_str).unwrap_or("").to_string();
             let opened = self.open_url(&url, cx);
             return Task::ready(FunctionOutcome::of(if opened { FunctionDecision::Allow } else { FunctionDecision::Deny }));
+        }
+        if call.name == "bind" {
+            let bound = self.bind(&call.surface_id, &call.args, cx);
+            return Task::ready(FunctionOutcome::of(if bound { FunctionDecision::Allow } else { FunctionDecision::Deny }));
         }
         let denied = error_message(FUNCTION_DENIED, &call.surface_id, &format!("{} was not allowed", call.name), None);
         match self.decide(&call.surface_id, &call.name) {
@@ -747,6 +760,25 @@ impl ExponentialHost {
             }
             FunctionDecision::Allow => cx.spawn(async move |this, cx| run_function(this, call, cx).await),
         }
+    }
+
+    /// VAPP-122: the `bind` action: re-follow `path` from `source` with
+    /// `params` appended (`source_with_params`), through the router like a
+    /// server's bindDataModel (the surface's package allowlist applies; a
+    /// refusal is the usual SOURCE_DENIED / VALIDATION_FAILED error). True
+    /// when the bind op ran.
+    pub fn bind(&mut self, surface_id: &str, args: &Value, cx: &mut Context<Self>) -> bool {
+        let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+        let source = args.get("source").and_then(Value::as_str).unwrap_or("");
+        if source.is_empty() || self.entry(surface_id).is_none() {
+            return false;
+        }
+        let params = args.get("params").filter(|p| p.is_object());
+        let message = serde_json::json!({
+            "version": exponential_ui::catalog::A2UI_VERSION,
+            "bindDataModel": {"surfaceId": surface_id, "path": path, "source": source_with_params(source, params)},
+        });
+        self.receive(&message, cx).iter().any(|op| op["op"].as_str() == Some("bind"))
     }
 
     /// `openUrl` / `Link` through the URL policy (relative urls against the

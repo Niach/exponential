@@ -70,6 +70,7 @@ export const billingRouter = router({
             storageMb: Infinity,
             widgetConfigs: Infinity,
             widgetSubmissionsPerHour: Infinity,
+            appRecords: Infinity,
           },
           usage: {
             members: 0,

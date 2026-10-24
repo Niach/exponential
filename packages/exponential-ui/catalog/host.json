@@ -16,7 +16,7 @@
     "errorCodes": ["VALIDATION_FAILED", "INVALID_MESSAGE", "UNSUPPORTED_CATALOG", "SURFACE_NOT_FOUND", "TEMPLATE_NOT_FOUND", "FUNCTION_NOT_FOUND", "FUNCTION_DENIED", "SOURCE_DENIED", "RENDER_FAILED"]
   },
   "functions": {
-    "$comment": "An `on.<event>` action `{functionCall: {call, args}}` (A2UI's key, the only one) runs on the client. The catalog's functions are built in (the basic 14 + the 15 core ones: value functions, `set`; `openUrl` is the one with an effect and goes through the URL policy). Any other name is a namespaced HOST function (`app.toast`; an un-namespaced unknown name is a validation issue) that must be REGISTERED by the host (an action function: side effects, may be async) and passes the policy gate first: decide(policy, name) → allow | ask | deny. `ask` = the host's onFunctionCall hook decides (the Exponential app's consent card). Patterns: an exact name or a prefix ending in `*` (`harness.*`). Order: deny wins, then allow, then ask, then `default`.",
+    "$comment": "An `on.<event>` action `{functionCall: {call, args}}` (A2UI's key, the only one) runs on the client. The catalog's functions are built in (the basic 14 + the 15 core ones: value functions, `set`; `openUrl` and `bind` are the two with an effect: `openUrl` goes through the URL policy; `bind {path, source, params?}` (VAPP-122) re-follows `path` from an action: `source` with `params` appended as its query (sourceWithParams: keys sorted, percent-encoded, null skipped, objects as JSON) goes through the router like a server's bindDataModel, so the surface's package `sources` allowlist applies (SOURCE_DENIED otherwise) and the host REPLACES its earlier subscription at that path). Any other name is a namespaced HOST function (`app.toast`; an un-namespaced unknown name is a validation issue) that must be REGISTERED by the host (an action function: side effects, may be async) and passes the policy gate first: decide(policy, name) → allow | ask | deny. `ask` = the host's onFunctionCall hook decides (the Exponential app's consent card). Patterns: an exact name or a prefix ending in `*` (`harness.*`). Order: deny wins, then allow, then ask, then `default`.",
     "decisions": ["allow", "ask", "deny", "not_found"],
     "defaultPolicy": { "allow": [], "ask": [], "deny": [], "default": "allow" }
   },
@@ -35,7 +35,8 @@
   },
   "sources": {
     "$comment": "A binding source URI: `<scheme>:<name>[?k=v&…]`, scheme `[a-z][a-z0-9+.-]*` (lower-cased), name non-empty without `?`, params percent-decoded (`+` = space), the last value of a repeated key wins, keys sorted. The host registers one resolver per scheme (the Exponential app: `exp`); subscribe(source, emit) → cancel, every emit writes the value at the bound path.",
-    "pattern": "^([a-zA-Z][a-zA-Z0-9+.-]*):([^?]+)(?:\\?(.*))?$"
+    "pattern": "^([a-zA-Z][a-zA-Z0-9+.-]*):([^?]+)(?:\\?(.*))?$",
+    "paramsEncoding": "sourceWithParams: keys sorted; key and value percent-encoded (everything but A-Z a-z 0-9 - _ . ! ~ * ' ( )); null skipped; an object or array as JSON; after ? or &"
   },
   "transport": {
     "$comment": "Adapters every SDK ships: in-memory, A2UI JSONL over a byte stream (one message per line; CRLF and blank lines tolerated; a bad line is an issue, never fatal), SSE (`data:` lines joined per event; an event's data is one message or JSONL; events named other than `message`/`a2ui` are ignored), WebSocket (one message or JSONL per frame), and the A2UI-over-MCP carrier (a tool result's `content[]` resources with one of `mcpMimeTypes`, text = JSONL / a JSON array / one message; or `structuredContent.a2ui` = an array). Actions out over MCP = tools/call `mcpActionTool` with `{message}`.",
@@ -48,7 +49,14 @@
   },
   "package": {
     "$comment": "A declarative app package (VAPP-82): data, never code. {id, name, version, catalogId, templates: {<id>: {components: [flat, one `root`], data?, bindings?: [{path, source}]}}, functions?: [allowed patterns], sources?: [allowed sources], theme?: a theme id or theme JSON, icon?}. Installing one registers its templates with the router (applyTemplate) and turns `functions` into the policy for its surfaces: listed = allow, anything else = deny. VAPP-107: `sources` is the same allowlist for binding sources (`exp:devices`, or a prefix `exp:*`, matched against the URI's scheme:name without its query): unset = any registered scheme; set, a template binding outside it is an install issue and a later bindDataModel on one of the package's surfaces answers SOURCE_DENIED (the data model never follows it).",
-    "required": ["id", "name", "version", "catalogId", "templates"]
+    "required": ["id", "name", "version", "catalogId", "templates"],
+    "records": {
+      "$comment": "VAPP-122: an app's own data. `records: {<kind>: {schema, title?, description?}}`: a kind's name follows `kindPattern`; `schema` is a JSON Schema SUBSET: {type: \"object\", properties: {<field>: {type: string|number|integer|boolean|array, enum? (strings), items? (arrays: {type, enum?}), maxLength? (characters, or items), minimum?, maximum?, format? (strings: date = YYYY-MM-DD, date-time = ISO 8601, time = HH:MM[:SS]), description?}}, required?: [fields], additionalProperties?: false by default}. The `reserved` keys ride on every row the host reads back and may not be declared. validateRecordSchema(schema, at) checks a kind at install (an issue = PACKAGE_INVALID), validateRecord(schema, data) a record before it is stored: a missing or null optional field passes, a required one does not, an undeclared key is refused unless additionalProperties.",
+      "kindPattern": "^[a-z][a-z0-9_]{0,31}$",
+      "reserved": ["id", "createdAt", "updatedAt", "createdBy", "author"],
+      "types": ["string", "number", "integer", "boolean", "array"],
+      "formats": ["date", "date-time", "time"]
+    }
   },
   "paint": {
     "$comment": "A component whose painter fails (React: a render error; native: a painter that throws or meets props it cannot paint) paints an empty box in its place, never takes the surface down, and calls the host's `onPaintError({surfaceId, componentId, message})` ONCE per surface + component + message. ExponentialHost.paintError forwards it to the agent as an A2UI error `{code: errorCode, surfaceId, message, path: /components/<componentId>}` and reports it as a host issue with the same code.",

@@ -1,0 +1,89 @@
+{
+  "$comment": "EXP-1385. writes: write `value` at `pointer` in `data` (none = remove): data = `expected`, the pointer reads back `read`; or refused with `error`, data unchanged. reads: = `expected`. Absent = nothing. `-` appends and reads the LAST element, so a landed write reads back; an index is digits only.",
+  "writes": [
+    {
+      "name": "fuzz crash-8245f070: - appends",
+      "data": [2],
+      "pointer": "-",
+      "value": [1],
+      "expected": [2, [1]],
+      "read": [1]
+    },
+    {
+      "name": "fuzz crash-94c2e189: - appends to []",
+      "data": [],
+      "pointer": "-",
+      "value": "{\n\n\"\"",
+      "expected": ["{\n\n\"\""],
+      "read": "{\n\n\"\""
+    },
+    {
+      "name": "/- appends",
+      "data": { "items": [1, 2] },
+      "pointer": "/items/-",
+      "value": 3,
+      "expected": { "items": [1, 2, 3] },
+      "read": 3
+    },
+    {
+      "name": "- mid-path",
+      "data": { "items": [1] },
+      "pointer": "/items/-/name",
+      "value": "x",
+      "expected": { "items": [1, { "name": "x" }] },
+      "read": "x"
+    },
+    {
+      "name": "the length appends",
+      "data": { "a": [1] },
+      "pointer": "/a/1",
+      "value": 2,
+      "expected": { "a": [1, 2] },
+      "read": 2
+    },
+    {
+      "name": "- is an object key",
+      "data": { "o": {} },
+      "pointer": "/o/-",
+      "value": 1,
+      "expected": { "o": { "-": 1 } },
+      "read": 1
+    },
+    {
+      "name": "no value removes",
+      "data": { "a": [1, 2] },
+      "pointer": "/a/0",
+      "expected": { "a": [2] },
+      "read": 2
+    },
+    {
+      "name": "refused: a key",
+      "data": { "a": [1] },
+      "pointer": "/a/x",
+      "value": 0,
+      "error": "data: \"x\" is not an array index"
+    },
+    {
+      "name": "refused: a signed index",
+      "data": { "a": [1] },
+      "pointer": "/a/+0",
+      "value": 0,
+      "error": "data: \"+0\" is not an array index"
+    },
+    {
+      "name": "refused: past the end",
+      "data": { "a": [1] },
+      "pointer": "/a/3",
+      "value": 0,
+      "error": "data: index 3 is past the end of the array (1 items)"
+    }
+  ],
+  "reads": [
+    { "name": "- reads the last element", "data": [1, 2], "pointer": "/-", "expected": 2 },
+    { "name": "- in [] reads nothing", "data": [], "pointer": "/-" },
+    { "name": "a signed index reads nothing", "data": [1, 2], "pointer": "/+1" },
+    { "name": "leading zeros read the index", "data": [1, 2], "pointer": "/01", "expected": 2 },
+    { "name": "no leading slash", "data": { "a": { "b": 1 } }, "pointer": "a/b", "expected": 1 },
+    { "name": "an inherited key", "data": {}, "pointer": "/constructor" }
+  ]
+}

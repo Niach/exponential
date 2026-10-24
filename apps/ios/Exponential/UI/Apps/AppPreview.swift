@@ -14,13 +14,17 @@ import ExponentialUI
 struct AppPreview: View {
     /// The package's JSON text; nil = no version yet.
     let packageJSON: String?
+    /// VAPP-122: the hosting app and its team (`exp:records` reads and
+    /// `harness.records.*` writes the app's own rows).
+    var appId: String?
+    var teamId: String?
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Apps.Preview.radius)
         ScrollView {
             Group {
                 if let packageJSON {
-                    AppPackageSurface(packageJSON: packageJSON)
+                    AppPackageSurface(packageJSON: packageJSON, appId: appId, teamId: teamId)
                         .id(packageJSON)
                 } else {
                     EmptyState(title: Apps.Copy.previewEmpty, icon: AppIcons.navApps, size: .page)
@@ -44,6 +48,8 @@ struct AppPreview: View {
 /// (the frame stays).
 private struct AppPackageSurface: View {
     let packageJSON: String
+    let appId: String?
+    let teamId: String?
 
     #if canImport(ExponentialUI)
     @Environment(AppDependencies.self) private var deps
@@ -73,6 +79,9 @@ private struct AppPackageSurface: View {
         let packageId = JSONValue.parse(packageJSON)["id"]?.string ?? ""
         let host = ExpAppHost(
             packages: [packageJSON],
+            appId: appId,
+            teamId: teamId,
+            me: deps.auth.accounts.first { $0.id == accountId }?.userId ?? deps.auth.userId,
             accountId: accountId,
             deps: deps,
             consent: consent,

@@ -1381,6 +1381,67 @@ extension AppVersionEntity: Codable {
     }
 }
 
+// VAPP-122: one RECORD of an app (fixtures/app-records.json) — a JSON object
+// (`data`) of a `kind` the app's manifest declares, stored per team. The
+// `app-records` shape allowlist; `data` = the jsonb as its raw TEXT (like
+// `apps.package`). Trash never syncs (static shape predicates).
+public struct AppRecordEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "app_records"
+
+    public let id: String
+    public let appId: String
+    public let teamId: String
+    public let kind: String
+    /// The record's `data` object as JSON text ("{}" when absent).
+    public let data: String
+    public let createdBy: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        appId: String,
+        teamId: String,
+        kind: String,
+        data: String = "{}",
+        createdBy: String? = nil,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.appId = appId
+        self.teamId = teamId
+        self.kind = kind
+        self.data = data
+        self.createdBy = createdBy
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, data
+        case appId = "app_id"
+        case teamId = "team_id"
+        case createdBy = "created_by"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+extension AppRecordEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        appId = try c.decode(String.self, forKey: .appId)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? ""
+        data = c.decodeWireJsonString(forKey: .data) ?? "{}"
+        createdBy = try c.decodeIfPresent(String.self, forKey: .createdBy)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+    }
+}
+
 // EXP-778: personal pins — the 21st Electric shape. ONE row per (user,
 // target): an issue or a session the user pinned into the sidebar. The shape
 // is static per user (`user_id = me`), NOT team/trash scoped, so the local

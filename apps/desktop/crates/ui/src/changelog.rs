@@ -59,7 +59,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_79: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_81: ChangelogEntry = ChangelogEntry {
     id: "2026-10-24-fast-chats",
     date: "2026-10-24",
     title: "Long chats open instantly, and the Chats list comes to the IDE and the web",
@@ -73,7 +73,7 @@ const PREVIOUS_79: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_78: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_80: ChangelogEntry = ChangelogEntry {
     id: "2026-10-24-agents-as-themselves",
     date: "2026-10-24",
     title: "Agents act as themselves, stay in their team and take assigned issues",
@@ -82,6 +82,33 @@ const PREVIOUS_78: ChangelogEntry = ChangelogEntry {
 - **Assign to agents**: the assignee picker lists the team's agents after its members; assigning one nudges your chat with that agent and emits the new `issue.assigned` event for triggers.
 - **Instructions changed**: after you edit an agent's instructions its chat shows a banner with Start new conversation; a new conversation restarts the agent so it runs on the new instructions.
 - **Team boundary**: an agent and everything it starts work only inside the agent's team, on a key that reaches no other team."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_79: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-24-app-sources",
+    date: "2026-10-24",
+    title: "Apps read the team: boards, members, sessions, comments and files",
+    summary: "An app binds exp:boards, exp:members, exp:sessions, exp:comments and exp:attachments beside a richer exp:issues, the same rows on every platform; the Working hours app shows a teammate's month and suggests your issues.",
+    body: r#"- **Sources**: exp:issues now filters by board, status, priority, assignee (or me) and a search, sorts by list order or time; exp:boards, exp:members (with the viewer), exp:sessions, exp:comments and exp:attachments join it. One shared fixture pins the derivation on web, desktop, iOS and Android.
+- **Options**: issue, board and member rows carry value and label, so an app binds them straight into a Select or a ChipInput.
+- **Working hours**: v4 picks a teammate's month through the member picker and suggests your assigned issues when you log a day.
+- **Catalog**: the apps catalog describes every source with its query and value, so the editor session binds them without guessing."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_78: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-24-app-records",
+    date: "2026-10-24",
+    title: "Apps keep their own data: records",
+    summary: "An app declares record kinds in its manifest, reads them live through exp:records and writes them without a consent card; agents fill them through the apps MCP noun.",
+    body: r#"- **Records**: an app's manifest declares its kinds with a small JSON schema; the server validates every write, every client syncs the rows, and the editor's preview shows them live.
+- **Bindings**: exp:records?kind=... filters, sorts, sums and lays out a month; the new bind action re-follows a path from a button, so a month switcher is one action.
+- **Agents**: exponential_apps gained records_list, records_upsert and records_delete, so an agent or another app can fill an app's data.
+- **Quota**: Free teams keep 1,000 records, Team plans 25,000, one record at most 16 KB; the app's settings page shows the count.
+- **Working hours**: the demo app that replaces a spreadsheet: a month view with a switcher, hours and notes per day, built through the editor and seeded as the Apps pictures."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

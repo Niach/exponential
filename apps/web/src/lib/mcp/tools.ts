@@ -3525,11 +3525,67 @@ export function registerExponentialTools(
     }
   )
 
+  // VAPP-122: an app's records (its own data) for an agent: seed, inspect, fix.
+  server.registerTool(
+    `exponential_apps_records_list`,
+    {
+      annotations: READ_ONLY,
+      description: `List an app's records (its own data) newest first: id, kind, data, createdBy, createdAt. kind narrows.`,
+      inputSchema: strictInput({ slug: appSlug, teamId: uuidString.optional(), kind: z.string().max(32).optional(), ...pageInput }),
+    },
+    async ({ slug, teamId, kind, limit, offset }) => {
+      try {
+        const result = await caller(user, request).apps.records.list({ slug, teamId: await appsTeam(teamId), kind, limit, offset })
+        return ok({ records: result.records })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_apps_records_upsert`,
+    {
+      description: `Create one record of an app (data validated against the kind's schema in its package), or with id patch that record's data. The app's bindings repaint live.`,
+      inputSchema: strictInput({
+        slug: appSlug,
+        teamId: uuidString.optional(),
+        kind: z.string().trim().min(1).max(32),
+        data: z.record(z.string(), z.unknown()),
+        id: uuidString.optional(),
+      }),
+    },
+    async ({ slug, teamId, kind, data, id }) => {
+      try {
+        const result = await caller(user, request).apps.records.upsert({ slug, teamId: await appsTeam(teamId), kind, data, recordId: id })
+        return ok({ ok: true, id: result.id, created: result.created })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_apps_records_delete`,
+    {
+      description: `Delete one record of an app by id.`,
+      inputSchema: strictInput({ slug: appSlug, teamId: uuidString.optional(), id: uuidString }),
+    },
+    async ({ slug, teamId, id }) => {
+      try {
+        await caller(user, request).apps.records.delete({ slug, teamId: await appsTeam(teamId), recordId: id })
+        return ok({ ok: true, id, deleted: true })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   server.registerTool(
     `exponential_apps_catalog`,
     {
       annotations: READ_ONLY,
-      description: `The package format, the bindings (exp: sources), the host functions and every Exponential UI component an app may use. Read it once before writing a package.`,
+      description: `The package format, the bindings (exp: sources), the host functions, records and every Exponential UI component an app may use. Read it once before writing a package.`,
       inputSchema: strictInput({}),
     },
     async () => {

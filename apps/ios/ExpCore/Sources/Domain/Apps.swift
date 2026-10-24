@@ -42,6 +42,11 @@ public enum Apps {
         public static let dockToSide = "Move to the side"
         public static let float = "Minimize"
         public static let working = "Working"
+        // VAPP-122: an app's records (Settings → Apps → the app).
+        public static let records = "{n} records"
+        public static let recordsOne = "1 record"
+        public static let recordsOf = "{n} of {max} records"
+        public static let recordsNone = "No records"
 
         public enum Menu {
             public static let rename = "Rename"
@@ -111,6 +116,11 @@ public enum Apps {
     public static let packageMaxBytes = 131_072
     public static let templateMaxComponents = 500
     public static let slugPattern = "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+    /// VAPP-122: a record kind's name, one record's `data` JSON cap, the
+    /// kinds one manifest may declare.
+    public static let kindPattern = "^[a-z][a-z0-9_]{0,31}$"
+    public static let recordMaxBytes = 16_384
+    public static let recordKindsMax = 16
 
     // MARK: - The model
 
@@ -203,10 +213,11 @@ public enum Apps {
 
 // MARK: - The app host's `exp:` sources (pure, fixture-free)
 
-/// VAPP-110: the `exp:` binding values the app host resolves over the synced
-/// store, derived EXACTLY like the web host's `devicesValue` / `issuesSource`
+/// VAPP-110: the `exp:devices` value the app host resolves over the synced
+/// store, derived EXACTLY like the web host's `devicesValue`
 /// (`apps/web/src/lib/exponential-ui-host.tsx`) and the desktop's
-/// `devices_value` / `issues_value`.
+/// `devices_value`. VAPP-119: issues, boards, members, sessions, comments and
+/// attachments are fixture-locked in `AppSources`.
 public enum AppHostSources {
     /// One `exp:devices` row.
     public struct DeviceRow: Encodable, Equatable, Sendable {
@@ -224,20 +235,6 @@ public enum AppHostSources {
         public let rows: [DeviceRow]
         public let count: Int
         public let online: Int
-    }
-
-    /// One `exp:issues` row.
-    public struct IssueRow: Encodable, Equatable, Sendable {
-        public let id: String
-        public let identifier: String
-        public let title: String
-        public let status: String
-    }
-
-    /// `exp:issues?board=<id>&limit=<n>` → `{rows, count}`.
-    public struct IssuesValue: Encodable, Equatable, Sendable {
-        public let rows: [IssueRow]
-        public let count: Int
     }
 
     /// The input a devices row contributes (the synced `devices` row).
@@ -296,46 +293,6 @@ public enum AppHostSources {
             )
         }
         return DevicesValue(rows: rows, count: rows.count, online: rows.filter { $0.tone == "live" }.count)
-    }
-
-    /// The input an issue contributes.
-    public struct IssueInput: Sendable {
-        public let id: String
-        public let identifier: String
-        public let title: String
-        public let status: String
-        public let boardId: String
-        public let sortOrder: Double
-
-        public init(id: String, identifier: String, title: String, status: String, boardId: String, sortOrder: Double) {
-            self.id = id
-            self.identifier = identifier
-            self.title = title
-            self.status = status
-            self.boardId = boardId
-            self.sortOrder = sortOrder
-        }
-    }
-
-    /// The default `limit` (the web's 50).
-    public static let defaultIssueLimit = 50
-
-    /// `exp:issues`: the board's issues (every board when nil) in sort
-    /// order, cut at `limit` (`params.limit`, else 50).
-    public static func issuesValue(_ issues: [IssueInput], board: String?, limit: String?) -> IssuesValue {
-        // A finite number, clamped before the Int conversion (`Int(1e20)`
-        // traps; a package may name any limit).
-        let cap = limit.flatMap { Double($0) }.flatMap { $0.isFinite ? Int(min(max($0, 0), Double(Int32.max))) : nil }
-            ?? defaultIssueLimit
-        let rows = issues
-            .enumerated()
-            .filter { board == nil || board == "" || $0.element.boardId == board }
-            .sorted { a, b in
-                a.element.sortOrder != b.element.sortOrder ? a.element.sortOrder < b.element.sortOrder : a.offset < b.offset
-            }
-            .prefix(cap)
-            .map { IssueRow(id: $0.element.id, identifier: $0.element.identifier, title: $0.element.title, status: $0.element.status) }
-        return IssuesValue(rows: Array(rows), count: rows.count)
     }
 
     /// A value as JSON text (keys sorted, stable for dedupe).

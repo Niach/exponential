@@ -8,7 +8,7 @@ pub mod round2;
 
 use exponential_ui::host::{
     client_capabilities, combine_decisions, decide_function, decide_url, mcp_action_call, media_request, messages_from_mcp_result, parse_source,
-    supported_catalog_ids, validate_package, Decoded, FunctionDecision, FunctionPolicy, HostRouter, JsonlDecoder, MediaOptions, SseDecoder, UrlPolicy,
+    source_with_params, supported_catalog_ids, validate_package, validate_record, Decoded, FunctionDecision, FunctionPolicy, HostRouter, JsonlDecoder, MediaOptions, SseDecoder, UrlPolicy,
 };
 use exponential_ui::json;
 use serde_json::Value;
@@ -161,6 +161,10 @@ pub fn policy_cases() -> Vec<Case> {
         let uri = c["uri"].as_str().unwrap();
         out.push((format!("source: {uri}"), same(&to_value(&parse_source(uri)), &c["expected"])));
     }
+    for c in list(&f, "sourceParams") {
+        let got = source_with_params(c["source"].as_str().unwrap(), c.get("params"));
+        out.push((format!("sourceParams: {}", c["expected"].as_str().unwrap_or("")), same(&Value::String(got), &c["expected"])));
+    }
     for c in list(&f, "negotiation") {
         let ids: Vec<String> = serde_json::from_value(c["extensionIds"].clone()).unwrap();
         let result = same(&to_value(&supported_catalog_ids(&ids)), &c["expected"]["supportedCatalogIds"])
@@ -179,6 +183,11 @@ pub fn router_cases() -> Vec<Case> {
         let id = v["package"].as_str().unwrap();
         let got = validate_package(&packages[id], &supported_catalog_ids::<&str>(&[]));
         out.push((format!("validation: {id}"), same(&to_value(&got), &v["expected"])));
+    }
+    for c in list(&f, "records") {
+        let schema = &packages[c["package"].as_str().unwrap()]["records"][c["kind"].as_str().unwrap()]["schema"];
+        let got = validate_record(schema, &c["data"]);
+        out.push((format!("records: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
     }
     for flow in list(&f, "flows") {
         let name = flow["name"].as_str().unwrap();

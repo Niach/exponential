@@ -419,13 +419,41 @@ export const DEMO_AGENT_REQUEST = `Label the Android ones too, and check the boa
  * second app with no version yet. `$appSlug` resolves to DEMO_APP_SLUG.
  */
 export const DEMO_APP_ID = `c4b1d7e2-5a90-4f3c-8e6d-2b7a9c0f1d35`
-export const DEMO_APP_SLUG = `team-dashboard`
+/** VAPP-122: the `app` view's subject is the Working hours app (records). */
+export const DEMO_APP_SLUG = `working-hours`
+/** The Team dashboard app (three versions, no editor session): the list's second app. */
+export const DEMO_APP_DASHBOARD_ID = `d5c2e8f3-6b01-4a4d-9f7e-3c8b0d1e2f46`
+export const DEMO_APP_DASHBOARD_SLUG = `team-dashboard`
+export const DEMO_APP_DASHBOARD_VERSION_IDS = [
+  `4c9b5d1f-2e7a-4f0b-bd6c-8a5e0b2f4d37`,
+  `5d0c6e2a-3f8b-4a1c-ce7d-9b6f1c3a5e48`,
+  `6e1d7f3b-4a9c-4b2d-df8e-0c7a2d4b6f59`,
+] as const
+/** VAPP-122: the Working hours app's records (the demo user's October, two
+ *  September days, a settings record, two of Jonas's days). */
+export const DEMO_APP_RECORD_IDS = [
+  `7f2e8a4c-5b0d-4c3e-8a9f-1d8b3e5c7a60`,
+  `8a3f9b5d-6c1e-4d4f-9b0a-2e9c4f6d8b71`,
+  `9b4a0c6e-7d2f-4e5a-ac1b-3f0d5a7e9c82`,
+  `0c5b1d7f-8e3a-4f6b-bd2c-4a1e6b8f0d93`,
+  `1d6c2e8a-9f4b-4a7c-ce3d-5b2f7c9a1e04`,
+  `2e7d3f9b-0a5c-4b8d-df4e-6c3a8d0b2f15`,
+  `3f8e4a0c-1b6d-4c9e-8f5f-7d4b9e1c3a26`,
+  `4a9f5b1d-2c7e-4d0f-9a6a-8e5c0f2d4b37`,
+  `5b0a6c2e-3d8f-4e1a-ab7b-9f6d1a3e5c48`,
+  `6c1b7d3f-4e9a-4f2b-bc8c-0a7e2b4f6d59`,
+  `7d2c8e4a-5f0b-4a3c-cd9d-1b8f3c5a7e60`,
+  `8e3d9f5b-6a1c-4b4d-de0e-2c9a4d6b8f71`,
+  `9f4e0a6c-7b2d-4c5e-ef1f-3d0b5e7c9a82`,
+  `0a5f1b7d-8c3e-4d6f-8a2a-4e1c6f8d0b93`,
+] as const
 export const DEMO_APP_EMPTY_ID = `e8f2a6c1-3d47-4b9e-a1c5-7f0b2d8e4a62`
 export const DEMO_APP_EDITOR_SESSION_ID = `a7d3f9b4-2c61-4e8a-b5f0-9d1c6e3a7b48`
 export const DEMO_APP_VERSION_IDS = [
   `1f6e2a8c-9b4d-4c7e-8a3f-5d2b7e9c1a04`,
   `2a7f3b9d-0c5e-4d8f-9b4a-6e3c8f0d2b15`,
   `3b8a4c0e-1d6f-4e9a-ac5b-7f4d9a1e3c26`,
+  `4c9b5d1f-2e7a-4f0b-bd6c-8a5e0b2f4d38`,
 ] as const
 /** The editor chat prints times of day: pinned like the agent channel's. */
 export const DEMO_APP_CHAT_TIMES = {
@@ -435,6 +463,8 @@ export const DEMO_APP_CHAT_TIMES = {
   second: new Date(`2026-10-12T08:13:05Z`),
   polish: new Date(`2026-10-12T08:20:00Z`),
   third: new Date(`2026-10-12T08:21:30Z`),
+  team: new Date(`2026-10-12T08:30:00Z`),
+  fourth: new Date(`2026-10-12T08:31:40Z`),
 } as const
 
 /**

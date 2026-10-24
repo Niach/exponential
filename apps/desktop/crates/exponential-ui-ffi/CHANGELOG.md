@@ -3,6 +3,10 @@
 All notable changes to this package. The SDK packages share one version and
 release together from a `ui-v<version>` tag (`packages/exponential-ui/release/README.md`).
 
+## Unreleased
+
+- VAPP-122: `source_with_params_json(source, params_json)` and `validate_record_json(schema_json, data_json)` for the Swift and Kotlin hosts; bindings regenerated.
+
 ## 0.1.1 (2026-10-23)
 
 - Version-only bump with the SDK (the npm packages moved to the `@exponential_app` scope); unchanged from 0.1.0.

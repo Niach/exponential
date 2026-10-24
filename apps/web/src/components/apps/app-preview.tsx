@@ -16,12 +16,12 @@ import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const EXTENSIONS = [appReactExtension]
 
-function PackageSurface({ pkg, mode }: { pkg: AppPackage; mode: `light` | `dark` }) {
+function PackageSurface({ pkg, mode, appId, teamId, me }: { pkg: AppPackage; mode: `light` | `dark`; appId: string | null; teamId: string | null; me: string | null }) {
   const router = useRouter()
   const consent = useMemo(createConsentGate, [])
   const host = useMemo(
-    () => createAppHost({ consent, navigate: (href) => router.history.push(href), packages: [pkg] }),
-    [consent, router, pkg]
+    () => createAppHost({ consent, navigate: (href) => router.history.push(href), packages: [pkg], appId, teamId, me }),
+    [consent, router, pkg, appId, teamId, me]
   )
   const plugin = useMemo(() => ({ icons: exponentialUiIcons }), [])
   const templateId = Object.keys(pkg.templates)[0]
@@ -54,10 +54,17 @@ export function AppPreview({
   pkg,
   mode = `dark`,
   className,
+  appId = null,
+  teamId = null,
+  me = null,
 }: {
   pkg: Record<string, unknown> | null
   mode?: `light` | `dark`
   className?: string
+  /** VAPP-122: the app whose records `exp:records` reads, and the viewer. */
+  appId?: string | null
+  teamId?: string | null
+  me?: string | null
 }) {
   // The key = the package's identity: a new version mounts a fresh host.
   const key = useMemo(() => (pkg ? JSON.stringify(pkg) : ``), [pkg])
@@ -68,7 +75,7 @@ export function AppPreview({
       data-testid={APPS_TEST_IDS.preview}
     >
       {pkg ? (
-        <PackageSurface key={key} pkg={pkg as unknown as AppPackage} mode={mode} />
+        <PackageSurface key={key} pkg={pkg as unknown as AppPackage} mode={mode} appId={appId} teamId={teamId} me={me} />
       ) : (
         <div className="flex h-full min-h-48 items-center justify-center">
           <EmptyState icon={NavAppsIcon} title={APPS_COPY.previewEmpty} size="page" />

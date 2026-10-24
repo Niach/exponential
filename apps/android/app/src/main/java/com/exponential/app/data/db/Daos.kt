@@ -76,6 +76,10 @@ interface IssueDao {
     @Query("SELECT * FROM issues WHERE assignee_id = :userId ORDER BY sort_order, created_at")
     fun observeByAssignee(userId: String): Flow<List<IssueEntity>>
 
+    // VAPP-119: a team's issues (through their boards), the app host's `exp:issues`.
+    @Query("SELECT i.* FROM issues i JOIN boards b ON b.id = i.board_id WHERE b.team_id = :teamId")
+    fun observeByTeamForApps(teamId: String): Flow<List<IssueEntity>>
+
     @Query("SELECT * FROM issues WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<IssueEntity?>
 
@@ -244,6 +248,10 @@ interface TeamMemberDao {
 interface CommentDao {
     @Query("SELECT * FROM comments WHERE issue_id = :issueId ORDER BY created_at ASC")
     fun observeByIssue(issueId: String): Flow<List<CommentEntity>>
+
+    // VAPP-119: a team's comments, the app host's `exp:comments`.
+    @Query("SELECT * FROM comments WHERE team_id = :teamId")
+    fun observeByTeam(teamId: String): Flow<List<CommentEntity>>
 
     /** EXP-920: the one row an entity preview names. */
     @Query("SELECT * FROM comments WHERE id = :id")
@@ -530,6 +538,25 @@ interface AppVersionDao {
     suspend fun clear()
 }
 
+// VAPP-122: an app's records (the `exp:records` binding derives over them).
+@Dao
+interface AppRecordDao {
+    @Query("SELECT * FROM app_records WHERE app_id = :appId ORDER BY created_at DESC, id")
+    fun observeByApp(appId: String): Flow<List<AppRecordEntity>>
+
+    @Query("SELECT * FROM app_records WHERE team_id = :teamId ORDER BY created_at DESC, id")
+    fun observeByTeam(teamId: String): Flow<List<AppRecordEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: AppRecordEntity)
+
+    @Query("DELETE FROM app_records WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM app_records")
+    suspend fun clear()
+}
+
 // NEW-2: the member teams' events, newest first.
 @Dao
 interface EventDao {
@@ -629,6 +656,10 @@ interface PullRequestIssueDao {
 interface AttachmentDao {
     @Query("SELECT * FROM attachments WHERE issue_id = :issueId ORDER BY created_at ASC")
     fun observeByIssue(issueId: String): Flow<List<AttachmentEntity>>
+
+    // VAPP-119: a team's attachments, the app host's `exp:attachments`.
+    @Query("SELECT * FROM attachments WHERE team_id = :teamId")
+    fun observeByTeam(teamId: String): Flow<List<AttachmentEntity>>
 
     /** EXP-920: the one row an entity preview names. */
     @Query("SELECT * FROM attachments WHERE id = :id")

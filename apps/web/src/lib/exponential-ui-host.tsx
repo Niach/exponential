@@ -4,7 +4,9 @@
 //   - functions: `harness.toast`, `harness.openIssue`, `harness.openDevice`,
 //     `harness.mcp` (a tools/call on the app's own /api/mcp as the viewer);
 //   - bindings: the `exp:` scheme over the synced Electric collections
-//     (`exp:devices`, `exp:issues?board=…&limit=…`);
+//     (`exp:devices`; VAPP-119 `exp:issues`, `exp:boards`, `exp:members`,
+//     `exp:sessions`, `exp:comments`, `exp:attachments` off fixtures/app-sources.json;
+//     VAPP-122 `exp:records?kind=…` over the app's own rows: fixtures/app-records.json);
 //   - extensions: the app extension (`@exp/ui` appExtensionCatalog +
 //     appReactExtension) and its declarative packages (Devices);
 //   - policy: `harness.mcp` asks first (the consent card), urls through the
@@ -21,7 +23,23 @@ import { useHostStatus } from "@exponential_app/ui-react"
 import { Button, CodeBlock, CodeBlockContent, Collapsible, CollapsibleContent, CollapsibleTrigger, Prompt, appExtensionCatalog, toast } from "@exp/ui"
 import type { AppPackage } from "@exponential_app/ui"
 import { getDeviceIconName } from "@exp/ui"
-import { boardCollection, deviceCollection, issueCollection, teamCollection } from "@/lib/collections"
+import {
+  appCollection,
+  appRecordCollection,
+  attachmentCollection,
+  boardCollection,
+  commentCollection,
+  deviceCollection,
+  issueCollection,
+  sessionCollection,
+  teamCollection,
+  teamMemberCollection,
+  userCollection,
+} from "@/lib/collections"
+import { parseRecordsQuery, recordsValue, type AppRecordRow } from "@exp/domain-contract/app-records"
+import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { trpc } from "@/lib/trpc-client"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { readinessAgo } from "@/lib/coding-readiness"
 import { readJsonRpcAnswer } from "@/lib/mcp-oauth/json-rpc-reader"
@@ -130,23 +148,148 @@ function devicesSource(_source: ParsedSource, emit: SourceEmit): () => void {
   }
 }
 
-/** `exp:issues?board=<id>&limit=<n>` → `{rows, count}`. */
-function issuesSource(source: ParsedSource, emit: SourceEmit): () => void {
-  const limit = Number(source.params.limit ?? 50)
-  const push = () => {
-    const rows = issueCollection.toArray
-      .filter((i) => !source.params.board || i.boardId === source.params.board)
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-      .slice(0, Number.isFinite(limit) ? limit : 50)
-      .map((i) => ({ id: i.id, identifier: i.identifier, title: i.title, status: i.status }))
-    emit({ rows, count: rows.length })
+const iso = (v: Date | string | null | undefined): string => (v === null || v === undefined ? `` : new Date(v).toISOString())
+const day = (v: Date | string | null | undefined): string | null => (v === null || v === undefined ? null : typeof v === `string` ? v.slice(0, 10) : new Date(v).toISOString().slice(0, 10))
+
+/** VAPP-119: the team's synced rows as the contract's `SourceStore` (the
+ *  fixture's shapes), read off the collections at call time. */
+export function sourceStore(teamId: string | null): SourceStore {
+  const boards = boardCollection.toArray.filter((b) => b.teamId === teamId)
+  const boardIds = new Set(boards.map((b) => b.id))
+  return {
+    boards: boards.map((b) => ({ id: b.id, slug: b.slug, name: b.name, prefix: b.prefix, icon: b.icon ?? null, color: b.color ?? null, sortOrder: b.sortOrder, deletedAt: b.deletedAt ? iso(b.deletedAt) : null })),
+    issues: issueCollection.toArray
+      .filter((i) => boardIds.has(i.boardId))
+      .map((i) => ({
+        id: i.id,
+        boardId: i.boardId,
+        identifier: i.identifier,
+        title: i.title,
+        status: i.status,
+        priority: i.priority ?? null,
+        assigneeId: i.assigneeId ?? null,
+        creatorId: i.creatorId ?? null,
+        dueDate: day(i.dueDate),
+        sortOrder: i.sortOrder,
+        createdAt: iso(i.createdAt),
+        updatedAt: iso(i.updatedAt),
+      })),
+    members: teamMemberCollection.toArray.filter((m) => m.teamId === teamId).map((m) => ({ userId: m.userId, role: m.role })),
+    users: userCollection.toArray.map((u) => ({ id: u.id, name: u.name, email: u.email ?? null, image: u.image ?? null })),
+    sessions: sessionCollection.toArray
+      .filter((x) => x.teamId === teamId)
+      .map((x) => ({
+        id: x.id,
+        parentId: x.parentId ?? null,
+        agentId: x.agentId ?? null,
+        appId: x.appId ?? null,
+        userId: x.userId ?? null,
+        status: x.status,
+        busy: Boolean(x.busy),
+        needsInput: Boolean(x.needsInput),
+        title: x.title ?? null,
+        createdAt: iso(x.createdAt),
+        updatedAt: iso(x.updatedAt),
+      })),
+    comments: commentCollection.toArray
+      .filter((c) => c.teamId === teamId)
+      .map((c) => ({ id: c.id, issueId: c.issueId, authorId: c.authorId ?? null, parentId: c.parentId ?? null, source: String(c.source), body: c.body, createdAt: iso(c.createdAt) })),
+    attachments: attachmentCollection.toArray
+      .filter((a) => a.teamId === teamId)
+      .map((a) => ({
+        id: a.id,
+        issueId: a.issueId ?? null,
+        commentId: a.commentId ?? null,
+        uploaderId: a.uploaderId ?? null,
+        filename: a.filename,
+        contentType: a.contentType,
+        sizeBytes: a.sizeBytes,
+        width: a.width ?? null,
+        height: a.height ?? null,
+        createdAt: iso(a.createdAt),
+      })),
   }
-  const sub = issueCollection.subscribeChanges(push, { includeInitialState: true })
-  // A change subscription alone never starts the shape: an app opened
-  // before any board would bind an empty list for good (VAPP-110).
-  void issueCollection.preload().then(push)
+}
+
+/** The collections a source reads (subscribed for the binding's life). */
+const SOURCE_COLLECTIONS: Record<string, { subscribeChanges: (cb: () => void, o?: { includeInitialState?: boolean }) => { unsubscribe: () => void }; preload: () => Promise<unknown> }[]> = {
+  issues: [issueCollection, boardCollection, userCollection],
+  boards: [boardCollection],
+  members: [teamMemberCollection, userCollection],
+  sessions: [sessionCollection],
+  comments: [commentCollection, issueCollection, boardCollection, userCollection],
+  attachments: [attachmentCollection, issueCollection, boardCollection, userCollection],
+}
+
+/** VAPP-119: `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`,
+ *  `exp:comments`, `exp:attachments` → the fixture's value over the team's
+ *  rows (fixtures/app-sources.json), on every change of the collections the
+ *  source reads; a value equal to the last one is not re-emitted. */
+function teamSource(source: ParsedSource, emit: SourceEmit, scope: RecordsScope): () => void {
+  let last: string | null = null
+  const push = () => {
+    const value = sourceValue(source.name, source.params, sourceStore(scope.teamId), { me: scope.me })
+    const key = JSON.stringify(value)
+    if (key === last) return
+    last = key
+    emit(value)
+  }
+  const collections = SOURCE_COLLECTIONS[source.name] ?? []
+  const subs = collections.map((c) => c.subscribeChanges(push))
+  // A change subscription alone never starts a shape: an app opened before
+  // any board would bind an empty list for good (VAPP-110).
+  void Promise.all(collections.map((c) => c.preload())).then(push)
   push()
-  return () => sub.unsubscribe()
+  return () => subs.forEach((sub) => sub.unsubscribe())
+}
+
+/** The app whose records `exp:records` reads: the hosting app, or (`app=`)
+ *  another app of the same team by slug. */
+export interface RecordsScope {
+  appId: string | null
+  teamId: string | null
+  me: string | null
+}
+
+/** VAPP-122: `exp:records?kind=…` → the fixture's value over the synced
+ *  `app_records` rows of the app (names off the users shape), on every
+ *  change of the records, the users or the apps (an `app=` slug may sync
+ *  later); a value equal to the last one is not re-emitted. */
+function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsScope): () => void {
+  const query = parseRecordsQuery(source.params)
+  let last: string | null = null
+  const push = () => {
+    let appId = scope.appId
+    if (query.app) {
+      const other = appCollection.toArray.find((a) => a.slug === query.app && a.teamId === scope.teamId && !a.deletedAt)
+      appId = other?.id ?? null
+    }
+    const rows: AppRecordRow[] = appId
+      ? appRecordCollection.toArray
+          .filter((r) => r.appId === appId)
+          .map((r) => ({
+            id: r.id,
+            kind: r.kind,
+            data: r.data,
+            createdBy: r.createdBy,
+            createdAt: new Date(r.createdAt).toISOString(),
+            updatedAt: new Date(r.updatedAt).toISOString(),
+          }))
+      : []
+    const names: Record<string, string> = {}
+    for (const row of rows) {
+      if (row.createdBy && !(row.createdBy in names)) names[row.createdBy] = userCollection.toArray.find((u) => u.id === row.createdBy)?.name ?? ``
+    }
+    const value = recordsValue(rows, query, { me: scope.me, now: new Date().toISOString(), names })
+    const key = JSON.stringify(value)
+    if (key === last) return
+    last = key
+    emit(value)
+  }
+  const subs = [appRecordCollection.subscribeChanges(push), userCollection.subscribeChanges(push), appCollection.subscribeChanges(push)]
+  void appRecordCollection.preload().then(push)
+  push()
+  return () => subs.forEach((sub) => sub.unsubscribe())
 }
 
 /** A JSON-RPC `error` reply to `harness.mcp`: the server's message, with
@@ -197,6 +340,10 @@ function issueHref(identifier: string): string | null {
 
 export interface AppHostOptions {
   consent: ConsentGate
+  /** VAPP-122: the hosting app (its records) and the viewer. */
+  appId?: string | null
+  teamId?: string | null
+  me?: string | null
   /** Router navigation for same-origin links and harness.openIssue. */
   navigate: (href: string) => void
   /** harness.openDevice; defaults to a toast with the device's name. */
@@ -220,6 +367,11 @@ export function ownPrivateHosts(origin: string): string[] {
 export function createAppHost(options: AppHostOptions): ExponentialHost {
   const origin = typeof window === `undefined` ? `http://localhost` : window.location.origin
   const allowPrivate = ownPrivateHosts(origin)
+  const scope: RecordsScope = { appId: options.appId ?? null, teamId: options.teamId ?? null, me: options.me ?? null }
+  const appRef = () => {
+    if (!scope.appId) throw new Error(`No app to keep records for`)
+    return { id: scope.appId }
+  }
   return new ExponentialHost({
     transport: options.transport,
     extensions: [appExtensionCatalog],
@@ -227,7 +379,8 @@ export function createAppHost(options: AppHostOptions): ExponentialHost {
     sources: {
       exp: (source, emit) => {
         if (source.name === `devices`) return devicesSource(source, emit)
-        if (source.name === `issues`) return issuesSource(source, emit)
+        if (source.name === `records`) return recordsSource(source, emit, scope)
+        if (APP_SOURCE_KINDS.includes(source.name)) return teamSource(source, emit, scope)
         emit(null)
       },
     },
@@ -244,6 +397,30 @@ export function createAppHost(options: AppHostOptions): ExponentialHost {
       },
       "harness.openDevice": ({ id, label }) => (options.openDevice ? options.openDevice(String(id)) : toast(String(label ?? id ?? ``))),
       "harness.mcp": ({ tool, arguments: args }) => callMcp(String(tool), (args ?? {}) as Record<string, unknown>),
+      // VAPP-122: the app's own rows: no consent card; a refusal (the kind's
+      // schema, the caps, the plan quota) is a failed action = a toast.
+      "harness.records.upsert": async ({ kind, data, id }) => {
+        try {
+          const result = await trpc.apps.records.upsert.mutate(
+            { ...appRef(), kind: String(kind ?? ``), data: (data && typeof data === `object` ? data : {}) as Record<string, unknown>, recordId: typeof id === `string` ? id : undefined },
+            SKIP_ERROR_TOAST
+          )
+          await appRecordCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
+          return { id: result.id }
+        } catch (error) {
+          failedAction(`save`, `the record`, error)
+          throw error
+        }
+      },
+      "harness.records.delete": async ({ id }) => {
+        try {
+          const result = await trpc.apps.records.delete.mutate({ ...appRef(), recordId: String(id ?? ``) }, SKIP_ERROR_TOAST)
+          await appRecordCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
+        } catch (error) {
+          failedAction(`delete`, `the record`, error)
+          throw error
+        }
+      },
     },
     policy: {
       functions: { ask: [`harness.mcp`] },

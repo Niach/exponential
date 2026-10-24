@@ -58,6 +58,11 @@ pub const SURFACE_SETTINGS: &[&str] = &["locale", "timeZone", "strings", "mode",
 pub const SURFACE_FORMATTER: &[&str] = &["number", "currency", "percent", "date", "relativeTime", "plural"];
 pub const SURFACE_COMMANDS: &[&str] = &["focus", "announce", "scrollIntoView", "scrollToIndex"];
 
+/// VAPP-122: how the `bind` action appends its params (`sources.paramsEncoding`).
+pub const SOURCE_PARAMS_ENCODING: &str = "sourceWithParams: keys sorted; key and value percent-encoded (everything but A-Z a-z 0-9 - _ . ! ~ * ' ( )); null skipped; an object or array as JSON; after ? or &";
+/// VAPP-122: a record kind's name (`package.records.kindPattern`).
+pub const RECORD_KIND_PATTERN: &str = "^[a-z][a-z0-9_]{0,31}$";
+
 /// `catalog/host.json` without its `$comment`s, rebuilt from the constants.
 pub fn host_contract() -> Value {
     json!({
@@ -74,10 +79,13 @@ pub fn host_contract() -> Value {
             "defaultSchemes": DEFAULT_MEDIA_SCHEMES,
             "limits": {"maxBytes": MEDIA_MAX_BYTES, "timeoutMs": MEDIA_TIMEOUT_MS, "maxPixels": MEDIA_MAX_PIXELS},
         },
-        "sources": {"pattern": SOURCE_PATTERN},
+        "sources": {"pattern": SOURCE_PATTERN, "paramsEncoding": SOURCE_PARAMS_ENCODING},
         "transport": {"mcpMimeTypes": MCP_MIME_TYPES, "mcpActionTool": MCP_ACTION_TOOL, "sseEvents": SSE_EVENTS},
         "negotiation": {},
-        "package": {"required": PACKAGE_REQUIRED},
+        "package": {
+            "required": PACKAGE_REQUIRED,
+            "records": {"kindPattern": RECORD_KIND_PATTERN, "reserved": super::records::RECORD_RESERVED_KEYS, "types": super::records::RECORD_FIELD_TYPES, "formats": super::records::RECORD_FORMATS},
+        },
         "paint": {"hook": PAINT_ERROR_HOOK, "errorCode": RENDER_FAILED},
         "surface": {"settings": SURFACE_SETTINGS, "formatter": SURFACE_FORMATTER, "commands": SURFACE_COMMANDS},
     })

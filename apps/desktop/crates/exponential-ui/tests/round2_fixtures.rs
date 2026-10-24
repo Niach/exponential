@@ -44,6 +44,11 @@ fn animations_json_timing_frames_reduced_motion_and_css_per_theme() {
 }
 
 #[test]
+fn pointer_json_a_landed_write_reads_back() {
+    all_pass("pointer", round2::pointer_cases(), 16);
+}
+
+#[test]
 fn the_kitchen_sinks_list_template_renders_only_per_item() {
     let expanded = support::fixture("kitchen-sink.expanded.json");
     let templates: Vec<&String> = expanded["templates"].as_object().unwrap().keys().collect();

@@ -41,6 +41,8 @@ import {
   supportedCatalogIds,
   tryLoadTheme,
   validatePackage,
+  validateRecord,
+  sourceWithParams,
   DEFAULT_STRINGS,
   animationFrame,
   displayString,
@@ -48,6 +50,7 @@ import {
   scrollOffsetForIndex,
   tableRowKeys,
   tokenizeCode,
+  writePointer,
   keyframesCss,
   resolveStyleValues,
   styleToCss,
@@ -55,7 +58,7 @@ import {
 import type { ChildTemplate, Decoded, ExtensionDef, FlatComponent, ModeName, NestedNode, UiNode, AppPackage } from "../src/index"
 import { conformanceManifest } from "../src/conformance"
 import type { ConformanceReport } from "../src/conformance"
-import { BASE_CSS, CLIENT_FUNCTIONS, LITERAL_ROWS_ROOT, absolutePath, bindTree, isBinding, memoFormatter, resolveNodeProps, resolveValue, setPointer, type DataModel, type ResolveContext } from "../src/web/index"
+import { BASE_CSS, CLIENT_FUNCTIONS, LITERAL_ROWS_ROOT, absolutePath, bindTree, getPointer, isBinding, memoFormatter, resolveNodeProps, resolveValue, setPointer, type DataModel, type ResolveContext } from "../src/web/index"
 import { launchChromium, openPage, pageUrl, type Query, type WebHarness } from "./browser-page"
 
 /** The renderer-side functions the pure suites run (everything else is the
@@ -309,11 +312,13 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       for (const c of p.urls) record(`host-policy`, `url: ${c.name}`, () => canon(decideUrl(c.policy, c.url)) === canon(c.expected))
       for (const c of p.media) record(`host-policy`, `media: ${c.name}`, () => canon(mediaRequest(c.url, c.options)) === canon(c.expected))
       for (const c of p.sources) record(`host-policy`, `source: ${c.uri}`, () => canon(parseSource(c.uri)) === canon(c.expected))
+      for (const c of p.sourceParams) record(`host-policy`, `sourceParams: ${c.expected}`, () => sourceWithParams(c.source, c.params) === c.expected)
       for (const c of p.negotiation)
         record(`host-policy`, `negotiation: ${c.extensionIds.length}`, () => canon(supportedCatalogIds(c.extensionIds)) === canon(c.expected.supportedCatalogIds) && canon(clientCapabilities(c.extensionIds)) === canon(c.expected.clientCapabilities))
       const r = fixture(`host-router.json`)
       const packages = r.packages as Record<string, AppPackage>
       for (const v of r.validation) record(`host-router`, `validation: ${v.package}`, () => canon(validatePackage(packages[v.package])) === canon(v.expected))
+      for (const c of r.records) record(`host-router`, `records: ${c.name}`, () => canon(validateRecord(packages[c.package]!.records![c.kind]!.schema, c.data)) === canon(c.expected))
       for (const flow of r.flows as { name: string; extensionIds?: string[]; packages?: string[]; installIssues?: Record<string, unknown>; steps: { message: unknown; expected: unknown }[] }[])
         record(`host-router`, `flow: ${flow.name}`, () => {
           const router = new HostRouter({ extensionIds: flow.extensionIds ?? [] })
@@ -332,7 +337,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
     // calls the core directly (tokenizeCode, the
     // reducer, tableRowKeys, an arbitrary scrollTo inset, the animation
     // frames) the core replay stands in, said per line.
-    await block(`bind, code-tokens (the renderer's bind pass and action runner)`, () => {
+    await block(`bind, code-tokens, pointer (the renderer's bind pass and action runner)`, () => {
       const strings = DEFAULT_STRINGS as Readonly<Record<string, string>>
       const formatter = memoFormatter(intlFormatter(`en-US`, `UTC`))
       const rctx = (data: unknown, scope = ``): ResolveContext => ({ data, scope, strings, locale: `en-US`, formatter, functions: CLIENT_FUNCTIONS })
@@ -385,6 +390,17 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
         })
       // The CodeBlock painter calls the core tokenizer.
       for (const c of fixture(`code-tokens.json`).cases as { name: string; language: string; code: string; expected: unknown }[]) record(`code-tokens`, c.name, () => canon(tokenizeCode(c.code, c.language)) === canon(c.expected))
+      // EXP-1385: the renderer's data writes (the core's writePointer behind
+      // setPointer) and its binding reads (getPointer).
+      const pointers = fixture(`pointer.json`) as { writes: { name: string; data: unknown; pointer: string; value?: unknown; expected?: unknown; read?: unknown; error?: string }[]; reads: { name: string; data: unknown; pointer: string; expected?: unknown }[] }
+      for (const c of pointers.writes)
+        record(`pointer`, `write: ${c.name}`, () => {
+          const before = canon(c.data)
+          const w = writePointer(c.data, c.pointer, c.value)
+          if (c.error !== undefined) return w.error === c.error && canon(w.data) === before ? true : `${w.error} ${canon(w.data)}`
+          return w.error === undefined && canon(w.data) === canon(c.expected) && canon(getPointer(w.data, c.pointer)) === canon(c.read) ? true : `${canon(w.data)} / read ${canon(getPointer(w.data, c.pointer))}`
+        })
+      for (const c of pointers.reads) record(`pointer`, `read: ${c.name}`, () => canon(getPointer(c.data, c.pointer)) === canon(c.expected))
     })
 
     await block(`style-conditions: the compiled CSS in Chromium (hover: none = a touch context)`, async () => {

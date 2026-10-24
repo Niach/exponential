@@ -46,6 +46,9 @@ final class AppsTests: XCTestCase {
             "deleteBody": Apps.Copy.deleteBody, "delete": Apps.Copy.delete,
             "openEditor": Apps.Copy.openEditor, "settingsTitle": Apps.Copy.settingsTitle,
             "dockToSide": Apps.Copy.dockToSide, "float": Apps.Copy.float, "working": Apps.Copy.working,
+            "records": Apps.Copy.records,
+            "recordsOne": Apps.Copy.recordsOne, "recordsOf": Apps.Copy.recordsOf,
+            "recordsNone": Apps.Copy.recordsNone,
         ]
         // Every string key of `copy`, both ways.
         let strings = copy.compactMapValues { $0 as? String }
@@ -91,6 +94,9 @@ final class AppsTests: XCTestCase {
         XCTAssertEqual(apps["packageMaxBytes"] as? Int, Apps.packageMaxBytes)
         XCTAssertEqual(apps["templateMaxComponents"] as? Int, Apps.templateMaxComponents)
         XCTAssertEqual(apps["slugPattern"] as? String, Apps.slugPattern)
+        XCTAssertEqual(apps["kindPattern"] as? String, Apps.kindPattern)
+        XCTAssertEqual(apps["recordMaxBytes"] as? Int, Apps.recordMaxBytes)
+        XCTAssertEqual(apps["recordKindsMax"] as? Int, Apps.recordKindsMax)
     }
 
     func testSlugifyCases() throws {
@@ -145,7 +151,7 @@ final class AppsTests: XCTestCase {
         XCTAssertNil(Apps.firstTemplateId(packageJSON: "not json"))
     }
 
-    // MARK: - exp: sources (web `devicesValue` / `issuesSource`)
+    // MARK: - exp: sources (web `devicesValue`; the rest: AppSourcesTests)
 
     func testDevicesValueDerivesLikeTheWebHost() {
         let now = Date(timeIntervalSince1970: 1_760_000_000)
@@ -166,23 +172,5 @@ final class AppsTests: XCTestCase {
         XCTAssertEqual(value.rows[1].tone, "idle")
         XCTAssertEqual(value.rows[1].discTone, "muted")
         XCTAssertEqual(value.rows[2].status, "Offline")
-    }
-
-    func testIssuesValueFiltersSortsAndCaps() {
-        let issues: [AppHostSources.IssueInput] = [
-            .init(id: "3", identifier: "FB-3", title: "c", status: "todo", boardId: "b1", sortOrder: 3),
-            .init(id: "1", identifier: "FB-1", title: "a", status: "backlog", boardId: "b1", sortOrder: 1),
-            .init(id: "x", identifier: "OT-1", title: "x", status: "done", boardId: "b2", sortOrder: 0),
-            .init(id: "2", identifier: "FB-2", title: "b", status: "in_progress", boardId: "b1", sortOrder: 2),
-        ]
-        let value = AppHostSources.issuesValue(issues, board: "b1", limit: "2")
-        XCTAssertEqual(value.rows.map(\.identifier), ["FB-1", "FB-2"])
-        XCTAssertEqual(value.count, 2)
-        XCTAssertEqual(AppHostSources.issuesValue(issues, board: nil, limit: nil).rows.map(\.id), ["x", "1", "2", "3"])
-        XCTAssertEqual(AppHostSources.issuesValue(issues, board: "b1", limit: "nope").count, 3)
-        XCTAssertEqual(
-            AppHostSources.json(AppHostSources.issuesValue([issues[1]], board: nil, limit: nil)),
-            #"{"count":1,"rows":[{"id":"1","identifier":"FB-1","status":"backlog","title":"a"}]}"#
-        )
     }
 }

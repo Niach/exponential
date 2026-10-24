@@ -7288,6 +7288,18 @@ public func runActionJson(actionJson: String, dataJson: String, scope: String, s
 })
 }
 /**
+ * VAPP-122: `source` with `params` (a JSON object, or null) appended as
+ * its query, for the `bind` action (`sourceWithParams`).
+ */
+public func sourceWithParamsJson(source: String, paramsJson: String?) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_source_with_params_json(
+        FfiConverterString.lower(source),
+        FfiConverterOptionString.lower(paramsJson),$0
+    )
+})
+}
+/**
  * The built-in strings with `overrides_json` merged over them.
  */
 public func stringTableJson(overridesJson: String?)throws  -> String  {
@@ -7374,6 +7386,18 @@ public func validatePackageJson(packageJson: String, catalogIds: [String]?)throw
     uniffi_exponential_ui_ffi_fn_func_validate_package_json(
         FfiConverterString.lower(packageJson),
         FfiConverterOptionSequenceString.lower(catalogIds),$0
+    )
+})
+}
+/**
+ * VAPP-122: a record (JSON) against its kind's schema (JSON): the issues
+ * `[{path, message}]` as JSON.
+ */
+public func validateRecordJson(schemaJson: String, dataJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_validate_record_json(
+        FfiConverterString.lower(schemaJson),
+        FfiConverterString.lower(dataJson),$0
     )
 })
 }
@@ -7567,6 +7591,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_run_action_json() != 39985) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_source_with_params_json() != 2808) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_string_table_json() != 50623) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7589,6 +7616,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_validate_package_json() != 13412) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_validate_record_json() != 49853) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_validate_style_json() != 34628) {

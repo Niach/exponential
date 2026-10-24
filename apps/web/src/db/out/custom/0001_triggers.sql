@@ -104,6 +104,10 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON agents FOR EACH ROW
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON prompts FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 -- VAPP-110: apps (rename, a new head version, trash).
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON apps FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- VAPP-122: an app's records; the app's trash mirror is bookkeeping.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON app_records FOR EACH ROW
+  WHEN (NEW.app_deleted_at IS NOT DISTINCT FROM OLD.app_deleted_at)
+  EXECUTE FUNCTION update_updated_at();
 -- NEW-3: conversations.
 -- #EXP-1380: a digest-only write (the trigger below) is no edit of the row.
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON conversations FOR EACH ROW WHEN (OLD.digest IS NOT DISTINCT FROM NEW.digest) EXECUTE FUNCTION update_updated_at();
@@ -742,6 +746,38 @@ CREATE OR REPLACE TRIGGER propagate_board_deleted_at
   FOR EACH ROW
   WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
   EXECUTE FUNCTION propagate_board_deleted_at();
+
+-- VAPP-122: app records mirror their app's trash (`app_deleted_at`), the
+-- app-records shape's static predicate: a trashed app's records leave every
+-- client; a restore brings them back. A new record copies the mirror on
+-- insert (a write into a trashed app stays invisible).
+CREATE OR REPLACE FUNCTION propagate_app_deleted_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE app_records SET app_deleted_at = NEW.deleted_at
+    WHERE app_id = NEW.id AND app_deleted_at IS DISTINCT FROM NEW.deleted_at;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER propagate_app_deleted_at
+  AFTER UPDATE ON apps
+  FOR EACH ROW
+  WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION propagate_app_deleted_at();
+
+CREATE OR REPLACE FUNCTION populate_app_record_mirror()
+RETURNS TRIGGER AS $$
+BEGIN
+  SELECT deleted_at INTO NEW.app_deleted_at FROM apps WHERE id = NEW.app_id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER populate_app_record_mirror
+  BEFORE INSERT ON app_records
+  FOR EACH ROW
+  EXECUTE FUNCTION populate_app_record_mirror();
 
 -- 9b. The same fan-out for archive/unarchive (EXP-500). Archiving is trash
 --     WITHOUT the purge: an archived board and all of its history leave every

@@ -38,6 +38,8 @@
     "./stack": "./src/stack.ts",
     "./plan-card": "./src/plan-card.ts",
     "./apps": "./src/apps.ts",
+    "./app-records": "./src/app-records.ts",
+    "./app-sources": "./src/app-sources.ts",
     "./fixtures/*": "./fixtures/*"
   }
 }

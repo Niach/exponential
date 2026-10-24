@@ -10,7 +10,14 @@
 //!   with the signed-in account's credentials, `api::TrpcClient::post_json`);
 //! - bindings: the `exp:` scheme over the synced store (`exp:devices` →
 //!   `{rows, count, online}`, derived exactly as the web derives it;
-//!   `exp:issues?board=…&limit=…` → `{rows, count}`);
+//!   VAPP-119 `exp:issues` / `exp:boards` / `exp:members` / `exp:sessions`
+//!   / `exp:comments` / `exp:attachments` →
+//!   `domain::app_sources::source_value` over the scope team's synced rows;
+//!   VAPP-122 `exp:records?kind=…` → `domain::app_records::records_value`
+//!   over the hosting app's synced `app_records` rows, [`HostScope`]);
+//! - VAPP-122 `harness.records.upsert {kind, data, id?}` and
+//!   `harness.records.delete {id}` (tRPC `apps.records.*` as the viewer, no
+//!   consent card: the app's own rows; a refusal = a failed-action toast);
 //! - extensions: the app extension (`packages/ui/exponential-ui/extension.json`)
 //!   with gpui painters for its `IconDisc` and `LiveDot` natives and
 //!   (VAPP-110) a team app's own package ([`IdeHost::with_packages`], the
@@ -25,7 +32,7 @@
 //! value moves.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::time::Duration;
@@ -136,33 +143,6 @@ pub(crate) fn devices_value<'a>(
     json!({ "count": rows.len(), "online": online, "rows": rows })
 }
 
-/// One issue as `exp:issues` needs it (cached off the store).
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct IssueLite {
-    pub(crate) id: String,
-    pub(crate) identifier: String,
-    pub(crate) title: String,
-    pub(crate) status: Value,
-    pub(crate) board_id: String,
-    pub(crate) sort_order: f64,
-}
-
-/// `exp:issues?board=<id>&limit=<n>` → `{rows, count}` (sort order, the
-/// web's default limit 50).
-pub(crate) fn issues_value(issues: &[IssueLite], board: Option<&str>, limit: usize) -> Value {
-    let mut picked: Vec<&IssueLite> = issues
-        .iter()
-        .filter(|i| board.is_none_or(|b| i.board_id == b))
-        .collect();
-    picked.sort_by(|a, b| a.sort_order.total_cmp(&b.sort_order));
-    let rows: Vec<Value> = picked
-        .into_iter()
-        .take(limit)
-        .map(|i| json!({"id": i.id, "identifier": i.identifier, "title": i.title, "status": i.status}))
-        .collect();
-    json!({ "count": rows.len(), "rows": rows })
-}
-
 // ---------------------------------------------------------------------------
 // The `exp:` source over the store
 // ---------------------------------------------------------------------------
@@ -170,7 +150,100 @@ pub(crate) fn issues_value(issues: &[IssueLite], board: Option<&str>, limit: usi
 #[derive(Clone, Debug, PartialEq)]
 enum Query {
     Devices,
-    Issues { board: Option<String>, limit: usize },
+    /// VAPP-119 `exp:<name>?…` for a `domain::app_sources` name.
+    Source { name: String, params: BTreeMap<String, String> },
+    /// VAPP-122 `exp:records?kind=…`.
+    Records(domain::app_records::RecordsQuery),
+}
+
+/// VAPP-122: the app a host keeps records for (`exp:records`, the
+/// `harness.records.*` writes): the hosting app and its team (an `app=`
+/// slug reads another app of the SAME team).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct HostScope {
+    pub(crate) app_id: String,
+    pub(crate) team_id: Option<String>,
+}
+
+/// One synced `app_records` row as the cache holds it (timestamps as the
+/// web's `toISOString`).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RecordLite {
+    pub(crate) id: String,
+    pub(crate) app_id: String,
+    pub(crate) kind: String,
+    pub(crate) data: Value,
+    pub(crate) created_by: Option<String>,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+}
+
+/// One live app (`id`, `slug`, `team_id`): an `app=<slug>` lookup.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AppLite {
+    pub(crate) id: String,
+    pub(crate) slug: String,
+    pub(crate) team_id: Option<String>,
+}
+
+/// VAPP-119: the sources side of the snapshot cache: the scope team's rows
+/// (none without a team) and the viewer.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct SourcesFeed {
+    pub(crate) store: domain::app_sources::SourceStore,
+    pub(crate) me: Option<String>,
+}
+
+/// The records side of the snapshot cache.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct RecordsFeed {
+    pub(crate) scope: Option<HostScope>,
+    pub(crate) me: Option<String>,
+    pub(crate) records: Vec<RecordLite>,
+    pub(crate) apps: Vec<AppLite>,
+    /// user id → display name.
+    pub(crate) names: HashMap<String, String>,
+}
+
+/// A store timestamp (RFC 3339 or the Postgres text form) → the web's
+/// `toISOString` (`2026-10-05T18:00:00.000Z`); unparsable = as is.
+pub(crate) fn iso_millis(timestamp: &str) -> String {
+    let trimmed = timestamp.trim();
+    let t_form = trimmed.replacen(' ', "T", 1);
+    [trimmed.to_string(), t_form.clone(), format!("{t_form}:00"), format!("{t_form}Z")]
+        .iter()
+        .find_map(|c| chrono::DateTime::parse_from_rfc3339(c).ok())
+        .map(|t| t.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+        .unwrap_or_else(|| trimmed.to_string())
+}
+
+/// `exp:records` over the cache: the scope's app (or the `app=` slug of the
+/// same team), names of the rows' authors, the clock = `now`.
+pub(crate) fn records_feed_value(feed: &RecordsFeed, query: &domain::app_records::RecordsQuery, now: &str) -> Value {
+    let scope = feed.scope.as_ref();
+    let app_id: Option<&str> = match &query.app {
+        Some(slug) => feed
+            .apps
+            .iter()
+            .find(|a| &a.slug == slug && scope.is_some_and(|s| a.team_id == s.team_id))
+            .map(|a| a.id.as_str()),
+        None => scope.map(|s| s.app_id.as_str()),
+    };
+    let rows: Vec<domain::app_records::RecordRowInput> = feed
+        .records
+        .iter()
+        .filter(|r| app_id.is_some_and(|id| r.app_id == id))
+        .map(|r| domain::app_records::RecordRowInput {
+            id: &r.id,
+            kind: &r.kind,
+            data: &r.data,
+            created_by: r.created_by.as_deref(),
+            created_at: &r.created_at,
+            updated_at: &r.updated_at,
+        })
+        .collect();
+    let ctx = domain::app_records::RecordsContext { me: feed.me.as_deref(), now, names: &feed.names };
+    domain::app_records::records_value(&rows, query, ctx).unwrap_or(Value::Null)
 }
 
 struct Sub {
@@ -183,7 +256,8 @@ struct Sub {
 /// The snapshot cache the resolver reads (it gets no `App`).
 struct Feeds {
     devices: Value,
-    issues: Vec<IssueLite>,
+    sources: SourcesFeed,
+    records: RecordsFeed,
     subs: Vec<Sub>,
     next: u64,
 }
@@ -193,7 +267,8 @@ impl Default for Feeds {
     fn default() -> Self {
         Feeds {
             devices: json!({"rows": [], "count": 0, "online": 0}),
-            issues: Vec::new(),
+            sources: SourcesFeed::default(),
+            records: RecordsFeed::default(),
             subs: Vec::new(),
             next: 0,
         }
@@ -204,7 +279,10 @@ impl Feeds {
     fn value_for(&self, query: &Query) -> Value {
         match query {
             Query::Devices => self.devices.clone(),
-            Query::Issues { board, limit } => issues_value(&self.issues, board.as_deref(), *limit),
+            Query::Source { name, params } => {
+                domain::app_sources::source_value(name, params, &self.sources.store, self.sources.me.as_deref())
+            }
+            Query::Records(query) => records_feed_value(&self.records, query, &now_iso()),
         }
     }
 
@@ -220,17 +298,18 @@ impl Feeds {
     }
 }
 
+/// The clock `exp:records` reads (the month view's default month, `today`).
+fn now_iso() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
 fn query_of(source: &ParsedSource) -> Option<Query> {
     match source.name.as_str() {
+        "records" => Some(Query::Records(domain::app_records::parse_records_query(&source.params))),
         "devices" => Some(Query::Devices),
-        "issues" => Some(Query::Issues {
-            board: source.params.get("board").cloned().filter(|b| !b.is_empty()),
-            limit: source
-                .params
-                .get("limit")
-                .and_then(|l| l.parse::<usize>().ok())
-                .unwrap_or(50),
-        }),
+        name if domain::app_sources::is_source(name) => {
+            Some(Query::Source { name: name.to_string(), params: source.params.clone() })
+        }
         _ => None,
     }
 }
@@ -268,25 +347,226 @@ fn refresh_devices(feeds: &Rc<RefCell<Feeds>>, cx: &App) {
     f.publish();
 }
 
-fn refresh_issues(feeds: &Rc<RefCell<Feeds>>, cx: &App) {
-    let Some(store) = sync::Store::try_global(cx) else { return };
-    let issues: Vec<IssueLite> = store
+/// VAPP-119: which part of the sources store a collection move rebuilds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SourcePart {
+    /// Boards and issues (and the comments / attachments of those issues).
+    Issues,
+    Members,
+    Users,
+    Sessions,
+    Comments,
+    Attachments,
+}
+
+/// A store row's timestamp as the web's `toISOString` (missing = empty).
+fn iso_of(timestamp: Option<&str>) -> String {
+    timestamp.map(iso_millis).unwrap_or_default()
+}
+
+fn wire<T: serde::Serialize>(value: &T) -> Option<String> {
+    serde_json::to_value(value).ok().and_then(|v| v.as_str().map(str::to_string))
+}
+
+fn source_comments(store: &sync::Store, issues: &HashSet<&str>, cx: &App) -> Vec<domain::app_sources::SourceComment> {
+    store
         .collections()
-        .issues
+        .comments
         .read(cx)
         .iter()
-        .map(|i| IssueLite {
-            id: i.id.clone(),
-            identifier: i.identifier.clone(),
-            title: i.title.clone(),
-            status: serde_json::to_value(&i.status).unwrap_or(Value::Null),
-            board_id: i.board_id.clone(),
-            sort_order: i.sort_order.unwrap_or(0.),
+        .filter(|c| issues.contains(c.issue_id.as_str()))
+        .map(|c| domain::app_sources::SourceComment {
+            id: c.id.clone(),
+            issue_id: c.issue_id.clone(),
+            author_id: c.author_id.clone(),
+            parent_id: c.parent_id.clone(),
+            source: c.source.clone().unwrap_or_else(|| "user".into()),
+            body: c.body.clone().unwrap_or_default(),
+            created_at: iso_of(c.created_at.as_deref()),
+        })
+        .collect()
+}
+
+fn source_attachments(
+    store: &sync::Store,
+    issues: &HashSet<&str>,
+    cx: &App,
+) -> Vec<domain::app_sources::SourceAttachment> {
+    store
+        .collections()
+        .attachments
+        .read(cx)
+        .iter()
+        .filter(|a| a.issue_id.as_deref().is_some_and(|i| issues.contains(i)))
+        .map(|a| domain::app_sources::SourceAttachment {
+            id: a.id.clone(),
+            issue_id: a.issue_id.clone(),
+            comment_id: a.comment_id.clone(),
+            uploader_id: a.uploader_id.clone(),
+            filename: a.filename.clone().unwrap_or_default(),
+            content_type: a.content_type.clone().unwrap_or_default(),
+            size_bytes: a.size_bytes.unwrap_or(0),
+            width: a.width,
+            height: a.height,
+            created_at: iso_of(a.created_at.as_deref()),
+        })
+        .collect()
+}
+
+/// VAPP-119: rebuild `part` of the sources store off the IDE store for the
+/// scope's team (no team = no rows), re-published only on a move.
+fn refresh_sources(feeds: &Rc<RefCell<Feeds>>, part: SourcePart, cx: &App) {
+    use domain::app_sources as src;
+    let Some(store) = sync::Store::try_global(cx) else { return };
+    let collections = store.collections();
+    let team = feeds.borrow().records.scope.as_ref().and_then(|s| s.team_id.clone());
+    let mut next = feeds.borrow().sources.clone();
+    next.me = crate::queries::active_account(cx).map(|a| a.user_id);
+    match part {
+        SourcePart::Issues => {
+            next.store.boards = collections
+                .boards
+                .read(cx)
+                .iter()
+                .filter(|b| team.as_deref() == Some(b.team_id.as_str()))
+                .map(|b| src::SourceBoard {
+                    id: b.id.clone(),
+                    slug: b.slug.clone().unwrap_or_default(),
+                    name: b.name.clone(),
+                    prefix: b.prefix.clone().unwrap_or_default(),
+                    icon: b.icon.clone(),
+                    color: b.color.clone(),
+                    sort_order: b.sort_order.unwrap_or(0.),
+                    // The synced shape leaves the trash behind.
+                    deleted_at: None,
+                })
+                .collect();
+            let boards: HashSet<&str> = next.store.boards.iter().map(|b| b.id.as_str()).collect();
+            next.store.issues = collections
+                .issues
+                .read(cx)
+                .iter()
+                .filter(|i| boards.contains(i.board_id.as_str()))
+                .map(|i| src::SourceIssue {
+                    id: i.id.clone(),
+                    board_id: i.board_id.clone(),
+                    identifier: i.identifier.clone(),
+                    title: i.title.clone(),
+                    status: wire(&i.status).unwrap_or_default(),
+                    priority: wire(&i.priority),
+                    assignee_id: i.assignee_id.clone(),
+                    creator_id: i.creator_id.clone(),
+                    due_date: i.due_date.clone(),
+                    sort_order: i.sort_order.unwrap_or(0.),
+                    created_at: iso_of(i.created_at.as_deref()),
+                    updated_at: iso_of(i.updated_at.as_deref()),
+                })
+                .collect();
+            let issues: HashSet<&str> = next.store.issues.iter().map(|i| i.id.as_str()).collect();
+            let comments = source_comments(store, &issues, cx);
+            let attachments = source_attachments(store, &issues, cx);
+            next.store.comments = comments;
+            next.store.attachments = attachments;
+        }
+        SourcePart::Comments => {
+            let issues: HashSet<&str> = next.store.issues.iter().map(|i| i.id.as_str()).collect();
+            let comments = source_comments(store, &issues, cx);
+            next.store.comments = comments;
+        }
+        SourcePart::Attachments => {
+            let issues: HashSet<&str> = next.store.issues.iter().map(|i| i.id.as_str()).collect();
+            let attachments = source_attachments(store, &issues, cx);
+            next.store.attachments = attachments;
+        }
+        SourcePart::Members => {
+            next.store.members = collections
+                .team_members
+                .read(cx)
+                .iter()
+                .filter(|m| team.as_deref() == Some(m.team_id.as_str()))
+                .map(|m| src::SourceMember { user_id: m.user_id.clone(), role: m.role.clone().unwrap_or_default() })
+                .collect();
+        }
+        SourcePart::Users => {
+            // Every synced user: a former member still names their rows.
+            next.store.users = collections
+                .users
+                .read(cx)
+                .iter()
+                .map(|u| src::SourceUser {
+                    id: u.id.clone(),
+                    name: u.name.clone().unwrap_or_default(),
+                    email: u.email.clone(),
+                    image: u.image.clone(),
+                })
+                .collect();
+        }
+        SourcePart::Sessions => {
+            next.store.sessions = collections
+                .sessions
+                .read(cx)
+                .iter()
+                .filter(|s| team.is_some() && s.team_id == team)
+                .map(|s| src::SourceSession {
+                    id: s.id.clone(),
+                    parent_id: s.parent_id.clone(),
+                    agent_id: s.agent_id.clone(),
+                    app_id: s.app_id.clone(),
+                    user_id: s.user_id.clone(),
+                    status: s.status.clone().unwrap_or_default(),
+                    busy: s.busy,
+                    needs_input: s.needs_input,
+                    title: s.title.clone(),
+                    created_at: iso_of(s.created_at.as_deref()),
+                    updated_at: iso_of(s.updated_at.as_deref()),
+                })
+                .collect();
+        }
+    }
+    let mut f = feeds.borrow_mut();
+    if f.sources != next {
+        f.sources = next;
+        f.publish();
+    }
+}
+
+/// VAPP-122: the records, the live apps and the members' names off the
+/// store (one refresh for the three collections), re-published on a move.
+fn refresh_records(feeds: &Rc<RefCell<Feeds>>, cx: &App) {
+    let Some(store) = sync::Store::try_global(cx) else { return };
+    let collections = store.collections();
+    let records: Vec<RecordLite> = collections
+        .app_records
+        .read(cx)
+        .iter()
+        .map(|r| RecordLite {
+            id: r.id.clone(),
+            app_id: r.app_id.clone(),
+            kind: r.kind.clone(),
+            data: r.data.clone(),
+            created_by: r.created_by.clone(),
+            created_at: iso_millis(r.created_at.as_deref().unwrap_or("")),
+            updated_at: iso_millis(r.updated_at.as_deref().unwrap_or("")),
         })
         .collect();
+    let apps: Vec<AppLite> = collections
+        .apps
+        .read(cx)
+        .iter()
+        .filter(|a| a.deleted_at.is_none())
+        .map(|a| AppLite { id: a.id.clone(), slug: a.slug.clone(), team_id: a.team_id.clone() })
+        .collect();
+    let names: HashMap<String, String> = collections
+        .users
+        .read(cx)
+        .iter()
+        .map(|u| (u.id.clone(), u.name.clone().unwrap_or_default()))
+        .collect();
+    let me = crate::queries::active_account(cx).map(|a| a.user_id);
     let mut f = feeds.borrow_mut();
-    if f.issues != issues {
-        f.issues = issues;
+    let next = RecordsFeed { scope: f.records.scope.clone(), me, records, apps, names };
+    if f.records != next {
+        f.records = next;
         f.publish();
     }
 }
@@ -366,6 +646,70 @@ fn open_device_fn() -> HostFunction {
             crate::toast::show_in_active_window(Toast::info(if label.is_empty() { id } else { label }), cx);
         }
         Ok(Value::Null)
+    })
+}
+
+/// VAPP-122: a `harness.records.*` write on the background executor; a
+/// refusal (the kind's schema, the caps, the plan quota) toasts the web's
+/// failed action (`Couldn't <verb> the record`) and rejects the call. The
+/// synced shape repaints the binding.
+fn records_write<T: Send + 'static>(
+    verb: &'static str,
+    scope: Option<HostScope>,
+    cx: &mut App,
+    call: impl FnOnce(&api::TrpcClient, &str) -> Result<T, api::ApiError> + Send + 'static,
+    answer: impl FnOnce(T) -> Value + 'static,
+) -> Task<Result<Value, String>> {
+    let (Some(scope), Some(trpc)) = (scope, crate::queries::trpc_client(cx)) else {
+        crate::action_error::failed_action(verb, "the record", None, cx);
+        return Task::ready(Err("No app to keep records for".to_string()));
+    };
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { call(&trpc, &scope.app_id) })
+            .await;
+        match result {
+            Ok(out) => Ok(answer(out)),
+            Err(err) => {
+                let message = err.to_string();
+                let _ = cx.update(|cx| crate::action_error::failed_action_err(verb, "the record", &err, cx));
+                Err(message)
+            }
+        }
+    })
+}
+
+fn records_upsert_fn(scope: Option<HostScope>) -> HostFunction {
+    Rc::new(move |args: Value, _: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
+        let kind = arg_str(&args, "kind");
+        let data = args.get("data").cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
+        let record_id = args.get("id").and_then(Value::as_str).map(str::to_string);
+        records_write(
+            "save",
+            scope.clone(),
+            cx,
+            move |trpc, app_id| {
+                api::apps::records_upsert(
+                    trpc,
+                    &api::apps::RecordUpsertInput { id: app_id.to_string(), kind, data, record_id },
+                )
+            },
+            |out| json!({ "id": out.id }),
+        )
+    })
+}
+
+fn records_delete_fn(scope: Option<HostScope>) -> HostFunction {
+    Rc::new(move |args: Value, _: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
+        let record_id = arg_str(&args, "id");
+        records_write(
+            "delete",
+            scope.clone(),
+            cx,
+            move |trpc, app_id| api::apps::records_delete(trpc, app_id, &record_id),
+            |_| Value::Null,
+        )
     })
 }
 
@@ -661,21 +1005,57 @@ pub(crate) struct IdeHost {
 impl IdeHost {
     /// VAPP-110: the host with `packages` installed (a team app's package,
     /// the editor's preview) and the package's
-    /// `theme` (the default theme when `None` or unknown).
-    pub(crate) fn with_packages(mode: Mode, packages: &[Value], theme_id: Option<&str>, cx: &mut App) -> Self {
+    /// `theme` (the default theme when `None` or unknown). VAPP-122:
+    /// `scope` = the app whose records `exp:records` reads and
+    /// `harness.records.*` write (`None` = no app: the binding reads no
+    /// rows, a write fails).
+    pub(crate) fn with_packages(
+        mode: Mode,
+        packages: &[Value],
+        theme_id: Option<&str>,
+        scope: Option<HostScope>,
+        cx: &mut App,
+    ) -> Self {
         let feeds = Rc::new(RefCell::new(Feeds::default()));
+        feeds.borrow_mut().records.scope = scope.clone();
         refresh_devices(&feeds, cx);
-        refresh_issues(&feeds, cx);
+        for part in [
+            SourcePart::Issues,
+            SourcePart::Members,
+            SourcePart::Users,
+            SourcePart::Sessions,
+        ] {
+            refresh_sources(&feeds, part, cx);
+        }
+        refresh_records(&feeds, cx);
         let mut subscriptions = Vec::new();
         if let Some(store) = sync::Store::try_global(cx) {
-            let (devices, issues) = (
-                store.collections().devices.clone(),
-                store.collections().issues.clone(),
-            );
+            let collections = store.collections().clone();
+            let devices = collections.devices.clone();
+            let (records, apps, users) =
+                (collections.app_records.clone(), collections.apps.clone(), collections.users.clone());
             let f = feeds.clone();
             subscriptions.push(cx.observe(&devices, move |_, cx| refresh_devices(&f, cx)));
+            // VAPP-119: each collection rebuilds the sources part it feeds.
+            macro_rules! observe_part {
+                ($entity:expr, $part:expr) => {{
+                    let f = feeds.clone();
+                    subscriptions.push(cx.observe(&$entity, move |_, cx| refresh_sources(&f, $part, cx)));
+                }};
+            }
+            observe_part!(collections.boards, SourcePart::Issues);
+            observe_part!(collections.issues, SourcePart::Issues);
+            observe_part!(collections.team_members, SourcePart::Members);
+            observe_part!(collections.users, SourcePart::Users);
+            observe_part!(collections.sessions, SourcePart::Sessions);
+            observe_part!(collections.comments, SourcePart::Comments);
+            observe_part!(collections.attachments, SourcePart::Attachments);
             let f = feeds.clone();
-            subscriptions.push(cx.observe(&issues, move |_, cx| refresh_issues(&f, cx)));
+            subscriptions.push(cx.observe(&records, move |_, cx| refresh_records(&f, cx)));
+            let f = feeds.clone();
+            subscriptions.push(cx.observe(&apps, move |_, cx| refresh_records(&f, cx)));
+            let f = feeds.clone();
+            subscriptions.push(cx.observe(&users, move |_, cx| refresh_records(&f, cx)));
         }
         let weak = Rc::downgrade(&feeds);
         let tick = cx.spawn(async move |cx| loop {
@@ -693,6 +1073,8 @@ impl IdeHost {
         functions.insert("harness.openIssue".into(), open_issue_fn());
         functions.insert("harness.openDevice".into(), open_device_fn());
         functions.insert("harness.mcp".into(), mcp_fn());
+        functions.insert("harness.records.upsert".into(), records_upsert_fn(scope.clone()));
+        functions.insert("harness.records.delete".into(), records_delete_fn(scope));
         let mut sources: HashMap<String, SourceResolver> = HashMap::new();
         sources.insert("exp".into(), exp_resolver(Rc::downgrade(&feeds)));
         let extensions = match parse_extension(APP_EXTENSION_JSON) {
@@ -806,25 +1188,6 @@ mod tests {
     }
 
     #[test]
-    fn issues_filter_sort_and_limit() {
-        let issue = |id: &str, board: &str, order: f64| IssueLite {
-            id: id.into(),
-            identifier: format!("EXP-{id}"),
-            title: id.into(),
-            status: json!("backlog"),
-            board_id: board.into(),
-            sort_order: order,
-        };
-        let all = vec![issue("3", "b1", 3.), issue("1", "b1", 1.), issue("2", "b2", 2.)];
-        let v = issues_value(&all, Some("b1"), 50);
-        assert_eq!(v["count"], 2);
-        assert_eq!(v["rows"][0]["identifier"], "EXP-1");
-        let v = issues_value(&all, None, 2);
-        assert_eq!(v["count"], 2);
-        assert_eq!(v["rows"][1]["id"], "2");
-    }
-
-    #[test]
     fn the_exp_source_emits_its_snapshot_and_cancels() {
         let feeds = Rc::new(RefCell::new(Feeds::default()));
         feeds.borrow_mut().devices = json!({"rows": [], "count": 0, "online": 0});
@@ -847,6 +1210,228 @@ mod tests {
         assert_eq!(got.lock().unwrap().last(), Some(&Value::Null));
     }
 
+    fn record(id: &str, app: &str, hours: i64, by: &str) -> RecordLite {
+        RecordLite {
+            id: id.into(),
+            app_id: app.into(),
+            kind: "entry".into(),
+            data: json!({"date": "2026-10-05", "hours": hours}),
+            created_by: Some(by.into()),
+            created_at: iso_millis("2026-10-05 18:00:00+00"),
+            updated_at: iso_millis("2026-10-05T18:00:00Z"),
+        }
+    }
+
+    fn records_feed() -> RecordsFeed {
+        RecordsFeed {
+            scope: Some(HostScope { app_id: "a1".into(), team_id: Some("t1".into()) }),
+            me: Some("u1".into()),
+            records: vec![record("r1", "a1", 3, "u1"), record("r2", "a2", 4, "u2"), record("r3", "a3", 5, "u2")],
+            apps: vec![
+                AppLite { id: "a1".into(), slug: "hours".into(), team_id: Some("t1".into()) },
+                AppLite { id: "a2".into(), slug: "other".into(), team_id: Some("t1".into()) },
+                AppLite { id: "a3".into(), slug: "foreign".into(), team_id: Some("t2".into()) },
+            ],
+            names: HashMap::from([("u1".to_string(), "Danny".to_string())]),
+        }
+    }
+
+    /// VAPP-122: the hosting app's rows, `app=` = another app of the SAME
+    /// team, the web's ISO timestamps and author names.
+    #[test]
+    fn records_read_the_scoped_app() {
+        let feed = records_feed();
+        let query = |s: &str| match query_of(&exponential_ui::host::parse_source(s).unwrap()) {
+            Some(Query::Records(q)) => q,
+            other => panic!("{other:?}"),
+        };
+        let now = "2026-10-24T09:00:00.000Z";
+        let own = records_feed_value(&feed, &query("exp:records?kind=entry&sum=hours"), now);
+        assert_eq!(own["count"], 1);
+        assert_eq!(own["sum"], 3);
+        assert_eq!(own["rows"][0]["author"], "Danny");
+        assert_eq!(own["rows"][0]["createdAt"], "2026-10-05T18:00:00.000Z");
+        let other = records_feed_value(&feed, &query("exp:records?kind=entry&app=other"), now);
+        assert_eq!(other["rows"][0]["id"], "r2");
+        assert_eq!(other["rows"][0]["author"], "");
+        let foreign = records_feed_value(&feed, &query("exp:records?kind=entry&app=foreign"), now);
+        assert_eq!(foreign["count"], 0, "another team's app reads nothing");
+        assert_eq!(records_feed_value(&feed, &query("exp:records"), now), Value::Null);
+        let unscoped = RecordsFeed { scope: None, ..records_feed() };
+        assert_eq!(records_feed_value(&unscoped, &query("exp:records?kind=entry"), now)["count"], 0);
+    }
+
+    #[test]
+    fn records_re_emit_only_on_a_move() {
+        let feeds = Rc::new(RefCell::new(Feeds::default()));
+        feeds.borrow_mut().records = records_feed();
+        let resolver = exp_resolver(Rc::downgrade(&feeds));
+        let got = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let sink = got.clone();
+        let emit: Emit = Arc::new(move |v| sink.lock().unwrap().push(v));
+        let _cancel = resolver(exponential_ui::host::parse_source("exp:records?kind=entry").unwrap(), emit);
+        assert_eq!(got.lock().unwrap()[0]["count"], 1);
+        feeds.borrow_mut().publish();
+        assert_eq!(got.lock().unwrap().len(), 1);
+        feeds.borrow_mut().records.records.push(record("r4", "a1", 1, "u1"));
+        feeds.borrow_mut().publish();
+        assert_eq!(got.lock().unwrap().len(), 2);
+        assert_eq!(got.lock().unwrap()[1]["count"], 2);
+    }
+
+    struct Blank;
+    impl gpui::Render for Blank {
+        fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    fn seed<T: sync::ShapeRow + serde::de::DeserializeOwned>(
+        collection: &Entity<sync::Collection<T>>,
+        rows: Value,
+        cx: &mut App,
+    ) {
+        collection.update(cx, |c, cx| {
+            for row in rows.as_array().unwrap() {
+                let row: T = serde_json::from_value(row.clone()).expect("a store row");
+                c.seed(row.key(), row);
+            }
+            cx.notify();
+        });
+    }
+
+    /// VAPP-119: `exp:members` and `exp:comments?issue=…` bound through the
+    /// host over a seeded store emit exactly `domain::app_sources` over the
+    /// same rows (the scope's team only, the web's ISO timestamps), and a
+    /// new comment re-emits.
+    #[gpui::test]
+    fn sources_bind_over_the_seeded_store(cx: &mut gpui::TestAppContext) {
+        use domain::app_sources as src;
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            let store = sync::Store::open(cx, None, None);
+            cx.set_global(store);
+            let c = sync::Store::global(cx).collections().clone();
+            seed(&c.boards, json!([
+                {"id": "b1", "team_id": "t1", "name": "Mobile App", "slug": "mobile-app", "prefix": "APP", "sort_order": 0},
+                {"id": "b9", "team_id": "t2", "name": "Elsewhere", "slug": "else", "prefix": "ELS"}
+            ]), cx);
+            seed(&c.issues, json!([
+                {"id": "i1", "board_id": "b1", "number": 1, "identifier": "APP-1", "title": "Crash on launch", "status": "in_progress", "priority": "high", "created_at": "2026-10-01 09:00:00+00", "updated_at": "2026-10-20T09:00:00Z"},
+                {"id": "i9", "board_id": "b9", "number": 1, "identifier": "ELS-1", "title": "Foreign", "status": "backlog"}
+            ]), cx);
+            seed(&c.team_members, json!([
+                {"id": "m1", "team_id": "t1", "user_id": "u2", "role": "member"},
+                {"id": "m2", "team_id": "t1", "user_id": "u1", "role": "owner"},
+                {"id": "m3", "team_id": "t2", "user_id": "u3", "role": "owner"}
+            ]), cx);
+            seed(&c.users, json!([
+                {"id": "u1", "name": "Alex Carter", "email": "alex@acme.dev", "image": "https://cdn.example/alex.png"},
+                {"id": "u2", "name": "Jonas Weber", "email": "jonas@acme.dev"},
+                {"id": "u3", "name": "Mira Sato"}
+            ]), cx);
+            seed(&c.comments, json!([
+                {"id": "c2", "issue_id": "i1", "author_id": "u1", "parent_id": "c1", "source": "user", "body": "Fix is in #1210.", "created_at": "2026-10-21 10:00:00+00"},
+                {"id": "c1", "issue_id": "i1", "author_id": "u2", "body": "Repro on the Pixel 8.", "created_at": "2026-10-20T10:00:00Z"},
+                {"id": "c9", "issue_id": "i9", "author_id": "u3", "body": "Elsewhere", "created_at": "2026-10-20T10:00:00Z"}
+            ]), cx);
+        });
+        let ide = cx.update(|cx| {
+            let scope = HostScope { app_id: "a1".into(), team_id: Some("t1".into()) };
+            IdeHost::with_packages(Mode::Dark, &[], None, Some(scope), cx)
+        });
+        let feeds = ide._feeds.clone();
+        let resolver = exp_resolver(Rc::downgrade(&feeds));
+        let bind = |uri: &str| {
+            let got = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+            let sink = got.clone();
+            let emit: Emit = Arc::new(move |v: Value| sink.lock().unwrap().push(v));
+            let cancel = resolver(exponential_ui::host::parse_source(uri).unwrap(), emit);
+            (got, cancel)
+        };
+        let (members, _m) = bind("exp:members");
+        let (comments, _c) = bind("exp:comments?issue=app-1");
+        let user = |id: &str, name: &str, email: Option<&str>, image: Option<&str>| src::SourceUser {
+            id: id.into(),
+            name: name.into(),
+            email: email.map(Into::into),
+            image: image.map(Into::into),
+        };
+        let comment = |id: &str, author: &str, parent: Option<&str>, body: &str, at: &str| src::SourceComment {
+            id: id.into(),
+            issue_id: "i1".into(),
+            author_id: Some(author.into()),
+            parent_id: parent.map(Into::into),
+            source: "user".into(),
+            body: body.into(),
+            created_at: at.into(),
+        };
+        let mut expected = src::SourceStore {
+            members: vec![
+                src::SourceMember { user_id: "u2".into(), role: "member".into() },
+                src::SourceMember { user_id: "u1".into(), role: "owner".into() },
+            ],
+            users: vec![
+                user("u1", "Alex Carter", Some("alex@acme.dev"), Some("https://cdn.example/alex.png")),
+                user("u2", "Jonas Weber", Some("jonas@acme.dev"), None),
+                user("u3", "Mira Sato", None, None),
+            ],
+            issues: vec![src::SourceIssue {
+                id: "i1".into(),
+                board_id: "b1".into(),
+                identifier: "APP-1".into(),
+                title: "Crash on launch".into(),
+                status: "in_progress".into(),
+                ..Default::default()
+            }],
+            comments: vec![
+                comment("c1", "u2", None, "Repro on the Pixel 8.", "2026-10-20T10:00:00.000Z"),
+                comment("c2", "u1", Some("c1"), "Fix is in #1210.", "2026-10-21T10:00:00.000Z"),
+            ],
+            ..Default::default()
+        };
+        let params = |uri: &str| exponential_ui::host::parse_source(uri).unwrap().params;
+        let members_now = members.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(members_now, src::source_value("members", &params("exp:members"), &expected, None));
+        assert_eq!(members_now["count"], 2, "the scope team's members only");
+        assert_eq!(members_now["rows"][0]["label"], "Alex Carter");
+        let comments_now = comments.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(
+            comments_now,
+            src::source_value("comments", &params("exp:comments?issue=app-1"), &expected, None)
+        );
+        assert_eq!(comments_now["rows"][1]["createdAt"], "2026-10-21T10:00:00.000Z");
+        assert_eq!(comments_now["rows"][0]["authorName"], "Jonas Weber");
+        // The richer `exp:issues` row keeps the old four fields (team-scoped).
+        let (issues, _i) = bind("exp:issues");
+        let issues_now = issues.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(issues_now["count"], 1);
+        assert_eq!(issues_now["rows"][0]["status"], "in_progress");
+        assert_eq!(issues_now["rows"][0]["boardSlug"], "mobile-app");
+        assert_eq!(issues_now["rows"][0]["updatedAt"], "2026-10-20T09:00:00.000Z");
+
+        // A new comment re-emits the comments binding, not the members one.
+        let (m_before, c_before) = (members.lock().unwrap().len(), comments.lock().unwrap().len());
+        cx.update(|cx| {
+            let c = sync::Store::global(cx).collections().clone();
+            seed(&c.comments, json!([
+                {"id": "c3", "issue_id": "i1", "author_id": "u1", "body": "Shipped.", "created_at": "2026-10-22T10:00:00Z"}
+            ]), cx);
+        });
+        cx.run_until_parked();
+        expected.comments.push(comment("c3", "u1", None, "Shipped.", "2026-10-22T10:00:00.000Z"));
+        assert_eq!(comments.lock().unwrap().len(), c_before + 1);
+        assert_eq!(members.lock().unwrap().len(), m_before, "an unchanged value is not re-emitted");
+        assert_eq!(
+            comments.lock().unwrap().last().cloned().unwrap(),
+            src::source_value("comments", &params("exp:comments?issue=APP-1"), &expected, None)
+        );
+        // `add_window_view`'s leaked context keeps the app alive past gpui's
+        // exit-time leak check (`Store::open` holds its handles).
+        let _ = cx.add_window_view(|_, _| Blank);
+        std::mem::forget(ide);
+    }
+
     struct Holder(Entity<exponential_ui_gpui::view::SurfaceView>);
     impl gpui::Render for Holder {
         fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
@@ -863,7 +1448,7 @@ mod tests {
         let c = calls.clone();
         let host = cx.update(|cx| {
             let pkg: Value = serde_json::from_str(DEVICES_PACKAGE_JSON).unwrap();
-            let ide = IdeHost::with_packages(Mode::Dark, &[pkg], None, cx);
+            let ide = IdeHost::with_packages(Mode::Dark, &[pkg], None, None, cx);
             ide.host.update(cx, |h, _| {
                 h.register_function(
                     "harness.openDevice",

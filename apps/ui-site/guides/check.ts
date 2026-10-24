@@ -149,6 +149,9 @@ for (const [name, def] of Object.entries(ext.components)) {
 }
 const app = json("./src/hello.app.json")
 problems.push(...validatePackage(app).map((i) => "hello.app.json" + i.path + ": " + i.message))
+// VAPP-122: the records example (the Working hours app) stays a valid package.
+const hours = json("./src/working-hours.app.json")
+problems.push(...validatePackage(hours).map((i) => "working-hours.app.json" + i.path + ": " + i.message))
 for (const [id, t] of Object.entries(app.templates)) {
   const { issues } = reduceSurface(t.components, { catalogId: app.catalogId })
   problems.push(...issues.map((i) => "template " + id + ": " + i.id + ": " + i.message))

@@ -28,6 +28,7 @@ import directionFixture from "../fixtures/text-direction.json" with { type: "jso
 import resizableFixture from "../fixtures/resizable.json" with { type: "json" }
 import virtualListFixture from "../fixtures/virtual-list.json" with { type: "json" }
 import animationsFixture from "../fixtures/animations.json" with { type: "json" }
+import pointerFixture from "../fixtures/pointer.json" with { type: "json" }
 import { BUILTIN_THEME_IDS } from "./themes"
 import { MODES } from "./theme"
 import { HOST_CONTRACT_VERSION } from "./host/contract"
@@ -79,6 +80,7 @@ const BUNDLED: Record<string, unknown> = {
   "resizable.json": resizableFixture,
   "virtual-list.json": virtualListFixture,
   "animations.json": animationsFixture,
+  "pointer.json": pointerFixture,
 }
 
 /** The manifest over the bundled fixtures, or over `fixture(name)` (the
@@ -93,6 +95,7 @@ export function conformanceManifest(fixture: (name: string) => unknown = (name) 
   const transportFixture = f(`host-transport.json`), policyFixture = f(`host-policy.json`), routerFixture = f(`host-router.json`)
   const bindF = f(`bind-time.json`), conditionsF = f(`style-conditions.json`), codeF = f(`code-tokens.json`), formatF = f(`format.json`), itemsF = f(`template-items.json`)
   const directionF = f(`text-direction.json`), resizableF = f(`resizable.json`), listF = f(`virtual-list.json`), animationsF = f(`animations.json`)
+  const pointerF = f(`pointer.json`)
   const animationCases = Object.values(animationsF.themes as Record<string, object>).reduce<number>((sum, t) => sum + n(t), 0) + 1 + n(animationsF.opacity)
   const controlCases = Object.values(controlFixture.themes as Record<string, Record<string, { cases: object }>>).reduce((sum, t) => sum + Object.values(t).reduce((s, c) => s + n(c.cases), 0), 0)
   const suites: ConformanceSuite[] = [
@@ -109,8 +112,8 @@ export function conformanceManifest(fixture: (name: string) => unknown = (name) 
     { id: `overlay`, files: [`fixtures/overlay-geometry.json`], unit: `case`, cases: n(overlayFixture.cases), check: `Place the overlay: side, flip and frame equal the fixture within \`tolerancePx\`.` },
     { id: `replay`, files: [`fixtures/kitchen-sink.json`, `fixtures/kitchen-sink.expanded.json`], unit: `theme × mode`, cases: BUILTIN_THEME_IDS.length * MODES.length, check: `Paint the kitchen sink under each built-in theme and mode: the reduced tree equals kitchen-sink.expanded.json, no Unknown, the accessibility order is the pre-order of the painted nodes.` },
     { id: `host-transport`, files: [`fixtures/host-transport.json`], unit: `case`, cases: n(transportFixture.jsonl) + n(transportFixture.sse) + n(transportFixture.mcp) + n(transportFixture.mcpAction), check: `Feed the chunks through ONE decoder (JSONL / SSE), or decode the MCP result, or build the MCP action call: messages + issues equal \`expected\`.` },
-    { id: `host-policy`, files: [`fixtures/host-policy.json`], unit: `case`, cases: n(policyFixture.functions) + n(policyFixture.combine) + n(policyFixture.urls) + n(policyFixture.media) + n(policyFixture.sources) + n(policyFixture.negotiation), check: `Decide the function / combine / url, build the media request, parse the source, negotiate the catalog ids: each equals \`expected\`.` },
-    { id: `host-router`, files: [`fixtures/host-router.json`], unit: `package or flow`, cases: n(routerFixture.validation) + n(routerFixture.flows), check: `Validate each package; for each flow build ONE router with \`extensionIds\`, install \`packages\` (issues = \`installIssues\`), route every step: the ops equal \`expected\`.` },
+    { id: `host-policy`, files: [`fixtures/host-policy.json`], unit: `case`, cases: n(policyFixture.functions) + n(policyFixture.combine) + n(policyFixture.urls) + n(policyFixture.media) + n(policyFixture.sources) + n(policyFixture.sourceParams) + n(policyFixture.negotiation), check: `Decide the function / combine / url, build the media request, parse the source, append the bind action's params to a source, negotiate the catalog ids: each equals \`expected\`.` },
+    { id: `host-router`, files: [`fixtures/host-router.json`], unit: `package or flow`, cases: n(routerFixture.validation) + n(routerFixture.records) + n(routerFixture.flows), check: `Validate each package; validate each record against its kind's schema (VAPP-122); for each flow build ONE router with \`extensionIds\`, install \`packages\` (issues = \`installIssues\`), route every step: the ops equal \`expected\`.` },
     // Round 1 fixtures every renderer already replays, now counted (round 2).
     { id: `bind`, files: [`fixtures/bind-time.json`], unit: `case`, cases: n(bindF.cases) + n(bindF.extra), check: `Expand the input; for every dataset run the bind pass: the bound tree, every \`set\` press and the per-row slot cells equal the fixture (reducer \`issues\` too for \`extra\`).` },
     { id: `style-conditions`, files: [`fixtures/style-conditions.json`], unit: `case`, cases: n(conditionsF.cases), check: `Flatten the style for every context: equal to \`expected\` (key order irrelevant).` },
@@ -122,6 +125,8 @@ export function conformanceManifest(fixture: (name: string) => unknown = (name) 
     { id: `resizable`, files: [`fixtures/resizable.json`], unit: `case`, cases: n(resizableF.normalize) + n(resizableF.resize) + n(resizableF.keys) + n(resizableF.extents) + n(resizableF.drag), check: `Normalize / resize / key / measure / convert: the numbers equal \`expected\` within 1e-6.` },
     { id: `virtual-list`, files: [`fixtures/virtual-list.json`], unit: `case`, cases: n(listF.windows) + n(listF.scrollTo) + n(listF.sections) + n(listF.sectionedScrollTo) + n(listF.sticky), check: `Window the extents, compute the scrollToIndex offset (sectioned: data index → row), group the sections, pin the sticky header: equal to \`expected\`.` },
     { id: `animations`, files: [`fixtures/animations.json`], unit: `theme × animation`, cases: animationCases, check: `Time each animation under the theme and sample its frames (and the reduced-motion frame): equal to \`expected\` within 1e-3; \`opacity\`: the painted opacity = the node's own × the frame's, within 1e-3.` },
+    // EXP-1385: the data model's pointer reads and writes.
+    { id: `pointer`, files: [`fixtures/pointer.json`], unit: `write or read`, cases: n(pointerF.writes) + n(pointerF.reads), check: `Write each \`writes\` case: \`expected\` + its read-back \`read\`, or \`error\` with the data unchanged; read each \`reads\` case: \`expected\`.` },
   ]
   return {
     $comment: `GENERATED by \`bun run --filter @exponential_app/ui generate\` (VAPP-91). The Exponential UI conformance suite: a renderer is "Exponential UI conformant" when its runner reports every suite below with \`cases\` run and none failed (\`bun run --filter @exponential_app/ui conformance:check <report.json>\`). conformance/README.md says how to write a runner for a new platform.`,

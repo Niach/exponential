@@ -1,4 +1,4 @@
-//! The 31 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 32 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 31 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 32 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 31] = [
+pub const SHAPES: [ShapeSpec; 32] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -805,6 +805,15 @@ pub const SHAPES: [ShapeSpec; 31] = [
         columns: &["id", "app_id", "team_id", "number", "note", "session_id", "created_by", "created_at"],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "app_records",
+        path: "/api/shapes/app-records",
+        // VAPP-122: an app's records (its own data). Byte-matches the
+        // proxy; `deleted_at` + the `app_deleted_at` mirror stay server-side
+        // (a trashed record simply leaves the shape).
+        columns: &["id", "app_id", "team_id", "kind", "data", "created_by", "created_at", "updated_at"],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Look a shape up by its table name.
@@ -817,8 +826,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_31_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 31);
+    fn registry_has_32_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 32);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -993,6 +1002,16 @@ mod tests {
             &["id", "app_id", "team_id", "number", "note", "session_id", "created_by", "created_at"]
         );
         assert!(!versions.columns.contains(&"package"));
+        // VAPP-122: records byte-match the proxy; the trash columns stay
+        // behind the allowlist.
+        let records = shape_by_name("app_records").unwrap();
+        assert_eq!(records.path, "/api/shapes/app-records");
+        assert_eq!(
+            records.columns,
+            &["id", "app_id", "team_id", "kind", "data", "created_by", "created_at", "updated_at"]
+        );
+        assert!(!records.columns.contains(&"deleted_at"));
+        assert!(!records.columns.contains(&"app_deleted_at"));
         let sessions = shape_by_name("sessions").unwrap();
         let agent = sessions.columns.iter().position(|c| *c == "agent_id").unwrap();
         assert_eq!(sessions.columns[agent + 1], "app_id");

@@ -44,12 +44,12 @@ class Migration95To96Test {
         createVersion95()
 
         val db = Room.databaseBuilder(context, ExponentialDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_95_96, MIGRATION_96_97)
+            .addMigrations(MIGRATION_95_96, MIGRATION_96_97, MIGRATION_97_98, MIGRATION_98_99)
             .allowMainThreadQueries()
             .build()
         try {
             val sql = db.openHelper.writableDatabase
-            assertEquals(97, sql.version)
+            assertEquals(99, sql.version)
 
             val session = runBlocking { db.sessionDao().getById("s1") }!!
             assertEquals("Fix it", session.title)
@@ -71,7 +71,7 @@ class Migration95To96Test {
             for (dropped in listOf("actions", "_repair:x:actions")) {
                 assertNull(runBlocking { offsets.get(dropped) })
             }
-            for (kept in listOf("session_issues", "pins")) { // sessions refetches at v97 (#EXP-1383)
+            for (kept in listOf("session_issues", "pins")) { // sessions refetches at v98 (#EXP-1383)
                 val row = runBlocking { offsets.get(kept) }!!
                 assertEquals("h", row.handle)
                 assertTrue(row.isLive)

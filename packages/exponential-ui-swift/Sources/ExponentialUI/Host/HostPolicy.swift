@@ -158,6 +158,15 @@ public struct BindingSource: Sendable, Equatable {
         for (k, v) in o["params"]?.object ?? [:] { params[k] = v.displayText }
         return BindingSource(uri: o["uri"]?.string ?? uri, scheme: o["scheme"]?.string ?? "", name: o["name"]?.string ?? "", params: params)
     }
+
+    /// VAPP-122 (`catalog/host.json` `sources.paramsEncoding`): `source`
+    /// with `params` (an object; anything else = none) appended as its
+    /// query through the core's rule: keys sorted, percent-encoded, null
+    /// skipped, an object or array as JSON, after `?` or `&`.
+    public static func sourceWithParams(_ source: String, params: JSONValue?) -> String {
+        let json = params?.object.map { JSONValue.object($0).json }
+        return sourceWithParamsJson(source: source, paramsJson: json)
+    }
 }
 
 /// One scheme's resolver: subscribe the source; every `emit` writes the

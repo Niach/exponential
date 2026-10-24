@@ -75,6 +75,9 @@ env:
   # VAPP-105: the bench results' machine ids (budgets.json keys) and where
   # every runner writes its fragment.
   EXPONENTIAL_UI_BENCH_DIR: ${{ github.workspace }}/.bench
+  # EXP-1386: the commit a fragment stamps: the PR's head, not the merge
+  # ref a pull_request run checks out.
+  EXPONENTIAL_UI_BENCH_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   # EXP-1364: fork PRs never run here; the Rust leg runs on the Mint
@@ -121,11 +124,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: conformance-react
+          overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
       - uses: actions/upload-artifact@v4
         with:
           name: bench-react
+          overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
 
@@ -168,11 +173,13 @@ jobs:
         if: always()
         with:
           name: conformance-solid
+          overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
       - uses: actions/upload-artifact@v4
         with:
           name: bench-solid
+          overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
 
@@ -206,6 +213,7 @@ jobs:
         if: always()
         with:
           name: conformance-element
+          overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
       - name: Bench (the web component, headless Chromium)
@@ -215,6 +223,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: bench-element
+          overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
 
@@ -277,11 +286,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: conformance-rust
+          overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
       - uses: actions/upload-artifact@v4
         with:
           name: bench-rust
+          overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
 
@@ -331,11 +342,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: conformance-swift
+          overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
       - uses: actions/upload-artifact@v4
         with:
           name: bench-swift
+          overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
 
@@ -397,6 +410,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: bench-swift-ios
+          overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
       - name: Shut the simulator down again (self-hosted)
@@ -478,6 +492,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: bench-compose-android
+          overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
 
@@ -530,11 +545,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: conformance-compose
+          overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
       - uses: actions/upload-artifact@v4
         with:
           name: bench-compose
+          overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true
 
@@ -583,6 +600,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bench-results
+          name: ratchet-results  # not bench-*: a re-run of this job must not download its own last output
+          overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment
           path: .bench/
           include-hidden-files: true

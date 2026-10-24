@@ -392,6 +392,29 @@ enum Round2Suites {
         return "@keyframes xui-\(name){\(steps.joined())}"
     }
 
+    /// EXP-1385: `pointer.json` through the facade: a surface's `setData`
+    /// writes (the core's set_pointer), a `{path}` binding reads (get_pointer).
+    static func pointer() throws -> [Case] {
+        let f = try json("pointer.json")
+        func read(_ data: String, _ pointer: String, _ want: JSONValue?) throws -> String? {
+            let got = try resolveDynamicJson(valueJson: JSONValue.object(["path": .string(pointer)]).json, dataJson: data, scope: "")
+            guard let got, let want else { return got == nil && want == nil ? nil : "read \(got ?? "nothing") / expected \(want?.json ?? "nothing")" }
+            return same(got, want).map { "read \($0)" }
+        }
+        let writes = list(f, "writes").map { c in
+            run("write: \(s(c, "name"))") {
+                let surface = try Surface(surfaceId: "pointer", catalogId: coreCatalogId(), themeId: "", mode: "light")
+                try surface.setData(path: "", valueJson: c["data"]!.json)
+                var error: String?
+                do { try surface.setData(path: s(c, "pointer"), valueJson: c["value"]?.json) } catch UiError.Invalid(let reason) { error = reason }
+                if error != c["error"]?.string { return "error \(error ?? "none") / expected \(c["error"]?.string ?? "none")" }
+                if let d = same(surface.dataJson(), c["error"] != nil ? c["data"]! : c["expected"]!) { return "data \(d)" }
+                return error == nil ? try read(surface.dataJson(), s(c, "pointer"), c["read"]) : nil
+            }
+        }
+        return writes + list(f, "reads").map { c in run("read: \(s(c, "name"))") { try read(c["data"]!.json, s(c, "pointer"), c["expected"]) } }
+    }
+
     static func animations() throws -> [Case] {
         let f = try json("animations.json")
         var out: [Case] = []

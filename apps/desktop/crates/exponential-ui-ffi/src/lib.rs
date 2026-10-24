@@ -2575,6 +2575,16 @@ pub fn media_image_header(bytes: Vec<u8>) -> FfiImageHeader {
     })
 }
 
+/// VAPP-122: `source` with `params` (a JSON object, or null) appended as
+/// its query, for the `bind` action (`sourceWithParams`).
+#[uniffi::export]
+pub fn source_with_params_json(source: String, params_json: Option<String>) -> String {
+    shield("source_with_params_json", || source.clone(), || {
+        let params = params_json.and_then(|p| serde_json::from_str::<serde_json::Value>(&p).ok());
+        h::source_with_params(&source, params.as_ref())
+    })
+}
+
 /// A binding source URI → `{uri, scheme, name, params}` JSON, null when it
 /// does not parse.
 #[uniffi::export]
@@ -2608,6 +2618,17 @@ pub fn validate_package_json(package_json: String, catalog_ids: Option<Vec<Strin
         let pkg: Value = parse(&package_json)?;
         let ids = catalog_ids.unwrap_or_else(|| h::supported_catalog_ids::<&str>(&[]));
         Ok(json_string(&h::validate_package(&pkg, &ids)))
+    })
+}
+
+/// VAPP-122: a record (JSON) against its kind's schema (JSON): the issues
+/// `[{path, message}]` as JSON.
+#[uniffi::export]
+pub fn validate_record_json(schema_json: String, data_json: String) -> Result<String, UiError> {
+    guarded("validate_record_json", || {
+        let schema: Value = parse(&schema_json)?;
+        let data: Value = parse(&data_json)?;
+        Ok(json_string(&h::validate_record(&schema, &data)))
     })
 }
 

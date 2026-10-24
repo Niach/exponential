@@ -127,8 +127,8 @@
         "fixtures/host-policy.json"
       ],
       "unit": "case",
-      "cases": 113,
-      "check": "Decide the function / combine / url, build the media request, parse the source, negotiate the catalog ids: each equals `expected`."
+      "cases": 120,
+      "check": "Decide the function / combine / url, build the media request, parse the source, append the bind action's params to a source, negotiate the catalog ids: each equals `expected`."
     },
     {
       "id": "host-router",
@@ -136,8 +136,8 @@
         "fixtures/host-router.json"
       ],
       "unit": "package or flow",
-      "cases": 11,
-      "check": "Validate each package; for each flow build ONE router with `extensionIds`, install `packages` (issues = `installIssues`), route every step: the ops equal `expected`."
+      "cases": 20,
+      "check": "Validate each package; validate each record against its kind's schema (VAPP-122); for each flow build ONE router with `extensionIds`, install `packages` (issues = `installIssues`), route every step: the ops equal `expected`."
     },
     {
       "id": "bind",
@@ -219,6 +219,15 @@
       "unit": "theme × animation",
       "cases": 38,
       "check": "Time each animation under the theme and sample its frames (and the reduced-motion frame): equal to `expected` within 1e-3; `opacity`: the painted opacity = the node's own × the frame's, within 1e-3."
+    },
+    {
+      "id": "pointer",
+      "files": [
+        "fixtures/pointer.json"
+      ],
+      "unit": "write or read",
+      "cases": 16,
+      "check": "Write each `writes` case: `expected` + its read-back `read`, or `error` with the data unchanged; read each `reads` case: `expected`."
     }
   ]
 }

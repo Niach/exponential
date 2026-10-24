@@ -453,6 +453,10 @@ final class ConformanceTests: XCTestCase {
         for c in f["sources"]?.array ?? [] {
             out.append(run("source: \(c["uri"]?.string ?? "")") { same(parseSourceJson(uri: c["uri"]!.string!) ?? "null", c["expected"]!) })
         }
+        // VAPP-122: the bind action's params encoding.
+        for c in f["sourceParams"]?.array ?? [] {
+            out.append(run("sourceParams: \(c["expected"]?.string ?? "")") { same(JSONValue.string(sourceWithParamsJson(source: c["source"]!.string!, paramsJson: c["params"]?.json)).json, c["expected"]!) })
+        }
         for c in f["negotiation"]?.array ?? [] {
             let ids = (c["extensionIds"]?.array ?? []).compactMap(\.string)
             out.append(run("negotiation: \(ids.count) extension ids") {
@@ -470,6 +474,11 @@ final class ConformanceTests: XCTestCase {
         for v in f["validation"]?.array ?? [] {
             let id = v["package"]!.string!
             out.append(run("validation: \(id)") { same(try validatePackageJson(packageJson: packages[id]!.json, catalogIds: nil), v["expected"]!) })
+        }
+        // VAPP-122: a record against its kind's schema.
+        for c in f["records"]?.array ?? [] {
+            let schema = packages[c["package"]!.string!]!["records"]![c["kind"]!.string!]!["schema"]!
+            out.append(run("records: \(c["name"]?.string ?? "")") { same(try validateRecordJson(schemaJson: schema.json, dataJson: c["data"]!.json), c["expected"]!) })
         }
         for flow in f["flows"]?.array ?? [] {
             out.append(run("flow: \(flow["name"]?.string ?? "")") {
@@ -513,6 +522,7 @@ final class ConformanceTests: XCTestCase {
         case "resizable": try Round2Suites.resizable()
         case "virtual-list": try Round2Suites.virtualList()
         case "animations": try Round2Suites.animations()
+        case "pointer": try Round2Suites.pointer()
         case "text-shimmer": try Round2Suites.textShimmer()
         default: [("suite \(id)", "the runner does not know the suite \(id): add it")]
         }

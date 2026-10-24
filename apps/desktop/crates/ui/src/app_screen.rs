@@ -251,7 +251,13 @@ impl AppScreenView {
         }
         let Some(pkg) = pkg else { return };
         let theme = pkg.get("theme").and_then(Value::as_str).unwrap_or(THEME_ID).to_string();
-        let ide = IdeHost::with_packages(ide_mode(cx), std::slice::from_ref(&pkg), Some(&theme), cx);
+        // VAPP-122: the editor's app keeps its records (`exp:records`,
+        // `harness.records.*`).
+        let scope = self.app.as_ref().map(|app| crate::exponential_ui_host::HostScope {
+            app_id: app.id.clone(),
+            team_id: app.row.as_ref().and_then(|row| row.team_id.clone()),
+        });
+        let ide = IdeHost::with_packages(ide_mode(cx), std::slice::from_ref(&pkg), Some(&theme), scope, cx);
         if let Some(message) = apply_template_message(&pkg) {
             ide.host.update(cx, |host, cx| {
                 host.receive(&message, cx);
@@ -746,7 +752,7 @@ mod tests {
     fn a_team_package_installs_and_applies(cx: &mut gpui::TestAppContext) {
         cx.update(gpui_component::init);
         let pkg: Value = serde_json::from_str(include_str!("app_screen.test-package.json")).unwrap();
-        let ide = cx.update(|cx| IdeHost::with_packages(Mode::Dark, std::slice::from_ref(&pkg), None, cx));
+        let ide = cx.update(|cx| IdeHost::with_packages(Mode::Dark, std::slice::from_ref(&pkg), None, None, cx));
         let host = ide.host.clone();
         let issues = host.update(cx, |host, cx| {
             let ops = host.receive(&apply_template_message(&pkg).unwrap(), cx);

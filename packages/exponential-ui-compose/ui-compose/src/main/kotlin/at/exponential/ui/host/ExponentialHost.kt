@@ -74,6 +74,9 @@ data class HostOptions(
     val onOp: ((JsonValue) -> Unit)? = null,
 )
 
+/** The A2UI protocol version the host's own messages carry (the catalog's). */
+val A2UI_VERSION: String = at.exponential.ui.ExponentialUICatalog.basicVersion
+
 /** The A2UI error code of a failed painter (`catalog/host.json` `paint.errorCode`). */
 const val RENDER_FAILED = "RENDER_FAILED"
 
@@ -95,7 +98,8 @@ class ExponentialHost(
     private val packages = HashMap<String, JsonValue>()
     private val packageOf = HashMap<String, String>()
     private val components = HashMap<String, LinkedHashMap<String, JsonValue>>()
-    private val subscriptions = HashMap<String, MutableList<() -> Unit>>()
+    /** Per surface, one cancel per bound path (VAPP-122: a re-bind of a path cancels the earlier subscription at that path). */
+    private val subscriptions = HashMap<String, MutableList<Pair<String, () -> Unit>>>()
     /** Reported paint failures: surfaceId → component ids. */
     private val paintErrors = HashMap<String, MutableSet<String>>()
     private val bridge = Bridge()
@@ -318,8 +322,11 @@ class ExponentialHost(
                     sendError("VALIDATION_FAILED", sid, "no resolver for the source scheme ${source.scheme}", path.ifEmpty { "/" })
                     return
                 }
+                val earlier = subscriptions.getOrPut(sid) { ArrayList() }
+                earlier.filter { it.first == path }.forEach { runCatching { it.second() } }
+                earlier.removeAll { it.first == path }
                 val cancel = resolver.subscribe(source) { v -> post { surfaces[sid]?.setData(path, v) } }
-                if (cancel != null) subscriptions.getOrPut(sid) { ArrayList() }.add(cancel)
+                if (cancel != null) earlier.add(path to cancel)
             }
             "delete" -> {
                 unbind(sid)
@@ -341,7 +348,7 @@ class ExponentialHost(
     }
 
     private fun unbind(surfaceId: String) {
-        subscriptions.remove(surfaceId)?.forEach { runCatching { it() } }
+        subscriptions.remove(surfaceId)?.forEach { runCatching { it.second() } }
     }
 
     // Interactions out
@@ -364,12 +371,13 @@ class ExponentialHost(
         return FunctionDecision.of(decision)
     }
 
-    /** An action `functionCall` to a host function: gate, consent, run. A built-in other than `openUrl` has no effect as an action. */
+    /** An action `functionCall` to a host function: gate, consent, run. A built-in other than `openUrl` and `bind` has no effect as an action. */
     suspend fun callFunction(call: FunctionCallInfo): FunctionOutcome {
         if (call.name == "openUrl") {
             val url = call.args["url"]?.string ?: ""
             return FunctionOutcome(if (openUrl(url)) FunctionDecision.Allow else FunctionDecision.Deny)
         }
+        if (call.name == "bind") return FunctionOutcome(if (bind(call.surfaceId, call.args)) FunctionDecision.Allow else FunctionDecision.Deny)
         var decision = decide(call.surfaceId, call.name)
         if (decision == FunctionDecision.NotFound) {
             sendError("FUNCTION_NOT_FOUND", call.surfaceId, "no function ${call.name}")
@@ -393,6 +401,33 @@ class ExponentialHost(
         } catch (e: Exception) {
             FunctionOutcome(FunctionDecision.Allow, error = e.message ?: e.toString())
         }
+    }
+
+    /**
+     * VAPP-122: the `bind` action: re-follow `path` from `source` with
+     * `params` appended ([sourceWithParams]), through the router like a
+     * server's bindDataModel (the surface's package allowlist applies; a
+     * refusal is the usual SOURCE_DENIED / VALIDATION_FAILED error). True
+     * when the bind op ran.
+     */
+    fun bind(surfaceId: String, args: Map<String, JsonValue>): Boolean {
+        val path = args["path"]?.string ?: ""
+        val source = args["source"]?.string ?: ""
+        if (source.isEmpty() || surfaces[surfaceId] == null) return false
+        val params = args["params"] as? JsonValue.Obj
+        val message = JsonValue.Obj(
+            mapOf(
+                "version" to JsonValue.Str(A2UI_VERSION),
+                "bindDataModel" to JsonValue.Obj(
+                    mapOf(
+                        "surfaceId" to JsonValue.Str(surfaceId),
+                        "path" to JsonValue.Str(path),
+                        "source" to JsonValue.Str(sourceWithParams(source, params)),
+                    ),
+                ),
+            ),
+        )
+        return receive(message).any { it["op"]?.string == "bind" }
     }
 
     /** The URL policy every href passes (relative urls against the urls' or the media `baseUrl`). */

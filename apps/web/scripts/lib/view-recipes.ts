@@ -135,6 +135,18 @@ async function recipeOpenOnboardingCreateTeam(page: Page): Promise<void> {
  * choice button and the step it opens — so this waits on the link field.
  * Continuing would navigate to `/invite/$token` and burn the invite.
  */
+/**
+ * VAPP-122: the phone-width `app` view photographs the PREVIEW tab (the app
+ * rendered through the host with its records), like the iOS and Android
+ * walks; the editor opens on Chat.
+ */
+async function recipeOpenAppPreviewTab(page: Page): Promise<void> {
+  const tabs = page.getByTestId(`app-editor-tabs`)
+  await tabs.waitFor({ state: `visible`, timeout: 30_000 })
+  await tabs.getByRole(`radio`, { name: `Preview` }).or(tabs.getByRole(`tab`, { name: `Preview` })).or(tabs.getByText(`Preview`, { exact: true })).first().click()
+  await page.getByTestId(`app-editor-preview`).waitFor({ state: `visible`, timeout: 30_000 })
+}
+
 async function recipeOpenOnboardingJoin(page: Page): Promise<void> {
   const trigger = page.getByRole(`button`, { name: /^Join a team/ })
   if (!(await appears(trigger, 20_000))) {
@@ -653,6 +665,7 @@ async function recipeOpenGettingStarted(page: Page): Promise<void> {
  */
 export const RECIPES: Record<string, Recipe> = {
   openOnboardingCreateTeam: recipeOpenOnboardingCreateTeam,
+  openAppPreviewTab: recipeOpenAppPreviewTab,
   openOnboardingJoin: recipeOpenOnboardingJoin,
   openOnboardingInvite: recipeOpenOnboardingInvite,
   openOnboardingDevices: recipeOpenOnboardingDevices,

@@ -51,6 +51,19 @@ function Streamed({ onState }: { onState: (s: SurfaceState) => void }) {
   return <ExponentialSurface surface={surface} theme="neutral" id="s" />
 }
 
+/** A Text bound to the LAST element of `/log` (`-` reads it, EXP-1385). */
+function Appended({ onState }: { onState: (s: SurfaceState) => void }) {
+  const surface = useSurface({ surfaceId: `s`, data: { log: [`a`] } })
+  useEffect(() => {
+    onState(surface)
+  })
+  useEffect(() => {
+    surface.apply({ updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Box`, children: [`last`] }, { id: `last`, component: `Text`, text: { path: `/log/-` } }] as unknown as FlatComponent[] } })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return <ExponentialSurface surface={surface} theme="neutral" id="s" />
+}
+
 describe(`live re-renders`, () => {
   it(`a data write repaints only the node bound to it`, () => {
     const c = counting()
@@ -89,6 +102,14 @@ describe(`live re-renders`, () => {
     } finally {
       c.restore()
     }
+  })
+  it(`a node bound to "-" repaints with the appended element (EXP-1385)`, () => {
+    let state!: SurfaceState
+    const { container } = render(<Appended onState={(s) => (state = s)} />)
+    expect(container.querySelector(`[data-xui-id="last"]`)?.textContent).toBe(`a`)
+    act(() => state.apply({ updateDataModel: { surfaceId: `s`, path: `/log/-`, value: `b` } }))
+    expect(container.querySelector(`[data-xui-id="last"]`)?.textContent).toBe(`b`)
+    expect(state.data).toEqual({ log: [`a`, `b`] })
   })
   it(`a literal Table row reads the live model`, () => {
     const root = {

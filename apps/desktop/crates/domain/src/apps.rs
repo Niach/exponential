@@ -69,6 +69,12 @@ pub struct AppsCopy {
     pub float: String,
     /// VAPP-129: the chat card's caption while the session works.
     pub working: String,
+    /// VAPP-122 (the settings page's records line): `{n} records`.
+    pub records: String,
+    pub records_one: String,
+    /// `{n} of {max} records`.
+    pub records_of: String,
+    pub records_none: String,
 }
 
 /// The editor's two panes (fr) and the chat's floor.
@@ -212,6 +218,12 @@ pub struct AppsCaps {
     pub note_max: usize,
     pub package_max_bytes: usize,
     pub template_max_components: usize,
+    /// VAPP-122: a record kind's name.
+    pub kind_pattern: String,
+    /// VAPP-122: one record's `data` JSON, in bytes.
+    pub record_max_bytes: usize,
+    /// VAPP-122: the kinds one manifest may declare.
+    pub record_kinds_max: usize,
 }
 
 pub static APPS_CAPS: LazyLock<AppsCaps> = LazyLock::new(|| {
@@ -312,6 +324,10 @@ mod tests {
         assert_eq!(APPS.copy.nav, "Apps");
         assert_eq!(APPS.preview.surface_id, "app");
         assert_eq!(APPS_CAPS.slug_max, 64);
+        assert_eq!(APPS_CAPS.kind_pattern, "^[a-z][a-z0-9_]{0,31}$");
+        assert_eq!(APPS_CAPS.record_max_bytes, 16384);
+        assert_eq!(APPS_CAPS.record_kinds_max, 16);
+        assert_eq!(APPS.copy.records_of, "{n} of {max} records");
         assert_eq!(delete_title("Team dashboard"), "Delete Team dashboard?");
         assert_eq!(viewing_label(2), "Viewing v2");
         assert_eq!(restored_label(1, 4), "Restored v1 as v4");

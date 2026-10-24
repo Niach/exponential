@@ -26,8 +26,23 @@ vi.mock(`@/lib/collections`, () => {
       mocks.listeners.push(cb)
       return { unsubscribe: () => {} }
     },
+    preload: () => Promise.resolve(),
+    utils: { awaitTxId: () => Promise.resolve() },
   })
-  return { deviceCollection: collection(() => mocks.devices), issueCollection: collection(() => []), boardCollection: collection(() => []), teamCollection: collection(() => []) }
+  return {
+    deviceCollection: collection(() => mocks.devices),
+    issueCollection: collection(() => []),
+    boardCollection: collection(() => []),
+    teamCollection: collection(() => []),
+    // VAPP-122 / VAPP-119: the records and the team sources read these too.
+    appCollection: collection(() => []),
+    appRecordCollection: collection(() => []),
+    userCollection: collection(() => []),
+    teamMemberCollection: collection(() => []),
+    sessionCollection: collection(() => []),
+    commentCollection: collection(() => []),
+    attachmentCollection: collection(() => []),
+  }
 })
 vi.mock(`@exp/ui`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>

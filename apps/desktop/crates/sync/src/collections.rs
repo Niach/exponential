@@ -3,7 +3,7 @@
 //!
 //! Design (§5.8, mirrored from §3.5's threading model):
 //!
-//! * **One `gpui::Entity<Collection<T>>` per shape** (31 entities), all held
+//! * **One `gpui::Entity<Collection<T>>` per shape** (32 entities), all held
 //!   by the global [`Store`]. Separate entities give fine-grained
 //!   `cx.notify()` — an issue update wakes only the issue-list views, not the
 //!   label chips.
@@ -47,7 +47,7 @@ use domain::rows::{
     AgentDefRow, Attachment, Board, Comment, DeviceRow, DeviceWorktreeRow, Issue, IssueDraftRow,
     IssueEvent, IssueLabel, IssueRelation, IssueStatusRow, IssueSubscriber, Label, MessageRow, ConversationRow,
     Notification, Pin, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow,
-    EventRow, PromptRow, AppRow, AppVersionRow, SessionRow, Team, TeamInvite, TeamMember, User,
+    EventRow, PromptRow, AppRow, AppVersionRow, AppRecordRow, SessionRow, Team, TeamInvite, TeamMember, User,
 };
 
 // ---------------------------------------------------------------------------
@@ -155,7 +155,7 @@ pub fn derive_active_health(
 // Per-shape reactive collections
 // ---------------------------------------------------------------------------
 
-/// A typed row hydratable from the store's snake_case JSON objects. The 31
+/// A typed row hydratable from the store's snake_case JSON objects. The 32
 /// impls below bind each `domain::rows` struct to its [`ShapeSpec`].
 pub trait ShapeRow: serde::de::DeserializeOwned + Send + 'static {
     fn spec() -> &'static ShapeSpec;
@@ -206,6 +206,7 @@ id_shape_row!(EventRow, "events");
 id_shape_row!(PromptRow, "prompts");
 id_shape_row!(AppRow, "apps");
 id_shape_row!(AppVersionRow, "app_versions");
+id_shape_row!(AppRecordRow, "app_records");
 
 impl ShapeRow for IssueLabel {
     fn spec() -> &'static ShapeSpec {
@@ -355,7 +356,7 @@ pub fn decode_rows<T: ShapeRow>(maps: Vec<Map<String, Value>>) -> Vec<(RowKey, T
         .collect()
 }
 
-/// The 31 collection entities (§5.8). Cloning is cheap — `Entity` handles.
+/// The 32 collection entities (§5.8). Cloning is cheap — `Entity` handles.
 #[derive(Clone)]
 pub struct Collections {
     pub teams: Entity<Collection<Team>>,
@@ -415,10 +416,12 @@ pub struct Collections {
     pub apps: Entity<Collection<AppRow>>,
     /// VAPP-110 the apps' versions, package-less (the 31st shape).
     pub app_versions: Entity<Collection<AppVersionRow>>,
+    /// VAPP-122 the apps' records, their own data (the 32nd shape).
+    pub app_records: Entity<Collection<AppRecordRow>>,
 }
 
 /// Run `$body` once per shape with `$entity` bound to that shape's collection
-/// entity — the single dispatch point that keeps the 31-way fan-out in one
+/// entity — the single dispatch point that keeps the 32-way fan-out in one
 /// place.
 macro_rules! for_each_collection {
     ($collections:expr, $entity:ident => $body:expr) => {{
@@ -484,6 +487,8 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.app_versions;
         $body;
+        let $entity = &$collections.app_records;
+        $body;
     }};
 }
 
@@ -521,6 +526,7 @@ impl Collections {
             prompts: cx.new(|_| Collection::new()),
             apps: cx.new(|_| Collection::new()),
             app_versions: cx.new(|_| Collection::new()),
+            app_records: cx.new(|_| Collection::new()),
         }
     }
 
@@ -576,11 +582,12 @@ impl Collections {
             "prompts" => apply_to(&self.prompts, keys, full_replace, sqlite, cx),
             "apps" => apply_to(&self.apps, keys, full_replace, sqlite, cx),
             "app_versions" => apply_to(&self.app_versions, keys, full_replace, sqlite, cx),
+            "app_records" => apply_to(&self.app_records, keys, full_replace, sqlite, cx),
             other => log::warn!("[sync] delta for unknown shape {other}"),
         }
     }
 
-    /// Full hydrate of all 31 collections from SQLite (§5.8 "hydrate typed
+    /// Full hydrate of all 32 collections from SQLite (§5.8 "hydrate typed
     /// in-memory collections from SQLite at startup"). Runs synchronously on
     /// the foreground — deliberately: every batch committed to SQLite has a
     /// matching [`ShapeDelta`] queued behind this call, so a snapshot read
@@ -608,7 +615,7 @@ impl Collections {
         self.observe_all_with(cx, |_, cx| cx.notify())
     }
 
-    /// Run `on_change` on `V` whenever ANY of the 31 collections notifies
+    /// Run `on_change` on `V` whenever ANY of the 32 collections notifies
     /// (EXP-1326: the IDE's cached dock area re-renders on every synced
     /// change this way, so a screen reading a collection without observing
     /// it never goes stale behind the cache).
@@ -903,7 +910,7 @@ pub struct Store {
 impl Global for Store {}
 
 impl Store {
-    /// Build the store: the shared-state entity, the 31 collection entities,
+    /// Build the store: the shared-state entity, the 32 collection entities,
     /// the [`SyncManager`], and the single foreground delta-drain task
     /// (§5.8). `on_unauthorized` is the §5.6b hook the app shell wires to
     /// `AuthStore::unauthorized_handler_fn()` — it deletes the dead token
@@ -971,7 +978,7 @@ impl Store {
         self.state.read(cx).session.clone()
     }
 
-    /// The 31 reactive collections.
+    /// The 32 reactive collections.
     pub fn collections(&self) -> &Collections {
         &self.collections
     }
@@ -1396,7 +1403,7 @@ mod tests {
 
     #[test]
     fn every_shape_has_a_typed_row_binding() {
-        // The 31 ShapeRow impls cover the registry exactly (a 32nd shape
+        // The 32 ShapeRow impls cover the registry exactly (a 33rd shape
         // without a typed row would silently never reach the UI).
         let bound = [
             Team::spec().name,
@@ -1430,6 +1437,7 @@ mod tests {
             PromptRow::spec().name,
             AppRow::spec().name,
             AppVersionRow::spec().name,
+            AppRecordRow::spec().name,
         ];
         let registry: Vec<&str> = crate::shapes::SHAPES.iter().map(|s| s.name).collect();
         assert_eq!(bound.len(), registry.len());

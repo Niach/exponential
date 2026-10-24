@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-91: the pure host rules (catalog/host.json functions, urls, media, sources, negotiation). Inputs hand-written; `expected` filled by the generator from src/host/{policy,sources,package}.ts.",
+  "$comment": "VAPP-91: the pure host rules (catalog/host.json functions, urls, media, sources, negotiation). Inputs hand-written; `expected` filled by the generator from src/host/{policy,sources,package}.ts. VAPP-122: `sourceParams` = sourceWithParams(source, params) → the source URI the `bind` action follows.",
   "functions": [
     {
       "name": "a built-in always runs",
@@ -1145,6 +1145,65 @@
           }
         }
       }
+    }
+  ],
+  "sourceParams": [
+    {
+      "source": "exp:records?kind=entry",
+      "params": {
+        "month": "2026-10"
+      },
+      "expected": "exp:records?kind=entry&month=2026-10"
+    },
+    {
+      "source": "exp:records",
+      "params": {
+        "mine": true,
+        "kind": "entry",
+        "limit": 50
+      },
+      "expected": "exp:records?kind=entry&limit=50&mine=true"
+    },
+    {
+      "source": "exp:issues?board=b1",
+      "params": {
+        "board": "b2"
+      },
+      "expected": "exp:issues?board=b1&board=b2"
+    },
+    {
+      "source": "exp:x",
+      "params": {
+        "q": "a b&c=d/ü",
+        "skip": null,
+        "gone": null
+      },
+      "expected": "exp:x?q=a%20b%26c%3Dd%2F%C3%BC"
+    },
+    {
+      "source": "exp:x",
+      "params": {},
+      "expected": "exp:x"
+    },
+    {
+      "source": "exp:x",
+      "params": {
+        "tags": [
+          "a",
+          "b"
+        ],
+        "opts": {
+          "k": 1
+        }
+      },
+      "expected": "exp:x?opts=%7B%22k%22%3A1%7D&tags=%5B%22a%22%2C%22b%22%5D"
+    },
+    {
+      "source": "exp:x?",
+      "params": {
+        "a": "1"
+      },
+      "expected": "exp:x?&a=1"
     }
   ]
 }

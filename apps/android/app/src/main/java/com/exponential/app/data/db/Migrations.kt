@@ -398,16 +398,33 @@ val MIGRATION_95_96: Migration = object : Migration(95, 96) {
 }
 
 /**
- * v97 (#EXP-1383, agents act as themselves): `agents.instructions_updated_at`,
+ * v97 (VAPP-122): the `app_records` table (an app's own data, the 32nd
+ * shape), created EMPTY; every other table and offset is untouched. DDL
+ * verbatim from the generated ExponentialDatabase_Impl.
+ */
+val MIGRATION_96_97: Migration = object : Migration(96, 97) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `app_records` (`id` TEXT NOT NULL, `app_id` TEXT NOT NULL, " +
+                "`team_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `data` TEXT, `created_by` TEXT, " +
+                "`created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_app_records_app_id_kind` ON `app_records` (`app_id`, `kind`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_app_records_team_id` ON `app_records` (`team_id`)")
+    }
+}
+
+/**
+ * v98 (#EXP-1383, agents act as themselves): `agents.instructions_updated_at`,
  * `sessions.agent_instructions_at` + `started_by_agent_id`,
  * `issues.assignee_agent_id` + `creator_agent_id`,
  * `issue_drafts.assignee_agent_id`, `issue_events.actor_agent_id` and
  * `comments.author_agent_id`, all nullable. The six shapes refetch so
  * already-synced rows re-arrive carrying them.
  */
-val MIGRATION_96_97: Migration = object : Migration(96, 97) {
+val MIGRATION_97_98: Migration = object : Migration(97, 98) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        for ((table, column) in AGENT_ACTOR_COLUMNS_V97) {
+        for ((table, column) in AGENT_ACTOR_COLUMNS_V98) {
             // Idempotent: a file that already carries the column keeps it.
             val present = db.query("PRAGMA table_info(`$table`)").use { cursor ->
                 val name = cursor.getColumnIndex("name")
@@ -417,7 +434,7 @@ val MIGRATION_96_97: Migration = object : Migration(96, 97) {
             }
             if (!present) db.execSQL("ALTER TABLE `$table` ADD COLUMN `$column` TEXT")
         }
-        val shapes = AGENT_ACTOR_COLUMNS_V97.map { it.first }.distinct().joinToString(", ") { "'$it'" }
+        val shapes = AGENT_ACTOR_COLUMNS_V98.map { it.first }.distinct().joinToString(", ") { "'$it'" }
         db.execSQL(
             "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
                 "`needs_refetch` = 1 WHERE `shape` IN ($shapes)",
@@ -426,11 +443,11 @@ val MIGRATION_96_97: Migration = object : Migration(96, 97) {
 }
 
 /**
- * v98 (thread e4a04d22): `conversations.digest`, the Chats list's
+ * v99 (thread e4a04d22): `conversations.digest`, the Chats list's
  * per-conversation digest (JSON text). Only the conversations shape
  * refetches so already-synced rows re-arrive carrying it.
  */
-val MIGRATION_97_98: Migration = object : Migration(97, 98) {
+val MIGRATION_98_99: Migration = object : Migration(98, 99) {
     override fun migrate(db: SupportSQLiteDatabase) {
         val present = db.query("PRAGMA table_info(`conversations`)").use { cursor ->
             val name = cursor.getColumnIndex("name")
@@ -446,7 +463,7 @@ val MIGRATION_97_98: Migration = object : Migration(97, 98) {
     }
 }
 
-internal val AGENT_ACTOR_COLUMNS_V97: List<Pair<String, String>> = listOf(
+internal val AGENT_ACTOR_COLUMNS_V98: List<Pair<String, String>> = listOf(
     "agents" to "instructions_updated_at",
     "sessions" to "agent_instructions_at",
     "sessions" to "started_by_agent_id",

@@ -5,22 +5,21 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * #EXP-1383: [MIGRATION_96_97] on a real version-96 file (today's schema
- * minus the eight agent columns). Room opens it with the migration and NO
- * destructive fallback, so every table is validated against its entity; the
- * rows survive with the new columns NULL, the six shapes refetch and every
- * other offset stays.
+ * VAPP-122: [MIGRATION_96_97] on a real version-96 database, built from
+ * today's schema without the `app_records` table. Room opens it with the
+ * migration (then the idempotent [MIGRATION_97_98] and [MIGRATION_98_99]) and NO destructive fallback, so the new table is validated
+ * against [AppRecordEntity]; it starts empty and takes a record, while the
+ * apps row and every offset survive untouched.
  */
 @RunWith(AndroidJUnit4::class)
 class Migration96To97Test {
@@ -37,38 +36,43 @@ class Migration96To97Test {
     fun tearDown() = clean()
 
     @Test
-    fun addsTheAgentColumnsAndRefetchesTheirShapes() {
+    fun createsTheAppRecordsTable() {
         createVersion96()
 
         val db = Room.databaseBuilder(context, ExponentialDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_96_97)
+            .addMigrations(MIGRATION_96_97, MIGRATION_97_98, MIGRATION_98_99)
             .allowMainThreadQueries()
             .build()
         try {
             val sql = db.openHelper.writableDatabase
-            assertEquals(97, sql.version)
-            sql.query("SELECT title, assignee_agent_id FROM issues WHERE id = 'i1'").use {
-                assertTrue(it.moveToFirst())
-                assertEquals("Crash on launch", it.getString(0))
-                assertTrue(it.isNull(1))
+            assertEquals(99, sql.version)
+
+            val records = db.appRecordDao()
+            assertTrue(runBlocking { records.observeByApp("a1").first() }.isEmpty())
+            runBlocking {
+                records.upsert(
+                    AppRecordEntity(
+                        id = "r1", appId = "a1", teamId = "t1", kind = "entry",
+                        data = "{\"hours\":3}", createdBy = "u1", createdAt = "c", updatedAt = "u",
+                    ),
+                )
             }
-            val offsets = db.electricOffsetDao()
-            for (shape in AGENT_ACTOR_COLUMNS_V97.map { it.first }.distinct()) {
-                val row = runBlocking { offsets.get(shape) }!!
-                assertEquals(shape, "", row.handle)
-                assertEquals("-1", row.offset)
-                assertFalse(row.isLive)
-                assertTrue(row.needsRefetch)
+            assertEquals(listOf("r1"), runBlocking { records.observeByApp("a1").first() }.map { it.id })
+            assertEquals(listOf("r1"), runBlocking { records.observeByTeam("t1").first() }.map { it.id })
+
+            val app = runBlocking { db.appDao().observeById("a1").first() }!!
+            assertEquals("hours", app.slug)
+            for (kept in listOf("apps", "sessions")) {
+                val row = runBlocking { db.electricOffsetDao().get(kept) }!!
+                assertEquals("h", row.handle)
+                assertTrue(row.isLive)
             }
-            val kept = runBlocking { offsets.get("pins") }!!
-            assertEquals("h-pins", kept.handle)
-            assertTrue(kept.isLive)
-            assertNull(runBlocking { offsets.get("actions") })
         } finally {
             db.close()
         }
     }
 
+    /** A v96 file: today's schema (from Room) minus `app_records`. */
     private fun createVersion96() {
         val schema = ArrayList<String>()
         val fresh = Room.databaseBuilder(context, ExponentialDatabase::class.java, SCHEMA_DB).build()
@@ -76,6 +80,7 @@ class Migration96To97Test {
             fresh.openHelper.writableDatabase.query(
                 "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL " +
                     "AND name NOT LIKE 'sqlite_%' AND name != 'android_metadata' " +
+                    "AND tbl_name != 'app_records' " +
                     "ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END",
             ).use { while (it.moveToNext()) schema.add(it.getString(0)) }
         } finally {
@@ -87,19 +92,14 @@ class Migration96To97Test {
         file.parentFile?.mkdirs()
         SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
             for (statement in schema) db.execSQL(statement)
-            for ((table, column) in AGENT_ACTOR_COLUMNS_V97) {
-                db.execSQL("ALTER TABLE `$table` DROP COLUMN `$column`")
-            }
             db.execSQL(
-                "INSERT INTO issues (id, board_id, number, identifier, title, status, priority, " +
-                    "sort_order, created_at, updated_at) VALUES ('i1', 'b1', 1, 'APP-1', " +
-                    "'Crash on launch', 'backlog', 'none', 1.0, 'c', 'u')",
+                "INSERT INTO apps (id, team_id, slug, name, description, created_by, created_at, updated_at) " +
+                    "VALUES ('a1', 't1', 'hours', 'Hours', '', 'u1', 'c', 'u')",
             )
-            val shapes = AGENT_ACTOR_COLUMNS_V97.map { it.first }.distinct() + "pins"
-            for (shape in shapes) {
+            for (shape in listOf("apps", "sessions")) {
                 db.execSQL(
                     "INSERT INTO electric_offsets (shape, handle, `offset`, is_live, needs_refetch) " +
-                        "VALUES ('$shape', 'h-$shape', '7_3', 1, 0)",
+                        "VALUES ('$shape', 'h', '0_0', 1, 0)",
                 )
             }
             db.version = 96
@@ -107,7 +107,7 @@ class Migration96To97Test {
     }
 
     private companion object {
-        const val SCHEMA_DB = "migration-96-97-schema.db"
-        const val TEST_DB = "migration-96-97.db"
+        const val SCHEMA_DB = "vapp122-schema-v97.db"
+        const val TEST_DB = "vapp122-migration-v96.db"
     }
 }
