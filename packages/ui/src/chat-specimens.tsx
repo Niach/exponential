@@ -8,11 +8,14 @@ import {
   type ChatRow as ChatRowModel,
 } from "@exp/domain-contract/chats"
 import type { ThreadRow } from "@exp/domain-contract/session-tree"
+import { BoardGlyph } from "./board-glyph"
 import { AgentBubbles, ChatFilterChips, ChatList, ChatsHeader } from "./chat-list"
 import { Dialog } from "./dialog"
 import { FAB_CHROME_CLASS } from "./fab-chrome"
 import { conceptIcon } from "./icons.generated"
 import { MenuPanel } from "./menu"
+import { PageHeader } from "./page-header"
+import { PhoneBoardMenuStrip } from "./phone-board-menu"
 import { PhoneTab, PhoneTabBar } from "./phone-tab-bar"
 import { PromptLayout } from "./prompt"
 import { ThreadConversation } from "./session-thread-view"
@@ -21,9 +24,10 @@ import { TeamAvatar } from "./team-avatar"
 import { agentMenuRows, chatMenuRows } from "./threads-list"
 import { TooltipProvider } from "./tooltip"
 
-// Thread 58cb32df (#EXP-1373, fixtures/chats.json): THE four chat specimens,
+// Thread 58cb32df (#EXP-1373, fixtures/chats.json): THE chat + phone-shell specimens,
 // one source for the styleguide entries (`chat-list`, `chat-menus`,
-// `chat-transcript`, `phone-tab-bar`) and the app's DEV-ONLY `?dev=<id>`
+// `chat-transcript`, `phone-tab-bar`; #EXP-1384 `phone-board-menu`,
+// `phone-page-header`) and the app's DEV-ONLY `?dev=<id>`
 // captures on the Agent route; the natives' specimens draw the same.
 
 const COPY = chats.copy
@@ -278,15 +282,28 @@ export function ChatTranscriptSpecimen() {
 }
 
 // ── phone-tab-bar ────────────────────────────────────────────────────────
-// THE phone bottom bar's tab capsule beside the new chat / new issue capsule,
-// three states: Chats, Team and Board selected, the amber dot on Chats.
+// #EXP-1384 (chats.json `shell`): THE phone bottom bar's tab capsule
+// (Board · Chats · Apps · Team) beside the new chat / new issue capsule:
+// Board selected on the board view (the board's glyph + name + the caret),
+// Chats and Team selected, then the drag LENS mid-drag (`PhoneTab`
+// `lensPreview`, a static state: the finger between Chats and Apps, Apps the
+// candidate).
 
-const BoardIcon = conceptIcon(`nav-issues`)
 const AppsIcon = conceptIcon(`nav-apps`)
 const ChatsIcon = conceptIcon(`nav-threads`)
-const BoardCaretIcon = conceptIcon(`nav-team-switcher`)
+const BoardCaretIcon = conceptIcon(chats.shell.boardTab.caret as `nav-team-switcher`)
 const ActionChatIcon = conceptIcon(`action-chat`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
+const BackIcon = conceptIcon(`ui-back`)
+
+/** The specimen team's boards in sidebar order (the screenshot seed's). */
+const BOARDS = [
+  { id: `app`, name: `Mobile App`, icon: `code`, color: `#6366f1` },
+  { id: `mkt`, name: `Launch Marketing`, icon: `square-kanban`, color: `#f59e0b` },
+  { id: `fb`, name: `Product Feedback`, icon: `megaphone`, color: `#22c55e` },
+] as const
+const ACTIVE_BOARD = BOARDS[0]
+const TEAM = `Acme`
 
 // The two-armed capsule as mobile-tab-bar.tsx paints it (static here).
 function Capsule() {
@@ -303,27 +320,42 @@ function Capsule() {
   )
 }
 
-function Bar({ selected }: { selected: `chats` | `team` | `board` }) {
+type BarTab = `board` | `chats` | `apps` | `team`
+
+function Tabs({ selected, dragging = false }: { selected: BarTab; dragging?: boolean }) {
   return (
-    <div className="flex min-w-0 max-w-full items-center gap-3">
-      <PhoneTabBar>
-        {/* #EXP-1384: the Board tab = the active board's glyph + name; on
-            the board view the caret (its tap opens the board menu). */}
-        <PhoneTab
-          label="Exponential"
-          icon={<BoardIcon className="size-5 text-sky-400" />}
-          selected={selected === `board`}
-          trailing={selected === `board` ? <BoardCaretIcon className="size-3 shrink-0" /> : undefined}
-        />
-        <PhoneTab
-          label={COPY.tabs.chats}
-          icon={<ChatsIcon className="size-5" />}
-          selected={selected === `chats`}
-          dot="bg-yellow-400"
-        />
-        <PhoneTab label={COPY.tabs.apps} icon={<AppsIcon className="size-5" />} />
-        <PhoneTab label="Acme" icon={<TeamAvatar name="Acme" size={20} />} selected={selected === `team`} />
-      </PhoneTabBar>
+    // `dragging`: the static mid-drag state, the lens over Apps (the finger
+    // 10px left of its centre), the selected tab's pill lifted off.
+    <PhoneTabBar className="flex-1" data-dragging={dragging || undefined}>
+      {/* The Board tab = the active board's glyph + name; on the board view
+          the caret (its tap opens the board menu). */}
+      <PhoneTab
+        label={ACTIVE_BOARD.name}
+        icon={<BoardGlyph board={ACTIVE_BOARD} className="size-5" />}
+        selected={selected === `board`}
+        trailing={selected === `board` ? <BoardCaretIcon className="size-2.5 shrink-0" /> : undefined}
+      />
+      <PhoneTab
+        label={COPY.tabs.chats}
+        icon={<ChatsIcon className="size-5" />}
+        selected={selected === `chats`}
+        dot="bg-yellow-400"
+      />
+      <PhoneTab
+        label={COPY.tabs.apps}
+        icon={<AppsIcon className="size-5" />}
+        selected={selected === `apps`}
+        lensPreview={dragging ? { offset: -10 } : undefined}
+      />
+      <PhoneTab label={TEAM} icon={<TeamAvatar name={TEAM} size={20} />} selected={selected === `team`} />
+    </PhoneTabBar>
+  )
+}
+
+function Bar({ selected, dragging = false }: { selected: BarTab; dragging?: boolean }) {
+  return (
+    <div className="flex w-full min-w-0 items-center" style={{ gap: chats.shell.bar.gap }}>
+      <Tabs selected={selected} dragging={dragging} />
       <Capsule />
     </div>
   )
@@ -335,11 +367,83 @@ export function PhoneTabBarSpecimen() {
     // and the capsule fit side by side, as on the natives.
     <div
       data-testid="phone-tab-bar-specimen"
-      className="flex flex-col items-start gap-4 rounded-xl bg-background p-4 max-sm:-mx-4 max-sm:px-0"
+      className="flex w-[390px] max-w-full flex-col items-start gap-4 rounded-xl bg-background p-4 max-sm:-mx-4 max-sm:px-0"
     >
-      <Bar selected="chats" />
-      <Bar selected="team" />
+      {caption(`On the board view (the caret opens the board menu)`)}
       <Bar selected="board" />
+      {caption(`Chats selected`)}
+      <Bar selected="chats" />
+      {caption(`Team selected`)}
+      <Bar selected="team" />
+      {caption(`Dragging: the lens between Chats and Apps`)}
+      <Bar selected="chats" dragging />
+    </div>
+  )
+}
+
+// ── phone-board-menu ─────────────────────────────────────────────────────
+// #EXP-1384 (chats.json `shell.boardMenu`): the board view's Board tab
+// morphed the WHOLE strip into the glass board menu, shown OPEN: the
+// team's boards (the active one lit, `ui-check`) then New board. The frame
+// is a transform root so the menu's fixed scrim stays inside it.
+
+export function PhoneBoardMenuSpecimen() {
+  return (
+    <div
+      data-testid="phone-board-menu-specimen"
+      className="relative h-[340px] w-[390px] max-w-full overflow-hidden rounded-xl bg-background [transform:translateZ(0)] max-sm:-mx-4"
+    >
+      <div className="flex flex-col gap-3 p-4 opacity-40">
+        <PageHeader title={ACTIVE_BOARD.name} />
+        {[0, 1, 2].map((row) => (
+          <div key={row} className="h-11 rounded-xl bg-glass-row" />
+        ))}
+      </div>
+      <div className="absolute inset-x-0 bottom-0 flex justify-center px-2 pb-4">
+        <PhoneBoardMenuStrip
+          open
+          onOpenChange={noop}
+          rows={BOARDS.map((board) => ({
+            id: board.id,
+            name: board.name,
+            glyph: <BoardGlyph board={board} className="size-5" />,
+            active: board.id === ACTIVE_BOARD.id,
+          }))}
+          onSelect={noop}
+          onNewBoard={noop}
+        >
+          <Tabs selected="board" />
+          <Capsule />
+        </PhoneBoardMenuStrip>
+      </div>
+    </div>
+  )
+}
+
+// ── page-header ──────────────────────────────────────────────────────────
+// #EXP-1384 (chats.json `shell.header`): THE phone page header: the large
+// title and the round search + inbox circles, the inbox's sky dot on and
+// off; Devices (pushed from the Team page) with the back control.
+
+export function PhonePageHeaderSpecimen() {
+  return (
+    <div
+      data-testid="phone-page-header-specimen"
+      className="flex w-[390px] max-w-full flex-col gap-4 rounded-xl bg-background p-4"
+    >
+      {caption(`Unread notification (the inbox dot)`)}
+      <PageHeader title={COPY.headers.chats} inboxUnread />
+      {caption(`All read`)}
+      <PageHeader title={ACTIVE_BOARD.name} />
+      {caption(`Pushed (Devices, the back control)`)}
+      <PageHeader
+        title={COPY.headers.devices}
+        leading={
+          <span className="-ml-2 flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground">
+            <BackIcon className="size-5" />
+          </span>
+        }
+      />
     </div>
   )
 }

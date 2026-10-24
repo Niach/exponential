@@ -58,9 +58,24 @@ pub struct ChatsFilterCopy {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ChatsTabCopy {
     pub board: String,
-    pub devices: String,
     pub chats: String,
+    pub apps: String,
     pub team: String,
+}
+
+/// `copy.headers` (#EXP-1384: the phone page header's titles).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ChatsHeaderCopy {
+    pub chats: String,
+    pub apps: String,
+    pub devices: String,
+    pub agent: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatsBoardMenuCopy {
+    pub new_board: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -80,6 +95,8 @@ pub struct ChatsPreviewCopy {
 pub struct ChatsCopy {
     pub title: String,
     pub tabs: ChatsTabCopy,
+    pub headers: ChatsHeaderCopy,
+    pub board_menu: ChatsBoardMenuCopy,
     pub filters: ChatsFilterCopy,
     pub preview: ChatsPreviewCopy,
     pub menu: ChatsMenuCopy,
@@ -166,9 +183,60 @@ pub struct AgentMenuSpec {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatsShell {
+    /// The phone bar's tabs in order (#EXP-1384: board, chats, apps, team).
+    pub tabs: Vec<String>,
+    pub bar: ChatsBar,
+    pub board_tab: ChatsBoardTab,
+    pub board_menu: ChatsBoardMenu,
+    pub header: ChatsHeader,
     pub lead_disc: f32,
     pub bubble: f32,
     pub bubble_ring: f32,
+}
+
+/// `shell.bar.drag`: the selection lens.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatsBarDrag {
+    pub lens_scale: f32,
+    pub cancel_distance: f32,
+}
+
+/// `shell.bar` (#EXP-1384): the phone tab capsule's geometry.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatsBar {
+    pub height: f32,
+    pub padding: f32,
+    pub gap: f32,
+    pub tab_min_width: f32,
+    pub tab_padding_x: f32,
+    pub drag: ChatsBarDrag,
+}
+
+/// `shell.boardTab`: the caret concept on the board view.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatsBoardTab {
+    pub caret: String,
+    pub caret_size: f32,
+}
+
+/// `shell.boardMenu` (#EXP-1384): the strip morphed into the board menu.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatsBoardMenu {
+    pub row_height: f32,
+    pub max_visible_rows: usize,
+    pub radius: f32,
+}
+
+/// `shell.header` (#EXP-1384): the phone page header.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ChatsHeader {
+    pub pages: Vec<String>,
+    pub buttons: Vec<String>,
+    pub circle: f32,
 }
 
 /// `fixtures/chats.json` minus its cases.
@@ -389,6 +457,7 @@ mod tests {
     fn spec_parses() {
         assert_eq!(CHATS.copy.title, "Chats");
         assert_eq!(CHATS.surface_card.reply_event, "reply");
+        assert_eq!(CHATS.shell.tabs, ["board", "chats", "apps", "team"]);
     }
 
     #[test]

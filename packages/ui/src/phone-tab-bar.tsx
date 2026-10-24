@@ -14,10 +14,10 @@ import { FAB_CHROME_CLASS } from "./fab-chrome"
 // system tab bar (ExpUI `PhoneTabBar` look), Android `ui/components`
 // `PhoneTabBar`.
 //
-// #EXP-1384 (`shell.bar`): a tab is as wide as its label (label + 2 ×
-// `tabPaddingX`, at least `tabMinWidth`, the label truncating past
-// `labelMaxWidth`), the capsule the sum of its tabs, shrinking (the widest
-// label first) only when the screen cannot hold it. DRAG (`shell.bar.drag`,
+// #EXP-1384 (`shell.bar`): the capsule takes the width beside the launcher
+// capsule (`flex-1` in the strip); each tab starts at its label's width
+// (label + 2 × `tabPaddingX`, at least `tabMinWidth`) and the tabs share the
+// rest evenly; a label truncates only when the labels alone do not fit. DRAG (`shell.bar.drag`,
 // the native iOS tab bar's behaviour): a press lifts the selection LENS
 // (the glass-active pill scaled to `lensScale`) under the finger; dragging
 // moves it along the bar (clamped, no animation), the tab under its centre
@@ -288,6 +288,7 @@ export function PhoneTab({
   dot,
   trailing,
   asChild = false,
+  lensPreview,
   className,
   style,
   children,
@@ -304,16 +305,26 @@ export function PhoneTab({
   /** Render as the single child (a `Link`/`<a>`); its own children are
    *  replaced by the tab's body. */
   asChild?: boolean
+  /** STATIC drag state for the styleguide specimen (never set by the app,
+   *  which measures the live lens): this tab is the CANDIDATE under the lens,
+   *  the finger `offset` px off its centre. Pair with `data-dragging` on the
+   *  bar so the selected tab's pill lifts. */
+  lensPreview?: { offset?: number }
   children?: React.ReactElement
 }) {
   const body = (
     <>
+      {lensPreview && (
+        <span
+          aria-hidden
+          data-slot="phone-tab-lens"
+          className="pointer-events-none absolute inset-0 -z-[1] rounded-full bg-glass-active"
+          style={{ transform: `translateX(${lensPreview.offset ?? 0}px) scale(${BAR.drag.lensScale})` }}
+        />
+      )}
       <span className="flex h-5 items-center justify-center">{icon}</span>
       <span className="flex min-w-0 max-w-full items-center gap-0.5">
-        <span
-          className="min-w-0 truncate text-[10px] font-medium leading-none"
-          style={{ maxWidth: BAR.labelMaxWidth }}
-        >
+        <span className="min-w-0 truncate text-[10px] font-medium leading-none">
           {label}
         </span>
         {trailing}
@@ -322,7 +333,7 @@ export function PhoneTab({
     </>
   )
   const tabClassName = cn(
-    `relative z-[1] flex h-11 min-w-0 shrink flex-col items-center justify-center gap-1 rounded-full outline-none transition-colors duration-fast focus-visible:ring-[3px] focus-visible:ring-ring/50`,
+    `relative z-[1] flex h-11 min-w-0 flex-auto flex-col items-center justify-center gap-1 rounded-full outline-none transition-colors duration-fast focus-visible:ring-[3px] focus-visible:ring-ring/50`,
     selected
       ? `bg-glass-active text-foreground group-data-[dragging=true]/phone-bar:bg-transparent group-data-[dragging=true]/phone-bar:text-muted-foreground`
       : `text-muted-foreground`,
@@ -339,6 +350,7 @@ export function PhoneTab({
       <Slot.Root
         data-slot="phone-tab"
         data-selected={selected}
+        data-candidate={lensPreview ? true : undefined}
         aria-label={label}
         aria-current={selected ? `page` : undefined}
         className={tabClassName}
@@ -355,6 +367,7 @@ export function PhoneTab({
       type="button"
       data-slot="phone-tab"
       data-selected={selected}
+      data-candidate={lensPreview ? true : undefined}
       aria-label={label}
       aria-current={selected ? `page` : undefined}
       className={tabClassName}

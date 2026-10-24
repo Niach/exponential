@@ -125,7 +125,7 @@ export function PhoneBoardMenuStrip({
     : `height ${duration} ${ease}, border-radius ${duration} ${ease}, opacity ${duration} ${ease}`
 
   return (
-    <div className={cn(`relative flex min-w-0 items-center`, className)}>
+    <div className={cn(`relative flex w-full min-w-0 items-center`, className)}>
       {mounted && (
         // The transparent scrim: a tap outside the panel collapses it.
         <div
@@ -139,7 +139,7 @@ export function PhoneBoardMenuStrip({
         />
       )}
       <div
-        className="flex min-w-0 items-center"
+        className="flex w-full min-w-0 items-center"
         style={{
           gap: BAR.gap,
           opacity: expanded ? 0 : 1,

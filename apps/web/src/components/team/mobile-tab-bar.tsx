@@ -246,13 +246,13 @@ export function MobileTabBar({
         }}
         onNewBoard={permissions.canCreate && team ? () => setCreateBoardOpen(true) : undefined}
       >
-      <PhoneTabBar>
+      <PhoneTabBar className="flex-1">
         {onBoard && boardTarget ? (
           // ON the board view: the caret, and a tap opens the board menu.
           <PhoneTab
             label={boardTarget.name}
             icon={<BoardGlyph board={boardTarget} className="size-5" />}
-            trailing={<BoardCaretIcon className="size-3 shrink-0" />}
+            trailing={<BoardCaretIcon className="size-2.5 shrink-0" />}
             selected
             aria-haspopup="menu"
             aria-expanded={menuOpen}

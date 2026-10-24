@@ -13,6 +13,8 @@ import {
   ChatMenusSpecimen,
   ChatTranscriptSpecimen,
   PhoneTabBarSpecimen,
+  PhoneBoardMenuSpecimen,
+  PhonePageHeaderSpecimen,
   useKeyboardInset,
 } from "@exp/ui"
 import { HOME_GEOMETRY, HOME_TEST_IDS } from "@exp/domain-contract/home-greeting"
@@ -68,7 +70,8 @@ const str = (value: unknown): string | undefined =>
 // capture; EXP-1324: `?dev=trace` / `?dev=code-block` the Trace and
 // CodeBlock specimens (`?dev=ask-dock` THE ask dock's, EXP-1280 `?dev=plan-card`
 // THE rich plan card's; thread 58cb32df `?dev=chat-list` / `chat-menus` /
-// `chat-transcript` / `phone-tab-bar` the chats.json specimens) (identical
+// `chat-transcript` / `phone-tab-bar`, #EXP-1384 `phone-board-menu` /
+// `phone-page-header` the chats.json specimens) (identical
 // ×4) for theirs. Never parsed in a production build (`isProductionBuild`).
 const DEV_VIEWS = [
   `feedback-states`,
@@ -81,6 +84,8 @@ const DEV_VIEWS = [
   `chat-menus`,
   `chat-transcript`,
   `phone-tab-bar`,
+  `phone-board-menu`,
+  `phone-page-header`,
 ] as const
 type DevView = (typeof DEV_VIEWS)[number]
 const devView = (value: unknown): DevView | undefined =>
@@ -133,6 +138,10 @@ function AgentRoute() {
           <ChatTranscriptSpecimen />
         ) : dev === `phone-tab-bar` ? (
           <PhoneTabBarSpecimen />
+        ) : dev === `phone-board-menu` ? (
+          <PhoneBoardMenuSpecimen />
+        ) : dev === `phone-page-header` ? (
+          <PhonePageHeaderSpecimen />
         ) : dev === `code-block` ? (
           <CodeBlockSpecimen />
         ) : (

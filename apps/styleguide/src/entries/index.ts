@@ -52,6 +52,8 @@ import { entry as menuSubmenu } from "./menu-submenu.tsx"
 import { entry as gettingStarted } from "./getting-started.tsx"
 import { entry as chatList } from "./chat-list.tsx"
 import { entry as phoneTabBar } from "./phone-tab-bar.tsx"
+import { entry as phoneBoardMenu } from "./phone-board-menu.tsx"
+import { entry as phonePageHeader } from "./phone-page-header.tsx"
 import { entry as chatTranscript } from "./chat-transcript.tsx"
 import { entry as chatMenus } from "./chat-menus.tsx"
 import { entry as trace } from "./trace.tsx"
@@ -112,6 +114,8 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   gettingStarted,
   chatList,
   phoneTabBar,
+  phoneBoardMenu,
+  phonePageHeader,
   chatTranscript,
   chatMenus,
 ]
