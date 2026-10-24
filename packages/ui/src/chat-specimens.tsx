@@ -282,8 +282,9 @@ export function ChatTranscriptSpecimen() {
 // three states: Chats, Team and Board selected, the amber dot on Chats.
 
 const BoardIcon = conceptIcon(`nav-issues`)
-const DevicesIcon = conceptIcon(`nav-devices`)
+const AppsIcon = conceptIcon(`nav-apps`)
 const ChatsIcon = conceptIcon(`nav-threads`)
+const BoardCaretIcon = conceptIcon(`nav-team-switcher`)
 const ActionChatIcon = conceptIcon(`action-chat`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 
@@ -304,16 +305,23 @@ function Capsule() {
 
 function Bar({ selected }: { selected: `chats` | `team` | `board` }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 max-w-full items-center gap-3">
       <PhoneTabBar>
-        <PhoneTab label={COPY.tabs.board} icon={<BoardIcon className="size-5" />} selected={selected === `board`} />
-        <PhoneTab label={COPY.tabs.devices} icon={<DevicesIcon className="size-5" />} />
+        {/* #EXP-1384: the Board tab = the active board's glyph + name; on
+            the board view the caret (its tap opens the board menu). */}
+        <PhoneTab
+          label="Exponential"
+          icon={<BoardIcon className="size-5 text-sky-400" />}
+          selected={selected === `board`}
+          trailing={selected === `board` ? <BoardCaretIcon className="size-3 shrink-0" /> : undefined}
+        />
         <PhoneTab
           label={COPY.tabs.chats}
           icon={<ChatsIcon className="size-5" />}
           selected={selected === `chats`}
           dot="bg-yellow-400"
         />
+        <PhoneTab label={COPY.tabs.apps} icon={<AppsIcon className="size-5" />} />
         <PhoneTab label="Acme" icon={<TeamAvatar name="Acme" size={20} />} selected={selected === `team`} />
       </PhoneTabBar>
       <Capsule />

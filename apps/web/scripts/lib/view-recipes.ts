@@ -343,31 +343,26 @@ async function recipeOpenBoardBulkEdit(page: Page): Promise<void> {
 }
 
 /**
- * Open the phone board switcher from the mobile topbar's board name. The
- * topbar itself is `md:hidden`, so at the desktop viewport there is no trigger
- * at all — that reads as a manifest mistake rather than a flake, so it fails
- * loudly instead of waiting 20s for a button that can never mount.
+ * Open the phone BOARD MENU (#EXP-1384, chats.json `shell.boardMenu`): on the
+ * board view the Board tab's tap morphs the bottom strip into the glass menu
+ * of the team's boards. The tab bar is `md:hidden`, so at the desktop
+ * viewport there is no trigger at all — that reads as a manifest mistake
+ * rather than a flake, so it fails loudly.
  */
 async function recipeOpenBoardSwitcher(page: Page): Promise<void> {
   const width = page.viewportSize()?.width ?? 0
   if (width >= 768) {
     throw new Error(
-      `the board switcher is web-mobile only — the mobile topbar carrying it ` +
-        `is md:hidden, and this viewport is ${width}px wide`
+      `the board menu is web-mobile only — the tab bar carrying it is ` +
+        `md:hidden, and this viewport is ${width}px wide`
     )
   }
-  const trigger = page.getByRole(`button`, { name: `Switch board`, exact: true })
+  const trigger = page.getByTestId(`tab-board`)
   if (!(await appears(trigger, 20_000))) {
-    throw new Error(
-      `no "Switch board" control in the mobile topbar — the topbar swaps the ` +
-        `board name for a section title on inbox/devices/actions/reviews/` +
-        `settings, so capture this view on a board route`
-    )
+    throw new Error(`no Board tab — capture this view on a board route`)
   }
   await trigger.first().click()
-  await page
-    .getByRole(`dialog`, { name: `Switch board` })
-    .waitFor({ timeout: 15_000 })
+  await page.getByTestId(`board-menu`).waitFor({ timeout: 15_000 })
 }
 
 // ---------------------------------------------------------------- reviews

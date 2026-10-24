@@ -658,12 +658,12 @@
       "id": "board-switcher",
       "group": "issues",
       "title": "Board switcher",
-      "blurb": "The phone’s way between boards: a bottom sheet listing every board in the team.",
+      "blurb": "The phone’s way between boards: on the board view the Board tab morphs the bottom strip into a glass menu listing every board in the team.",
       "order": 9,
       "webMobile": {
         "route": "/t/$teamSlug/boards/$boardSlug",
         "anchor": {
-          "text": "Switch board",
+          "testId": "tab-board",
           "timeoutMs": 30000
         },
         "recipe": "openBoardSwitcher",

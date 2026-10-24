@@ -16,6 +16,7 @@ import {
   useKeyboardInset,
 } from "@exp/ui"
 import { HOME_GEOMETRY, HOME_TEST_IDS } from "@exp/domain-contract/home-greeting"
+import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { useSteerConfig } from "@/hooks/use-steer-config"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { LaunchComposer } from "@/components/launch-composer"
@@ -29,6 +30,7 @@ import {
 } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { MobilePageHeader } from "@/components/team/mobile-page-header"
 import type { Team, User } from "@/db/schema"
 import type { SteerDevice } from "@/lib/steer-devices"
 import {
@@ -192,6 +194,13 @@ function AgentPage() {
 
   return (
     <div className="relative flex h-full min-h-0 flex-col" data-testid="agent-page">
+      {/* #EXP-1384 (chats.json `shell.header`): phones wear THE page header
+          (title `copy.headers.agent`). */}
+      <MobilePageHeader
+        teamSlug={teamSlug}
+        title={CHATS_COPY.headers.agent}
+        className="shrink-0 px-4 pb-2 pt-[max(1rem,env(safe-area-inset-top))] md:hidden"
+      />
       <div className="relative min-h-0 flex-1 overflow-y-auto">
         {/* EXP-1316 (composer-home.json `phone`): phones pin the dawn + the
             card + its options row to the BOTTOM (above the tab bar, riding
