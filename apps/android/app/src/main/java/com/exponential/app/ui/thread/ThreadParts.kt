@@ -14,6 +14,7 @@ import com.exponential.app.ui.theme.fullBleed
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.RowScope
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.TranscriptLoadEarlierButton
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.PillSize
@@ -36,7 +37,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.material3.TextButton
 import com.exponential.app.domain.Chats
 import androidx.compose.ui.platform.LocalDensity
 import com.exponential.app.ui.components.JumpToBottomButton
@@ -1109,16 +1109,15 @@ fun ThreadConversation(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (header > 0) {
-                // The run view's Load earlier (its ghost TextButton).
+                // THE Load earlier ×4 (the run view's, muted small text).
                 item(key = "load-earlier") {
-                    TextButton(
+                    TranscriptLoadEarlierButton(
                         onClick = {
                             val first = state.layoutInfo.visibleItemsInfo.firstOrNull { it.key != "load-earlier" }
                             anchor = (first?.key as? String)?.let { it to first.offset }
                             windowFrom = shown[maxOf(0, windowStart - Chats.Transcript.WINDOW_STEP)].id
                         },
-                        modifier = Modifier.fillMaxWidth().testTag(Chats.TestIds.LOAD_EARLIER),
-                    ) { Text(Chats.Copy.LOAD_EARLIER) }
+                    )
                 }
             }
             items(painted, key = { it.id }) { row ->

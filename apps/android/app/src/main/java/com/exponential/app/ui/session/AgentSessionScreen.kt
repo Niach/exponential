@@ -4,6 +4,7 @@ import com.exponential.app.domain.TaskQueue
 import androidx.compose.runtime.Stable
 import androidx.compose.foundation.shape.CircleShape
 import com.exponential.app.data.api.AnswerInput
+import com.exponential.app.ui.components.TranscriptLoadEarlierButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
 import android.net.Uri
@@ -1850,7 +1851,8 @@ private fun ActivityFeed(
             } else {
             if (canLoadEarlier) {
                 item(key = "load-earlier") {
-                    TextButton(
+                    // THE Load earlier ×4 (chats.json WINDOW), shared with the chats.
+                    TranscriptLoadEarlierButton(
                         onClick = {
                             if (windowStart > 0) {
                                 windowFrom = feed[maxOf(0, windowStart - FEED_WINDOW_STEP)].id
@@ -1863,8 +1865,7 @@ private fun ActivityFeed(
                                 onLoadEarlier()
                             }
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Load earlier") }
+                    )
                 }
             }
             // EXP-787: the row's space comes from the row BEFORE it — the one
