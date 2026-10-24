@@ -1780,6 +1780,14 @@ export const sessions = pgTable(
     agentId: uuid(`agent_id`).references((): AnyPgColumn => agents.id, {
       onDelete: `cascade`,
     }),
+    // #EXP-1383: a ROOT a team agent's session started (a thread its
+    // conversation spawned): the tree acts as that agent and stays in its
+    // team like the conversation itself (acting agent = `agent_id ??
+    // started_by_agent_id`). SYNCED.
+    startedByAgentId: uuid(`started_by_agent_id`).references(
+      (): AnyPgColumn => agents.id,
+      { onDelete: `set null` }
+    ),
     // VAPP-110: the APP this is a member's EDITOR session OF (a root; one
     // per (app, user_id), live only while that member has the editor open:
     // leaving ends the tree, the next message revives the same root). NULL = not an

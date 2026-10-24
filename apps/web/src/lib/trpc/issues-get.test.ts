@@ -111,6 +111,8 @@ const SHAPE_COLUMNS = [
   `duplicateOfId`,
   `estimate`,
   `draftId`,
+  `assigneeAgentId`,
+  `creatorAgentId`,
   `createdAt`,
   `updatedAt`,
 ]

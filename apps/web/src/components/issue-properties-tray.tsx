@@ -42,6 +42,7 @@ export function IssuePropertiesTray({
           priority={issue.priority}
           onPriorityChange={handlers.handlePriorityChange}
           assigneeId={issue.assigneeId}
+          assigneeAgentId={issue.assigneeAgentId}
           onAssigneeChange={handlers.handleAssigneeChange}
           users={users}
           teamId={teamId}

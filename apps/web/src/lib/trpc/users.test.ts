@@ -33,6 +33,13 @@ const B_GONE = `44444444-4444-4444-8444-444444444444`
 vi.mock(`@/lib/auth/membership`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/auth/membership")>()),
   getUserTeamIds: vi.fn(async () => [T1, T2]),
+  // #EXP-1383: a team agent's key needs the caller's membership.
+  assertTeamMember: vi.fn(async (_userId: string, teamId: string) => {
+    if (![T1, T2].includes(teamId)) {
+      const { TRPCError } = await import(`@trpc/server`)
+      throw new TRPCError({ code: `FORBIDDEN`, message: `Not a member` })
+    }
+  }),
 }))
 
 import { usersRouter } from "@/lib/trpc/users"
@@ -126,6 +133,33 @@ describe(`users — scoped API keys (FEED-76)`, () => {
       })
     )
     expect(foreign.code).toBe(`BAD_REQUEST`)
+    expect(h.createApiKey).not.toHaveBeenCalled()
+  })
+
+  it(`#EXP-1383: purpose agent + teamId mints a team agent's one-team key; refuses it elsewhere`, async () => {
+    const created = await callerFor().mintPersonalApiKey({ purpose: `agent`, teamId: T1, name: `Agent` })
+    expect(h.createApiKey).toHaveBeenCalledWith({
+      body: expect.objectContaining({
+        metadata: { kind: `agent`, scope: { allTeams: false, teamIds: [T1], boardIds: [] } },
+      }),
+    })
+    expect(created.scope).toEqual({ teams: [{ id: T1, name: `Acme` }], boards: [] })
+    // Without teamId the agent key stays a full key.
+    await callerFor().mintPersonalApiKey({ purpose: `agent` })
+    expect((h.createApiKey.mock.calls.at(-1) as unknown as [{ body: { metadata: unknown } }])[0].body.metadata).toEqual({
+      kind: `agent`,
+    })
+    h.createApiKey.mockClear()
+    const personal = await rejectionOf(callerFor().mintPersonalApiKey({ teamId: T1 }))
+    expect(personal.code).toBe(`BAD_REQUEST`)
+    const both = await rejectionOf(
+      callerFor().mintPersonalApiKey({ purpose: `agent`, teamId: T1, scope: { teamIds: [T1] } })
+    )
+    expect(both.code).toBe(`BAD_REQUEST`)
+    const foreign = await rejectionOf(
+      callerFor().mintPersonalApiKey({ purpose: `agent`, teamId: `55555555-5555-4555-8555-555555555555` })
+    )
+    expect(foreign.code).toBe(`FORBIDDEN`)
     expect(h.createApiKey).not.toHaveBeenCalled()
   })
 

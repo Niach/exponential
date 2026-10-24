@@ -1324,6 +1324,13 @@
       "when": 1792834407628,
       "tag": "0188_black_prodigy",
       "breakpoints": true
+    },
+    {
+      "idx": 189,
+      "version": "7",
+      "when": 1792836242905,
+      "tag": "0189_moaning_proemial_gods",
+      "breakpoints": true
     }
   ]
 }

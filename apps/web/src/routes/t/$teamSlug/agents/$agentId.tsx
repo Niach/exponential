@@ -3,12 +3,15 @@ import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import {
   BoardGlyph,
   conceptIcon,
+  DockCard,
   EmptyState,
   JumpToBottomButton,
   SkeletonRows,
   useIsMobile,
 } from "@exp/ui"
 import type { User } from "@/db/schema"
+import { dockRows } from "@exp/domain-contract/dock"
+import { useAgentHintDock } from "@/components/agent-session"
 import { SessionComposer } from "@/components/session-composer"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AgentChannel, AgentComposer } from "@/components/thread/agent-channel"
@@ -78,6 +81,14 @@ function AgentChannelPage() {
   const messages = useTreeMessages(conversation?.id)
   const follow = useFollowScroll([messages, conversation?.id])
   const { users } = useTeamUsers(team?.id)
+  // #EXP-1383 (chats.json `agentHint`): the conversation still runs on the
+  // agent's previous instructions → THE Dock's banner card over the
+  // composer, its action = the agent menu's New conversation.
+  const agentHint = useAgentHintDock(conversation)
+  const hintRow = useMemo(
+    () => (agentHint.source ? (dockRows([agentHint.source])[0] ?? null) : null),
+    [agentHint.source]
+  )
   usePageTitle(agent?.name ? pageTitle(agent.name, THREADS_LIST_COPY.agents) : undefined)
 
   const [graceOver, setGraceOver] = useState(false)
@@ -184,6 +195,13 @@ function AgentChannelPage() {
       </div>
       {permissions.isMember && (
         <div className="shrink-0 px-4 pt-2 pb-4 md:px-6">
+          {hintRow && (
+            <DockCard
+              row={hintRow}
+              action={agentHint.renderAction(hintRow)}
+              className="mx-auto mb-1.5 max-w-4xl"
+            />
+          )}
           {conversation ? (
             <SessionComposer
               teamId={team.id}

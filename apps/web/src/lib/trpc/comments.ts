@@ -31,6 +31,7 @@ import {
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { resolveMentions } from "@/lib/integrations/mentions"
 import { syncReferenceRelations } from "@/lib/issue-relations"
+import { actingAgentId } from "@/lib/integrations/event-origin"
 
 async function loadCommentForMutation(
   // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
@@ -325,6 +326,9 @@ export const commentsRouter = router({
           message: `This issue has no reporter email to reply to`,
         })
       }
+      // #EXP-1383: the agent whose session writes it (the card names it;
+      // author_id keeps the member).
+      const authorAgentId = await actingAgentId(ctx)
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const parentId = input.parentId
@@ -337,6 +341,7 @@ export const commentsRouter = router({
             teamId: issueContext.teamId,
             boardId: issueContext.boardId,
             authorId: ctx.session.user.id,
+            authorAgentId,
             parentId,
             // EXP-741: the MCP server's synthetic context is the ONLY thing
             // that marks a comment as agent-posted — never client input.
@@ -402,6 +407,7 @@ export const commentsRouter = router({
       fireAndForgetCommentNotify({
         issueId: input.issueId,
         actorUserId: ctx.session.user.id,
+        actorAgentId: authorAgentId,
         commentBodyText: getCommentBodyText(input.body),
         mentionedUserIds: result.mentionedUserIds,
         attachmentCount: input.attachmentIds.length,
@@ -560,6 +566,7 @@ export const commentsRouter = router({
         fireAndForgetIssueMentionNotify({
           issueId: existing.issueId,
           actorUserId: ctx.session.user.id,
+          actorAgentId: await actingAgentId(ctx),
           mentionedUserIds: result.newlyMentionedUserIds,
         })
       }

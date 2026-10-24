@@ -8,6 +8,8 @@ import {
 } from "@/lib/team-statuses"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { displayUserName } from "@/lib/user-display"
+import { useAgentRows } from "@/hooks/use-agent-row"
+import type { IssueAssignee } from "@/lib/issue-assignee"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
@@ -81,6 +83,8 @@ export interface IssueEditorMobilePropertiesProps {
   status: StatusRowOption
   priority: IssuePriority
   assigneeId: string | null
+  /** #EXP-1383: an agent assignee (exclusive with `assigneeId`). */
+  assigneeAgentId?: string | null
   selectedLabelIds: string[]
   teamId: string
   users: User[]
@@ -114,7 +118,8 @@ export interface IssueEditorMobilePropertiesProps {
   disabled?: boolean
   onStatusChange: (status: StatusRowOption) => void | Promise<void>
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
-  onAssigneeChange: (userId: string | null) => void | Promise<void>
+  /** The pick as both columns (`assigneeWrite`), the cleared one null. */
+  onAssigneeChange: (assignee: IssueAssignee) => void | Promise<void>
   onToggleLabel: (labelId: string) => void | Promise<void>
   onDueDateSelect: (date: string | null) => void | Promise<void>
 }
@@ -123,6 +128,7 @@ export function IssueEditorMobileProperties({
   status,
   priority,
   assigneeId,
+  assigneeAgentId = null,
   selectedLabelIds,
   teamId,
   users,
@@ -149,6 +155,12 @@ export function IssueEditorMobileProperties({
     ? boardOptions.find((row) => row.id === board.boardId)
     : undefined
   const statusOptions = creatableStatusOptions(options)
+  // #EXP-1383: the team's agents follow the members; an agent assignee
+  // reads as THE AGENT MARK + its name.
+  const agents = useAgentRows(teamId)
+  const assigneeAgent = assigneeAgentId
+    ? agents.find((agent) => agent.id === assigneeAgentId)
+    : undefined
   const assignee = assigneeId
     ? users.find((user) => user.id === assigneeId)
     : undefined
@@ -224,14 +236,21 @@ export function IssueEditorMobileProperties({
           <AssigneePicker
             disabled={disabled}
             users={users}
+            agents={agents}
             selectedUserId={assigneeId}
-            onSelect={onAssigneeChange}
+            selectedAgentId={assigneeAgentId}
+            onSelect={(next) => void onAssigneeChange(next)}
             trigger={
               <PropertyValueRow
                 label="Assignee"
                 disabled={disabled}
                 value={
-                  assignee ? (
+                  assigneeAgent ? (
+                    <>
+                      <UserAvatar size={16} user={null} agent={assigneeAgent} />
+                      <span className="max-w-[8rem] truncate">{assigneeAgent.name}</span>
+                    </>
+                  ) : assignee ? (
                     <>
                       <UserAvatar
                         size={16}

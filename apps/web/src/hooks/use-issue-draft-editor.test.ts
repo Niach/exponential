@@ -151,6 +151,7 @@ describe(`useIssueDraftEditor autosave`, () => {
       statusId: null,
       priority: `none`,
       assigneeId: null,
+      assigneeAgentId: null,
       labelIds: [],
       dueDate: null,
       sessionId: null,

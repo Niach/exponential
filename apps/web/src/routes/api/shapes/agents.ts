@@ -19,6 +19,8 @@ export const AGENT_COLUMNS = [
   `model`,
   `owner_id`,
   `sort_order`,
+  // #EXP-1383: when the instructions last changed (chats.json `agentHint`).
+  `instructions_updated_at`,
   `created_at`,
   `updated_at`,
 ]
