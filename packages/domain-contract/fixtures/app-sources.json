@@ -1,0 +1,819 @@
+{
+  "$comment": "VAPP-119 the `exp:` binding SOURCES ×4 beyond devices (web-pinned per platform) and records (app-records.json): what an app host emits for `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`, `exp:comments` and `exp:attachments` over the team's synced rows, the SAME on web (TanStack DB), desktop (the store), iOS (GRDB) and Android (Room): the TS reference `app-sources.ts` (`sourceValue(name, params, store, {me})`); desktop `domain::app_sources`, iOS `AppSources.swift`, Android `AppSources.kt` replay every case of `cases` over `store` (one team's rows, ISO timestamps). QUERY (params as `parseSource` gives them): `limit` (`limits.default`, capped at `limits.max`); issues: `board=<id|slug>` (unknown = empty), `status=<anchor>`, `priority=<p>`, `assignee=<userId|me|none>`, `search=<text>` (case-insensitive substring of title or identifier), `sort=sortOrder|updatedAt|createdAt` (sortOrder asc by default, the timestamps desc), `order=asc|desc`; sessions: `status=`, `mine=1`; comments / attachments: `issue=<identifier|id>` (REQUIRED: without a resolvable issue the value is null). VALUES: issues {rows: [{id, identifier, title, status, priority, assignee, assigneeName, board, boardSlug, dueDate, updatedAt, value: identifier, label: `identifier title`}], count}; boards {rows: [{id, slug, name, prefix, icon, color, value: id, label: name}] (live boards by sortOrder, then name), count}; members {rows: [{id, name, email, avatar, role, value: id, label: name}] (by name), count, me}; the `value` + `label` pair makes a row a Select / ChipInput option (`shape: option`), so an app binds the rows straight into `options` / `suggestions`; sessions {rows: [{id, title, status, busy, needsInput, kind: thread|agent, updatedAt}] (roots only, no app editor sessions, newest first), count}; comments {rows: [{id, body, author, authorName, parent, source, createdAt}] (oldest first), count}; attachments {rows: [{id, name, type, size, url: /api/attachments/<id> (the media policy resolves it), width, height, uploader, uploaderName, createdAt}] (oldest first), count}. `count` counts before the limit; ties sort by id; text compares by code points (no locale). A name outside `sources` emits null.",
+  "sources": [
+    "issues",
+    "boards",
+    "members",
+    "sessions",
+    "comments",
+    "attachments"
+  ],
+  "limits": {
+    "default": 50,
+    "max": 500
+  },
+  "store": {
+    "boards": [
+      {
+        "id": "b1",
+        "slug": "mobile-app",
+        "name": "Mobile App",
+        "prefix": "APP",
+        "icon": "code",
+        "color": "#6366f1",
+        "sortOrder": 0,
+        "deletedAt": null
+      },
+      {
+        "id": "b2",
+        "slug": "feedback",
+        "name": "Product Feedback",
+        "prefix": "FB",
+        "icon": "megaphone",
+        "color": "#22c55e",
+        "sortOrder": 1,
+        "deletedAt": null
+      },
+      {
+        "id": "b3",
+        "slug": "old",
+        "name": "Archive",
+        "prefix": "OLD",
+        "icon": null,
+        "color": null,
+        "sortOrder": 2,
+        "deletedAt": "2026-09-01T00:00:00Z"
+      }
+    ],
+    "issues": [
+      {
+        "id": "i1",
+        "boardId": "b1",
+        "identifier": "APP-1",
+        "title": "Crash on launch",
+        "status": "in_progress",
+        "priority": "high",
+        "assigneeId": "u1",
+        "creatorId": "u2",
+        "dueDate": "2026-10-30",
+        "sortOrder": 2,
+        "createdAt": "2026-10-01T09:00:00Z",
+        "updatedAt": "2026-10-20T09:00:00Z"
+      },
+      {
+        "id": "i2",
+        "boardId": "b1",
+        "identifier": "APP-2",
+        "title": "Dark mode toggle",
+        "status": "backlog",
+        "priority": "low",
+        "assigneeId": null,
+        "creatorId": "u1",
+        "dueDate": null,
+        "sortOrder": 1,
+        "createdAt": "2026-10-02T09:00:00Z",
+        "updatedAt": "2026-10-22T09:00:00Z"
+      },
+      {
+        "id": "i3",
+        "boardId": "b1",
+        "identifier": "APP-3",
+        "title": "Image cache leak",
+        "status": "in_progress",
+        "priority": "high",
+        "assigneeId": "u2",
+        "creatorId": "u2",
+        "dueDate": null,
+        "sortOrder": 3,
+        "createdAt": "2026-10-03T09:00:00Z",
+        "updatedAt": "2026-10-21T09:00:00Z"
+      },
+      {
+        "id": "i4",
+        "boardId": "b2",
+        "identifier": "FB-1",
+        "title": "Launch feedback form",
+        "status": "done",
+        "priority": null,
+        "assigneeId": "u1",
+        "creatorId": "u3",
+        "dueDate": null,
+        "sortOrder": 0,
+        "createdAt": "2026-09-28T09:00:00Z",
+        "updatedAt": "2026-10-22T09:00:00Z"
+      },
+      {
+        "id": "i5",
+        "boardId": "b1",
+        "identifier": "APP-5",
+        "title": "Reduce cold start",
+        "status": "in_progress",
+        "priority": "medium",
+        "assigneeId": "u1",
+        "creatorId": "u1",
+        "dueDate": null,
+        "sortOrder": 0,
+        "createdAt": "2026-10-05T09:00:00Z",
+        "updatedAt": "2026-10-22T09:00:00Z"
+      }
+    ],
+    "members": [
+      {
+        "userId": "u1",
+        "role": "owner"
+      },
+      {
+        "userId": "u2",
+        "role": "member"
+      },
+      {
+        "userId": "u3",
+        "role": "member"
+      }
+    ],
+    "users": [
+      {
+        "id": "u1",
+        "name": "Alex Carter",
+        "email": "alex@acme.dev",
+        "image": "https://cdn.example/alex.png"
+      },
+      {
+        "id": "u2",
+        "name": "Jonas Weber",
+        "email": "jonas@acme.dev",
+        "image": null
+      },
+      {
+        "id": "u3",
+        "name": "Mira Sato",
+        "email": null,
+        "image": null
+      },
+      {
+        "id": "u9",
+        "name": "Former Member",
+        "email": "old@acme.dev",
+        "image": null
+      }
+    ],
+    "sessions": [
+      {
+        "id": "s1",
+        "parentId": null,
+        "agentId": null,
+        "appId": null,
+        "userId": "u1",
+        "status": "running",
+        "busy": true,
+        "needsInput": false,
+        "title": "Reduce cold start below 800 ms",
+        "createdAt": "2026-10-20T08:00:00Z",
+        "updatedAt": "2026-10-24T08:00:00Z"
+      },
+      {
+        "id": "s2",
+        "parentId": "s1",
+        "agentId": null,
+        "appId": null,
+        "userId": "u1",
+        "status": "idle",
+        "busy": false,
+        "needsInput": true,
+        "title": "Profile the launch path",
+        "createdAt": "2026-10-20T08:10:00Z",
+        "updatedAt": "2026-10-24T08:10:00Z"
+      },
+      {
+        "id": "s3",
+        "parentId": null,
+        "agentId": "a1",
+        "appId": null,
+        "userId": "u2",
+        "status": "idle",
+        "busy": false,
+        "needsInput": false,
+        "title": "Triage",
+        "createdAt": "2026-10-19T08:00:00Z",
+        "updatedAt": "2026-10-23T08:00:00Z"
+      },
+      {
+        "id": "s4",
+        "parentId": null,
+        "agentId": null,
+        "appId": "app1",
+        "userId": "u1",
+        "status": "idle",
+        "busy": false,
+        "needsInput": false,
+        "title": "Working hours",
+        "createdAt": "2026-10-22T08:00:00Z",
+        "updatedAt": "2026-10-24T09:00:00Z"
+      },
+      {
+        "id": "s5",
+        "parentId": null,
+        "agentId": null,
+        "appId": null,
+        "userId": "u2",
+        "status": "ended",
+        "busy": false,
+        "needsInput": false,
+        "title": null,
+        "createdAt": "2026-10-18T08:00:00Z",
+        "updatedAt": "2026-10-24T08:00:00Z"
+      }
+    ],
+    "comments": [
+      {
+        "id": "c1",
+        "issueId": "i1",
+        "authorId": "u2",
+        "parentId": null,
+        "source": "user",
+        "body": "Repro on the Pixel 8.",
+        "createdAt": "2026-10-20T10:00:00Z"
+      },
+      {
+        "id": "c2",
+        "issueId": "i1",
+        "authorId": "u1",
+        "parentId": "c1",
+        "source": "user",
+        "body": "Fix is in #1210.",
+        "createdAt": "2026-10-21T10:00:00Z"
+      },
+      {
+        "id": "c3",
+        "issueId": "i3",
+        "authorId": null,
+        "parentId": null,
+        "source": "reporter",
+        "body": "Memory climbs after an hour.",
+        "createdAt": "2026-10-21T11:00:00Z"
+      },
+      {
+        "id": "c0",
+        "issueId": "i1",
+        "authorId": "u9",
+        "parentId": null,
+        "source": "mcp",
+        "body": "Filed from the agent.",
+        "createdAt": "2026-10-20T10:00:00Z"
+      }
+    ],
+    "attachments": [
+      {
+        "id": "f1",
+        "issueId": "i1",
+        "commentId": null,
+        "uploaderId": "u2",
+        "filename": "crash.log",
+        "contentType": "text/plain",
+        "sizeBytes": 2048,
+        "width": null,
+        "height": null,
+        "createdAt": "2026-10-20T10:05:00Z"
+      },
+      {
+        "id": "f2",
+        "issueId": "i1",
+        "commentId": "c2",
+        "uploaderId": "u1",
+        "filename": "screen.png",
+        "contentType": "image/png",
+        "sizeBytes": 512000,
+        "width": 1170,
+        "height": 2532,
+        "createdAt": "2026-10-21T10:05:00Z"
+      },
+      {
+        "id": "f3",
+        "issueId": "i4",
+        "commentId": null,
+        "uploaderId": "u3",
+        "filename": "form.pdf",
+        "contentType": "application/pdf",
+        "sizeBytes": 90000,
+        "width": null,
+        "height": null,
+        "createdAt": "2026-10-01T10:05:00Z"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "issues of a board by slug, list order, the richer row",
+      "source": "issues",
+      "params": {
+        "board": "mobile-app"
+      },
+      "me": "u1",
+      "expected": {
+        "rows": [
+          {
+            "id": "i5",
+            "identifier": "APP-5",
+            "title": "Reduce cold start",
+            "value": "APP-5",
+            "label": "APP-5 Reduce cold start",
+            "status": "in_progress",
+            "priority": "medium",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z"
+          },
+          {
+            "id": "i2",
+            "identifier": "APP-2",
+            "title": "Dark mode toggle",
+            "value": "APP-2",
+            "label": "APP-2 Dark mode toggle",
+            "status": "backlog",
+            "priority": "low",
+            "assignee": null,
+            "assigneeName": "",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z"
+          },
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash on launch",
+            "value": "APP-1",
+            "label": "APP-1 Crash on launch",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": "2026-10-30",
+            "updatedAt": "2026-10-20T09:00:00Z"
+          },
+          {
+            "id": "i3",
+            "identifier": "APP-3",
+            "title": "Image cache leak",
+            "value": "APP-3",
+            "label": "APP-3 Image cache leak",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "u2",
+            "assigneeName": "Jonas Weber",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-21T09:00:00Z"
+          }
+        ],
+        "count": 4
+      }
+    },
+    {
+      "name": "issues: mine, in progress, newest first",
+      "source": "issues",
+      "params": {
+        "assignee": "me",
+        "status": "in_progress",
+        "sort": "updatedAt"
+      },
+      "me": "u1",
+      "expected": {
+        "rows": [
+          {
+            "id": "i5",
+            "identifier": "APP-5",
+            "title": "Reduce cold start",
+            "value": "APP-5",
+            "label": "APP-5 Reduce cold start",
+            "status": "in_progress",
+            "priority": "medium",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z"
+          },
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash on launch",
+            "value": "APP-1",
+            "label": "APP-1 Crash on launch",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": "2026-10-30",
+            "updatedAt": "2026-10-20T09:00:00Z"
+          }
+        ],
+        "count": 2
+      }
+    },
+    {
+      "name": "issues: a search over title and identifier, a limit, the count before it",
+      "source": "issues",
+      "params": {
+        "search": "app-",
+        "limit": "2",
+        "sort": "createdAt",
+        "order": "asc"
+      },
+      "me": null,
+      "expected": {
+        "rows": [
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash on launch",
+            "value": "APP-1",
+            "label": "APP-1 Crash on launch",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": "2026-10-30",
+            "updatedAt": "2026-10-20T09:00:00Z"
+          },
+          {
+            "id": "i2",
+            "identifier": "APP-2",
+            "title": "Dark mode toggle",
+            "value": "APP-2",
+            "label": "APP-2 Dark mode toggle",
+            "status": "backlog",
+            "priority": "low",
+            "assignee": null,
+            "assigneeName": "",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z"
+          }
+        ],
+        "count": 4
+      }
+    },
+    {
+      "name": "issues: unassigned",
+      "source": "issues",
+      "params": {
+        "assignee": "none"
+      },
+      "me": "u1",
+      "expected": {
+        "rows": [
+          {
+            "id": "i2",
+            "identifier": "APP-2",
+            "title": "Dark mode toggle",
+            "value": "APP-2",
+            "label": "APP-2 Dark mode toggle",
+            "status": "backlog",
+            "priority": "low",
+            "assignee": null,
+            "assigneeName": "",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-22T09:00:00Z"
+          }
+        ],
+        "count": 1
+      }
+    },
+    {
+      "name": "issues: an unknown board is empty",
+      "source": "issues",
+      "params": {
+        "board": "nope"
+      },
+      "me": "u1",
+      "expected": {
+        "rows": [],
+        "count": 0
+      }
+    },
+    {
+      "name": "issues: by priority",
+      "source": "issues",
+      "params": {
+        "priority": "high",
+        "order": "desc"
+      },
+      "me": "u1",
+      "expected": {
+        "rows": [
+          {
+            "id": "i3",
+            "identifier": "APP-3",
+            "title": "Image cache leak",
+            "value": "APP-3",
+            "label": "APP-3 Image cache leak",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "u2",
+            "assigneeName": "Jonas Weber",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": null,
+            "updatedAt": "2026-10-21T09:00:00Z"
+          },
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash on launch",
+            "value": "APP-1",
+            "label": "APP-1 Crash on launch",
+            "status": "in_progress",
+            "priority": "high",
+            "assignee": "u1",
+            "assigneeName": "Alex Carter",
+            "board": "b1",
+            "boardSlug": "mobile-app",
+            "dueDate": "2026-10-30",
+            "updatedAt": "2026-10-20T09:00:00Z"
+          }
+        ],
+        "count": 2
+      }
+    },
+    {
+      "name": "boards: the live ones by sort order",
+      "source": "boards",
+      "params": {},
+      "me": "u1",
+      "expected": {
+        "rows": [
+          {
+            "id": "b1",
+            "slug": "mobile-app",
+            "name": "Mobile App",
+            "prefix": "APP",
+            "icon": "code",
+            "color": "#6366f1",
+            "value": "b1",
+            "label": "Mobile App"
+          },
+          {
+            "id": "b2",
+            "slug": "feedback",
+            "name": "Product Feedback",
+            "prefix": "FB",
+            "icon": "megaphone",
+            "color": "#22c55e",
+            "value": "b2",
+            "label": "Product Feedback"
+          }
+        ],
+        "count": 2
+      }
+    },
+    {
+      "name": "members: by name, with the viewer",
+      "source": "members",
+      "params": {},
+      "me": "u2",
+      "expected": {
+        "rows": [
+          {
+            "id": "u1",
+            "name": "Alex Carter",
+            "email": "alex@acme.dev",
+            "avatar": "https://cdn.example/alex.png",
+            "role": "owner",
+            "value": "u1",
+            "label": "Alex Carter"
+          },
+          {
+            "id": "u2",
+            "name": "Jonas Weber",
+            "email": "jonas@acme.dev",
+            "avatar": null,
+            "role": "member",
+            "value": "u2",
+            "label": "Jonas Weber"
+          },
+          {
+            "id": "u3",
+            "name": "Mira Sato",
+            "email": null,
+            "avatar": null,
+            "role": "member",
+            "value": "u3",
+            "label": "Mira Sato"
+          }
+        ],
+        "count": 3,
+        "me": "u2"
+      }
+    },
+    {
+      "name": "members: a limit",
+      "source": "members",
+      "params": {
+        "limit": "1"
+      },
+      "me": null,
+      "expected": {
+        "rows": [
+          {
+            "id": "u1",
+            "name": "Alex Carter",
+            "email": "alex@acme.dev",
+            "avatar": "https://cdn.example/alex.png",
+            "role": "owner",
+            "value": "u1",
+            "label": "Alex Carter"
+          }
+        ],
+        "count": 3,
+        "me": null
+      }
+    },
+    {
+      "name": "sessions: roots only, newest first, no editor session",
+      "source": "sessions",
+      "params": {},
+      "me": "u1",
+      "expected": {
+        "rows": [
+          {
+            "id": "s1",
+            "title": "Reduce cold start below 800 ms",
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "kind": "thread",
+            "updatedAt": "2026-10-24T08:00:00Z"
+          },
+          {
+            "id": "s5",
+            "title": "",
+            "status": "ended",
+            "busy": false,
+            "needsInput": false,
+            "kind": "thread",
+            "updatedAt": "2026-10-24T08:00:00Z"
+          },
+          {
+            "id": "s3",
+            "title": "Triage",
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "kind": "agent",
+            "updatedAt": "2026-10-23T08:00:00Z"
+          }
+        ],
+        "count": 3
+      }
+    },
+    {
+      "name": "sessions: mine, idle",
+      "source": "sessions",
+      "params": {
+        "mine": "1",
+        "status": "idle"
+      },
+      "me": "u2",
+      "expected": {
+        "rows": [
+          {
+            "id": "s3",
+            "title": "Triage",
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "kind": "agent",
+            "updatedAt": "2026-10-23T08:00:00Z"
+          }
+        ],
+        "count": 1
+      }
+    },
+    {
+      "name": "comments of an issue by identifier (any case), oldest first, ties by id, a former member's name",
+      "source": "comments",
+      "params": {
+        "issue": "app-1"
+      },
+      "me": "u1",
+      "expected": {
+        "rows": [
+          {
+            "id": "c0",
+            "body": "Filed from the agent.",
+            "author": "u9",
+            "authorName": "Former Member",
+            "parent": null,
+            "source": "mcp",
+            "createdAt": "2026-10-20T10:00:00Z"
+          },
+          {
+            "id": "c1",
+            "body": "Repro on the Pixel 8.",
+            "author": "u2",
+            "authorName": "Jonas Weber",
+            "parent": null,
+            "source": "user",
+            "createdAt": "2026-10-20T10:00:00Z"
+          },
+          {
+            "id": "c2",
+            "body": "Fix is in #1210.",
+            "author": "u1",
+            "authorName": "Alex Carter",
+            "parent": "c1",
+            "source": "user",
+            "createdAt": "2026-10-21T10:00:00Z"
+          }
+        ],
+        "count": 3
+      }
+    },
+    {
+      "name": "comments: a reporter's comment has no author",
+      "source": "comments",
+      "params": {
+        "issue": "i3"
+      },
+      "me": "u1",
+      "expected": {
+        "rows": [
+          {
+            "id": "c3",
+            "body": "Memory climbs after an hour.",
+            "author": null,
+            "authorName": "",
+            "parent": null,
+            "source": "reporter",
+            "createdAt": "2026-10-21T11:00:00Z"
+          }
+        ],
+        "count": 1
+      }
+    },
+    {
+      "name": "comments: no issue = null",
+      "source": "comments",
+      "params": {},
+      "me": "u1",
+      "expected": null
+    },
+    {
+      "name": "attachments of an issue, the media url",
+      "source": "attachments",
+      "params": {
+        "issue": "APP-1",
+        "limit": "1"
+      },
+      "me": "u1",
+      "expected": {
+        "rows": [
+          {
+            "id": "f1",
+            "name": "crash.log",
+            "type": "text/plain",
+            "size": 2048,
+            "url": "/api/attachments/f1",
+            "width": null,
+            "height": null,
+            "uploader": "u2",
+            "uploaderName": "Jonas Weber",
+            "createdAt": "2026-10-20T10:05:00Z"
+          }
+        ],
+        "count": 2
+      }
+    },
+    {
+      "name": "attachments: an unknown issue = null",
+      "source": "attachments",
+      "params": {
+        "issue": "APP-99"
+      },
+      "me": "u1",
+      "expected": null
+    },
+    {
+      "name": "an unknown source = null",
+      "source": "teams",
+      "params": {},
+      "me": "u1",
+      "expected": null
+    }
+  ]
+}
