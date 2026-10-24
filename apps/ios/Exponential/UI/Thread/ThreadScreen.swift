@@ -589,7 +589,29 @@ struct ThreadScreen: View {
                     guard atBottom else { return }
                     withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
                 }
-                .safeAreaInset(edge: .bottom) {
+                // #EXP-1383 (owner 2026-10-24: "exactly as in sessions"):
+                // the run view's jump button, placed the run view's way
+                // (AgentSessionView.feedBody): an overlay on the SCROLL VIEW
+                // inside the Dock's safe-area inset (spacing 0), centred 12pt
+                // above the Dock's top edge, only while scrolled away from
+                // the newest row of a non-empty transcript.
+                .overlay(alignment: .bottom) {
+                    ZStack {
+                        if !atBottom, !view.rows.isEmpty {
+                            JumpToBottomButton {
+                                atBottom = true
+                                withAnimation(motion.standard) {
+                                    scroller.scrollTo(Self.bottomId, anchor: .bottom)
+                                }
+                            }
+                            .jumpToBottomTransition(motion)
+                            .padding(.bottom, JumpToBottomButton.bottomGap)
+                            .accessibilityIdentifier(Chats.TestIds.jumpToBottom)
+                        }
+                    }
+                    .animation(motion.standard, value: atBottom)
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
                     // N-12: THE Dock over the Conversation's bottom edge: the
                     // tree's waiting cards, the live root's Queue, queued
                     // messages and banners, then THE composer (always).
@@ -640,22 +662,6 @@ struct ThreadScreen: View {
                         guard pinOnInset || atBottom else { return }
                         atBottom = true
                         repin(scroller)
-                    }
-                    .overlay(alignment: .top) {
-                        ZStack {
-                            if !atBottom {
-                                JumpToBottomButton {
-                                    atBottom = true
-                                    withAnimation(motion.standard) {
-                                        scroller.scrollTo(Self.bottomId, anchor: .bottom)
-                                    }
-                                }
-                                .jumpToBottomTransition(motion)
-                                .accessibilityIdentifier(Chats.TestIds.jumpToBottom)
-                            }
-                        }
-                        .alignmentGuide(.top) { $0[.bottom] + JumpToBottomButton.bottomGap }
-                        .animation(motion.standard, value: atBottom)
                     }
                 }
             }

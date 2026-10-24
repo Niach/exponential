@@ -13,14 +13,11 @@ enum AgentSessionLayout {
     static let feedCoordSpace = "feed-scroll"
     /// EXP-787: the transcript's own inset, INSIDE the reading column.
     static let gutter: CGFloat = 16
-    /// Within this many points of the bottom still counts as pinned (Android
-    /// carries 96dp, EXP-529): a pixel-tight slack made the "Jump to bottom"
-    /// pill hard to dismiss — a short drag had to land on the exact bottom to
-    /// re-pin, so it lingered while the list visually WAS at the end (EXP-588).
-    /// iOS gets a little more room than Android (EXP-591): the pill should
-    /// only appear after a deliberate scroll-up and hide again well before
-    /// the finger reaches the true end.
-    static let followSlack: CGFloat = 120
+    /// Within this many points of the bottom still counts as pinned. #EXP-1383
+    /// (owner 2026-10-24: the chats' jump "exactly as in sessions"): the run
+    /// view and every chat read the ONE fixture value, chats.json
+    /// `transcript.followSlack`.
+    static let followSlack = CGFloat(Chats.Transcript.followSlack)
 }
 
 // EXP-927 (wire doc §2c "Alignment"): the transcript is a reading measure, and
