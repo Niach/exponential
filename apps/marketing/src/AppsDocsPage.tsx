@@ -280,6 +280,16 @@ export function AppsDocsPage() {
               then <strong>Restore</strong> to publish it again as a new
               version.
             </p>
+            <h3>What an app can read</h3>
+            <p>
+              Besides its own records, an app binds the team&apos;s data
+              through <code>exp:</code> sources: the issues of a board (filtered
+              by status, assignee, priority or a search), the boards, the
+              members, the threads and agent chats, an issue&apos;s comments and
+              its files, and the devices. Every client resolves them the same
+              way, live, from the rows it already syncs, so an app never waits
+              on a request.
+            </p>
             <h3>Records: an app&apos;s own data</h3>
             <p>
               An app can keep data of its own. Its package declares record

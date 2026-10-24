@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-24-app-sources`,
+    date: `2026-10-24`,
+    title: `Apps read the team: boards, members, sessions, comments and files`,
+    summary: `An app binds exp:boards, exp:members, exp:sessions, exp:comments and exp:attachments beside a richer exp:issues, the same rows on every platform; the Working hours app shows a teammate's month and suggests your issues.`,
+    body: `- **Sources**: exp:issues now filters by board, status, priority, assignee (or me) and a search, sorts by list order or time; exp:boards, exp:members (with the viewer), exp:sessions, exp:comments and exp:attachments join it. One shared fixture pins the derivation on web, desktop, iOS and Android.
+- **Options**: issue, board and member rows carry value and label, so an app binds them straight into a Select or a ChipInput.
+- **Working hours**: v4 picks a teammate's month through the member picker and suggests your assigned issues when you log a day.
+- **Catalog**: the apps catalog describes every source with its query and value, so the editor session binds them without guessing.`,
+  },
+  {
     id: `2026-10-24-app-records`,
     date: `2026-10-24`,
     title: `Apps keep their own data: records`,

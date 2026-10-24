@@ -12,9 +12,11 @@ import ExponentialUI
 // Everything goes through the SDK's public host API (`ExponentialHost` +
 // `HostSurface`), like a third party's host would:
 //   - bindings: the `exp:` scheme over the synced GRDB store
-//     (`exp:devices`, `exp:issues?board=…&limit=…`), derived by
-//     `AppHostSources` exactly like the web host; VAPP-122
-//     `exp:records?kind=…` over the app's own rows (`AppRecords`);
+//     (`exp:devices`, derived by `AppHostSources` exactly like the web
+//     host; VAPP-119 `exp:issues` / `boards` / `members` / `sessions` /
+//     `comments` / `attachments` over the team's rows (`AppSources`, the
+//     fixture's derivation); VAPP-122 `exp:records?kind=…` over the app's
+//     own rows (`AppRecords`);
 //   - functions: `harness.toast`, `harness.openIssue`, `harness.openDevice`,
 //     `harness.mcp` (a tools/call on the instance's /api/mcp as the viewer),
 //     `harness.records.upsert` / `.delete` (tRPC `apps.records.*`, no
@@ -261,10 +263,8 @@ final class ExpAppHost {
                 "exp": { source, emit in
                     switch source.name {
                     case "devices": return AppHostStore.devices(pool: pool, emit: emit)
-                    case "issues":
-                        return AppHostStore.issues(
-                            pool: pool, board: source.params["board"], limit: source.params["limit"], emit: emit
-                        )
+                    case let name where AppSources.kinds.contains(name):
+                        return AppHostStore.source(pool: pool, scope: scope, name: name, params: source.params, emit: emit)
                     case "records":
                         return AppHostStore.records(pool: pool, scope: scope, params: source.params, emit: emit)
                     default:
@@ -431,32 +431,111 @@ enum AppHostStore {
         }
     }
 
-    static func issues(
-        pool: DatabasePool?, board: String?, limit: String?, emit: @escaping (JSONValue?) -> Void
+    /// The tables a VAPP-119 source reads (its observation tracks only them).
+    private struct SourceNeeds {
+        var boards = false
+        var issues = false
+        var members = false
+        var users = false
+        var sessions = false
+        var comments = false
+        var attachments = false
+
+        init(_ name: String) {
+            switch name {
+            case "issues": boards = true; issues = true; users = true
+            case "boards": boards = true
+            case "members": members = true; users = true
+            case "sessions": sessions = true
+            case "comments": boards = true; issues = true; comments = true; users = true
+            case "attachments": boards = true; issues = true; attachments = true; users = true
+            default: break
+            }
+        }
+    }
+
+    /// One team's synced rows as `AppSources` reads them (only the tables
+    /// `needs` names), timestamps in the web host's ISO form.
+    nonisolated private static func sourceStore(_ db: Database, teamId: String, needs: SourceNeeds) throws -> AppSources.Store {
+        let iso = AppRecords.isoTimestamp
+        var store = AppSources.Store()
+        var boardIds: [String] = []
+        if needs.boards {
+            let boards = try BoardEntity.filter(Column("team_id") == teamId).fetchAll(db)
+            boardIds = boards.map(\.id)
+            // Trashed / archived boards never sync (the boards shape excludes them).
+            store.boards = boards.map {
+                .init(id: $0.id, slug: $0.slug, name: $0.name, prefix: $0.prefix, icon: $0.icon, color: $0.color,
+                      sortOrder: $0.sortOrder ?? 0, deletedAt: nil)
+            }
+        }
+        if needs.issues, !boardIds.isEmpty {
+            store.issues = try IssueEntity.filter(boardIds.contains(Column("board_id"))).fetchAll(db).map {
+                .init(id: $0.id, boardId: $0.boardId, identifier: $0.identifier ?? "", title: $0.title,
+                      status: $0.status, priority: $0.priority, assigneeId: $0.assigneeId, creatorId: $0.creatorId,
+                      dueDate: $0.dueDate, sortOrder: $0.sortOrder ?? 0,
+                      createdAt: iso($0.createdAt), updatedAt: iso($0.updatedAt))
+            }
+        }
+        if needs.members {
+            store.members = try TeamMemberEntity.filter(Column("team_id") == teamId).fetchAll(db).map {
+                .init(userId: $0.userId, role: $0.role)
+            }
+        }
+        if needs.users {
+            store.users = try UserEntity.fetchAll(db).map {
+                .init(id: $0.id, name: $0.name ?? "", email: $0.email, image: $0.image)
+            }
+        }
+        if needs.sessions {
+            store.sessions = try SessionEntity.filter(Column("team_id") == teamId).fetchAll(db).map {
+                .init(id: $0.id, parentId: $0.parentId, agentId: $0.agentId, appId: $0.appId, userId: $0.userId,
+                      status: $0.status, busy: $0.busy, needsInput: $0.needsInput, title: $0.title,
+                      createdAt: iso($0.createdAt), updatedAt: iso($0.updatedAt))
+            }
+        }
+        if needs.comments {
+            store.comments = try CommentEntity.filter(Column("team_id") == teamId).fetchAll(db).map {
+                .init(id: $0.id, issueId: $0.issueId, authorId: $0.authorId, parentId: $0.parentId,
+                      source: $0.source ?? "user", body: $0.body ?? "", createdAt: iso($0.createdAt))
+            }
+        }
+        if needs.attachments {
+            store.attachments = try AttachmentEntity.filter(Column("team_id") == teamId).fetchAll(db).map {
+                .init(id: $0.id, issueId: $0.issueId, commentId: $0.commentId, uploaderId: $0.uploaderId,
+                      filename: $0.filename, contentType: $0.contentType, sizeBytes: Double($0.sizeBytes),
+                      width: $0.width.map(Double.init), height: $0.height.map(Double.init), createdAt: iso($0.createdAt))
+            }
+        }
+        return store
+    }
+
+    /// VAPP-119 `exp:issues` / `boards` / `members` / `sessions` / `comments`
+    /// / `attachments`: the fixture's value (`AppSources.sourceValue`) over
+    /// the scope team's synced rows, on every change of the tables the source
+    /// reads; a value equal to the last one is not re-emitted.
+    static func source(
+        pool: DatabasePool?, scope: RecordsScope, name: String, params: [String: String], emit: @escaping (JSONValue?) -> Void
     ) -> (() -> Void)? {
-        guard let pool else {
-            emit(JSONValue.parse(AppHostSources.json(AppHostSources.issuesValue([], board: board, limit: limit))))
+        var last: String?
+        let push = { (store: AppSources.Store) in
+            let json = AppSources.sourceValue(name: name, params: params, store: store, me: scope.me)?.compactString ?? "null"
+            guard json != last else { return }
+            last = json
+            emit(JSONValue.parse(json))
+        }
+        guard let pool, let teamId = scope.teamId else {
+            push(AppSources.Store())
             return nil
         }
-        let observation = ValueObservation.tracking { db -> [IssueEntity] in
-            var request = IssueEntity.all()
-            if let board, !board.isEmpty { request = request.filter(Column("board_id") == board) }
-            return try request.fetchAll(db)
+        let needs = SourceNeeds(name)
+        let observation = ValueObservation.tracking { db in
+            try sourceStore(db, teamId: teamId, needs: needs)
         }
-        var last: String?
         let observe = Task { @MainActor in
             do {
-                for try await rows in observation.values(in: pool) {
-                    let inputs = rows.map { row in
-                        AppHostSources.IssueInput(
-                            id: row.id, identifier: row.identifier ?? "", title: row.title,
-                            status: row.status, boardId: row.boardId, sortOrder: row.sortOrder ?? 0
-                        )
-                    }
-                    let json = AppHostSources.json(AppHostSources.issuesValue(inputs, board: board, limit: limit))
-                    guard json != last else { continue }
-                    last = json
-                    emit(JSONValue.parse(json))
+                for try await store in observation.values(in: pool) {
+                    push(store)
                 }
             } catch {}
         }

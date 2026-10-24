@@ -48,6 +48,7 @@ import at.exponential.ui.theme.ThemeHandle
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
+import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
@@ -58,6 +59,7 @@ import com.exponential.app.data.db.AppRecordEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.AppHostValues
 import com.exponential.app.domain.AppRecords
+import com.exponential.app.domain.AppSources
 import com.exponential.app.ui.components.failedAction
 import com.exponential.app.domain.classifyAppLink
 import com.exponential.app.domain.DeviceLiveness
@@ -104,7 +106,9 @@ import kotlinx.coroutines.launch
  *    toast with its name, the web's default), `harness.mcp` (a `tools/call` on
  *    the instance's own `/api/mcp` as the signed-in account);
  *  - bindings: the `exp:` scheme over Room (`exp:devices`, re-derived on the
- *    liveness tick; `exp:issues?board=…&limit=…`), [AppHostValues]; VAPP-122
+ *    liveness tick), [AppHostValues]; VAPP-119 `exp:issues` / `boards` /
+ *    `members` / `sessions` / `comments` / `attachments` over the scope
+ *    team's synced rows, [AppSources]; VAPP-122
  *    `exp:records?kind=…` over the hosting app's synced records (or the
  *    `app=<slug>` app of the same team), [AppRecords];
  *  - VAPP-122 `harness.records.upsert {kind, data, id?}` and
@@ -333,6 +337,26 @@ fun rememberAppHost(
             if (teamId == null) flowOf(emptyList()) else db.scopedQuery(emptyList()) { it.appDao().observeByTeam(teamId) }
         fun recordsOf(app: String?): Flow<List<AppRecordEntity>> =
             if (app == null) flowOf(emptyList()) else db.scopedQuery(emptyList()) { it.appRecordDao().observeByApp(app) }
+        // VAPP-119: the scope team's rows for the other `exp:` sources (no
+        // team = an empty store); each source combines only what it reads.
+        fun <T> teamRows(query: (ExponentialDatabase, String) -> Flow<List<T>>): Flow<List<T>> =
+            if (teamId == null) flowOf(emptyList()) else db.scopedQuery(emptyList()) { query(it, teamId) }
+        val teamBoards = teamRows { d, t -> d.boardDao().observeByTeam(t) }.map { it.map(AppSources::board) }
+        val teamIssues = teamRows { d, t -> d.issueDao().observeByTeam(t) }.map { it.map(AppSources::issue) }
+        val teamMembers = teamRows { d, t -> d.teamMemberDao().observeByTeam(t) }.map { it.map(AppSources::member) }
+        val sourceUsers = users.map { it.map(AppSources::user) }
+        val teamSessions = teamRows { d, t -> d.sessionDao().observeByTeam(t) }.map { it.map(AppSources::session) }
+        val teamComments = teamRows { d, t -> d.commentDao().observeByTeam(t) }.map { it.map(AppSources::comment) }
+        val teamAttachments = teamRows { d, t -> d.attachmentDao().observeByTeam(t) }.map { it.map(AppSources::attachment) }
+        fun sourceStore(name: String): Flow<AppSources.Store> = when (name) {
+            "issues" -> combine(teamBoards, teamIssues, sourceUsers) { b, i, u -> AppSources.Store(boards = b, issues = i, users = u) }
+            "boards" -> teamBoards.map { AppSources.Store(boards = it) }
+            "members" -> combine(teamMembers, sourceUsers) { m, u -> AppSources.Store(members = m, users = u) }
+            "sessions" -> teamSessions.map { AppSources.Store(sessions = it) }
+            "comments" -> combine(teamIssues, teamComments, sourceUsers) { i, c, u -> AppSources.Store(issues = i, comments = c, users = u) }
+            "attachments" -> combine(teamIssues, teamAttachments, sourceUsers) { i, a, u -> AppSources.Store(issues = i, attachments = a, users = u) }
+            else -> flowOf(AppSources.Store())
+        }
         val origin = auth.instanceUrl.value?.trimEnd('/')
         val ownHost = origin?.let { runCatching { java.net.URI(it).host }.getOrNull() }?.let { listOf(it) }
         val token = origin?.let { resolveAccountForUrl(auth.accounts.value, auth.activeAccountId.value, it)?.token }
@@ -343,7 +367,9 @@ fun rememberAppHost(
                 "devices" -> combine(devices, DeviceLiveness.ticker(AppHostValues.LIVENESS_TICK_MS)) { rows, now ->
                     AppHostValues.devices(rows, now)
                 }
-                "issues" -> issues.map { AppHostValues.issues(it, source.params) }
+                in AppSources.SOURCES -> sourceStore(source.name).map { store ->
+                    AppSources.sourceValue(source.name, source.params, store, me)
+                }
                 "records" -> {
                     val query = AppRecords.parseRecordsQuery(source.params)
                     // The app whose records are read: the hosting app, or

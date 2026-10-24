@@ -81,7 +81,15 @@ export function recordKindSchema(pkg: unknown, kind: string): RecordSchema | nul
  *  `harness.*` functions the package's allowlist may name. */
 export const APP_HOST_SOURCES: readonly { source: string; value: string }[] = [
   { source: `exp:devices`, value: `{rows: [{id, label, detail, icon, discTone, tone, status}], count, online}: the team's devices, live` },
-  { source: `exp:issues?board=<boardId>&limit=<n>`, value: `{rows: [{id, identifier, title, status}], count}: a board's issues in list order, live` },
+  {
+    source: `exp:issues?board=<id|slug>&status=<anchor>&priority=<p>&assignee=<userId|me|none>&search=<text>&sort=sortOrder|updatedAt|createdAt&order=asc|desc&limit=<n>`,
+    value: `{rows: [{id, identifier, title, status, priority, assignee, assigneeName, board, boardSlug, dueDate, updatedAt, value, label}], count}: the team's issues (every filter optional), live; value + label make a row a Select option`,
+  },
+  { source: `exp:boards`, value: `{rows: [{id, slug, name, prefix, icon, color, value, label}], count}: the team's boards in sidebar order` },
+  { source: `exp:members`, value: `{rows: [{id, name, email, avatar, role, value, label}], count, me}: the team's members by name; me = the viewer's user id` },
+  { source: `exp:sessions?status=<status>&mine=1&limit=<n>`, value: `{rows: [{id, title, status, busy, needsInput, kind: thread|agent, updatedAt}], count}: the team's threads and agent chats, newest first` },
+  { source: `exp:comments?issue=<identifier>&limit=<n>`, value: `{rows: [{id, body, author, authorName, parent, source, createdAt}], count}: an issue's comments, oldest first (null without the issue)` },
+  { source: `exp:attachments?issue=<identifier>&limit=<n>`, value: `{rows: [{id, name, type, size, url, width, height, uploader, uploaderName, createdAt}], count}: an issue's files; url loads through the media policy (Image src)` },
   {
     source: `exp:records?kind=<kind>&mine=1&sort=<field>&order=asc|desc&limit=<n>&sum=<field>&by=<dateField>&month=YYYY-MM&<field>=<v>&<field>.gte=<v>`,
     value: `{rows: [{…data, id, createdAt, updatedAt, createdBy, author}], count, sum?, month?: {key, label, prev, next, days: [{date, day, weekday, count, sum}]}}: the app's OWN records of a kind, live (kind required; mine = the viewer's rows; any other key filters a data field: equals, or .gt .gte .lt .lte; sum = Σ of a number field; by + month = one month's rows and every day of it; app=<slug> reads another app's records)`,

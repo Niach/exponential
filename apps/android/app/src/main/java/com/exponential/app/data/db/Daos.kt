@@ -68,6 +68,10 @@ interface IssueDao {
     @Query("SELECT * FROM issues WHERE assignee_id = :userId ORDER BY sort_order, created_at")
     fun observeByAssignee(userId: String): Flow<List<IssueEntity>>
 
+    // VAPP-119: a team's issues (through their boards), the app host's `exp:issues`.
+    @Query("SELECT i.* FROM issues i JOIN boards b ON b.id = i.board_id WHERE b.team_id = :teamId")
+    fun observeByTeam(teamId: String): Flow<List<IssueEntity>>
+
     @Query("SELECT * FROM issues WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<IssueEntity?>
 
@@ -236,6 +240,10 @@ interface TeamMemberDao {
 interface CommentDao {
     @Query("SELECT * FROM comments WHERE issue_id = :issueId ORDER BY created_at ASC")
     fun observeByIssue(issueId: String): Flow<List<CommentEntity>>
+
+    // VAPP-119: a team's comments, the app host's `exp:comments`.
+    @Query("SELECT * FROM comments WHERE team_id = :teamId")
+    fun observeByTeam(teamId: String): Flow<List<CommentEntity>>
 
     /** EXP-920: the one row an entity preview names. */
     @Query("SELECT * FROM comments WHERE id = :id")
@@ -623,6 +631,10 @@ interface PullRequestIssueDao {
 interface AttachmentDao {
     @Query("SELECT * FROM attachments WHERE issue_id = :issueId ORDER BY created_at ASC")
     fun observeByIssue(issueId: String): Flow<List<AttachmentEntity>>
+
+    // VAPP-119: a team's attachments, the app host's `exp:attachments`.
+    @Query("SELECT * FROM attachments WHERE team_id = :teamId")
+    fun observeByTeam(teamId: String): Flow<List<AttachmentEntity>>
 
     /** EXP-920: the one row an entity preview names. */
     @Query("SELECT * FROM attachments WHERE id = :id")

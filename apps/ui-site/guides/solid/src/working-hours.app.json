@@ -1,11 +1,13 @@
 {
   "id": "acme.working-hours",
   "name": "Working hours",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
-  "description": "Your hours per day, a month at a time: log them, see the total against the target, keep the issues you worked on.",
+  "description": "Your hours per day, a month at a time: log them, see the total against the target, link the issues you worked on, and look at a teammate's month.",
   "sources": [
-    "exp:records"
+    "exp:records",
+    "exp:members",
+    "exp:issues"
   ],
   "functions": [
     "harness.records.*",
@@ -95,7 +97,17 @@
           "note": "",
           "issues": []
         },
-        "targetDraft": null
+        "targetDraft": null,
+        "members": {
+          "rows": [],
+          "count": 0,
+          "me": null
+        },
+        "issues": {
+          "rows": [],
+          "count": 0
+        },
+        "who": ""
       },
       "bindings": [
         {
@@ -104,7 +116,15 @@
         },
         {
           "path": "/settings",
-          "source": "exp:records?kind=settings&mine=1&limit=1"
+          "source": "exp:records?kind=settings&limit=1"
+        },
+        {
+          "path": "/members",
+          "source": "exp:members"
+        },
+        {
+          "path": "/issues",
+          "source": "exp:issues?assignee=me&limit=30"
         }
       ],
       "components": [
@@ -132,7 +152,59 @@
             "next"
           ],
           "slots": {
-            "trailing": "log"
+            "trailing": "toolbarActions"
+          }
+        },
+        {
+          "id": "toolbarActions",
+          "component": "Stack",
+          "direction": "horizontal",
+          "gap": "sm",
+          "align": "center",
+          "children": [
+            "who",
+            "log"
+          ]
+        },
+        {
+          "id": "who",
+          "component": "Select",
+          "name": "who",
+          "placeholder": "My hours",
+          "options": {
+            "path": "/members/rows"
+          },
+          "value": {
+            "path": "/who"
+          },
+          "on": {
+            "change": {
+              "functionCall": {
+                "call": "bind",
+                "args": {
+                  "path": "/entries",
+                  "source": "exp:records?kind=entry&by=date&sum=hours&sort=date&order=desc",
+                  "params": {
+                    "month": {
+                      "path": "/entries/month/key"
+                    },
+                    "user": {
+                      "path": "/who"
+                    },
+                    "mine": {
+                      "call": "cond",
+                      "args": {
+                        "if": {
+                          "path": "/who"
+                        },
+                        "then": "0",
+                        "else": "1"
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         {
@@ -147,10 +219,23 @@
                 "call": "bind",
                 "args": {
                   "path": "/entries",
-                  "source": "exp:records?kind=entry&mine=1&by=date&sum=hours&sort=date&order=desc",
+                  "source": "exp:records?kind=entry&by=date&sum=hours&sort=date&order=desc",
                   "params": {
                     "month": {
                       "path": "/entries/month/prev"
+                    },
+                    "user": {
+                      "path": "/who"
+                    },
+                    "mine": {
+                      "call": "cond",
+                      "args": {
+                        "if": {
+                          "path": "/who"
+                        },
+                        "then": "0",
+                        "else": "1"
+                      }
                     }
                   }
                 }
@@ -178,10 +263,23 @@
                 "call": "bind",
                 "args": {
                   "path": "/entries",
-                  "source": "exp:records?kind=entry&mine=1&by=date&sum=hours&sort=date&order=desc",
+                  "source": "exp:records?kind=entry&by=date&sum=hours&sort=date&order=desc",
                   "params": {
                     "month": {
                       "path": "/entries/month/next"
+                    },
+                    "user": {
+                      "path": "/who"
+                    },
+                    "mine": {
+                      "call": "cond",
+                      "args": {
+                        "if": {
+                          "path": "/who"
+                        },
+                        "then": "0",
+                        "else": "1"
+                      }
                     }
                   }
                 }
@@ -531,7 +629,10 @@
           "values": {
             "path": "/draft/issues"
           },
-          "placeholder": "MET-1437"
+          "placeholder": "Pick the issues you worked on",
+          "suggestions": {
+            "path": "/issues/rows"
+          }
         },
         {
           "id": "actions",

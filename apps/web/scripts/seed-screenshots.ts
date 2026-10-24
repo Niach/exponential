@@ -762,24 +762,46 @@ async function seedSessionTree(ctx: {
   // Log hours form; v2 = the target (a settings record) and what is left;
   // v3 = previous months through `bind` and the per-day trend (the SDK's
   // example package, packages/ui/exponential-ui/templates/working-hours.json).
-  const hoursPackage = (version: `1.0.0` | `1.1.0` | `1.2.0`) => {
-    const full = workingHoursTemplate as unknown as { version: string; templates: { month: { components: Record<string, unknown>[] } } }
-    const dropped = new Set<string>(
-      version === `1.0.0` ? [`prev`, `next`, `statTarget`, `statLeft`, `target`, `targetRow`, `targetField`, `targetSave`] : version === `1.1.0` ? [`prev`, `next`] : []
-    )
+  // v4 (VAPP-119) = the whole template: a teammate's month through
+  // exp:members + bind, the issues you worked on as exp:issues suggestions.
+  const hoursPackage = (version: `1.0.0` | `1.1.0` | `1.2.0` | `1.3.0`) => {
+    const full = workingHoursTemplate as unknown as {
+      version: string
+      sources: string[]
+      templates: { month: { components: Record<string, unknown>[]; bindings: { path: string; source: string }[]; data: Record<string, unknown> } }
+    }
+    if (version === `1.3.0`) return { ...full, version }
+    const dropped = new Set<string>([
+      `toolbarActions`,
+      `who`,
+      ...(version === `1.0.0` ? [`prev`, `next`, `statTarget`, `statLeft`, `target`, `targetRow`, `targetField`, `targetSave`] : version === `1.1.0` ? [`prev`, `next`] : []),
+    ])
     const components = full.templates.month.components
       .filter((c) => !dropped.has(c.id as string))
       .map((c) => {
         const out: Record<string, unknown> = { ...c }
         if (Array.isArray(out.children)) out.children = (out.children as string[]).filter((id) => !dropped.has(id))
+        // Before v4 the Log hours button sits in the toolbar's trailing slot itself.
+        if (out.id === `toolbar`) out.slots = { trailing: `log` }
+        if (out.id === `issues`) {
+          delete out.suggestions
+          out.placeholder = `MET-1437`
+        }
+        if ((out.id === `prev` || out.id === `next`) && out.on) {
+          const on = JSON.parse(JSON.stringify(out.on)) as { press: { functionCall: { args: { params: Record<string, unknown> } } } }
+          delete on.press.functionCall.args.params.user
+          out.on = on
+        }
         if (version !== `1.2.0` && out.id === `statTotal`) delete out.trend
         if (version === `1.0.0` && out.id === `stats`) out.columns = 1
         return out
       })
+    const { members: _m, issues: _i, who: _w, ...data } = full.templates.month.data
     return {
       ...full,
       version,
-      templates: { month: { ...full.templates.month, components } },
+      sources: [`exp:records`],
+      templates: { month: { ...full.templates.month, data, bindings: full.templates.month.bindings.filter((b) => b.source.startsWith(`exp:records`)), components } },
     }
   }
   await db.insert(apps).values([
@@ -791,11 +813,11 @@ async function seedSessionTree(ctx: {
       icon: `clock`,
       color: `#10b981`,
       description: `Your hours per day, a month at a time: log them, see the total against the target, keep the issues you worked on.`,
-      package: hoursPackage(`1.2.0`),
-      headVersion: 3,
+      package: hoursPackage(`1.3.0`),
+      headVersion: 4,
       createdBy: demoId,
       createdAt: daysAgo(6),
-      updatedAt: DEMO_APP_CHAT_TIMES.third,
+      updatedAt: DEMO_APP_CHAT_TIMES.fourth,
     },
     {
       id: DEMO_APP_DASHBOARD_ID,
@@ -833,9 +855,9 @@ async function seedSessionTree(ctx: {
       repositoryId: null,
       status: `idle`,
       startedAt: DEMO_APP_CHAT_TIMES.request,
-      lastTurnAt: DEMO_APP_CHAT_TIMES.third,
+      lastTurnAt: DEMO_APP_CHAT_TIMES.fourth,
       createdAt: DEMO_APP_CHAT_TIMES.request,
-      updatedAt: DEMO_APP_CHAT_TIMES.third,
+      updatedAt: DEMO_APP_CHAT_TIMES.fourth,
     }),
   ])
   await db.insert(appVersions).values([
@@ -844,6 +866,7 @@ async function seedSessionTree(ctx: {
         [DEMO_APP_VERSION_IDS[0], 1, `1.0.0`, `First cut: the month, the total and a Log hours form`, DEMO_APP_CHAT_TIMES.first],
         [DEMO_APP_VERSION_IDS[1], 2, `1.1.0`, `A monthly target and what is left`, DEMO_APP_CHAT_TIMES.second],
         [DEMO_APP_VERSION_IDS[2], 3, `1.2.0`, `Previous months with the switcher, the per-day trend`, DEMO_APP_CHAT_TIMES.third],
+        [DEMO_APP_VERSION_IDS[3], 4, `1.3.0`, `A teammate's month, the issues you worked on`, DEMO_APP_CHAT_TIMES.fourth],
       ] as const
     ).map(([id, number, version, note, at]) => ({
       id,
@@ -1311,6 +1334,18 @@ async function seedSessionTree(ctx: {
         author: `agent`,
         body: `v3: previous and next re-bind the month through bind, the total tile carries the per-day sparkline, an entry opens for editing.`,
         at: DEMO_APP_CHAT_TIMES.third,
+      },
+      {
+        sessionId: DEMO_APP_EDITOR_SESSION_ID,
+        author: `user`,
+        body: `Let me look at a teammate's month too, and suggest my open issues when I log a day.`,
+        at: DEMO_APP_CHAT_TIMES.team,
+      },
+      {
+        sessionId: DEMO_APP_EDITOR_SESSION_ID,
+        author: `agent`,
+        body: `v4: a member picker from exp:members re-binds the month for that person; the issues field suggests your assigned issues from exp:issues.`,
+        at: DEMO_APP_CHAT_TIMES.fourth,
       },
     ].map((spec) => message(spec as MessageSpec))
   )
