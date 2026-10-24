@@ -443,6 +443,10 @@ data class ChatMenuItem(
     val onClick: () -> Unit,
     val destructive: Boolean = false,
     val testTag: String? = null,
+    /** A hairline above this row (web `agentMenuRows`' separator, iOS
+     *  `separates`, the IDE's `menu.separator()`): the agent menu's
+     *  conversation pair sits apart from Stop / Agent settings. */
+    val dividerBefore: Boolean = false,
 )
 
 /** The icon CONCEPT of a chat menu entry (chats.json `menuCases`). */
@@ -472,6 +476,9 @@ fun ChatMenuSheet(
 ) {
     GlassSheet(title = title, onDismiss = onDismiss, modifier = Modifier.testTag("chat-menu")) {
         items.forEach { item ->
+            if (item.dividerBefore) {
+                GroupDivider()
+            }
             val tint = if (item.destructive) {
                 MaterialTheme.colorScheme.error
             } else {
@@ -510,13 +517,17 @@ fun chatMenuItems(
 fun agentMenuItems(
     entries: List<Chats.AgentMenuEntry>,
     onPick: (Chats.AgentMenuEntry) -> Unit,
-): List<ChatMenuItem> = entries.map { entry ->
-    ChatMenuItem(
-        label = Chats.agentMenuLabel(entry),
-        icon = agentMenuIcon(entry),
-        onClick = { onPick(entry) },
-        testTag = "agent-menu-${entry.wire}",
-    )
+): List<ChatMenuItem> {
+    val firstApart = entries.indexOfFirst { it == Chats.AgentMenuEntry.Stop || it == Chats.AgentMenuEntry.Settings }
+    return entries.mapIndexed { index, entry ->
+        ChatMenuItem(
+            label = Chats.agentMenuLabel(entry),
+            icon = agentMenuIcon(entry),
+            onClick = { onPick(entry) },
+            testTag = "agent-menu-${entry.wire}",
+            dividerBefore = index > 0 && index == firstApart,
+        )
+    }
 }
 
 /** Delete asks first ×4 (`copy.confirmDelete`; the destructive confirm =
