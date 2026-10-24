@@ -190,6 +190,16 @@
                     },
                     "user": {
                       "path": "/who"
+                    },
+                    "mine": {
+                      "call": "cond",
+                      "args": {
+                        "if": {
+                          "path": "/who"
+                        },
+                        "then": "0",
+                        "else": "1"
+                      }
                     }
                   }
                 }
@@ -216,6 +226,16 @@
                     },
                     "user": {
                       "path": "/who"
+                    },
+                    "mine": {
+                      "call": "cond",
+                      "args": {
+                        "if": {
+                          "path": "/who"
+                        },
+                        "then": "0",
+                        "else": "1"
+                      }
                     }
                   }
                 }
@@ -250,6 +270,16 @@
                     },
                     "user": {
                       "path": "/who"
+                    },
+                    "mine": {
+                      "call": "cond",
+                      "args": {
+                        "if": {
+                          "path": "/who"
+                        },
+                        "then": "0",
+                        "else": "1"
+                      }
                     }
                   }
                 }
