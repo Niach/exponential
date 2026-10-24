@@ -173,6 +173,27 @@
       "min_silence_0_5_s": "end-of-utterance lag 500 ms on every clip",
       "min_silence_0_3_s": "300 ms"
     },
-    "gpu_idle_vram_mib_before": 3862
+    "gpu_idle_vram_mib_before": 3862,
+    "qwen3_tts_0_6b_customvoice_crispasr_cuda": {
+      "engine": "Qwen3-TTS-12Hz-0.6B-CustomVoice Q8_0 (cstr GGUF, Apache-2.0) + qwen3-tts-tokenizer-12hz Q8_0, CrispASR (MIT, ggml) CUDA on RTX 4090",
+      "runs": [
+        {
+          "lang": "en",
+          "audio_s": 8.32,
+          "model_total_ms": 1372,
+          "rtf": 0.165
+        },
+        {
+          "lang": "de",
+          "audio_s": 8.0,
+          "model_total_ms": 1062,
+          "rtf": 0.133,
+          "stream_first_pcm_s_from_launch": 2.21,
+          "process_total_s": 2.43
+        }
+      ],
+      "vram_mib_nvidia_smi": "2252-2298",
+      "note": "--tts-stream emits PCM per sentence; the first bytes of a one-sentence utterance arrive after model load (~1.2 s) + that sentence's generation"
+    }
   }
 }

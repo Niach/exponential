@@ -99,15 +99,18 @@ desk recording).
 | Kokoro v1.0 (Apache-2.0) via sherpa-onnx 2.0, lexicon, no espeak-ng | CPU, 4 threads | **235–740 ms** (median 528; whole utterance, the callback delivers one chunk) | 0.19–0.24 | 310 MB model | **no voice** |
 | Qwen3-TTS 1.7B Base Q4_K_M + mmproj Q8_0 (ggml-org) via llama.cpp `llama-tts` | RTX 4090 (Vulkan) | not streaming: whole utterance in 0.29–1.51 s | **0.49 median** (2x faster than real time) | 5.6–6.6 GB VRAM on Vulkan, 2.0 GB RSS | **yes**, all 10 German clips |
 | same, first call without `-dev` | CPU | 10.4 s for 6 s | 1.7 (slower than real time) | | |
+| **Qwen3-TTS 0.6B CustomVoice Q8_0** (cstr GGUF, Apache-2.0) + 12 Hz codec Q8_0 via CrispASR (MIT, ggml) | RTX 4090 (CUDA) | per sentence: the first PCM bytes of an 8 s German utterance arrived 2.2 s after launch, ~1.2 s of that is model load | **0.13–0.17** (6–7x faster than real time: 8.3 s of English in 1.37 s, 8.0 s of German in 1.06 s) | **2,250–2,300 MiB VRAM** | **yes** |
 | speech-dispatcher + espeak-ng (the Linux OS voice) | CPU | not captured | | | yes |
 
-Qwen3-TTS at 1.7B is far above Dennis's 1.5 GB VRAM budget on the Vulkan
-build; the CUDA build and the 0.6B CustomVoice GGUF (Apache-2.0, 968 MB,
-needs the CrispASR runtime, which built here but was not run in the time box)
-are the next measurement. llama-tts pays ~1.5 s of model load per call: a
-resident speech worker pays it once. Kokoro's number words are not spoken at
-all ("1369" is skipped as out-of-vocabulary), so the spoken forms matter for
-it too.
+The 0.6B CustomVoice model is the one that fits Dennis's budget: 2.3 GB of
+VRAM on CUDA beside Nemotron's 1.1 GB keeps the pair under 4 GB, German and
+English in one model, seven times faster than real time. The 1.7B on the
+Vulkan build takes 5.6–6.6 GB. Neither runtime streams below sentence
+granularity, so the time to first audio of a spoken reply is the first
+sentence's generation time (0.3–0.5 s for a short sentence at 0.6B) once the
+model is resident; a resident speech worker pays the ~1.2–1.5 s load once.
+Kokoro's number words are not spoken at all ("1369" is skipped as
+out-of-vocabulary), so the spoken forms matter for it too.
 
 The Linux OS voice was the only engine that played through the headset
 (the capture went to the wrong sink), and Danny's verdict was immediate:
