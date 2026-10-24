@@ -26,6 +26,8 @@ export const issueWireColumns = {
   duplicateOfId: issues.duplicateOfId,
   estimate: issues.estimate,
   draftId: issues.draftId,
+  assigneeAgentId: issues.assigneeAgentId,
+  creatorAgentId: issues.creatorAgentId,
   createdAt: issues.createdAt,
   updatedAt: issues.updatedAt,
 }

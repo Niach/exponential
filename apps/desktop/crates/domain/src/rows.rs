@@ -211,8 +211,17 @@ pub struct Issue {
     pub priority: IssuePriority,
     #[serde(default)]
     pub assignee_id: Option<String>,
+    /// #EXP-1383 `issues.assignee_agent_id`: a team AGENT assignee,
+    /// mutually exclusive with `assignee_id` (`agent-settings.json`
+    /// `assignee`).
+    #[serde(default)]
+    pub assignee_agent_id: Option<String>,
     #[serde(default)]
     pub creator_id: Option<String>,
+    /// #EXP-1383 `issues.creator_agent_id`: the agent whose session filed
+    /// it (`creator_id` keeps its member).
+    #[serde(default)]
+    pub creator_agent_id: Option<String>,
     /// `issues.source` wire value (`user`/`widget`) — tolerant raw string
     /// (`crate::contract::ISSUE_SOURCE_VALUES`); `None` on pre-column rows.
     #[serde(default)]
@@ -359,6 +368,9 @@ pub struct IssueDraftRow {
     pub priority: Option<IssuePriority>,
     #[serde(default)]
     pub assignee_id: Option<String>,
+    /// #EXP-1383: an agent assignee (exclusive with `assignee_id`).
+    #[serde(default)]
+    pub assignee_agent_id: Option<String>,
     #[serde(default, deserialize_with = "tolerant_id_list")]
     pub label_ids: Vec<String>,
     /// `YYYY-MM-DD` — date only, like `issues.due_date`.
@@ -467,6 +479,10 @@ pub struct Comment {
     pub team_id: Option<String>,
     #[serde(default)]
     pub author_id: Option<String>,
+    /// #EXP-1383: the agent whose session wrote it (`author_id` = its
+    /// member): the card names the agent and drops `via MCP`.
+    #[serde(default)]
+    pub author_agent_id: Option<String>,
     /// EXP-741: the top-level comment this one replies to (one level deep);
     /// `None` = a top-level card.
     #[serde(default)]
@@ -614,6 +630,10 @@ pub struct IssueEvent {
     pub team_id: Option<String>,
     #[serde(default)]
     pub actor_user_id: Option<String>,
+    /// #EXP-1383: the agent whose session acted (`actor_user_id` = its
+    /// member).
+    #[serde(default)]
+    pub actor_agent_id: Option<String>,
     #[serde(default, rename = "type")]
     pub kind: Option<String>,
     /// jsonb payload. The store pins TEXT storage (§5.5), so hydrate must
@@ -729,6 +749,14 @@ pub struct SessionRow {
     pub last_turn_at: Option<String>,
     #[serde(default)]
     pub ended_at: Option<String>,
+    /// #EXP-1383: when the device last fetched this session's brief
+    /// (`sessions.brief`); the agent chat's instructions hint compares it
+    /// with `agents.instructions_updated_at`.
+    #[serde(default)]
+    pub agent_instructions_at: Option<String>,
+    /// #EXP-1383: the agent whose session started this root (an agent tree).
+    #[serde(default)]
+    pub started_by_agent_id: Option<String>,
     /// `false` = private (a lock glyph): only its starter sees it.
     #[serde(default, deserialize_with = "tolerant_bool_or_false")]
     pub shared: bool,
@@ -1051,6 +1079,10 @@ pub struct AgentDefRow {
     pub owner_id: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
+    /// #EXP-1383: when the instructions TEXT last changed (chats.json
+    /// `agentHint`).
+    #[serde(default)]
+    pub instructions_updated_at: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

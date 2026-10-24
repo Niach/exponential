@@ -143,7 +143,7 @@ fun CommentThread(
             ActivityFold.foldActivity(
                 state.events,
                 humanComments.map {
-                    ActivityFold.ActivityBarrier(it.issueId, it.authorId, it.createdAt)
+                    ActivityFold.ActivityBarrier(it.issueId, it.authorId, it.createdAt, it.authorAgentId)
                 },
             )
         }
@@ -234,6 +234,7 @@ fun CommentThread(
                         CreatedRow(
                             item = item,
                             usersById = state.usersById,
+                            agents = state.agents,
                             lineBelow = lineBelow,
                         )
                     }
@@ -244,6 +245,7 @@ fun CommentThread(
                             labelsById = state.labelsById,
                             statuses = state.statuses,
                             estimationType = state.estimationType,
+                            agents = state.agents,
                             lineAbove = lineAbove,
                             lineBelow = lineBelow,
                         )
@@ -296,16 +298,18 @@ fun CommentThread(
                                     viewModel.setReplyTarget(
                                         CommentReplyTarget(
                                             parentId = comment.id,
-                                            authorName = commentAuthorName(
-                                                comment,
-                                                comment.authorId?.let { state.usersById[it] },
-                                                reporterName,
-                                            ),
+                                            authorName = commentAuthorAgent(comment, state.agents)?.name
+                                                ?: commentAuthorName(
+                                                    comment,
+                                                    comment.authorId?.let { state.usersById[it] },
+                                                    reporterName,
+                                                ),
                                         ),
                                     )
                                 },
                                 reporterName = reporterName,
                                 canModerate = canModerate,
+                                agents = state.agents,
                                 attachmentsByComment = attachmentsByComment,
                                 onOpenAttachment = { attachment ->
                                     if (isMarkdownAttachment(
@@ -368,12 +372,16 @@ fun CommentThread(
 private fun CreatedRow(
     item: TimelineItem.Created,
     usersById: Map<String, com.exponential.app.data.db.UserEntity>,
+    agents: List<com.exponential.app.domain.AgentSettings.AgentRowLike>,
     lineBelow: Boolean,
 ) {
     val issue = item.issue
-    val who = when (issue.source) {
-        DomainContract.issueSourceWidget -> "Feedback widget"
-        DomainContract.issueSourceAgent -> "Agent"
+    // #EXP-1383: an agent session's issue names the AGENT.
+    val creator = com.exponential.app.domain.AgentSettings.issueActor(issue.creatorAgentId, issue.creatorId, agents)
+    val who = when {
+        creator is com.exponential.app.domain.AgentSettings.IssueActor.Agent -> creator.name
+        issue.source == DomainContract.issueSourceWidget -> "Feedback widget"
+        issue.source == DomainContract.issueSourceAgent -> "Agent"
         else -> userDisplayName(issue.creatorId?.let { usersById[it] }, issue.creatorId)
     }
     val time = relativeTime(issue.createdAt)

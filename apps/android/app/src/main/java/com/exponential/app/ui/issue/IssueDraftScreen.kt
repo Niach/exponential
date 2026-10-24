@@ -64,6 +64,10 @@ import com.exponential.app.ui.components.picker.PriorityPicker
 import com.exponential.app.ui.components.picker.StatusPicker
 import com.exponential.app.ui.components.toPickerBoard
 import com.exponential.app.ui.components.toPickerMember
+import com.exponential.app.ui.components.toPickerAgent
+import com.exponential.app.ui.components.actorRow
+import com.exponential.app.ui.components.picker.assigneeFromPickerValue
+import com.exponential.app.ui.components.picker.assigneePickerValue
 import com.exponential.app.ui.components.toPickerRow
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.LocalIssueRefs
@@ -113,6 +117,7 @@ fun IssueDraftScreen(
     val statuses by viewModel.statuses.collectAsStateWithLifecycle()
     val labels by viewModel.labels.collectAsStateWithLifecycle()
     val teamUsers by viewModel.teamUsers.collectAsStateWithLifecycle()
+    val teamAgents by viewModel.teamAgents.collectAsStateWithLifecycle()
     val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
     val board by viewModel.board.collectAsStateWithLifecycle()
     val teamBoards by viewModel.teamBoards.collectAsStateWithLifecycle()
@@ -397,12 +402,17 @@ fun IssueDraftScreen(
                                 assigneeId = state.assigneeId,
                                 dueDate = state.dueDate,
                                 estimate = null,
+                                assigneeAgentId = state.assigneeAgentId,
                             ),
                             status = state.status,
                             assignee = teamUsers.firstOrNull { it.id == state.assigneeId },
+                            assigneeAgent = state.assigneeAgentId?.let { id ->
+                                teamAgents.firstOrNull { it.id == id }?.actorRow()
+                            },
                             issueLabels = labels.filter { it.id in state.labelIds },
                             isModerator = isModerator,
-                            hideAssignee = soloMemberId != null,
+                            // #EXP-1383: a solo team keeps the control while it has agents.
+                            hideAssignee = soloMemberId != null && teamAgents.isEmpty() && state.assigneeAgentId == null,
                             estimationType = DomainContract.issueEstimationNone,
                             onOpenStatus = { sheet = DraftSheet.Status },
                             onOpenPriority = { sheet = DraftSheet.Priority },
@@ -552,8 +562,12 @@ fun IssueDraftScreen(
         )
         DraftSheet.Assignee -> AssigneePicker(
             members = teamUsers.map { it.toPickerMember() },
-            value = setOfNotNull(state.assigneeId),
-            onChange = { picked -> viewModel.onChipChange { it.copy(assigneeId = picked.firstOrNull()) } },
+            agents = teamAgents.map { it.toPickerAgent() },
+            value = assigneePickerValue(state.assigneeId, state.assigneeAgentId),
+            onChange = { picked ->
+                val next = assigneeFromPickerValue(picked.firstOrNull()).write()
+                viewModel.onChipChange { it.copy(assigneeId = next.userId, assigneeAgentId = next.agentId) }
+            },
             open = true,
             onOpenChange = { open -> if (!open) sheet = null },
         )

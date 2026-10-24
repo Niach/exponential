@@ -536,7 +536,14 @@ struct IssueListView: View {
                     // `UserAvatar`, not a hand-rolled initial on a grey disc —
                     // the row now shows the member's PICTURE when there is one,
                     // and the hashed hue when there isn't.
-                    if !vm.singleMemberTeam, let assigneeId = issue.assigneeId {
+                    // #EXP-1383: an agent assignee wears THE AGENT MARK.
+                    if !vm.hidesAssignee, let agentId = issue.assigneeAgentId {
+                        let agent = vm.agentFor(id: agentId)
+                        UserAvatar(
+                            agent: UserAvatarAgent(icon: agent?.icon, color: agent?.color),
+                            size: rowContentMinHeight
+                        )
+                    } else if !vm.hidesAssignee, let assigneeId = issue.assigneeId {
                         // Sized off the height floor rather than a fixed 22:
                         // the floor scales with Dynamic Type, so a hard 22
                         // would poke above it at text sizes below default and
@@ -713,8 +720,9 @@ struct IssueListView: View {
                 bulkSheet = .priority
             }
 
-            // Assignee — only meaningful on multi-member teams.
-            if !vm.singleMemberTeam {
+            // Assignee — only meaningful on multi-member teams (or a solo
+            // team with agents, #EXP-1383).
+            if !vm.hidesAssignee {
                 barIconButton(
                     iconName: AppIcons.uiAssignee,
                     color: .white.opacity(TextOpacity.secondary),
@@ -836,9 +844,12 @@ struct IssueListView: View {
 
     /// The assignee shared by every selected issue, or nil when they differ /
     /// are unassigned — the picker's pre-selection.
-    private func sharedAssigneeId(_ vm: IssueListViewModel) -> String? {
-        let assignees = Set(selectedIssues(vm).map { $0.assigneeId })
-        return assignees.count == 1 ? (assignees.first ?? nil) : nil
+    private func sharedAssignee(_ vm: IssueListViewModel) -> IssueAssignee? {
+        let assignees = Set(selectedIssues(vm).map {
+            IssueAssignee(assigneeId: $0.assigneeId, assigneeAgentId: $0.assigneeAgentId)
+        })
+        guard assignees.count == 1, let only = assignees.first, !only.isUnassigned else { return nil }
+        return only
     }
 
     /// One bulk picker's open state (EXP-1021).
@@ -884,8 +895,9 @@ struct IssueListView: View {
 
             AssigneePicker(
                 members: vm.teamUsers.map(AssigneePickerMember.init),
-                value: sharedAssigneeId(vm).map { [$0] } ?? [],
-                onChange: { picked in bulkSetAssignee(vm, picked.first) },
+                agents: vm.teamAgents.map(AssigneePickerAgent.init),
+                value: sharedAssignee(vm).map { [$0.pickerValue] } ?? [],
+                onChange: { picked in bulkSetAssignee(vm, IssueAssignee(pickerValue: picked.first)) },
                 open: bulkOpen(.assignee),
                 hideTrigger: true,
                 trigger: { EmptyView() }
@@ -999,10 +1011,10 @@ struct IssueListView: View {
         Task { await vm.bulkSetPriority(issueIds: ids, priority: priority) }
     }
 
-    private func bulkSetAssignee(_ vm: IssueListViewModel, _ assigneeId: String?) {
+    private func bulkSetAssignee(_ vm: IssueListViewModel, _ assignee: IssueAssignee) {
         let ids = Array(selectedIds)
         exitSelection()
-        Task { await vm.bulkSetAssignee(issueIds: ids, assigneeId: assigneeId) }
+        Task { await vm.bulkSetAssignee(issueIds: ids, assignee: assignee) }
     }
 
     /// EXP-825: Start coding is NAVIGATION — the Agent page composer with

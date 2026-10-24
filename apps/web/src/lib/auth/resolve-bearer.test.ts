@@ -122,6 +122,13 @@ describe(`scoped api keys (FEED-76)`, () => {
     expect(apiKeySessionMetadata).toHaveBeenCalledTimes(1)
   })
 
+  it(`#EXP-1383: a team agent's key is MCP-only too and reads as an agent key there`, async () => {
+    apiKeySessionMetadata.mockImplementation(async () => ({ kind: `agent`, scope: SCOPE }))
+    expect(await resolveSession(keyRequest())).toBeNull()
+    const resolved = await resolveMcpCredential(keyRequest())
+    expect(resolved).toMatchObject({ keyScope: SCOPE, keyKind: `agent` })
+  })
+
   it(`an unscoped key resolves everywhere, probed once per TTL`, async () => {
     expect((await resolveSession(keyRequest()))?.user?.id).toBe(`user-token`)
     const resolved = await resolveMcpCredential(keyRequest())

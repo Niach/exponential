@@ -6,7 +6,10 @@ import {
   toStatusPickerStatuses,
 } from "@/components/issue-properties/status-dropdown"
 import {
+  assigneeFromPickerValue,
   assigneePickerItems,
+  assigneePickerValue,
+  assigneeAgentValue,
   boardPickerItems,
   conceptIcon,
   labelPickerItems,
@@ -18,6 +21,8 @@ import {
   type IssueMenuSlot,
 } from "@exp/ui"
 import { displayUserName } from "@/lib/user-display"
+import type { IssueAssignee } from "@/lib/issue-assignee"
+import type { SyncedAgent } from "@/components/team/agents-section"
 import type { IssueEstimation } from "@/lib/domain"
 import {
   NO_ESTIMATE,
@@ -68,14 +73,20 @@ export function statusSlot({
 
 export function assigneeSlot({
   assigneeId,
+  assigneeAgentId = null,
   orderedUsers,
+  agents = [],
   selectedAssignee,
   onSelect,
 }: {
   assigneeId: Issue[`assigneeId`]
+  /** #EXP-1383: an agent assignee (exclusive with `assigneeId`). */
+  assigneeAgentId?: Issue[`assigneeAgentId`]
   orderedUsers: User[]
+  /** #EXP-1383: the team's agents, after the members. */
+  agents?: readonly SyncedAgent[]
   selectedAssignee: User | null
-  onSelect: (userId: string | null) => void
+  onSelect: (assignee: IssueAssignee) => void
 }): IssueMenuSlot {
   // Literally the `AssigneePicker`'s rows (EXP-1021), with its avatar.
   const members = orderedUsers.map((user) => ({
@@ -85,9 +96,16 @@ export function assigneeSlot({
     image: user.image,
   }))
   const membersById = new Map(members.map((member) => [member.id, member]))
+  const agentsByValue = new Map(agents.map((agent) => [assigneeAgentValue(agent.id), agent]))
+  const selectedAgent = assigneeAgentId
+    ? agents.find((agent) => agent.id === assigneeAgentId)
+    : undefined
   return {
-    // The current assignee's avatar; the person placeholder when unassigned.
-    icon: selectedAssignee ? (
+    // The current assignee's avatar (#EXP-1383: an agent's mark); the
+    // person placeholder when unassigned.
+    icon: selectedAgent ? (
+      <UserAvatar size={16} user={null} agent={selectedAgent} />
+    ) : selectedAssignee ? (
       <UserAvatar
         size={16}
         user={{
@@ -99,22 +117,28 @@ export function assigneeSlot({
     ) : (
       UnassignedIcon
     ),
-    value: selectedAssignee
-      ? displayUserName(selectedAssignee, selectedAssignee.id)
-      : `Unassigned`,
+    value: selectedAgent
+      ? selectedAgent.name
+      : selectedAssignee
+        ? displayUserName(selectedAssignee, selectedAssignee.id)
+        : `Unassigned`,
     contentClassName: `w-[15rem]`,
     body: (
       <PickerMenuRows
         mode="single"
-        items={assigneePickerItems(members)}
-        value={assigneeId}
-        onChange={onSelect}
+        items={assigneePickerItems(members, agents)}
+        value={assigneePickerValue({ assigneeId, assigneeAgentId })}
+        onChange={(value) => onSelect(assigneeFromPickerValue(value))}
         noneLabel="Unassigned"
-        onNone={() => onSelect(null)}
+        onNone={() => onSelect(assigneeFromPickerValue(null))}
         emptyText="No team members yet"
         renderItem={(item) => (
           <>
-            <UserAvatar size={20} user={membersById.get(item.value)} />
+            <UserAvatar
+              size={20}
+              user={membersById.get(item.value)}
+              agent={agentsByValue.get(item.value) ?? null}
+            />
             <PickerItemBody item={item} />
           </>
         )}

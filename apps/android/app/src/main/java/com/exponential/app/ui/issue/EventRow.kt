@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.AgentSettings
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
@@ -34,6 +35,22 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
+/** #EXP-1383: an agent assignee whose row is gone (deleted, or not synced). */
+internal const val AGENT_FALLBACK_NAME = "an agent"
+
+/**
+ * #EXP-1383 (agent-settings.json `actor`): who an event reads as: an agent's
+ * session acted → the AGENT's name (the same per-type copy), else the member.
+ */
+internal fun eventActorName(
+    event: IssueEventEntity,
+    usersById: Map<String, UserEntity>,
+    agents: List<AgentSettings.AgentRowLike>,
+): String = when (val actor = AgentSettings.issueActor(event.actorAgentId, event.actorUserId, agents)) {
+    is AgentSettings.IssueActor.Agent -> actor.name
+    else -> userDisplayName(event.actorUserId?.let { usersById[it] }, event.actorUserId)
+}
+
 // Compact Linear-style activity line for non-agent events (status/assignee/label),
 // with the shared timeline gutter on the connecting rail (EXP-240). The gutter
 // marker is the event type's concept icon — a status change leads with the
@@ -49,15 +66,17 @@ internal fun EventRow(
     /** The team's `estimation_type` for `estimate_changed` rows (EXP-630);
      *  null (team row not synced) phrases on the fibonacci default. */
     estimationType: String?,
+    /** #EXP-1383: the synced agents an agent actor / assignee resolves to. */
+    agents: List<AgentSettings.AgentRowLike>,
     lineAbove: Boolean = false,
     lineBelow: Boolean = false,
 ) {
-    val who = userDisplayName(event.actorUserId?.let { usersById[it] }, event.actorUserId)
+    val who = eventActorName(event, usersById, agents)
     // EXP-1324: the line is a Trace line at size sm — the sentence as the
     // title, the relative time as the muted description (an unparseable
     // createdAt has none, EXP-169); the glyph rides the timeline gutter.
     val time = relativeTime(event.createdAt).takeIf { it.isNotEmpty() }
-    val text = "$who ${eventPhrase(event, usersById, labelsById, estimationType)}"
+    val text = "$who ${eventPhrase(event, usersById, labelsById, estimationType, agents)}"
     val glyph = eventGlyph(event, statuses)
     Row(
         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
@@ -160,6 +179,7 @@ internal fun eventPhrase(
     usersById: Map<String, UserEntity>,
     labelsById: Map<String, LabelEntity>,
     estimationType: String?,
+    agents: List<AgentSettings.AgentRowLike>,
 ): String {
     // One parse per phrase — status_changed/board_moved read two keys.
     val payload = parsedPayload(event.payload)
@@ -180,9 +200,15 @@ internal fun eventPhrase(
             }
         }
         "assignee_changed" -> {
+            // #EXP-1383: an agent assignee rides `toAgentId` (`assigned Sloppy`).
+            val toAgentId = field("toAgentId")
             val to = field("to")
-            if (to == null) "unassigned this issue"
-            else "assigned ${userDisplayName(usersById[to], to)}"
+            when {
+                toAgentId != null ->
+                    "assigned ${agents.firstOrNull { it.id == toAgentId }?.name ?: AGENT_FALLBACK_NAME}"
+                to == null -> "unassigned this issue"
+                else -> "assigned ${userDisplayName(usersById[to], to)}"
+            }
         }
         "label_added", "label_removed" -> {
             val verb = if (event.type == "label_added") "added" else "removed"

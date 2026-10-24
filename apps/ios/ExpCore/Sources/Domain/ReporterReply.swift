@@ -29,16 +29,18 @@ public enum ReporterReply {
 
     /// The muted caption after a comment's time (fixture `captions`):
     /// `reporter` (source reporter), then `to reporter` (audience reporter on
-    /// a non-reporter comment), then `via MCP` (source mcp). Every part that
-    /// applies shows; none = nil.
-    public static func caption(source: String?, audience: String?) -> String? {
+    /// a non-reporter comment), then `via MCP` (source mcp, and only while
+    /// `authorAgentId` is unset: #EXP-1383, an agent's comment already names
+    /// the agent). Every part that applies shows; none = nil.
+    public static func caption(source: String?, audience: String?, authorAgentId: String? = nil) -> String? {
         var parts: [String] = []
         if source == DomainContract.commentSourceReporter {
             parts.append(reporterCaption)
         } else if audience == DomainContract.commentAudienceReporter {
             parts.append(toReporterCaption)
         }
-        if source == DomainContract.commentSourceMcp { parts.append(viaMcpCaption) }
+        let byAgent = !(authorAgentId ?? "").isEmpty
+        if source == DomainContract.commentSourceMcp, !byAgent { parts.append(viaMcpCaption) }
         return parts.isEmpty ? nil : parts.joined(separator: captionSeparator)
     }
 

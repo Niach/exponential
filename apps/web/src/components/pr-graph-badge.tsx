@@ -46,6 +46,7 @@ import {
 } from "@/lib/issue-relations-view"
 import { useTeamBoardIds } from "@/hooks/use-team-issue-graph"
 import { useTeamUsers } from "@/hooks/use-team-data"
+import { useAgentRows } from "@/hooks/use-agent-row"
 import { PrStateBadge } from "@/components/issue-coding-rows"
 import {
   RelationBandFrame,
@@ -295,6 +296,8 @@ export function PrGraphOverlay({
 }) {
   const phone = useIsMobile()
   const { userMap } = useTeamUsers(teamId)
+  // #EXP-1383: an agent assignee draws THE AGENT MARK.
+  const agents = useAgentRows(teamId)
   // Every band opens unfolded; the header folds it, as on the relations card.
   const [folded, setFolded] = useState<OverlaySection[]>([])
   const [showAll, setShowAll] = useState<OverlaySection[]>([])
@@ -325,6 +328,11 @@ export function PrGraphOverlay({
       issue={row}
       open={relationRowIsOpen(row.status)}
       assignee={row.assigneeId ? userMap.get(row.assigneeId) : undefined}
+      assigneeAgent={
+        row.assigneeAgentId
+          ? (agents.find((agent) => agent.id === row.assigneeAgentId) ?? null)
+          : null
+      }
       phone={phone}
       link={issueLink(row)}
     />

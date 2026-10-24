@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   buildMcpAccess,
+  clampMcpAccessToTeam,
   FULL_ACCESS,
   NO_ACCESS,
   assertFullAccess,
@@ -135,5 +136,38 @@ describe(`filterVisibleTeamIds`, () => {
       `a`,
       `b`,
     ])
+  })
+})
+
+// #EXP-1383: an agent-tree session is confined to its own team.
+describe(`clampMcpAccessToTeam`, () => {
+  it(`turns full access into the one team, worded for the agent`, () => {
+    const clamped = clampMcpAccessToTeam(FULL_ACCESS, `ws-a`)
+    expect(clamped.full).toBe(false)
+    expect(isTeamFullyGranted(clamped, `ws-a`)).toBe(true)
+    expect(isTeamVisible(clamped, `ws-b`)).toBe(false)
+    expect(isBoardGranted(clamped, `b-1`, `ws-a`)).toBe(true)
+    expect(isBoardGranted(clamped, `b-2`, `ws-b`)).toBe(false)
+    expect(() => assertTeamVisible(clamped, `ws-b`)).toThrow(/agent session was not granted access/)
+    expect(() => assertFullAccess(clamped)).toThrow(/not granted access/)
+  })
+
+  it(`keeps only what a confined grant held inside the team`, () => {
+    const access = buildMcpAccess(
+      { allTeams: false, teamIds: [`ws-b`], boardIds: [`b-a`, `b-c`] },
+      new Map([
+        [`b-a`, `ws-a`],
+        [`b-c`, `ws-c`],
+      ])
+    )
+    const clamped = clampMcpAccessToTeam(access, `ws-a`, new Map([[`b-a`, `ws-a`], [`b-c`, `ws-c`]]))
+    expect([...clamped.fullTeamIds]).toEqual([])
+    expect([...clamped.grantedBoardIds]).toEqual([`b-a`])
+    expect([...clamped.visibleTeamIds]).toEqual([`ws-a`])
+    expect(isTeamFullyGranted(clamped, `ws-b`)).toBe(false)
+    expect(isBoardGranted(clamped, `b-c`, `ws-c`)).toBe(false)
+    // A grant that never reached the team reaches nothing there.
+    const none = clampMcpAccessToTeam(buildMcpAccess({ allTeams: false, teamIds: [`ws-b`], boardIds: [] }, new Map()), `ws-a`)
+    expect(isTeamVisible(none, `ws-a`)).toBe(false)
   })
 })

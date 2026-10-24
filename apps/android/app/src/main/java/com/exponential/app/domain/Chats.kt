@@ -221,6 +221,36 @@ object Chats {
         DomainContract.messageCardKindSurface,
     )
 
+    /** #EXP-1383 (`agentHint.banner`): the agent chat's "Instructions
+     *  changed" Dock banner row; its action sends [AGENT_HINT_SENDS]. */
+    object AgentHint {
+        const val ID = "instructions"
+        const val ICON = "ui-info"
+        const val LABEL = "Instructions changed"
+        const val TEXT = "This conversation still follows the previous instructions"
+        const val TONE = "muted"
+        const val ACTION = "Start new conversation"
+        const val SENDS = Sends.NEW_CONVERSATION
+        /** The Dock row id the banner draws as. */
+        const val ROW_ID = "banner:$ID"
+
+        val banner: Dock.Source.Banner
+            get() = Dock.Source.Banner(id = ID, icon = ICON, label = LABEL, text = TEXT, tone = Dock.Tint.Muted, action = ACTION)
+    }
+
+    /**
+     * #EXP-1383 (`agentHint.cases`): the agent chat's root fetched its brief
+     * ([sessionStamp] = `sessions.agent_instructions_at`) before the agent's
+     * instructions last changed ([agentStamp] =
+     * `agents.instructions_updated_at`). Either stamp missing = no hint;
+     * equal = current.
+     */
+    fun agentInstructionsChanged(sessionStamp: String?, agentStamp: String?): Boolean {
+        val session = ms(sessionStamp) ?: return false
+        val agent = ms(agentStamp) ?: return false
+        return session < agent
+    }
+
     /** A builtin command line a person sent (`/new`, `/compact …`): the
      *  transcript paints it as a divider, never a bubble (`dividerCases`). */
     fun commandDivider(body: String): String? {

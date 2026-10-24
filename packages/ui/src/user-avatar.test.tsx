@@ -60,4 +60,24 @@ describe(`UserAvatar`, () => {
     expect(fallback(empty).textContent).toBe(`?`)
     expect(fallback(empty).className).toContain(`bg-muted`)
   })
+
+  // #EXP-1383 (agent-settings.json `actor`): an agent where a person would
+  // be is THE AGENT MARK at the avatar's size: its glyph in its colour on
+  // the muted disc, never initials.
+  it(`draws an agent as its mark at the avatar's size`, () => {
+    const { container } = render(
+      <UserAvatar
+        size={28}
+        user={{ id: `u1`, name: `Ada Lovelace` }}
+        agent={{ icon: `bot`, color: `#22c55e` }}
+      />
+    )
+    const disc = container.querySelector(`[data-slot=agent-avatar]`)!
+    expect(disc.className).toContain(USER_AVATAR_SIZES[28].root)
+    expect(disc.className).toContain(`bg-muted`)
+    expect(container.querySelector(`[data-slot=avatar-fallback]`)).toBeNull()
+    const glyph = disc.querySelector(`svg`)!
+    expect(glyph.getAttribute(`class`)).toContain(USER_AVATAR_SIZES[28].glyph)
+    expect(glyph.getAttribute(`style`)).toContain(`color`)
+  })
 })

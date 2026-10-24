@@ -53,6 +53,8 @@ pub struct IssueOut {
     #[serde(default)]
     pub assignee_id: Option<String>,
     #[serde(default)]
+    pub assignee_agent_id: Option<String>,
+    #[serde(default)]
     pub due_date: Option<String>,
 }
 
@@ -76,6 +78,10 @@ pub struct IssuesCreateInput {
     pub priority: Option<IssuePriority>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assignee_id: Option<String>,
+    /// #EXP-1383: a team agent as the assignee (exclusive with
+    /// [`Self::assignee_id`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assignee_agent_id: Option<String>,
     /// GFM markdown. The server rejects embedded images at create time
     /// ("Images can only be added after the issue is created").
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -112,6 +118,7 @@ impl IssuesCreateInput {
             status_id: None,
             priority: None,
             assignee_id: None,
+            assignee_agent_id: None,
             description: None,
             due_date: None,
             label_ids: None,
@@ -151,6 +158,10 @@ pub struct IssuesUpdateInput {
     pub priority: Option<IssuePriority>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub assignee_id: Patch<String>,
+    /// #EXP-1383: the agent column of the assignee pair; set it with
+    /// [`Self::assign`], which writes BOTH columns (the cleared one null).
+    #[serde(skip_serializing_if = "Patch::is_omit")]
+    pub assignee_agent_id: Patch<String>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub description: Patch<String>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
@@ -175,10 +186,68 @@ impl IssuesUpdateInput {
             status_id: None,
             priority: None,
             assignee_id: Patch::Omit,
+            assignee_agent_id: Patch::Omit,
             description: Patch::Omit,
             due_date: Patch::Omit,
             duplicate_of_id: Patch::Omit,
             estimate: Patch::Omit,
+        }
+    }
+}
+
+impl IssuesUpdateInput {
+    /// #EXP-1383: the two-column assignee write: an agent wins and clears
+    /// the person, a person (or nobody) clears the agent, both explicit.
+    pub fn assign(mut self, assignee: &Assignee) -> Self {
+        let (user, agent) = assignee.patches();
+        self.assignee_id = user;
+        self.assignee_agent_id = agent;
+        self
+    }
+}
+
+/// #EXP-1383 (agent-settings.json `assignee`): an issue's assignee is ONE of
+/// two mutually exclusive columns, a member or a team agent.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Assignee {
+    #[default]
+    Nobody,
+    User(String),
+    Agent(String),
+}
+
+impl Assignee {
+    /// A row's pair (an agent wins, like the DB check allows only one).
+    pub fn of(assignee_id: Option<&str>, assignee_agent_id: Option<&str>) -> Self {
+        if let Some(agent) = assignee_agent_id.filter(|id| !id.is_empty()) {
+            return Self::Agent(agent.to_string());
+        }
+        match assignee_id.filter(|id| !id.is_empty()) {
+            Some(user) => Self::User(user.to_string()),
+            None => Self::Nobody,
+        }
+    }
+
+    /// `(assigneeId, assigneeAgentId)` as an explicit write.
+    pub fn patches(&self) -> (Patch<String>, Patch<String>) {
+        match self {
+            Self::Nobody => (Patch::Null, Patch::Null),
+            Self::User(id) => (Patch::Set(id.clone()), Patch::Null),
+            Self::Agent(id) => (Patch::Null, Patch::Set(id.clone())),
+        }
+    }
+
+    pub fn user_id(&self) -> Option<&str> {
+        match self {
+            Self::User(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    pub fn agent_id(&self) -> Option<&str> {
+        match self {
+            Self::Agent(id) => Some(id),
+            _ => None,
         }
     }
 }
@@ -279,6 +348,9 @@ pub struct IssuesBulkUpdateInput {
     /// zod `.nullable().optional()` — `Null` unassigns every issue.
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub assignee_id: Patch<String>,
+    /// #EXP-1383: the agent column; set both through [`Self::assign`].
+    #[serde(skip_serializing_if = "Patch::is_omit")]
+    pub assignee_agent_id: Patch<String>,
 }
 
 impl IssuesBulkUpdateInput {
@@ -290,7 +362,17 @@ impl IssuesBulkUpdateInput {
             status_id: None,
             priority: None,
             assignee_id: Patch::Omit,
+            assignee_agent_id: Patch::Omit,
         }
+    }
+
+    /// #EXP-1383: the two-column assignee write (see
+    /// [`IssuesUpdateInput::assign`]).
+    pub fn assign(mut self, assignee: &Assignee) -> Self {
+        let (user, agent) = assignee.patches();
+        self.assignee_id = user;
+        self.assignee_agent_id = agent;
+        self
     }
 }
 
@@ -758,6 +840,30 @@ mod tests {
         let _ = issues_bulk_update(&client(&base), &input).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"issueIds":["i-1"],"priority":"high","assigneeId":"u-1"}"#));
+    }
+
+    /// #EXP-1383: every assignee write sends BOTH columns, the cleared one
+    /// as an explicit null.
+    #[test]
+    fn assignee_writes_send_both_columns() {
+        let agent = IssuesUpdateInput::new("i-1").assign(&Assignee::Agent("g-1".into()));
+        assert_eq!(
+            serde_json::to_string(&agent).unwrap(),
+            r#"{"id":"i-1","assigneeId":null,"assigneeAgentId":"g-1"}"#
+        );
+        let user = IssuesUpdateInput::new("i-1").assign(&Assignee::User("u-1".into()));
+        assert_eq!(
+            serde_json::to_string(&user).unwrap(),
+            r#"{"id":"i-1","assigneeId":"u-1","assigneeAgentId":null}"#
+        );
+        let nobody = IssuesBulkUpdateInput::new(vec!["i-1".into()]).assign(&Assignee::Nobody);
+        assert_eq!(
+            serde_json::to_string(&nobody).unwrap(),
+            r#"{"issueIds":["i-1"],"assigneeId":null,"assigneeAgentId":null}"#
+        );
+        assert_eq!(Assignee::of(Some("u-1"), Some("g-1")), Assignee::Agent("g-1".into()));
+        assert_eq!(Assignee::of(Some("u-1"), None), Assignee::User("u-1".into()));
+        assert_eq!(Assignee::of(None, Some("")), Assignee::Nobody);
     }
 
     #[test]

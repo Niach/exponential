@@ -490,7 +490,7 @@
   },
   "events": {
     "$comment": "NEW-2: the team's event stream (`events` shape). builtinNames = what the server emits itself; any other name is a custom event (MCP events_emit). Rows older than retentionDays are pruned.",
-    "builtinNames": ["issue.created", "issue.status_changed", "pr.opened", "pr.merged", "session.ended"],
+    "builtinNames": ["issue.created", "issue.status_changed", "issue.assigned", "pr.opened", "pr.merged", "session.ended"],
     "emitterValues": ["session", "user", "server"],
     "nameMax": 128,
     "payloadMaxBytes": 16384,

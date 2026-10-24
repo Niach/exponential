@@ -21,7 +21,7 @@ import { boardVisible } from "@/lib/board-visibility"
 // must re-run the consent flow. The scope is enforced in the MCP tool layer;
 // neither OAuth tokens nor scoped keys are accepted anywhere else (see
 // resolveSession), so the tool layer is the complete surface.
-export type McpAccessOrigin = `oauth` | `apiKey`
+export type McpAccessOrigin = `oauth` | `apiKey` | `agent`
 
 export interface McpAccess {
   full: boolean
@@ -146,9 +146,51 @@ export async function resolveMcpTokenAccess(
 
 // Both wordings keep "not granted access": clients and tests key on it.
 const deniedMessage = (target: string, access: McpAccess) =>
-  access.origin === `apiKey`
+  access.origin === `agent`
+    ? `This agent session was not granted access to ${target}: a team agent works only in its own team.`
+    : access.origin === `apiKey`
     ? `This API key was not granted access to ${target}. Create a new key under Settings → Security with a wider team/board selection (a key's scope cannot be changed).`
     : `This MCP connection was not granted access to ${target}. Re-authenticate the MCP server and adjust the team/board selection on the consent screen.`
+
+/**
+ * #EXP-1383: an AGENT-tree session (its root has `agent_id`) is confined to
+ * its own team whatever credential carried it: full access becomes that one
+ * team, a confined grant keeps only what it held inside it. Pure;
+ * `boardTeamIds` maps the grant's individually granted boards to their team.
+ */
+export function clampMcpAccessToTeam(
+  access: McpAccess,
+  teamId: string,
+  boardTeamIds: ReadonlyMap<string, string> = new Map()
+): McpAccess {
+  if (access.full) {
+    return buildMcpAccess({ allTeams: false, teamIds: [teamId], boardIds: [] }, new Map(), `agent`)
+  }
+  const grantedBoardIds = new Set(
+    [...access.grantedBoardIds].filter((boardId) => boardTeamIds.get(boardId) === teamId)
+  )
+  const fullTeamIds = new Set([...access.fullTeamIds].filter((id) => id === teamId))
+  const visibleTeamIds = new Set(
+    [...access.visibleTeamIds].filter((id) => id === teamId)
+  )
+  return { full: false, origin: `agent`, fullTeamIds, grantedBoardIds, visibleTeamIds }
+}
+
+/** `clampMcpAccessToTeam` with the granted boards' teams looked up. */
+export async function resolveMcpAccessClampedToTeam(
+  access: McpAccess,
+  teamId: string
+): Promise<McpAccess> {
+  const map = new Map<string, string>()
+  if (!access.full && access.grantedBoardIds.size > 0) {
+    const rows = await db
+      .select({ id: boards.id, teamId: boards.teamId })
+      .from(boards)
+      .where(inArray(boards.id, [...access.grantedBoardIds]))
+    for (const row of rows) map.set(row.id, row.teamId)
+  }
+  return clampMcpAccessToTeam(access, teamId, map)
+}
 
 export function isTeamVisible(access: McpAccess, teamId: string) {
   return access.full || access.visibleTeamIds.has(teamId)

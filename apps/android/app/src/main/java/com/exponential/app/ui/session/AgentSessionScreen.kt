@@ -2398,6 +2398,7 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
     val hostOffline by viewModel.hostDeviceOffline.collectAsStateWithLifecycle()
     val accountSwitch by viewModel.accountSwitch.collectAsStateWithLifecycle()
     val serverQueue by viewModel.queuedMessages.collectAsStateWithLifecycle()
+    val agentDefinition by viewModel.agentDefinition.collectAsStateWithLifecycle()
     val sessionEnded = session?.isEnded == true
     val feed = activity.feed
     val nowMs = rememberUsageClock()
@@ -2471,6 +2472,14 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
                 ),
             )
         }
+        // #EXP-1383 (chats.json `agentHint`): an agent chat's ROOT still on
+        // instructions older than the agent's → ONE more banner row.
+        val root = session
+        if (root != null && root.parentId == null && agentDefinition != null &&
+            Chats.agentInstructionsChanged(root.agentInstructionsAt, agentDefinition?.instructionsUpdatedAt)
+        ) {
+            add(Chats.AgentHint.banner)
+        }
         if (phase == AgentPhase.Starting && !paused && feed.isNotEmpty()) {
             add(
                 Dock.Source.Banner(
@@ -2509,6 +2518,17 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
                     mode = PillMode.Action,
                     icon = ExpIcons.uiRefresh,
                     modifier = Modifier.testTag("session-reconnect"),
+                )
+            }
+            // #EXP-1383: the action sends `/new` exactly like the agent
+            // menu's New conversation (`agentMenu.sends.newConversation`).
+            if (row.id == Chats.AgentHint.ROW_ID && row.action != null) {
+                GlassPill(
+                    row.action,
+                    onClick = { viewModel.sendCommand(Chats.AgentHint.SENDS) },
+                    size = PillSize.Sm,
+                    mode = PillMode.Action,
+                    modifier = Modifier.testTag("dock-instructions-new"),
                 )
             }
             if (row.id == "banner:blocked" && row.action != null && onOpenUsage != null) {

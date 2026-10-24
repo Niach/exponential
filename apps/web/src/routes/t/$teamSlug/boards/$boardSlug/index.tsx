@@ -15,6 +15,7 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
+import { useAgentRows } from "@/hooks/use-agent-row"
 import type { StatusRowOption } from "@/lib/team-statuses"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 
@@ -67,6 +68,8 @@ function BoardPage() {
   usePageTitle(board ? pageTitle(board.name) : undefined)
 
   const permissions = useTeamPermissions(team)
+  // #EXP-1383: the team's agents (agent assignees, the picker's agent rows).
+  const agents = useAgentRows(team?.id)
 
   // Thread 58cb32df: the phone board's chips (All issues · My issues N ·
   // Drafts N); md+ keeps My issues + Drafts in the sidebar.
@@ -183,6 +186,7 @@ function BoardPage() {
           issueLabelMap={issueLabelMap}
           users={users}
           userMap={userMap}
+          agents={agents}
           menuFrom={`board:${boardSlug}`}
           onNewIssue={handleNewIssue}
           onIssueClick={(issue) =>

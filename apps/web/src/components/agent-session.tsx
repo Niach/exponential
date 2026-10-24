@@ -1,5 +1,10 @@
 import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
-import { commandDivider } from "@exp/domain-contract/chats"
+import {
+  AGENT_HINT_BANNER,
+  AGENT_MENU_SENDS,
+  agentInstructionsChanged,
+  commandDivider,
+} from "@exp/domain-contract/chats"
 import type { DockRow, DockSource } from "@exp/domain-contract/dock"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import type { ReactNode } from "react"
@@ -169,6 +174,8 @@ import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
 import { SessionAccountSwitchButton } from "@/components/session-account-switch"
+import { sendAgentLine } from "@/components/thread/chat-menu"
+import { useAgentRow } from "@/hooks/use-agent-row"
 import { EntityRefChips } from "@/components/entity-preview/entity-ref-chips"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import {
@@ -2040,6 +2047,65 @@ function recordedKeys(item: QuestionItem): string[] {
   return item.options.filter((o) => labels.has(o.label)).map((o) => o.key)
 }
 
+/** A synced timestamp as the ISO string `agentInstructionsChanged` reads. */
+function stampOf(value: Date | string | null | undefined): string | null {
+  if (!value) return null
+  return typeof value === `string` ? value : value.toISOString()
+}
+
+/** #EXP-1383 (chats.json `agentHint`): the "Instructions changed" banner
+ *  of an agent chat's ROOT that still runs on instructions older than the
+ *  agent's current ones (`agentInstructionsChanged`), as a Dock source, and
+ *  its action: the agent menu's New conversation (`sendAgentLine` with
+ *  `AGENT_MENU_SENDS.newConversation`). null source = no hint. */
+export function useAgentHintDock(session: SessionRow | null): {
+  source: DockSource | null
+  renderAction: (row: DockRow) => ReactNode
+} {
+  const agentChatId = session && session.parentId === null ? session.agentId : null
+  const { agent } = useAgentRow(agentChatId)
+  const changed =
+    session !== null &&
+    agent !== null &&
+    agentInstructionsChanged({
+      sessionStamp: stampOf(session.agentInstructionsAt),
+      agentStamp: stampOf(agent.instructionsUpdatedAt),
+    })
+  const source = useMemo<DockSource | null>(
+    () =>
+      changed
+        ? {
+            kind: `banner`,
+            id: AGENT_HINT_BANNER.id,
+            icon: AGENT_HINT_BANNER.icon,
+            label: AGENT_HINT_BANNER.label,
+            text: AGENT_HINT_BANNER.text,
+            tone: AGENT_HINT_BANNER.tone as `muted`,
+            action: AGENT_HINT_BANNER.action,
+          }
+        : null,
+    [changed]
+  )
+  const renderAction = (row: DockRow): ReactNode => {
+    const text = AGENT_MENU_SENDS.newConversation
+    if (row.id !== `banner:${AGENT_HINT_BANNER.id}` || !session || !agent || !text) return null
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-6"
+        data-testid="dock-instructions-new"
+        onClick={() =>
+          void sendAgentLine({ teamId: session.teamId, agentId: agent.id, conversationId: session.id, text })
+        }
+      >
+        {row.action}
+      </Button>
+    )
+  }
+  return { source, renderAction }
+}
+
 /** N-12: the session's Dock beyond the asks: THE Queue (task-queue.json),
  *  the queued messages (EXP-861, the X revokes a held one) and the status
  *  banners (EXP-550 paused on an offline device, EXP-877 a dropped stream
@@ -2075,6 +2141,8 @@ export function useSessionDock(session: SessionRow): {
   const [todoOpen, setTodoOpen] = useState(true)
   const [completedOpen, setCompletedOpen] = useState(false)
   const limit = rateLimit ? rateLimitBanner(rateLimit, now) : null
+  const agentHint = useAgentHintDock(session)
+  const hintSource = agentHint.source
   const sources = useMemo<DockSource[]>(() => {
     const out: DockSource[] = [
       { kind: `queued`, messages: queue.map((entry) => ({ id: entry.id, text: entry.text })) },
@@ -2146,8 +2214,9 @@ export function useSessionDock(session: SessionRow): {
         action: null,
       })
     }
+    if (hintSource) out.push(hintSource)
     return out
-  }, [queue, queueModel, paused, feed.length, device.label, phase, blockedLabel, sessionEnded, session.blocked, compacting, limit])
+  }, [queue, queueModel, paused, feed.length, device.label, phase, blockedLabel, sessionEnded, session.blocked, compacting, limit, hintSource])
   const renderSheet = (row: DockRow): ReactNode => {
     if (row.kind === `tasks`) {
       return (
@@ -2184,7 +2253,7 @@ export function useSessionDock(session: SessionRow): {
       )
     }
     if (row.id === `banner:blocked` && row.action) return <SessionAccountSwitchButton session={session} />
-    return null
+    return agentHint.renderAction(row)
   }
   return { sources, renderSheet, renderAction }
 }

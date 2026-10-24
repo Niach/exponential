@@ -32,10 +32,12 @@ export function authorLabel(
 
 /** The muted caption after the time (fixture `captions`): "reporter" (the
  *  widget reporter wrote it), then "to reporter" (a reply that was emailed
- *  out), then "via MCP" (an agent posted it). Every part that applies shows,
+ *  out), then "via MCP" (a person's MCP client posted it; never on an agent's own comment). Every part that applies shows,
  *  joined by the fixture separator; none = null. */
 export function commentCaption(
-  comment: Pick<Comment, `source` | `audience`>
+  comment: Pick<Comment, `source` | `audience`> & {
+    authorAgentId?: string | null
+  }
 ): string | null {
   const parts: Array<string> = []
   if (comment.source === `reporter`) {
@@ -43,6 +45,7 @@ export function commentCaption(
   } else if (comment.audience === `reporter`) {
     parts.push(REPORTER_REPLY_COPY.toReporterCaption)
   }
-  if (comment.source === `mcp`) parts.push(fixture.captions.viaMcp)
+  // #EXP-1383: an agent's comment already names the agent.
+  if (comment.source === `mcp` && !comment.authorAgentId) parts.push(fixture.captions.viaMcp)
   return parts.length ? parts.join(fixture.captions.separator) : null
 }

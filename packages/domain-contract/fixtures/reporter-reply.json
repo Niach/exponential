@@ -12,7 +12,7 @@
     "notificationLabel": "Reporter replied"
   },
   "captions": {
-    "_doc": "The muted caption after the time. Parts in this ORDER: `reporterCaption` (source reporter), `toReporterCaption` (audience reporter on a non-reporter comment), `viaMcp` (source mcp); every part that applies shows, joined by `separator`; none = no caption. `copy` stays exactly nine keys; the caption-only strings live here.",
+    "_doc": "The muted caption after the time. Parts in this ORDER: `reporterCaption` (source reporter), `toReporterCaption` (audience reporter on a non-reporter comment), `viaMcp` (source mcp, and only while `authorAgentId` is unset: #EXP-1383, an agent's comment already names the agent, so it never reads via MCP; a person's MCP comment keeps it); every part that applies shows, joined by `separator`; none = no caption. `copy` stays exactly nine keys; the caption-only strings live here.",
     "viaMcp": "via MCP",
     "separator": " · ",
     "cases": [
@@ -40,6 +40,18 @@
         "source": "mcp",
         "audience": "reporter",
         "caption": "to reporter · via MCP"
+      },
+      {
+        "source": "mcp",
+        "audience": "team",
+        "authorAgentId": "G1",
+        "caption": null
+      },
+      {
+        "source": "mcp",
+        "audience": "reporter",
+        "authorAgentId": "G1",
+        "caption": "to reporter"
       }
     ]
   },

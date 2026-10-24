@@ -65,6 +65,7 @@ import {
 import { resolveMentions } from "@/lib/integrations/mentions"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import { assertAgentInTeam, onIssueAssignedInTx } from "@/lib/agents/assignment"
 import { loadSessionForUser } from "@/lib/sessions/access"
 import { linkIssues } from "@/lib/sessions/issues"
 import {
@@ -165,6 +166,8 @@ async function finalizeIssueUpdateInTx(
       title: string
       priority: string
       assigneeId: string | null
+      // #EXP-1383: an agent assignee (exclusive with assigneeId).
+      assigneeAgentId: string | null
       // EXP-630: story points, for the estimate_changed event.
       estimate: number | null
       // EXP-736: the from-side of the issue_relations duplicate mirror. Both
@@ -245,14 +248,24 @@ async function finalizeIssueUpdateInTx(
       },
     })
   }
-  if (current.assigneeId !== issue.assigneeId) {
+  const fromAgentId = current.assigneeAgentId ?? null
+  const toAgentId = issue.assigneeAgentId ?? null
+  if (current.assigneeId !== issue.assigneeId || fromAgentId !== toAgentId) {
+    // #EXP-1383: from/to stay the user ids; the agent side rides
+    // fromAgentId/toAgentId (recordIssueEvent emits `issue.assigned` and
+    // nudges an agent assignee).
     await recordIssueEvent(tx, {
       issueId,
       teamId,
       actorUserId,
       origin,
       type: `assignee_changed`,
-      payload: { from: current.assigneeId, to: issue.assigneeId },
+      payload: {
+        from: current.assigneeId,
+        to: issue.assigneeId,
+        fromAgentId,
+        toAgentId,
+      },
     })
     if (issue.assigneeId) {
       await ensureSubscribed(tx, {
@@ -321,6 +334,9 @@ export const issuesRouter = router({
           statusId: z.string().uuid().optional(),
           priority: issuePrioritySchema.optional(),
           assigneeId: z.string().nullable().optional(),
+          // #EXP-1383: a team agent as the assignee (exclusive with
+          // assigneeId).
+          assigneeAgentId: z.string().uuid().nullable().optional(),
           description: issueDescriptionSchema.optional(),
           dueDate: dateOnlySchema.nullable().optional(),
           // EXP-630: story points (null = not estimated).
@@ -349,6 +365,9 @@ export const issuesRouter = router({
         .refine((i) => i.status === undefined || i.statusId === undefined, {
           message: `Pass status or statusId, not both`,
         })
+        .refine((i) => i.assigneeId == null || i.assigneeAgentId == null, {
+          message: `Pass assigneeId or assigneeAgentId, not both`,
+        })
     )
     .mutation(async ({ ctx, input }) => {
       const board = await getBoardTeamId(input.boardId)
@@ -359,13 +378,21 @@ export const issuesRouter = router({
       if (input.assigneeId != null) {
         await assertAssigneeInTeam(input.assigneeId, board.teamId)
       }
+      if (input.assigneeAgentId != null) {
+        await assertAgentInTeam(ctx.db, input.assigneeAgentId, board.teamId)
+      }
+      const assigneeAgentId = input.assigneeAgentId ?? null
+      // #EXP-1383: the acting agent (its session's root agent), resolved
+      // once for the creator stamp and every event this create records.
+      const origin = await eventOrigin(ctx)
 
       // EXP-50: in a solo team (exactly one human member) an unassigned
       // issue can only ever be theirs — default-assign that member. An
       // explicit assignee (validated above) always wins; multi-member
       // teams keep the unassigned default.
-      const assigneeId =
-        input.assigneeId ?? (await getSoleHumanMemberId(board.teamId))
+      const assigneeId = assigneeAgentId
+        ? null
+        : (input.assigneeId ?? (await getSoleHumanMemberId(board.teamId)))
 
       // EXP-878: creating FROM a draft relaxes the "no images before the
       // issue exists" rule — it only ever existed because there was no row
@@ -522,6 +549,7 @@ export const issuesRouter = router({
             statusId: statusWrite.statusId,
             priority: input.priority ?? `none`,
             assigneeId,
+            assigneeAgentId,
             description: draftDescription ?? input.description ?? null,
             dueDate: input.dueDate ?? null,
             estimate: input.estimate ?? null,
@@ -530,6 +558,7 @@ export const issuesRouter = router({
             // synced so a page still showing it elsewhere lands here.
             draftId: input.draftId && draftOwned ? input.draftId : null,
             creatorId: ctx.session.user.id,
+            creatorAgentId: origin.agentId ?? null,
           })
           .returning()
 
@@ -593,7 +622,7 @@ export const issuesRouter = router({
           issueId: issue.id,
           teamId: board.teamId,
           actorUserId: ctx.session.user.id,
-          origin: eventOrigin(ctx),
+          origin,
           type: `created`,
           payload: {
             status: issue.status,
@@ -617,6 +646,18 @@ export const issuesRouter = router({
             userId: issue.assigneeId,
             teamId: board.teamId,
             source: `assignee`,
+          })
+        }
+        // #EXP-1383: an EXPLICIT assignee (never the solo-team default) is an
+        // assignment: `issue.assigned`, and an agent assignee's nudge.
+        if (input.assigneeId != null || assigneeAgentId) {
+          await onIssueAssignedInTx(tx, {
+            issueId: issue.id,
+            teamId: board.teamId,
+            actorUserId: ctx.session.user.id,
+            origin,
+            assigneeId: issue.assigneeId,
+            assigneeAgentId: issue.assigneeAgentId,
           })
         }
 
@@ -665,7 +706,6 @@ export const issuesRouter = router({
         // The thread link rides the create transaction too; an agent's
         // create (MCP, `ctx.viaMcp`) is stamped `agent`, filed by its run.
         if (linkRootId) {
-          const origin = eventOrigin(ctx)
           await linkIssues(tx, {
             sessionId: linkRootId,
             issueIds: [issue.id],
@@ -695,6 +735,7 @@ export const issuesRouter = router({
       fireAndForgetAssignmentNotify({
         issueId: result.issue.id,
         actorUserId: ctx.session.user.id,
+        actorAgentId: origin.agentId ?? null,
         newAssigneeId: result.issue.assigneeId,
       })
       // The assignee already gets issue_assigned — don't double-ping them
@@ -707,6 +748,7 @@ export const issuesRouter = router({
         fireAndForgetIssueMentionNotify({
           issueId: result.issue.id,
           actorUserId: ctx.session.user.id,
+          actorAgentId: origin.agentId ?? null,
           mentionedUserIds: mentionNotifyIds,
         })
       }
@@ -727,6 +769,9 @@ export const issuesRouter = router({
           statusId: z.string().uuid().optional(),
           priority: issuePrioritySchema.optional(),
           assigneeId: z.string().nullable().optional(),
+          // #EXP-1383: a team agent as the assignee; setting one clears the
+          // other (null = unassign either).
+          assigneeAgentId: z.string().uuid().nullable().optional(),
           description: issueDescriptionSchema.nullable().optional(),
           dueDate: dateOnlySchema.nullable().optional(),
           // EXP-630: story points; null clears.
@@ -746,6 +791,9 @@ export const issuesRouter = router({
         // Unmarking (duplicateOfId: null) MAY combine with statusId.
         .refine((i) => i.statusId === undefined || i.duplicateOfId == null, {
           message: `Pass duplicateOfId or statusId, not both`,
+        })
+        .refine((i) => i.assigneeId == null || i.assigneeAgentId == null, {
+          message: `Pass assigneeId or assigneeAgentId, not both`,
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -767,6 +815,10 @@ export const issuesRouter = router({
       if (updates.assigneeId != null) {
         await assertAssigneeInTeam(updates.assigneeId, issueContext.teamId)
       }
+      if (updates.assigneeAgentId != null) {
+        await assertAgentInTeam(ctx.db, updates.assigneeAgentId, issueContext.teamId)
+      }
+      const origin = await eventOrigin(ctx)
 
       let previousAssigneeId: string | null = null
       let newlyMentionedUserIds: string[] = []
@@ -780,6 +832,7 @@ export const issuesRouter = router({
             title: issues.title,
             priority: issues.priority,
             assigneeId: issues.assigneeId,
+            assigneeAgentId: issues.assigneeAgentId,
             estimate: issues.estimate,
             duplicateOfId: issues.duplicateOfId,
           })
@@ -804,6 +857,9 @@ export const issuesRouter = router({
         // a raw statusId must never reach drizzle unvalidated.
         delete setValues.status
         delete setValues.statusId
+        // #EXP-1383: one assignee at a time (issues_single_assignee_check).
+        if (updates.assigneeId != null) setValues.assigneeAgentId = null
+        if (updates.assigneeAgentId != null) setValues.assigneeId = null
         const statusWrite = await resolveStatusWrite(
           tx,
           issueContext.teamId,
@@ -983,7 +1039,7 @@ export const issuesRouter = router({
           actorUserId: ctx.session.user.id,
           current: currentIssue,
           setValues,
-          origin: eventOrigin(ctx),
+          origin,
         })
         if (!result) {
           throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
@@ -995,6 +1051,7 @@ export const issuesRouter = router({
       fireAndForgetAssignmentNotify({
         issueId: issue.id,
         actorUserId: ctx.session.user.id,
+        actorAgentId: origin.agentId ?? null,
         newAssigneeId: issue.assigneeId,
         previousAssigneeId: previousAssigneeId,
       })
@@ -1010,6 +1067,7 @@ export const issuesRouter = router({
         fireAndForgetIssueMentionNotify({
           issueId: issue.id,
           actorUserId: ctx.session.user.id,
+          actorAgentId: origin.agentId ?? null,
           mentionedUserIds: mentionNotifyIds,
         })
       }
@@ -1017,6 +1075,7 @@ export const issuesRouter = router({
         fireAndForgetStatusChangeNotify({
           issueId: issue.id,
           actorUserId: ctx.session.user.id,
+          actorAgentId: origin.agentId ?? null,
           fromStatus: statusChange.from,
           toStatus: statusChange.to,
           fromStatusId: statusChange.fromStatusId,
@@ -1218,7 +1277,7 @@ export const issuesRouter = router({
           issueId: input.id,
           teamId: issueContext.teamId,
           actorUserId: ctx.session.user.id,
-          origin: eventOrigin(ctx),
+          origin: await eventOrigin(ctx),
           type: `board_moved`,
           payload: {
             fromBoardId: current.boardId,
@@ -1248,15 +1307,21 @@ export const issuesRouter = router({
           statusId: z.string().uuid().optional(),
           priority: issuePrioritySchema.optional(),
           assigneeId: z.string().nullable().optional(),
+          // #EXP-1383: a team agent as the assignee (exclusive).
+          assigneeAgentId: z.string().uuid().nullable().optional(),
         })
         .refine(
           (i) =>
             i.status !== undefined ||
             i.statusId !== undefined ||
             i.priority !== undefined ||
-            i.assigneeId !== undefined,
+            i.assigneeId !== undefined ||
+            i.assigneeAgentId !== undefined,
           { message: `Nothing to update` }
         )
+        .refine((i) => i.assigneeId == null || i.assigneeAgentId == null, {
+          message: `Pass assigneeId or assigneeAgentId, not both`,
+        })
         .refine((i) => i.status === undefined || i.statusId === undefined, {
           message: `Pass status or statusId, not both`,
         })
@@ -1302,6 +1367,10 @@ export const issuesRouter = router({
       if (input.assigneeId != null) {
         await assertAssigneeInTeam(input.assigneeId, teamId)
       }
+      if (input.assigneeAgentId != null) {
+        await assertAgentInTeam(ctx.db, input.assigneeAgentId, teamId)
+      }
+      const origin = await eventOrigin(ctx)
 
       const patch: Record<string, unknown> = {
         ...(await resolveStatusWrite(ctx.db, teamId, input)),
@@ -1309,6 +1378,12 @@ export const issuesRouter = router({
         ...(input.assigneeId !== undefined
           ? { assigneeId: input.assigneeId }
           : {}),
+        ...(input.assigneeAgentId !== undefined
+          ? { assigneeAgentId: input.assigneeAgentId }
+          : {}),
+        // #EXP-1383: one assignee at a time.
+        ...(input.assigneeId != null ? { assigneeAgentId: null } : {}),
+        ...(input.assigneeAgentId != null ? { assigneeId: null } : {}),
       }
 
       const eligibleIds = eligible.map((row) => row.id)
@@ -1333,6 +1408,7 @@ export const issuesRouter = router({
             title: issues.title,
             priority: issues.priority,
             assigneeId: issues.assigneeId,
+            assigneeAgentId: issues.assigneeAgentId,
             estimate: issues.estimate,
             duplicateOfId: issues.duplicateOfId,
           })
@@ -1353,7 +1429,7 @@ export const issuesRouter = router({
             actorUserId: ctx.session.user.id,
             current: row,
             setValues,
-            origin: eventOrigin(ctx),
+            origin,
           })
           // Row gone despite the lock — skip, keep the batch (the eligibility
           // filter promises silent-skip semantics).
@@ -1377,6 +1453,7 @@ export const issuesRouter = router({
           fireAndForgetAssignmentNotify({
             issueId: result.issue.id,
             actorUserId: ctx.session.user.id,
+            actorAgentId: origin.agentId ?? null,
             newAssigneeId: result.issue.assigneeId,
             previousAssigneeId: result.previousAssigneeId,
           })
@@ -1386,6 +1463,7 @@ export const issuesRouter = router({
             fireAndForgetStatusChangeNotify({
               issueId: result.issue.id,
               actorUserId: ctx.session.user.id,
+              actorAgentId: origin.agentId ?? null,
               fromStatus: result.statusChange.from,
               toStatus: result.statusChange.to,
               fromStatusId: result.statusChange.fromStatusId,

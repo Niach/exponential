@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/chats.json" with { type: "json" }
 import {
   agentBubbles,
+  agentInstructionsChanged,
   agentMenuEntries,
   chatList,
   chatPreview,
@@ -23,6 +24,7 @@ describe(`chats.json`, () => {
   for (const c of fixture.agentMenuCases) test(`agent menu: ${c.name}`, () => expect(agentMenuEntries(c.input)).toEqual(c.expected as never))
   for (const c of fixture.replyCases) test(`reply: ${c.name}`, () => expect(surfaceReply(c.event)).toEqual(c.expected as never))
   for (const c of fixture.dividerCases) test(`divider: ${JSON.stringify(c.body)}`, () => expect(commandDivider(c.body)).toBe(c.expected as never))
+  for (const c of fixture.agentHint.cases) test(`agent hint: ${c.name}`, () => expect(agentInstructionsChanged(c.input)).toBe(c.expected))
   for (const c of fixture.plainCases) test(`plain: ${JSON.stringify(c.text)}`, () => expect(plainLine(c.text)).toBe(c.expected))
   test(`every menu entry and tab has copy`, () => {
     for (const e of [`stop`, `stopAndDelete`, `delete`, `compact`, `newConversation`, `settings`]) expect(fixture.copy.menu[e as keyof typeof fixture.copy.menu]).toBeTruthy()

@@ -39,6 +39,19 @@ final class PickerContractTests: XCTestCase {
             AssigneePicker<EmptyView>.items([AssigneePickerMember(id: "u", name: "Ada")], allowsNone: true).map(\.label),
             ["Unassigned", "Ada"]
         )
+        // #EXP-1383: the agents straight after the members, sortOrder then
+        // name, `agent:<id>` values, the name a search keyword.
+        let withAgents = AssigneePicker<EmptyView>.items(
+            [AssigneePickerMember(id: "U1", name: "Danny")],
+            agents: [
+                AssigneePickerAgent(id: "G2", name: "Zed", icon: nil, color: nil, sortOrder: 0),
+                AssigneePickerAgent(id: "G3", name: "Alpha", icon: nil, color: nil, sortOrder: 1),
+                AssigneePickerAgent(id: "G1", name: "Sloppy", icon: "bot", color: "#22c55e", sortOrder: 0),
+            ],
+            allowsNone: true
+        )
+        XCTAssertEqual(withAgents.map(\.value), ["", "U1", "agent:G1", "agent:G2", "agent:G3"])
+        XCTAssertEqual(withAgents.last?.keywords, ["Alpha"])
         // The device set is the registry's append-only `devicePickable` list;
         // `laptop` has been in it since EXP-924 and can never leave.
         XCTAssertTrue(IconPicker.items(for: .device).contains { $0.value == "laptop" && $0.icon == "laptop" })

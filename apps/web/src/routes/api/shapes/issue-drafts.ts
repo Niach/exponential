@@ -28,6 +28,8 @@ export const ISSUE_DRAFT_COLUMNS = [
   `status_id`,
   `priority`,
   `assignee_id`,
+  // #EXP-1383: an agent assignee (exclusive with assignee_id).
+  `assignee_agent_id`,
   `label_ids`,
   `due_date`,
   `session_id`,

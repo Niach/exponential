@@ -122,6 +122,15 @@ vi.mock(`@tanstack/react-db`, () => ({
     }
   },
 }))
+// #EXP-1383: no team agents in these cases.
+vi.mock(`@/hooks/use-agent-row`, () => {
+  const none: never[] = []
+  return {
+    useAgentRow: () => ({ agent: null, isReady: true }),
+    useAgentRows: () => none,
+    useAllAgentRows: () => none,
+  }
+})
 vi.mock(`@/lib/collections`, () => ({
   boardCollection: {},
   issueCollection: {},
@@ -318,8 +327,8 @@ describe(`IssueContextMenuProvider`, () => {
     expect(mockState.updateMutate).toHaveBeenCalledWith({ id: `issue-1`, status: `done` })
     expect(mockState.updateMutate).toHaveBeenCalledWith({ id: `issue-1`, status: `in_progress` })
     expect(mockState.updateMutate).toHaveBeenCalledWith({ id: `issue-1`, priority: `high` })
-    expect(mockState.updateMutate).toHaveBeenCalledWith({ id: `issue-1`, assigneeId: null })
-    expect(mockState.updateMutate).toHaveBeenCalledWith({ id: `issue-1`, assigneeId: `user-2` })
+    expect(mockState.updateMutate).toHaveBeenCalledWith({ id: `issue-1`, assigneeId: null, assigneeAgentId: null })
+    expect(mockState.updateMutate).toHaveBeenCalledWith({ id: `issue-1`, assigneeId: `user-2`, assigneeAgentId: null })
     expect(mockState.updateMutate).toHaveBeenCalledWith({ id: `issue-1`, dueDate: `2026-03-08` })
     expect(mockState.removeLabelMutate).toHaveBeenCalledWith({ issueId: `issue-1`, labelId: `label-1` })
     expect(mockState.addLabelMutate).toHaveBeenCalledWith({ issueId: `issue-1`, labelId: `label-2` })

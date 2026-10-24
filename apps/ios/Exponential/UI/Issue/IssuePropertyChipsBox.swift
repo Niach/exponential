@@ -22,12 +22,18 @@ struct IssuePropertyChipsBox: View {
     struct Subject {
         var priority: String
         var assigneeId: String?
+        /// #EXP-1383: an agent assignee (exclusive with `assigneeId`).
+        var assigneeAgentId: String?
         var dueDate: String?
         var estimate: Int?
 
-        init(priority: String, assigneeId: String?, dueDate: String?, estimate: Int? = nil) {
+        init(
+            priority: String, assigneeId: String?, assigneeAgentId: String? = nil,
+            dueDate: String?, estimate: Int? = nil
+        ) {
             self.priority = priority
             self.assigneeId = assigneeId
+            self.assigneeAgentId = assigneeAgentId
             self.dueDate = dueDate
             self.estimate = estimate
         }
@@ -36,6 +42,7 @@ struct IssuePropertyChipsBox: View {
             self.init(
                 priority: issue.priority,
                 assigneeId: issue.assigneeId,
+                assigneeAgentId: issue.assigneeAgentId,
                 dueDate: issue.dueDate,
                 estimate: issue.estimate
             )
@@ -46,9 +53,12 @@ struct IssuePropertyChipsBox: View {
     /// EXP-314: the issue's status resolved against its team's status rows.
     let status: ResolvedIssueStatus
     let assignee: UserEntity?
+    /// #EXP-1383: the agent assignee's row (nil while unsynced or none).
+    var assigneeAgent: AgentDefinitionEntity? = nil
     /// Assigned labels only, name-sorted by the caller.
     let assignedLabels: [LabelEntity]
-    let singleMemberTeam: Bool
+    /// Solo team without agents (EXP-50, #EXP-1383): no assignee chip.
+    let hidesAssignee: Bool
     /// EXP-630: the team's estimate scale (contract `issueEstimation`). The
     /// chip is HIDDEN while it is `none` — the web's `EstimateControl`.
     let estimationType: String
@@ -88,8 +98,14 @@ struct IssuePropertyChipsBox: View {
                 AppIcon(priority.iconName, size: GlassPillTokens.glyphSm)
                     .foregroundStyle(priority.color)
             }
-            if !singleMemberTeam {
-                if let assigneeId = subject.assigneeId {
+            if !hidesAssignee {
+                if subject.assigneeAgentId != nil {
+                    // #EXP-1383: an agent assignee reads like a member: the
+                    // agent mark + its name.
+                    chip(target: .assignee, label: assigneeAgent?.name ?? AgentSettings.AssigneeCopy.agentFallback) {
+                        UserAvatar(agent: UserAvatarAgent(icon: assigneeAgent?.icon, color: assigneeAgent?.color), size: 16)
+                    }
+                } else if let assigneeId = subject.assigneeId {
                     chip(target: .assignee, label: memberDisplayName(assignee, id: assigneeId)) {
                         UserAvatar(user: assignee, id: assigneeId, size: 16)
                     }

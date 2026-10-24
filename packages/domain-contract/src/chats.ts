@@ -310,3 +310,17 @@ export function surfaceReply(event: { name?: unknown; context?: unknown }): Surf
   const text = typeof context?.text === `string` ? context.text.trim() : ``
   return text ? { text } : null
 }
+
+/** #EXP-1383: the agent chat's "Instructions changed" Dock banner
+ *  (`agentHint.cases`): the root session fetched its brief before the
+ *  agent's instructions last changed. Either stamp missing = no hint. */
+export function agentInstructionsChanged(input: {
+  sessionStamp: string | null | undefined
+  agentStamp: string | null | undefined
+}): boolean {
+  if (!input.sessionStamp || !input.agentStamp) return false
+  return new Date(input.sessionStamp).getTime() < new Date(input.agentStamp).getTime()
+}
+
+/** #EXP-1383: the banner row itself (dock.json kind `banner`). */
+export const AGENT_HINT_BANNER = fixture.agentHint.banner

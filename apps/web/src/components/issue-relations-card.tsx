@@ -18,6 +18,7 @@ import {
   TREE_BASE,
   TREE_INDENT,
   UserAvatar,
+  type UserAvatarAgent,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { relationLabel, type RelationDirection } from "@/lib/issue-relations-pure"
@@ -30,6 +31,8 @@ import {
   type RelationsViewRow,
 } from "@/lib/issue-relations-view"
 import { useTeamUsers } from "@/hooks/use-team-data"
+import { useAllAgentRows } from "@/hooks/use-agent-row"
+import type { SyncedAgent } from "@/components/team/agents-section"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
   useIssueRefs,
@@ -376,6 +379,17 @@ export function useIssueRelationsView(issueId: string) {
       ),
     [otherIssues]
   )
+  // #EXP-1383: an agent assignee draws THE AGENT MARK.
+  const agents = useAllAgentRows()
+  const assigneeAgentById = useMemo(() => {
+    const byId = new Map(agents.map((agent) => [agent.id, agent]))
+    const map = new Map<string, SyncedAgent>()
+    for (const row of (otherIssues ?? []) as Issue[]) {
+      const agent = row.assigneeAgentId ? byId.get(row.assigneeAgentId) : undefined
+      if (agent) map.set(row.id, agent)
+    }
+    return map
+  }, [otherIssues, agents])
 
   return {
     view,
@@ -385,6 +399,7 @@ export function useIssueRelationsView(issueId: string) {
     relationOf: (slot: RelationSlot, otherId: string) =>
       bySlot.get(`${slot}:${otherId}`),
     assigneeOf: (id: string) => assigneeById.get(id) ?? null,
+    assigneeAgentOf: (id: string) => assigneeAgentById.get(id) ?? null,
     toggle: (key: RelationBandKey) =>
       update({ ...state, toggled: flip(state.toggled, key) }),
     toggleShowAll: (key: RelationBandKey) =>
@@ -418,6 +433,7 @@ export function RelationIssueRow({
   issue,
   open,
   assignee,
+  assigneeAgent = null,
   phone,
   onOpen,
   link,
@@ -439,6 +455,8 @@ export function RelationIssueRow({
   /** Not completed/cancelled — a closed issue's title dims. */
   open: boolean
   assignee?: User
+  /** #EXP-1383: an agent assignee (its mark wins over `assignee`). */
+  assigneeAgent?: UserAvatarAgent | null
   phone: boolean
   onOpen?: () => void
   link?: (props: RelationIssueRowLinkProps) => ReactElement
@@ -528,8 +546,8 @@ export function RelationIssueRow({
         )}
       </IssuePreviewHoverCard>
       {trailing}
-      {noAssignee ? null : assignee ? (
-        <UserAvatar user={assignee} size={phone ? 24 : 20} />
+      {noAssignee ? null : assigneeAgent || assignee ? (
+        <UserAvatar user={assignee} agent={assigneeAgent} size={phone ? 24 : 20} />
       ) : (
         <span
           className={cn(
@@ -566,6 +584,7 @@ function RelationBandRow({
   const relation = model.relationOf(slot, row.id)
   const assigneeId = model.assigneeOf(row.id)
   const assignee = assigneeId ? users.get(assigneeId) : undefined
+  const assigneeAgent = model.assigneeAgentOf(row.id)
   return (
     <RelationIssueRow
       issue={{
@@ -577,6 +596,7 @@ function RelationBandRow({
       }}
       open={row.open}
       assignee={assignee}
+      assigneeAgent={assigneeAgent}
       phone={phone}
       onOpen={() => issueRefs?.open(row.identifier)}
       trailing={

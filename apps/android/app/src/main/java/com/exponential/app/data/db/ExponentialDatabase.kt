@@ -450,8 +450,13 @@ import androidx.room.TypeConverters
     //      move_to_device_id/action_*/spawned_by_session_id/name/icon/color/
     //      triggers/sort_order`, `session_issues.assigned_session_id`).
     //      Explicit [MIGRATION_95_96] rebuilds the kept tables in place.
+    // v97 (#EXP-1383): agents act as themselves: agent actor / assignee
+    //      columns on issues, issue_drafts, issue_events and comments plus
+    //      the instructions stamps on agents and sessions. Explicit
+    //      [MIGRATION_96_97] adds the nullable columns and refetches those
+    //      six shapes.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 96,
+    version = 97,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

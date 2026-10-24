@@ -191,6 +191,11 @@ pub const SHAPES: [ShapeSpec; 31] = [
             // page on another client replaces itself with the issue.
             // `heal_missing_columns` ALTERs it onto existing store tables.
             "draft_id",
+            // #EXP-1383: an agent assignee (exclusive with `assignee_id`) and
+            // the agent whose session filed it. `heal_missing_columns` ALTERs
+            // them onto existing store tables.
+            "assignee_agent_id",
+            "creator_agent_id",
             "created_at",
             "updated_at",
         ],
@@ -291,6 +296,8 @@ pub const SHAPES: [ShapeSpec; 31] = [
             // reporter. `heal_missing_columns` ALTERs it onto existing store
             // tables and stamps a refetch (like EXP-741's `source`).
             "audience",
+            // #EXP-1383: the agent whose session wrote it.
+            "author_agent_id",
             "body",
             "edited_at",
             "created_at",
@@ -358,6 +365,8 @@ pub const SHAPES: [ShapeSpec; 31] = [
             "issue_id",
             "team_id",
             "actor_user_id",
+            // #EXP-1383: the agent whose session acted.
+            "actor_agent_id",
             "type",
             "payload",
             "created_at",
@@ -422,6 +431,10 @@ pub const SHAPES: [ShapeSpec; 31] = [
             "started_at",
             "last_turn_at",
             "ended_at",
+            // #EXP-1383: the brief stamp (the instructions hint) and the
+            // agent whose session started this root.
+            "agent_instructions_at",
+            "started_by_agent_id",
             "shared",
             "title",
             "guide",
@@ -689,6 +702,8 @@ pub const SHAPES: [ShapeSpec; 31] = [
             "status_id",
             "priority",
             "assignee_id",
+            // #EXP-1383: an agent assignee (exclusive with `assignee_id`).
+            "assignee_agent_id",
             "label_ids",
             "due_date",
             // EXP-1294: the session root a draft files into.
@@ -727,6 +742,8 @@ pub const SHAPES: [ShapeSpec; 31] = [
             "model",
             "owner_id",
             "sort_order",
+            // #EXP-1383: when the instructions text last changed.
+            "instructions_updated_at",
             "created_at",
             "updated_at",
         ],
@@ -946,7 +963,7 @@ mod tests {
     fn the_new2_shapes_match_the_proxies() {
         assert_eq!(
             shape_by_name("agents").unwrap().columns,
-            &["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli", "account", "model", "owner_id", "sort_order", "created_at", "updated_at"]
+            &["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli", "account", "model", "owner_id", "sort_order", "instructions_updated_at", "created_at", "updated_at"]
         );
         assert_eq!(
             shape_by_name("events").unwrap().columns,
@@ -1149,7 +1166,7 @@ mod tests {
     fn the_session_tree_shapes_match_the_proxies() {
         let sessions = shape_by_name("sessions").unwrap();
         assert_eq!(sessions.path, "/api/shapes/sessions");
-        assert_eq!(sessions.columns.len(), 30);
+        assert_eq!(sessions.columns.len(), 32);
         for column in ["parent_id", "root_id", "agent_id", "status", "busy", "needs_input", "shared", "guide"] {
             assert!(sessions.columns.contains(&column), "sessions needs {column}");
         }
@@ -1188,6 +1205,25 @@ mod tests {
             shape_by_name("pull_request_issues").unwrap().path,
             "/api/shapes/pull-request-issues"
         );
+    }
+
+    /// #EXP-1383: the agent-actor / agent-assignee / instructions-hint
+    /// columns sync (the proxies' allowlists carry them).
+    #[test]
+    fn the_exp_1383_agent_columns_sync() {
+        for (shape, column) in [
+            ("agents", "instructions_updated_at"),
+            ("sessions", "agent_instructions_at"),
+            ("sessions", "started_by_agent_id"),
+            ("issues", "assignee_agent_id"),
+            ("issues", "creator_agent_id"),
+            ("issue_drafts", "assignee_agent_id"),
+            ("issue_events", "actor_agent_id"),
+            ("comments", "author_agent_id"),
+        ] {
+            assert!(shape_by_name(shape).unwrap().columns.contains(&column), "{shape} needs {column}");
+        }
+        assert!(!shape_by_name("agents").unwrap().columns.contains(&"instructions"));
     }
 
     /// EXP-1294: the old run/thread shapes are gone, and PR state left

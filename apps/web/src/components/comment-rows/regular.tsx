@@ -31,8 +31,18 @@ const UiDeleteIcon = conceptIcon(`ui-delete`)
  * the top-level card and each of its replies (EXP-741) share this shape, so
  * a reply edits, saves and deletes exactly like the card it sits under.
  */
+/** #EXP-1383: the agent whose session wrote a comment (`issueActor`). */
+export interface CommentAuthorAgent {
+  name: string
+  icon: string | null
+  color: string | null
+}
+
 export interface CommentCardProps {
   author: User | undefined
+  /** #EXP-1383 (agent-settings.json `actor`): an agent's session wrote it →
+   *  the card names the AGENT and wears its mark, never the member's. */
+  authorAgent?: CommentAuthorAgent | null
   comment: Comment
   // Attachments linked to this comment (attachments.comment_id, EXP-554).
   attachments: Attachment[]
@@ -69,6 +79,7 @@ export interface RegularCommentRowProps extends CommentCardProps {
 /** The header line + body/edit form + attachment strip of one comment. */
 function CommentCardContent({
   author,
+  authorAgent = null,
   comment,
   attachments,
   canEdit,
@@ -82,7 +93,7 @@ function CommentCardContent({
   users,
 }: CommentCardProps) {
   const bodyText = getCommentBodyText(comment.body)
-  const name = authorLabel(comment, author, reporterName)
+  const name = authorAgent?.name ?? authorLabel(comment, author, reporterName)
   const caption = commentCaption(comment)
   return (
     <>
@@ -176,12 +187,14 @@ function CommentCardContent({
  *  one reporter matches (as on iOS and desktop). */
 function CommentAvatar({
   author,
+  authorAgent = null,
   comment,
   reporterName,
   size,
   className,
 }: {
   author: User | undefined
+  authorAgent?: CommentAuthorAgent | null
   comment: Comment
   reporterName: string | null
   size: UserAvatarSize
@@ -192,6 +205,7 @@ function CommentAvatar({
     <UserAvatar
       size={size}
       className={cn(`shrink-0`, className)}
+      agent={authorAgent}
       user={{
         id: comment.authorId ?? `reporter:${name}`,
         name,
@@ -210,7 +224,7 @@ export function RegularCommentRow({
   onSubmitReply,
   ...card
 }: RegularCommentRowProps) {
-  const { author, comment, users, reporterName } = card
+  const { author, authorAgent, comment, users, reporterName } = card
 
   // EXP-698 r5: the comment is a BUBBLE — name, time and the ⋮ menu live
   // inside the card with the body, and the avatar rides the timeline gutter
@@ -225,6 +239,7 @@ export function RegularCommentRow({
       marker={
         <CommentAvatar
           author={author}
+          authorAgent={authorAgent}
           comment={comment}
           reporterName={reporterName}
           size={28}
@@ -250,6 +265,7 @@ export function RegularCommentRow({
               >
                 <CommentAvatar
                   author={reply.author}
+                  authorAgent={reply.authorAgent}
                   comment={reply.comment}
                   reporterName={reply.reporterName}
                   size={20}

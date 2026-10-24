@@ -180,6 +180,29 @@ pub struct ChatsSpec {
     pub agent_menu: AgentMenuSpec,
     pub surface_card: SurfaceCardSpec,
     pub shell: ChatsShell,
+    pub agent_hint: AgentHintSpec,
+}
+
+/// #EXP-1383: the agent chat's "Instructions changed" Dock banner row
+/// (dock.json kind `banner`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AgentHintBanner {
+    pub id: String,
+    /// An icon concept (`ui-info`).
+    pub icon: String,
+    pub label: String,
+    pub text: String,
+    pub tone: String,
+    /// The action word; it sends [`AgentHintSpec::sends`].
+    pub action: String,
+}
+
+/// #EXP-1383 `agentHint` minus its cases.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AgentHintSpec {
+    pub banner: AgentHintBanner,
+    /// `/new` (the agent menu's New conversation).
+    pub sends: String,
 }
 
 pub static CHATS: LazyLock<ChatsSpec> = LazyLock::new(|| serde_json::from_str(CHATS_JSON).expect("chats.json parses"));
@@ -342,6 +365,19 @@ pub fn command_divider(body: &str) -> Option<DividerKind> {
     }
 }
 
+/// #EXP-1383 (`agentHint.cases`, TS `agentInstructionsChanged`): the agent
+/// chat's root session fetched its brief BEFORE the agent's instructions last
+/// changed. Either stamp missing (or unparseable) = no hint; equal = current.
+pub fn agent_instructions_changed(session_stamp: Option<&str>, agent_stamp: Option<&str>) -> bool {
+    let (Some(session), Some(agent)) = (
+        session_stamp.and_then(crate::activity_fold::parse_instant),
+        agent_stamp.and_then(crate::activity_fold::parse_instant),
+    ) else {
+        return false;
+    };
+    session < agent
+}
+
 /// A press inside an inline preview (`replyCases`): an event named `reply`
 /// with a non-empty `context.text` posts that text as the person's
 /// message; anything else does nothing.
@@ -383,6 +419,36 @@ mod tests {
 
     fn fixture() -> Value {
         serde_json::from_str(CHATS_JSON).unwrap()
+    }
+
+    #[test]
+    fn agent_hint_cases_match_the_fixture() {
+        let fixture = fixture();
+        let hint = &fixture["agentHint"];
+        let banner = &CHATS.agent_hint.banner;
+        assert_eq!(hint["banner"]["id"].as_str(), Some(banner.id.as_str()));
+        assert_eq!(banner.icon, "ui-info");
+        assert_eq!(CHATS.agent_hint.sends, "/new");
+        assert_eq!(
+            Some(CHATS.agent_hint.sends.as_str()),
+            AgentMenuEntry::NewConversation.sends(),
+            "the banner sends exactly what New conversation sends"
+        );
+        let cases = hint["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let actual = agent_instructions_changed(
+                case["input"]["sessionStamp"].as_str(),
+                case["input"]["agentStamp"].as_str(),
+            );
+            assert_eq!(Some(actual), case["expected"].as_bool(), "{name}");
+        }
+        // Electric's timestamptz text form compares the same way.
+        assert!(agent_instructions_changed(
+            Some("2026-10-24 10:00:00.123+00"),
+            Some("2026-10-24 10:00:00.456+00")
+        ));
     }
 
     #[test]
