@@ -39,7 +39,7 @@ import { SessionComposer } from "@/components/session-composer"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AgentChannel, AgentComposer } from "@/components/thread/agent-channel"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
-import { BUILTIN_APP_PACKAGE, useAppVersions, useEditorSession, type AppListEntry } from "@/hooks/use-apps"
+import { useAppVersions, useEditorSession, type AppListEntry } from "@/hooks/use-apps"
 import { useTreeMessages } from "@/hooks/use-session-tree"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
@@ -67,7 +67,6 @@ import { cn } from "@/lib/utils"
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const UiHistoryIcon = conceptIcon(`ui-history`)
-const NavDevicesIcon = conceptIcon(`nav-devices`)
 const DockSideIcon = conceptIcon(APPS_DOCK_CARD.dockIcon as Parameters<typeof conceptIcon>[0])
 const FloatIcon = conceptIcon(APPS_DOCK_CARD.floatIcon as Parameters<typeof conceptIcon>[0])
 
@@ -200,12 +199,12 @@ export function AppEditor({
   const [bandHeight, setBandHeight] = useState(0)
 
   const { users } = useTeamUsers(teamId)
-  const { root, teamSessions } = useEditorSession(teamId, app.builtin ? null : app.id, me)
+  const { root, teamSessions } = useEditorSession(teamId, app.id, me)
   const messages = useTreeMessages(root?.id)
   const follow = useFollowScroll([messages, root?.id])
-  const versions = useAppVersions(app.builtin ? null : app.id)
+  const versions = useAppVersions(app.id)
   const head = app.headVersion
-  const headPackage = app.builtin ? BUILTIN_APP_PACKAGE : ((app.row?.package as Record<string, unknown> | null) ?? null)
+  const headPackage = (app.row?.package as Record<string, unknown> | null) ?? null
 
   // The device the FIRST send runs on: the member's default, else the first
   // online one of theirs.
@@ -270,13 +269,13 @@ export function AppEditor({
       ? navigate({ to: `/t/$teamSlug/threads/$threadId`, params: { teamSlug, threadId: session.id } })
       : navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: session.id } }))
 
-  const glyph = app.builtin ? <NavDevicesIcon className="size-5 shrink-0" /> : <BoardGlyph board={{ icon: app.icon, color: app.color }} className="size-5" />
+  const glyph = <BoardGlyph board={{ icon: app.icon, color: app.color }} className="size-5" />
   const versionPill = (
-    <Pill size="sm" className={app.builtin || head > 0 ? `tabular-nums` : `text-muted-foreground`}>
-      {app.builtin ? APPS_COPY.builtin : versionLabel(head)}
+    <Pill size="sm" className={head > 0 ? `tabular-nums` : `text-muted-foreground`}>
+      {versionLabel(head)}
     </Pill>
   )
-  const versionsButton = !app.builtin && (
+  const versionsButton = (
     <Button variant="outline" size="sm" onClick={() => setVersionsOpen(true)} data-testid="app-editor-versions-button">
       <UiHistoryIcon className="size-4" />
       {APPS_COPY.versions}
@@ -290,8 +289,8 @@ export function AppEditor({
     if (isMobile) setTab(`preview`)
   }
 
-  // VAPP-129: md+ and never the built-in app: the chat floats in THE Dock.
-  const floating = !isMobile && !app.builtin && layout === `floating`
+  // VAPP-129: md+: the chat floats in THE Dock.
+  const floating = !isMobile && layout === `floating`
 
   const channel =
     root && messages.length > 0 ? (
@@ -336,11 +335,7 @@ export function AppEditor({
     )
   ) : null
 
-  const chat = app.builtin ? (
-    <div className="flex h-full items-center justify-center p-6">
-      <EmptyState icon={NavAppsIcon} title={APPS_COPY.builtin} size="page" />
-    </div>
-  ) : (
+  const chat = (
     <div className="flex h-full min-h-0 flex-col" data-testid={APPS_TEST_IDS.chat}>
       <div className="relative min-h-0 flex-1">
         <div ref={follow.scrollRef} onScroll={follow.onScroll} className="h-full overflow-y-auto overscroll-contain">
@@ -417,7 +412,7 @@ export function AppEditor({
                 options={[
                   { value: `chat`, label: APPS_COPY.tabs.chat },
                   { value: `preview`, label: APPS_COPY.tabs.preview },
-                  { value: `versions`, label: APPS_COPY.tabs.versions, disabled: app.builtin },
+                  { value: `versions`, label: APPS_COPY.tabs.versions },
                 ]}
               />
             </div>
@@ -441,9 +436,7 @@ export function AppEditor({
         <div className="flex-1" />
         {versionsButton}
       </div>
-      {app.builtin ? (
-        <div className="min-h-0 flex-1">{preview}</div>
-      ) : floating ? (
+      {floating ? (
         <div className="relative min-h-0 flex-1" data-layout="floating">
           {preview}
           <Dock

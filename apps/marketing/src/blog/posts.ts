@@ -4,12 +4,12 @@
    prerender refuses a post whose shell, title or reading time disagrees. */
 import type { ComponentType } from "react"
 import type { PostMeta } from "./types"
-import * as assistant from "./what-an-assistant-should-do"
+import * as uiAsData from "./ui-as-data-down-to-the-compositor"
 import * as sessionUi from "./session-as-interface"
 
 export type BlogPost = { meta: PostMeta; Post: ComponentType }
 
-const POSTS: BlogPost[] = [sessionUi, assistant].map((m) => ({ meta: m.meta, Post: m.Post }))
+const POSTS: BlogPost[] = [uiAsData, sessionUi].map((m) => ({ meta: m.meta, Post: m.Post }))
 
 export const BLOG_POSTS: BlogPost[] = [...POSTS].sort((a, b) => (a.meta.date < b.meta.date ? 1 : a.meta.date > b.meta.date ? -1 : 0))
 

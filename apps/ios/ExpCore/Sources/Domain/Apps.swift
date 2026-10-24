@@ -14,7 +14,6 @@ public enum Apps {
         public static let nav = "Apps"
         public static let title = "Apps"
         public static let newApp = "New app"
-        public static let builtin = "Built-in"
         public static let version = "v{n}"
         public static let noVersion = "No version yet"
         public static let versions = "Versions"
@@ -68,16 +67,6 @@ public enum Apps {
         public static func deleteTitle(_ name: String) -> String {
             deleteTitle.replacingOccurrences(of: "{name}", with: name)
         }
-    }
-
-    /// The BUILT-IN app every client ships (the Devices package): listed
-    /// first, no row, no menu, no versions, no editor.
-    public enum Builtin {
-        public static let slug = "devices"
-        public static let name = "Devices"
-        public static let icon = "monitor"
-        public static let packageId = "exponential.devices"
-        public static let templateId = "devices"
     }
 
     public enum Panes {
@@ -170,12 +159,10 @@ public enum Apps {
         return out
     }
 
-    /// The list order: the built-in app first, then by name (case- and
-    /// accent-insensitive, TS `localeCompare` sensitivity `base`).
-    public static func sortApps<T>(_ apps: [T], builtin: (T) -> Bool, name: (T) -> String) -> [T] {
+    /// The list order: by name (case- and accent-insensitive, TS
+    /// `localeCompare` sensitivity `base`); Exponential ships no built-in apps.
+    public static func sortApps<T>(_ apps: [T], name: (T) -> String) -> [T] {
         apps.enumerated().sorted { a, b in
-            let (aBuiltin, bBuiltin) = (builtin(a.element), builtin(b.element))
-            if aBuiltin != bBuiltin { return aBuiltin }
             let order = name(a.element).compare(
                 name(b.element), options: [.caseInsensitive, .diacriticInsensitive]
             )

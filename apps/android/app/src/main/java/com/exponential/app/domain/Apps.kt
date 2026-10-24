@@ -11,7 +11,6 @@ object Apps {
         const val NAV = "Apps"
         const val TITLE = "Apps"
         const val NEW_APP = "New app"
-        const val BUILTIN = "Built-in"
         const val VERSION = "v{n}"
         const val NO_VERSION = "No version yet"
         const val VERSIONS = "Versions"
@@ -39,15 +38,6 @@ object Apps {
         const val TAB_CHAT = "Chat"
         const val TAB_PREVIEW = "Preview"
         const val TAB_VERSIONS = "Versions"
-    }
-
-    /** The BUILT-IN app every client ships (the Devices package). */
-    object Builtin {
-        const val SLUG = "devices"
-        const val NAME = "Devices"
-        const val ICON = "monitor"
-        const val PACKAGE_ID = "exponential.devices"
-        const val TEMPLATE_ID = "devices"
     }
 
     object Preview {
@@ -122,10 +112,9 @@ object Apps {
     interface ListLike {
         val slug: String
         val name: String
-        val builtin: Boolean
     }
 
-    /** The list order: the built-in app first, then by name (case-insensitive). */
+    /** The list order: by name (case-insensitive). Exponential ships no built-in apps. */
     fun <T : ListLike> sortApps(apps: List<T>): List<T> =
-        apps.sortedWith(compareBy<T> { !it.builtin }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+        apps.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
 }

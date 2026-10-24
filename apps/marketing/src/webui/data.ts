@@ -41,8 +41,7 @@ export const WEB_TEAM = { name: DEMO_BOARD.name }
 /* ─── Sidebar Agents + Apps (EXP-1293 / VAPP-110) ───
    Team agents are definitions drawn like boards: a pickable icon in the
    agent's colour + its name; the trailing state is the amber dot while it
-   needs you. Apps: the BUILT-IN Devices app first (the nav-devices glyph,
-   no colour), then the team's apps by name. Icons are names from
+   needs you. Apps: the team's apps by name (no built-in apps). Icons are names from
    packages/icons/icons.json `pickable`. */
 export type DemoAgentDef = {
   name: string
@@ -58,12 +57,11 @@ export const WEB_AGENTS: DemoAgentDef[] = [
 
 export type DemoApp = {
   name: string
-  icon: `devices` | `rocket` | `chart-line`
+  icon: `rocket` | `chart-line`
   color?: string
 }
 
 export const WEB_APPS: DemoApp[] = [
-  { name: `Devices`, icon: `devices` },
   { name: `Release checklist`, icon: `rocket`, color: `#f97316` },
 ]
 

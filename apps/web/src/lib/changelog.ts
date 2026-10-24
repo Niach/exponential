@@ -38,6 +38,13 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Triggers**: agents can wake every 5, 10, 15, 20 or 30 minutes; hourly and shorter schedules no longer show a time zone, and the minute and hour lists scroll.`,
   },
   {
+    id: `2026-10-24-no-built-in-apps`,
+    date: `2026-10-24`,
+    title: `Apps lists only your team's apps`,
+    summary: `The built-in Devices app is gone: Apps, the sidebar's Apps group and the IDE rail list only the apps your team makes.`,
+    body: `- **Apps**: Apps lists only your team's apps; the built-in Devices app is gone. A team without apps sees the empty list. The Devices page stays where it was.`,
+  },
+  {
     id: `2026-10-23-conversations-on-every-client`,
     date: `2026-10-23`,
     title: `Every app reads threads through conversations, and actions are retired`,

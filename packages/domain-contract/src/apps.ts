@@ -8,7 +8,6 @@ import { askDockTitle } from "./ask-dock"
 import type { DockRow } from "./dock"
 
 export const APPS_COPY = fixture.copy
-export const APPS_BUILTIN = fixture.builtin
 export const APPS_PANES = fixture.panes
 export const APPS_PREVIEW = fixture.preview
 export const APPS_TEST_IDS = fixture.testIds
@@ -60,15 +59,11 @@ export function slugify(name: string, taken: readonly string[] = []): string {
 export interface AppListLike {
   slug: string
   name: string
-  builtin: boolean
 }
 
-/** The list order: the built-in app first, then by name (case-insensitive). */
+/** The list order: by name (case-insensitive). No built-in apps. */
 export function sortApps<T extends AppListLike>(apps: readonly T[]): T[] {
-  return [...apps].sort((a, b) => {
-    if (a.builtin !== b.builtin) return a.builtin ? -1 : 1
-    return a.name.localeCompare(b.name, undefined, { sensitivity: `base` })
-  })
+  return [...apps].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: `base` }))
 }
 
 /** The brief an app's EDITOR SESSION gets as the preface of its first

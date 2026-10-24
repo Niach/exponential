@@ -10,8 +10,7 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 
 // VAPP-110: one app's EDITOR (fixtures/apps.json): chat beside the live
-// preview, versions. `$appSlug` = the app's slug in the team (`devices` =
-// the built-in app, preview only).
+// preview, versions. `$appSlug` = the app's slug in the team.
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const SYNC_GRACE_MS = 4_000

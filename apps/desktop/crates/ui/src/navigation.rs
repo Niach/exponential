@@ -98,7 +98,7 @@ pub enum Screen {
     /// VAPP-110: one app's EDITOR ([`crate::app_screen`], web
     /// `apps/$appSlug`): the member's editor session beside the live preview.
     /// `app` = the `apps` row id, or a slug of the active team (the dev route
-    /// `app:<slug>`); the built-in app's slug opens its preview alone.
+    /// `app:<slug>`).
     /// Tab-less full-page mode: leaving it ENDS the live editor session.
     App { app: String },
     /// EXP-1294: one thread — a ROOT `sessions` row of kind `thread`

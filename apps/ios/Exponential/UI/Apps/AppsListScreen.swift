@@ -4,8 +4,8 @@ import SwiftUI
 
 /// VAPP-110 (fixtures/apps.json): the Apps list = the band with `New app` as
 /// its trailing pill, then one flat row per app (glyph, name, the version
-/// pill, the `…` menu: Rename, Delete); the built-in app first with its
-/// `Built-in` pill and no menu. Empty (no app of the team's): the list-size
+/// pill, the `…` menu: Rename, Delete), sorted by name. Empty (no app of the
+/// team's; Exponential ships no built-in apps): the list-size
 /// empty state under the band. The active team's apps (web
 /// `t/$teamSlug/apps`).
 struct AppsListScreen: View {
@@ -38,9 +38,7 @@ struct AppsListScreen: View {
                     ForEach(model.apps) { app in
                         row(app)
                     }
-                    // The built-in app is always listed: "empty" = no app
-                    // of the team's own.
-                    if model.loaded, model.apps.allSatisfy(\.builtin) {
+                    if model.loaded, model.apps.isEmpty {
                         EmptyState(title: Apps.Copy.empty, icon: AppIcons.navApps, size: .list)
                             .padding(.vertical, 8)
                     }
@@ -159,13 +157,12 @@ struct AppsListScreen: View {
     }
 }
 
-/// The glyph colour of an app with none (the built-in): the row's muted ink.
+/// The glyph colour of an app with none: the row's muted ink.
 enum AppGlyph {
     static let neutralColor = "#a1a1aa"
 }
 
-/// THE version pill (`copy.version`): `Built-in`, `v{n}`, or `No version
-/// yet` muted.
+/// THE version pill (`copy.version`): `v{n}`, or `No version yet` muted.
 struct AppVersionPill: View {
     let app: AppListEntry
 

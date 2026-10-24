@@ -99,8 +99,8 @@ import kotlinx.coroutines.launch
  *  - bindings: the `exp:` scheme over Room (`exp:devices`, re-derived on the
  *    liveness tick; `exp:issues?board=…&limit=…`), [AppHostValues];
  *  - extensions: the app extension (`packages/ui/exponential-ui/extension.json`)
- *    with Compose painters for its `IconDisc` and `LiveDot` natives, and the
- *    built-in Devices package;
+ *    with Compose painters for its `IconDisc` and `LiveDot` natives (Exponential
+ *    ships no built-in apps: only the team's packages are installed);
  *  - policy: `harness.mcp` ASKS first (the consent card, [AppConsentCard]);
  *    urls and media resolve against the instance (attachments with the
  *    account's bearer), every href through the URL policy.
@@ -117,15 +117,10 @@ interface AppHostEntryPoint {
 /** The package files every host installs (read from the shared assets). */
 object AppHostAssets {
     @Volatile private var extension: String? = null
-    @Volatile private var devices: String? = null
 
     /** The app extension catalog (`extension.json`). */
     fun extensionJson(context: Context): String =
         extension ?: read(context, "extension.json").also { extension = it }
-
-    /** The built-in Devices package (`templates/devices.json`). */
-    fun devicesPackageJson(context: Context): String =
-        devices ?: read(context, "templates/devices.json").also { devices = it }
 
     private fun read(context: Context, path: String): String =
         context.assets.open(path).bufferedReader().use { it.readText() }
@@ -289,8 +284,7 @@ private object LiveDotPainter : ExtensionPainter {
 const val APP_THEME_ID = "exponential"
 
 /**
- * A host over [packages] (package JSON texts; the built-in Devices package is
- * always installed), alive while the caller is composed. [onOpenIssue] =
+ * A host over [packages] (package JSON texts), alive while the caller is composed. [onOpenIssue] =
  * `harness.openIssue` for a synced issue (by row id).
  */
 @Composable
@@ -361,7 +355,7 @@ fun rememberAppHost(
                         mapOf("IconDisc" to IconDiscPainter, "LiveDot" to LiveDotPainter),
                     ),
                 ),
-                packages = listOf(AppHostAssets.devicesPackageJson(context)) + packages,
+                packages = packages,
                 policy = HostPolicy(
                     functions = FunctionPolicy(ask = listOf("harness.mcp")),
                     onFunctionCall = { call -> consent.ask(call) },

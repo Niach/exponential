@@ -167,7 +167,7 @@ fun AppEditorScreen(
                     menu = null,
                     tabs = {
                         GlassSegmentedControl(
-                            options = EditorTab.entries.filter { it != EditorTab.Versions || entry?.builtin != true },
+                            options = EditorTab.entries,
                             selected = tab,
                             label = ::tabLabel,
                             onSelect = { tab = it },
@@ -196,8 +196,7 @@ fun AppEditorScreen(
                     onOpenSession = onOpenSession,
                 )
                 EditorTab.Preview -> AppPreviewPane(
-                    packageJson = if (viewing != null) viewing?.packageJson else if (entry.builtin) null else entry.packageJson,
-                    builtin = entry.builtin,
+                    packageJson = if (viewing != null) viewing?.packageJson else entry.packageJson,
                     viewing = viewing?.number,
                     restoring = restoring,
                     onRestore = viewModel::restore,
@@ -230,7 +229,6 @@ fun AppEditorScreen(
 @Composable
 private fun AppPreviewPane(
     packageJson: String?,
-    builtin: Boolean,
     viewing: Int?,
     restoring: Boolean,
     onRestore: () -> Unit,
@@ -268,7 +266,7 @@ private fun AppPreviewPane(
                 .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
                 .testTag(Apps.TestIds.PREVIEW),
         ) {
-            val pkg = if (builtin && viewing == null) BUILTIN_PACKAGE else packageJson
+            val pkg = packageJson
             if (pkg != null) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Apps.Preview.PADDING.dp)) {
                     // A new package = a new host (the key): every synced upsert repaints.
@@ -286,20 +284,15 @@ private fun AppPreviewPane(
     }
 }
 
-/** The built-in app's package marker: the host installs Devices itself. */
-private const val BUILTIN_PACKAGE = "builtin"
-
 /** One package's first template on the app host (`applyTemplate`). */
 @Composable
 private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val json = if (packageJson == BUILTIN_PACKAGE) AppHostAssets.devicesPackageJson(context) else packageJson
-    val parsed = remember(json) { runCatching { JsonValue.parse(json) }.getOrNull() }
+    val parsed = remember(packageJson) { runCatching { JsonValue.parse(packageJson) }.getOrNull() }
     val packageId = parsed?.get("id")?.string
     val templateId = parsed?.get("templates")?.obj?.keys?.firstOrNull()
     val consent = remember { AppConsentGate() }
     val host = rememberAppHost(
-        packages = if (packageJson == BUILTIN_PACKAGE) emptyList() else listOf(json),
+        packages = listOf(packageJson),
         consent = consent,
         onOpenIssue = onOpenIssue,
         themeId = parsed?.get("theme")?.string,
@@ -403,12 +396,6 @@ private fun AppChatPane(
     viewModel: AppEditorViewModel,
     onOpenSession: (String) -> Unit,
 ) {
-    if (app.builtin) {
-        Box(Modifier.padding(padding).fillMaxSize().testTag(Apps.TestIds.CHAT), contentAlignment = Alignment.Center) {
-            EmptyState(title = Apps.Copy.BUILTIN, icon = ExpIcons.navApps, size = EmptyStateSize.Page)
-        }
-        return
-    }
     if (rootId != null) {
         SessionArgsStore(rootId) {
             AppEditorConversation(app = app, rootId = rootId, padding = padding, onOpenSession = onOpenSession)

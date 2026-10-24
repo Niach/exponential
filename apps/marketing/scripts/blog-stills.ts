@@ -1,13 +1,16 @@
 /* Photographs the blog's live Exponential UI surfaces (components/blog/
-   LiveSurface) into public/blog/<id>.webp, and, with --pages <dir>, the
-   blog pages themselves for a Guide. Runs under NODE against a built dist
-   (the prerendered pages + the renderer chunk):
+   LiveSurface) and its concept figures (components/blog/concepts, drawn in
+   HTML and CSS with CSS-only motion) into public/blog/<id>.webp, and, with
+   --pages <dir>, the blog pages themselves for a Guide. Runs under NODE
+   against a built dist (the prerendered pages + the renderer chunk):
 
      bun run build && node scripts/blog-stills.ts [--pages /tmp/blog-pages] [--skip-stills]
 
-   Each surface's still stands in for the live render in the prerender, on
-   the index card and in feed readers, so it is captured FROM that render at
-   the article column's width (2x). cwebp (libwebp) encodes the files. */
+   A surface's still stands in for the live render in the prerender, on the
+   index card and in feed readers, so it is captured FROM that render at the
+   article column's width (2x). A concept figure's still is its cover frame:
+   the page loads under reduced motion, which holds every animation on the
+   figure's own --freeze second. cwebp (libwebp) encodes the files. */
 import { execFileSync, spawn } from "node:child_process"
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
@@ -22,7 +25,8 @@ const PAGES_DIR = process.argv.includes(`--pages`) ? process.argv[process.argv.i
 /* --skip-stills: only the pages (the stills are already in the build). */
 const SKIP_STILLS = process.argv.includes(`--skip-stills`)
 
-/* A browser Playwright knows (its registry) or the newest cached Chromium. */
+/* A browser Playwright knows (its registry) or the newest cached Chromium
+   (the Linux cache; on macOS the registry's headless shell serves). */
 function chromiumPath(): string | undefined {
   const cache = resolve(process.env.HOME ?? ``, `.cache/ms-playwright`)
   if (!existsSync(cache)) return undefined
@@ -36,6 +40,13 @@ function chromiumPath(): string | undefined {
   return undefined
 }
 
+async function still(frame: import("playwright-core").Locator, id: string): Promise<void> {
+  const box = await frame.boundingBox()
+  const png = await frame.screenshot({ type: `png` })
+  toWebp(png, resolve(OUT, `${id}.webp`))
+  console.log(`still ${id}: ${Math.round((box?.width ?? 0) * 2)}×${Math.round((box?.height ?? 0) * 2)} → public/blog/${id}.webp`)
+}
+
 function toWebp(png: Buffer, file: string): void {
   const tmp = `${file}.png`
   writeFileSync(tmp, png)
@@ -46,7 +57,7 @@ function toWebp(png: Buffer, file: string): void {
 async function main() {
   const dist = resolve(ROOT, `dist`)
   if (!existsSync(resolve(dist, `blog/index.html`))) throw new Error(`dist/blog missing: run bun run build first`)
-  const server = spawn(`node`, [resolve(ROOT, `../../node_modules/vite/bin/vite.js`), `preview`, `--port`, String(PORT), `--strictPort`], { cwd: ROOT, stdio: `ignore` })
+  const server = spawn(`node`, [resolve(ROOT, `../../node_modules/vite/bin/vite.js`), `preview`, `--host`, `127.0.0.1`, `--port`, String(PORT), `--strictPort`], { cwd: ROOT, stdio: `ignore` })
   const browser = await chromium.launch({ executablePath: chromiumPath() })
   try {
     for (let i = 0; i < 50; i++) {
@@ -66,14 +77,19 @@ async function main() {
 
     /* Stills: one page per post at the article width, 2x. */
     const page = await browser.newPage({ viewport: { width: 1200, height: 900 }, deviceScaleFactor: 2 })
+    /* Before the first paint, so a figure's animations hold at --freeze
+       from their start rather than from the moment of the capture. */
+    await page.emulateMedia({ reducedMotion: `reduce` })
     for (const slug of SKIP_STILLS ? [] : posts) {
       await page.goto(`${BASE}/blog/${slug}/`, { waitUntil: `networkidle` })
       /* The still is the frame alone: no concept stamp (the page draws it
          over the still too) and no sticky top bar over a scrolled frame. */
       await page.addStyleTag({ content: `.topbar, .blog-concept { display: none !important }` })
       const surfaces = page.locator(`figure.blog-surface`)
+      const concepts = page.locator(`figure.blog-concept-figure[data-still]`)
       const count = await surfaces.count()
-      if (count === 0) continue
+      const conceptCount = await concepts.count()
+      if (count === 0 && conceptCount === 0) continue
       for (let i = 0; i < count; i++) await surfaces.nth(i).scrollIntoViewIfNeeded()
       await page.waitForFunction(() => [...document.querySelectorAll(`figure.blog-surface`)].every((el) => el.getAttribute(`data-live`) === `ready`), null, { timeout: 30000 })
       await page.evaluate(() => document.fonts.ready)
@@ -81,12 +97,13 @@ async function main() {
       for (let i = 0; i < count; i++) {
         const figure = surfaces.nth(i)
         const id = await figure.getAttribute(`data-surface`)
-        const frame = figure.locator(`.blog-surface-frame`)
-        const box = await frame.boundingBox()
-        const png = await frame.screenshot({ type: `png` })
-        const file = resolve(OUT, `${id}.webp`)
-        toWebp(png, file)
-        console.log(`still ${id}: ${Math.round((box?.width ?? 0) * 2)}×${Math.round((box?.height ?? 0) * 2)} → public/blog/${id}.webp`)
+        await still(figure.locator(`.blog-surface-frame`), id ?? `surface-${i}`)
+      }
+      for (let i = 0; i < conceptCount; i++) {
+        const figure = concepts.nth(i)
+        const id = await figure.getAttribute(`data-still`)
+        await figure.scrollIntoViewIfNeeded()
+        await still(figure.locator(`.blog-concept-frame`), id ?? `concept-${i}`)
       }
     }
     await page.close()

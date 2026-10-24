@@ -5,7 +5,7 @@
    (EXP-449), one Separator under it. Nav (EXP-1293, ×4 with the IDE rail):
    Agent, Inbox, Threads, Devices (Drafts only while a draft exists, so the
    demo has none). Then the Agents group (EXP-1293), the Apps group (VAPP-110:
-   the built-in Devices app first), Boards, and the Active group (the team's
+   the team's apps), Boards, and the Active group (the team's
    live threads, EXP-923/1318). Footer: Getting started + the user row and
    the settings gear. Menu rows are `density="compact"` (h-7). */
 import { getIssue, INBOX_ITEMS } from "../ide/data"
@@ -57,7 +57,6 @@ const agentIcon: Record<DemoAgentDef[`icon`], WebIcon> = {
 }
 
 const appIcon: Record<DemoApp[`icon`], WebIcon> = {
-  devices: IcDevices,
   rocket: IcRocket,
   "chart-line": IcChartLine,
 }

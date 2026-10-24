@@ -2,12 +2,11 @@ import Foundation
 import ProjectDescription
 
 let sharedSources: SourceFilesList = ["Exponential/**"]
-// VAPP-110: the app host's app-extension catalog and built-in Devices
-// package, bundled straight from packages/ui/exponential-ui (the bytes the web
-// and desktop hosts install; `AppHostResources` loads them by name).
+// VAPP-110: the app host's app-extension catalog, bundled straight from
+// packages/ui/exponential-ui (the bytes the web and desktop hosts install;
+// `AppHostResources` loads it by name). Exponential ships no built-in apps.
 let appHostResources: [ResourceFileElement] = [
     "../../packages/ui/exponential-ui/extension.json",
-    "../../packages/ui/exponential-ui/templates/devices.json",
 ]
 // GoogleService-Info.plist is per-target now (prod and staging are separate
 // Firebase apps: at.exponential vs at.exponential.staging). Each iOS app target

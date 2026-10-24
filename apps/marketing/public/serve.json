@@ -1,6 +1,13 @@
 {
   "directoryListing": false,
   "trailingSlash": true,
+  "redirects": [
+    {
+      "source": "/blog/what-an-assistant-should-do",
+      "destination": "/blog/ui-as-data-down-to-the-compositor/",
+      "type": 301
+    }
+  ],
   "headers": [
     {
       "source": "**",

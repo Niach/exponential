@@ -965,7 +965,7 @@ final class StyleguideScreenshots: XCTestCase {
     }
 
     /// VAPP-110: the Team tab's Apps row → the list (gated on the
-    /// seeded Team dashboard row and the built-in Devices row) → the Team
+    /// seeded Team dashboard row) → the Team
     /// dashboard editor (gated on its seeded chat) → back to the Threads tab.
     @MainActor
     private func walkApps(_ app: XCUIApplication) {
@@ -976,7 +976,6 @@ final class StyleguideScreenshots: XCTestCase {
         appsButton.tap()
         let dashboardRow = anyElement(app, identified: "apps-row-\(Self.appSlug)")
         expect(dashboardRow, within: Wait.sync, "The Apps list has no \(Self.appName) row — reseed with `bun run seed:screenshots`")
-        expect(anyElement(app, identified: "apps-row-devices"), within: Wait.nav, "The Apps list has no built-in Devices row")
         snapshot("sg_apps", settle: 2)
         guard ScreenshotShots.isWanted("sg_app") else {
             goBack(app)
