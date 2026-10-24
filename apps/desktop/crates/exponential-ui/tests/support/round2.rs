@@ -8,7 +8,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use exponential_ui::animation::{animation_frame, animation_timing, keyframes_css, ANIMATION_NAMES};
 use exponential_ui::code::tokenize_code;
 use exponential_ui::conditions::{default_breakpoints, resolve_conditions, ConditionContext};
-use exponential_ui::data::{bind_row_slot, bind_tree, resolve_value, run_action, ResolveContext};
+use exponential_ui::data::{bind_row_slot, bind_tree, get_pointer, resolve_value, run_action, set_pointer, ResolveContext};
 use exponential_ui::direction::{node_directions, node_text_align, TextDirection};
 use exponential_ui::format::display_string;
 use exponential_ui::list::{item_extents, item_offsets, list_sections, scroll_offset_for_index, section_rows, sticky_header, table_row_keys, template_instances, template_item_keys, virtual_window, ScrollAlign, SectionRow};
@@ -288,6 +288,35 @@ fn extents(v: &Value) -> Vec<f64> {
         Value::Array(_) => f64s(v),
         _ => vec![v["extent"].as_f64().unwrap_or(0.0); v["count"].as_u64().unwrap_or(0) as usize],
     }
+}
+
+/// `pointer.json` (EXP-1385): writes that land and read back (or are
+/// refused, data unchanged) and reads.
+pub fn pointer_cases() -> Vec<Case> {
+    let f = fixture("pointer.json");
+    let read = |got: Option<&Value>, want: Option<&Value>| ensure(got == want, || format!("read {got:?} / expected {want:?}"));
+    let mut out = Vec::new();
+    for c in arr(&f["writes"]) {
+        out.push(case(format!("write: {}", c["name"].as_str().unwrap_or("")), || {
+            let pointer = c["pointer"].as_str().unwrap_or("");
+            let mut data = c["data"].clone();
+            match (set_pointer(&mut data, pointer, c.get("value").cloned()), c.get("error")) {
+                (Err(e), Some(want)) => {
+                    same(&json!(e), want)?;
+                    same(&data, &c["data"])
+                }
+                (Ok(()), None) => {
+                    same(&data, &c["expected"])?;
+                    read(get_pointer(&data, pointer), c.get("read"))
+                }
+                (got, _) => Err(format!("got {got:?} / expected {:?}", c.get("error"))),
+            }
+        }));
+    }
+    for c in arr(&f["reads"]) {
+        out.push(case(format!("read: {}", c["name"].as_str().unwrap_or("")), || read(get_pointer(&c["data"], c["pointer"].as_str().unwrap_or("")), c.get("expected"))));
+    }
+    out
 }
 
 /// `virtual-list.json`: windows, scrollToIndex, sections, sticky headers.

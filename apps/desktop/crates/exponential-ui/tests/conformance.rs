@@ -360,6 +360,7 @@ fn suite(id: &str) -> Vec<Case> {
         "resizable" => support::round2::resizable_cases(),
         "virtual-list" => support::round2::virtual_list_cases(),
         "animations" => support::round2::animation_cases(),
+        "pointer" => support::round2::pointer_cases(),
         other => panic!("the runner does not know the suite {other}: add it"),
     }
 }

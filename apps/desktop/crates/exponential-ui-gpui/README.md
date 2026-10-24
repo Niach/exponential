@@ -455,7 +455,7 @@ host.update(cx, |h, cx| h.connect(cx));
 
 ## Conformance
 
-`cargo test -p exponential-ui-gpui --test suites` runs all 24 suites of
+`cargo test -p exponential-ui-gpui --test suites` runs all 25 suites of
 `packages/exponential-ui/conformance/manifest.json` (every case; the round-2
 pure suites through the core's shared cases) and writes a pass/fail report,
 `<repo>/.conformance/exponential-ui-gpui.json` (or

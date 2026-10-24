@@ -284,7 +284,7 @@ server, a third-party theme, one extension component, six hosts).
 
 ## Conformance
 
-`conformance/README.md`: 24 suites (version 2); a renderer is conformant
+`conformance/README.md`: 25 suites (version 2); a renderer is conformant
 when `bun run --filter @exponential_app/ui conformance:check <report>` says
 so. All six renderers and the core run it in CI (`exponential-ui.yml`);
 the Solid renderer and the web component also pass the web-parity check

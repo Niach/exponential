@@ -3,6 +3,10 @@
 All notable changes to this package. The SDK packages share one version and
 release together from a `ui-v<version>` tag (`packages/exponential-ui/release/README.md`).
 
+## Unreleased
+
+- EXP-1385: a pointer write that lands always reads back. `-` still appends on a write and now reads an array's LAST element (the one the append landed on), so `readPointer(writePointer(data, "-", v).data, "-")` is `v` in every core (it read nothing, which the nightly `pointer` fuzz target caught on two nights). The Rust core's `get_pointer` reads digit-only indices like the TS core (`/+1` no longer reads item 1). New fixture `fixtures/pointer.json` (both fuzz units + the append, remove and refusal cases) and conformance suite `pointer`, replayed by the Rust core, gpui, the web renderers, SwiftUI and Compose. The web `getPointer` is the core's `readPointer`.
+
 ## 0.1.1 (2026-10-23)
 
 - The npm packages move from the `@exponential-at` scope to `@exponential_app`: `@exponential_app/ui` (this package), `@exponential_app/ui-react`, `@exponential_app/ui-solid`, `@exponential_app/ui-element`. Same contents as 0.1.0; the `@exponential-at` 0.1.0 packages are unpublished. The crate, Maven and SwiftPM artifacts keep their names and re-release as 0.1.1 because the SDK shares one version.

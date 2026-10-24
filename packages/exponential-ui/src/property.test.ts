@@ -102,8 +102,8 @@ describe(`VAPP-107 property: JSON pointers`, () => {
         if (written.error) {
           expect(JSON.stringify(data)).toBe(before)
           expect(typeof written.error).toBe(`string`)
-        } else if (ptr !== `` && !ptr.split(`/`).includes(`-`)) {
-          // (`-` appends: JSON Pointer has no way to read the element it named.)
+        } else if (ptr !== ``) {
+          // EXP-1385: `-` appends and reads the last element, so it reads back too.
           expect(readPointer(written.data, ptr)).toEqual(value)
         } else if (ptr === ``) expect(written.data).toEqual(value)
         expect(() => readPointer(data, ptr)).not.toThrow()
