@@ -130,7 +130,10 @@ function chatsDot(nav: { live: boolean; needsYou: boolean; unread: boolean }): s
 // The detached FAB beside the nav pill: ONE 52px capsule with two 52px arms
 // — Start chat | New issue — split by a hairline (`FAB_GROUP_CLASS` +
 // `FAB_ARM_CLASS`). The capsule is the circle STRETCHED, so it says 52px the
-// same way the circle does, never `3.25rem`.
+// same way the circle does, never `3.25rem`. #EXP-1379: iOS metrics exactly
+// (ExpUI `MobileTabBarMetrics.capsuleWidth` = 2 × 52 + the hairline): the
+// capsule is 105px OUTSIDE, its 1px border inside it, the arms share the rest,
+// so the tab capsule beside it gets the same width as on iOS and Android.
 // EXP-973: it is the SAME capsule on every tab-bar route. EXP-827 drew it
 // only on a board and left a lone chat circle everywhere else, so filing a
 // bug from Devices or Threads meant a trip back to a board first. With no
@@ -140,8 +143,8 @@ function chatsDot(nav: { live: boolean; needsYou: boolean; unread: boolean }): s
 // The Agent page is the phone's FIRST screen and keeps the bar, so the chat
 // arm is SELECTED there — the tabs' active circle inside the arm — the way a
 // tab is lit on its own surface.
-const FAB_GROUP_CLASS = `pointer-events-auto flex h-[52px] shrink-0 items-stretch overflow-hidden rounded-full text-foreground ${FAB_CHROME_CLASS}`
-const FAB_ARM_CLASS = `relative flex w-[52px] items-center justify-center text-foreground transition-colors active:bg-glass-active`
+const FAB_GROUP_CLASS = `pointer-events-auto flex h-[52px] w-[105px] shrink-0 items-stretch overflow-hidden rounded-full text-foreground ${FAB_CHROME_CLASS}`
+const FAB_ARM_CLASS = `relative flex min-w-0 flex-1 items-center justify-center text-foreground transition-colors active:bg-glass-active`
 
 interface MobileTabBarProps {
   teamSlug: string

@@ -31,7 +31,11 @@ const BAR = CHATS_SHELL.bar
  *  click is the selection. */
 const DRAG_SLOP = 6
 
-export const PHONE_TAB_BAR_CLASS = `group/phone-bar pointer-events-auto relative flex h-[52px] min-w-0 touch-none select-none items-center rounded-full p-1 ${FAB_CHROME_CLASS}`
+// iOS metrics exactly (#EXP-1379, ExpUI `MobileTabBarMetrics`): the iOS and
+// Android hairline takes no layout, the web border does, so the padding is
+// `shell.bar.padding` LESS the 1px border: the tabs sit 4px in from the
+// capsule's outer edge on all three phones.
+export const PHONE_TAB_BAR_CLASS = `group/phone-bar pointer-events-auto relative flex h-[52px] min-w-0 touch-none select-none items-center rounded-full p-[3px] ${FAB_CHROME_CLASS}`
 
 /** `prefers-reduced-motion: reduce`, live. */
 export function usePrefersReducedMotion(): boolean {
@@ -108,7 +112,7 @@ export function PhoneTabBar({
       }
       const navRect = nav.getBoundingClientRect()
       const rect = tab.getBoundingClientRect()
-      setLens({ left: rect.left - navRect.left, width: rect.width, scale: 1, settling: true })
+      setLens({ left: rect.left - navRect.left - nav.clientLeft, width: rect.width, scale: 1, settling: true })
       if (settleTimer.current) clearTimeout(settleTimer.current)
       settleTimer.current = setTimeout(() => setLens(null), 200)
     },
@@ -138,7 +142,7 @@ export function PhoneTabBar({
       startY: event.clientY,
       dragging: false,
     }
-    setLens({ left: rect.left - navRect.left, width: rect.width, scale, settling: false })
+    setLens({ left: rect.left - navRect.left - nav.clientLeft, width: rect.width, scale, settling: false })
     // The press lifts the selection: the pill leaves the selected tab, the
     // pressed one is the candidate.
     nav.dataset.dragging = `true`
@@ -168,7 +172,8 @@ export function PhoneTabBar({
         }
       }
       const width = tab ? tab.getBoundingClientRect().width : rect.width
-      const left = Math.min(Math.max(x - box.left - width / 2, pad), box.width - pad - width)
+      const left =
+        Math.min(Math.max(x - box.left - width / 2, pad), box.width - pad - width) - nav.clientLeft
       return { tab, left, width }
     }
 
@@ -255,7 +260,7 @@ export function PhoneTabBar({
           aria-hidden
           data-slot="phone-tab-lens"
           className={cn(
-            `pointer-events-none absolute top-1 h-11 rounded-full bg-glass-active`,
+            `pointer-events-none absolute top-[3px] h-11 rounded-full bg-glass-active`,
             lens.settling &&
               `transition-[left,width,transform] duration-standard ease-decelerate`
           )}

@@ -617,15 +617,14 @@ private fun ListCard(ref: EntityRef, members: List<EntityRef>, open: (EntityTarg
 }
 
 /** #EXP-1381: a team-scoped kind opens ITS settings category's page
- *  (settings-nav.json); statuses have no phone page, so they open General. */
-private fun teamSettingsTarget(kind: String): EntityTarget = EntityTarget.TeamSettings(
-    when (kind) {
-        "label" -> SettingsNav.LABELS
-        "member", "invite" -> SettingsNav.MEMBERS
-        "repository" -> SettingsNav.REPOSITORIES
-        else -> SettingsNav.GENERAL
-    },
-)
+ *  (settings-nav.json); a status (no phone page) or a team opens the Team tab,
+ *  never the owner-only General page (iOS `.teamSettings(nil)`). */
+private fun teamSettingsTarget(kind: String): EntityTarget = when (kind) {
+    "label" -> EntityTarget.TeamSettings(SettingsNav.LABELS)
+    "member", "invite" -> EntityTarget.TeamSettings(SettingsNav.MEMBERS)
+    "repository" -> EntityTarget.TeamSettings(SettingsNav.REPOSITORIES)
+    else -> EntityTarget.Team
+}
 
 /** Where a list member's row lands — the same mapping the Open rows use,
  *  minus the kinds that need a synced row to know their issue. */

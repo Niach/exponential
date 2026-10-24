@@ -591,6 +591,7 @@ private fun AuthenticatedNav(
                 // #EXP-1384: Devices is a Team-page row, pushed.
                 EntityTarget.Devices -> navController.navigate(Routes.teamSettings(SettingsNav.DEVICES)) { launchSingleTop = true }
                 is EntityTarget.TeamSettings -> navController.navigate(Routes.teamSettings(target.section))
+                EntityTarget.Team -> navController.selectTab(MainTabs.TEAM, tabSwitch)
                 // Thread 58cb32df: the inbox is a page, pushed.
                 EntityTarget.Inbox -> navController.navigate(MainTabs.INBOX) { launchSingleTop = true }
             }

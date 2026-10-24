@@ -22,6 +22,9 @@ sealed interface EntityTarget {
     data object Devices : EntityTarget
     /** #EXP-1381: the team settings category's own page (a `SettingsNav` id). */
     data class TeamSettings(val section: String) : EntityTarget
+    /** #EXP-1381 review: the Team tab itself (a status or team ref): every
+     *  member sees it, unlike the owner-only General page. iOS `.settings`. */
+    data object Team : EntityTarget
     data object Inbox : EntityTarget
 }
 

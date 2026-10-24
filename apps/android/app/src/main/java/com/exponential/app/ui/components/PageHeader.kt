@@ -9,13 +9,17 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -26,7 +30,8 @@ import com.exponential.app.ui.icons.ExpIcons
 // #EXP-1384 (chats.json `shell.header`, owner 2026-10-24): THE phone page
 // header on every top-level page (`header.pages`: Board, Chats, Apps, Team,
 // Devices, Agent): the large in-content title on the left and the round
-// trailing circles `header.buttons`, SEARCH (pushes the phone search) then
+// trailing circles `header.buttons` (the FAB chrome [BarCircle], web
+// `FabButton`, at `header.circle`), SEARCH (pushes the phone search) then
 // the INBOX (concept nav-inbox, a dot while a notification of the active team
 // is unread; pushes the inbox-only page). A pushed page (Devices, from the
 // Team page) puts the back control before the title. Web `@exp/ui`
@@ -77,28 +82,27 @@ fun PageHeader(
         )
         Chats.Shell.Header.BUTTONS.forEach { concept ->
             when (concept) {
-                "nav-search" -> CircleIconButton(
-                    ExpIcons.navSearch,
-                    contentDescription = "Search",
+                "nav-search" -> BarCircle(
                     onClick = { actions?.onSearch?.invoke() },
                     size = circle,
-                    glyphSize = 20.dp,
-                    modifier = Modifier.testTag(Chats.TestIds.SEARCH_BUTTON),
-                )
+                    modifier = Modifier
+                        .testTag(Chats.TestIds.SEARCH_BUTTON)
+                        .semantics { contentDescription = "Search" },
+                ) { HeaderGlyph(ExpIcons.navSearch) }
                 "nav-inbox" -> Box {
-                    CircleIconButton(
-                        ExpIcons.navInbox,
-                        contentDescription = Chats.Copy.INBOX,
+                    BarCircle(
                         onClick = { actions?.onInbox?.invoke() },
                         size = circle,
-                        glyphSize = 20.dp,
-                        modifier = Modifier.testTag(Chats.TestIds.INBOX_BUTTON),
-                    )
+                        modifier = Modifier
+                            .testTag(Chats.TestIds.INBOX_BUTTON)
+                            .semantics { contentDescription = Chats.Copy.INBOX },
+                    ) { HeaderGlyph(ExpIcons.navInbox) }
                     if (actions?.inboxUnread == true) {
+                        // Web `PageHeader`'s dot: 10dp, 8dp in from the top-right.
                         Box(
                             Modifier
                                 .align(Alignment.TopEnd)
-                                .offset(x = (-3).dp, y = 3.dp)
+                                .offset(x = (-8).dp, y = 8.dp)
                                 .size(10.dp)
                                 .background(ChatsInboxDot, CircleShape)
                                 .testTag("chats-inbox-dot"),
@@ -108,4 +112,10 @@ fun PageHeader(
             }
         }
     }
+}
+
+/** A header circle's glyph: 20dp at full emphasis (web `FabButton emphasis="primary"`). */
+@Composable
+private fun HeaderGlyph(icon: ImageVector) {
+    Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurface)
 }
