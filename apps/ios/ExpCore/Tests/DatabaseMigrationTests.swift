@@ -135,7 +135,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
-             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns"]
+             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
+             "v79_app_records"]
         )
     }
 
@@ -192,7 +193,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
-             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns"]
+             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
+             "v79_app_records"]
         )
     }
 
@@ -720,7 +722,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
-             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns"]
+             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
+             "v79_app_records"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -825,7 +828,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
-             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns"]
+             "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
+             "v79_app_records"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -3189,6 +3193,52 @@ final class DatabaseMigrationTests: XCTestCase {
             )
             XCTAssertEqual(reset, ["sessions"])
         }
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // VAPP-122: v79 adds `app_records` (the shape allowlist) with its
+    // (app_id, kind) and team_id indexes; no cursor resets.
+    func testAppRecordsTable() throws {
+        let pool = try makePool("vapp122-app-records")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v78_drop_actions_and_legacy_session_columns")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('apps', 'h', '0_0', 0, 1)
+                ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                    "needs_refetch" = 0, "is_live" = 1
+                """)
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertEqual(
+            try columnNames(pool, "app_records"),
+            ["id", "app_id", "team_id", "kind", "data", "created_by", "created_at", "updated_at"]
+        )
+        try pool.read { db in
+            let indexes = try db.indexes(on: "app_records").map(\.columns)
+            XCTAssertTrue(indexes.contains(["app_id", "kind"]))
+            XCTAssertTrue(indexes.contains(["team_id"]))
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, [])
+        }
+        // A synced row round-trips, its jsonb `data` as text.
+        let wire = Data(#"""
+            {"id":"r1","app_id":"a1","team_id":"t1","kind":"entry","data":{"hours":3,"done":false},
+             "created_by":"u1","created_at":"2026-10-05T18:00:00Z","updated_at":"2026-10-05T18:00:00Z"}
+            """#.utf8)
+        let decoded = try JSONDecoder().decode(AppRecordEntity.self, from: wire)
+        XCTAssertEqual(
+            try JSONSerialization.jsonObject(with: Data(decoded.data.utf8)) as? NSDictionary,
+            ["hours": 3, "done": false] as NSDictionary
+        )
+        try pool.write { db in try decoded.insert(db) }
+        let stored = try pool.read { db in try AppRecordEntity.fetchOne(db, key: "r1") }
+        XCTAssertEqual(stored, decoded)
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

@@ -29,12 +29,12 @@ fn host_transport_every_decoder_case_equals_the_reference() {
 
 #[test]
 fn host_policy_every_function_url_media_source_and_negotiation_case_equals_the_reference() {
-    assert_all(support::policy_cases(), count("host-policy.json", &["functions", "combine", "urls", "media", "sources", "negotiation"]));
+    assert_all(support::policy_cases(), count("host-policy.json", &["functions", "combine", "urls", "media", "sources", "sourceParams", "negotiation"]));
 }
 
 #[test]
 fn host_router_every_validation_and_flow_equals_the_reference() {
-    assert_all(support::router_cases(), count("host-router.json", &["validation", "flows"]));
+    assert_all(support::router_cases(), count("host-router.json", &["validation", "records", "flows"]));
 }
 
 fn strip_comments(v: &Value) -> Value {
@@ -65,9 +65,9 @@ fn the_built_ins_are_the_catalogs() {
     let catalog = read("catalog/core.catalog.json");
     let names: Vec<&str> = catalog["functions"]["names"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
     assert_eq!(host::BUILTIN_FUNCTIONS, names.as_slice());
-    // The basic catalog's 14 plus the 17 core functions (`set` incl.; round 2
-    // adds formatPercent + formatRelativeTime).
-    assert_eq!(host::BUILTIN_FUNCTIONS.len(), 32);
+    // The basic catalog's 14 plus the 19 core functions (`set` incl.; round 2
+    // adds formatPercent + formatRelativeTime, round 4 filter, VAPP-122 bind).
+    assert_eq!(host::BUILTIN_FUNCTIONS.len(), 33);
 }
 
 #[test]

@@ -851,6 +851,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_run_action_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_source_with_params_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_string_table_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_supported_catalog_ids_for(
@@ -1451,6 +1453,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_resolve_dynamic_json(`valueJson`:
 external fun uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(`themeJson`: RustBuffer.ByValue,`component`: RustBuffer.ByValue,`part`: RustBuffer.ByValue,`propsJson`: RustBuffer.ByValue,`states`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_run_action_json(`actionJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_source_with_params_json(`source`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_string_table_json(`overridesJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -9965,6 +9969,20 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_run_action_json(
     
         FfiConverterString.lower(`actionJson`),FfiConverterString.lower(`dataJson`),FfiConverterString.lower(`scope`),FfiConverterOptionalString.lower(`stringsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-122: `source` with `params` (a JSON object, or null) appended as
+         * its query, for the `bind` action (`sourceWithParams`).
+         */ fun `sourceWithParamsJson`(`source`: kotlin.String, `paramsJson`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_source_with_params_json(
+    
+        FfiConverterString.lower(`source`),FfiConverterOptionalString.lower(`paramsJson`),_status)
 }
     )
     }

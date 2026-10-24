@@ -2575,6 +2575,16 @@ pub fn media_image_header(bytes: Vec<u8>) -> FfiImageHeader {
     })
 }
 
+/// VAPP-122: `source` with `params` (a JSON object, or null) appended as
+/// its query, for the `bind` action (`sourceWithParams`).
+#[uniffi::export]
+pub fn source_with_params_json(source: String, params_json: Option<String>) -> String {
+    shield("source_with_params_json", || source.clone(), || {
+        let params = params_json.and_then(|p| serde_json::from_str::<serde_json::Value>(&p).ok());
+        h::source_with_params(&source, params.as_ref())
+    })
+}
+
 /// A binding source URI → `{uri, scheme, name, params}` JSON, null when it
 /// does not parse.
 #[uniffi::export]

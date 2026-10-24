@@ -355,11 +355,11 @@ public final class SyncManager: @unchecked Sendable {
     // MARK: - Per-account shape launch
 
     private func launchPipeline(accountId: String, pool: DatabasePool) {
-        logger.info("Launching live shape sync (26 shapes) for account \(accountId, privacy: .public)")
+        logger.info("Launching live shape sync (32 shapes) for account \(accountId, privacy: .public)")
         // A visible "we got past pool open + migrations and started polling"
         // marker in the diagnostics log — the positive counterpart to the
         // fatal path above (§9.1: pipeline launched must never be ambiguous).
-        SyncDebug.shared.log("[pipeline] launched 26 shapes")
+        SyncDebug.shared.log("[pipeline] launched 32 shapes")
         SyncDebug.shared.clearFatal()
 
         let auth = self.auth
@@ -577,6 +577,13 @@ public final class SyncManager: @unchecked Sendable {
         tasks.append(makeShapeTask(
             name: "app-versions", path: "/api/shapes/app-versions", table: "app_versions",
             type: AppVersionEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+        // VAPP-122: the apps' RECORDS (the `exp:records` binding reads them;
+        // trash never syncs).
+        tasks.append(makeShapeTask(
+            name: "app-records", path: "/api/shapes/app-records", table: "app_records",
+            type: AppRecordEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
         ))
 

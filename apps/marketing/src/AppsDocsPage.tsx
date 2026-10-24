@@ -241,7 +241,8 @@ export function AppsDocsPage() {
             <h2>Team apps</h2>
             <p>
               Apps are small screens your team builds inside Exponential: a
-              dashboard over a board, a release checklist. You describe
+              dashboard over a board, a working-hours tracker, a release
+              checklist. You describe
               what you want, an agent session builds it, and everyone on the
               team can open it. An app is a declarative package (data, never
               code) that every client renders the same way.
@@ -279,10 +280,25 @@ export function AppsDocsPage() {
               then <strong>Restore</strong> to publish it again as a new
               version.
             </p>
+            <h3>Records: an app&apos;s own data</h3>
+            <p>
+              An app can keep data of its own. Its package declares record
+              kinds (a day of working hours, a todo, a note) with a small
+              schema; the app reads them live through{` `}
+              <code>exp:records</code> and writes them without a consent
+              card, since they are its own rows. Every member of the team sees
+              the same records on every device. Free teams keep up to 1,000
+              records, Team plans 25,000; the app&apos;s settings page shows the
+              count. Agents fill them too: the{` `}
+              <a href="/docs/mcp/#tools"><code>exponential_apps</code></a>{` `}
+              tool&apos;s <code>records_list</code>, <code>records_upsert</code>{` `}
+              and <code>records_delete</code> ops, so a session can log your hours
+              for you or seed sample data while it builds the app.
+            </p>
             <p>
               <strong>Settings → Apps</strong> lists them too; each app&apos;s
               settings page holds its name, icon, colour and description,{` `}
-              <strong>Open in the editor</strong>, and delete. On the phones,
+              <strong>Open in the editor</strong>, the record count, and delete. On the phones,
               {` `}Apps opens from the Threads tab&apos;s header. Agents and MCP
               clients can build apps too, through the{` `}
               <a href="/docs/mcp/#tools"><code>exponential_apps</code></a>{` `}

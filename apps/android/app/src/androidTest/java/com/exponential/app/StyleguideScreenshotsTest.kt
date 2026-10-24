@@ -180,8 +180,8 @@ class StyleguideScreenshotsTest {
             "sg_chat-list", "sg_phone-tab-bar", "sg_chat-transcript", "sg_chat-menus", "sg_schedule-picker",
         )
 
-        /** VAPP-110: the seeded Team dashboard app (web `DEMO_APP_SLUG`). */
-        private const val DEMO_APP_SLUG = "team-dashboard"
+        /** VAPP-122: the seeded Working hours app, with records (web `DEMO_APP_SLUG`). */
+        private const val DEMO_APP_SLUG = "working-hours"
 
         // APP-5 — the only seeded issue with a comment thread.
         private const val SHOWCASE_ISSUE_TITLE = ScreenshotFlow.SHOWCASE_ISSUE_TITLE
@@ -766,21 +766,23 @@ class StyleguideScreenshotsTest {
 
         // --- sg_apps / sg_app (VAPP-116): thread 58cb32df moved the Apps
         // entry to the Team tab's rows; it opens the selected team's Apps (no
-        // built-in apps: the seeded Team dashboard + the version-less app, by name); the
-        // dashboard opens its editor on the Chat tab, the demo user's editor
-        // session (web-mobile's `app` shot). Leaving it ends that session,
-        // exactly as the web capture does.
+        // built-in apps: the seeded apps, by name); the Working hours app
+        // (VAPP-122, with records) opens its editor and the shot shows its
+        // PREVIEW tab: the app rendered through the host over its synced
+        // records (web-mobile's `app` shot). Leaving it ends the editor
+        // session, exactly as the web capture does.
         composeRule.onNode(hasTestTag(Chats.TestIds.TAB_TEAM)).performClick()
         flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
         composeRule.onAllNodes(hasText(Apps.Copy.NAV)).onFirst().performScrollTo().performClick()
         flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
-        val dashboardRow = hasTestTag("${Apps.TestIds.ROW}-$DEMO_APP_SLUG")
-        flow.waitFor(dashboardRow, SYNC_TIMEOUT)
+        val demoAppRow = hasTestTag("${Apps.TestIds.ROW}-$DEMO_APP_SLUG")
+        flow.waitFor(demoAppRow, SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_apps")
-        composeRule.onNode(dashboardRow).performClick()
+        composeRule.onNode(demoAppRow).performClick()
         flow.waitFor(hasTestTag(Apps.TestIds.TABS), NAV_TIMEOUT)
-        flow.waitFor(hasTestTag(Apps.TestIds.CHAT), SYNC_TIMEOUT)
+        composeRule.onNode(hasTestTag("app-editor-tab-preview")).performClick()
+        flow.waitFor(hasTestTag(Apps.TestIds.PREVIEW), SYNC_TIMEOUT)
         flow.settle(longer = true)
         flow.screenshot("sg_app")
         Espresso.pressBack()

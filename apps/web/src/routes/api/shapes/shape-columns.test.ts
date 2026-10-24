@@ -3,6 +3,7 @@ import { getTableColumns } from "drizzle-orm"
 import {
   agents,
   appVersions,
+  appRecords,
   apps,
   conversations,
   events,
@@ -31,6 +32,7 @@ import { PROMPT_COLUMNS } from "./prompts"
 import { CONVERSATION_COLUMNS } from "./conversations"
 import { APP_COLUMNS } from "./apps"
 import { APP_VERSION_COLUMNS } from "./app-versions"
+import { APP_RECORD_COLUMNS } from "@/routes/api/shapes/app-records"
 
 // A proxy's `columns` allowlist is sent to Electric verbatim: a name the table
 // does not have fails the SHAPE, not the column — the client then syncs none
@@ -57,6 +59,8 @@ const lists = {
   // VAPP-110
   apps: [APP_COLUMNS, apps],
   app_versions: [APP_VERSION_COLUMNS, appVersions],
+  // VAPP-122
+  app_records: [APP_RECORD_COLUMNS, appRecords],
 } as const
 
 describe(`shape column allowlists`, () => {

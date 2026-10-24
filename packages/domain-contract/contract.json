@@ -410,14 +410,17 @@
     "uploadScheme": "upload:"
   },
   "apps": {
-    "$comment": "VAPP-110 Exponential apps: the caps of an app row and its package (behaviour = fixtures/apps.json). A package is the Exponential UI SDK's package format validated against the core + the app extension catalog; `packageMaxBytes` caps its JSON, `templateMaxComponents` the flat components of ONE template. A slug is lowercase letters, digits and dashes (`slugPattern`), unique per team, the handle in URLs and MCP calls.",
+    "$comment": "VAPP-110 Exponential apps: the caps of an app row and its package (behaviour = fixtures/apps.json). A package is the Exponential UI SDK's package format validated against the core + the app extension catalog; `packageMaxBytes` caps its JSON, `templateMaxComponents` the flat components of ONE template. VAPP-122 records: a kind name follows `kindPattern`, a manifest declares at most `recordKindsMax` kinds, one record's `data` JSON is capped at `recordMaxBytes` (the count per team = plan-limits `appRecords`). A slug is lowercase letters, digits and dashes (`slugPattern`), unique per team, the handle in URLs and MCP calls.",
     "slugPattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$",
     "slugMax": 64,
     "nameMax": 64,
     "descriptionMax": 2000,
     "noteMax": 500,
     "packageMaxBytes": 131072,
-    "templateMaxComponents": 500
+    "templateMaxComponents": 500,
+    "kindPattern": "^[a-z][a-z0-9_]{0,31}$",
+    "recordMaxBytes": 16384,
+    "recordKindsMax": 16
   },
   "messageCardKind": {
     "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface"]
@@ -608,6 +611,39 @@
         "progressiveMany": "Reading app catalog {n} times",
         "doneMany": "Read app catalog {n} times",
         "subjectKey": "",
+        "result": "none"
+      },
+      {
+        "name": "apps_records_list",
+        "title": "List app records",
+        "blurb": "Lists an app's records (its own data), newest first, by kind.",
+        "progressive": "Listing app records",
+        "done": "Listed app records",
+        "progressiveMany": "Listing app records {n} times",
+        "doneMany": "Listed app records {n} times",
+        "subjectKey": "slug",
+        "result": "list"
+      },
+      {
+        "name": "apps_records_upsert",
+        "title": "Write app record",
+        "blurb": "Creates or updates one record of an app (validated against the kind's schema).",
+        "progressive": "Writing app record",
+        "done": "Wrote app record",
+        "progressiveMany": "Writing {n} app records",
+        "doneMany": "Wrote {n} app records",
+        "subjectKey": "slug",
+        "result": "none"
+      },
+      {
+        "name": "apps_records_delete",
+        "title": "Delete app record",
+        "blurb": "Deletes one record of an app.",
+        "progressive": "Deleting app record",
+        "done": "Deleted app record",
+        "progressiveMany": "Deleting {n} app records",
+        "doneMany": "Deleted {n} app records",
+        "subjectKey": "slug",
         "result": "none"
       },
       {
@@ -1555,6 +1591,9 @@
       { "name": "apps_get", "refs": "" },
       { "name": "apps_list", "refs": "" },
       { "name": "apps_upsert", "refs": "" },
+      { "name": "apps_records_delete", "refs": "" },
+      { "name": "apps_records_list", "refs": "" },
+      { "name": "apps_records_upsert", "refs": "" },
       { "name": "team_config_agents_list", "refs": "list:agent@" },
       { "name": "attachments_delete", "refs": "" },
       { "name": "attachments_get", "refs": "attachment@" },

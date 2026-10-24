@@ -3,6 +3,11 @@
 All notable changes to this package. The SDK packages share one version and
 release together from a `ui-v<version>` tag (`packages/exponential-ui/release/README.md`).
 
+## Unreleased
+
+- VAPP-122: app RECORDS. A package may declare `records: {<kind>: {schema, title?, description?}}`, a JSON Schema SUBSET per kind (string | number | integer | boolean | array; enum, items, maxLength, minimum, maximum, format date | date-time | time; required; additionalProperties); `validatePackage` checks every kind (a kind's name `^[a-z][a-z0-9_]{0,31}$`, the reserved row keys id, createdAt, updatedAt, createdBy, author refused), `validateRecordSchema(schema, at)` and `validateRecord(schema, data)` are the two validators every host runs (the TS reference, the Rust core; `fixtures/host-router.json` `records` + the `acme.hours` / `acme.badrecords` packages replay them). The host keeps the rows (Exponential: one synced table, the `exp:records` source).
+- VAPP-122: the `bind` ACTION, the catalog's 33rd built-in (`{functionCall: {call: "bind", args: {path, source, params?}}}`): re-follows a data model path from a source with `params` appended as its query (`sourceWithParams`: keys sorted, percent-encoded, null skipped, objects as JSON; `fixtures/host-policy.json` `sourceParams`), through the router like a server's bindDataModel (the package's `sources` allowlist applies), and the host cancels its earlier subscription at that path (subscriptions are keyed by path now). The prompt's functions line gains its signature; three rule sentences lost a word each so `budgetTokens` stays 7335.
+
 ## 0.1.1 (2026-10-23)
 
 - The npm packages move from the `@exponential-at` scope to `@exponential_app`: `@exponential_app/ui` (this package), `@exponential_app/ui-react`, `@exponential_app/ui-solid`, `@exponential_app/ui-element`. Same contents as 0.1.0; the `@exponential-at` 0.1.0 packages are unpublished. The crate, Maven and SwiftPM artifacts keep their names and re-release as 0.1.1 because the SDK shares one version.

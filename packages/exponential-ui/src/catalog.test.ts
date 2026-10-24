@@ -191,7 +191,7 @@ describe(`basic map`, () => {
     // Round 1: the basic catalog's 14 functions, then the core ones (functions.core), in that order.
     const core = Object.keys(coreCatalog.functions.core)
     expect([...coreCatalog.functions.names]).toEqual([...Object.keys(basic.functions), ...core])
-    expect(core).toEqual([`percent`, `add`, `sub`, `eq`, `lt`, `clamp`, `cond`, `fallback`, `concat`, `coalesce`, `text`, `map`, `len`, `fill`, `set`, `formatPercent`, `formatRelativeTime`, `filter`])
+    expect(core).toEqual([`percent`, `add`, `sub`, `eq`, `lt`, `clamp`, `cond`, `fallback`, `concat`, `coalesce`, `text`, `map`, `len`, `fill`, `set`, `formatPercent`, `formatRelativeTime`, `filter`, `bind`])
     // Round 4: every basic function carries its signature too (the prompt lists them all).
     expect(Object.keys(coreCatalog.functions.basic)).toEqual(Object.keys(basic.functions))
     for (const rule of Object.values(basicMap.components)) expect(coreCatalog.components[rule.to], rule.to).toBeDefined()
@@ -211,9 +211,10 @@ describe(`round 1 catalog tables`, () => {
   test(`every core function has a spec and the evaluator implements every value function`, () => {
     for (const [name, spec] of Object.entries(coreCatalog.functions.core)) {
       expect(spec.description.endsWith(`.`), name).toBe(true)
-      if (name !== `set`) expect(CORE_FUNCTIONS[name], name).toBeDefined()
+      // `set` and `bind` are action-only (no value).
+      if (name !== `set` && name !== `bind`) expect(CORE_FUNCTIONS[name], name).toBeDefined()
     }
-    expect(Object.keys(CORE_FUNCTIONS).sort()).toEqual(Object.keys(coreCatalog.functions.core).filter((n) => n !== `set`).sort())
+    expect(Object.keys(CORE_FUNCTIONS).sort()).toEqual(Object.keys(coreCatalog.functions.core).filter((n) => n !== `set` && n !== `bind`).sort())
   })
 
   test(`responsive props exist where the contract says (Stack, Grid, Drawer)`, () => {

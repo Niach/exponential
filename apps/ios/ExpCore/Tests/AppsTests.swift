@@ -46,6 +46,9 @@ final class AppsTests: XCTestCase {
             "deleteBody": Apps.Copy.deleteBody, "delete": Apps.Copy.delete,
             "openEditor": Apps.Copy.openEditor, "settingsTitle": Apps.Copy.settingsTitle,
             "dockToSide": Apps.Copy.dockToSide, "float": Apps.Copy.float, "working": Apps.Copy.working,
+            "records": Apps.Copy.records,
+            "recordsOne": Apps.Copy.recordsOne, "recordsOf": Apps.Copy.recordsOf,
+            "recordsNone": Apps.Copy.recordsNone,
         ]
         // Every string key of `copy`, both ways.
         let strings = copy.compactMapValues { $0 as? String }
@@ -91,6 +94,9 @@ final class AppsTests: XCTestCase {
         XCTAssertEqual(apps["packageMaxBytes"] as? Int, Apps.packageMaxBytes)
         XCTAssertEqual(apps["templateMaxComponents"] as? Int, Apps.templateMaxComponents)
         XCTAssertEqual(apps["slugPattern"] as? String, Apps.slugPattern)
+        XCTAssertEqual(apps["kindPattern"] as? String, Apps.kindPattern)
+        XCTAssertEqual(apps["recordMaxBytes"] as? Int, Apps.recordMaxBytes)
+        XCTAssertEqual(apps["recordKindsMax"] as? Int, Apps.recordKindsMax)
     }
 
     func testSlugifyCases() throws {

@@ -1235,6 +1235,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(RustBuffer them
 RustBuffer uniffi_exponential_ui_ffi_fn_func_run_action_json(RustBuffer action_json, RustBuffer data_json, RustBuffer scope, RustBuffer strings_json, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_SOURCE_WITH_PARAMS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_SOURCE_WITH_PARAMS_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_source_with_params_json(RustBuffer source, RustBuffer params_json, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_STRING_TABLE_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_STRING_TABLE_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_string_table_json(RustBuffer overrides_json, RustCallStatus *_Nonnull out_status
@@ -1836,6 +1841,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RUN_ACTION_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RUN_ACTION_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_run_action_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_SOURCE_WITH_PARAMS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_SOURCE_WITH_PARAMS_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_source_with_params_json(void
     
 );
 #endif

@@ -111,6 +111,53 @@ struct AnyJSON: Decodable {
     }
 }
 
+/// A `CardJSON` on the wire (a record's free-form `data`).
+private struct EncodableJSON: Encodable {
+    let value: CardJSON
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch value {
+        case .null: try c.encodeNil()
+        case let .bool(v): try c.encode(v)
+        case let .number(v): try c.encode(v)
+        case let .string(v): try c.encode(v)
+        case let .array(v): try c.encode(v.map(EncodableJSON.init))
+        case let .object(v): try c.encode(v.mapValues(EncodableJSON.init))
+        }
+    }
+}
+
+/// VAPP-122 `apps.records.upsert` (`recordId` = update the team's row: a
+/// shallow patch of `data`).
+private struct AppRecordUpsertInput: Encodable {
+    let id: String
+    let kind: String
+    let data: EncodableJSON
+    let recordId: String?
+
+    enum CodingKeys: String, CodingKey { case id, kind, data, recordId }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(data, forKey: .data)
+        try c.encodeIfPresent(recordId, forKey: .recordId)
+    }
+}
+
+private struct AppRecordDeleteInput: Encodable {
+    let id: String
+    let recordId: String
+}
+
+/// `apps.records.upsert`'s answer: the row's id and whether it is new.
+public struct AppRecordUpserted: Decodable, Sendable, Equatable {
+    public let id: String
+    public let created: Bool
+}
+
 public final class AppsApi: Sendable {
     private let trpc: TrpcClient
 
@@ -137,6 +184,25 @@ public final class AppsApi: Sendable {
     /// `apps.restore`: a NEW head copying version `number`.
     public func restore(accountId: String, id: String, number: Int) async throws -> AppRestoreResult {
         try await trpc.mutation(accountId: accountId, path: "apps.restore", input: AppRestoreInput(id: id, number: number))
+    }
+
+    /// VAPP-122 `apps.records.upsert` as the viewer (the app's own rows; the
+    /// server validates `data` against the kind's schema and the quota).
+    public func recordsUpsert(
+        accountId: String, appId: String, kind: String, data: [String: CardJSON], recordId: String?
+    ) async throws -> AppRecordUpserted {
+        try await trpc.mutation(
+            accountId: accountId,
+            path: "apps.records.upsert",
+            input: AppRecordUpsertInput(id: appId, kind: kind, data: EncodableJSON(value: .object(data)), recordId: recordId)
+        )
+    }
+
+    /// VAPP-122 `apps.records.delete` (the trash mirror).
+    public func recordsDelete(accountId: String, appId: String, recordId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "apps.records.delete", input: AppRecordDeleteInput(id: appId, recordId: recordId)
+        )
     }
 
     /// One version's package as compact JSON text (nil = none): the Versions

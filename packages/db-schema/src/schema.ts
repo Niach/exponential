@@ -2061,6 +2061,42 @@ export const appVersions = pgTable(
   ]
 )
 
+// VAPP-122: an app's RECORDS, its own data: one JSON object (`data`) of a
+// `kind` the app's manifest declares (`records: {<kind>: {schema}}`, a JSON
+// Schema subset the SDK validates), owned by the TEAM under the app. One
+// synced shape `app-records` (member-only, team-scoped); `deleted_at` and
+// the trigger-kept `app_deleted_at` mirror of the app's trash are the
+// shape's STATIC predicates, so trash never reaches a client. Reads = the
+// `exp:records?kind=…` binding every app host resolves; writes = tRPC
+// `apps.records.*` (the host functions `harness.records.*`, MCP `apps
+// records_*`), validated against the kind's schema, capped by contract
+// `apps.recordMaxBytes` and the team's plan quota (`appRecords`).
+export type AppRecordData = Record<string, unknown>
+export const appRecords = pgTable(
+  `app_records`,
+  {
+    id: uuidPk(),
+    appId: uuid(`app_id`)
+      .notNull()
+      .references(() => apps.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    kind: varchar({ length: 32 }).notNull(),
+    data: jsonb().$type<AppRecordData>().notNull(),
+    createdBy: text(`created_by`).references(() => users.id, { onDelete: `set null` }),
+    deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
+    // Mirror of the app's deleted_at (trigger-maintained): the shape's static
+    // trash predicate. Server-only, shape-excluded.
+    appDeletedAt: timestamp(`app_deleted_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_app_records_app_kind`).on(table.appId, table.kind),
+    index(`idx_app_records_team`).on(table.teamId),
+  ]
+)
+
 // A session's issues (n ↔ n: an issue may sit in several sessions). NEW-1:
 // a row sits on the session that HOLDS the issue (a worker's link, the
 // issues a start names, a filed issue); a forward moves the row; a root's
@@ -3232,6 +3268,11 @@ export const selectAppVersionSchema = createSelectSchema(appVersions, {
   package: z.custom<AppPackageJson>((value) => typeof value === `object` && value !== null && !Array.isArray(value)),
 })
 export const selectSyncedAppVersionSchema = selectAppVersionSchema.omit({ package: true })
+// VAPP-122: records (the app mirror stays behind the shape).
+export const selectAppRecordSchema = createSelectSchema(appRecords, {
+  data: z.custom<AppRecordData>((value) => typeof value === `object` && value !== null && !Array.isArray(value)),
+})
+export const selectSyncedAppRecordSchema = selectAppRecordSchema.omit({ appDeletedAt: true })
 export const selectSessionIssueSchema = createSelectSchema(sessionIssues, {
   source: sessionIssueSourceSchema,
 })
@@ -3374,6 +3415,8 @@ export type SyncedPrompt = Omit<Prompt, `body`>
 export type App = InferSelectModel<typeof apps>
 export type AppVersion = InferSelectModel<typeof appVersions>
 export type SyncedAppVersion = Omit<AppVersion, `package`>
+export type AppRecord = InferSelectModel<typeof appRecords>
+export type SyncedAppRecord = Omit<AppRecord, `appDeletedAt`>
 export type UserNotificationPrefs = InferSelectModel<
   typeof userNotificationPrefs
 >

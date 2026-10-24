@@ -73,6 +73,7 @@ import {
   getTeamPlan,
   getUserPlan,
   getTeamUsage,
+  assertAppRecordCreatable,
   assertCanInviteMember,
   countPendingInvites,
   countTeamMembers,
@@ -105,6 +106,7 @@ describe(`getPlanLimits — the tier table`, () => {
       storageMb: 250,
       widgetConfigs: 1,
       widgetSubmissionsPerHour: 60,
+      appRecords: 1000,
     })
   })
   it(`team = 10 GB / unlimited widgets + submissions`, () => {
@@ -119,6 +121,7 @@ describe(`getPlanLimits — the tier table`, () => {
       storageMb: Infinity,
       widgetConfigs: Infinity,
       widgetSubmissionsPerHour: Infinity,
+      appRecords: Infinity,
     })
   })
 })
@@ -132,6 +135,7 @@ describe(`planFromSubscription — team-bound resolution`, () => {
         storageMb: 250,
         widgetConfigs: 1,
         widgetSubmissionsPerHour: 60,
+        appRecords: 1000,
       },
     })
   })
@@ -384,6 +388,15 @@ describe(`countTeamWidgetSubmissionsLastHour`, () => {
   it(`empty result → 0`, async () => {
     selectResults.push([])
     await expect(countTeamWidgetSubmissionsLastHour(WS)).resolves.toBe(0)
+  })
+})
+
+describe(`assertAppRecordCreatable — the records quota (VAPP-122)`, () => {
+  it(`refuses at the tier's appRecords`, () => {
+    const free = getPlanLimits(`free`)
+    expect(() => assertAppRecordCreatable(free, 999)).not.toThrow()
+    expect(() => assertAppRecordCreatable(free, 1000)).toThrow(/up to 1,000 app records/)
+    expect(() => assertAppRecordCreatable(getPlanLimits(`unlimited`), 10_000_000)).not.toThrow()
   })
 })
 

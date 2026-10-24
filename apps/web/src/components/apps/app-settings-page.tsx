@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import type { BoardIcon } from "@exp/db-schema/domain"
+import { eq, useLiveQuery } from "@tanstack/react-db"
 import { APPS_COPY, APP_DESCRIPTION_MAX, versionLabel } from "@exp/domain-contract/apps"
+import { recordsCountLabel } from "@exp/domain-contract/app-records"
 import { Button, conceptIcon, FEEDBACK_WORDS, GlassGroup, Pill, Prompt, Textarea } from "@exp/ui"
 import type { Team } from "@/db/schema"
 import { BoardIdentityRow } from "@/components/board-form-fields"
 import type { AppListEntry } from "@/hooks/use-apps"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { appCollection } from "@/lib/collections"
+import { appCollection, appRecordCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 
 // VAPP-110: Settings → Apps → one app (the agent page's layout, fixture
@@ -42,6 +44,26 @@ export function AppSettingsPage({
   const [busy, setBusy] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  // VAPP-122: the app's records (the synced shape) against the team's quota
+  // (null = unlimited: self-hosted, or the plan still loading).
+  const { data: records } = useLiveQuery(
+    (query) => (app ? query.from({ r: appRecordCollection }).where(({ r }) => eq(r.appId, app.id)) : undefined),
+    [app?.id]
+  )
+  const [recordsMax, setRecordsMax] = useState<number | null>(null)
+  useEffect(() => {
+    if (!app) return
+    let live = true
+    void trpc.billing.teamPlan
+      .query({ teamId: team.id })
+      .then((plan) => {
+        if (live) setRecordsMax(Number.isFinite(plan.limits.appRecords) ? plan.limits.appRecords : null)
+      })
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [app, team.id])
 
   // Seed when the APP changes, never on a resync of the same one.
   const appId = app?.id ?? null
@@ -139,6 +161,12 @@ export function AppSettingsPage({
           data-testid="app-settings-description"
         />
       </div>
+
+      {!creating && (
+        <p className="px-1 text-sm text-muted-foreground" data-testid="app-settings-records">
+          {recordsCountLabel(records?.length ?? 0, recordsMax)}
+        </p>
+      )}
 
       {creating ? (
         <div className="flex justify-end pt-2">

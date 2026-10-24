@@ -2498,7 +2498,8 @@
       "set": "Action only: writes value into the data model at path (a JSON pointer, relative to the node's data scope like a binding).",
       "formatPercent": "A ratio as a locale percent through the surface Formatter (0.256 → 26%); decimals = fixed fraction digits.",
       "formatRelativeTime": "A date (yyyy-mm-dd, ISO date-time or epoch ms) relative to now (epoch ms or a date; default the clock) through the surface Formatter: 3 minutes ago, yesterday, in 2 hours.",
-      "filter": "The items that match, in order: every `where` field equals its value (an empty value matches all) and `query` is a case-insensitive substring of one of `fields` (default every text field); bind a List or Table to it."
+      "filter": "The items that match, in order: every `where` field equals its value (an empty value matches all) and `query` is a case-insensitive substring of one of `fields` (default every text field); bind a List or Table to it.",
+      "bind": "Action only (VAPP-122): re-follows path from source with params appended as its query (sourceWithParams); the package's sources allowlist applies and the earlier subscription at that path is cancelled."
     },
     "basic": {}
   }

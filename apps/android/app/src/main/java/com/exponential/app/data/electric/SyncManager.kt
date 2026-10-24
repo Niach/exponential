@@ -13,6 +13,7 @@ import com.exponential.app.data.auth.SessionInvalidator
 import com.exponential.app.data.db.AgentDefinitionEntity
 import com.exponential.app.data.db.AppEntity
 import com.exponential.app.data.db.AppVersionEntity
+import com.exponential.app.data.db.AppRecordEntity
 import com.exponential.app.data.db.EventEntity
 import com.exponential.app.data.db.PromptEntity
 import com.exponential.app.data.db.ConversationEntity
@@ -432,6 +433,7 @@ class SyncManager @Inject constructor(
         val conversationDao = db.conversationDao()
         val appDao = db.appDao()
         val appVersionDao = db.appVersionDao()
+        val appRecordDao = db.appRecordDao()
 
         val shapes = listOf(
             launchShape(
@@ -730,6 +732,17 @@ class SyncManager @Inject constructor(
                 onInsert = { appVersionDao.upsert(it) },
                 onDelete = { appVersionDao.deleteById(it.id) },
                 onRefetch = { appVersionDao.clear() },
+            ),
+            // VAPP-122: the apps' RECORDS (their own data; trash stays behind
+            // the shape's static predicates).
+            launchShape(
+                shape = "app_records", path = "/api/shapes/app-records", tableName = "app_records",
+                serializer = AppRecordEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("app-records"),
+                onInsert = { appRecordDao.upsert(it) },
+                onDelete = { appRecordDao.deleteById(it.id) },
+                onRefetch = { appRecordDao.clear() },
             ),
         )
         return Pipeline(jobs = shapes.map { it.first }, clients = shapes.map { it.second })

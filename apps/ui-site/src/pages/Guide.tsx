@@ -731,6 +731,31 @@ exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-
       ),
     },
     {
+      id: `records`,
+      label: `Records: an app's own data`,
+      body: (
+        <>
+          <p>
+            An app may keep data of its own. The manifest declares every <code>records</code> kind with a small JSON
+            Schema subset (string, number, integer, boolean, array; enum, min, max, maxLength, a date format);{` `}
+            <code>validateRecordSchema</code> checks a kind at install and <code>validateRecord</code> a record before
+            a host stores it. The rows come back through a binding source the host resolves (Exponential's hosts:{` `}
+            <code>exp:records?kind=…</code>, with filters, a sort, a sum and a month view), and the app writes them
+            through host functions (<code>harness.records.upsert</code> / <code>delete</code>). This is the Working
+            hours app, the example beside Devices: a month of entries, a target, and a switcher that re-follows the
+            binding with the built-in <code>bind</code> action, whose <code>params</code> are appended to the source
+            as its query:
+          </p>
+          <GuideFile path="react/src/working-hours.app.json" />
+          <p>
+            A host that lends a package records keeps them wherever it likes (Exponential: one synced table, one shape
+            per team); the SDK only fixes the manifest block, the two validators and the <code>bind</code> action, so
+            the same package runs in every host.
+          </p>
+        </>
+      ),
+    },
+    {
       id: `embed`,
       label: `Embed and connect`,
       body: (

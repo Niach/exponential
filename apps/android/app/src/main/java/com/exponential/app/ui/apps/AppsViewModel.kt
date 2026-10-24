@@ -179,6 +179,9 @@ class AppEditorViewModel @Inject constructor(
 
     val appId: String = savedStateHandle["appId"] ?: ""
 
+    /** VAPP-122: the viewer (`exp:records?mine=1`; null = signed out). */
+    val me: StateFlow<String?> = auth.userId
+
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
     /** The app; null while syncing or once gone. */

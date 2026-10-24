@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops.",
+  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake.",
   "packages": {
     "acme.devices": {
       "id": "acme.devices",
@@ -137,6 +137,172 @@
       "sources": [
         "exp:devices"
       ]
+    },
+    "acme.hours": {
+      "id": "acme.hours",
+      "name": "Working hours",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "month": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Column",
+              "children": [
+                "title"
+              ]
+            },
+            {
+              "id": "title",
+              "component": "Text",
+              "text": {
+                "path": "/entries/month/label"
+              }
+            }
+          ],
+          "data": {
+            "entries": {
+              "rows": [],
+              "count": 0
+            }
+          },
+          "bindings": [
+            {
+              "path": "/entries",
+              "source": "exp:records?kind=entry&mine=1&by=date&sum=hours"
+            }
+          ]
+        }
+      },
+      "functions": [
+        "harness.records.*",
+        "bind"
+      ],
+      "sources": [
+        "exp:records"
+      ],
+      "records": {
+        "entry": {
+          "title": "Hours entry",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "hours": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 24
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "issues": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxLength": 20
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "work",
+                  "meeting",
+                  "support"
+                ]
+              }
+            },
+            "required": [
+              "date",
+              "hours"
+            ]
+          }
+        },
+        "target": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "month": {
+                "type": "string"
+              },
+              "hours": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "month",
+              "hours"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "acme.badrecords": {
+      "id": "acme.badrecords",
+      "name": "Bad records",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Column"
+            }
+          ]
+        }
+      },
+      "records": {
+        "Entry": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "when": {
+                "type": "datetime"
+              },
+              "tags": {
+                "type": "array"
+              },
+              "size": {
+                "type": "number",
+                "maximum": "big"
+              },
+              "mood": {
+                "type": "number",
+                "enum": [
+                  "a"
+                ]
+              },
+              "name": {
+                "type": "string",
+                "items": {
+                  "type": "string"
+                },
+                "format": "email"
+              }
+            },
+            "required": [
+              "name",
+              "missing"
+            ],
+            "additionalProperties": "no"
+          }
+        },
+        "ok_kind": {
+          "title": "No schema"
+        },
+        "list": "nope"
+      }
     }
   },
   "flows": [
@@ -1087,6 +1253,112 @@
           ]
         }
       ]
+    },
+    {
+      "name": "VAPP-122: the bind action re-follows a path through the package's allowlist",
+      "packages": [
+        "acme.hours"
+      ],
+      "installIssues": {
+        "acme.hours": []
+      },
+      "steps": [
+        {
+          "message": {
+            "version": "v0.9",
+            "applyTemplate": {
+              "surfaceId": "h",
+              "templateId": "month"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "h",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "components",
+              "surfaceId": "h",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Column",
+                  "children": [
+                    "title"
+                  ]
+                },
+                {
+                  "id": "title",
+                  "component": "Text",
+                  "text": {
+                    "path": "/entries/month/label"
+                  }
+                }
+              ]
+            },
+            {
+              "op": "data",
+              "surfaceId": "h",
+              "path": "",
+              "value": {
+                "entries": {
+                  "rows": [],
+                  "count": 0
+                }
+              }
+            },
+            {
+              "op": "bind",
+              "surfaceId": "h",
+              "path": "/entries",
+              "source": "exp:records?kind=entry&mine=1&by=date&sum=hours"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "bindDataModel": {
+              "surfaceId": "h",
+              "path": "/entries",
+              "source": "exp:records?kind=entry&mine=1&by=date&sum=hours&month=2026-09"
+            }
+          },
+          "expected": [
+            {
+              "op": "bind",
+              "surfaceId": "h",
+              "path": "/entries",
+              "source": "exp:records?kind=entry&mine=1&by=date&sum=hours&month=2026-09"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "bindDataModel": {
+              "surfaceId": "h",
+              "path": "/entries",
+              "source": "exp:issues?board=b1"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "SOURCE_DENIED",
+                  "surfaceId": "h",
+                  "message": "source exp:issues?board=b1 is not in package acme.hours's sources",
+                  "path": "/entries"
+                }
+              }
+            }
+          ]
+        }
+      ]
     }
   ],
   "validation": [
@@ -1145,6 +1417,183 @@
         {
           "path": "/templates/list/bindings/1/source",
           "message": "source EXP:issues?board=b1 is not in the package's sources"
+        }
+      ]
+    },
+    {
+      "package": "acme.hours",
+      "expected": []
+    },
+    {
+      "package": "acme.badrecords",
+      "expected": [
+        {
+          "path": "/records/Entry",
+          "message": "a kind is lowercase letters, digits and underscores"
+        },
+        {
+          "path": "/records/Entry/schema/properties/id",
+          "message": "id is a reserved record key"
+        },
+        {
+          "path": "/records/Entry/schema/properties/when",
+          "message": "a field is {type: string|number|integer|boolean|array}"
+        },
+        {
+          "path": "/records/Entry/schema/properties/tags/items",
+          "message": "items is {type: string|number|integer|boolean}"
+        },
+        {
+          "path": "/records/Entry/schema/properties/size/maximum",
+          "message": "maximum is a number"
+        },
+        {
+          "path": "/records/Entry/schema/properties/mood/enum",
+          "message": "enum is a non-empty list of strings on a string field"
+        },
+        {
+          "path": "/records/Entry/schema/properties/name/items",
+          "message": "items belongs to an array field"
+        },
+        {
+          "path": "/records/Entry/schema/properties/name/format",
+          "message": "format is date|date-time|time on a string field"
+        },
+        {
+          "path": "/records/Entry/schema/required/1",
+          "message": "missing is not a declared field"
+        },
+        {
+          "path": "/records/Entry/schema/additionalProperties",
+          "message": "additionalProperties is a boolean"
+        },
+        {
+          "path": "/records/ok_kind/schema",
+          "message": "a record schema is {type: \"object\", properties}"
+        },
+        {
+          "path": "/records/list",
+          "message": "a kind is {schema, title?}"
+        }
+      ]
+    }
+  ],
+  "records": [
+    {
+      "name": "a full entry passes",
+      "package": "acme.hours",
+      "kind": "entry",
+      "data": {
+        "date": "2026-10-05",
+        "hours": 3,
+        "note": "leaderboard, meet",
+        "issues": [
+          "MET-1437",
+          "MET-1440"
+        ],
+        "kind": "work"
+      },
+      "expected": []
+    },
+    {
+      "name": "the required fields alone pass; null clears an optional one",
+      "package": "acme.hours",
+      "kind": "entry",
+      "data": {
+        "date": "2026-10-05",
+        "hours": 0,
+        "note": null
+      },
+      "expected": []
+    },
+    {
+      "name": "every check fires",
+      "package": "acme.hours",
+      "kind": "entry",
+      "data": {
+        "date": "5.10.2026",
+        "hours": 25,
+        "note": "x",
+        "issues": [
+          "a",
+          2
+        ],
+        "kind": "play",
+        "extra": 1
+      },
+      "expected": [
+        {
+          "path": "/date",
+          "message": "a date (YYYY-MM-DD)"
+        },
+        {
+          "path": "/hours",
+          "message": "at most 24"
+        },
+        {
+          "path": "/issues/1",
+          "message": "a string"
+        },
+        {
+          "path": "/kind",
+          "message": "one of work|meeting|support"
+        },
+        {
+          "path": "/extra",
+          "message": "not in the schema"
+        }
+      ]
+    },
+    {
+      "name": "a required field missing, a wrong type",
+      "package": "acme.hours",
+      "kind": "entry",
+      "data": {
+        "hours": "3",
+        "issues": "MET-1"
+      },
+      "expected": [
+        {
+          "path": "/date",
+          "message": "required"
+        },
+        {
+          "path": "/hours",
+          "message": "a number"
+        },
+        {
+          "path": "/issues",
+          "message": "a list"
+        }
+      ]
+    },
+    {
+      "name": "not an object",
+      "package": "acme.hours",
+      "kind": "entry",
+      "data": [
+        1
+      ],
+      "expected": [
+        {
+          "path": "",
+          "message": "a record is an object"
+        }
+      ]
+    },
+    {
+      "name": "additionalProperties true keeps extra keys; an integer check",
+      "package": "acme.hours",
+      "kind": "target",
+      "data": {
+        "month": "2026-10",
+        "hours": 40.5,
+        "carry": 11.75
+      },
+      "expected": [
+        {
+          "path": "/hours",
+          "message": "an integer"
         }
       ]
     }

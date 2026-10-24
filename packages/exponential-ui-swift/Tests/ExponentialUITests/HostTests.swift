@@ -131,6 +131,57 @@ final class HostTests: XCTestCase {
         XCTAssertEqual(cancelled, ["devices"])
     }
 
+    /// VAPP-122: the `bind` action re-follows a path from an action (the
+    /// source with its params appended): the earlier subscription at that
+    /// path is cancelled first, another path's stays.
+    func testBindActionRefollowsAPath() async throws {
+        var bound: [String] = []
+        var cancelled: [String] = []
+        let host = ExponentialHost(HostOptions(sources: [
+            "exp": { source, emit in
+                bound.append(source.uri)
+                emit(.string(source.params["month"] ?? ""))
+                return { cancelled.append(source.uri) }
+            },
+        ]))
+        host.receive(create("s1"))
+        host.receive(msg("bindDataModel", .object(["surfaceId": .string("s1"), "path": .string("/other"), "source": .string("exp:devices")])))
+        func bind(_ month: String, on surface: String = "s1") async -> FunctionOutcome {
+            await host.callFunction(SurfaceFunctionCall(surfaceId: surface, componentId: "c", name: "bind", args: [
+                "path": .string("/records"),
+                "source": .string("exp:records?kind=entry"),
+                "params": .object(["month": .string(month), "skip": .null]),
+            ]))
+        }
+        var out = await bind("2026-10")
+        XCTAssertEqual(out.decision, .allow)
+        XCTAssertEqual(host.surface("s1")?.data["records"], .string("2026-10"))
+        out = await bind("2026-11")
+        XCTAssertEqual(out.decision, .allow)
+        XCTAssertEqual(bound, ["exp:devices", "exp:records?kind=entry&month=2026-10", "exp:records?kind=entry&month=2026-11"])
+        XCTAssertEqual(cancelled, ["exp:records?kind=entry&month=2026-10"])
+        XCTAssertEqual(host.surface("s1")?.data["records"], .string("2026-11"))
+        // No such surface, or no source: nothing ran.
+        out = await bind("2026-12", on: "nope")
+        XCTAssertEqual(out.decision, .deny)
+        out = await host.callFunction(SurfaceFunctionCall(surfaceId: "s1", componentId: "c", name: "bind", args: ["path": .string("/x")]))
+        XCTAssertEqual(out.decision, .deny)
+        host.receive(msg("deleteSurface", .object(["surfaceId": .string("s1")])))
+        XCTAssertEqual(Set(cancelled), ["exp:records?kind=entry&month=2026-10", "exp:records?kind=entry&month=2026-11", "exp:devices"])
+    }
+
+    /// `sourceWithParams` replays host-policy.json `sourceParams`.
+    func testSourceWithParamsReplaysTheFixture() throws {
+        let cases = try XCTUnwrap(try Fixtures.json("host-policy.json")["sourceParams"]?.array)
+        XCTAssertFalse(cases.isEmpty)
+        XCTAssertEqual(BindingSource.sourceWithParams("exp:records?kind=entry", params: .object(["month": .string("2026-10")])), "exp:records?kind=entry&month=2026-10")
+        XCTAssertEqual(BindingSource.sourceWithParams("exp:x", params: nil), "exp:x")
+        for item in cases {
+            let source = try XCTUnwrap(item["source"]?.string)
+            XCTAssertEqual(BindingSource.sourceWithParams(source, params: item["params"]), item["expected"]?.string, source)
+        }
+    }
+
     func testFunctionGateConsentAndPackageNarrowing() async throws {
         let transport = MemoryTransport()
         var ran: [String] = []

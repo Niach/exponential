@@ -12,9 +12,13 @@ import {
   slugify,
 } from "@exp/domain-contract/apps"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { appVersions, apps, sessions, type App } from "@/db/schema"
+import { appRecords, appVersions, apps, sessions, type App } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
-import { validateAppPackage } from "@/lib/apps/package"
+import { packageBytes, recordKindSchema, validateAppPackage } from "@/lib/apps/package"
+import { validateRecord } from "@exponential_app/ui"
+import { assertCanCreateAppRecord } from "@/lib/billing"
+import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
+import { APP_RECORDS_QUERY } from "@exp/domain-contract/app-records"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import type { Tx } from "@/lib/sessions/tx"
 
@@ -35,6 +39,8 @@ const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/)
 const packageSchema = z.record(z.string(), z.unknown())
 
 const uuid = z.string().uuid()
+const kindSchema = z.string().trim().regex(APP_RECORD_KIND_PATTERN, `a kind is lowercase letters, digits and underscores`)
+const recordDataSchema = z.record(z.string(), z.unknown())
 
 /** One app by id or by (team, slug). */
 const appRefSchema = z
@@ -294,6 +300,104 @@ export const appsRouter = router({
         return { txid: txId, version: number, restored: input.number }
       })
     }),
+
+  // VAPP-122: an app's RECORDS (fixtures/app-records.json). Any member reads
+  // and writes them (team data the app owns); a write is validated against
+  // the head package's kind schema, capped per record and per team.
+  records: router({
+    list: authedProcedure
+      .input(
+        appRefSchema.and(
+          z.object({
+            kind: kindSchema.optional(),
+            limit: z.number().int().min(1).max(APP_RECORDS_QUERY.limitMax).default(APP_RECORDS_QUERY.limitDefault),
+            offset: z.number().int().min(0).default(0),
+          })
+        )
+      )
+      .query(async ({ ctx, input }) => {
+        const app = await loadApp(ctx.db, input)
+        await assertTeamMember(ctx.session.user.id, app.teamId)
+        const rows = await ctx.db
+          .select({
+            id: appRecords.id,
+            kind: appRecords.kind,
+            data: appRecords.data,
+            createdBy: appRecords.createdBy,
+            createdAt: appRecords.createdAt,
+            updatedAt: appRecords.updatedAt,
+          })
+          .from(appRecords)
+          .where(and(eq(appRecords.appId, app.id), isNull(appRecords.deletedAt), input.kind ? eq(appRecords.kind, input.kind) : undefined))
+          .orderBy(desc(appRecords.createdAt), asc(appRecords.id))
+          .limit(input.limit)
+          .offset(input.offset)
+        return { records: rows }
+      }),
+
+    /** Create a record, or (with `id`) patch that record's data (shallow). */
+    upsert: authedProcedure
+      .input(appRefSchema.and(z.object({ kind: kindSchema, data: recordDataSchema, recordId: uuid.optional() })))
+      .mutation(async ({ ctx, input }) => {
+        const userId = ctx.session.user.id
+        const app = await loadApp(ctx.db, input)
+        await assertTeamMember(userId, app.teamId)
+        const schema = recordKindSchema(app.package, input.kind)
+        if (!schema) {
+          throw new TRPCError({ code: `BAD_REQUEST`, message: `The app declares no record kind "${input.kind}": add it to the package's records first` })
+        }
+        let existing: { id: string; data: Record<string, unknown> } | null = null
+        if (input.recordId) {
+          const [row] = await ctx.db
+            .select({ id: appRecords.id, data: appRecords.data })
+            .from(appRecords)
+            .where(and(eq(appRecords.id, input.recordId), eq(appRecords.appId, app.id), eq(appRecords.kind, input.kind), isNull(appRecords.deletedAt)))
+            .limit(1)
+          if (!row) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
+          existing = row
+        }
+        const data = existing ? { ...existing.data, ...input.data } : input.data
+        const issues = validateRecord(schema, data)
+        if (issues.length > 0) {
+          const listed = issues.slice(0, 10).map((issue) => `${issue.path || `/`}: ${issue.message}`)
+          throw new TRPCError({ code: `BAD_REQUEST`, message: `record is invalid: ${listed.join(`; `)}` })
+        }
+        const bytes = packageBytes(data)
+        if (bytes > APP_RECORD_MAX_BYTES) {
+          throw new TRPCError({ code: `BAD_REQUEST`, message: `record is ${bytes} bytes; the cap is ${APP_RECORD_MAX_BYTES}` })
+        }
+        if (!existing) await assertCanCreateAppRecord(app.teamId)
+        return await ctx.db.transaction(async (tx) => {
+          const txId = await generateTxId(tx)
+          if (existing) {
+            await tx.update(appRecords).set({ data, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
+            return { txid: txId, id: existing.id, created: false }
+          }
+          const [row] = await tx
+            .insert(appRecords)
+            .values({ appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId })
+            .returning({ id: appRecords.id })
+          return { txid: txId, id: row!.id, created: true }
+        })
+      }),
+
+    delete: authedProcedure
+      .input(appRefSchema.and(z.object({ recordId: uuid })))
+      .mutation(async ({ ctx, input }) => {
+        const app = await loadApp(ctx.db, input)
+        await assertTeamMember(ctx.session.user.id, app.teamId)
+        return await ctx.db.transaction(async (tx) => {
+          const txId = await generateTxId(tx)
+          const deleted = await tx
+            .update(appRecords)
+            .set({ deletedAt: sql`now()`, updatedAt: new Date() })
+            .where(and(eq(appRecords.id, input.recordId), eq(appRecords.appId, app.id), isNull(appRecords.deletedAt)))
+            .returning({ id: appRecords.id })
+          if (deleted.length === 0) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
+          return { txid: txId }
+        })
+      }),
+  }),
 
   /** Trash (the shape's `deleted_at` mirror). The creator or an owner. */
   delete: authedProcedure

@@ -47,3 +47,22 @@ export type SourceEmit = (value: unknown) => void
 export type SourceResolver = (source: ParsedSource, emit: SourceEmit) => (() => void) | void
 
 export type SourceResolvers = Record<string, SourceResolver>
+
+/** VAPP-122: `source` with `params` appended as its query, for the `bind`
+ *  action (`{functionCall: {call: "bind", args: {path, source, params}}}`):
+ *  keys sorted, key and value percent-encoded (everything but
+ *  `A-Z a-z 0-9 - _ . ! ~ * ' ( )`), a null or undefined value skipped, an
+ *  object or array as JSON, after `?` or `&`. A repeated key parses with
+ *  the last value, so a param overrides the source's own. */
+export function sourceWithParams(source: string, params?: Record<string, unknown> | null): string {
+  if (!params || typeof params !== `object`) return source
+  const pairs: string[] = []
+  for (const key of Object.keys(params).sort()) {
+    const v = params[key]
+    if (v === null || v === undefined) continue
+    const text = typeof v === `object` ? JSON.stringify(v) : String(v)
+    pairs.push(`${encodeURIComponent(key)}=${encodeURIComponent(text)}`)
+  }
+  if (!pairs.length) return source
+  return `${source}${source.includes(`?`) ? `&` : `?`}${pairs.join(`&`)}`
+}

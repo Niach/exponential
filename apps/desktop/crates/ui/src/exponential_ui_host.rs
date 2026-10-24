@@ -10,7 +10,12 @@
 //!   with the signed-in account's credentials, `api::TrpcClient::post_json`);
 //! - bindings: the `exp:` scheme over the synced store (`exp:devices` →
 //!   `{rows, count, online}`, derived exactly as the web derives it;
-//!   `exp:issues?board=…&limit=…` → `{rows, count}`);
+//!   `exp:issues?board=…&limit=…` → `{rows, count}`; VAPP-122
+//!   `exp:records?kind=…` → `domain::app_records::records_value` over the
+//!   hosting app's synced `app_records` rows, [`HostScope`]);
+//! - VAPP-122 `harness.records.upsert {kind, data, id?}` and
+//!   `harness.records.delete {id}` (tRPC `apps.records.*` as the viewer, no
+//!   consent card: the app's own rows; a refusal = a failed-action toast);
 //! - extensions: the app extension (`packages/ui/exponential-ui/extension.json`)
 //!   with gpui painters for its `IconDisc` and `LiveDot` natives and
 //!   (VAPP-110) a team app's own package ([`IdeHost::with_packages`], the
@@ -171,6 +176,90 @@ pub(crate) fn issues_value(issues: &[IssueLite], board: Option<&str>, limit: usi
 enum Query {
     Devices,
     Issues { board: Option<String>, limit: usize },
+    /// VAPP-122 `exp:records?kind=…`.
+    Records(domain::app_records::RecordsQuery),
+}
+
+/// VAPP-122: the app a host keeps records for (`exp:records`, the
+/// `harness.records.*` writes): the hosting app and its team (an `app=`
+/// slug reads another app of the SAME team).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct HostScope {
+    pub(crate) app_id: String,
+    pub(crate) team_id: Option<String>,
+}
+
+/// One synced `app_records` row as the cache holds it (timestamps as the
+/// web's `toISOString`).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RecordLite {
+    pub(crate) id: String,
+    pub(crate) app_id: String,
+    pub(crate) kind: String,
+    pub(crate) data: Value,
+    pub(crate) created_by: Option<String>,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+}
+
+/// One live app (`id`, `slug`, `team_id`): an `app=<slug>` lookup.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AppLite {
+    pub(crate) id: String,
+    pub(crate) slug: String,
+    pub(crate) team_id: Option<String>,
+}
+
+/// The records side of the snapshot cache.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct RecordsFeed {
+    pub(crate) scope: Option<HostScope>,
+    pub(crate) me: Option<String>,
+    pub(crate) records: Vec<RecordLite>,
+    pub(crate) apps: Vec<AppLite>,
+    /// user id → display name.
+    pub(crate) names: HashMap<String, String>,
+}
+
+/// A store timestamp (RFC 3339 or the Postgres text form) → the web's
+/// `toISOString` (`2026-10-05T18:00:00.000Z`); unparsable = as is.
+pub(crate) fn iso_millis(timestamp: &str) -> String {
+    let trimmed = timestamp.trim();
+    let t_form = trimmed.replacen(' ', "T", 1);
+    [trimmed.to_string(), t_form.clone(), format!("{t_form}:00"), format!("{t_form}Z")]
+        .iter()
+        .find_map(|c| chrono::DateTime::parse_from_rfc3339(c).ok())
+        .map(|t| t.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+        .unwrap_or_else(|| trimmed.to_string())
+}
+
+/// `exp:records` over the cache: the scope's app (or the `app=` slug of the
+/// same team), names of the rows' authors, the clock = `now`.
+pub(crate) fn records_feed_value(feed: &RecordsFeed, query: &domain::app_records::RecordsQuery, now: &str) -> Value {
+    let scope = feed.scope.as_ref();
+    let app_id: Option<&str> = match &query.app {
+        Some(slug) => feed
+            .apps
+            .iter()
+            .find(|a| &a.slug == slug && scope.is_some_and(|s| a.team_id == s.team_id))
+            .map(|a| a.id.as_str()),
+        None => scope.map(|s| s.app_id.as_str()),
+    };
+    let rows: Vec<domain::app_records::RecordRowInput> = feed
+        .records
+        .iter()
+        .filter(|r| app_id.is_some_and(|id| r.app_id == id))
+        .map(|r| domain::app_records::RecordRowInput {
+            id: &r.id,
+            kind: &r.kind,
+            data: &r.data,
+            created_by: r.created_by.as_deref(),
+            created_at: &r.created_at,
+            updated_at: &r.updated_at,
+        })
+        .collect();
+    let ctx = domain::app_records::RecordsContext { me: feed.me.as_deref(), now, names: &feed.names };
+    domain::app_records::records_value(&rows, query, ctx).unwrap_or(Value::Null)
 }
 
 struct Sub {
@@ -184,6 +273,7 @@ struct Sub {
 struct Feeds {
     devices: Value,
     issues: Vec<IssueLite>,
+    records: RecordsFeed,
     subs: Vec<Sub>,
     next: u64,
 }
@@ -194,6 +284,7 @@ impl Default for Feeds {
         Feeds {
             devices: json!({"rows": [], "count": 0, "online": 0}),
             issues: Vec::new(),
+            records: RecordsFeed::default(),
             subs: Vec::new(),
             next: 0,
         }
@@ -205,6 +296,7 @@ impl Feeds {
         match query {
             Query::Devices => self.devices.clone(),
             Query::Issues { board, limit } => issues_value(&self.issues, board.as_deref(), *limit),
+            Query::Records(query) => records_feed_value(&self.records, query, &now_iso()),
         }
     }
 
@@ -220,8 +312,14 @@ impl Feeds {
     }
 }
 
+/// The clock `exp:records` reads (the month view's default month, `today`).
+fn now_iso() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
 fn query_of(source: &ParsedSource) -> Option<Query> {
     match source.name.as_str() {
+        "records" => Some(Query::Records(domain::app_records::parse_records_query(&source.params))),
         "devices" => Some(Query::Devices),
         "issues" => Some(Query::Issues {
             board: source.params.get("board").cloned().filter(|b| !b.is_empty()),
@@ -287,6 +385,47 @@ fn refresh_issues(feeds: &Rc<RefCell<Feeds>>, cx: &App) {
     let mut f = feeds.borrow_mut();
     if f.issues != issues {
         f.issues = issues;
+        f.publish();
+    }
+}
+
+/// VAPP-122: the records, the live apps and the members' names off the
+/// store (one refresh for the three collections), re-published on a move.
+fn refresh_records(feeds: &Rc<RefCell<Feeds>>, cx: &App) {
+    let Some(store) = sync::Store::try_global(cx) else { return };
+    let collections = store.collections();
+    let records: Vec<RecordLite> = collections
+        .app_records
+        .read(cx)
+        .iter()
+        .map(|r| RecordLite {
+            id: r.id.clone(),
+            app_id: r.app_id.clone(),
+            kind: r.kind.clone(),
+            data: r.data.clone(),
+            created_by: r.created_by.clone(),
+            created_at: iso_millis(r.created_at.as_deref().unwrap_or("")),
+            updated_at: iso_millis(r.updated_at.as_deref().unwrap_or("")),
+        })
+        .collect();
+    let apps: Vec<AppLite> = collections
+        .apps
+        .read(cx)
+        .iter()
+        .filter(|a| a.deleted_at.is_none())
+        .map(|a| AppLite { id: a.id.clone(), slug: a.slug.clone(), team_id: a.team_id.clone() })
+        .collect();
+    let names: HashMap<String, String> = collections
+        .users
+        .read(cx)
+        .iter()
+        .map(|u| (u.id.clone(), u.name.clone().unwrap_or_default()))
+        .collect();
+    let me = crate::queries::active_account(cx).map(|a| a.user_id);
+    let mut f = feeds.borrow_mut();
+    let next = RecordsFeed { scope: f.records.scope.clone(), me, records, apps, names };
+    if f.records != next {
+        f.records = next;
         f.publish();
     }
 }
@@ -366,6 +505,70 @@ fn open_device_fn() -> HostFunction {
             crate::toast::show_in_active_window(Toast::info(if label.is_empty() { id } else { label }), cx);
         }
         Ok(Value::Null)
+    })
+}
+
+/// VAPP-122: a `harness.records.*` write on the background executor; a
+/// refusal (the kind's schema, the caps, the plan quota) toasts the web's
+/// failed action (`Couldn't <verb> the record`) and rejects the call. The
+/// synced shape repaints the binding.
+fn records_write<T: Send + 'static>(
+    verb: &'static str,
+    scope: Option<HostScope>,
+    cx: &mut App,
+    call: impl FnOnce(&api::TrpcClient, &str) -> Result<T, api::ApiError> + Send + 'static,
+    answer: impl FnOnce(T) -> Value + 'static,
+) -> Task<Result<Value, String>> {
+    let (Some(scope), Some(trpc)) = (scope, crate::queries::trpc_client(cx)) else {
+        crate::action_error::failed_action(verb, "the record", None, cx);
+        return Task::ready(Err("No app to keep records for".to_string()));
+    };
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { call(&trpc, &scope.app_id) })
+            .await;
+        match result {
+            Ok(out) => Ok(answer(out)),
+            Err(err) => {
+                let message = err.to_string();
+                let _ = cx.update(|cx| crate::action_error::failed_action_err(verb, "the record", &err, cx));
+                Err(message)
+            }
+        }
+    })
+}
+
+fn records_upsert_fn(scope: Option<HostScope>) -> HostFunction {
+    Rc::new(move |args: Value, _: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
+        let kind = arg_str(&args, "kind");
+        let data = args.get("data").cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
+        let record_id = args.get("id").and_then(Value::as_str).map(str::to_string);
+        records_write(
+            "save",
+            scope.clone(),
+            cx,
+            move |trpc, app_id| {
+                api::apps::records_upsert(
+                    trpc,
+                    &api::apps::RecordUpsertInput { id: app_id.to_string(), kind, data, record_id },
+                )
+            },
+            |out| json!({ "id": out.id }),
+        )
+    })
+}
+
+fn records_delete_fn(scope: Option<HostScope>) -> HostFunction {
+    Rc::new(move |args: Value, _: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
+        let record_id = arg_str(&args, "id");
+        records_write(
+            "delete",
+            scope.clone(),
+            cx,
+            move |trpc, app_id| api::apps::records_delete(trpc, app_id, &record_id),
+            |_| Value::Null,
+        )
     })
 }
 
@@ -661,21 +864,38 @@ pub(crate) struct IdeHost {
 impl IdeHost {
     /// VAPP-110: the host with `packages` installed (a team app's package,
     /// the editor's preview) and the package's
-    /// `theme` (the default theme when `None` or unknown).
-    pub(crate) fn with_packages(mode: Mode, packages: &[Value], theme_id: Option<&str>, cx: &mut App) -> Self {
+    /// `theme` (the default theme when `None` or unknown). VAPP-122:
+    /// `scope` = the app whose records `exp:records` reads and
+    /// `harness.records.*` write (`None` = no app: the binding reads no
+    /// rows, a write fails).
+    pub(crate) fn with_packages(
+        mode: Mode,
+        packages: &[Value],
+        theme_id: Option<&str>,
+        scope: Option<HostScope>,
+        cx: &mut App,
+    ) -> Self {
         let feeds = Rc::new(RefCell::new(Feeds::default()));
+        feeds.borrow_mut().records.scope = scope.clone();
         refresh_devices(&feeds, cx);
         refresh_issues(&feeds, cx);
+        refresh_records(&feeds, cx);
         let mut subscriptions = Vec::new();
         if let Some(store) = sync::Store::try_global(cx) {
-            let (devices, issues) = (
-                store.collections().devices.clone(),
-                store.collections().issues.clone(),
-            );
+            let collections = store.collections();
+            let (devices, issues) = (collections.devices.clone(), collections.issues.clone());
+            let (records, apps, users) =
+                (collections.app_records.clone(), collections.apps.clone(), collections.users.clone());
             let f = feeds.clone();
             subscriptions.push(cx.observe(&devices, move |_, cx| refresh_devices(&f, cx)));
             let f = feeds.clone();
             subscriptions.push(cx.observe(&issues, move |_, cx| refresh_issues(&f, cx)));
+            let f = feeds.clone();
+            subscriptions.push(cx.observe(&records, move |_, cx| refresh_records(&f, cx)));
+            let f = feeds.clone();
+            subscriptions.push(cx.observe(&apps, move |_, cx| refresh_records(&f, cx)));
+            let f = feeds.clone();
+            subscriptions.push(cx.observe(&users, move |_, cx| refresh_records(&f, cx)));
         }
         let weak = Rc::downgrade(&feeds);
         let tick = cx.spawn(async move |cx| loop {
@@ -693,6 +913,8 @@ impl IdeHost {
         functions.insert("harness.openIssue".into(), open_issue_fn());
         functions.insert("harness.openDevice".into(), open_device_fn());
         functions.insert("harness.mcp".into(), mcp_fn());
+        functions.insert("harness.records.upsert".into(), records_upsert_fn(scope.clone()));
+        functions.insert("harness.records.delete".into(), records_delete_fn(scope));
         let mut sources: HashMap<String, SourceResolver> = HashMap::new();
         sources.insert("exp".into(), exp_resolver(Rc::downgrade(&feeds)));
         let extensions = match parse_extension(APP_EXTENSION_JSON) {
@@ -847,6 +1069,75 @@ mod tests {
         assert_eq!(got.lock().unwrap().last(), Some(&Value::Null));
     }
 
+    fn record(id: &str, app: &str, hours: i64, by: &str) -> RecordLite {
+        RecordLite {
+            id: id.into(),
+            app_id: app.into(),
+            kind: "entry".into(),
+            data: json!({"date": "2026-10-05", "hours": hours}),
+            created_by: Some(by.into()),
+            created_at: iso_millis("2026-10-05 18:00:00+00"),
+            updated_at: iso_millis("2026-10-05T18:00:00Z"),
+        }
+    }
+
+    fn records_feed() -> RecordsFeed {
+        RecordsFeed {
+            scope: Some(HostScope { app_id: "a1".into(), team_id: Some("t1".into()) }),
+            me: Some("u1".into()),
+            records: vec![record("r1", "a1", 3, "u1"), record("r2", "a2", 4, "u2"), record("r3", "a3", 5, "u2")],
+            apps: vec![
+                AppLite { id: "a1".into(), slug: "hours".into(), team_id: Some("t1".into()) },
+                AppLite { id: "a2".into(), slug: "other".into(), team_id: Some("t1".into()) },
+                AppLite { id: "a3".into(), slug: "foreign".into(), team_id: Some("t2".into()) },
+            ],
+            names: HashMap::from([("u1".to_string(), "Danny".to_string())]),
+        }
+    }
+
+    /// VAPP-122: the hosting app's rows, `app=` = another app of the SAME
+    /// team, the web's ISO timestamps and author names.
+    #[test]
+    fn records_read_the_scoped_app() {
+        let feed = records_feed();
+        let query = |s: &str| match query_of(&exponential_ui::host::parse_source(s).unwrap()) {
+            Some(Query::Records(q)) => q,
+            other => panic!("{other:?}"),
+        };
+        let now = "2026-10-24T09:00:00.000Z";
+        let own = records_feed_value(&feed, &query("exp:records?kind=entry&sum=hours"), now);
+        assert_eq!(own["count"], 1);
+        assert_eq!(own["sum"], 3);
+        assert_eq!(own["rows"][0]["author"], "Danny");
+        assert_eq!(own["rows"][0]["createdAt"], "2026-10-05T18:00:00.000Z");
+        let other = records_feed_value(&feed, &query("exp:records?kind=entry&app=other"), now);
+        assert_eq!(other["rows"][0]["id"], "r2");
+        assert_eq!(other["rows"][0]["author"], "");
+        let foreign = records_feed_value(&feed, &query("exp:records?kind=entry&app=foreign"), now);
+        assert_eq!(foreign["count"], 0, "another team's app reads nothing");
+        assert_eq!(records_feed_value(&feed, &query("exp:records"), now), Value::Null);
+        let unscoped = RecordsFeed { scope: None, ..records_feed() };
+        assert_eq!(records_feed_value(&unscoped, &query("exp:records?kind=entry"), now)["count"], 0);
+    }
+
+    #[test]
+    fn records_re_emit_only_on_a_move() {
+        let feeds = Rc::new(RefCell::new(Feeds::default()));
+        feeds.borrow_mut().records = records_feed();
+        let resolver = exp_resolver(Rc::downgrade(&feeds));
+        let got = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let sink = got.clone();
+        let emit: Emit = Arc::new(move |v| sink.lock().unwrap().push(v));
+        let _cancel = resolver(exponential_ui::host::parse_source("exp:records?kind=entry").unwrap(), emit);
+        assert_eq!(got.lock().unwrap()[0]["count"], 1);
+        feeds.borrow_mut().publish();
+        assert_eq!(got.lock().unwrap().len(), 1);
+        feeds.borrow_mut().records.records.push(record("r4", "a1", 1, "u1"));
+        feeds.borrow_mut().publish();
+        assert_eq!(got.lock().unwrap().len(), 2);
+        assert_eq!(got.lock().unwrap()[1]["count"], 2);
+    }
+
     struct Holder(Entity<exponential_ui_gpui::view::SurfaceView>);
     impl gpui::Render for Holder {
         fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
@@ -863,7 +1154,7 @@ mod tests {
         let c = calls.clone();
         let host = cx.update(|cx| {
             let pkg: Value = serde_json::from_str(DEVICES_PACKAGE_JSON).unwrap();
-            let ide = IdeHost::with_packages(Mode::Dark, &[pkg], None, cx);
+            let ide = IdeHost::with_packages(Mode::Dark, &[pkg], None, None, cx);
             ide.host.update(cx, |h, _| {
                 h.register_function(
                     "harness.openDevice",

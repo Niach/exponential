@@ -15,6 +15,7 @@ import { db } from "@/db/connection"
 import {
   teamMembers,
   teams,
+  appRecords,
   attachments,
   creem_subscriptions,
   teamInvites,
@@ -464,6 +465,30 @@ export async function assertCanCreateWidget(
   ])
 
   assertWidgetCreatable(plan, limits, usage.widgetConfigs)
+}
+
+// VAPP-122: app records per team (plan-limits `appRecords`; every record
+// syncs to every member's clients). Pure gate, exported for unit tests.
+export function assertAppRecordCreatable(limits: PlanLimits, currentCount: number): void {
+  if (currentCount >= limits.appRecords) {
+    throw planLimitError(`up to ${limits.appRecords.toLocaleString(`en-US`)} app records in this team. Upgrade to add more.`)
+  }
+}
+
+/** Live (not trashed) records across the team's apps. */
+export async function countTeamAppRecords(teamId: string): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(appRecords)
+    .where(and(eq(appRecords.teamId, teamId), isNull(appRecords.deletedAt)))
+  return row?.count ?? 0
+}
+
+// Record-create gate (apps.records.upsert without an id). Self-hosted is unlimited.
+export async function assertCanCreateAppRecord(teamId: string): Promise<void> {
+  if (!isCloudInstance()) return
+  const [{ limits }, count] = await Promise.all([getTeamPlan(teamId), countTeamAppRecords(teamId)])
+  assertAppRecordCreatable(limits, count)
 }
 
 export async function assertWithinStorageLimit(

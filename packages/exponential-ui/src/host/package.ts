@@ -7,6 +7,8 @@ import type { FlatComponent } from "../types"
 import type { ServerMessage } from "./contract"
 import { matchesPattern } from "./policy"
 import { parseSource } from "./sources"
+import { RECORD_KIND_PATTERN, validateRecordSchema } from "./records"
+import type { RecordKind } from "./records"
 
 /** The core, the core lite, the A2UI basic catalog, then every registered
  *  extension id in order, de-duplicated. */
@@ -49,6 +51,10 @@ export interface AppPackage {
   theme?: unknown
   icon?: { glyph?: string; color?: string }
   description?: string
+  /** VAPP-122: the app's own data, one JSON Schema subset per kind
+   *  (`host/records.ts`); a record is validated against its kind before
+   *  it is stored. A kind's name follows `RECORD_KIND_PATTERN`. */
+  records?: Record<string, RecordKind>
 }
 
 export interface PackageIssue {
@@ -98,6 +104,16 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
     }
   if (pkg.functions !== undefined && (!Array.isArray(pkg.functions) || pkg.functions.some((f) => typeof f !== `string` || !f)))
     issues.push({ path: `/functions`, message: `functions is a list of names or prefix* patterns` })
+  if (pkg.records !== undefined) {
+    if (!isObject(pkg.records)) issues.push({ path: `/records`, message: `records is an object of kinds` })
+    else
+      for (const [kind, def] of Object.entries(pkg.records)) {
+        const at = `/records/${kind}`
+        if (!RECORD_KIND_PATTERN.test(kind)) issues.push({ path: at, message: `a kind is lowercase letters, digits and underscores` })
+        if (!isObject(def)) issues.push({ path: at, message: `a kind is {schema, title?}` })
+        else issues.push(...validateRecordSchema(def.schema, `${at}/schema`))
+      }
+  }
   if (pkg.sources !== undefined && (!Array.isArray(pkg.sources) || pkg.sources.some((f) => typeof f !== `string` || !f)))
     issues.push({ path: `/sources`, message: `sources is a list of scheme:name sources or prefix* patterns` })
   else if (Array.isArray(pkg.sources) && isObject(pkg.templates))

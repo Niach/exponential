@@ -7288,6 +7288,18 @@ public func runActionJson(actionJson: String, dataJson: String, scope: String, s
 })
 }
 /**
+ * VAPP-122: `source` with `params` (a JSON object, or null) appended as
+ * its query, for the `bind` action (`sourceWithParams`).
+ */
+public func sourceWithParamsJson(source: String, paramsJson: String?) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_source_with_params_json(
+        FfiConverterString.lower(source),
+        FfiConverterOptionString.lower(paramsJson),$0
+    )
+})
+}
+/**
  * The built-in strings with `overrides_json` merged over them.
  */
 public func stringTableJson(overridesJson: String?)throws  -> String  {
@@ -7565,6 +7577,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_run_action_json() != 39985) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_source_with_params_json() != 2808) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_string_table_json() != 50623) {

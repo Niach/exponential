@@ -23,8 +23,10 @@ import {
   mediaRequest,
   messagesFromMcpResult,
   parseSource,
+  sourceWithParams,
   supportedCatalogIds,
   validatePackage,
+  validateRecord,
   BUILTIN_FUNCTIONS,
   HOST_ERROR_CODES,
   FORMATTER_METHODS,
@@ -66,18 +68,22 @@ describe(`host-policy.json`, () => {
   for (const c of policyFixture.urls) test(`url: ${c.name}`, () => expect(decideUrl((c as { policy?: UrlPolicy }).policy, c.url)).toEqual(c.expected as never))
   for (const c of policyFixture.media) test(`media: ${c.name}`, () => expect(mediaRequest(c.url, c.options as MediaOptions)).toEqual(c.expected as never))
   for (const c of policyFixture.sources) test(`source: ${c.uri}`, () => expect(parseSource(c.uri)).toEqual(c.expected as never))
+  for (const c of policyFixture.sourceParams) test(`sourceParams: ${c.expected}`, () => expect(sourceWithParams(c.source, c.params as Record<string, unknown>)).toBe(c.expected))
   for (const c of policyFixture.negotiation)
     test(`negotiation: ${c.extensionIds.length} extension ids`, () => {
       expect(supportedCatalogIds(c.extensionIds)).toEqual(c.expected.supportedCatalogIds)
       expect(clientCapabilities(c.extensionIds)).toEqual(c.expected.clientCapabilities)
     })
-  // The basic catalog's 14 plus round 1's 15 core functions (`set` incl.).
-  test(`the 32 built-ins are the catalog's`, () => expect(BUILTIN_FUNCTIONS.length).toBe(32))
+  // The basic catalog's 14 plus round 1's 15 core functions (`set` incl.),
+  // round 2's two formatters, round 4's filter and VAPP-122's bind.
+  test(`the 33 built-ins are the catalog's`, () => expect(BUILTIN_FUNCTIONS.length).toBe(33))
 })
 
 describe(`host-router.json`, () => {
   const packages = routerFixture.packages as unknown as Record<string, AppPackage>
   for (const v of routerFixture.validation) test(`validation: ${v.package}`, () => expect(validatePackage(packages[v.package])).toEqual(v.expected))
+  for (const c of routerFixture.records)
+    test(`records: ${c.name}`, () => expect(validateRecord(packages[c.package]!.records![c.kind]!.schema, c.data)).toEqual(c.expected as never))
   for (const flow of routerFixture.flows as { name: string; extensionIds?: string[]; packages?: string[]; installIssues?: Record<string, unknown>; steps: { message: unknown; expected: unknown }[] }[])
     test(`flow: ${flow.name}`, () => {
       const r = new HostRouter({ extensionIds: flow.extensionIds ?? [] })
