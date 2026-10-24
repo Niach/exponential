@@ -1,0 +1,125 @@
+{
+  "$comment": "NEW-52: the 20 test phrases of the exponentialTalk spike. Ten German, ten English, each with the identifiers, thread titles and command words the dispatcher must hear right. `ref` is the reference transcript WER is scored against (lower-cased, punctuation stripped by the scorer; identifiers kept as spoken tokens). The synthetic set is generated from these by the TTS engines under test; `scripts/record.sh` records a human set with the same ids. `spoken` is the form a person says aloud (identifiers spelled, numbers as words); it is what the TTS engines synthesise and what WER is scored against; turning `E X P twelve forty two` back into `EXP-1242` is the Assistant's job, not the recogniser's.",
+  "phrases": [
+    {
+      "id": "de-01",
+      "lang": "de",
+      "ref": "hey exponential stoppe die session auf EXP-1242",
+      "spoken": "hey exponential stoppe die session auf E X P zwölf zweiundvierzig"
+    },
+    {
+      "id": "de-02",
+      "lang": "de",
+      "ref": "zeig mir den diff vom thread voice mode and TTS",
+      "spoken": "zeig mir den diff vom thread voice mode and TTS"
+    },
+    {
+      "id": "de-03",
+      "lang": "de",
+      "ref": "lege ein issue an titel push to talk hotkey funktioniert nicht unter wayland",
+      "spoken": "lege ein issue an titel push to talk hotkey funktioniert nicht unter wayland"
+    },
+    {
+      "id": "de-04",
+      "lang": "de",
+      "ref": "setze EXP-1369 auf done und sag mir was gerade läuft",
+      "spoken": "setze E X P dreizehn neunundsechzig auf done und sag mir was gerade läuft"
+    },
+    {
+      "id": "de-05",
+      "lang": "de",
+      "ref": "starte den prompt release notes auf dem macbook",
+      "spoken": "starte den prompt release notes auf dem macbook"
+    },
+    {
+      "id": "de-06",
+      "lang": "de",
+      "ref": "nimm nummer zwei aber mit priorität hoch",
+      "spoken": "nimm nummer zwei aber mit priorität hoch"
+    },
+    {
+      "id": "de-07",
+      "lang": "de",
+      "ref": "akzeptiere alle",
+      "spoken": "akzeptiere alle"
+    },
+    {
+      "id": "de-08",
+      "lang": "de",
+      "ref": "wie viele einträge sind in meiner inbox",
+      "spoken": "wie viele einträge sind in meiner inbox"
+    },
+    {
+      "id": "de-09",
+      "lang": "de",
+      "ref": "kommentiere auf NEW-52 die zahlen vom spike sind da",
+      "spoken": "kommentiere auf NEW zweiundfünfzig die zahlen vom spike sind da"
+    },
+    {
+      "id": "de-10",
+      "lang": "de",
+      "ref": "ablehnen eins und merge den pull request von NEW-48",
+      "spoken": "ablehnen eins und merge den pull request von NEW achtundvierzig"
+    },
+    {
+      "id": "en-01",
+      "lang": "en",
+      "ref": "hey exponential stop the session on EXP-1242 and show me the diff",
+      "spoken": "hey exponential stop the session on E X P twelve forty two and show me the diff"
+    },
+    {
+      "id": "en-02",
+      "lang": "en",
+      "ref": "create an issue titled wake word false accepts in game chat",
+      "spoken": "create an issue titled wake word false accepts in game chat"
+    },
+    {
+      "id": "en-03",
+      "lang": "en",
+      "ref": "move EXP-1369 to done",
+      "spoken": "move E X P thirteen sixty nine to done"
+    },
+    {
+      "id": "en-04",
+      "lang": "en",
+      "ref": "what is running right now",
+      "spoken": "what is running right now"
+    },
+    {
+      "id": "en-05",
+      "lang": "en",
+      "ref": "start the prompt release notes on the server",
+      "spoken": "start the prompt release notes on the server"
+    },
+    {
+      "id": "en-06",
+      "lang": "en",
+      "ref": "take two but set priority high",
+      "spoken": "take two but set priority high"
+    },
+    {
+      "id": "en-07",
+      "lang": "en",
+      "ref": "accept all",
+      "spoken": "accept all"
+    },
+    {
+      "id": "en-08",
+      "lang": "en",
+      "ref": "reject one",
+      "spoken": "reject one"
+    },
+    {
+      "id": "en-09",
+      "lang": "en",
+      "ref": "add a comment on NEW-54 the overlay fades after the reply",
+      "spoken": "add a comment on NEW fifty four the overlay fades after the reply"
+    },
+    {
+      "id": "en-10",
+      "lang": "en",
+      "ref": "merge the pull request of NEW-48 and tell me the inbox count",
+      "spoken": "merge the pull request of NEW forty eight and tell me the inbox count"
+    }
+  ]
+}

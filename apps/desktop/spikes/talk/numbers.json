@@ -1,0 +1,178 @@
+{
+  "$comment": "NEW-52 exponentialTalk spike numbers. Synthetic clips: the 20 phrases of data/phrases.json spoken by Kokoro (en) and Qwen3-TTS 1.7B (de + en); no human recordings yet (scripts/record.sh). WER is scored against the spoken form; identifiers like 'E X P twelve forty two' count word by word, which penalises engines that normalise them to 'exp1242'.",
+  "machine": "mint (Linux Mint 22, i9 32 threads, RTX 4090 24 GB, PipeWire, Arctis Nova 7)",
+  "platform": "Linux-6.17.0-42-generic-x86_64-with-glibc2.39",
+  "asr": [
+    {
+      "engine": "nemotron-3.5-asr-streaming-0.6b Q8_0, transcribe.cpp CUDA",
+      "clips": "nemotron-kokoro-en",
+      "wer": 11.5,
+      "first_partial_audio_ms_median": null,
+      "tail_ms_median": null,
+      "tail_ms_max": 0,
+      "rtf_median": null,
+      "load_ms": null,
+      "wall_ms_median": 993.0
+    },
+    {
+      "engine": "nemotron-3.5-asr-streaming-0.6b Q8_0, transcribe.cpp CUDA",
+      "clips": "nemotron-qwen17b-en",
+      "wer": 13.8,
+      "first_partial_audio_ms_median": null,
+      "tail_ms_median": null,
+      "tail_ms_max": 0,
+      "rtf_median": null,
+      "load_ms": null,
+      "wall_ms_median": 1357.5
+    },
+    {
+      "engine": "nemotron-3.5-asr-streaming-0.6b Q8_0, transcribe.cpp CUDA",
+      "clips": "nemotron-qwen17b-de",
+      "wer": 20.7,
+      "first_partial_audio_ms_median": null,
+      "tail_ms_median": null,
+      "tail_ms_max": 0,
+      "rtf_median": null,
+      "load_ms": null,
+      "wall_ms_median": 5005.5
+    },
+    {
+      "engine": "whistle (cactus-rs 0.2.1), CPU",
+      "clips": "whistle-kokoro-en",
+      "wer": 24.1,
+      "first_partial_audio_ms_median": 2780.0,
+      "tail_ms_median": 62.0,
+      "tail_ms_max": 165,
+      "rtf_median": 0.019,
+      "load_ms": 1103,
+      "wall_ms_median": null
+    },
+    {
+      "engine": "whistle (cactus-rs 0.2.1), CPU",
+      "clips": "whistle-qwen17b-en",
+      "wer": 35.6,
+      "first_partial_audio_ms_median": 2800.0,
+      "tail_ms_median": 55.0,
+      "tail_ms_max": 441,
+      "rtf_median": 0.023,
+      "load_ms": 51,
+      "wall_ms_median": null
+    },
+    {
+      "engine": "whistle (cactus-rs 0.2.1), CPU",
+      "clips": "whistle-qwen17b-de",
+      "wer": 32.6,
+      "first_partial_audio_ms_median": 3400.0,
+      "tail_ms_median": 64.5,
+      "tail_ms_max": 110,
+      "rtf_median": 0.021,
+      "load_ms": 28,
+      "wall_ms_median": null
+    },
+    {
+      "engine": "zipformer streaming en-2023-06-26 (sherpa-onnx), CPU 4 threads",
+      "clips": "zipformer-en-kokoro",
+      "wer": 35.6,
+      "first_partial_audio_ms_median": 800,
+      "tail_ms_median": 27.0,
+      "tail_ms_max": 63,
+      "rtf_median": 0.058,
+      "load_ms": 1385,
+      "wall_ms_median": null
+    },
+    {
+      "engine": "zipformer streaming en-2023-06-26 (sherpa-onnx), CPU 4 threads",
+      "clips": "zipformer-qwen17b-en",
+      "wer": 20.7,
+      "first_partial_audio_ms_median": 1200,
+      "tail_ms_median": 26.0,
+      "tail_ms_max": 31,
+      "rtf_median": 0.047,
+      "load_ms": 1488,
+      "wall_ms_median": null
+    }
+  ],
+  "tts": [
+    {
+      "engine": "kokoro v1.0 (sherpa-onnx 2.0, lexicon, no espeak-ng), CPU 4 threads",
+      "clips": 10,
+      "ttfa_ms_median": 528.0,
+      "wall_ms_median": 528.0,
+      "rtf_median": 0.188,
+      "load_ms": 1091
+    }
+  ],
+  "vad": [
+    {
+      "engine": "silero-vad (sherpa-onnx)",
+      "clips": 10,
+      "segments": 10,
+      "eou_lag_ms_median": 500.0,
+      "compute_ms_per_clip_median": 15.0
+    }
+  ],
+  "kws": [
+    {
+      "engine": "sherpa-onnx kws zipformer zh-en 3M",
+      "clips": 10,
+      "hits": [
+        [
+          "en-01.wav",
+          "HEY",
+          500
+        ],
+        [
+          "en-01.wav",
+          "STOP",
+          1500
+        ]
+      ],
+      "rtf_median": 0.013
+    }
+  ],
+  "manual": {
+    "qwen3_tts_1_7b_q4km_llama_cpp_vulkan": {
+      "engine": "Qwen3-TTS-12Hz-1.7B-Base Q4_K_M + mmproj Q8_0 (ggml-org), llama-tts b11846, Vulkan on RTX 4090",
+      "clips": 20,
+      "model_rtf_median": 0.488,
+      "model_total_s_median": 1.6949999999999998,
+      "process_wall_ms_median": 5562.0,
+      "note": "llama-tts is not streaming: total = prompt eval + generation + vocoder for the whole utterance; the process wall time includes ~1.5 s of model load per call (a resident worker pays it once). First call on CPU (no -dev) ran at 0.58x realtime.",
+      "vram_mib_nvidia_smi": "5621-6576 (Vulkan allocates generously; CUDA build and the 0.6B model not measured)",
+      "rss_kb_max": 2083416,
+      "german": "yes: de clips generated from the spoken forms; quality judged by ear only"
+    },
+    "nemotron_3_5_transcribe_cpp": {
+      "engine": "nemotron-3.5-asr-streaming-0.6b Q8_0 (handy-computer GGUF, OpenMDW-1.1), transcribe.cpp (MIT, ggml) CUDA",
+      "vram_mib_nvidia_smi": 1142,
+      "offline_clip_realtime_factor": "14-30x cold per process (73-126 ms for 1.1-3.7 s clips), 49x warm (-r 5: 33 ms for 1.6 s)",
+      "cpu_backend": "14x realtime (114 ms for 1.6 s)",
+      "vocabulary_biasing": "not supported by this backend in transcribe.cpp ('model parakeet does not support vocabulary')",
+      "languages_tested": [
+        "en-US",
+        "de-DE"
+      ]
+    },
+    "nemotron_3_5_onnx_fp16_ort": {
+      "engine": "soniqo ONNX FP16 export (encoder 1.24 GB), onnxruntime 1.31 Python, zero caches, one 320 ms chunk",
+      "cuda_encoder_ms_p50": 283.7,
+      "cuda_encoder_ms_p95": 781.4,
+      "cpu_encoder_ms_p50": 589.4,
+      "cpu_encoder_ms_p95": 996.9,
+      "note": "an unoptimised probe (dummy cache shapes, no IO binding): the ONNX path is near real time at best; the ggml runtime above is the measured production path"
+    },
+    "channels": {
+      "method": "pw-record -P '{ stream.capture.sink=true }' --target <sink> per source, two recorders at once",
+      "result": "two 16 kHz mono clips of 3.86 s each, peaks 0.52/0.54, onsets 609 ms and 1460 ms = the 0.8 s play offset within 50 ms; per-app capture = the same call on the app's own node"
+    },
+    "os_voice_linux": {
+      "engine": "speech-dispatcher 0.12 + espeak-ng (the Linux OS voice)",
+      "result": "spoke all 20 phrases through the headset; Danny: 'sounds really bad'. Not usable as the Linux fallback voice. Time to first audio not captured: the speech-dispatcher stream could not be routed to a recordable sink in the time box."
+    },
+    "vad_knob": {
+      "min_silence_0_5_s": "end-of-utterance lag 500 ms on every clip",
+      "min_silence_0_3_s": "300 ms"
+    },
+    "gpu_idle_vram_mib_before": 3862
+  }
+}
