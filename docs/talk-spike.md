@@ -6,7 +6,7 @@ PipeWire, SteelSeries Arctis Nova 7). The harness is
 `apps/desktop/spikes/talk/` (its README has every command); the folded
 numbers are `apps/desktop/spikes/talk/numbers.json`, the input of the
 `/talk` page's Numbers section (NEW-60). Not measured yet: the macbook (a
-child session runs the same harness), Dennis's notebook, a human voice
+child session runs the same harness), the spec author's notebook, a human voice
 (`scripts/record.sh`), a running game beside the engines.
 
 ## Test material
@@ -27,7 +27,7 @@ percentages.
 | `Transcriber` | **Nemotron 3.5 ASR streaming 0.6B** where a GPU exists (through a ggml runtime); **Whistle** as the CPU path for commands; the English streaming Zipformer only as a fallback | Nemotron is the only one of the three that hears German (Zipformer has no German model at all) and it keeps content words nearly perfect on both languages; Whistle is ten times cheaper and normalises identifiers the way the dispatcher wants, but mishears content words |
 | `Vad` | **Silero through sherpa-onnx** | 15 ms of compute per clip, end-of-utterance lag = exactly the `min_silence_duration` knob (500 ms at 0.5 s, 300 ms at 0.3 s) |
 | `WakeWord` | **transcript match** for "hey <agent>"; the sherpa keyword spotter for short idle phrases only | the 3 M spotter fires on `HEY` and `STOP` from a text keyword with no training, but never on the five-syllable `EXPONENTIAL`, boosted or not; a long brand word needs a trained model (openWakeWord) or a shorter idle phrase |
-| `Speaker` | **Qwen3-TTS** on GPU (German and English in one model, 2x faster than real time at 1.7B), **Kokoro** on CPU for English (time to first audio ~0.5 s, RTF 0.19); the Linux OS voice is not a fallback | Danny's verdict on hearing espeak-ng through the headset: "sounds really bad"; macOS and Windows OS voices remain to be judged on the macbook and the Windows device |
+| `Speaker` | **Qwen3-TTS** on GPU (German and English in one model, 2x faster than real time at 1.7B), **Kokoro** on CPU for English (time to first audio ~0.5 s, RTF 0.19); the Linux OS voice is not a fallback | the owner heard espeak-ng through the headset and judged it unusable on first listen; macOS and Windows OS voices remain to be judged on the macbook and the Windows device |
 | channels | **one PipeWire capture per source** works | two sinks recorded at once into two aligned 16 kHz clips; the same call on an app's node is the per-app channel |
 | proposer cards | the interception point exists; a per-session permission posture is the one engine change | see "The card path" |
 
@@ -89,8 +89,10 @@ thresholds 0.25, 0.1 and 0.05, boosted 2.5x or not, nor its prefix `EXPO`. The
 options are a trained openWakeWord model (the 4090 can train one) or a
 different short idle phrase; "hey <agent name>" as a transcript match while
 STT runs needs nothing (both Nemotron and Whistle wrote "hey exponential").
-False-accept rate per hour is not measured yet (needs the 1 h game-chat +
-desk recording).
+False-accept rate per hour is not measured yet. The planned 1 h recording
+(game audio, desk noise, speech) uses only the recording person's own voice
+and voices with explicit consent (§201 StGB, as the spec notes), and stays
+in the gitignored `out/`; nothing of it is committed.
 
 ## TTS
 
@@ -102,7 +104,7 @@ desk recording).
 | **Qwen3-TTS 0.6B CustomVoice Q8_0** (cstr GGUF, Apache-2.0) + 12 Hz codec Q8_0 via CrispASR (MIT, ggml) | RTX 4090 (CUDA) | per sentence: the first PCM bytes of an 8 s German utterance arrived 2.2 s after launch, ~1.2 s of that is model load | **0.13–0.17** (6–7x faster than real time: 8.3 s of English in 1.37 s, 8.0 s of German in 1.06 s) | **2,250–2,300 MiB VRAM** | **yes** |
 | speech-dispatcher + espeak-ng (the Linux OS voice) | CPU | not captured | | | yes |
 
-The 0.6B CustomVoice model is the one that fits Dennis's budget: 2.3 GB of
+The 0.6B CustomVoice model is the one that fits the spec's 4 GB budget: 2.3 GB of
 VRAM on CUDA beside Nemotron's 1.1 GB keeps the pair under 4 GB, German and
 English in one model, seven times faster than real time. The 1.7B on the
 Vulkan build takes 5.6–6.6 GB. Neither runtime streams below sentence
@@ -113,8 +115,8 @@ Kokoro's number words are not spoken at all ("1369" is skipped as
 out-of-vocabulary), so the spoken forms matter for it too.
 
 The Linux OS voice was the only engine that played through the headset
-(the capture went to the wrong sink), and Danny's verdict was immediate:
-"sounds really bad unfortunately". Decision input for NEW-53: on Linux the
+(the capture went to the wrong sink); the owner's verdict on first listen was
+that it is not acceptable. Decision input for NEW-53: on Linux the
 "OS voices as the CPU fallback" answer means espeak-ng, which is not
 acceptable; Kokoro (English) is the CPU fallback there, and German on a
 CPU-only Linux box has no good voice yet. macOS (`AVSpeechSynthesizer`) and
@@ -133,7 +135,7 @@ node.
 
 ## The card path
 
-Dennis's "Haiku proposes, the local executor confirms" maps onto code that
+The spec's "Haiku proposes, the local executor confirms" maps onto code that
 exists:
 
 - The Claude adapter (`apps/desktop/crates/engine/src/adapters/claude.rs`)
@@ -183,5 +185,6 @@ library, Piper, Kitten TTS, Supertonic (OpenRAIL-M).
 - NEW-57 meeting mode: PipeWire per-source capture is confirmed; the merge by
   timestamps is harness work, not research.
 - Open: macbook numbers (child session), Qwen3-TTS 0.6B and CUDA VRAM, the
-  Linux German CPU voice, a human recording set, false accepts per hour, a
+  Linux German CPU voice, a human recording set, false accepts per hour (own and consenting voices
+  only, kept out of git), a
   running game beside the engines.
