@@ -154,8 +154,8 @@
         "file": "shots/app/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 43458,
-        "sha256": "cea4ad0bcae20d3f8a843d392f31fe149edf88af080931ae203b087e8df0d204"
+        "bytes": 61928,
+        "sha256": "778a29b514e72ca4fd6b819e915ce89247677e33a783b67d38b107c74a5574ca"
       },
       "web-mobile": {
         "file": "shots/app/web-mobile.webp",
