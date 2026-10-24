@@ -130,7 +130,10 @@ pub fn validate_package<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S]) -> Vec<Pa
         match records.as_object() {
             None => issues.push(issue("/records", "records is an object of kinds")),
             Some(kinds) => {
-                for (kind, def) in kinds {
+                let mut names: Vec<&String> = kinds.keys().collect();
+                names.sort();
+                for kind in names {
+                    let def = &kinds[kind];
                     let at = format!("/records/{kind}");
                     if !is_record_kind(kind) {
                         issues.push(issue(&at, "a kind is lowercase letters, digits and underscores"));

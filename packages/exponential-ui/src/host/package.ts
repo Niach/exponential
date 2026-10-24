@@ -107,7 +107,8 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
   if (pkg.records !== undefined) {
     if (!isObject(pkg.records)) issues.push({ path: `/records`, message: `records is an object of kinds` })
     else
-      for (const [kind, def] of Object.entries(pkg.records)) {
+      for (const kind of Object.keys(pkg.records).sort()) {
+        const def = (pkg.records as Record<string, unknown>)[kind]
         const at = `/records/${kind}`
         if (!RECORD_KIND_PATTERN.test(kind)) issues.push({ path: at, message: `a kind is lowercase letters, digits and underscores` })
         if (!isObject(def)) issues.push({ path: at, message: `a kind is {schema, title?}` })

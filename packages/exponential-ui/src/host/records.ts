@@ -55,7 +55,10 @@ const isStringList = (v: unknown): v is string[] => Array.isArray(v) && v.every(
 export function validateRecordSchema(schema: unknown, at: string): PackageIssue[] {
   const issues: PackageIssue[] = []
   if (!isObject(schema) || schema.type !== `object` || !isObject(schema.properties)) return [{ path: at, message: `a record schema is {type: "object", properties}` }]
-  for (const [name, field] of Object.entries(schema.properties)) {
+  // Keys in sorted order: the issue order never depends on how a host's JSON
+  // layer ordered the object (Swift and Kotlin dictionaries do not keep it).
+  for (const name of Object.keys(schema.properties).sort()) {
+    const field = (schema.properties as Record<string, unknown>)[name]
     const fp = `${at}/properties/${name}`
     if (RECORD_RESERVED_KEYS.includes(name)) issues.push({ path: fp, message: `${name} is a reserved record key` })
     if (!isObject(field) || typeof field.type !== `string` || !RECORD_FIELD_TYPES.includes(field.type)) {
@@ -118,7 +121,8 @@ export function validateRecord(schema: RecordSchema, data: unknown): PackageIssu
   if (!isObject(data)) return [{ path: ``, message: `a record is an object` }]
   const issues: PackageIssue[] = []
   const required = new Set(schema.required ?? [])
-  for (const [name, field] of Object.entries(schema.properties)) {
+  for (const name of Object.keys(schema.properties).sort()) {
+    const field = schema.properties[name]!
     const value = data[name]
     if (value === undefined || value === null) {
       if (required.has(name)) issues.push({ path: `/${name}`, message: `required` })
@@ -137,6 +141,6 @@ export function validateRecord(schema: RecordSchema, data: unknown): PackageIssu
     issues.push(...checkScalar(field.type, value, `/${name}`, field))
   }
   if (schema.additionalProperties !== true)
-    for (const key of Object.keys(data)) if (!Object.prototype.hasOwnProperty.call(schema.properties, key)) issues.push({ path: `/${key}`, message: `not in the schema` })
+    for (const key of Object.keys(data).sort()) if (!Object.prototype.hasOwnProperty.call(schema.properties, key)) issues.push({ path: `/${key}`, message: `not in the schema` })
   return issues
 }

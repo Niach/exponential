@@ -38,7 +38,12 @@ pub fn validate_record_schema(schema: &Value, at: &str) -> Vec<PackageIssue> {
     let Some((obj, properties)) = schema.as_object().filter(|o| o.get("type").and_then(Value::as_str) == Some("object")).and_then(|o| o.get("properties").and_then(Value::as_object).map(|p| (o, p))) else {
         return vec![issue(at, "a record schema is {type: \"object\", properties}")];
     };
-    for (name, field) in properties {
+    // Keys in sorted order (the TS reference sorts too): the issue order never
+    // depends on how a host's JSON layer ordered the object.
+    let mut names: Vec<&String> = properties.keys().collect();
+    names.sort();
+    for name in names {
+        let field = &properties[name];
         let fp = format!("{at}/properties/{name}");
         if RECORD_RESERVED_KEYS.contains(&name.as_str()) {
             issues.push(issue(&fp, format!("{name} is a reserved record key")));
@@ -206,8 +211,10 @@ pub fn validate_record(schema: &Value, data: &Value) -> Vec<PackageIssue> {
     let mut issues = Vec::new();
     let properties = schema.get("properties").and_then(Value::as_object);
     let required: Vec<&str> = schema.get("required").and_then(string_list).unwrap_or_default();
-    for (name, field) in properties.into_iter().flatten() {
-        let Some(field) = field.as_object() else { continue };
+    let mut names: Vec<&String> = properties.into_iter().flat_map(|p| p.keys()).collect();
+    names.sort();
+    for name in names {
+        let Some(field) = properties.and_then(|p| p.get(name)).and_then(Value::as_object) else { continue };
         let value = data.get(name);
         if value.is_none_or(Value::is_null) {
             if required.contains(&name.as_str()) {
@@ -242,7 +249,9 @@ pub fn validate_record(schema: &Value, data: &Value) -> Vec<PackageIssue> {
         issues.extend(check_scalar(ty, value, &format!("/{name}"), field));
     }
     if schema.get("additionalProperties").and_then(Value::as_bool) != Some(true) {
-        for key in data.keys() {
+        let mut keys: Vec<&String> = data.keys().collect();
+        keys.sort();
+        for key in keys {
             if !properties.is_some_and(|p| p.contains_key(key)) {
                 issues.push(issue(format!("/{key}"), "not in the schema"));
             }
