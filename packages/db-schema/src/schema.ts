@@ -2127,6 +2127,24 @@ export const sessionIssues = pgTable(
 // Visibility: a session conversation follows the session rule through the
 // mirrored `shared` / `owner_id` (trigger-written, immutable like a
 // message's), a dm/channel = its members. Synced (`/api/shapes/conversations`).
+/** #EXP-1380: `conversations.digest` (domain-contract `ConversationDigest`). */
+export interface ConversationDigestJson {
+  first: ConversationDigestMessageJson | null
+  preview: ConversationDigestMessageJson | null
+  waiting: ConversationDigestMessageJson | null
+  agentAt: string | null
+  agentTimes: string[]
+}
+export interface ConversationDigestMessageJson {
+  id: string
+  authorKind: string
+  authorSessionId: string | null
+  body: string
+  card: { kind: string; question?: string; plan?: string; title?: string } | null
+  answeredAt: string | null
+  createdAt: string
+}
+
 export const conversations = pgTable(
   `conversations`,
   {
@@ -2145,6 +2163,10 @@ export const conversations = pgTable(
     // dm/channel, whose readers are its members.
     shared: boolean().notNull().default(false),
     ownerId: text(`owner_id`).references(() => users.id, { onDelete: `cascade` }),
+    // #EXP-1380: the list's digest of the messages (trigger-written,
+    // `conversation_digest`; domain-contract `conversationDigest`), so the
+    // web list never syncs a transcript. NULL until the first boot fills it.
+    digest: jsonb().$type<ConversationDigestJson>(),
     ...timestamps,
   },
   (table) => [

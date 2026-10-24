@@ -59,6 +59,8 @@ vi.mock(`@/lib/electric-proxy`, async (importOriginal) => {
     // Keep the real (pure) isLiveRequest — the handler's shape-metrics hook
     // classifies live vs snapshot with it.
     isLiveRequest: actual.isLiveRequest,
+    // #EXP-1380: the real (pure) subset validator.
+    prepareSubsetParams: actual.prepareSubsetParams,
     prepareElectricUrl,
     proxyElectricRequest,
   }
@@ -1076,4 +1078,41 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
       expect(columns.length).toBeGreaterThan(0)
     }
   )
+})
+
+// #EXP-1380: `messages` loads on demand on web: its subset snapshot params
+// pass over its own columns only; every other shape drops them (REV-29).
+describe(`subset params (on-demand shapes)`, () => {
+  const request = (name: string, where: string) =>
+    new Request(
+      `https://example.com/api/shapes/${name}?offset=-1&subset__where=${encodeURIComponent(where)}&subset__params=${encodeURIComponent(`{"1":"r-1"}`)}`,
+      { headers: { authorization: `Bearer t` } }
+    )
+  const arm = () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserTeamIds.mockResolvedValue([`w-1`])
+    return originUrl
+  }
+
+  it(`messages forwards a predicate over its allowlisted columns`, async () => {
+    const originUrl = arm()
+    const response = await shapeHandler(messagesRoute)({ request: request(`messages`, `"root_id" = $1`) })
+    expect(response.status).not.toBe(400)
+    expect(originUrl.searchParams.get(`subset__where`)).toBe(`"root_id" = $1`)
+    expect(originUrl.searchParams.get(`subset__params`)).toBe(`{"1":"r-1"}`)
+  })
+
+  it(`messages refuses a predicate over a server-only column`, async () => {
+    arm()
+    const response = await shapeHandler(messagesRoute)({ request: request(`messages`, `"owner_id" = $1`) })
+    expect(response.status).toBe(400)
+  })
+
+  it(`another shape never forwards them`, async () => {
+    const originUrl = arm()
+    await shapeHandler(sessionIssuesRoute)({ request: request(`session-issues`, `"id" = $1`) })
+    expect(originUrl.searchParams.has(`subset__where`)).toBe(false)
+  })
 })

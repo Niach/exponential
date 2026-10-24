@@ -13,6 +13,7 @@ import {
   agentCollection,
 } from "@/lib/collections"
 import { sessionTitles } from "@exp/domain-contract/session-title"
+import { digestMessages, type ConversationDigest } from "@exp/domain-contract/chats"
 import { useNow } from "@/hooks/use-now"
 import { teamScopeIds } from "@/lib/team-scope"
 import {
@@ -40,6 +41,7 @@ import {
   type SyncedMessageRow,
   type ThreadsListGroup,
   type TreeIssue,
+  type TreeMessage,
   type TreeSession,
   type TreeSessionIssue,
   type TreeSessionRead,
@@ -108,6 +110,50 @@ export function useConversationSessions(): {
     [data]
   )
   return { conversations, isReady }
+}
+
+/** #EXP-1380: the messages the LIST reads (titles, previews, unread,
+ *  rings) for the sessions of `teamIds` or of `sessionIds`, out of each
+ *  conversation's server-kept digest (`digestMessages`): the list never
+ *  syncs a transcript, a chat's messages load when it opens. */
+export function useDigestMessages(scope: {
+  teamIds?: readonly string[]
+  sessionIds?: readonly string[]
+}): { messages: TreeMessage[]; isReady: boolean } {
+  const teamIds = scope.teamIds ?? null
+  const sessionIds = scope.sessionIds ?? null
+  const key = `${teamIds?.join(`,`) ?? ``}|${sessionIds?.join(`,`) ?? ``}`
+  const { data, isReady } = useLiveQuery(
+    (query) =>
+      teamIds && teamIds.length > 0
+        ? query
+            .from({ conversations: conversationCollection })
+            .where(({ conversations }) => inArray(conversations.teamId, [...teamIds]))
+            .select(({ conversations }) => ({
+              id: conversations.id,
+              sessionId: conversations.sessionId,
+              digest: conversations.digest,
+            }))
+        : sessionIds && sessionIds.length > 0
+          ? query
+              .from({ conversations: conversationCollection })
+              .where(({ conversations }) => inArray(conversations.sessionId, [...sessionIds]))
+              .select(({ conversations }) => ({
+                id: conversations.id,
+                sessionId: conversations.sessionId,
+                digest: conversations.digest,
+              }))
+          : undefined,
+    [key]
+  )
+  const messages = useMemo(
+    () =>
+      ((data ?? []) as { sessionId: string | null; digest: unknown }[]).flatMap((row) =>
+        row.sessionId ? digestMessages(row.sessionId, row.digest as ConversationDigest | null) : []
+      ),
+    [data]
+  )
+  return { messages, isReady }
 }
 
 /** NEW-8: the sessions among `sessionIds` whose own conversation has not
@@ -202,22 +248,10 @@ function useTitleContext(teamIds: readonly string[]) {
         : undefined,
     [issueKey]
   )
-  const { data: messageRows, isReady: messageRowsReady } = useLiveQuery(
-    (query) =>
-      teamIds.length > 0
-        ? query
-            .from({ messages: messageCollection })
-            .where(({ messages }) => inArray(messages.teamId, [...teamIds]))
-        : undefined,
-    [key]
-  )
-  // NEW-8: the messages are keyed through their conversations: both shapes.
+  // #EXP-1380: the digests, never the transcripts (`useDigestMessages`).
+  const { messages, isReady: digestsReady } = useDigestMessages({ teamIds })
   const { conversations, isReady: conversationsReady } = useConversationSessions()
-  const messagesReady = messageRowsReady && conversationsReady
-  const messages = useMemo(
-    () => keyMessageRows((messageRows ?? []) as SyncedMessageRow[], conversations),
-    [messageRows, conversations]
-  )
+  const messagesReady = digestsReady && conversationsReady
   const scopedLinksReady = teamIds.length > 0 && linksReady
   const ready = titleShapesReady({
     linksReady: scopedLinksReady,
@@ -229,7 +263,7 @@ function useTitleContext(teamIds: readonly string[]) {
     () => ({
       sessionIssues: ((links ?? []) as SessionIssueRow[]).map(toTreeSessionIssue),
       issues: ((issues ?? []) as TreeIssue[]).map(toTreeIssue),
-      messages: messages.map(toTreeMessage),
+      messages,
       ready,
       linksReady: scopedLinksReady,
       issuesReady,
@@ -568,7 +602,10 @@ export function useSessionThread(
       ),
     [tree, links, foldedIssues, messages]
   )
-  const now = useNow(1_000)
+  // #EXP-1380 (chats.json PERF): the cards' clocks tick each second only
+  // while a session of the tree works; a settled chat rebuilds per minute.
+  const ticking = tree.some((session) => session.status !== `ended` && (session.busy || session.status === `running` || session.status === `queued`))
+  const now = useNow(ticking ? 1_000 : 60_000)
   const view = useMemo(() => {
     if (!root) return null
     return buildSessionThread({
@@ -684,27 +721,13 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
         : undefined,
     [issueKey]
   )
-  // NEW-8: the rows' own conversations' messages, keyed through them.
+  // #EXP-1380: the rows' own conversations' DIGESTS (`useDigestMessages`).
   const { conversations, isReady: conversationsReady } = useConversationSessions()
-  const conversationIds = sessionConversationIds(conversations, ids)
-  const conversationKey = conversationIds.join(`,`)
-  const { data: messageRows, isReady: messageRowsReady } = useLiveQuery(
-    (query) =>
-      conversationIds.length > 0
-        ? query
-            .from({ messages: messageCollection })
-            .where(({ messages }) => inArray(messages.conversationId, conversationIds))
-        : undefined,
-    [conversationKey]
-  )
-  const messagesReady = conversationsReady && messageRowsReady
-  // A disabled query (no conversation synced yet) reports ready and empty:
-  // those rows wait on their conversation instead of reading "Untitled".
+  const { messages, isReady: digestsReady } = useDigestMessages({ sessionIds: ids })
+  const messagesReady = conversationsReady && digestsReady
+  // A row whose conversation has not synced yet waits on it instead of
+  // reading "Untitled".
   const awaitingKey = [...sessionsAwaitingConversation(conversations, ids)].join(`,`)
-  const messages = useMemo(
-    () => keyMessageRows((messageRows ?? []) as SyncedMessageRow[], conversations),
-    [messageRows, conversations]
-  )
   return useMemo(() => {
     const sessions = rows.map(toTreeSession)
     const sessionIssues = ((links ?? []) as SessionIssueRow[]).map(toTreeSessionIssue)
@@ -720,7 +743,7 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
       sessions.filter((session) => !held.has(session.id)),
       sessionIssues,
       ((issues ?? []) as TreeIssue[]).map(toTreeIssue),
-      messages.map(toTreeMessage)
+      messages
     )
     return { titles, held, ready: held.size === 0 }
     // eslint-disable-next-line react-hooks/exhaustive-deps

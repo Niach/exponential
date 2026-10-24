@@ -1317,6 +1317,13 @@
       "when": 1792808491558,
       "tag": "0187_conversation_mirrors_resync",
       "breakpoints": true
+    },
+    {
+      "idx": 188,
+      "version": "7",
+      "when": 1792835067271,
+      "tag": "0188_conversation_digest",
+      "breakpoints": true
     }
   ]
 }
