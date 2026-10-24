@@ -60,7 +60,8 @@ struct TeamTabView: View {
             }
             .tabBarBottomInset()
         }
-        .navigationBarTitleDisplayMode(.inline)
+        // #EXP-1384: the page header, titled with the team's name.
+        .pageHeader(teamState.activeTeam?.name ?? Chats.Copy.Tabs.team)
         .task(id: "\(activeAccountId)/\(teamState.activeTeamId ?? "")") {
             if let teamId = teamState.activeTeamId, !activeAccountId.isEmpty {
                 gettingStarted.bind(accountId: activeAccountId, teamId: teamId, deps: deps)
@@ -112,17 +113,14 @@ struct TeamTabView: View {
     private var teamHeader: some View {
         if let team = teamState.activeTeam {
             VStack(spacing: 10) {
+                // The team's name is the page header's title now.
                 TeamAvatar(team: team, size: 84)
-                Text(team.name)
-                    .font(.title.weight(.bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
                 Text(Chats.Copy.Team.metaLine(members: counts.members, boards: counts.boards))
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
             .frame(maxWidth: .infinity)
-            .padding(.top, 24)
+            .padding(.top, 8)
             .padding(.bottom, 4)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("team-tab-header")

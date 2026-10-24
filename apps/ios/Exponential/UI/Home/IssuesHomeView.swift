@@ -3,10 +3,11 @@ import ExpCore
 import SwiftUI
 import GRDB
 
-/// Root of the Issues tab: the issue list of the current board, with an
-/// inline board switcher in the navigation bar (board name + up/down
-/// chevron → `BoardSwitcherSheet`). Replaces the old Boards overview as
-/// the app's home — switching boards swaps the list in place, no push.
+/// Root of the Board tab: the issue list of the current board under the
+/// page header (#EXP-1384 `shell.header`: the board's name as the large
+/// title, the native search + inbox circles). The board is switched ONLY
+/// through the Board tab's board menu (MobileTabBar) — switching swaps the
+/// list in place, no push.
 struct IssuesHomeView: View {
     let syncing: Bool
     let currentBoard: CurrentBoardRef?
@@ -16,16 +17,12 @@ struct IssuesHomeView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(TeamState.self) private var teamState
     @Environment(\.scenePhase) private var scenePhase
-    @State private var showSwitcher = false
     // EXP-698 r5: the getting-started checklist's live state. Owned HERE (the
     // Issues root) and published into the environment, so the root board's
     // empty state and this view's own "No boards yet" both render it while a
     // pushed `.board` does not. ONE box for this view's lifetime: a fresh one
     // per body pass would invalidate every reader on every render.
     @State private var gettingStartedContext = GettingStartedContext()
-    /// What the board switcher asked for while it was still on screen — run
-    /// on its dismissal, never in the same transaction (see the sheet below).
-    @State private var pendingSwitcherAction: SwitcherAction?
     @State private var preparingCreate = false
     @State private var createTarget: CreateTarget?
     @State private var showTeamSetup = false
@@ -48,12 +45,6 @@ struct IssuesHomeView: View {
     @State private var myIssues: MyIssuesViewModel?
     @State private var drafts: DraftsViewModel?
 
-    /// What the switcher parked for after it closes.
-    private enum SwitcherAction {
-        case createBoard
-        case createTeam
-    }
-
     private var gettingStarted: GettingStartedProgress { gettingStartedContext.progress }
 
     private struct CreateTarget: Identifiable {
@@ -75,7 +66,7 @@ struct IssuesHomeView: View {
                     .environment(\.accountId, deps.auth.activeAccountId ?? "")
                     .tabBarBottomInset()
             } else if let current = currentBoard {
-                IssueListView(boardId: current.boardId)
+                IssueListView(boardId: current.boardId, ownsHeader: false)
                     .environment(\.accountId, current.accountId)
                     // Remount on switch so the list view model rebinds to the
                     // selected board (it captures boardId at creation).
@@ -135,63 +126,10 @@ struct IssuesHomeView: View {
             }
             gettingStarted.bind(accountId: accountId, teamId: teamId, deps: deps)
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        // EXP-1373: the board switcher pill leads, search trails (the
-        // settings gear moved to the Team tab).
-        .ownChromeToolbarItem(placement: .topBarLeading) {
-            switcherControl
-        }
-        .toolbar {
-            // The pill IS the title: the board list's own title stands down.
-            ToolbarItem(placement: .principal) {
-                Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
-            }
-            // With the board list mounted, IssueListView owns search.
-            if currentBoard == nil || shownChip != .all {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink(value: AppRoute.search) {
-                        AppIcon(AppIcons.navSearch, size: AppIcon.Size.medium)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .frame(width: 32, height: 32)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Search")
-                    .accessibilityIdentifier("board-search")
-                }
-            }
-        }
-        // The two creation entries PARK their intent and run it once the
-        // switcher has finished dismissing (the same hand-off
-        // `IssueDetailView.promoteMoveTarget` makes): closing this sheet and
-        // presenting the next one in ONE transaction makes SwiftUI drop the
-        // second presentation, since both hang off this node.
-        .sheet(isPresented: $showSwitcher, onDismiss: runPendingSwitcherAction) {
-            BoardSwitcherSheet(
-                boardLoader: boardLoader,
-                currentBoard: currentBoard,
-                liveRunsByTeam: teamState.liveRunsByTeam,
-                activeTeamId: teamState.activeTeamId,
-                onSelect: { accountId, boardId in
-                    chip = .all
-                    showSwitcher = false
-                    onSelectBoard(accountId, boardId)
-                },
-                // EXP-698 r5: the switcher is where a board or a team is
-                // created from, exactly like Android's — reaching either used
-                // to mean leaving the sheet for Settings.
-                onCreateBoard: {
-                    pendingSwitcherAction = .createBoard
-                    showSwitcher = false
-                },
-                onCreateTeam: {
-                    pendingSwitcherAction = .createTeam
-                    showSwitcher = false
-                },
-                activeAccountId: deps.auth.activeAccountId
-            )
-        }
+        // #EXP-1384: the page header; the board list's own stands down.
+        .pageHeader(currentBoardName ?? Chats.Copy.Tabs.board)
+        // A board picked in the board menu starts on All issues.
+        .onChange(of: currentBoard) { _, _ in chip = .all }
         .sheet(item: $createTarget) { target in
             CreateBoardSheet(
                 accountId: target.accountId,
@@ -205,19 +143,6 @@ struct IssuesHomeView: View {
         // Observe the active account's synced teams so the empty state can
         // distinguish "no boards yet" from "no team at all" (EXP-188).
         .task(id: deps.auth.activeAccountId) { await observeTeams() }
-    }
-
-    /// Runs whatever the switcher parked, now that it is gone and this node
-    /// owns no presentation.
-    private func runPendingSwitcherAction() {
-        guard let action = pendingSwitcherAction else { return }
-        pendingSwitcherAction = nil
-        switch action {
-        case .createBoard:
-            Task { await beginCreateBoard() }
-        case .createTeam:
-            showTeamSetup = true
-        }
     }
 
     // MARK: - Board chips (EXP-1373)
@@ -272,11 +197,7 @@ struct IssuesHomeView: View {
         "\(deps.auth.activeAccountId ?? "")/\(checklistTeamId ?? "")"
     }
 
-    // MARK: - Switcher control
-
-    private var hasAnyBoards: Bool {
-        !(boardLoader?.groups ?? []).isEmpty
-    }
+    // MARK: - Current board
 
     private var currentBoardEntity: BoardEntity? {
         guard let current = currentBoard else { return nil }
@@ -292,42 +213,6 @@ struct IssuesHomeView: View {
 
     private var currentBoardName: String? {
         currentBoardEntity?.name
-    }
-
-    /// One tappable control: Android's `BoardSwitcherControl` chip (EXP-698
-    /// r7) — the board's own glyph + its name + the combobox-style up/down
-    /// expander in a single Md glass pill, instead of the bare headline this
-    /// used to be.
-    ///
-    /// With nowhere to switch to the pill stays ENABLED-looking: this is the
-    /// screen's TITLE as much as it is a control, and `enabled: false` would
-    /// drop the board name to quaternary, which reads as "this board is
-    /// broken". Only the expander glyph dims and the tap goes nowhere —
-    /// Android's `onClick = if (enabled) onClick else null`.
-    private var switcherControl: some View {
-        GlassPill(
-            currentBoardName ?? "Issues",
-            size: .md,
-            mode: .action {
-                guard hasAnyBoards else { return }
-                showSwitcher = true
-            }
-        ) {
-            // Board glyph tinted with the board color — same idiom as the
-            // board switcher sheet this control opens (EXP-449).
-            if let board = currentBoardEntity {
-                AppIcon(BoardTypeDisplay.iconName(for: board), size: GlassPillTokens.glyphMd)
-                    .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
-            }
-        } trailing: {
-            AppIcon(AppIcons.navTeamSwitcher, size: GlassPillTokens.glyphMd)
-                .foregroundStyle(.white.opacity(hasAnyBoards ? TextOpacity.secondary : TextOpacity.quaternary))
-        }
-        // Its ideal width, never squeezed by the bar (the pill IS the title).
-        .fixedSize()
-        // MUST stay on the tappable element: the styleguide/screenshot suites
-        // reach the switcher via `app.buttons["Switch board"]`.
-        .accessibilityLabel("Switch board")
     }
 
     // MARK: - Empty state

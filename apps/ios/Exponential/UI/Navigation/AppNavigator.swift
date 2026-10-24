@@ -16,8 +16,8 @@ enum AppRoute: Hashable {
     /// definition's id; the conversation is resolved — or, none yet, opened
     /// by the first message — on the page).
     case agentChannel(accountId: String, agentId: String)
-    /// VAPP-110: the team's Apps (fixtures/apps.json), pushed from the
-    /// Threads tab's header.
+    /// VAPP-110: the team's Apps (fixtures/apps.json) — #EXP-1384: the
+    /// Apps TAB's root (a link to it switches the tab).
     case apps(accountId: String)
     /// VAPP-110: one app's editor (`appId` = its row id).
     case app(accountId: String, appId: String)
@@ -80,10 +80,31 @@ enum AppRoute: Hashable {
 /// up and handed back on return, EXCEPT Home's: it always lands on its root
 /// (Android parity: `popUpTo(agent-tab)` never restores it).
 ///
-/// Thread 58cb32df (chats.json `shell`): the bar's tabs are Board · Devices ·
-/// Chats · Team; the agent home stays the chat arm's root.
+/// #EXP-1384 (chats.json `shell.tabs`): the bar's tabs are Board · Chats ·
+/// Apps · Team (Devices is a Team page row now); the agent home stays the
+/// chat arm's root.
 enum MainTab: Hashable {
-    case agent, issues, devices, threads, team
+    case agent, issues, threads, apps, team
+
+    /// The bar tab this root lights (nil = the agent home).
+    var shellTab: Chats.Shell.Tab? {
+        switch self {
+        case .agent: nil
+        case .issues: .board
+        case .threads: .chats
+        case .apps: .apps
+        case .team: .team
+        }
+    }
+
+    init(_ tab: Chats.Shell.Tab) {
+        switch tab {
+        case .board: self = .issues
+        case .chats: self = .threads
+        case .apps: self = .apps
+        case .team: self = .team
+        }
+    }
 
     /// Whether this tab's pushes are parked across a switch.
     var keepsPushes: Bool { self != .agent }
@@ -410,6 +431,14 @@ struct MainNavigator: View {
     @State private var pendingTeamAlign = false
     /// Home hides the floating bar while the keyboard is up.
     @State private var keyboardVisible = false
+    /// #EXP-1384: the board menu's New board row → the create-board sheet.
+    @State private var createBoardTarget: CreateBoardTarget?
+
+    private struct CreateBoardTarget: Identifiable {
+        let accountId: String
+        let teamId: String
+        var id: String { "\(accountId)/\(teamId)" }
+    }
     var body: some View {
         ZStack {
             AppBackground()
@@ -433,6 +462,15 @@ struct MainNavigator: View {
         .environment(\.threadLanding, threadLanding)
         .environment(\.issueDraftLeaveGuard, draftLeaveGuard)
         .environment(\.accountId, deps.auth.activeAccountId ?? "")
+        // #EXP-1384: every page header's inbox dot.
+        .environment(\.inboxUnread, activeInboxUnread)
+        .sheet(item: $createBoardTarget) { target in
+            CreateBoardSheet(
+                accountId: target.accountId,
+                teamId: target.teamId,
+                onCreated: { boardId in selectBoard(accountId: target.accountId, boardId: boardId) }
+            )
+        }
         .onAppear {
             pushRouteAction.setHandler { route in
                 // EXP-1210: a bar destination is never pushed — a link to one
@@ -606,11 +644,11 @@ struct MainNavigator: View {
         .overlay(alignment: .bottom) {
             if showsTabBar && !tabBarChrome.suppressed {
                 MobileTabBar(
+                    selected: barSelection,
                     agentActive: tab == .agent,
-                    boardActive: tab == .issues,
-                    devicesActive: tab == .devices,
-                    chatsActive: tab == .threads,
-                    teamActive: tab == .team,
+                    board: activeBoard,
+                    // The board view = the Board tab's root (its menu).
+                    onBoardView: tab == .issues && path.isEmpty,
                     team: teamState.activeTeam,
                     chatsRunning: sessionLists.chatsRunning(teamId: teamState.activeTeamId),
                     chatsNeedYou: sessionLists.chatsNeedYou(teamId: teamState.activeTeamId),
@@ -619,13 +657,16 @@ struct MainNavigator: View {
                     // bar-visible surface (EXP-827/EXP-973); only a team with
                     // no board leaves the New-issue arm inert.
                     composeEnabled: composeTarget != nil,
+                    boards: teamState.filteredBoards,
+                    onNewBoard: newBoardAction,
                     // EXP-1210: every entry SWITCHES the root (a re-tap pops
                     // back to it); EXP-1212: through the draft hold like
                     // every other path change.
-                    onBoard: { selectTab(.issues) },
-                    onDevices: { selectTab(.devices) },
-                    onChats: { selectTab(.threads) },
-                    onTeam: { selectTab(.team) },
+                    onSelect: { selectTab(MainTab($0)) },
+                    onSelectBoard: { board in
+                        guard let accountId = deps.auth.activeAccountId else { return }
+                        selectBoard(accountId: accountId, boardId: board.id)
+                    },
                     onCompose: {
                         // EXP-1170: the draft id is minted HERE, at tap time.
                         guard let target = composeTarget else { return }
@@ -658,6 +699,24 @@ struct MainNavigator: View {
 
     // MARK: - Tab bar
 
+    /// The lit tab: the root's (Devices is pushed over the Team root, so the
+    /// Team tab stays lit there, #EXP-1384).
+    private var barSelection: Chats.Shell.Tab? {
+        tab.shellTab
+    }
+
+    /// The Board tab's board: the current one, while it is the active team's.
+    private var activeBoard: BoardEntity? {
+        guard let current = currentBoard else { return nil }
+        return teamState.boards.first { $0.id == current.boardId }
+    }
+
+    /// The board menu's New board row (the active team's create-board sheet).
+    private var newBoardAction: (() -> Void)? {
+        guard let accountId = deps.auth.activeAccountId, let teamId = teamState.activeTeam?.id else { return nil }
+        return { createBoardTarget = CreateBoardTarget(accountId: accountId, teamId: teamId) }
+    }
+
     /// The Chats header's inbox dot: an unread row of the ACTIVE team (or a
     /// team-less one).
     private var activeInboxUnread: Bool {
@@ -674,6 +733,8 @@ struct MainNavigator: View {
             return tab == .agent ? !keyboardVisible : true
         }
         if case .board = top { return true }
+        // #EXP-1384: Devices (a Team page row) keeps the bar, Team lit.
+        if case .teamSettingsSection(_, _, .devices) = top { return true }
         return false
     }
 
@@ -718,8 +779,8 @@ struct MainNavigator: View {
     /// (EXP-1210); an empty-seed Home is the Home root itself.
     private static func tab(for route: AppRoute) -> MainTab? {
         switch route {
-        case .agents: return .devices
         case .threads: return .threads
+        case .apps: return .apps
         case .settings: return .team
         case let .agent(_, seed) where seed == .empty: return .agent
         default: return nil
@@ -749,11 +810,11 @@ struct MainNavigator: View {
                 onSwitchTeam: { accountId, teamId in switchTeam(accountId: accountId, teamId: teamId) }
             )
                 .environment(\.accountId, accountId)
-        case .devices:
-            AgentsView()
+        case .apps:
+            AppsListScreen()
                 .environment(\.accountId, accountId)
         case .threads:
-            ChatsView(inboxUnread: activeInboxUnread)
+            ChatsView()
                 .environment(\.accountId, accountId)
         }
     }
@@ -949,7 +1010,7 @@ extension MainNavigator {
             InboxPage()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case .threads:
-            ChatsView(inboxUnread: activeInboxUnread)
+            ChatsView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .board(accountId, id):
             IssueListView(boardId: id)

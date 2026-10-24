@@ -29,12 +29,14 @@ export const entry: StyleguideEntry = {
       note: `the IDE has no phone shell; the styleguide twin paints the same header`,
     },
     ios: {
-      state: `leftover`,
-      note: `the native toolbar circles land with the iOS #EXP-1384 lane (PageHeaderToolbar)`,
+      state: `ok`,
+      symbol: `pageHeader`,
+      file: `apps/ios/Exponential/UI/Navigation/PageHeader.swift`,
     },
     android: {
-      state: `leftover`,
-      note: `the shared PageHeader lands with the Android #EXP-1384 lane (ui/components)`,
+      state: `ok`,
+      symbol: `PageHeader`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/components/PageHeader.kt`,
     },
   },
   island: () => <PhonePageHeaderSpecimen />,

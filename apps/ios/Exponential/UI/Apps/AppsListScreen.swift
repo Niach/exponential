@@ -50,10 +50,10 @@ struct AppsListScreen: View {
                 .accessibilityIdentifier(Apps.TestIds.list)
             }
             .scrollContentBackground(.hidden)
+            .tabBarBottomInset()
         }
-        .navigationTitle(Apps.Copy.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        // #EXP-1384: the Apps TAB's root wears the page header.
+        .pageHeader(Chats.Copy.Headers.apps)
         .sheet(isPresented: $creating) {
             if let teamId {
                 AppFormSheet(teamId: teamId, app: nil) { created in

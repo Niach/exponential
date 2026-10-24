@@ -29,12 +29,14 @@ export const entry: StyleguideEntry = {
       note: `the IDE has no phone shell; the styleguide twin paints the open menu`,
     },
     ios: {
-      state: `leftover`,
-      note: `the board menu lands with the iOS #EXP-1384 lane (MobileTabBar, GlassMenu)`,
+      state: `ok`,
+      symbol: `MobileTabBar`,
+      file: `apps/ios/Exponential/UI/Navigation/MobileTabBar.swift`,
     },
     android: {
-      state: `leftover`,
-      note: `the board menu lands with the Android #EXP-1384 lane (BottomNavBar, GlassMenu.kt)`,
+      state: `ok`,
+      symbol: `PhoneBoardMenu`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/components/BottomNavBar.kt`,
     },
   },
   island: () => <PhoneBoardMenuSpecimen />,

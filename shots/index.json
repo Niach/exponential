@@ -343,29 +343,6 @@
         "sha256": "c4037bcf1e061368bd03af7cc2d1b37c4138959268ce0e69f6e0fab0cbc1d182"
       }
     },
-    "board-switcher": {
-      "android": {
-        "file": "shots/board-switcher/android.webp",
-        "width": 810,
-        "height": 1800,
-        "bytes": 40262,
-        "sha256": "3559e6b451f5e2e19df40ca67e2d22b1be102f3d29d4e128d31b84269900608d"
-      },
-      "ios": {
-        "file": "shots/board-switcher/ios.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 37374,
-        "sha256": "d2d76c72e6ad2d925837b29a926552f7609af52338b589b8da0b68734aa2ca96"
-      },
-      "web-mobile": {
-        "file": "shots/board-switcher/web-mobile.webp",
-        "width": 832,
-        "height": 1800,
-        "bytes": 16760,
-        "sha256": "ee307a320a26046e84f900b5c50f20c69dfb5950186991c2d6ebdaad0cedd3b2"
-      }
-    },
     "chat": {
       "android": {
         "file": "shots/chat/android.webp",
@@ -3761,13 +3738,45 @@
         "sha256": "5742d042a0339bb95d9e011bddb4745d362d4105a650800b06d9803d1a74d528"
       }
     },
+    "phone-board-menu": {
+      "android": {
+        "file": "shots/phone-board-menu/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 12972,
+        "sha256": "b2b8eec7ee80d684b3638ab2cea54308a5672f40f6260363094fd48e229b3ca7"
+      },
+      "ios": {
+        "file": "shots/phone-board-menu/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 13430,
+        "sha256": "5ebc114b6b449e39fcff74d53ff01856f82dc6d3fa5b97ecaebd1f2670d7f4c7"
+      }
+    },
+    "phone-page-header": {
+      "android": {
+        "file": "shots/phone-page-header/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 16550,
+        "sha256": "96eac30e540efa0015c9a3ebc11b5fdabcffc065b8c305a4a2a5259e0b512d1a"
+      },
+      "ios": {
+        "file": "shots/phone-page-header/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 18678,
+        "sha256": "f00e4c5cc007914c4f84d3a840086e6f403f1221646dd74fb1b4e986178bb7d7"
+      }
+    },
     "phone-tab-bar": {
       "android": {
         "file": "shots/phone-tab-bar/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 18986,
-        "sha256": "a611dccf702d49b910312df8bae10b98f08f760a72dfa41127b56d6d01609929"
+        "bytes": 28156,
+        "sha256": "6da60d848179265ef6e04c48322fd754bfcb824ea34fe670c18f0472cb464410"
       },
       "desktop": {
         "file": "shots/phone-tab-bar/desktop.webp",
@@ -3780,8 +3789,8 @@
         "file": "shots/phone-tab-bar/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 18670,
-        "sha256": "b742eb574be0bc3029a2ffdaa090573600d00b84ac432eb8212ed3edd81c5c4c"
+        "bytes": 28990,
+        "sha256": "0a9bd0620f015491fe078f858629bb8b73f64b75523ee4c83095c2c71bf8ee36"
       },
       "web": {
         "file": "shots/phone-tab-bar/web.webp",

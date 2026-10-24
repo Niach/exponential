@@ -398,7 +398,7 @@ extension XCTestCase {
         let urlField = app.textFields["instance-url-field"]
         let selfHostLink = app.buttons["instance-self-host-link"]
         let loginEmail = app.buttons["login-continue-with-email-button"]
-        let issuesTab = app.buttons["tab-issues"]
+        let issuesTab = app.buttons["tab-board"]
         // The first-run wizard of an account that never finished it: its
         // signed-in footer, or the step a capture hook parked it on.
         let wizardMarks = ["onboarding-signed-in-as", "onboarding-invite-step", "onboarding-devices-step"]
@@ -666,6 +666,28 @@ extension XCTestCase {
         app.descendants(matching: .any).matching(
             NSPredicate(format: "label CONTAINS %@", fragment)
         ).firstMatch
+    }
+
+    /// #EXP-1384: the Board tab → the board view. On the board view itself
+    /// the tab opens the board menu instead, so an opened menu is collapsed
+    /// again (a tap on the scrim above it).
+    @MainActor
+    func showBoard(_ app: XCUIApplication) {
+        let boardTab = app.buttons["tab-board"]
+        expect(boardTab, within: Wait.nav, "Board tab missing")
+        boardTab.tap()
+        let menu = anyElement(app, identified: "board-menu")
+        if menu.waitForExistence(timeout: 1.5) {
+            closeBoardMenu(app)
+        }
+    }
+
+    /// #EXP-1384: collapses an open board menu (a tap outside the panel).
+    @MainActor
+    func closeBoardMenu(_ app: XCUIApplication) {
+        let menu = anyElement(app, identified: "board-menu")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).tap()
+        _ = menu.waitForNonExistence(timeout: Wait.nav)
     }
 
     /// First element of ANY type carrying `identifier` (SwiftUI puts the same
