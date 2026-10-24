@@ -454,6 +454,7 @@ export const DEMO_APP_VERSION_IDS = [
   `2a7f3b9d-0c5e-4d8f-9b4a-6e3c8f0d2b15`,
   `3b8a4c0e-1d6f-4e9a-ac5b-7f4d9a1e3c26`,
   `4c9b5d1f-2e7a-4f0b-bd6c-8a5e0b2f4d38`,
+  `5d0c6e2a-3f8b-4a1c-ce7d-9b6f1c3a5e49`,
 ] as const
 /** The editor chat prints times of day: pinned like the agent channel's. */
 export const DEMO_APP_CHAT_TIMES = {
@@ -465,6 +466,8 @@ export const DEMO_APP_CHAT_TIMES = {
   third: new Date(`2026-10-12T08:21:30Z`),
   team: new Date(`2026-10-12T08:30:00Z`),
   fourth: new Date(`2026-10-12T08:31:40Z`),
+  post: new Date(`2026-10-12T08:40:00Z`),
+  fifth: new Date(`2026-10-12T08:41:20Z`),
 } as const
 
 /**

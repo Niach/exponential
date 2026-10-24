@@ -74,6 +74,11 @@ pub struct AppInput {
     pub color: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// VAPP-120 (update only): the exact `exponential.*` function names the
+    /// app may run as the viewer without asking (`grantedTools`; the creator
+    /// or an owner). `None` leaves the grants as they are.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub granted_tools: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -98,7 +103,7 @@ pub fn create(trpc: &TrpcClient, input: &AppInput) -> Result<AppOutput, ApiError
     trpc.mutation("apps.create", input)
 }
 
-/// `apps.update`: rename / re-icon / re-describe.
+/// `apps.update`: rename / re-icon / re-describe / re-grant (VAPP-120).
 pub fn update(trpc: &TrpcClient, input: &AppInput) -> Result<AppOutput, ApiError> {
     trpc.mutation("apps.update", input)
 }
@@ -176,6 +181,18 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&create).unwrap(),
             serde_json::json!({"teamId": "t", "name": "Dash", "icon": "puzzle", "color": "#6366f1"})
+        );
+        let grant = AppInput {
+            id: Some("a".into()),
+            name: "Dash".into(),
+            icon: "puzzle".into(),
+            color: "#6366f1".into(),
+            granted_tools: Some(vec!["exponential.issues.update".into()]),
+            ..AppInput::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&grant).unwrap(),
+            serde_json::json!({"id": "a", "name": "Dash", "icon": "puzzle", "color": "#6366f1", "grantedTools": ["exponential.issues.update"]})
         );
         let restore: RestoreOutput = serde_json::from_value(serde_json::json!({"txid": 9, "version": 4, "restored": 1})).unwrap();
         assert_eq!((restore.tx_id, restore.version, restore.restored), (Some(9), 4, 1));

@@ -414,6 +414,17 @@ val MIGRATION_96_97: Migration = object : Migration(96, 97) {
     }
 }
 
+/**
+ * v98 (VAPP-120): `apps.granted_tools`, the typed actions an app may run as
+ * the viewer without asking (a JSON string[]), added as "[]"; every table
+ * and offset is untouched.
+ */
+val MIGRATION_97_98: Migration = object : Migration(97, 98) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `apps` ADD COLUMN `granted_tools` TEXT DEFAULT '[]'")
+    }
+}
+
 private const val PINS_V96 =
     "CREATE TABLE IF NOT EXISTS `pins` (`id` TEXT NOT NULL, `user_id` TEXT NOT NULL, " +
         "`team_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `issue_id` TEXT, `session_id` TEXT, " +

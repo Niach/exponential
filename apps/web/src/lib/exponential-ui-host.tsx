@@ -38,6 +38,7 @@ import {
 } from "@/lib/collections"
 import { parseRecordsQuery, recordsValue, type AppRecordRow } from "@exp/domain-contract/app-records"
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
+import { APP_ACTIONS, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
@@ -344,6 +345,9 @@ export interface AppHostOptions {
   appId?: string | null
   teamId?: string | null
   me?: string | null
+  /** VAPP-120: the app's granted typed actions, read at call time (the
+   *  settings page may change them while the host lives). */
+  grantedTools?: () => readonly string[]
   /** Router navigation for same-origin links and harness.openIssue. */
   navigate: (href: string) => void
   /** harness.openDevice; defaults to a toast with the device's name. */
@@ -397,6 +401,14 @@ export function createAppHost(options: AppHostOptions): ExponentialHost {
       },
       "harness.openDevice": ({ id, label }) => (options.openDevice ? options.openDevice(String(id)) : toast(String(label ?? id ?? ``))),
       "harness.mcp": ({ tool, arguments: args }) => callMcp(String(tool), (args ?? {}) as Record<string, unknown>),
+      // VAPP-120: every MCP operation as a typed function (fixtures/app-actions.json):
+      // the same tools/call as the viewer, `op` + the args.
+      ...Object.fromEntries(
+        APP_ACTIONS.map((name) => {
+          const target = parseActionName(name)!
+          return [name, (args: Record<string, unknown>) => callMcp(target.tool, target.op ? { ...args, op: target.op } : args)]
+        })
+      ),
       // VAPP-122: the app's own rows: no consent card; a refusal (the kind's
       // schema, the caps, the plan quota) is a failed action = a toast.
       "harness.records.upsert": async ({ kind, data, id }) => {
@@ -423,8 +435,9 @@ export function createAppHost(options: AppHostOptions): ExponentialHost {
       },
     },
     policy: {
-      functions: { ask: [`harness.mcp`] },
-      onFunctionCall: (call) => options.consent.ask(call),
+      functions: { ask: [`harness.mcp`, `exponential.*`] },
+      // A granted typed action runs without the card; anything else asks.
+      onFunctionCall: (call) => (parseActionName(call.name) && grantAllows(options.grantedTools?.() ?? [], call.name) ? true : options.consent.ask(call)),
       media: { baseUrl: origin, allowPrivate },
       urls: { baseUrl: origin, allowPrivate },
       openUrl: (url) => {
@@ -440,7 +453,10 @@ export function createAppHost(options: AppHostOptions): ExponentialHost {
  *  `arguments`, else the function's own args; an empty object = none, as
  *  compact JSON) and whether it sounds destructive. The desktop twin's
  *  `consent_words` derives the same three. */
-export function consentWords(call: Pick<FunctionCallInfo, `name` | `args`>): { tool: string; args: string | null; destructive: boolean } {
+export function consentWords(call: Pick<FunctionCallInfo, `name` | `args`>): { tool: string; args: string | null; destructive: boolean; title?: string } {
+  // VAPP-120: a typed action is worded for its operation (the contract's rows).
+  const typed = actionConsent(call.name, call.args)
+  if (typed) return { tool: typed.tool, args: typed.args, destructive: typed.destructive, title: typed.title }
   const mcp = call.name === `harness.mcp`
   const tool = mcp ? String(call.args.tool ?? ``) : call.name
   const raw = mcp ? call.args.arguments : call.args
@@ -490,8 +506,8 @@ export function ConsentArguments({ args }: { args: string }) {
 export function ConsentCard({ gate }: { gate: ConsentGate }) {
   const call = useSyncExternalStore(gate.subscribe, gate.current, gate.current)
   if (!call) return null
-  const { tool, args, destructive } = consentWords(call)
-  const copy = exponentialUiConsentPrompt(tool, destructive)
+  const { tool, args, destructive, title } = consentWords(call)
+  const copy = { ...exponentialUiConsentPrompt(tool, destructive), ...(title ? { title } : {}) }
   return (
     <Prompt
       open

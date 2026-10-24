@@ -98,6 +98,8 @@ pub mod ask_dock;
 pub mod agent_settings;
 // VAPP-110: Exponential apps (slugify, version label, list order), fixture-locked ×4.
 pub mod apps;
+// VAPP-120: typed host actions (`exponential.<noun>.<op>`), fixture-locked ×4.
+pub mod app_actions;
 // VAPP-122: app records (the `exp:records` query + value), fixture-locked ×4.
 pub mod app_records;
 // VAPP-119: the `exp:` binding sources (issues, boards, members, sessions,

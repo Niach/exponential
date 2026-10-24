@@ -17,6 +17,7 @@ export const APP_COLUMNS = [
   `package`,
   `head_version`,
   `created_by`,
+  `granted_tools`,
   `deleted_at`,
   `created_at`,
   `updated_at`,

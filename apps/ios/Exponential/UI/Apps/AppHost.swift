@@ -24,8 +24,13 @@ import ExponentialUI
 //   - extensions: the app extension (`packages/ui/exponential-ui/extension.json`,
 //     bundled) with the `IconDisc` + `LiveDot` painters (Exponential ships
 //     no built-in apps: only the team's packages install);
-//   - policy: `harness.mcp` asks first (THE consent card, the
-//     `exponential-ui-consent` prompt), urls through the URL policy (an
+//   - VAPP-120 typed actions: every `exponential.<noun>.<op>` of
+//     `AppActions.all` = a `harness.mcp`-style tools/call with `{op, …args}`
+//     (no op for the verb tool `exponential.sessions.send`);
+//   - policy: `harness.mcp` and `exponential.*` ask first (THE consent card,
+//     the `exponential-ui-consent` prompt; a typed action worded for its
+//     operation by `AppActions.actionConsent`), except a typed action the
+//     hosting app's synced row grants (`apps.granted_tools`): no card; urls through the URL policy (an
 //     instance link opens in-app like a markdown link, anything else in the
 //     Safari sheet).
 
@@ -38,6 +43,9 @@ struct AppConsentWords: Equatable {
     let tool: String
     let args: String?
     let destructive: Bool
+    /// VAPP-120: a typed action's title (`actionConsent`), replacing the
+    /// generic prompt's; nil = the generic copy.
+    var title: String? = nil
 
     /// Past this many characters the arguments show as a preview (desktop's
     /// rule; the web adds a Show all disclosure).
@@ -94,7 +102,8 @@ struct AppConsentCard: ViewModifier {
             GlassAlert(
                 prompt: Prompts.exponentialUiConsent(
                     tool: gate.pending?.tool ?? "",
-                    destructive: gate.pending?.destructive ?? false
+                    destructive: gate.pending?.destructive ?? false,
+                    title: gate.pending?.title
                 ),
                 handlers: [
                     "deny": { gate.answer(false) },
@@ -139,6 +148,11 @@ final class ExpAppHost {
 
     /// The consent card's words for a host call (see [AppConsentWords]).
     nonisolated static func consentWords(name: String, args: [String: JSONValue]) -> AppConsentWords {
+        // VAPP-120: a typed action is worded for its operation (the
+        // contract's display rows).
+        if let typed = AppActions.actionConsent(name, args: args.compactMapValues { CardJSON(any: $0.any) }) {
+            return AppConsentWords(tool: typed.tool, args: typed.args, destructive: typed.destructive, title: typed.title)
+        }
         let mcp = name == "harness.mcp"
         let tool = mcp ? (args["tool"]?.displayText ?? "") : name
         let raw: [String: JSONValue]? = mcp ? args["arguments"]?.object : args
@@ -151,6 +165,25 @@ final class ExpAppHost {
         )
     }
     let consent: AppConsentGate
+
+    /// VAPP-120: every typed action (`AppActions.all`) as a tools/call on the
+    /// instance's MCP as the viewer: `{op, …args}` for a noun's op (the
+    /// name's op wins over an `op` arg: the card and the grant name THIS
+    /// operation), the args alone for the verb tool.
+    static func actionFunctions(accountId: String, base: URL?, httpClient: HTTPClient) -> [String: HostFunction] {
+        var functions: [String: HostFunction] = [:]
+        for name in AppActions.all {
+            guard let target = AppActions.parseActionName(name) else { continue }
+            functions[name] = { args, _ in
+                try await AppHostMcp.call(
+                    tool: target.tool,
+                    arguments: AppActions.arguments(args, op: target.op) { .string($0) },
+                    accountId: accountId, base: base, httpClient: httpClient
+                )
+            }
+        }
+        return functions
+    }
 
     init(
         packages: [String],
@@ -180,8 +213,9 @@ final class ExpAppHost {
         let appsApi = deps.appsApi
 
         let schemes = ["https"] + (base?.scheme == "http" ? ["http"] : [])
+        let actions = Self.actionFunctions(accountId: accountId, base: base, httpClient: deps.httpClient)
         host = ExponentialHost(HostOptions(
-            functions: [
+            functions: actions.merging([
                 "harness.toast": { args, _ in
                     let text = args["message"]?.displayText ?? ""
                     if args["tone"]?.string == "error" {
@@ -258,7 +292,7 @@ final class ExpAppHost {
                         throw error
                     }
                 },
-            ],
+            ]) { _, own in own },
             sources: [
                 "exp": { source, emit in
                     switch source.name {
@@ -276,9 +310,16 @@ final class ExpAppHost {
             extensions: extensions,
             packages: installed,
             policy: HostPolicy(
-                functions: FunctionPolicy(ask: ["harness.mcp"]),
+                functions: FunctionPolicy(ask: ["harness.mcp", "exponential.*"]),
                 onFunctionCall: { [consent] call in
-                    await consent.ask(ExpAppHost.consentWords(name: call.name, args: call.args))
+                    // VAPP-120: the app's grant, read off its live synced row
+                    // at call time: a granted typed action runs without the
+                    // card (`harness.mcp` always asks).
+                    if AppActions.parseActionName(call.name) != nil,
+                       AppActions.grantAllows(AppHostStore.grantedTools(appId: scope.appId, pool: pool), call.name) {
+                        return true
+                    }
+                    return await consent.ask(ExpAppHost.consentWords(name: call.name, args: call.args))
                 },
                 // VAPP-107: private hosts are denied unless opted in; the
                 // app's OWN instance is (the localhost dev setup), nothing
@@ -606,6 +647,13 @@ enum AppHostStore {
             } catch {}
         }
         return { observe.cancel() }
+    }
+
+    /// VAPP-120: the hosting app's grants off its synced `apps` row (none
+    /// without an app or a store).
+    static func grantedTools(appId: String?, pool: DatabasePool?) -> [String] {
+        guard let pool, let appId else { return [] }
+        return (try? pool.read { db in try AppEntity.fetchOne(db, key: appId)?.grantedTools }) ?? []
     }
 
     /// A synced issue's id by identifier (nil = not synced here).

@@ -290,6 +290,15 @@ export function AppsDocsPage() {
               way, live, from the rows it already syncs, so an app never waits
               on a request.
             </p>
+            <h3>What an app may do as you</h3>
+            <p>
+              An app can call any Exponential operation: set an issue&apos;s
+              status, file an issue, post a comment, start a session. It lists
+              what it uses, and the app&apos;s settings page shows those as{` `}
+              <strong>Tools</strong> with a switch each. A switched-on tool runs
+              as you without asking; anything else asks every time, worded for
+              the operation and with the arguments shown.
+            </p>
             <h3>Records: an app&apos;s own data</h3>
             <p>
               An app can keep data of its own. Its package declares record

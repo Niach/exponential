@@ -2018,6 +2018,10 @@ export const apps = pgTable(
     // Release train 2026-10-23: apps are shared team content, so a deleted
     // account leaves its apps behind (NULL creator = owner-only to manage).
     createdBy: text(`created_by`).references(() => users.id, { onDelete: `set null` }),
+    // VAPP-120: the typed host actions (`exponential.<noun>.<op>`, exact
+    // names) the app may run as the viewer WITHOUT the consent card; the
+    // creator or an owner grants them on the app's settings page.
+    grantedTools: jsonb(`granted_tools`).$type<string[]>().notNull().default([]),
     deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
     ...timestamps,
   },

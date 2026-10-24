@@ -52,4 +52,12 @@ class AppEntityDecodeTest {
         val app = decode("""{ "id": "app-2", "created_by": "user-1" }""")
         assertEquals("user-1", app.createdBy)
     }
+
+    @Test
+    fun `granted_tools decodes to its JSON text, absent = none`() {
+        // VAPP-120: the jsonb string[] arrives as a JSON value.
+        val app = decode("""{ "id": "app-3", "granted_tools": ["exponential.issues.update"] }""")
+        assertEquals("""["exponential.issues.update"]""", app.grantedTools)
+        assertEquals("[]", decode("""{ "id": "app-4" }""").grantedTools)
+    }
 }

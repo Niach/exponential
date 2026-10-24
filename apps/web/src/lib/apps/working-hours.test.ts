@@ -35,6 +35,13 @@ describe(`the Working hours template (VAPP-119 / VAPP-153)`, () => {
     expect(rebind(`prev`, `press`, ``).month).toBe(`2026-09`)
     expect(rebind(`next`, `press`, ``).month).toBe(`2026-11`)
   })
+  it(`declares the typed comment action and resolves its arguments (VAPP-120)`, () => {
+    expect((template as { functions: string[] }).functions).toContain(`exponential.comments.create`)
+    const call = components.find((c) => c.id === `postComment`)!.on!.press!.functionCall
+    expect(call.call).toBe(`exponential.comments.create`)
+    const args = resolveDynamic(call.args, { ...data, draft: { ...(data.draft as object), issues: [`APP-5`], hours: 3, note: `docs` } }) as Record<string, unknown>
+    expect(args).toEqual({ issueId: `APP-5`, body: `Logged 3 h: docs` })
+  })
   it(`reads the picked member's rows`, () => {
     for (const [id, event] of [[`prev`, `press`], [`who`, `change`]] as const) {
       const q = rebind(id, event, `u2`)
