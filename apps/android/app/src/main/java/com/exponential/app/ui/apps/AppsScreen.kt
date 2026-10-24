@@ -38,6 +38,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import at.exponential.ui.primitives.EmptyStateSize
 import com.exponential.app.domain.Apps
+import com.exponential.app.domain.Chats
+import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.PageHeader
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.ColorPicker
 import com.exponential.app.ui.components.EmptyState
@@ -95,7 +98,8 @@ fun AppVersionPill(app: AppListEntry) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppsScreen(
-    onBack: () -> Unit,
+    /** Null = the Apps TAB's root (#EXP-1384), no back control. */
+    onBack: (() -> Unit)?,
     onOpenApp: (appId: String) -> Unit,
     viewModel: AppsViewModel = hiltViewModel(),
 ) {
@@ -110,24 +114,18 @@ fun AppsScreen(
     var renaming by remember { mutableStateOf<AppListEntry?>(null) }
     var deleting by remember { mutableStateOf<AppListEntry?>(null) }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {},
-                navigationIcon = { TopBarBackButton(onClick = onBack) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
-            )
-        },
-    ) { padding ->
+    Scaffold(containerColor = Color.Transparent) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(bottom = BottomBarInset)
                 .testTag(Apps.TestIds.LIST),
         ) {
+            // #EXP-1384 (chats.json `shell.header`): the Apps tab's page header.
+            PageHeader(title = Chats.Copy.HEADERS.getValue("apps"), onBack = onBack)
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             AppsListContent(
                 apps = apps,
                 canManage = { viewModel.canManage(it, me, isOwner) },
@@ -137,6 +135,7 @@ fun AppsScreen(
                 onDelete = { deleting = it },
             )
             Spacer(Modifier.height(24.dp))
+        }
         }
     }
 

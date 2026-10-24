@@ -1,64 +1,104 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
-import com.exponential.app.data.db.TeamEntity
-import com.exponential.app.domain.Chats
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
+import androidx.compose.ui.unit.sp
+import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.data.db.TeamEntity
+import com.exponential.app.domain.Chats
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.motionDurationMs
+import com.exponential.app.ui.theme.motionEasing
+import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
-// Thread 58cb32df (chats.json `shell`): the phone's bottom bar = the glass tab
-// capsule — the look-alike of iOS's Liquid Glass tab bar on the FAB chrome
-// recipe (the shared OPAQUE glass fill + the strong hairline, EXP-698) — with
-// `shell.tabs` in order, Board · Devices · Chats · Team, each an icon over its
-// label (`copy.tabs`), the selected one on the glass-active pill; the Team
-// tab's icon is the active team's avatar and its label the team name; a dot
-// on Chats (amber while a chat needs you, green while one runs, else the
-// unread dot). Beside it, unchanged, the two-armed new chat / new issue
-// capsule (the Chat arm switches to the Agent page, the app's landing root).
-// Inbox left the bar: it is a page the Chats header's inbox circle pushes.
-// Overlaid above the NavHost; AppNavHost shows it only on the top-level routes.
+// Thread 58cb32df → #EXP-1379/#EXP-1384 (chats.json `shell`): the phone's
+// bottom STRIP = the glass tab capsule — the look-alike of iOS's Liquid Glass
+// tab bar on the FAB chrome recipe (the shared OPAQUE glass fill + the strong
+// hairline, EXP-698) — with `shell.tabs` in order, Board · Chats · Apps ·
+// Team, each an icon over its label, the selected one on the glass-active
+// pill; beside it, unchanged, the two-armed new chat / new issue capsule.
+// `shell.bar`: the capsule TAKES THE WIDTH beside the launcher; each tab
+// starts at its label's width and the tabs share the rest evenly (a label is
+// cut only when the labels alone do not fit, [Chats.Shell.Bar.tabWidths]).
+// The Board tab = the active board's glyph + name (`tabIcons.board` + "Board"
+// while none); on the board view it carries the caret and its tap opens the
+// BOARD MENU: the whole strip MORPHS into one glass panel (`shell.boardMenu`).
+// DRAG (`shell.bar.drag`): a press lifts the selection LENS under the finger,
+// a drag moves it along the bar, the lift selects the tab under it (a lift
+// far above / below cancels). The Team tab = the active team's avatar + name;
+// a dot on Chats. Overlaid above the NavHost; AppNavHost shows it only on the
+// top-level routes.
 
 // Bottom contentPadding for scrollable content on screens the floating bar
 // overlays (the bar stack is ~68dp above the system nav inset — 42dp tab +
@@ -83,18 +123,41 @@ class BottomBarSuppression {
 /** Null outside the nav shell (previews, tests) — every read is optional. */
 val LocalBottomBarSuppression = staticCompositionLocalOf<BottomBarSuppression?> { null }
 
+/** The board menu's content (`shell.boardMenu`): the active team's boards in
+ *  sidebar order, the active one, and New board for a viewer who may create
+ *  boards (null = no row). */
+data class PhoneBoardMenu(
+    val boards: List<BoardEntity>,
+    val activeBoardId: String?,
+    val onSelect: (BoardEntity) -> Unit,
+    val onNewBoard: (() -> Unit)?,
+)
+
+/** One tab of the capsule, as the bar draws it. */
+private class PhoneTab(
+    val key: String,
+    val label: String,
+    val testTag: String,
+    val glyph: @Composable () -> Unit,
+    val caret: Boolean = false,
+    val dotColor: Color? = null,
+)
 
 @Composable
 fun BottomNavBar(
+    /** The lit tab (`shell.tabs` key), null while none is (the Agent page). */
+    selected: String?,
     /**
      * Lit while the plain Agent page (the `agent-tab` start destination) is
      * up: the chat arm wears the tab's active fill, and no pill tab is lit.
      */
     agentActive: Boolean,
-    boardActive: Boolean,
-    devicesActive: Boolean,
-    chatsActive: Boolean,
-    teamActive: Boolean,
+    /** The ACTIVE board: the Board tab's glyph + label (null = `tabIcons.board`
+     *  + `copy.tabs.board`). */
+    board: BoardEntity?,
+    /** The board view is up: the Board tab wears the caret and its tap opens
+     *  the board menu (the caller's [onSelectTab] decides). */
+    onBoardView: Boolean,
     /** The ACTIVE team: the Team tab's avatar + label (null = `copy.tabs.team`). */
     team: TeamEntity?,
     /** EXP-1327: a green dot on Chats while a chat runs. */
@@ -105,83 +168,577 @@ fun BottomNavBar(
     chatsUnread: Boolean = false,
     /** EXP-973: whether New issue has a board to file onto (it always shows). */
     composeEnabled: Boolean,
-    onBoard: () -> Unit,
-    onDevices: () -> Unit,
-    onChats: () -> Unit,
-    onTeam: () -> Unit,
+    /** A tab was tapped or a drag lifted on it (the same thing). */
+    onSelectTab: (String) -> Unit,
     onCompose: () -> Unit,
     onChat: () -> Unit,
     modifier: Modifier = Modifier,
+    /** The board menu's rows; [menuOpen] morphs the strip into it. */
+    boardMenu: PhoneBoardMenu? = null,
+    menuOpen: Boolean = false,
+    onMenuOpenChange: (Boolean) -> Unit = {},
+    /** STATIC drag state for the styleguide specimen (never set by the app):
+     *  the lens over this tab, the finger [lensPreviewOffset] off its centre. */
+    lensPreview: String? = null,
+    lensPreviewOffset: Dp = 0.dp,
 ) {
-    Row(
+    val unreadDot = MaterialTheme.colorScheme.primary
+    val tabs = Chats.Shell.TABS.map { key ->
+        when (key) {
+            "board" -> PhoneTab(
+                key = key,
+                label = board?.name?.takeIf { it.isNotBlank() } ?: Chats.Copy.TABS.getValue(key),
+                testTag = Chats.TestIds.TAB_BOARD,
+                glyph = {
+                    if (board != null) BoardIcon(board, size = TabGlyphSize)
+                    else TabIcon(ExpIcons.navIssues)
+                },
+                caret = onBoardView && board != null,
+            )
+            "chats" -> PhoneTab(
+                key = key,
+                label = Chats.Copy.TABS.getValue(key),
+                testTag = "tab-threads",
+                glyph = { TabIcon(ExpIcons.navThreads) },
+                // Amber, then green, then the unread dot (EXP-1323).
+                dotColor = when {
+                    chatsNeedYou -> ChatsNeedYouAmber
+                    chatsRunning -> ChatsLiveGreen
+                    chatsUnread -> unreadDot
+                    else -> null
+                },
+            )
+            "apps" -> PhoneTab(
+                key = key,
+                label = Chats.Copy.TABS.getValue(key),
+                testTag = "tab-apps",
+                glyph = { TabIcon(ExpIcons.navApps) },
+            )
+            else -> PhoneTab(
+                key = key,
+                label = team?.name?.takeIf { it.isNotBlank() } ?: Chats.Copy.TABS.getValue(key),
+                testTag = Chats.TestIds.TAB_TEAM,
+                glyph = { TeamAvatar(team, size = TabGlyphSize) },
+            )
+        }
+    }
+
+    val reduce = LocalReduceMotion.current
+    // The morph (`shell.boardMenu.motion`): 0 = the strip's frame, 1 = the
+    // menu's. `mounted` keeps the panel through its collapse.
+    val morph = remember { Animatable(if (menuOpen) 1f else 0f) }
+    var mounted by remember { mutableStateOf(menuOpen) }
+    LaunchedEffect(menuOpen) {
+        if (menuOpen) {
+            mounted = true
+            morph.animateTo(
+                1f,
+                tween(
+                    motionDurationMs(Chats.Shell.BoardMenu.OPEN),
+                    easing = motionEasing(Chats.Shell.BoardMenu.OPEN_EASE),
+                ),
+            )
+        } else {
+            morph.animateTo(
+                0f,
+                tween(
+                    motionDurationMs(Chats.Shell.BoardMenu.CLOSE),
+                    easing = motionEasing(Chats.Shell.BoardMenu.CLOSE_EASE),
+                ),
+            )
+            mounted = false
+        }
+    }
+
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = BottomNavDefaults.HorizontalInsetCompact, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        contentAlignment = Alignment.BottomCenter,
     ) {
         Row(
             modifier = Modifier
-                .weight(1f)
-                .height(BottomNavDefaults.BarHeight)
-                .clip(RoundedCornerShape(percent = 50))
-                .background(GlassTokens.OpaqueCardFill)
-                .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, RoundedCornerShape(percent = 50))
-                .padding(BottomNavDefaults.BarPadding),
+                .fillMaxWidth()
+                .graphicsLayer { alpha = 1f - morph.value },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Chats.Shell.TABS.forEach { tab ->
-                when (tab) {
-                    "board" -> TabItem(
-                        label = Chats.Copy.TABS.getValue(tab),
-                        testTag = "tab-issues",
-                        active = boardActive,
-                        onClick = onBoard,
-                        glyph = { tint -> Icon(ExpIcons.navIssues, null, modifier = Modifier.size(22.dp), tint = tint) },
+            TabCapsule(
+                tabs = tabs,
+                selected = selected,
+                onSelectTab = onSelectTab,
+                lensPreview = lensPreview,
+                lensPreviewOffset = lensPreviewOffset,
+                modifier = Modifier.weight(1f),
+            )
+
+            Spacer(Modifier.width(Chats.Shell.Bar.GAP.dp))
+
+            // The detached launcher beside the pill (EXP-827/973, unchanged): the
+            // Chat arm opens the Agent page from every top-level surface, New
+            // issue files onto the current board (dimmed with no board).
+            LauncherCapsule(
+                onChat = onChat,
+                onCompose = onCompose,
+                chatSelected = agentActive,
+                composeEnabled = composeEnabled,
+            )
+        }
+        if (mounted && boardMenu != null) {
+            BoardMenuPanel(
+                menu = boardMenu,
+                progress = { morph.value },
+                reduce = reduce,
+                onClose = { onMenuOpenChange(false) },
+            )
+        }
+    }
+}
+
+private val TabGlyphSize = 20.dp
+
+@Composable
+private fun TabIcon(icon: ImageVector) {
+    Icon(icon, null, modifier = Modifier.size(TabGlyphSize), tint = LocalContentColor.current)
+}
+
+/** Where the tabs sit inside the capsule's content box (px), written at
+ *  placement, read by the drag. */
+private class TabGeometry {
+    var lefts: FloatArray = FloatArray(0)
+    var widths: FloatArray = FloatArray(0)
+    var contentWidth: Float = 0f
+
+    val count: Int get() = lefts.size
+
+    /** The tab under [x] (content px), else the nearest one. */
+    fun indexAt(x: Float): Int {
+        var best = 0
+        var bestDistance = Float.MAX_VALUE
+        for (i in 0 until count) {
+            val left = lefts[i]
+            val right = left + widths[i]
+            if (x in left..right) return i
+            val distance = minOf(kotlin.math.abs(x - left), kotlin.math.abs(x - right))
+            if (distance < bestDistance) {
+                bestDistance = distance
+                best = i
+            }
+        }
+        return best
+    }
+}
+
+/**
+ * The tab capsule: the tabs laid out by [Chats.Shell.Bar.tabWidths] and THE
+ * drag (`shell.bar.drag`). The tabs carry no click of their own (a clickable
+ * child would eat the press the lens needs): one gesture loop on the capsule
+ * owns the press, the drag and the lift; each tab's semantics click is the
+ * same select, so accessibility and tests address the tabs as buttons.
+ */
+@Composable
+private fun TabCapsule(
+    tabs: List<PhoneTab>,
+    selected: String?,
+    onSelectTab: (String) -> Unit,
+    lensPreview: String?,
+    lensPreviewOffset: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val reduce = LocalReduceMotion.current
+    val scope = rememberCoroutineScope()
+    val geometry = remember { TabGeometry() }
+    val lensLeft = remember { Animatable(0f) }
+    val lensWidth = remember { Animatable(0f) }
+    val lensScale = remember { Animatable(1f) }
+    // A press is up: the selected tab's pill lifts off, the candidate lights.
+    var lifted by remember { mutableStateOf(false) }
+    var candidate by remember { mutableIntStateOf(-1) }
+    var settleJob by remember { mutableStateOf<Job?>(null) }
+    val keys = tabs.map { it.key }
+    val selectedIndex = keys.indexOf(selected)
+    val latestSelect by rememberUpdatedState(onSelectTab)
+    val latestSelectedIndex by rememberUpdatedState(selectedIndex)
+    val previewIndex = lensPreview?.let { keys.indexOf(it) }?.takeIf { it >= 0 }
+    val showLifted = lifted || previewIndex != null
+    val litIndex = if (previewIndex != null) previewIndex else candidate
+
+    fun settleOn(index: Int) {
+        settleJob?.cancel()
+        settleJob = scope.launch {
+            if (index in 0 until geometry.count) {
+                val spec = tween<Float>(DesignTokens.Motion.Duration.Standard, easing = DesignTokens.Motion.Ease.Decelerate)
+                coroutineScope {
+                    launch { lensLeft.animateTo(geometry.lefts[index], spec) }
+                    launch { lensWidth.animateTo(geometry.widths[index], spec) }
+                    launch { lensScale.animateTo(1f, spec) }
+                }
+            }
+            lifted = false
+            candidate = -1
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .height(BottomNavDefaults.BarHeight)
+            .clip(RoundedCornerShape(percent = 50))
+            .background(GlassTokens.OpaqueCardFill)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, RoundedCornerShape(percent = 50))
+            .pointerInput(keys, reduce) {
+                val padPx = Chats.Shell.Bar.PADDING.dp.toPx()
+                val cancelPx = Chats.Shell.Bar.Drag.CANCEL_DISTANCE.dp.toPx()
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    if (geometry.count == 0) return@awaitEachGesture
+                    val pressed = geometry.indexAt(down.position.x - padPx)
+                    settleJob?.cancel()
+                    candidate = pressed
+                    lifted = true
+                    scope.launch {
+                        lensLeft.snapTo(geometry.lefts[pressed])
+                        lensWidth.snapTo(geometry.widths[pressed])
+                        lensScale.snapTo(if (reduce) 1f else Chats.Shell.Bar.Drag.LENS_SCALE)
+                    }
+                    var dragging = false
+                    var lifting: PointerInputChange? = null
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) {
+                                lifting = change
+                                break
+                            }
+                            if (!dragging && (change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                                dragging = true
+                            }
+                            if (dragging) {
+                                // The lens follows the finger (clamped to the
+                                // bar, no animation); the tab under its centre
+                                // is the candidate.
+                                val x = change.position.x.coerceIn(padPx, size.width - padPx) - padPx
+                                val index = geometry.indexAt(x)
+                                val width = geometry.widths[index]
+                                val left = (x - width / 2f).coerceIn(0f, (geometry.contentWidth - width).coerceAtLeast(0f))
+                                candidate = index
+                                scope.launch {
+                                    lensLeft.snapTo(left)
+                                    lensWidth.snapTo(width)
+                                }
+                                change.consume()
+                            }
+                        }
+                    } finally {
+                        val up = lifting
+                        when {
+                            // Cancelled (the gesture left us): back to the
+                            // selected tab.
+                            up == null -> settleOn(latestSelectedIndex)
+                            // A plain tap selects at once.
+                            !dragging -> {
+                                settleOn(pressed)
+                                latestSelect(keys[pressed])
+                            }
+                            else -> {
+                                up.consume()
+                                val y = up.position.y
+                                val off = when {
+                                    y < 0f -> -y
+                                    y > size.height -> y - size.height
+                                    else -> 0f
+                                }
+                                if (off > cancelPx) {
+                                    settleOn(latestSelectedIndex)
+                                } else {
+                                    val target = candidate.takeIf { it in keys.indices } ?: pressed
+                                    settleOn(target)
+                                    latestSelect(keys[target])
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(Chats.Shell.Bar.PADDING.dp),
+    ) {
+        // THE LENS: the glass-active pill under the finger, scaled while lifted.
+        if (lifted) {
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .layout { measurable, constraints ->
+                        val width = lensWidth.value.roundToInt().coerceAtLeast(0)
+                        val placeable = measurable.measure(Constraints.fixed(width, constraints.maxHeight))
+                        layout(width, constraints.maxHeight) {
+                            placeable.place(lensLeft.value.roundToInt(), 0)
+                        }
+                    }
+                    .graphicsLayer {
+                        scaleX = lensScale.value
+                        scaleY = lensScale.value
+                    }
+                    .background(GlassTokens.RowFillActive, RoundedCornerShape(percent = 50)),
+            )
+        }
+        Layout(
+            content = {
+                tabs.forEachIndexed { index, tab ->
+                    TabItem(
+                        tab = tab,
+                        active = index == selectedIndex,
+                        lifted = showLifted,
+                        candidate = index == litIndex,
+                        lens = previewIndex == index,
+                        lensOffset = lensPreviewOffset,
+                        onSelect = { onSelectTab(tab.key) },
                     )
-                    "devices" -> TabItem(
-                        label = Chats.Copy.TABS.getValue(tab),
-                        testTag = "tab-devices",
-                        active = devicesActive,
-                        onClick = onDevices,
-                        glyph = { tint -> Icon(ExpIcons.navDevices, null, modifier = Modifier.size(22.dp), tint = tint) },
+                }
+            },
+            modifier = Modifier.fillMaxHeight(),
+        ) { measurables, constraints ->
+            val height = constraints.maxHeight
+            val available = constraints.maxWidth.toFloat()
+            val preferred = measurables.map { it.maxIntrinsicWidth(height).toFloat() }
+            val widths = Chats.Shell.Bar.tabWidths(preferred, available)
+            val placeables = measurables.mapIndexed { index, measurable ->
+                measurable.measure(Constraints.fixed(widths[index].roundToInt().coerceAtLeast(0), height))
+            }
+            val lefts = FloatArray(placeables.size)
+            var x = 0
+            placeables.forEachIndexed { index, placeable ->
+                lefts[index] = x.toFloat()
+                x += placeable.width
+            }
+            geometry.lefts = lefts
+            geometry.widths = FloatArray(placeables.size) { placeables[it].width.toFloat() }
+            geometry.contentWidth = constraints.maxWidth.toFloat()
+            layout(constraints.maxWidth, height) {
+                placeables.forEachIndexed { index, placeable -> placeable.place(lefts[index].roundToInt(), 0) }
+            }
+        }
+    }
+}
+
+/** One tab: its glyph over its label (+ the caret), the selected one on the
+ *  glass-active pill (cross-faded, EXP-523) unless a press lifted it, a dot
+ *  on its glyph. */
+@Composable
+private fun TabItem(
+    tab: PhoneTab,
+    active: Boolean,
+    lifted: Boolean,
+    candidate: Boolean,
+    lens: Boolean,
+    lensOffset: Dp,
+    onSelect: () -> Unit,
+) {
+    val pillFill by animateColorAsState(
+        targetValue = if (active && !lifted) GlassTokens.RowFillActive else Color.Transparent,
+        animationSpec = Motion.standard(),
+        label = "nav-tab-pill",
+    )
+    val lit = if (lifted) candidate else active
+    val glyphAlpha by animateFloatAsState(
+        targetValue = if (lit) 1f else TextEmphasis.Secondary,
+        animationSpec = Motion.fast(),
+        label = "nav-tab-glyph",
+    )
+    val tint = Color.White.copy(alpha = glyphAlpha)
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .testTag(tab.testTag)
+            .semantics(mergeDescendants = true) {
+                role = Role.Tab
+                selected = active
+                contentDescription = tab.label
+                onClick { onSelect(); true }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (lens) {
+            // The specimen's static lens (the app's is the capsule's own).
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .offset(x = lensOffset)
+                    .graphicsLayer {
+                        scaleX = Chats.Shell.Bar.Drag.LENS_SCALE
+                        scaleY = Chats.Shell.Bar.Drag.LENS_SCALE
+                    }
+                    .background(GlassTokens.RowFillActive, RoundedCornerShape(percent = 50)),
+            )
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(percent = 50))
+                .background(pillFill, RoundedCornerShape(percent = 50))
+                .widthIn(min = Chats.Shell.Bar.TAB_MIN_WIDTH.dp)
+                .padding(horizontal = Chats.Shell.Bar.TAB_PADDING_X.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Box {
+                CompositionLocalProvider(LocalContentColor provides tint) { tab.glyph() }
+                if (tab.dotColor != null) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 4.dp, y = (-2).dp)
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(tab.dotColor),
                     )
-                    "chats" -> TabItem(
-                        label = Chats.Copy.TABS.getValue(tab),
-                        testTag = "tab-threads",
-                        active = chatsActive,
-                        // Amber, then green, then the unread dot (EXP-1323).
-                        showDot = chatsRunning || chatsNeedYou || chatsUnread,
-                        dotColor = when {
-                            chatsNeedYou -> ChatsNeedYouAmber
-                            chatsRunning -> ChatsLiveGreen
-                            else -> null
-                        },
-                        onClick = onChats,
-                        glyph = { tint -> Icon(ExpIcons.navThreads, null, modifier = Modifier.size(22.dp), tint = tint) },
-                    )
-                    "team" -> TabItem(
-                        label = team?.name?.takeIf { it.isNotBlank() } ?: Chats.Copy.TABS.getValue(tab),
-                        testTag = Chats.TestIds.TAB_TEAM,
-                        active = teamActive,
-                        onClick = onTeam,
-                        glyph = { _ -> TeamAvatar(team, size = 22.dp) },
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    tab.label,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp, letterSpacing = 0.sp),
+                    color = tint,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (tab.caret) {
+                    Spacer(Modifier.width(2.dp))
+                    Icon(
+                        ExpIcons.navTeamSwitcher,
+                        contentDescription = null,
+                        modifier = Modifier.size(Chats.Shell.BoardTab.CARET_SIZE.dp),
+                        tint = tint,
                     )
                 }
             }
         }
+    }
+}
 
-        Spacer(Modifier.width(10.dp))
+/**
+ * THE BOARD MENU (`shell.boardMenu`): the strip's frame grown into one glass
+ * panel — the same left, right and bottom edges, the height from the strip's
+ * to the rows' (up to `maxVisibleRows`, then they scroll), the corner radius
+ * from the strip's to `radius` — while the rows fade in. Reduce motion = the
+ * panel at its open frame, cross-faded. The surface is the glass menu's
+ * ([GlassMenuDefaults]: the opaque fill, the menu text colours).
+ */
+@Composable
+private fun BoardMenuPanel(
+    menu: PhoneBoardMenu,
+    progress: () -> Float,
+    reduce: Boolean,
+    onClose: () -> Unit,
+) {
+    val rowCount = menu.boards.size + if (menu.onNewBoard != null) 1 else 0
+    val stripHeight = BottomNavDefaults.BarHeight
+    val openHeight = (
+        minOf(rowCount, Chats.Shell.BoardMenu.MAX_VISIBLE_ROWS) * Chats.Shell.BoardMenu.ROW_HEIGHT +
+            Chats.Shell.Bar.PADDING * 2
+        ).dp
+    val p = progress()
+    val height = if (reduce) openHeight else lerp(stripHeight, openHeight, p)
+    val radius = if (reduce) Chats.Shell.BoardMenu.RADIUS.dp else lerp(stripHeight / 2, Chats.Shell.BoardMenu.RADIUS.dp, p)
+    val shape = RoundedCornerShape(radius)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(height)
+            .graphicsLayer { alpha = if (reduce) progress() else 1f }
+            .clip(shape)
+            .background(GlassMenuDefaults.ContainerColor, shape)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape)
+            // The panel is one surface: a press on it never reaches the strip
+            // under it.
+            .pointerInput(Unit) { awaitEachGesture { awaitFirstDown(requireUnconsumed = false) } }
+            .testTag(Chats.TestIds.BOARD_MENU),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .requiredHeight(openHeight)
+                .align(Alignment.TopCenter)
+                .graphicsLayer { alpha = progress() }
+                .verticalScroll(rememberScrollState())
+                .padding(Chats.Shell.Bar.PADDING.dp),
+        ) {
+            menu.boards.forEach { board ->
+                val active = board.id == menu.activeBoardId
+                BoardMenuRow(
+                    label = board.name,
+                    active = active,
+                    muted = false,
+                    glyph = { BoardIcon(board, size = TabGlyphSize) },
+                    onClick = {
+                        menu.onSelect(board)
+                        onClose()
+                    },
+                )
+            }
+            menu.onNewBoard?.let { onNewBoard ->
+                BoardMenuRow(
+                    label = Chats.Copy.BOARD_MENU_NEW_BOARD,
+                    active = false,
+                    muted = true,
+                    glyph = {
+                        Icon(
+                            ExpIcons.uiAdd,
+                            contentDescription = null,
+                            modifier = Modifier.size(GlassMenuDefaults.IconSize),
+                            tint = Color.White.copy(alpha = TextEmphasis.Tertiary),
+                        )
+                    },
+                    onClick = {
+                        onClose()
+                        onNewBoard()
+                    },
+                )
+            }
+        }
+    }
+}
 
-        // The detached launcher beside the pill (EXP-827/973, unchanged): the
-        // Chat arm opens the Agent page from every top-level surface, New
-        // issue files onto the current board (dimmed with no board).
-        LauncherCapsule(
-            onChat = onChat,
-            onCompose = onCompose,
-            chatSelected = agentActive,
-            composeEnabled = composeEnabled,
+@Composable
+private fun BoardMenuRow(
+    label: String,
+    active: Boolean,
+    muted: Boolean,
+    glyph: @Composable () -> Unit,
+    onClick: () -> Unit,
+) {
+    val pill = RoundedCornerShape(percent = 50)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(Chats.Shell.BoardMenu.ROW_HEIGHT.dp)
+            .clip(pill)
+            .then(if (active) Modifier.background(GlassTokens.RowFillActive, pill) else Modifier)
+            .clickable(onClick = onClick)
+            .testTag(Chats.TestIds.BOARD_MENU_ROW)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(Modifier.size(TabGlyphSize), contentAlignment = Alignment.Center) { glyph() }
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
+            color = if (muted) Color.White.copy(alpha = TextEmphasis.Tertiary) else GlassMenuDefaults.TextColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
         )
+        if (active) {
+            Icon(
+                ExpIcons.uiCheck,
+                contentDescription = "Selected",
+                modifier = Modifier.size(GlassMenuDefaults.IconSize),
+                tint = GlassMenuDefaults.TextColor,
+            )
+        }
     }
 }
 
@@ -272,65 +829,6 @@ private fun LauncherArm(
             contentDescription = contentDescription,
             modifier = Modifier.size(20.dp),
             tint = if (enabled) Color.White else Color.White.copy(alpha = TextEmphasis.Quaternary),
-        )
-    }
-}
-
-/** One tab of the capsule: its glyph over its label, the selected one on
- *  the glass-active pill (cross-faded, EXP-523), a dot on its glyph. */
-@Composable
-private fun RowScope.TabItem(
-    label: String,
-    testTag: String,
-    active: Boolean,
-    onClick: () -> Unit,
-    glyph: @Composable (tint: Color) -> Unit,
-    showDot: Boolean = false,
-    dotColor: Color? = null,
-) {
-    val pillFill by animateColorAsState(
-        targetValue = if (active) GlassTokens.RowFillActive else Color.Transparent,
-        animationSpec = Motion.standard(),
-        label = "nav-tab-pill",
-    )
-    val glyphAlpha by animateFloatAsState(
-        targetValue = if (active) 1f else TextEmphasis.Secondary,
-        animationSpec = Motion.standard(),
-        label = "nav-tab-glyph",
-    )
-    Column(
-        modifier = Modifier
-            .weight(1f)
-            .fillMaxHeight()
-            .testTag(testTag)
-            .clip(RoundedCornerShape(percent = 50))
-            .background(pillFill, RoundedCornerShape(percent = 50))
-            .clickable(onClick = onClick)
-            .semantics { contentDescription = label },
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Box {
-            glyph(Color.White.copy(alpha = glyphAlpha))
-            if (showDot) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 4.dp, y = (-2).dp)
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(dotColor ?: MaterialTheme.colorScheme.primary),
-                )
-            }
-        }
-        Spacer(Modifier.height(2.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = glyphAlpha),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 4.dp),
         )
     }
 }

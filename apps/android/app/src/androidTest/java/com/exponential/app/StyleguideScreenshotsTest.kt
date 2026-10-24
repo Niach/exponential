@@ -5,6 +5,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
@@ -52,6 +53,11 @@ import com.exponential.app.ui.styleguide.ChatMenusSpecimenTestId
 import com.exponential.app.ui.styleguide.ChatTranscriptSpecimenScreen
 import com.exponential.app.ui.styleguide.ChatTranscriptSpecimenTestId
 import com.exponential.app.ui.styleguide.PhoneTabBarSpecimenScreen
+import com.exponential.app.domain.SettingsNav
+import com.exponential.app.ui.styleguide.PhonePageHeaderSpecimenTestId
+import com.exponential.app.ui.styleguide.PhonePageHeaderSpecimenScreen
+import com.exponential.app.ui.styleguide.PhoneBoardMenuSpecimenTestId
+import com.exponential.app.ui.styleguide.PhoneBoardMenuSpecimenScreen
 import com.exponential.app.ui.styleguide.PhoneTabBarSpecimenTestId
 import com.exponential.app.ui.styleguide.SchedulePickerSpecimenScreen
 import com.exponential.app.ui.styleguide.SchedulePickerSpecimenTestId
@@ -177,8 +183,11 @@ class StyleguideScreenshotsTest {
             "sg_script-card", "sg_comment-call-card",
             "sg_trace", "sg_code-block", "sg_ask-dock", "sg_dock-card", "sg_plan-card",
             // Thread 58cb32df: the Chats pieces + the minutes schedule.
-            "sg_chat-list", "sg_phone-tab-bar", "sg_chat-transcript", "sg_chat-menus", "sg_schedule-picker",
+            "sg_chat-list", "sg_phone-tab-bar", "sg_phone-board-menu", "sg_phone-page-header", "sg_chat-transcript", "sg_chat-menus", "sg_schedule-picker",
         )
+
+        /** #EXP-1384: the Board tab's root is up (its All issues chip). */
+        private val BOARD_ROOT_TAG = "${Chats.TestIds.BOARD_CHIP}-all"
 
         /** VAPP-110: the seeded Team dashboard app (web `DEMO_APP_SLUG`). */
         private const val DEMO_APP_SLUG = "team-dashboard"
@@ -350,7 +359,7 @@ class StyleguideScreenshotsTest {
         // Running band). Gated on the device pool having resolved (the
         // options pills are its).
         flow.waitFor(hasTestTag(AgentHome.HOME_TEST_ID), FIRST_SYNC_TIMEOUT)
-        flow.waitFor(hasTestTag("tab-issues"), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag(Chats.TestIds.TAB_BOARD), SYNC_TIMEOUT)
         flow.waitForGone(hasText("No desktop online", substring = true), NETWORK_TIMEOUT)
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), NETWORK_TIMEOUT)
         flow.settle()
@@ -371,8 +380,8 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_session-row")
 
         // The app lands on the Agent tab; the board shots start on Issues.
-        flow.waitFor(hasTestTag("tab-issues"), SYNC_TIMEOUT)
-        composeRule.onNode(hasTestTag("tab-issues")).performClick()
+        flow.waitFor(hasTestTag(Chats.TestIds.TAB_BOARD), SYNC_TIMEOUT)
+        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_BOARD)).performClick()
 
         // --- Board: wait out session fetch + first Electric sync, then let the
         // transient "Syncing…" pill clear (it photobombed a board shot once —
@@ -381,13 +390,12 @@ class StyleguideScreenshotsTest {
         flow.waitForGone(hasText("Syncing", substring = true), FIRST_SYNC_TIMEOUT)
         flow.settle()
 
-        // --- Board switcher: the board-name control in the pinned nav row
-        // opens the server → team → board sheet. The trigger's "Switch board"
-        // is a contentDescription and the sheet's is a Text, so hasText matches
-        // the sheet unambiguously; gate additionally on the team block header.
-        composeRule.onNode(hasContentDescription("Switch board")).performClick()
-        flow.waitFor(hasText("Switch board"), NAV_TIMEOUT)
-        flow.waitFor(hasText(TEAM_NAME), SYNC_TIMEOUT)
+        // --- Board switcher: #EXP-1384 — on the board view the Board tab
+        // morphs the bottom strip into the board menu (chats.json
+        // `shell.boardMenu`), the active team's boards then New board.
+        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_BOARD)).performClick()
+        flow.waitFor(hasTestTag(Chats.TestIds.BOARD_MENU), NAV_TIMEOUT)
+        flow.waitFor(hasText(Chats.Copy.BOARD_MENU_NEW_BOARD), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_board-switcher")
 
@@ -396,7 +404,7 @@ class StyleguideScreenshotsTest {
         // teams group; it opens the create-or-join sheet. The extra wait on
         // the first card's title keeps the shot off a half-drawn sheet.
         Espresso.pressBack()
-        flow.waitForGone(hasText("Switch board"), NAV_TIMEOUT)
+        flow.waitForGone(hasTestTag(Chats.TestIds.BOARD_MENU), NAV_TIMEOUT)
         composeRule.onNode(hasTestTag(Chats.TestIds.TAB_TEAM)).performClick()
         flow.waitFor(hasTestTag("team-new"), NAV_TIMEOUT)
         composeRule.onNode(hasTestTag("team-new")).performClick()
@@ -412,8 +420,8 @@ class StyleguideScreenshotsTest {
         // dismisses, and an unsubmitted form leaves no team behind.
         Espresso.pressBack()
         flow.waitForGone(hasTestTag("team-setup-sheet"), NAV_TIMEOUT)
-        composeRule.onNode(hasTestTag("tab-issues")).performClick()
-        flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_BOARD)).performClick()
+        flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
         flow.settle(longer = true)
 
         // --- Board empty state: the seed's second board is created empty for
@@ -477,7 +485,7 @@ class StyleguideScreenshotsTest {
         flow.settle(longer = true)
 
         composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
         flow.settle()
 
         // --- Create issue: the compose circle opens the New issue PAGE
@@ -489,7 +497,7 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_issue-create")
         composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
         flow.settle()
 
         // --- Search: EXP-686 moved it off the bottom bar into the board
@@ -498,7 +506,7 @@ class StyleguideScreenshotsTest {
         // field is the only editable node on it, so hasSetTextAction
         // addresses it without a tag. Gate on a real hit — an unseeded
         // backend would render "No issues match".
-        composeRule.onNode(hasTestTag("board-search")).performClick()
+        composeRule.onNode(hasTestTag(Chats.TestIds.SEARCH_BUTTON)).performClick()
         flow.waitFor(hasText("Search"), NAV_TIMEOUT)
         composeRule.onNode(hasSetTextAction()).performTextInput(SEARCH_QUERY)
         Espresso.closeSoftKeyboard()
@@ -506,7 +514,7 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_search")
         composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
         flow.settle()
 
         // --- sg_pr-row: THE pull-request row (EXP-1248/1291). An issue page
@@ -555,7 +563,7 @@ class StyleguideScreenshotsTest {
         }
         // Issue → board.
         composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
         flow.settle()
 
         // --- sg_guide: web's `guide` thread (EXP-1303). APP-15's thread, the
@@ -582,7 +590,7 @@ class StyleguideScreenshotsTest {
             Espresso.pressBack()
             flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
             composeRule.onNode(hasContentDescription("Back")).performClick()
-            flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
             flow.settle()
         }
 
@@ -603,7 +611,7 @@ class StyleguideScreenshotsTest {
             Espresso.pressBack()
             flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
             composeRule.onNode(hasContentDescription("Back")).performClick()
-            flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
             flow.settle()
         }
 
@@ -626,8 +634,7 @@ class StyleguideScreenshotsTest {
         // EXP-909 retired `sg_usage` with the cross-device Accounts section:
         // each device row now lists its OWN logins, so `sg_agents` is the
         // accounts shot too.
-        composeRule.onNode(hasTestTag("tab-devices")).performClick()
-        flow.waitFor(hasText("Devices"), NAV_TIMEOUT)
+        openDevices()
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), NETWORK_TIMEOUT)
         // EXP-944: device rows are collapsed by default; the shot opens the
         // demo device so its logins and their usage are in frame.
@@ -708,8 +715,9 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasIssueChip(), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_chat-issues")
-        // A tab now (Back would leave the app): the Devices tab returns.
-        composeRule.onNode(hasTestTag("tab-devices")).performClick()
+        // A tab now (Back would leave the app): the Team tab's Devices row
+        // returns.
+        openDevices()
         flow.waitForGone(hasTestTag("agent-page"), NAV_TIMEOUT)
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), SYNC_TIMEOUT)
         flow.settle(longer = true)
@@ -764,15 +772,13 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
         flow.settle(longer = true)
 
-        // --- sg_apps / sg_app (VAPP-116): thread 58cb32df moved the Apps
-        // entry to the Team tab's rows; it opens the selected team's Apps (no
+        // --- sg_apps / sg_app (VAPP-116): #EXP-1384 made Apps the third
+        // TAB; it opens the selected team's Apps (no
         // built-in apps: the seeded Team dashboard + the version-less app, by name); the
         // dashboard opens its editor on the Chat tab, the demo user's editor
         // session (web-mobile's `app` shot). Leaving it ends that session,
         // exactly as the web capture does.
-        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_TEAM)).performClick()
-        flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
-        composeRule.onAllNodes(hasText(Apps.Copy.NAV)).onFirst().performScrollTo().performClick()
+        composeRule.onNode(hasTestTag("tab-apps")).performClick()
         flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
         val dashboardRow = hasTestTag("${Apps.TestIds.ROW}-$DEMO_APP_SLUG")
         flow.waitFor(dashboardRow, SYNC_TIMEOUT)
@@ -785,8 +791,6 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_app")
         Espresso.pressBack()
         flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
-        Espresso.pressBack()
-        flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
         composeRule.onNode(hasTestTag("tab-threads")).performClick()
         flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
         flow.settle(longer = true)
@@ -1120,6 +1124,11 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_chat-list")
         show(PhoneTabBarSpecimenTestId) { PhoneTabBarSpecimenScreen() }
         flow.screenshot("sg_phone-tab-bar")
+        // #EXP-1384: the board menu open over its strip, the page header.
+        show(PhoneBoardMenuSpecimenTestId) { PhoneBoardMenuSpecimenScreen() }
+        flow.screenshot("sg_phone-board-menu")
+        show(PhonePageHeaderSpecimenTestId) { PhonePageHeaderSpecimenScreen() }
+        flow.screenshot("sg_phone-page-header")
         show(ChatTranscriptSpecimenTestId) { ChatTranscriptSpecimenScreen() }
         flow.screenshot("sg_chat-transcript")
         show(ChatMenusSpecimenTestId) { ChatMenusSpecimenScreen() }
@@ -1138,15 +1147,27 @@ class StyleguideScreenshotsTest {
         }
 
     /**
-     * Board switcher → the named board. The sheet's rows carry the board name
-     * as plain text; the first match is the row.
+     * #EXP-1384: the board menu → the named board. On the board view the
+     * Board tab opens the menu; its rows carry the board name as plain text.
      */
     private fun switchBoard(name: String) {
-        composeRule.onNode(hasContentDescription("Switch board")).performClick()
-        flow.waitFor(hasText("Switch board"), NAV_TIMEOUT)
-        flow.waitFor(hasText(name, substring = true), SYNC_TIMEOUT)
-        composeRule.onAllNodes(hasText(name, substring = true)).onFirst().performClick()
-        flow.waitForGone(hasText("Switch board"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_BOARD)).performClick()
+        flow.waitFor(hasTestTag(Chats.TestIds.BOARD_MENU), NAV_TIMEOUT)
+        val row = hasTestTag(Chats.TestIds.BOARD_MENU_ROW) and hasText(name, substring = true)
+        flow.waitFor(row, SYNC_TIMEOUT)
+        composeRule.onAllNodes(row).onFirst().performClick()
+        flow.waitForGone(hasTestTag(Chats.TestIds.BOARD_MENU), NAV_TIMEOUT)
         flow.settle(longer = true)
+    }
+
+    /** #EXP-1384: Devices = the Team page's Devices row (settings-nav.json), pushed. */
+    private fun openDevices() {
+        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_TEAM)).performClick()
+        flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
+        val devices = Chats.Copy.HEADERS.getValue("devices")
+        val row = hasTestTag(SettingsNav.ROW_TEST_ID) and
+            (hasText(devices) or hasAnyDescendant(hasText(devices)))
+        composeRule.onAllNodes(row).onFirst().performScrollTo().performClick()
+        flow.waitFor(hasTestTag(SettingsNav.PAGE_TEST_ID), NAV_TIMEOUT)
     }
 }

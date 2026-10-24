@@ -53,10 +53,10 @@ class TabNavigationTest {
 
     @Test
     fun `the tab routes are the bar's five destinations`() {
-        // NEW-7: the Actions tab is gone (prompts replaced actions); thread
-        // 58cb32df: Board · Devices · Chats · Team + the Agent root.
+        // NEW-7: the Actions tab is gone (prompts replaced actions); #EXP-1384:
+        // Board · Chats · Apps · Team + the Agent root.
         assertEquals(
-            setOf("agent-tab", "home", "agents", "threads", "team"),
+            setOf("agent-tab", "home", "threads", "apps", "team"),
             MainTabs.routes,
         )
     }

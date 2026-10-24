@@ -110,7 +110,7 @@ import com.exponential.app.ui.gettingstarted.GettingStartedSection
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.domain.TeamLiveRuns
-import com.exponential.app.ui.home.BoardSwitcherSheet
+import com.exponential.app.ui.components.PageHeader
 import com.exponential.app.ui.home.HomeViewModel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.CreateBoardSheet
@@ -210,7 +210,6 @@ fun IssueListScreen(
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val syncBanner by viewModel.syncBanner.collectAsStateWithLifecycle()
     val syncingVisible by viewModel.syncingVisible.collectAsStateWithLifecycle()
-    var showSwitcher by remember { mutableStateOf(false) }
     var showCreateBoard by remember { mutableStateOf(false) }
     // Which team the create-board sheet targets — the switcher names one, every
     // other entry point means "the selected team" (null).
@@ -301,14 +300,6 @@ fun IssueListScreen(
         LaunchedEffect(Unit) { homeViewModel.bootstrap() }
     }
 
-    // "Any signed-in account has a board" — gates the cross-account switcher
-    // (so a boardless active account with a board-bearing sibling can still
-    // switch to it). The spinner instead gates on the ACTIVE account
-    // (activeAccountHasBoard), because only the active account's board can
-    // resolve into the root list.
-    val hasAnyBoard = homeState?.boardTree
-        ?.any { group -> group.teamBlocks.any { it.boards.isNotEmpty() } } == true
-
     // Thread 58cb32df: the board chips' state + counts (Root mount only).
     var boardChip by rememberSaveable { mutableStateOf(BOARD_CHIP_ALL) }
     val myIssuesViewModel: com.exponential.app.ui.myissues.MyIssuesViewModel? =
@@ -324,50 +315,14 @@ fun IssueListScreen(
     Scaffold(containerColor = Color.Transparent) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Pinned nav row. Pushed: circular back button + the search
-            // trigger trailing. Root: the inline board switcher control +
-            // search next to the settings gear (EXP-686 put search here when
-            // it left the bottom bar); the single add-issue affordance is the
-            // bottom bar's compose FAB.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                when (mode) {
-                    IssueListMode.Pushed -> {
-                        CircleIconButton(ExpIcons.uiBack, "Back", onClick = onBack, borderless = true)
-                        Spacer(Modifier.weight(1f))
-                        CircleIconButton(
-                            ExpIcons.navSearch,
-                            "Search",
-                            onClick = onOpenSearch,
-                            modifier = Modifier.testTag("board-search"),
-                        )
-                    }
-                    IssueListMode.Root -> {
-                        BoardSwitcherControl(
-                            board = state.board,
-                            enabled = hasAnyBoard,
-                            onClick = { showSwitcher = true },
-                        )
-                        Spacer(Modifier.weight(1f))
-                        // Nothing to search before a board resolves — the
-                        // empty/create-board states have no issues yet.
-                        // Thread 58cb32df: the settings gear moved to the
-                        // Team tab; the header = the switcher + search.
-                        if (!boardId.isNullOrBlank()) {
-                            CircleIconButton(
-                                ExpIcons.navSearch,
-                                "Search",
-                                onClick = onOpenSearch,
-                                modifier = Modifier.testTag("board-search"),
-                            )
-                        }
-                    }
-                }
-            }
+            // #EXP-1384 (chats.json `shell.header`): THE page header — the
+            // board's name large, search + inbox circles (the shell's). The
+            // board is switched only by the Board tab's menu now; a pushed
+            // board wears the back control before its title.
+            PageHeader(
+                title = state.board?.name ?: com.exponential.app.domain.Chats.Copy.TABS.getValue("board"),
+                onBack = if (mode == IssueListMode.Pushed) onBack else null,
+            )
 
             // Thread 58cb32df (chats.json `shell.boardChips`): All issues ·
             // My issues N · Drafts N (Drafts only while there are drafts) as
@@ -661,40 +616,6 @@ fun IssueListScreen(
         }
     }
 
-    if (showSwitcher && homeViewModel != null) {
-        BoardSwitcherSheet(
-            // Thread 58cb32df (chats.json `shell`): ONE active team per phone
-            // screen, switched ONLY on the Team tab — the sheet lists the
-            // active team's boards alone (no other teams, no New team).
-            groups = (homeState?.boardTree ?: emptyList()).mapNotNull { group ->
-                if (selectedTeamId == null) return@mapNotNull group
-                group.copy(teamBlocks = group.teamBlocks.filter { it.team.id == selectedTeamId })
-                    .takeIf { it.teamBlocks.isNotEmpty() }
-            },
-            showNewTeam = false,
-            currentBoardId = state.board?.id,
-            liveRunsByTeam = liveRunsByTeam,
-            selectedTeamId = selectedTeamId,
-            onSelect = { accountId, pickedBoardId ->
-                homeViewModel.selectBoard(accountId, pickedBoardId)
-                showSwitcher = false
-            },
-            // The switcher's own make-rows (EXP-698 r5). Both close the sheet
-            // first — they open a sheet of their own, and two stacked bottom
-            // sheets is a dead end on Android.
-            onCreateBoard = { teamId ->
-                showSwitcher = false
-                createBoardTeamId = teamId
-                showCreateBoard = true
-            },
-            onCreateTeam = {
-                showSwitcher = false
-                showTeamSetup = true
-            },
-            onDismiss = { showSwitcher = false },
-        )
-    }
-
     if (showCreateBoard) {
         // The new board's last-used pointer swaps the root list in place, so
         // dismissing is all this needs to do on success. A null team is the
@@ -910,38 +831,6 @@ private fun IssueListContent(
             }
         }
     }
-}
-
-// The Issues tab root's inline board switcher: the board's own icon + name +
-// an up/down expander glyph as one tappable glass control (iOS combobox
-// pattern).
-@Composable
-private fun BoardSwitcherControl(
-    board: BoardEntity?,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    // EXP-698: the control stays ENABLED-looking with nowhere to switch to —
-    // this is the screen's TITLE as much as it is a control, and dimming the
-    // board name to quaternary read as "this board is broken". Only the
-    // expander glyph (and the tap) reflect that there is no second board.
-    GlassPill(
-        board?.name ?: "Issues",
-        onClick = if (enabled) onClick else null,
-        mode = PillMode.Action,
-        maxLines = 1,
-        leading = board?.let { { BoardIcon(it) } },
-        trailing = {
-            Icon(
-                ExpIcons.uiSelector,
-                contentDescription = "Switch board",
-                modifier = Modifier.size(GlassPillDefaults.MdGlyphSize),
-                tint = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
-                ),
-            )
-        },
-    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)

@@ -539,8 +539,19 @@ fun TeamTabScreen(
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = com.exponential.app.ui.components.BottomBarInset)
+                .padding(bottom = com.exponential.app.ui.components.BottomBarInset)
                 .testTag("team-tab"),
+        ) {
+            // #EXP-1384 (chats.json `shell.header`): the page header, the
+            // team's name its title.
+            com.exponential.app.ui.components.PageHeader(
+                title = state.team?.name?.takeIf { it.isNotBlank() }
+                    ?: com.exponential.app.domain.Chats.Copy.TABS.getValue("team"),
+            )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             Column(
@@ -548,15 +559,7 @@ fun TeamTabScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 TeamAvatar(state.team, size = 84.dp)
-                Spacer(Modifier.size(14.dp))
-                Text(
-                    state.team?.name.orEmpty(),
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.size(6.dp))
+                Spacer(Modifier.size(12.dp))
                 Text(
                     com.exponential.app.domain.Chats.Copy.teamMeta(state.members, state.boards),
                     style = MaterialTheme.typography.bodyMedium,
@@ -668,6 +671,7 @@ fun TeamTabScreen(
                     SettingsRow(icon = ExpIcons.settingsAbout, title = "About", onClick = onOpenAbout)
                 }
             }
+        }
         }
     }
     if (gettingStartedOpen) {

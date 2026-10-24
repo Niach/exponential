@@ -22,10 +22,21 @@ object Chats {
         /** `copy.tabs` by [Shell.TABS]. */
         val TABS: Map<String, String> = linkedMapOf(
             "board" to "Board",
-            "devices" to "Devices",
             "chats" to "Chats",
+            "apps" to "Apps",
             "team" to "Team",
         )
+
+        /** `copy.headers` by page (the Board / Team titles are the board's /
+         *  team's names). */
+        val HEADERS: Map<String, String> = linkedMapOf(
+            "chats" to "Chats",
+            "apps" to "Apps",
+            "devices" to "Devices",
+            "agent" to "Agent",
+        )
+
+        const val BOARD_MENU_NEW_BOARD = "New board"
 
         /** `copy.filters` by [FILTERS]. */
         val FILTERS: Map<ChatFilter, String> = linkedMapOf(
@@ -86,16 +97,88 @@ object Chats {
     }
 
     /** `shell`: the phone tab order and their icon CONCEPTS (the Team tab's
-     *  icon is the active team's avatar), the sizes. */
+     *  icon is the active team's avatar), the bar, the board tab and menu,
+     *  the page header, the sizes. */
     object Shell {
-        val TABS: List<String> = listOf("board", "devices", "chats", "team")
+        val TABS: List<String> = listOf("board", "chats", "apps", "team")
         val TAB_ICONS: Map<String, String> = linkedMapOf(
             "board" to "nav-issues",
-            "devices" to "nav-devices",
             "chats" to "nav-threads",
+            "apps" to "nav-apps",
         )
+
+        /** `shell.bar`: the tab capsule (dp). */
+        object Bar {
+            const val HEIGHT = 52
+            const val PADDING = 4
+            const val GAP = 12
+            const val TAB_MIN_WIDTH = 44
+            const val TAB_PADDING_X = 8
+
+            /** `shell.bar.drag`: the selection lens. */
+            object Drag {
+                const val LENS_SCALE = 1.12f
+                const val CANCEL_DISTANCE = 56
+            }
+
+            /**
+             * The tabs' widths in a capsule [available] wide, given each tab's
+             * [preferred] width (its label + 2 × [TAB_PADDING_X], at least
+             * [TAB_MIN_WIDTH]): while they fit, every tab gets its own width
+             * plus an even share of the rest; when they do not, the widest
+             * give way first (one cap for all the tabs above it), so a label
+             * truncates only when the labels alone do not fit.
+             */
+            fun tabWidths(preferred: List<Float>, available: Float): List<Float> {
+                if (preferred.isEmpty()) return emptyList()
+                val total = preferred.sum()
+                if (total <= available) {
+                    val extra = (available - total) / preferred.size
+                    return preferred.map { it + extra }
+                }
+                var remaining = available
+                var cap = Float.MAX_VALUE
+                val ascending = preferred.sorted()
+                for ((index, width) in ascending.withIndex()) {
+                    val left = ascending.size - index
+                    if (width * left <= remaining) {
+                        remaining -= width
+                    } else {
+                        cap = remaining / left
+                        break
+                    }
+                }
+                return preferred.map { minOf(it, cap) }
+            }
+        }
+
+        /** `shell.boardTab`: the caret on the board view. */
+        object BoardTab {
+            const val CARET = "nav-team-switcher"
+            const val CARET_SIZE = 10
+        }
+
+        /** `shell.boardMenu`: the strip morph (durations / eases name the
+         *  motion tokens). */
+        object BoardMenu {
+            const val ROW_HEIGHT = 48
+            const val MAX_VISIBLE_ROWS = 8
+            const val RADIUS = 28
+            const val OPEN = "slow"
+            const val OPEN_EASE = "decelerate"
+            const val CLOSE = "standard"
+            const val CLOSE_EASE = "accelerate"
+        }
+
+        /** `shell.header`: the page header's pages, its trailing circles in
+         *  order, the circle size (dp). */
+        object Header {
+            val PAGES: List<String> = listOf("board", "chats", "apps", "team", "devices", "agent")
+            val BUTTONS: List<String> = listOf("nav-search", "nav-inbox")
+            const val CIRCLE = 44
+        }
+
         val BOARD_CHIPS: List<String> = listOf("all", "mine", "drafts")
-        val CHATS_HEADER: List<String> = listOf("nav-search", "nav-inbox")
         const val LEAD_DISC = 52
         const val BUBBLE = 66
         const val BUBBLE_RING = 3
@@ -110,6 +193,11 @@ object Chats {
         const val BOARD_CHIP = "board-chip"
         const val SURFACE_CARD = "surface-card"
         const val DIVIDER = "transcript-divider"
+        const val TAB_BOARD = "tab-board"
+        const val BOARD_MENU = "board-menu"
+        const val BOARD_MENU_ROW = "board-menu-row"
+        const val PAGE_HEADER = "page-header"
+        const val SEARCH_BUTTON = "header-search"
     }
 
     /** `agentMenu.sends`: what Compact / New conversation send (one path

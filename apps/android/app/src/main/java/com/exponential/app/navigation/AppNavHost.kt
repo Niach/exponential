@@ -1,5 +1,11 @@
 package com.exponential.app.navigation
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
+import com.exponential.app.ui.home.HomeViewModel
+import com.exponential.app.ui.onboarding.CreateBoardSheet
 import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
@@ -69,6 +75,9 @@ import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.BottomBarSuppression
 import com.exponential.app.ui.components.BottomNavBar
+import com.exponential.app.ui.components.LocalPageHeaderActions
+import com.exponential.app.ui.components.PageHeaderActions
+import com.exponential.app.ui.components.PhoneBoardMenu
 import com.exponential.app.ui.components.LocalBottomBarSuppression
 import com.exponential.app.ui.components.LocalOverlayToaster
 import com.exponential.app.ui.components.LocalToaster
@@ -476,8 +485,12 @@ private fun AuthenticatedNav(
     // EXP-1210: the tab whose stack is up — a detail pushed inside a tab
     // still lights that tab.
     val currentTab = remember(backStackEntry) { navController.currentTab() }
+    // #EXP-1384: Devices (pushed from the Team page) keeps the bar, the Team
+    // tab lit.
+    val onDevicesPage = currentRoute == Routes.TEAM_SETTINGS_PATTERN &&
+        backStackEntry?.arguments?.getString("section") == SettingsNav.DEVICES
     val barVisible = !needsOnboarding &&
-        (currentRoute in MainTabs.routes || currentRoute == "board/{boardId}")
+        (currentRoute in MainTabs.routes || currentRoute == "board/{boardId}" || onDevicesPage)
     // EXP-698 r5 (Mechanism A): a screen may claim the tab bar's slot for a
     // bar of its own — today the issue list's multi-select bar. The switch is
     // provided to the whole NavHost; the chrome below reads it directly.
@@ -519,7 +532,7 @@ private fun AuthenticatedNav(
         navController.navigate(Routes.teamSettings(section)) { launchSingleTop = true }
     }
     val openReadinessDevices: () -> Unit = {
-        navController.selectTab(MainTabs.DEVICES, tabSwitch)
+        navController.navigate(Routes.teamSettings(SettingsNav.DEVICES)) { launchSingleTop = true }
     }
 
     // The single add-issue affordance. EXP-973: it rides EVERY tab, not just
@@ -529,6 +542,30 @@ private fun AuthenticatedNav(
         "board/{boardId}" -> backStackEntry?.arguments?.getString("boardId")
         else -> currentBoardId
     }
+
+    // #EXP-1384 (chats.json `shell.boardTab` / `shell.boardMenu`): the Board
+    // tab wears the ACTIVE board, and on the board view its tap morphs the
+    // strip into the board menu — the active team's boards in sidebar order.
+    val homeVm: HomeViewModel = hiltViewModel()
+    val homeState by homeVm.state.collectAsStateWithLifecycle()
+    val activeGroup = homeState.boardTree.firstOrNull { it.accountId == activeAccountId }
+    val activeBlock = activeGroup?.teamBlocks?.firstOrNull { it.team.id == selectedTeamId }
+    val teamBoards = activeBlock?.boards.orEmpty().sortedBy { it.sortOrder }
+    val activeBoard = teamBoards.firstOrNull { it.id == composeBoardId }
+    val onBoardView = currentRoute == MainTabs.ISSUES || currentRoute == "board/{boardId}"
+    var boardMenuOpen by remember { mutableStateOf(false) }
+    var createBoardOpen by remember { mutableStateOf(false) }
+    // Leaving the board view (or the bar hiding) folds the menu.
+    LaunchedEffect(onBoardView, barVisible) {
+        if (!onBoardView || !barVisible) boardMenuOpen = false
+    }
+    // The page header's circles (`shell.header.buttons`), the same on every
+    // page: search pushes the phone search, the inbox the inbox page.
+    val pageHeaderActions = PageHeaderActions(
+        onSearch = { navController.navigate("search") { launchSingleTop = true } },
+        onInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
+        inboxUnread = unreadCount > 0,
+    )
 
     // EXP-523: the four transitions below are plain lambdas, not composable
     // ones, so the reduce-motion flag is read here and captured. `Motion.slow`
@@ -551,8 +588,8 @@ private fun AuthenticatedNav(
                 EntityTarget.Prompts -> navController.navigate(Routes.PROMPTS_SETTINGS)
                 // NEW-7: an `agent` ref opens my conversation with it.
                 is EntityTarget.Agent -> navController.navigate(Routes.agentDm(target.id))
-                // EXP-1210: a tab is never pushed — its ref switches to it.
-                EntityTarget.Devices -> navController.selectTab(MainTabs.DEVICES, tabSwitch)
+                // #EXP-1384: Devices is a Team-page row, pushed.
+                EntityTarget.Devices -> navController.navigate(Routes.teamSettings(SettingsNav.DEVICES)) { launchSingleTop = true }
                 is EntityTarget.TeamSettings -> navController.navigate(Routes.teamSettings(target.section))
                 // Thread 58cb32df: the inbox is a page, pushed.
                 EntityTarget.Inbox -> navController.navigate(MainTabs.INBOX) { launchSingleTop = true }
@@ -565,6 +602,7 @@ private fun AuthenticatedNav(
         LocalBottomBarSuppression provides barSuppression,
         LocalEntityNavigator provides entityNavigator,
         LocalLeaveGuard provides leaveGuard,
+        LocalPageHeaderActions provides pageHeaderActions,
     ) {
     NavHost(
         navController = navController,
@@ -645,12 +683,6 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
             )
         }
-        composable("agents") {
-            // Devices — machines only since EXP-825, and since the EXP-909
-            // follow-up they carry no launcher at all: a row's ONE control is
-            // the settings gear, and runs start from the Agent page composer.
-            AgentsScreen()
-        }
         composable(
             // EXP-825: the SEEDED Agent page — a pushed detail over any tab
             // (the empty one is AGENT_TAB_ROUTE) whose six nullable query args carry the preselection seed
@@ -716,9 +748,10 @@ private fun AuthenticatedNav(
                 onOpenAgentHome = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
             )
         }
-        composable(Routes.APPS) {
+        composable(MainTabs.APPS) {
+            // #EXP-1384: the Apps TAB's root (chats.json `shell.tabs`).
             AppsScreen(
-                onBack = { navController.popBackStack() },
+                onBack = null,
                 onOpenApp = { id -> navController.navigate(Routes.app(id)) },
             )
         }
@@ -1059,6 +1092,23 @@ private fun AuthenticatedNav(
         }
     }
 
+    // After the NavHost, so the menu's back wins over the NavHost's pop.
+    BackHandler(enabled = boardMenuOpen) { boardMenuOpen = false }
+    if (boardMenuOpen) {
+        // The board menu's transparent scrim: a press outside the panel
+        // collapses it (the panel sits above, in the bar's own layer).
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false).consume()
+                        boardMenuOpen = false
+                    }
+                },
+        )
+    }
+
     AnimatedVisibility(
         visible = barShown,
         enter = slideInVertically(Motion.standard(reduceMotion)) { it } +
@@ -1068,11 +1118,17 @@ private fun AuthenticatedNav(
         modifier = Modifier.align(Alignment.BottomCenter),
     ) {
         BottomNavBar(
-            agentActive = currentTab == MainTabs.AGENT,
-            boardActive = currentTab == MainTabs.ISSUES,
-            devicesActive = currentTab == MainTabs.DEVICES,
-            chatsActive = currentTab == MainTabs.THREADS,
-            teamActive = currentTab == MainTabs.TEAM,
+            selected = when {
+                onDevicesPage -> "team"
+                currentTab == MainTabs.ISSUES -> "board"
+                currentTab == MainTabs.THREADS -> "chats"
+                currentTab == MainTabs.APPS -> "apps"
+                currentTab == MainTabs.TEAM -> "team"
+                else -> null
+            },
+            agentActive = currentTab == MainTabs.AGENT && !onDevicesPage,
+            board = activeBoard,
+            onBoardView = onBoardView,
             team = activeTeam,
             chatsRunning = threadsRunning,
             chatsNeedYou = threadsNeedYou,
@@ -1084,16 +1140,51 @@ private fun AuthenticatedNav(
             // selected while it is up.
             composeEnabled = composeBoardId != null,
             // EXP-1210: every entry SWITCHES to a sibling root (a re-tap pops
-            // back to it); NEW-7: the Actions tab is gone (Settings = the
-            // Issues header's gear).
+            // back to it). #EXP-1384: the Board tab ON the board view opens
+            // the board menu instead (`shell.boardTab`).
+            onSelectTab = { tab ->
+                when (tab) {
+                    "board" -> if (onBoardView && activeBoard != null) {
+                        boardMenuOpen = !boardMenuOpen
+                    } else {
+                        navController.selectTab(MainTabs.ISSUES, tabSwitch)
+                    }
+                    "chats" -> navController.selectTab(MainTabs.THREADS, tabSwitch)
+                    "apps" -> navController.selectTab(MainTabs.APPS, tabSwitch)
+                    "team" -> navController.selectTab(MainTabs.TEAM, tabSwitch)
+                }
+            },
             onChat = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
-            onBoard = { navController.selectTab(MainTabs.ISSUES, tabSwitch) },
-            onDevices = { navController.selectTab(MainTabs.DEVICES, tabSwitch) },
-            onChats = { navController.selectTab(MainTabs.THREADS, tabSwitch) },
-            onTeam = { navController.selectTab(MainTabs.TEAM, tabSwitch) },
+            boardMenu = PhoneBoardMenu(
+                boards = teamBoards,
+                activeBoardId = activeBoard?.id,
+                onSelect = { picked ->
+                    val accountId = activeGroup?.accountId
+                    if (accountId != null && picked.id != composeBoardId) homeVm.selectBoard(accountId, picked.id)
+                    // A pushed board gives way to the Board tab's root, which
+                    // follows the pick.
+                    if (currentRoute != MainTabs.ISSUES) navController.selectTab(MainTabs.ISSUES, tabSwitch)
+                },
+                // The teams shape is member-only, so the active team is one
+                // the viewer belongs to: a member may create boards
+                // (TeamPermissions.canCreate).
+                onNewBoard = if (activeBlock != null) ({ createBoardOpen = true }) else null,
+            ),
+            menuOpen = boardMenuOpen,
+            onMenuOpenChange = { boardMenuOpen = it },
             onCompose = {
                 composeBoardId?.let { navController.openIssueDraft(it) }
             },
+        )
+    }
+    if (createBoardOpen) {
+        // The menu's New board row: the board form for the active team (the
+        // old board switcher's create flow); the new board's last-used
+        // pointer swaps the Board tab in place.
+        CreateBoardSheet(
+            teamId = selectedTeamId,
+            onCreated = { createBoardOpen = false },
+            onDismiss = { createBoardOpen = false },
         )
     }
     }

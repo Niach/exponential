@@ -181,25 +181,14 @@ fun AgentsScreen(
 
     Scaffold(
         containerColor = Color.Transparent,
-        topBar = {
-            if (onBack != null) {
-                androidx.compose.material3.TopAppBar(
-                    title = { Text("Devices") },
-                    navigationIcon = { com.exponential.app.ui.components.TopBarBackButton(onClick = onBack) },
-                    colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-                )
-            }
-        },
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (onBack == null) {
-                Text(
-                    "Devices",
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
-                )
-            }
+            // #EXP-1384 (chats.json `shell.header`): the page header; pushed
+            // from the Team page's Devices row, the back control first.
+            com.exponential.app.ui.components.PageHeader(
+                title = com.exponential.app.domain.Chats.Copy.HEADERS.getValue("devices"),
+                onBack = onBack,
+            )
             // No relay → nothing here can take a start: the full empty state.
             if (state.steerEnabled == false) {
                 // No relay → nothing here can take a start.
@@ -212,7 +201,7 @@ fun AgentsScreen(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize().testTag("devices-list"),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = if (onBack == null) BottomBarInset else 16.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     item(key = "__machines_header__") {
