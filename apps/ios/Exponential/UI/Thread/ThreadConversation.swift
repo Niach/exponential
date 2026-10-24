@@ -74,14 +74,19 @@ struct ThreadConversationView: View {
     /// press posts its text as the person's next message.
     var onReply: (String) -> Void = { _ in }
 
-    @Environment(AppDependencies.self) private var deps
+    /// #EXP-1380: the reader follows the tail (the host's pin): a window
+    /// whose reader scrolled up grows by the arrivals instead of sliding.
+    var following = true
+    /// #EXP-1380: `Load earlier` widened the window; the host keeps this row
+    /// (the previous first one) where the reader saw it.
+    var onLoadEarlier: (String) -> Void = { _ in }
+
     /// The row ids the screen FIRST painted: a row outside it ARRIVED while
     /// the chat was open (its bubble rises in, a surface card plays its
     /// ENTER); history, a reopen or a scroll never animates.
     @State private var painted: Set<String>?
-    @Environment(\.accountId) private var accountId
-    /// EXP-1347: an issue of this thread's tabs opens its tab.
-    @Environment(\.threadIssueOutlet) private var threadIssueOutlet
+    /// #EXP-1380 WINDOW: how many of the newest rows are painted.
+    @State private var limit = Chats.Transcript.window
 
     /// A card still waiting on its answer (`AskDock.threadPendingAsks`).
     static func isPending(_ row: ThreadRow) -> Bool {
@@ -100,34 +105,31 @@ struct ThreadConversationView: View {
 
     static let queuedWord = UserMessageCaption.queuedWord
 
-    /// Attachment images through the instance, `#EXP-1` refs chipped against
-    /// the root's team — the session view's context.
-    private var markdownContext: AgentMarkdownContext {
-        AgentMarkdownContext(
-            baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
-            accountId: accountId,
-            httpClient: deps.httpClient,
-            issueRefs: AgentIssueRefContext(
-                teamId: rows.root.teamId,
-                db: deps.db,
-                onOpen: { [deps, accountId, threadIssueOutlet] issueId in
-                    openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
-                }
-            )
-        )
-    }
-
     private func arrived(_ id: String) -> Bool {
         painted.map { !$0.contains(id) } ?? false
     }
 
     var body: some View {
+        // #EXP-1380 WINDOW ×4: the newest `transcript.window` rows; `Load
+        // earlier` above them widens by `windowStep`, the reader's row kept
+        // in place (`onLoadEarlier`).
+        let all = shownRows
+        let start = Chats.Transcript.windowStart(count: all.count, limit: limit)
         LazyVStack(alignment: .leading, spacing: 14) {
-            ForEach(shownRows, id: \.id) { row in
+            if start > 0 {
+                TranscriptLoadEarlierButton {
+                    let anchor = all[start].id
+                    limit += Chats.Transcript.windowStep
+                    onLoadEarlier(anchor)
+                }
+            }
+            ForEach(all[start...], id: \.id) { row in
                 // EXP-1373: phones paint every chat (a thread's and an
-                // agent's) as CHAT BUBBLES.
-                rowView(row)
-                    .chatBubbleArrival(arrived(row.id) && !Self.isSurface(row))
+                // agent's) as CHAT BUBBLES. #EXP-1380 PERF: each row is an
+                // Equatable view over its OWN inputs — a new message, a
+                // clock tick or an answer elsewhere re-renders only the
+                // rows whose inputs moved.
+                rowView(row).equatable()
             }
             if let liveTail {
                 liveTail
@@ -137,7 +139,13 @@ struct ThreadConversationView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(SessionTree.ThreadCopy.conversationTestId)
         .onAppear {
-            if painted == nil { painted = Set(shownRows.map(\.id)) }
+            if painted == nil { painted = Set(all.map(\.id)) }
+        }
+        // A new arrival never shrinks the window: a reader scrolled up keeps
+        // their rows (the window grows by the arrivals); a following reader's
+        // window slides with the tail.
+        .onChange(of: all.count) { old, new in
+            if !following, new > old, limit < new { limit += new - old }
         }
     }
 
@@ -146,7 +154,7 @@ struct ThreadConversationView: View {
         return false
     }
 
-    /// A row's `HH:mm` (the agent bubble's time, a divider's).
+    /// A row's `HH:mm` (the agent bubble's time).
     private func clock(_ at: String) -> String? {
         WireTimestamps.parse(at).map { GlassTimeRow.formatted($0) }
     }
@@ -160,21 +168,125 @@ struct ThreadConversationView: View {
         }
     }
 
-    /// The wire `createdAt` of a message row, as a date.
-    private func createdAt(of messageId: String) -> Date? {
-        rows.messages.first { $0.id == messageId }.flatMap { WireTimestamps.parse($0.createdAt) }
+    /// One row with its inputs resolved here (indexed lookups, #EXP-1380).
+    private func rowView(_ row: ThreadRow) -> ThreadConversationRow {
+        var item = ThreadConversationRow(row: row, teamId: rows.root.teamId)
+        item.arrived = arrived(row.id) && !Self.isSurface(row)
+        item.animateSurface = arrived(row.id)
+        item.canAnswer = canAnswer
+        item.answeringId = answeringId == row.id ? answeringId : nil
+        switch row {
+        case let .message(id, author, authorId, _, queued, _):
+            let at = rows.createdAt(messageId: id)
+            if author == DomainContract.messageAuthorKindAgent {
+                item.time = at.flatMap(clock)
+            } else if author != DomainContract.messageAuthorKindSystem {
+                let user = rows.user(id: authorId)
+                item.caption = UserMessageCaption.text(
+                    name: user?.name ?? user?.email,
+                    at: at.flatMap { WireTimestamps.parse($0) },
+                    queued: queued
+                )
+                item.removable = queued && viewerId != nil && authorId == viewerId
+            }
+        case let .session(_, card):
+            item.otherRoot = rows.isOtherRoot(card.sessionId)
+        case let .suggestions(id, _, _, _, _):
+            item.docked = canAnswer && suggestions != nil && Self.isDocked(row)
+            item.pending = suggestions?.pending.filter { $0.hasPrefix("\(id):") } ?? []
+            item.suggestions = canAnswer ? suggestions : nil
+        case let .event(_, _, text):
+            item.eventIssue = rows.issues.first { issue in issue.identifier.map { text.hasSuffix(" \($0)") } ?? false }
+        case let .divider(_, _, at):
+            item.time = clock(at)
+        default:
+            break
+        }
+        item.onOpenSession = onOpenSession
+        item.onOpenThread = onOpenThread
+        item.onSubmit = onSubmit
+        item.onUnqueue = onUnqueue
+        item.onReply = canAnswer ? onReply : nil
+        return item
+    }
+}
+
+/// #EXP-1380 PERF ×4: ONE conversation row, rendered once per change of its
+/// OWN inputs (`==` compares the row and what the screen resolved for it;
+/// the closures ride along uncompared). The markdown parse is the run view's
+/// cached text path (`AgentMarkdownText`).
+struct ThreadConversationRow: View, Equatable {
+    let row: ThreadRow
+    let teamId: String
+    var arrived = false
+    var animateSurface = false
+    var canAnswer = true
+    var answeringId: String?
+    /// The agent bubble's / divider's `HH:mm`.
+    var time: String?
+    /// A person's bubble caption (`UserMessageCaption`).
+    var caption = ""
+    var removable = false
+    var otherRoot = false
+    var docked = false
+    var pending: Set<String> = []
+    var eventIssue: IssueEntity?
+    var suggestions: ThreadSuggestionActions?
+    var onOpenSession: (String) -> Void = { _ in }
+    var onOpenThread: (String) -> Void = { _ in }
+    var onSubmit: (ThreadCardAnswer) -> Void = { _ in }
+    var onUnqueue: (String) -> Void = { _ in }
+    var onReply: ((String) -> Void)?
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @Environment(\.threadIssueOutlet) private var threadIssueOutlet
+
+    init(row: ThreadRow, teamId: String) {
+        self.row = row
+        self.teamId = teamId
+    }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.row == rhs.row && lhs.teamId == rhs.teamId && lhs.arrived == rhs.arrived
+            && lhs.animateSurface == rhs.animateSurface && lhs.canAnswer == rhs.canAnswer
+            && lhs.answeringId == rhs.answeringId && lhs.time == rhs.time && lhs.caption == rhs.caption
+            && lhs.removable == rhs.removable && lhs.otherRoot == rhs.otherRoot && lhs.docked == rhs.docked
+            && lhs.pending == rhs.pending && lhs.eventIssue == rhs.eventIssue
+            && (lhs.suggestions == nil) == (rhs.suggestions == nil) && (lhs.onReply == nil) == (rhs.onReply == nil)
+    }
+
+    /// Attachment images through the instance, `#EXP-1` refs chipped against
+    /// the root's team — the session view's context.
+    private var markdownContext: AgentMarkdownContext {
+        AgentMarkdownContext(
+            baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+            accountId: accountId,
+            httpClient: deps.httpClient,
+            issueRefs: AgentIssueRefContext(
+                teamId: teamId,
+                db: deps.db,
+                onOpen: { [deps, accountId, threadIssueOutlet] issueId in
+                    openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
+                }
+            )
+        )
+    }
+
+    var body: some View {
+        content.chatBubbleArrival(arrived)
     }
 
     @ViewBuilder
-    private func rowView(_ row: ThreadRow) -> some View {
+    private var content: some View {
         switch row {
-        case let .message(id, author, authorId, body, queued, _):
+        case let .message(id, author, _, body, queued, _):
             if author == DomainContract.messageAuthorKindSystem {
                 ThreadEventLine(text: body)
             } else if author == DomainContract.messageAuthorKindAgent {
                 // EXP-1373: the agent's text on the left in a card-fill
                 // bubble, its time bottom-right.
-                AgentChatBubble(time: createdAt(of: id).map { GlassTimeRow.formatted($0) }) {
+                AgentChatBubble(time: time) {
                     AgentMarkdownText(text: body, context: markdownContext, options: [.autolinkBareURLs, .hardLineBreaks])
                 }
                 .accessibilityIdentifier("thread-message")
@@ -182,15 +294,15 @@ struct ThreadConversationView: View {
                 UserMessageBubble(
                     text: body,
                     context: markdownContext,
-                    caption: caption(messageId: id, authorId: authorId, queued: queued),
-                    onRemove: queued && viewerId != nil && authorId == viewerId ? { onUnqueue(id) } : nil
+                    caption: caption,
+                    onRemove: removable ? { onUnqueue(id) } : nil
                 )
                 .opacity(queued ? 0.7 : 1)
                 .accessibilityIdentifier("thread-message")
             }
         case let .session(_, card):
             SessionCardView(card: card) {
-                if rows.isOtherRoot(card.sessionId) {
+                if otherRoot {
                     onOpenThread(card.sessionId)
                 } else {
                     onOpenSession(card.sessionId)
@@ -201,13 +313,13 @@ struct ThreadConversationView: View {
         case let .suggestions(id, _, header, startAll, items):
             // N-12: a row with an open item rides THE Dock (`ThreadScreen`)
             // for a reader who may act on it; it stays here once none is.
-            if !(canAnswer && suggestions != nil && Self.isDocked(row)) {
+            if !docked {
                 ThreadSuggestionsCard(
                     rowId: id,
                     header: header,
                     startAll: startAll,
                     items: items,
-                    actions: canAnswer ? suggestions : nil,
+                    actions: suggestions,
                     onOpenSession: onOpenSession,
                     onOpenIssue: { issueId in
                         openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
@@ -266,32 +378,25 @@ struct ThreadConversationView: View {
                 caption: caption
             ))
         case let .event(_, _, text):
-            ThreadEventLine(text: text, issue: rows.issues.first { issue in issue.identifier.map { text.hasSuffix(" \($0)") } ?? false }) { issueId in
+            ThreadEventLine(text: text, issue: eventIssue) { issueId in
                 openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
             }
-        case let .divider(_, kind, at):
+        case let .divider(_, kind, _):
             // chats.json: `/new` and `/compact` lines = the centred pill.
             TranscriptDividerPill(
                 icon: AppIcons.conceptOrName(kind.icon) ?? kind.icon,
-                text: [kind.label, clock(at)].compactMap { $0 }.joined(separator: " · ")
+                text: [kind.label, time].compactMap { $0 }.joined(separator: " · ")
             )
-        case let .surface(id, _, title, surface):
+        case let .surface(_, _, title, surface):
             SurfaceCardRow(
                 surface: surface,
                 title: title,
-                animate: arrived(id),
-                onReply: canAnswer ? onReply : nil
+                animate: animateSurface,
+                onReply: onReply
             )
         }
     }
 
-    /// A person's bubble caption: `<name> · HH:mm`, ending `· queued` until
-    /// the device took the message (EXP-1317, ×4; the X rides after it) —
-    /// web `userMessageCaption`, the same clock the channel rows show.
-    private func caption(messageId: String, authorId: String?, queued: Bool) -> String {
-        let user = rows.user(id: authorId)
-        return UserMessageCaption.text(name: user?.name ?? user?.email, at: createdAt(of: messageId), queued: queued)
-    }
 }
 
 /// One muted line (an event, a system message); an event naming a linked

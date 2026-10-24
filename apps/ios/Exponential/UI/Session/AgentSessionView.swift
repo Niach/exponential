@@ -739,11 +739,7 @@ struct AgentSessionView: View {
                             // upward (and, past the feed's own first row, asks
                             // the device for the page below it).
                             if model.canLoadEarlier {
-                                Button("Load earlier") { model.loadEarlier() }
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.bottom, 4)
+                                TranscriptLoadEarlierButton { model.loadEarlier() }
                             }
                             // THE Dock: the card waiting on this steerer
                             // leaves the transcript for a DockCard
@@ -1961,6 +1957,21 @@ extension View {
 /// (EXP-440: claude narrates in markdown, so lists, code and images have to
 /// come out as themselves). EXP-274 dropped the glass speech bubble: agent
 /// output is the feed's bulk, and the bubble insets cost real width on a phone.
+/// EXP-783 / #EXP-1380: THE transcript's `Load earlier` ghost button — the
+/// run view's, and every chat's window (chats.json WINDOW ×4).
+struct TranscriptLoadEarlierButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(Chats.Copy.loadEarlier, action: action)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, 4)
+            .accessibilityIdentifier(Chats.TestIds.loadEarlier)
+    }
+}
+
 struct NarrationBubble: View {
     let text: String
     let context: AgentMarkdownContext
