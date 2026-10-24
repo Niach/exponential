@@ -26,6 +26,9 @@ final class DeepLinkBus: @unchecked Sendable {
     // server user id like the other push kinds.
     var pendingInbox = false
     var pendingInboxUserId: String?
+    // EXP-1373: the row's team when the payload names one — the inbox shows
+    // the active team's rows only, so the tap switches to it first.
+    var pendingInboxTeamId: String?
     // A session_blocked push tap (EXP-980): the session that hit a rate limit.
     // Carries the recipient's server user id like the other push kinds, so a
     // multi-account device opens it under the account it was delivered to.
@@ -68,8 +71,9 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingInviteToken = token
     }
 
-    func navigateToInbox(userId: String? = nil) {
+    func navigateToInbox(userId: String? = nil, teamId: String? = nil) {
         pendingInboxUserId = userId
+        pendingInboxTeamId = teamId
         pendingInbox = true
     }
 
@@ -160,10 +164,11 @@ final class DeepLinkBus: @unchecked Sendable {
 
     /// Returns the recipient's user id (nil when none) when an inbox tap is
     /// pending; `nil` with `pending == false` otherwise.
-    func consumeInbox() -> (pending: Bool, userId: String?) {
-        let result = (pending: pendingInbox, userId: pendingInboxUserId)
+    func consumeInbox() -> (pending: Bool, userId: String?, teamId: String?) {
+        let result = (pending: pendingInbox, userId: pendingInboxUserId, teamId: pendingInboxTeamId)
         pendingInbox = false
         pendingInboxUserId = nil
+        pendingInboxTeamId = nil
         return result
     }
 }

@@ -1,7 +1,9 @@
-- Apps: vytvářejte malé aplikace v editorové session, s živým náhledem a uložené ve verzích; seznam Apps najdete pod tlačítkem v záhlaví Threads
-- Dock: přepis je jedno souvislé posouvání, to, co na vás čeká, se vznáší jako karty nad composerem, a plán se otevře jako spodní panel s tlačítky „Ano“ a „Ne, plánovat dál“
-- Jedna šedá: každá karta, composer i panely mají stejný neprůhledný odstín
-- Výběry uvnitř panelu se otevírají přímo pod svým řádkem
-- Thready s jedinou session opět zobrazují kartu Conversation a řádek threadu začíná jeho otevřeným pull requestem
-- Tabulky v Markdownu už neroztahují řádky za hranice jejich obsahu
-- Zpráva do ukončeného threadu obnoví stejnou session místo spuštění kopie
+- Chaty: vlákna jsou nyní chaty; spodní lišta obsahuje Board, Devices, Chats a Team a karta Chats zobrazuje chaty vašeho týmu jako messenger, s agenty jako bublinami nahoře
+- Dlouhým stiskem chatu ho zastavíte, nebo zastavíte a smažete; ukončený chat nabízí Smazat
+- Agenti: Zkomprimovat konverzaci a Nová konverzace v menu chatu s agentem, nebo napište /compact a /new
+- Živé náhledy: agenti mohou vykreslit interaktivní náhled přímo do chatu
+- Plány: čekající plán se v chatu vždy zobrazí se svými tlačítky a novější plán nahradí ten čekající
+- Vždy jen jeden aktivní tým, přepíná se na kartě Team, která obsahuje i nastavení; My issues a Drafts jsou štítky na boardu a Inbox má vlastní stránku
+- Triggery: agenti se mohou probouzet každých 5, 10, 15, 20 nebo 30 minut
+- Apps ukazuje jen aplikace vašeho týmu; vestavěná aplikace Devices zmizela
+- Zprávy se načítají přes svou konverzaci, připravené na přímé zprávy a kanály

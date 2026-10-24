@@ -259,7 +259,7 @@ fun ChatTranscriptSpecimenScreen() {
                         lead = { ChatLeadDisc(Chats.ChatLead.Working, agent = "claude", size = 44.dp) },
                         onBack = {},
                         menu = chatMenuItems(
-                            Chats.threadMenuEntries("running", canSteer = true),
+                            Chats.threadMenuEntries("running", canSteer = true, canDelete = true),
                             onStop = {},
                             onDelete = {},
                         ),
@@ -306,8 +306,8 @@ fun ChatMenusSpecimenScreen() {
                 .testTag(ChatMenusSpecimenTestId),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            ChatMenuSheetFace("Spike: offline queue", chatMenuItems(Chats.threadMenuEntries("running", true), {}, {}))
-            ChatMenuSheetFace("#APP-16 Fix flaky scroll restore", chatMenuItems(Chats.threadMenuEntries("ended", true), {}, {}))
+            ChatMenuSheetFace("Spike: offline queue", chatMenuItems(Chats.threadMenuEntries("running", true, true), {}, {}))
+            ChatMenuSheetFace("#APP-16 Fix flaky scroll restore", chatMenuItems(Chats.threadMenuEntries("ended", true, true), {}, {}))
             ChatMenuSheetFace("Triage", agentMenuItems(Chats.agentMenuEntries(busy = true, isOwner = true)) {})
         }
     }

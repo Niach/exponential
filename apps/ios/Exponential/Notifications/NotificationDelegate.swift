@@ -56,7 +56,8 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Me
         case .inbox:
             // An issue-less agent message (EXP-801), or a blocked session
             // whose row was pruned: the row lives in the inbox alone.
-            deepLinkBus.navigateToInbox(userId: userId)
+            let teamId = (userInfo["teamId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            deepLinkBus.navigateToInbox(userId: userId, teamId: teamId)
         case let .issue(issueId):
             deepLinkBus.navigateToIssue(issueId, userId: userId)
         case .none:

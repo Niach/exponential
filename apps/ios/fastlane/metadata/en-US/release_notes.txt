@@ -1,7 +1,9 @@
-- Apps: build small apps with the editor session, previewed live and kept in versions; the Apps list sits behind the Threads header button
-- The Dock: the transcript is one scroll, what waits on you floats above the composer as cards, and a plan opens as a bottom sheet with Yes and No, keep planning
-- One gray: every card, the composer and the sheets wear the same opaque tone
-- Pickers inside a sheet open inline under their row
-- Single-session threads show their Conversation tab again, and a thread row leads with its open pull request
-- Markdown tables no longer stretch rows past their content
-- A message to an ended thread resumes the same session instead of starting a copy
+- Chats: threads are now chats; the bottom bar is Board, Devices, Chats and Team, and the Chats tab lists your team's chats like a messenger, with agents as bubbles on top
+- Long-press a chat to stop it or stop and delete it; an ended chat offers Delete
+- Agents: Compact conversation and New conversation in an agent chat's menu, or type /compact and /new
+- Live previews: agents can draw an interactive preview straight into the chat
+- Plans: a waiting plan always shows in the chat with its buttons, and a newer plan replaces the waiting one
+- One active team at a time, switched on the Team tab, which also holds the settings; My issues and Drafts are chips on the board, and the inbox has its own page
+- Triggers: agents can wake every 5, 10, 15, 20 or 30 minutes
+- Apps lists only your team's apps; the built-in Devices app is gone
+- Messages load through their conversation, ready for direct messages and channels

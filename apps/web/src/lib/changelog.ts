@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-24-release-train`,
+    date: `2026-10-24`,
+    title: `Release 2026-10-24: Chats on every platform, with the train's fixes`,
+    summary: `This release ships Chats, the new phone layout, agent compact and new conversation, live previews and the Apps cleanup to web, the IDE, Android and TestFlight, plus the fixes the release review found: a chat's menu offers Delete only to who may delete it, a team switch on phones moves the board along, an agent's rename reaches its chats, and a moved agent's chats stay readable for the team.`,
+    body: `- **Chats**: the menu offers Stop and delete or Delete only to the chat's starter or a team owner; everyone else who can steer the chat gets Stop. In the IDE a preview or tool card posted before the loaded part of the chat sits at the top instead of under the newest reply, and deleting a chat closes its child tabs too.
+- **Phones**: switching team on Android moves the Board tab to that team's board, so a new issue files into the team you are looking at; the inbox dot counts the active team only; the agent chat's menu shows Agent settings for owners. On iPhone, opening an issue from a push or link switches to its team, a team without boards shows an empty board instead of the previous team's, and an inbox push opens the team it belongs to.
+- **Agents**: renaming an agent renames its chats (a chat you named yourself keeps its name); an agent moved to another device keeps its chats readable for the team; a stop on an idle chat no longer says the device missed it; a newer plan no longer replaces a waiting plan the coding engine itself asked.
+- **Web**: a brand-new chat waits for its conversation to arrive instead of flashing Untitled.
+- **Store builds**: Android 0.14.69 and the IDE 0.14.77 are live; iOS 0.14.67 is in TestFlight.`,
+  },
+  {
     id: `2026-10-24-chats`,
     date: `2026-10-24`,
     title: `Chats: a WhatsApp-like phone app, stop and delete from the list, agents that compact and start over, and live previews in the chat`,

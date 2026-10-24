@@ -232,7 +232,7 @@ class ChatsTest {
     fun `every menu case matches the fixture`() {
         for (case in cases("menuCases")) {
             val input = case.getValue("input").jsonObject
-            val actual = Chats.threadMenuEntries(input.str("rootStatus")!!, input.bool("canSteer"))
+            val actual = Chats.threadMenuEntries(input.str("rootStatus")!!, input.bool("canSteer"), input.bool("canDelete"))
             assertEquals(
                 case.str("name"),
                 case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },

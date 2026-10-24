@@ -1,7 +1,9 @@
-- Apps: baue kleine Apps mit der Editor-Session, live in der Vorschau und in Versionen gespeichert; die Apps-Liste liegt hinter dem Button im Threads-Header
-- Das Dock: das Transkript ist ein einziger Scroll, was auf dich wartet, schwebt als Karten über dem Composer, und ein Plan öffnet sich als Bottom Sheet mit „Ja“ und „Nein, weiter planen“
-- Ein Grau: jede Karte, der Composer und die Sheets tragen denselben deckenden Ton
-- Auswahlmenüs in einem Sheet öffnen sich direkt unter ihrer Zeile
-- Threads mit nur einer Session zeigen wieder ihren Conversation-Tab, und eine Thread-Zeile beginnt mit ihrem offenen Pull Request
-- Markdown-Tabellen dehnen Zeilen nicht mehr über ihren Inhalt hinaus
-- Eine Nachricht an einen beendeten Thread setzt dieselbe Session fort, statt eine Kopie zu starten
+- Chats: Threads sind jetzt Chats; die untere Leiste zeigt Board, Devices, Chats und Team, und der Chats-Tab listet die Chats deines Teams wie ein Messenger, mit Agents als Bubbles oben
+- Halte einen Chat gedrückt, um ihn zu stoppen oder zu stoppen und zu löschen; ein beendeter Chat bietet Löschen an
+- Agents: Unterhaltung komprimieren und Neue Unterhaltung stehen im Menü eines Agent-Chats, oder tippe /compact und /new
+- Live-Vorschauen: Agents können eine interaktive Vorschau direkt in den Chat zeichnen
+- Pläne: ein wartender Plan erscheint immer mit seinen Buttons im Chat, und ein neuerer Plan ersetzt den wartenden
+- Ein aktives Team zur Zeit, gewechselt im Team-Tab, der auch die Einstellungen enthält; My issues und Drafts sind Chips auf dem Board, und die Inbox hat ihre eigene Seite
+- Trigger: Agents können alle 5, 10, 15, 20 oder 30 Minuten aufwachen
+- Apps listet nur die Apps deines Teams; die eingebaute Devices-App ist weg
+- Nachrichten laden über ihre Unterhaltung, bereit für Direktnachrichten und Channels

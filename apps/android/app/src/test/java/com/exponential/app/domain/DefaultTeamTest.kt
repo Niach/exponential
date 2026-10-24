@@ -70,4 +70,44 @@ class DefaultTeamTest {
         // off that transient.
         assertNull(defaultTeamId(emptyList(), emptyList(), "p1"))
     }
+
+    // chats.json: ONE active team drives every phone screen — the Board tab
+    // follows a team switch (iOS AppNavigator.applyTeam).
+    @Test
+    fun currentBoardFollowsTheSelectedTeam() {
+        val teams = listOf(team("ws-a"), team("ws-b"))
+        val boards = listOf(board("a1", "ws-a"), board("b1", "ws-b"), board("b2", "ws-b"))
+        // The remembered board is team A's, but team B is active.
+        assertEquals("b1", currentBoardFor(teams, boards, "a1", "ws-b")?.id)
+        // The team's own remembered board wins over its first.
+        assertEquals("b2", currentBoardFor(teams, boards, "b2", "ws-b")?.id)
+    }
+
+    @Test
+    fun boardlessSelectedTeamHasNoCurrentBoard() {
+        val teams = listOf(team("ws-a"), team("ws-empty"))
+        val boards = listOf(board("a1", "ws-a"))
+        assertNull(currentBoardFor(teams, boards, "a1", "ws-empty"))
+    }
+
+    @Test
+    fun unresolvedSelectionKeepsTheLastUsedBoard() {
+        val teams = listOf(team("ws-a"), team("ws-b"))
+        val boards = listOf(board("a1", "ws-a"), board("b1", "ws-b"))
+        assertEquals("b1", currentBoardFor(teams, boards, "b1", null)?.id)
+        // A stale id from the previous account (not synced here) too.
+        assertEquals("b1", currentBoardFor(teams, boards, "b1", "ws-other-server")?.id)
+        assertEquals("a1", currentBoardFor(teams, boards, "gone", null)?.id)
+    }
+
+    @Test
+    fun teamSwitchRemembersTheTeamsFirstBoard() {
+        val boards = listOf(board("a1", "ws-a"), board("b1", "ws-b"), board("b2", "ws-b"))
+        assertEquals("b1", boardToRememberOnTeamSwitch(boards, "a1", "ws-b"))
+        assertEquals("b1", boardToRememberOnTeamSwitch(boards, null, "ws-b"))
+        // Already on one of the team's boards: keep it.
+        assertNull(boardToRememberOnTeamSwitch(boards, "b2", "ws-b"))
+        // A board-less team remembers nothing.
+        assertNull(boardToRememberOnTeamSwitch(boards, "a1", "ws-empty"))
+    }
 }

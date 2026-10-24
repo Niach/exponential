@@ -11,6 +11,7 @@ import {
 import {
   attachments,
   comments,
+  conversations,
   messages,
   sessionIssues,
   sessions,
@@ -207,6 +208,12 @@ export async function guardAndCleanupTeamsForUserDeletion(
       .update(sessionIssues)
       .set({ ownerId: sql`(SELECT s.user_id FROM sessions s WHERE s.id = ${sessionIssues.sessionId})` })
       .where(inArray(sessionIssues.sessionId, ids))
+    // The conversation row too: it cascades with its owner and takes every
+    // message with it.
+    await tx
+      .update(conversations)
+      .set({ ownerId: sql`(SELECT s.user_id FROM sessions s WHERE s.id = ${conversations.sessionId})` })
+      .where(inArray(conversations.sessionId, ids))
     const ended = await tx
       .update(sessions)
       .set({ status: `ended`, endedAt: now, busy: false, needsInput: false })

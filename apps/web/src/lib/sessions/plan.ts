@@ -318,7 +318,9 @@ export function mintCardUploads(args: {
  * FEED-140: a new `plan` SUPERSEDES the plan this session posted that still
  * waits: the old card closes with decision `superseded` (answered AND
  * consumed, so the device never feeds it to the agent as an answer; plan
- * mode and needs-you stay as they are: the new card waits next).
+ * mode and needs-you stay as they are: the new card waits next). Only
+ * TOOL-posted plans: an engine's plan card (it carries the parked ask's
+ * `questionId`) stays open for its ask.
  */
 export async function supersedeWaitingPlans(tx: Tx, sessionId: string): Promise<string[]> {
   const now = new Date()
@@ -335,7 +337,10 @@ export async function supersedeWaitingPlans(tx: Tx, sessionId: string): Promise<
         eq(messages.sessionId, sessionId),
         eq(messages.authorSessionId, sessionId),
         isNull(messages.answeredAt),
-        sql`${messages.card}->>'kind' = 'plan'`
+        sql`${messages.card}->>'kind' = 'plan'`,
+        // An ENGINE-posted plan (a parked ExitPlanMode ask, `questionId`)
+        // is answered through its ask: superseding it would strand the ask.
+        sql`${messages.card}->>'questionId' is null`
       )
     )
     .returning({ id: messages.id })

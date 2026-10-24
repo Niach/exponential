@@ -268,4 +268,31 @@ class InboxGroupingTest {
         assertNull(row.teamId)
         assertNull(row.sessionId)
     }
+
+    /**
+     * chats.json: the inbox dot counts the unread rows the inbox PAGE lists
+     * for the active team only — another team's unread row never lights it,
+     * and an issue-less row of the team counts.
+     */
+    @Test
+    fun activeTeamUnreadCountsOnlyTheActiveTeamsRows() {
+        val board = { id: String, teamId: String ->
+            com.exponential.app.data.db.BoardEntity(
+                id = id, teamId = teamId, name = id, slug = id, prefix = "EXP", color = "#8b5cf6",
+                sortOrder = 1.0, createdAt = ts, updatedAt = ts,
+            )
+        }
+        val boards = listOf(board("b1", "team-a"), board("b2", "team-b"))
+        val issues = listOf(issue("i1"), issue("i2").copy(boardId = "b2"))
+        val notifications = listOf(
+            notification("n1", issueId = "i1"),
+            notification("n2", issueId = "i2"),
+            notification("n3", issueId = "i2"),
+            notification("n4", teamId = "team-b", type = DomainContract.notificationTypeAgentMessage),
+            notification("n5", issueId = "i1", readAt = ts),
+        )
+        assertEquals(1, activeTeamUnread(notifications, issues, boards, "team-a"))
+        assertEquals(3, activeTeamUnread(notifications, issues, boards, "team-b"))
+        assertEquals(4, activeTeamUnread(notifications, issues, boards, null))
+    }
 }

@@ -110,6 +110,20 @@ export function useConversationSessions(): {
   return { conversations, isReady }
 }
 
+/** NEW-8: the sessions among `sessionIds` whose own conversation has not
+ *  synced yet. Every session owns one from its insert
+ *  (`create_session_conversation`), so a missing row is the conversations
+ *  stream lagging (a brand-new session), never "no messages": their
+ *  messages are NOT ready (a disabled live query reports ready, empty). */
+export function sessionsAwaitingConversation(
+  conversations: ReadonlyMap<string, string>,
+  sessionIds: Iterable<string>
+): Set<string> {
+  const pending = new Set(sessionIds)
+  for (const sessionId of conversations.values()) pending.delete(sessionId)
+  return pending
+}
+
 /** EXP-1316 / EXP-1341: the sessions whose title (`sessionTitle`) could
  *  still flip while the title shapes load: only those are held. A name or
  *  a stored title never flips; otherwise the links decide whether the
@@ -122,6 +136,9 @@ export function unsettledTitleRoots(input: {
   linksReady: boolean
   issuesReady: boolean
   messagesReady: boolean
+  /** NEW-8: sessions whose conversation has not synced: their messages
+   *  are not ready even when the shapes are (`sessionsAwaitingConversation`). */
+  awaitingConversation?: ReadonlySet<string>
 }): Set<string> {
   // NEW-1: a session's own issues = the rows it holds (root or child alike).
   const holding = new Set(input.sessionIssues.map((link) => link.sessionId))
@@ -137,7 +154,7 @@ export function unsettledTitleRoots(input: {
       if (!input.issuesReady) held.add(session.id)
       continue
     }
-    if (!input.messagesReady) held.add(session.id)
+    if (!input.messagesReady || input.awaitingConversation?.has(session.id)) held.add(session.id)
   }
   return held
 }
@@ -217,8 +234,9 @@ function useTitleContext(teamIds: readonly string[]) {
       linksReady: scopedLinksReady,
       issuesReady,
       messagesReady,
+      conversations,
     }),
-    [links, issues, messages, ready, scopedLinksReady, issuesReady, messagesReady]
+    [links, issues, messages, ready, scopedLinksReady, issuesReady, messagesReady, conversations]
   )
 }
 
@@ -270,6 +288,10 @@ export function useThreadsList(teamId: string | readonly string[] | null | undef
       linksReady: context.linksReady,
       issuesReady: context.issuesReady,
       messagesReady: context.messagesReady,
+      awaitingConversation: sessionsAwaitingConversation(
+        context.conversations,
+        tree.map((session) => session.id)
+      ),
     })
     return { groups: holdTitles(groups, held), isReady: isReady && held.size === 0 }
   }, [tree, context, isReady, reads, nowIso])
@@ -498,9 +520,13 @@ export function useSessionThread(
         : undefined,
     [rootId]
   )
-  // NEW-8: keyed through their conversations; the title waits on both.
+  // NEW-8: keyed through their conversations; the title waits on both,
+  // and on the root's own conversation row (a brand-new thread's lags).
   const { conversations, isReady: conversationsReady } = useConversationSessions()
-  const messagesReady = messageRowsReady && conversationsReady
+  const messagesReady =
+    messageRowsReady &&
+    conversationsReady &&
+    (!rootId || sessionsAwaitingConversation(conversations, [rootId]).size === 0)
   const messages = useMemo(
     () => keyMessageRows((messageRows ?? []) as SyncedMessageRow[], conversations),
     [messageRows, conversations]
@@ -672,6 +698,9 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
     [conversationKey]
   )
   const messagesReady = conversationsReady && messageRowsReady
+  // A disabled query (no conversation synced yet) reports ready and empty:
+  // those rows wait on their conversation instead of reading "Untitled".
+  const awaitingKey = [...sessionsAwaitingConversation(conversations, ids)].join(`,`)
   const messages = useMemo(
     () => keyMessageRows((messageRows ?? []) as SyncedMessageRow[], conversations),
     [messageRows, conversations]
@@ -685,6 +714,7 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
       linksReady: ids.length > 0 && linksReady,
       issuesReady,
       messagesReady: ids.length > 0 && messagesReady,
+      awaitingConversation: new Set(awaitingKey ? awaitingKey.split(`,`) : []),
     })
     const titles = sessionTitles(
       sessions.filter((session) => !held.has(session.id)),
@@ -694,7 +724,7 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
     )
     return { titles, held, ready: held.size === 0 }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, links, issues, messages, linksReady, issuesReady, messagesReady])
+  }, [rows, links, issues, messages, linksReady, issuesReady, messagesReady, awaitingKey])
 }
 
 /** THE session card for any session row (`sessionCard` over its

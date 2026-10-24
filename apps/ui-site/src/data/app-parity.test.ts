@@ -65,3 +65,22 @@ test(`appParityFor finds every row by each of its components`, () => {
   }
   expect(appParityFor(`NoSuchComponent`)).toEqual([])
 })
+
+const INTERNAL_ID = /\b(EXP|NEW|VAPP|FEED|PA|N|S)-\d+\b/
+
+const strings = (value: unknown): string[] =>
+  typeof value === `string`
+    ? [value]
+    : Array.isArray(value)
+      ? value.flatMap(strings)
+      : value !== null && typeof value === `object`
+        ? Object.values(value).flatMap(strings)
+        : []
+
+test(`no internal issue id reaches the public copy`, () => {
+  for (const row of APP_PARITY) {
+    for (const text of strings(row)) {
+      expect(INTERNAL_ID.test(text) ? `${row.id}: ${text}` : text).toBe(text)
+    }
+  }
+})

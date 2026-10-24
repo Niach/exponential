@@ -7,6 +7,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 
 // App-wide selected-team state. Hoisted out of HomeViewModel so the
 // drawer (rendered above the NavHost) and the board list screen (rendered
@@ -38,6 +39,22 @@ class TeamSelection @Inject constructor(
     // users/servers.
     fun clearSelection() {
         _selectedId.value = null
+    }
+
+    // A cross-server team switch (chats.json: the Team tab, a push for another
+    // server's team): the account switch clears the selection, so the target
+    // team waits here, per account, for AppViewModel's default-team bootstrap
+    // to select it (it wins over the last-board default).
+    private val pendingTeams = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    fun selectAfterAccountSwitch(accountId: String, teamId: String) {
+        pendingTeams[accountId] = teamId
+    }
+
+    fun pendingTeam(accountId: String): String? = pendingTeams[accountId]
+
+    fun clearPendingTeam(accountId: String) {
+        pendingTeams.remove(accountId)
     }
 
     // (The old pendingBoardId / pendingTeamSettings handoff flags are
@@ -83,4 +100,48 @@ class TeamSelection @Inject constructor(
         _pendingShare.value = null
         return value
     }
+}
+
+/** A team switch, planned off the target account's boards ([planTeamSwitch]). */
+data class TeamSwitch(val accountId: String, val teamId: String, val rememberBoardId: String?)
+
+/**
+ * chats.json: switching the ONE active team also moves the Board tab onto
+ * that team (iOS `AppNavigator.applyTeam`): the remembered board becomes the
+ * team's first board unless it is already one of the team's. Reads the
+ * TARGET account's database, so another server's team works too.
+ */
+suspend fun TeamSelection.planTeamSwitch(
+    holder: com.exponential.app.data.db.DatabaseHolder,
+    accountId: String,
+    teamId: String,
+): TeamSwitch {
+    val boards = runCatching {
+        holder.database(forAccountId = accountId).boardDao().observeAll().first()
+    }.getOrDefault(emptyList())
+    return TeamSwitch(
+        accountId = accountId,
+        teamId = teamId,
+        rememberBoardId = com.exponential.app.domain.boardToRememberOnTeamSwitch(boards, lastBoard(accountId), teamId),
+    )
+}
+
+/**
+ * Applies a [planTeamSwitch] synchronously. Same server: select, then
+ * remember the board. Another server: remember the board and park the team
+ * for that account BEFORE the switch, whose selection clear would otherwise
+ * let the bootstrap pick that account's last-board team.
+ */
+fun TeamSelection.applyTeamSwitch(
+    switch: TeamSwitch,
+    auth: com.exponential.app.data.auth.AuthRepository,
+) {
+    if (switch.accountId != auth.activeAccountId.value) {
+        switch.rememberBoardId?.let { rememberLastBoard(switch.accountId, it) }
+        selectAfterAccountSwitch(switch.accountId, switch.teamId)
+        auth.switchAccount(switch.accountId)
+        return
+    }
+    if (selectedId.value != switch.teamId) select(switch.teamId)
+    switch.rememberBoardId?.let { rememberLastBoard(switch.accountId, it) }
 }

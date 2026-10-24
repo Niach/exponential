@@ -16,12 +16,18 @@ import { trpc } from "@/lib/trpc-client"
 const MARK_READ_DELAY_MS = 600
 
 /** The newest agent-authored message among `sessionIds` (ISO), or null.
- *  NEW-8: the sessions' own conversations' messages, keyed through them. */
-export function useNewestAgentMessageAt(sessionIds: readonly string[]): string | null {
-  const { conversations } = useConversationSessions()
+ *  NEW-8: the sessions' own conversations' messages, keyed through them.
+ *  `undefined` = not known yet: the conversations or messages still sync,
+ *  or a requested session's conversation row has not landed (a disabled
+ *  live query reports ready with no rows, so it is never read as none). */
+export function useNewestAgentMessageAt(sessionIds: readonly string[]): string | null | undefined {
+  const { conversations, isReady: conversationsReady } = useConversationSessions()
   const conversationIds = sessionConversationIds(conversations, sessionIds)
+  // Every session owns a conversation from its insert: a missing one lags.
+  const synced = new Set(conversations.values())
+  const awaiting = sessionIds.some((id) => !synced.has(id))
   const key = conversationIds.join(`,`)
-  const { data } = useLiveQuery(
+  const { data, isReady } = useLiveQuery(
     (query) =>
       conversationIds.length > 0
         ? query
@@ -32,22 +38,28 @@ export function useNewestAgentMessageAt(sessionIds: readonly string[]): string |
         : undefined,
     [key]
   )
+  const ready = conversationsReady && isReady && !awaiting
   return useMemo(() => {
+    if (!ready) return undefined
     let newest: number | null = null
     for (const row of keyMessageRows((data ?? []) as SyncedMessageRow[], conversations)) {
       const at = new Date(row.createdAt).getTime()
       if (Number.isFinite(at) && (newest === null || at > newest)) newest = at
     }
     return newest === null ? null : new Date(newest).toISOString()
-  }, [data, conversations])
+  }, [data, conversations, ready])
 }
 
 /** Mark `sessionId` read once it has been open a beat, and again when
- *  `newestAgentAt` moves on. `null` = nothing is open. */
-export function useMarkRead(sessionId: string | null | undefined, newestAgentAt: string | null) {
+ *  `newestAgentAt` moves on. `null` = nothing is open; `newestAgentAt`
+ *  `undefined` = its messages are not known yet: wait for them. */
+export function useMarkRead(
+  sessionId: string | null | undefined,
+  newestAgentAt: string | null | undefined
+) {
   const marked = useRef<string | null>(null)
   useEffect(() => {
-    if (!sessionId) return
+    if (!sessionId || newestAgentAt === undefined) return
     const mark = `${sessionId}@${newestAgentAt ?? ``}`
     if (marked.current === mark) return
     const timer = setTimeout(() => {

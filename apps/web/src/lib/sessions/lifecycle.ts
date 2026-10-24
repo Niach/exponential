@@ -159,13 +159,13 @@ export async function stopSession(args: {
     }
     return txid
   })
-  // Chats: `delivered` = the device got the interrupt; a queued, ghost or
-  // ended session has nothing to deliver (true).
+  // Chats: `delivered` = the device got the interrupt; a queued, ghost,
+  // ended or idle (not busy) session has nothing to deliver (true).
   if (session.status === `queued` || session.status === `ended` || ghost) return { txid, delivered: true }
   const config = getSteerRelayConfig()
-  if (!config) return { txid, delivered: false }
+  if (!config) return { txid, delivered: !session.busy }
   const { delivered } = await relayPostInterrupt(config, session.id)
-  return { txid, delivered }
+  return { txid, delivered: delivered || !session.busy }
 }
 
 /** End: explicit and final (agents refuse: they idle, or are deleted). A

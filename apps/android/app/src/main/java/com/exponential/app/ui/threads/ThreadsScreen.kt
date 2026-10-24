@@ -117,7 +117,7 @@ fun ThreadsScreen(
             onLongPressChat = { row ->
                 // A viewer who cannot steer the chat gets no menu.
                 val root = facts[row.sessionId]
-                if (root != null && Chats.threadMenuEntries(root.status, root.canSteer).isNotEmpty()) menuFor = row
+                if (root != null && Chats.threadMenuEntries(root.status, root.canSteer, root.mine || isOwner).isNotEmpty()) menuFor = row
             },
             onOpenAgent = { agent -> conversations[agent.agentId]?.let(onOpenThread) ?: onOpenAgent(agent.agentId) },
             onLongPressAgent = { agentMenuFor = it },
@@ -129,7 +129,7 @@ fun ThreadsScreen(
 
     menuFor?.let { row ->
         val root = facts[row.sessionId]
-        val entries = root?.let { Chats.threadMenuEntries(it.status, it.canSteer) }.orEmpty()
+        val entries = root?.let { Chats.threadMenuEntries(it.status, it.canSteer, it.mine || isOwner) }.orEmpty()
         ChatMenuSheet(
             title = row.title,
             items = chatMenuItems(

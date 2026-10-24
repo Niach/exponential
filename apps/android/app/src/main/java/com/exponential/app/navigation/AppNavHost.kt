@@ -163,9 +163,13 @@ fun AppNavHost() {
             // keeps the only thing single top bought us: a re-tap for what is
             // already on screen stays a no-op.
             is DeepLinkBus.Target.Issue -> {
-                // chats.json: a link naming another team switches first.
-                switchToTeamOf(teamSelection, webLinkResolver.teamOfIssue(target.id))
-                guarded { navController.navigateIssueDeepLink(target.id, target.comment) }
+                // chats.json: a link naming another team switches first
+                // (inside the guard: a held navigation switches nothing).
+                val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfIssue(target.id))
+                guarded {
+                    teamSwitch?.let(viewModel::applyTeamSwitch)
+                    navController.navigateIssueDeepLink(target.id, target.comment)
+                }
             }
             is DeepLinkBus.Target.Invite -> guarded {
                 navController.navigateDeepLink("invite/${target.token}")
@@ -180,13 +184,19 @@ fun AppNavHost() {
             // snapshot hazard as the issue route — the session screen reads
             // its id from SavedStateHandle once.
             is DeepLinkBus.Target.Session -> {
-                switchToTeamOf(teamSelection, webLinkResolver.teamOfSession(target.id))
-                guarded { navController.navigateDeepLink(Routes.session(target.id)) }
+                val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(target.id))
+                guarded {
+                    teamSwitch?.let(viewModel::applyTeamSwitch)
+                    navController.navigateDeepLink(Routes.session(target.id))
+                }
             }
             // EXP-1291: a thread link opens the thread (a root session).
             is DeepLinkBus.Target.Thread -> {
-                switchToTeamOf(teamSelection, webLinkResolver.teamOfSession(target.id))
-                guarded { navController.navigateDeepLink(Routes.thread(target.id)) }
+                val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(target.id))
+                guarded {
+                    teamSwitch?.let(viewModel::applyTeamSwitch)
+                    navController.navigateDeepLink(Routes.thread(target.id))
+                }
             }
             // EXP-1291: `/t/{team}/sessions/{id}` in prose (the PR body
             // footer): a synced root IS a thread, so it opens there (on the
@@ -194,8 +204,9 @@ fun AppNavHost() {
             // raw session view.
             is DeepLinkBus.Target.SessionLink -> {
                 val isRoot = webLinkResolver.isLocalRoot(target.id) == true
-                switchToTeamOf(teamSelection, webLinkResolver.teamOfSession(target.id))
+                val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(target.id))
                 guarded {
+                    teamSwitch?.let(viewModel::applyTeamSwitch)
                     navController.navigateDeepLink(
                         if (isRoot) {
                             Routes.thread(target.id, Routes.THREAD_TAB_GUIDE.takeIf { target.guide })
@@ -218,14 +229,19 @@ fun AppNavHost() {
                 // so it can't loop back here.
                 when (val resolution = webLinkResolver.resolve(target)) {
                     is WebLinkResolver.Resolution.Found -> {
-                        val team = webLinkResolver.teamOfIssue(resolution.id, resolution.accountId)
+                        val teamSwitch = viewModel.planTeamSwitch(
+                            resolution.accountId,
+                            webLinkResolver.teamOfIssue(resolution.id, resolution.accountId),
+                        )
                         guarded {
-                        if (resolution.accountId != state.activeAccountId) {
-                            // The issue lives under another signed-in account:
-                            // switch first; IssueDetail re-scopes reactively.
+                        if (teamSwitch != null) {
+                            // The issue's team (on another signed-in account,
+                            // that account first, landing on the team);
+                            // IssueDetail re-scopes reactively.
+                            viewModel.applyTeamSwitch(teamSwitch)
+                        } else if (resolution.accountId != state.activeAccountId) {
                             viewModel.switchAccount(resolution.accountId)
                         }
-                        switchToTeamOf(teamSelection, team)
                         // EXP-1241: a web link's `?comment=` lands on that comment.
                         navController.navigateIssueDeepLink(
                             resolution.id,
@@ -241,12 +257,16 @@ fun AppNavHost() {
             is DeepLinkBus.Target.WebThreadRef ->
                 when (val resolution = webLinkResolver.resolveThread(target)) {
                     is WebLinkResolver.Resolution.Found -> {
-                        val team = webLinkResolver.teamOfSession(resolution.id, resolution.accountId)
+                        val teamSwitch = viewModel.planTeamSwitch(
+                            resolution.accountId,
+                            webLinkResolver.teamOfSession(resolution.id, resolution.accountId),
+                        )
                         guarded {
-                        if (resolution.accountId != state.activeAccountId) {
+                        if (teamSwitch != null) {
+                            viewModel.applyTeamSwitch(teamSwitch)
+                        } else if (resolution.accountId != state.activeAccountId) {
                             viewModel.switchAccount(resolution.accountId)
                         }
-                        switchToTeamOf(teamSelection, team)
                         navController.navigateDeepLink(
                             when {
                                 !resolution.isRoot -> Routes.session(resolution.id)
@@ -900,6 +920,8 @@ private fun AuthenticatedNav(
                 onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
                 // The "+"'s New issue: filed + linked to this root on create.
                 onNewIssue = { boardId, rootId -> navController.openIssueDraft(boardId, threadId = rootId) },
+                // chats.json `agentMenuCases`: an agent chat's menu opens its settings.
+                onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
             )
         }
         composable(Routes.AGENTS_SETTINGS) {
@@ -1057,12 +1079,6 @@ private fun AuthenticatedNav(
         )
     }
     }
-}
-
-/** Thread 58cb32df (chats.json): a notification / deep link that names
- *  another team switches the ONE active team first (no prompt). */
-private fun switchToTeamOf(selection: TeamSelection, teamId: String?) {
-    if (teamId != null && selection.selectedId.value != teamId) selection.select(teamId)
 }
 
 /**

@@ -5,6 +5,11 @@ import com.exponential.app.ui.components.Blocking
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.TeamSwitch
+import com.exponential.app.data.applyTeamSwitch
+import com.exponential.app.data.planTeamSwitch
+import com.exponential.app.domain.currentBoardFor
+import com.exponential.app.ui.inbox.activeTeamUnread
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.UpdateGate
 import com.exponential.app.data.auth.AuthRepository
@@ -112,11 +117,17 @@ class AppViewModel @Inject constructor(
                             db.teamDao().observeAll(),
                             db.boardDao().observeAll(),
                         ) { teams, boards ->
-                            accountId to defaultTeamId(
-                                teams,
-                                boards,
-                                teamSelection.lastBoard(accountId),
-                            )
+                            // A cross-server team switch parked its team for
+                            // this account (TeamSelection.applyTeamSwitch).
+                            val pending = teamSelection.pendingTeam(accountId)
+                                ?.takeIf { id -> teams.any { it.id == id } }
+                            accountId to (
+                                pending ?: defaultTeamId(
+                                    teams,
+                                    boards,
+                                    teamSelection.lastBoard(accountId),
+                                )
+                                )
                         }
                     }
                 }
@@ -127,6 +138,7 @@ class AppViewModel @Inject constructor(
                     // must never write.
                     if (defaultId != null && auth.activeAccountId.value == accountId) {
                         teamSelection.selectIfNull(defaultId)
+                        teamSelection.clearPendingTeam(accountId)
                     }
                 }
         }
@@ -223,8 +235,11 @@ class AppViewModel @Inject constructor(
         syncHealthTracker.activeHealth(auth.activeAccountId)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncHealth.Ok)
 
-    // Unread notifications for the active account — drives the bottom bar's
-    // inbox dot. Re-scopes reactively on account switch like the feature VMs.
+    // Unread notifications of the ACTIVE team on the active account — drives
+    // the inbox dot. Counted exactly like the inbox page (chats.json: the
+    // page lists the active team's rows only, `activeTeamUnread`), so the
+    // dot never lights for another team's rows. Re-scopes reactively on
+    // account and team switch.
     @OptIn(ExperimentalCoroutinesApi::class)
     val unreadCount: StateFlow<Int> = combine(
         accountDatabaseFlow(auth, databaseHolder),
@@ -234,8 +249,16 @@ class AppViewModel @Inject constructor(
         db to accounts.firstOrNull { it.id == activeId }?.userId
     }.flatMapLatest { (db, userId) ->
         if (db == null || userId == null) flowOf(0)
-        else db.notificationDao().observeUnreadCount(userId)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+        else combine(
+            db.notificationDao().observeByUser(userId),
+            db.issueDao().observeAll(),
+            db.boardDao().observeAll(),
+            teamSelection.selectedId,
+        ) { notifications, issues, boards, teamId ->
+            activeTeamUnread(notifications, issues, boards, teamId)
+        }
+    }.distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     // EXP-1272: the ACTIVE team's drafts (web `useDraftCount(team.id)`, iOS
     // `draftTeamIds` against the active team), resolved exactly like the
@@ -277,9 +300,10 @@ class AppViewModel @Inject constructor(
         liveRunsByTeam(sessions, me)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
-    // The Issues tab root's current board: last-used on the active account
-    // (validated against the live Room table, so deleted boards fall
-    // through), else the first board of the first team, else none. The
+    // The Board tab root's current board (`currentBoardFor`): the ACTIVE
+    // team's last-used board, else its first board, else none (chats.json:
+    // one active team drives every phone screen, so a team switch moves the
+    // board too); before a team resolves, the last-used board. The
     // lastBoardVersion counter re-runs the resolve after every last-used
     // write — that's what swaps the root list in place after a switcher pick.
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -293,13 +317,9 @@ class AppViewModel @Inject constructor(
             else combine(
                 db.boardDao().observeAll(),
                 db.teamDao().observeAll(),
-            ) { boards, teams ->
-                val lastUsed = teamSelection.lastBoard(accountId)
-                boards.firstOrNull { it.id == lastUsed }
-                    ?: teams.firstNotNullOfOrNull { ws ->
-                        boards.firstOrNull { it.teamId == ws.id }
-                    }
-                    ?: boards.firstOrNull()
+                teamSelection.selectedId,
+            ) { boards, teams, selectedTeamId ->
+                currentBoardFor(teams, boards, teamSelection.lastBoard(accountId), selectedTeamId)
             }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -353,6 +373,19 @@ class AppViewModel @Inject constructor(
 
     fun switchAccount(id: String) {
         viewModelScope.launch { auth.switchAccount(id) }
+    }
+
+    /** A notification / deep link naming a team (chats.json): plan the switch
+     *  of the ONE active team on [accountId] (null = the active account);
+     *  null when the team is unknown. Apply it with [applyTeamSwitch]. */
+    suspend fun planTeamSwitch(accountId: String?, teamId: String?): TeamSwitch? {
+        val account = accountId ?: auth.activeAccountId.value ?: return null
+        if (teamId == null) return null
+        return teamSelection.planTeamSwitch(databaseHolder, account, teamId)
+    }
+
+    fun applyTeamSwitch(switch: TeamSwitch) {
+        teamSelection.applyTeamSwitch(switch, auth)
     }
 
     fun removeAccount(id: String) {

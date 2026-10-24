@@ -1061,8 +1061,21 @@ extension MainNavigator {
                        !ws.contains(where: { $0.id == active }) {
                         teamState.activeTeamId = nil
                     }
-                    if teamState.activeTeamId == nil, let first = ws.first {
-                        teamState.activeTeamId = first.id
+                    // EXP-1373: start on the account's remembered team; a
+                    // remembered team that is gone is forgotten (and the
+                    // board re-resolved without it).
+                    let accountId = deps.auth.activeAccountId ?? ""
+                    let remembered = SharedBoardMirror.readActiveTeam(accountId: accountId)
+                    if !ws.isEmpty, let remembered, !ws.contains(where: { $0.id == remembered }) {
+                        SharedBoardMirror.clearActiveTeam(accountId: accountId)
+                        resolveCurrentBoard()
+                    }
+                    if teamState.activeTeamId == nil {
+                        if let remembered, let team = ws.first(where: { $0.id == remembered }) {
+                            teamState.activeTeamId = team.id
+                        } else if let first = ws.first {
+                            teamState.activeTeamId = first.id
+                        }
                     }
                 }
             } catch {}
@@ -1153,6 +1166,27 @@ extension MainNavigator {
            available.contains("\(current.accountId)/\(current.boardId)") {
             return
         }
+        // EXP-1373: the active account's remembered team wins over a
+        // last-used board of another team (which would pull the shell back
+        // to that board's team); a board-less one leaves no board. An
+        // unknown team (teams not synced yet) counts until the teams
+        // observation drops a stale one.
+        if let accountId = deps.auth.activeAccountId,
+           let teamId = SharedBoardMirror.readActiveTeam(accountId: accountId),
+           teamState.teams.isEmpty || teamState.teams.contains(where: { $0.id == teamId }) {
+            guard let boards = boardLoader?.groups.first(where: { $0.accountId == accountId })?
+                .teamBlocks.first(where: { $0.team.id == teamId })?.boards else {
+                currentBoard = nil
+                return
+            }
+            let last = SharedBoardMirror.readLastUsed()
+            if !(last?.accountId == accountId && boards.contains { $0.id == last?.boardId }),
+               let board = boards.first {
+                currentBoard = CurrentBoardRef(accountId: accountId, boardId: board.id)
+                alignActiveTeam()
+                return
+            }
+        }
         if let last = SharedBoardMirror.readLastUsed(),
            available.contains("\(last.accountId)/\(last.boardId)") {
             currentBoard = CurrentBoardRef(accountId: last.accountId, boardId: last.boardId)
@@ -1172,6 +1206,10 @@ extension MainNavigator {
         // Remember the choice so the Share Extension defaults its picker to it
         // and the next launch lands back in it.
         SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: boardId)
+        if let teamId = boardLoader?.groups.first(where: { $0.accountId == accountId })?
+            .teamBlocks.first(where: { $0.boards.contains { $0.id == boardId } })?.team.id {
+            SharedBoardMirror.writeActiveTeam(accountId: accountId, teamId: teamId)
+        }
         // EXP-1275 (D8 BLOCKING): a pick that switches ACCOUNT or TEAM covers
         // the window with the mark and one line while it lands.
         if accountId != (deps.auth.activeAccountId ?? "") {
@@ -1231,6 +1269,7 @@ extension MainNavigator {
         if teamState.activeTeamId != teamId {
             teamState.activeTeamId = teamId
         }
+        SharedBoardMirror.writeActiveTeam(accountId: current.accountId, teamId: teamId)
     }
 
     /// Push the issue detail from a deep-link/push tap. Shared by both drain
@@ -1248,8 +1287,13 @@ extension MainNavigator {
     ) {
         // EXP-1373: ONE active team: a link into another team switches it
         // first, silently.
+        // The local `issues` row has no `team_id`: resolve through its board.
         activateTeam(accountId: accountId) { db in
-            try String.fetchOne(db, sql: "SELECT \"team_id\" FROM \"issues\" WHERE \"id\" = ?", arguments: [issueId])
+            try String.fetchOne(db, sql: """
+                SELECT "b"."team_id" FROM "issues" AS "i"
+                JOIN "boards" AS "b" ON "b"."id" = "i"."board_id"
+                WHERE "i"."id" = ?
+                """, arguments: [issueId])
         }
         let route: AppRoute = if let commentId {
             .issueComment(accountId: accountId, id: issueId, commentId: commentId)
@@ -1272,10 +1316,33 @@ extension MainNavigator {
     /// My Work renders the ACTIVE account, so a push for another signed-in
     /// account switches first (the issue routes carry their account instead).
     private func openInboxFromPush() {
-        let (_, userId) = deps.deepLinkBus.consumeInbox()
+        let (_, userId, pushTeamId) = deps.deepLinkBus.consumeInbox()
         let accountId = issueAccountId(forUserId: userId)
         if !accountId.isEmpty, accountId != deps.auth.activeAccountId {
+            // EXP-1373: the rebuilt navigator opens on the row's team.
+            if let pushTeamId {
+                let block = boardLoader?.groups.first { $0.accountId == accountId }?
+                    .teamBlocks.first { $0.team.id == pushTeamId }
+                if let board = block?.boards.first {
+                    SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: board.id)
+                }
+                SharedBoardMirror.writeActiveTeam(accountId: accountId, teamId: pushTeamId)
+            }
             deps.auth.switchAccount(id: accountId)
+        } else {
+            // EXP-1373: the inbox lists the ACTIVE team's rows only, so the
+            // tapped row's team becomes active first: the payload's, else
+            // the newest unread row's (the one the push announced).
+            activateTeam(accountId: accountId) { db in
+                if let pushTeamId { return pushTeamId }
+                return try String.fetchOne(db, sql: """
+                    SELECT COALESCE("n"."team_id", "b"."team_id") FROM "notifications" AS "n"
+                    LEFT JOIN "issues" AS "i" ON "i"."id" = "n"."issue_id"
+                    LEFT JOIN "boards" AS "b" ON "b"."id" = "i"."board_id"
+                    WHERE "n"."read_at" IS NULL
+                    ORDER BY "n"."created_at" DESC LIMIT 1
+                    """)
+            }
         }
         // EXP-1373: the Inbox is a page pushed over the Chats tab.
         landOnRoot(of: .threads)
@@ -1297,8 +1364,9 @@ extension MainNavigator {
             return
         }
         _ = deps.deepLinkBus.consumeAgent()
-        if let team = teamState.teams.first(where: { $0.slug == slug }) {
-            teamState.activeTeamId = team.id
+        if let team = teamState.teams.first(where: { $0.slug == slug }),
+           team.id != teamState.activeTeamId {
+            applyTeam(team.id)
         }
         landOnRoot(of: .agent)
     }
@@ -1332,6 +1400,8 @@ extension MainNavigator {
             if let board = block?.boards.first {
                 SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: board.id)
             }
+            // The rebuilt navigator opens on this team, board or not.
+            SharedBoardMirror.writeActiveTeam(accountId: accountId, teamId: teamId)
             let account = deps.auth.accounts.first { $0.id == accountId }
             BlockingFeedback.shared.show(
                 FeedbackStates.Blocking.switchAccount(account?.userEmail ?? account?.displayName ?? "")
@@ -1351,6 +1421,9 @@ extension MainNavigator {
     private func applyTeam(_ teamId: String) {
         teamState.activeTeamId = teamId
         guard let accountId = deps.auth.activeAccountId else { return }
+        // EXP-1373: remembered per account, so the pick survives relaunch
+        // even when the team has no board to be the last-used one.
+        SharedBoardMirror.writeActiveTeam(accountId: accountId, teamId: teamId)
         if let current = currentBoard,
            teamState.boards.first(where: { $0.id == current.boardId })?.teamId == teamId {
             return
@@ -1360,6 +1433,10 @@ extension MainNavigator {
         if let board = boards.first {
             currentBoard = CurrentBoardRef(accountId: accountId, boardId: board.id)
             SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: board.id)
+        } else {
+            // A board-less team: the Board tab must not keep showing (and
+            // filing into) the previous team's board.
+            currentBoard = nil
         }
     }
 

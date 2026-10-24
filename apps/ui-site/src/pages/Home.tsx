@@ -182,7 +182,7 @@ export default function HomePage(_: PageProps) {
                 <a className="content-link" href={LINKS.marketing}>
                   Exponential
                 </a>
-                {` `}is a host like any other: its issue rows, session rows and chips are the first extension catalog; its Devices screen is a template package the web app and the desktop IDE both render.
+                {` `}is a host like any other: its issue rows, session rows and chips are the first extension catalog. Its team-made apps are template packages that the web app and the desktop IDE both render.
               </p>
             </div>
             <div className="home-dogfood-cta">

@@ -50,6 +50,7 @@ public struct LastUsedBoard: Codable, Sendable {
 public enum SharedBoardMirror {
     private static let boardsKey = "picker_boards_v1"
     private static let lastUsedKey = "picker_last_used_board_v1"
+    private static let activeTeamsKey = "active_team_by_account_v1"
 
     // MARK: - App writes
 
@@ -66,6 +67,36 @@ public enum SharedBoardMirror {
               let data = try? JSONEncoder().encode(LastUsedBoard(accountId: accountId, boardId: boardId))
         else { return }
         defaults.set(data, forKey: lastUsedKey)
+    }
+
+    /// EXP-1373: the phone shell's ONE active team, per account, so a team
+    /// picked without a board survives relaunch (the last-used board alone
+    /// would pull the shell back to that board's team).
+    public static func writeActiveTeam(accountId: String, teamId: String) {
+        guard !accountId.isEmpty, !teamId.isEmpty, let defaults = SharedAppGroup.defaults else { return }
+        var map = readActiveTeams()
+        guard map[accountId] != teamId else { return }
+        map[accountId] = teamId
+        defaults.set(map, forKey: activeTeamsKey)
+    }
+
+    public static func readActiveTeam(accountId: String) -> String? {
+        readActiveTeams()[accountId]
+    }
+
+    public static func clearActiveTeam(accountId: String) {
+        guard let defaults = SharedAppGroup.defaults else { return }
+        var map = readActiveTeams()
+        guard map.removeValue(forKey: accountId) != nil else { return }
+        if map.isEmpty {
+            defaults.removeObject(forKey: activeTeamsKey)
+        } else {
+            defaults.set(map, forKey: activeTeamsKey)
+        }
+    }
+
+    private static func readActiveTeams() -> [String: String] {
+        SharedAppGroup.defaults?.dictionary(forKey: activeTeamsKey) as? [String: String] ?? [:]
     }
 
     // MARK: - Teardown
@@ -87,6 +118,7 @@ public enum SharedBoardMirror {
         if readLastUsed()?.accountId == accountId {
             defaults.removeObject(forKey: lastUsedKey)
         }
+        clearActiveTeam(accountId: accountId)
     }
 
     /// Forget the picker default once its account is no longer signed in.

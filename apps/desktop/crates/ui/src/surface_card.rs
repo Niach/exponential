@@ -395,7 +395,8 @@ pub(crate) fn posting_call(row: &SessionThreadRow) -> Option<&'static str> {
 /// `anchorToolCards` / `anchorShowCards`): each card right after the
 /// SETTLED call that posted it, paired newest back per call kind; a card
 /// with no such call in the feed (the call is above the loaded window, or
-/// the card arrived first) trails the transcript (`unanchored`, card order).
+/// the card arrived first) is `unanchored` (card order), painted at the
+/// transcript's HEAD before its first row (web's `head`).
 /// `calls` = the feed's settled, unfailed Exponential calls in feed order:
 /// (feed item id, display row). Returns card INDICES into `cards`.
 pub(crate) fn anchor_cards(
@@ -447,7 +448,7 @@ mod tests {
     }
 
     /// Cards follow their posting calls newest back, per kind; one with no
-    /// call left trails the transcript.
+    /// call left is unanchored (the head, before the first row).
     #[test]
     fn cards_anchor_to_their_calls_newest_back() {
         let calls = [(4, "session_self_show"), (7, "session_self_plan"), (9, "session_self_show")];

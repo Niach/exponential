@@ -1,7 +1,9 @@
-- Apps: bygg små apper med editor-økten, med direkte forhåndsvisning og lagret i versjoner; Apps-listen ligger bak knappen i Threads-overskriften
-- Dock: transkripsjonen er én sammenhengende rulling, det som venter på deg svever som kort over composeren, og en plan åpnes som et bunnark med «Ja» og «Nei, fortsett å planlegge»
-- Én grå: alle kort, composeren og arkene har den samme ugjennomsiktige tonen
-- Velgere i et ark åpnes rett under raden sin
-- Threads med én økt viser Conversation-fanen sin igjen, og en thread-rad starter med den åpne pull requesten
-- Markdown-tabeller strekker ikke lenger rader forbi innholdet
-- En melding til en avsluttet thread gjenopptar den samme økten i stedet for å starte en kopi
+- Chatter: tråder er nå chatter; bunnlinjen viser Board, Devices, Chats og Team, og Chats-fanen viser teamets chatter som en messenger, med agenter som bobler øverst
+- Trykk lenge på en chat for å stoppe den eller stoppe og slette den; en avsluttet chat tilbyr Slett
+- Agenter: Komprimer samtale og Ny samtale i menyen til en agent-chat, eller skriv /compact og /new
+- Direkte forhåndsvisninger: agenter kan tegne en interaktiv forhåndsvisning rett inn i chatten
+- Planer: en ventende plan vises alltid i chatten med knappene sine, og en nyere plan erstatter den ventende
+- Ett aktivt team om gangen, byttet i Team-fanen, som også har innstillingene; My issues og Drafts er brikker på boardet, og Inbox har sin egen side
+- Triggere: agenter kan våkne hvert 5., 10., 15., 20. eller 30. minutt
+- Apps viser bare teamets apper; den innebygde Devices-appen er borte
+- Meldinger lastes gjennom samtalen sin, klare for direktemeldinger og kanaler

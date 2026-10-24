@@ -8,7 +8,12 @@ vi.mock(`@/lib/collections`, () => ({
   sessionIssueCollection: {},
 }))
 
-import { holdTitles, titleShapesReady, unsettledTitleRoots } from "@/hooks/use-session-tree"
+import {
+  holdTitles,
+  sessionsAwaitingConversation,
+  titleShapesReady,
+  unsettledTitleRoots,
+} from "@/hooks/use-session-tree"
 
 // EXP-1316: a thread title never flips from the request text to
 // its issue label: it falls back past its issues only once the issue
@@ -93,5 +98,36 @@ describe(`thread title readiness`, () => {
         messagesReady: true,
       })
     ).toEqual(new Set([`linked`, `bare`, `assigned`, `child`]))
+  })
+
+  // NEW-8: a brand-new session's `conversations` row lags its `sessions`
+  // row; its messages query is disabled (ready, empty) until it lands, so
+  // the row waits on it instead of flashing "Untitled".
+  it(`holds a session whose conversation has not synced yet`, () => {
+    const conversations = new Map([
+      [`c-old`, `old`],
+      [`c-dm`, `other`],
+    ])
+    expect(sessionsAwaitingConversation(conversations, [`old`, `new`])).toEqual(new Set([`new`]))
+    expect(sessionsAwaitingConversation(conversations, [`old`])).toEqual(new Set())
+    const sessions = [
+      { id: `old`, rootId: `old`, title: null },
+      { id: `new`, rootId: `new`, title: null },
+      { id: `named`, rootId: `named`, title: `Cold start` },
+      { id: `linked`, rootId: `linked`, title: null },
+    ]
+    const ready = { linksReady: true, issuesReady: true, messagesReady: true }
+    const sessionIssues = [{ sessionId: `linked` }]
+    // `old` has its conversation and no messages: ready (falls through the
+    // rungs); a stored title or own issues never wait on the messages.
+    expect(
+      unsettledTitleRoots({
+        sessions,
+        sessionIssues,
+        ...ready,
+        awaitingConversation: new Set([`new`, `named`, `linked`]),
+      })
+    ).toEqual(new Set([`new`]))
+    expect(unsettledTitleRoots({ sessions, sessionIssues, ...ready })).toEqual(new Set())
   })
 })

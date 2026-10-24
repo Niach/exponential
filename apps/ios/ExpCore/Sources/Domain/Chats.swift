@@ -550,10 +550,13 @@ public enum Chats {
     }
 
     /// A chat row's context menu ×4 (`menuCases`): live → Stop, Stop and
-    /// delete; ended → Delete; nothing for a viewer who cannot steer it.
-    public static func threadMenuEntries(rootStatus: String, canSteer: Bool) -> [ThreadMenuEntry] {
+    /// delete; ended → Delete; nothing for a viewer who cannot steer it. The
+    /// delete entries need `canDelete` (the chat's starter or a team owner,
+    /// the server's `sessions.delete` rule).
+    public static func threadMenuEntries(rootStatus: String, canSteer: Bool, canDelete: Bool) -> [ThreadMenuEntry] {
         guard canSteer else { return [] }
-        return rootStatus == "ended" ? [.delete] : [.stop, .stopAndDelete]
+        if rootStatus == "ended" { return canDelete ? [.delete] : [] }
+        return canDelete ? [.stop, .stopAndDelete] : [.stop]
     }
 
     /// The agent chat's header menu (and its bubble's long-press) ×4

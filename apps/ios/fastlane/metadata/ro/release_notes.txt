@@ -1,7 +1,9 @@
-- Apps: construiește aplicații mici cu sesiunea de editare, cu previzualizare live și păstrate în versiuni; lista Apps se află în spatele butonului din antetul Threads
-- Dock: transcrierea este un singur scroll, ce te așteaptă plutește sub formă de carduri deasupra composerului, iar un plan se deschide ca foaie inferioară cu „Da” și „Nu, continuă planificarea”
-- Un singur gri: fiecare card, composerul și foile au aceeași nuanță opacă
-- Selectoarele dintr-o foaie se deschid direct sub rândul lor
-- Threadurile cu o singură sesiune își afișează din nou fila Conversation, iar un rând de thread începe cu pull requestul său deschis
-- Tabelele Markdown nu mai întind rândurile dincolo de conținutul lor
-- Un mesaj către un thread încheiat reia aceeași sesiune în loc să pornească o copie
+- Chaturi: firele sunt acum chaturi; bara de jos conține Board, Devices, Chats și Team, iar fila Chats listează chaturile echipei tale ca un messenger, cu agenții ca bule sus
+- Ține apăsat pe un chat ca să-l oprești sau să-l oprești și să-l ștergi; un chat încheiat oferă Șterge
+- Agenți: Compactează conversația și Conversație nouă în meniul unui chat cu un agent, sau scrie /compact și /new
+- Previzualizări live: agenții pot desena o previzualizare interactivă direct în chat
+- Planuri: un plan în așteptare apare mereu în chat cu butoanele lui, iar un plan mai nou îl înlocuiește pe cel în așteptare
+- O singură echipă activă odată, schimbată din fila Team, care conține și setările; My issues și Drafts sunt chipuri pe board, iar Inbox are propria pagină
+- Triggere: agenții se pot trezi la fiecare 5, 10, 15, 20 sau 30 de minute
+- Apps listează doar aplicațiile echipei tale; aplicația Devices integrată a dispărut
+- Mesajele se încarcă prin conversația lor, pregătite pentru mesaje directe și canale

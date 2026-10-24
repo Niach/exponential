@@ -43,6 +43,9 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.AppConstants
 import com.exponential.app.PlayStore
 import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.applyTeamSwitch
+import com.exponential.app.data.planTeamSwitch
+import kotlinx.coroutines.launch
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.MultiAccountTeamRepository
@@ -440,7 +443,7 @@ data class TeamTabState(
 @HiltViewModel
 class TeamTabViewModel @Inject constructor(
     private val auth: AuthRepository,
-    holder: com.exponential.app.data.db.DatabaseHolder,
+    private val holder: com.exponential.app.data.db.DatabaseHolder,
     private val selection: TeamSelection,
 ) : ViewModel() {
     private val dbFlow = com.exponential.app.data.db.accountDatabaseFlow(auth, holder)
@@ -480,11 +483,13 @@ class TeamTabViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamTabState())
 
-    /** The ONE place a phone switches its team (chats.json): select it and,
-     *  for another server's team, make that account active. */
+    /** The ONE place a phone switches its team (chats.json): select it, move
+     *  the Board tab onto the team's board and, for another server's team,
+     *  make that account active landing on that team (iOS `switchTeam`). */
     fun switchTeam(accountId: String, teamId: String) {
-        selection.select(teamId)
-        if (accountId != auth.activeAccountId.value) auth.switchAccount(accountId)
+        viewModelScope.launch {
+            selection.applyTeamSwitch(selection.planTeamSwitch(holder, accountId, teamId), auth)
+        }
     }
 }
 

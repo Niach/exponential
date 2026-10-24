@@ -1,7 +1,9 @@
-- Apps: byg små apps med editor-sessionen, med live forhåndsvisning og gemt i versioner; Apps-listen ligger bag knappen i Threads-headeren
-- Dock: transskriptet er én samlet scroll, det der venter på dig, svæver som kort over composeren, og en plan åbner som et bundark med "Ja" og "Nej, bliv ved med at planlægge"
-- Én grå: alle kort, composeren og arkene har den samme uigennemsigtige tone
-- Vælgere i et ark åbner direkte under deres række
-- Threads med én session viser igen deres Conversation-fane, og en thread-række starter med dens åbne pull request
-- Markdown-tabeller strækker ikke længere rækker ud over deres indhold
-- En besked til en afsluttet thread genoptager den samme session i stedet for at starte en kopi
+- Chats: tråde er nu chats; bundbjælken viser Board, Devices, Chats og Team, og Chats-fanen viser dit teams chats som en messenger, med agenter som bobler øverst
+- Tryk længe på en chat for at stoppe den eller stoppe og slette den; en afsluttet chat tilbyder Slet
+- Agenter: Komprimer samtale og Ny samtale i en agent-chats menu, eller skriv /compact og /new
+- Live forhåndsvisninger: agenter kan tegne en interaktiv forhåndsvisning direkte i chatten
+- Planer: en ventende plan vises altid i chatten med sine knapper, og en nyere plan erstatter den ventende
+- Ét aktivt team ad gangen, skiftet på Team-fanen, som også rummer indstillingerne; My issues og Drafts er chips på boardet, og Inbox har sin egen side
+- Triggere: agenter kan vågne hvert 5., 10., 15., 20. eller 30. minut
+- Apps viser kun dit teams apps; den indbyggede Devices-app er væk
+- Beskeder indlæses gennem deres samtale, klar til direkte beskeder og kanaler

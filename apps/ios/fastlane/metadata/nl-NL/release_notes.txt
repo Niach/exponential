@@ -1,7 +1,9 @@
-- Apps: bouw kleine apps met de editorsessie, live te bekijken en bewaard in versies; de Apps-lijst zit achter de knop in de Threads-header
-- Het Dock: het transcript is één doorlopende scroll, wat op jou wacht zweeft als kaarten boven de composer, en een plan opent als bottom sheet met 'Ja' en 'Nee, blijf plannen'
-- Eén grijs: elke kaart, de composer en de sheets hebben dezelfde dekkende tint
-- Kiezers in een sheet openen direct onder hun rij
-- Threads met één sessie tonen weer hun Conversation-tab, en een threadrij begint met de openstaande pull request
-- Markdown-tabellen rekken rijen niet meer op voorbij hun inhoud
-- Een bericht aan een beëindigde thread hervat dezelfde sessie in plaats van een kopie te starten
+- Chats: threads zijn nu chats; de onderste balk toont Board, Devices, Chats en Team, en het Chats-tabblad toont de chats van je team als een messenger, met agents als bubbels bovenaan
+- Houd een chat ingedrukt om hem te stoppen of te stoppen en te verwijderen; een beëindigde chat biedt Verwijderen aan
+- Agents: Gesprek comprimeren en Nieuw gesprek in het menu van een agentchat, of typ /compact en /new
+- Live voorbeelden: agents kunnen een interactief voorbeeld direct in de chat tekenen
+- Plannen: een wachtend plan staat altijd met zijn knoppen in de chat, en een nieuwer plan vervangt het wachtende
+- Eén actief team tegelijk, te wisselen op het Team-tabblad, dat ook de instellingen bevat; My issues en Drafts zijn chips op het bord, en de Inbox heeft een eigen pagina
+- Triggers: agents kunnen elke 5, 10, 15, 20 of 30 minuten wakker worden
+- Apps toont alleen de apps van je team; de ingebouwde Devices-app is verdwenen
+- Berichten laden via hun gesprek, klaar voor directe berichten en kanalen

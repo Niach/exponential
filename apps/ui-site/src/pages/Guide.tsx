@@ -743,8 +743,8 @@ exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-
             run elsewhere and stream their UI, embed through the same <code>Transport</code> interface.
           </p>
           <p>
-            The Exponential app ships its Devices screen this way: a package of templates that its web app and
-            desktop IDE both render.
+            Exponential's team-made apps work this way: packages of templates that its web app and desktop IDE
+            both render. The SDK keeps a sample Devices package as a benchmark.
           </p>
         </>
       ),
