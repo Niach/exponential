@@ -33,6 +33,8 @@ export const Route = createFileRoute(`/api/shapes/messages`)({
       GET: createShapeRouteHandler({
         table: `messages`,
         columns: MESSAGE_COLUMNS,
+        // #EXP-1380: the web loads a chat's messages when it opens.
+        subsets: true,
         getWhere: async (userId) => {
           const teamIds = userId ? await getUserTeamIds(userId) : []
           return buildSessionVisibleWhere(teamIds, userId, `owner_id`)

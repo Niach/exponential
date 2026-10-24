@@ -45,6 +45,7 @@ use theme::tokens as t;
 use domain::board::format_short_date;
 use domain::issue_rail::{issue_rail, RailEntry, RailRow};
 use domain::options::{get_issue_priority_config, ColorToken, ISSUE_PRIORITY_OPTIONS};
+use domain::agent_settings::AgentActorRow;
 use domain::rows::{Issue, Label, Board, User};
 use domain::statuses::{ResolvedStatus, StatusTint};
 use domain::tree_guides::{guides_for, Guides};
@@ -313,6 +314,9 @@ pub struct IssueListView {
     /// every render. Empty on a solo team, where the cell does not render at
     /// all (EXP-832: that query never runs on a path that does not need it).
     row_assignees: Rc<Vec<User>>,
+    /// #EXP-1383: the scope team's agents, once per frame — the row pickers'
+    /// rows after the members and the agent assignees' marks.
+    row_agents: Rc<Vec<AgentActorRow>>,
     /// REV-39: the memoized board query. `render` re-runs on every
     /// `cx.notify` (selection toggles, group collapses, nav highlights,
     /// width flips, every Electric batch), and rebuilding the full
@@ -375,6 +379,7 @@ impl IssueListView {
             rail_width: 0.,
             team_statuses: Rc::new(Vec::new()),
             row_assignees: Rc::new(Vec::new()),
+            row_agents: Rc::new(Vec::new()),
             data: queries::Memo::default(),
             scroll_handle: VirtualListScrollHandle::new(),
             empty_scroll: ScrollHandle::new(),
@@ -528,14 +533,15 @@ impl IssueListView {
         let Some(team_id) = self.bulk_team_id(cx) else {
             return false;
         };
-        Store::global(cx)
+        let members = Store::global(cx)
             .collections()
             .team_members
             .read(cx)
             .iter()
             .filter(|member| member.team_id == team_id)
-            .count()
-            == 1
+            .count();
+        // #EXP-1383: a team agent is someone to assign to as well.
+        crate::picker::assignee_picker::hides_assignee(members, queries::team_agents(cx, &team_id).len(), false)
     }
 
     // -- row rendering -------------------------------------------------------
@@ -763,7 +769,7 @@ impl IssueListView {
                 row.child(
                     control_cell(row_id("assignee-cell", &issue.id))
                         .ml_3()
-                        .child(assignee_dropdown(issue, &self.row_assignees, cx)),
+                        .child(assignee_dropdown(issue, &self.row_assignees, &self.row_agents, cx)),
                 )
             })
             // auto due date: CalendarDays + short date, only when set — web
@@ -835,7 +841,7 @@ impl IssueListView {
         // would be one frame stale on the first selection. Hidden on a solo
         // team (see `render_bulk_bar`'s assignee menu), and then not counted
         // toward the label threshold either (EXP-827).
-        let has_assignee = queries::team_users(cx, &team_id).len() > 1;
+        let has_assignee = bulk_has_assignee(cx, &team_id);
         let labels = self.measured_width.get() >= bulk_bar_label_min_width(has_assignee);
         Some(render_bulk_bar(team_id, ids, self.bulk_busy, labels, false, cx))
     }
@@ -891,7 +897,9 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
     let danger = cx.theme().danger;
     // Hidden on a solo team (see `assignee_menu` below).
     let users = queries::team_users(cx, &team_id);
-    let has_assignee = users.len() > 1;
+    let agents = queries::team_agents(cx, &team_id);
+    // #EXP-1383: a solo team with agents keeps it (`bulk_has_assignee`).
+    let has_assignee = users.len() > 1 || !agents.is_empty();
 
     // `.label()` takes a value, so the collapse is a small helper rather
     // than a `when` chain on six buttons.
@@ -1048,9 +1056,9 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
             .disabled(busy)
             .into_any_element();
             crate::picker::deferred(move |window, cx| {
-                use crate::picker::assignee_picker::UNASSIGNED_VALUE;
                 crate::picker::assignee_picker::assignee_picker(
                     &users,
+                    &agents,
                     crate::picker::PickerMode::Single,
                     // A bulk edit has no ONE current assignee.
                     Vec::new(),
@@ -1067,13 +1075,11 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
                             false,
                             "issues.bulkUpdate",
                             move |trpc, chunk| {
-                                let mut input =
-                                    api::issues::IssuesBulkUpdateInput::new(chunk.to_vec());
-                                input.assignee_id = if value == UNASSIGNED_VALUE {
-                                    api::Patch::Null
-                                } else {
-                                    api::Patch::Set(value.clone())
-                                };
+                                // #EXP-1383: both columns, the cleared one null.
+                                let assignee =
+                                    crate::picker::assignee_picker::assignee_from_value(Some(&value));
+                                let input = api::issues::IssuesBulkUpdateInput::new(chunk.to_vec())
+                                    .assign(&assignee);
                                 api::issues::issues_bulk_update(trpc, &input).map(|_| ())
                             },
                         );
@@ -1412,6 +1418,10 @@ impl Render for IssueListView {
             (false, Some(team_id)) => queries::team_users(cx, &team_id),
             _ => Vec::new(),
         });
+        self.row_agents = Rc::new(match (self.solo_team, self.bulk_team_id(cx)) {
+            (false, Some(team_id)) => queries::team_agents(cx, &team_id),
+            _ => Vec::new(),
+        });
 
         // EXP-439: classify the chip treatment off the LAST frame's measured
         // width (0 until the first prepaint — default to full chips, web
@@ -1428,7 +1438,7 @@ impl Render for IssueListView {
         let has_assignee = !self.selected.is_empty()
             && self
                 .bulk_team_id(cx)
-                .is_some_and(|team_id| queries::team_users(cx, &team_id).len() > 1);
+                .is_some_and(|team_id| bulk_has_assignee(cx, &team_id));
         self.bulk_label_min_w = bulk_bar_label_min_width(has_assignee);
         self.wide = measured >= self.bulk_label_min_w;
 
@@ -1848,13 +1858,34 @@ fn resolve_in(issue: &Issue, statuses: &[ResolvedStatus]) -> ResolvedStatus {
 /// CONTEXT menu keeps `assignee_menu`: a submenu cannot own a trigger.)
 /// `members` is the frame's shared list (`row_assignees`) — the picker owns
 /// its rows, so a per-row query would run on every render.
-fn assignee_dropdown(issue: &Issue, members: &Rc<Vec<User>>, cx: &mut App) -> impl IntoElement {
+fn assignee_dropdown(
+    issue: &Issue,
+    members: &Rc<Vec<User>>,
+    agents: &Rc<Vec<AgentActorRow>>,
+    cx: &mut App,
+) -> impl IntoElement {
     let assignee = issue
         .assignee_id
         .as_deref()
         .and_then(|id| Store::global(cx).collections().users.read(cx).get(id).cloned());
+    // #EXP-1383: an agent assignee wears THE AGENT MARK.
+    let agent = issue
+        .assignee_agent_id
+        .as_deref()
+        .and_then(|id| queries::agent_actor(cx, id));
 
-    let trigger = match issue.assignee_id.as_deref() {
+    let trigger = match (agent, issue.assignee_id.as_deref()) {
+        (Some(agent), _) => Button::new(row_id("assignee", &issue.id))
+            .ghost()
+            .cursor_pointer()
+            .xsmall()
+            .tooltip(agent.name.clone())
+            .child(crate::user_avatar::agent_avatar(
+                agent.icon.as_deref(),
+                agent.color.as_deref(),
+                gpui_component::Size::XSmall,
+                cx,
+            )),
         // Assigned — the shared avatar: the member's profile picture when it
         // has landed, hue-hashed initials from the name otherwise (or `Member
         // <LAST4>` when the co-member's user row didn't sync). EXP-547: the
@@ -1862,7 +1893,7 @@ fn assignee_dropdown(issue: &Issue, members: &Rc<Vec<User>>, cx: &mut App) -> im
         // (Danny/Dennis S.) rendered the same "DS" glyph and the row looked
         // assigned to the wrong person — web's `AssigneeDropdown` shows the
         // picture, so does the picker menu below.
-        Some(id) => Button::new(row_id("assignee", &issue.id))
+        (None, Some(id)) => Button::new(row_id("assignee", &issue.id))
             .ghost().cursor_pointer()
             .xsmall()
             .child(crate::user_avatar::user_avatar(
@@ -1872,7 +1903,7 @@ fn assignee_dropdown(issue: &Issue, members: &Rc<Vec<User>>, cx: &mut App) -> im
                 gpui_component::Size::XSmall,
                 cx,
             )),
-        None => Button::new(row_id("assignee", &issue.id)).ghost().cursor_pointer().xsmall().child(
+        (None, None) => Button::new(row_id("assignee", &issue.id)).ghost().cursor_pointer().xsmall().child(
             div()
                 .size_4()
                 .rounded_full()
@@ -1891,33 +1922,33 @@ fn assignee_dropdown(issue: &Issue, members: &Rc<Vec<User>>, cx: &mut App) -> im
     };
 
     let issue_id = issue.id.clone();
-    let current = issue.assignee_id.clone();
+    let current = crate::picker::assignee_picker::assignee_value(
+        issue.assignee_id.as_deref(),
+        issue.assignee_agent_id.as_deref(),
+    );
     let picker_id = row_id("assignee-picker", &issue.id);
     let members = members.clone();
+    let agents = agents.clone();
     let trigger = trigger.into_any_element();
     crate::picker::deferred(move |window, cx| {
-        use crate::picker::assignee_picker::UNASSIGNED_VALUE;
         // Member lists grow with the team; the picker's own filter field and
         // scroll cap are what carry that now, so the rows stay name-sorted
         // rather than current-first (the mark already says who is on it).
         crate::picker::assignee_picker::assignee_picker(
             &members,
+            &agents,
             crate::picker::PickerMode::Single,
             // Unassigned is a real ROW with a real value, so an unassigned
             // issue PICKS it rather than marking nothing.
-            vec![current
-                .clone()
-                .unwrap_or_else(|| UNASSIGNED_VALUE.to_string())],
+            vec![current.clone()],
             true,
             trigger,
             Rc::new(move |picked, _window, cx| {
-                let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
-                input.assignee_id = match picked.first() {
-                    Some(user_id) if user_id != UNASSIGNED_VALUE => {
-                        api::Patch::Set(user_id.clone())
-                    }
-                    _ => api::Patch::Null,
-                };
+                // #EXP-1383: both columns, the cleared one null.
+                let assignee = crate::picker::assignee_picker::assignee_from_value(
+                    picked.first().map(String::as_str),
+                );
+                let input = api::issues::IssuesUpdateInput::new(issue_id.clone()).assign(&assignee);
                 spawn_issue_update(cx, input);
             }),
         )
@@ -1932,21 +1963,28 @@ fn assignee_menu(
     issue_id: &str,
     board_id: &str,
     current: Option<&str>,
+    current_agent: Option<&str>,
     cx: &App,
 ) -> PopupMenu {
     let mut menu = crate::pickers::single_select_menu(menu);
-    if current.is_some() {
+    if current.is_some() || current_agent.is_some() {
         let issue_id = issue_id.to_string();
         menu = menu.item(
             crate::controls::pointer_label_item("Unassign", false)
                 .icon(Icon::new(registry::UI_CLOSE))
                 .on_click(move |_, _, cx| {
-                    let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
-                    input.assignee_id = api::Patch::Null;
+                    let input = api::issues::IssuesUpdateInput::new(issue_id.clone())
+                        .assign(&api::issues::Assignee::Nobody);
                     spawn_issue_update(cx, input);
                 }),
         );
     }
+    let current = if current_agent.is_some() { None } else { current };
+    let agents = cx
+        .try_global::<Store>()
+        .and_then(|store| store.collections().boards.read(cx).get(board_id).map(|board| board.team_id.clone()))
+        .map(|team_id| queries::team_agents(cx, &team_id))
+        .unwrap_or_default();
     for user in assignable_users(board_id, current, cx) {
         let checked = current == Some(user.id.as_str());
         let name = crate::comments::author_label(Some(&user));
@@ -1960,13 +1998,30 @@ fn assignee_menu(
             user.image.clone(),
             checked,
             move |_window, cx| {
-                let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
-                input.assignee_id = api::Patch::Set(user_id.clone());
+                let input = api::issues::IssuesUpdateInput::new(issue_id.clone())
+                    .assign(&api::issues::Assignee::User(user_id.clone()));
                 spawn_issue_update(cx, input);
             },
         ));
     }
+    // #EXP-1383: the team's agents straight after the members, no heading.
+    for agent in agents {
+        let checked = current_agent == Some(agent.id.as_str());
+        let issue_id = issue_id.to_string();
+        let agent_id = agent.id.clone();
+        menu = menu.item(crate::pickers::agent_menu_item(agent, checked, move |_window, cx| {
+            let input = api::issues::IssuesUpdateInput::new(issue_id.clone())
+                .assign(&api::issues::Assignee::Agent(agent_id.clone()));
+            spawn_issue_update(cx, input);
+        }));
+    }
     menu
+}
+
+/// The bulk bar's Assignee control shows unless the team is solo (#EXP-1383:
+/// a solo team with agents keeps it).
+fn bulk_has_assignee(cx: &App, team_id: &str) -> bool {
+    queries::team_users(cx, team_id).len() > 1 || !queries::team_agents(cx, team_id).is_empty()
 }
 
 /// The team's human members eligible as assignees (board → team →
@@ -2124,13 +2179,14 @@ pub(crate) fn build_row_context_menu(
         let issue_id = issue.id.clone();
         let board_id = issue.board_id.clone();
         let current = issue.assignee_id.clone();
-        let icon = if current.is_some() {
+        let current_agent = issue.assignee_agent_id.clone();
+        let icon = if current.is_some() || current_agent.is_some() {
             Icon::new(registry::UI_ASSIGNEE)
         } else {
             Icon::new(registry::UI_UNASSIGNED)
         };
         menu = menu.submenu_with_icon(Some(icon), "Assignee", window, cx, move |menu, _, cx| {
-            assignee_menu(menu, &issue_id, &board_id, current.as_deref(), cx)
+            assignee_menu(menu, &issue_id, &board_id, current.as_deref(), current_agent.as_deref(), cx)
         });
     }
 

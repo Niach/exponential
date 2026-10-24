@@ -1,5 +1,6 @@
 import type { IssueEvent, Label, Board, User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
+import { issueActor, type AgentActorRowLike } from "@exp/domain-contract/agent-settings"
 import {
   conceptIcon,
   Trace,
@@ -36,6 +37,9 @@ const RelationRemovedIcon = conceptIcon(`event-relation-removed`)
 
 // Status/priority phrase helpers live in lib/issue-event-labels.ts (EXP-759)
 // so the admin team activity log reads the same names as this timeline.
+
+/** #EXP-1383: an agent assignee whose row is gone (deleted, or not synced). */
+const AGENT_FALLBACK_NAME = `an agent`
 
 function optionalString(value: unknown): string | null {
   return typeof value === `string` && value.length > 0 ? value : null
@@ -97,20 +101,30 @@ export function EventRow({
   userMap,
   labelMap,
   boardMap,
+  agents = [],
   lineBelow = true,
 }: {
   event: IssueEvent
   userMap: Map<string, User>
   labelMap: Map<string, Label>
   boardMap?: Map<string, Board>
+  /** #EXP-1383: the synced agents an agent actor / assignee resolves to. */
+  agents?: readonly AgentActorRowLike[]
   /** The feed's LAST row draws no rail below it — see `TimelineRow`. */
   lineBelow?: boolean
 }) {
   const { resolve: resolveStatus } = useTeamStatusesContext()
   const issueRefs = useIssueRefs()
   const team = useTeamById(event.teamId)
+  // #EXP-1383 (agent-settings.json `actor`): an agent's session acted → the
+  // AGENT's name, the same per-type copy.
+  const who = issueActor(
+    { actorAgentId: event.actorAgentId, actorUserId: event.actorUserId },
+    agents
+  )
   const actor = event.actorUserId ? userMap.get(event.actorUserId) : undefined
-  const actorName = displayUserName(actor, event.actorUserId)
+  const actorName =
+    who?.kind === `agent` ? who.name : displayUserName(actor, event.actorUserId)
   const payload = (event.payload ?? {}) as Record<string, unknown>
   const when = relativeTime(event.createdAt)
 
@@ -165,8 +179,20 @@ export function EventRow({
       // `payload.to` can reference a user the viewer can't see (the users
       // shape only exposes co-members) — that's still an assignment, not a
       // removal.
+      // #EXP-1383: an agent assignee rides `toAgentId` (`assigned Sloppy`).
+      const toAgentId = optionalString(payload.toAgentId)
       const to = payload.to ? userMap.get(String(payload.to)) : undefined
-      text = payload.to ? (
+      const toAgent = toAgentId
+        ? agents.find((row) => row.id === toAgentId)
+        : undefined
+      text = toAgentId ? (
+        <>
+          assigned{` `}
+          <span className="font-medium text-foreground">
+            {toAgent?.name ?? AGENT_FALLBACK_NAME}
+          </span>
+        </>
+      ) : payload.to ? (
         <>
           assigned{` `}
           <span className="font-medium text-foreground">

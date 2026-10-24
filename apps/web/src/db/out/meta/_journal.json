@@ -1324,6 +1324,27 @@
       "when": 1792836400000,
       "tag": "0188_app_records",
       "breakpoints": true
+    },
+    {
+      "idx": 189,
+      "version": "7",
+      "when": 1792850300000,
+      "tag": "0189_agent_actors_and_assignees",
+      "breakpoints": true
+    },
+    {
+      "idx": 190,
+      "version": "7",
+      "when": 1792850400000,
+      "tag": "0190_session_started_by_agent",
+      "breakpoints": true
+    },
+    {
+      "idx": 191,
+      "version": "7",
+      "when": 1792850500000,
+      "tag": "0191_conversation_digest",
+      "breakpoints": true
     }
   ]
 }

@@ -4,6 +4,7 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Issue, IssueLabel } from "@/db/schema"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { assigneeWrite, type IssueAssignee } from "@/lib/issue-assignee"
 import { type IssuePriority } from "@/lib/domain"
 import { statusUpdatePayload, type StatusRowOption } from "@/lib/team-statuses"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
@@ -21,7 +22,7 @@ export interface IssuePropertyHandlers {
   /** The duplicate-status interception's picker — render it ONCE per hook. */
   duplicatePicker: ReactNode
   handlePriorityChange: (priority: IssuePriority) => Promise<void>
-  handleAssigneeChange: (assigneeId: string | null) => Promise<void>
+  handleAssigneeChange: (assignee: IssueAssignee) => Promise<void>
   handleToggleLabel: (labelId: string) => Promise<void>
   /** `YYYY-MM-DD`, or null to clear — the wire format (REV2-49). */
   handleDueDateSelect: (date: string | null) => Promise<void>
@@ -95,9 +96,9 @@ export function useIssuePropertyHandlers({
     await trpc.issues.update.mutate({ id: issueId, priority })
   }
 
-  const handleAssigneeChange = async (assigneeId: string | null) => {
+  const handleAssigneeChange = async (assignee: IssueAssignee) => {
     if (readOnly || !issueId) return
-    await trpc.issues.update.mutate({ id: issueId, assigneeId })
+    await trpc.issues.update.mutate({ id: issueId, ...assigneeWrite(assignee) })
   }
 
   const handleToggleLabel = async (labelId: string) => {

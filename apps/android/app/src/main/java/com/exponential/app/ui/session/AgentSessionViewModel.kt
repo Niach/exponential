@@ -189,6 +189,24 @@ class AgentSessionViewModel @AssistedInject constructor(
      *  the connection, which needs it eagerly for its redial loop. */
     val session: StateFlow<SessionEntity?> = connection.session
 
+    /** #EXP-1383 (chats.json `agentHint`): an agent chat ROOT's definition
+     *  row, whose `instructions_updated_at` the "Instructions changed" Dock
+     *  banner compares with the session's `agent_instructions_at`. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val agentDefinition: StateFlow<com.exponential.app.data.db.AgentDefinitionEntity?> =
+        session.map { row -> row?.agentId?.takeIf { row.parentId == null && it.isNotEmpty() } }
+            .distinctUntilChanged()
+            .flatMapLatest { id ->
+                if (id == null) {
+                    flowOf(null)
+                } else {
+                    dbFlow.scopedQuery<com.exponential.app.data.db.AgentDefinitionEntity?>(null) {
+                        it.agentDefinitionDao().observeById(id)
+                    }
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /** EXP-656: when our own `devices` shape last completed a poll — presence
      *  derived from an unrefreshed cursor is unknown, never offline. */
     @OptIn(ExperimentalCoroutinesApi::class)

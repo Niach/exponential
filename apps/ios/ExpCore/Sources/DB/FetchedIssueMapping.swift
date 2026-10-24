@@ -32,7 +32,9 @@ public extension FetchedIssue {
             estimate: estimate,
             draftId: draftId,
             createdAt: createdAt,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            assigneeAgentId: assigneeAgentId,
+            creatorAgentId: creatorAgentId
         )
     }
 }
@@ -63,7 +65,32 @@ public extension IssueEntity {
             estimate: estimate,
             draftId: draftId,
             createdAt: createdAt,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            assigneeAgentId: assigneeAgentId,
+            creatorAgentId: creatorAgentId
         )
+    }
+}
+
+// #EXP-1383: the two-column assignee writes. Here, not in IssuesApi.swift:
+// the Share Extension compiles that file without the domain layer.
+public extension UpdateIssueInput {
+    /// An assignee write sends BOTH columns, the cleared one as an explicit
+    /// null (agent-settings.json `assignee`).
+    init(id: String, assignee: IssueAssignee) {
+        self.init(id: id, assigneeId: assignee.assigneeId)
+        assigneeAgentId = assignee.assigneeAgentId
+        if assignee.assigneeId == nil { explicitNulls.insert(CodingKeys.assigneeId.rawValue) }
+        if assignee.assigneeAgentId == nil { explicitNulls.insert(CodingKeys.assigneeAgentId.rawValue) }
+    }
+}
+
+public extension BulkUpdateIssuesInput {
+    /// The bulk assignee write, both columns, the cleared one null.
+    init(ids: [String], assignee: IssueAssignee) {
+        self.init(ids: ids, assigneeId: assignee.assigneeId)
+        assigneeAgentId = assignee.assigneeAgentId
+        if assignee.assigneeId == nil { explicitNulls.insert(CodingKeys.assigneeId.rawValue) }
+        if assignee.assigneeAgentId == nil { explicitNulls.insert(CodingKeys.assigneeAgentId.rawValue) }
     }
 }

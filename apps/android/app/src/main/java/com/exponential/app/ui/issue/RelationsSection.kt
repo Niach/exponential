@@ -1,5 +1,7 @@
 package com.exponential.app.ui.issue
 
+import com.exponential.app.domain.AgentSettings
+import com.exponential.app.ui.components.AgentAvatar
 import androidx.compose.foundation.layout.PaddingValues
 import com.exponential.app.ui.components.IssueRowContent
 import com.exponential.app.ui.components.SectionBand
@@ -150,6 +152,8 @@ fun SubIssuesSection(
     issuesById: Map<String, IssueEntity>,
     users: List<UserEntity>,
     statuses: List<ResolvedIssueStatus>,
+    /** #EXP-1383: agent assignees resolve against these. */
+    agents: List<AgentSettings.AgentRowLike> = emptyList(),
     onAdd: (() -> Unit)?,
     onOpenIssue: (String) -> Unit,
     onRemove: ((String) -> Unit)?,
@@ -217,6 +221,7 @@ fun SubIssuesSection(
             issuesById = issuesById,
             users = users,
             statuses = statuses,
+            agents = agents,
             onOpenIssue = onOpenIssue,
             onRemove = onRemove,
         )
@@ -235,6 +240,8 @@ fun RelationsSection(
     issuesById: Map<String, IssueEntity>,
     users: List<UserEntity>,
     statuses: List<ResolvedIssueStatus>,
+    /** #EXP-1383: agent assignees resolve against these. */
+    agents: List<AgentSettings.AgentRowLike> = emptyList(),
     onAdd: () -> Unit,
     onToggle: (IssueRelationsView.BandKey) -> Unit,
     onShowAll: (IssueRelationsView.BandKey, Boolean) -> Unit,
@@ -274,6 +281,7 @@ fun RelationsSection(
                     issuesById = issuesById,
                     users = users,
                     statuses = statuses,
+                    agents = agents,
                     onToggle = { onToggle(band.key) },
                     onShowAll = { all -> onShowAll(band.key, all) },
                     onOpenIssue = onOpenIssue,
@@ -290,6 +298,8 @@ private fun RelationBand(
     issuesById: Map<String, IssueEntity>,
     users: List<UserEntity>,
     statuses: List<ResolvedIssueStatus>,
+    /** #EXP-1383: agent assignees resolve against these. */
+    agents: List<AgentSettings.AgentRowLike> = emptyList(),
     onToggle: () -> Unit,
     onShowAll: (Boolean) -> Unit,
     onOpenIssue: (String) -> Unit,
@@ -311,6 +321,7 @@ private fun RelationBand(
                 issuesById = issuesById,
                 users = users,
                 statuses = statuses,
+                agents = agents,
                 onOpenIssue = onOpenIssue,
                 onRemove = onRemove,
             )
@@ -403,6 +414,8 @@ private fun RelationRows(
     issuesById: Map<String, IssueEntity>,
     users: List<UserEntity>,
     statuses: List<ResolvedIssueStatus>,
+    /** #EXP-1383: agent assignees resolve against these. */
+    agents: List<AgentSettings.AgentRowLike> = emptyList(),
     onOpenIssue: (String) -> Unit,
     onRemove: ((String) -> Unit)?,
 ) {
@@ -413,6 +426,7 @@ private fun RelationRows(
             status = rowStatus(issue, row, statuses),
             assignee = issue?.assigneeId?.let { id -> users.firstOrNull { it.id == id } },
             assigneeId = issue?.assigneeId,
+            assigneeAgent = issue?.assigneeAgentId?.let { id -> agents.firstOrNull { it.id == id } },
             onClick = { onOpenIssue(row.id) },
             onRemove = onRemove?.let { remove -> { remove(row.id) } },
         )
@@ -430,6 +444,7 @@ internal fun RelationIssueRow(
     statuses: List<ResolvedIssueStatus>,
     users: List<UserEntity>,
     onClick: () -> Unit,
+    agents: List<AgentSettings.AgentRowLike> = emptyList(),
 ) {
     RelationIssueRow(
         row = IssueRelationsView.Row(
@@ -442,6 +457,7 @@ internal fun RelationIssueRow(
         status = IssueStatusResolver.resolve(issue, statuses),
         assignee = issue.assigneeId?.let { id -> users.firstOrNull { it.id == id } },
         assigneeId = issue.assigneeId,
+        assigneeAgent = issue.assigneeAgentId?.let { id -> agents.firstOrNull { it.id == id } },
         onClick = onClick,
         onRemove = null,
     )
@@ -457,6 +473,8 @@ private fun RelationIssueRow(
     assigneeId: String?,
     onClick: () -> Unit,
     onRemove: (() -> Unit)?,
+    /** #EXP-1383: an agent assignee: THE AGENT MARK. */
+    assigneeAgent: AgentSettings.AgentRowLike? = null,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Row(
@@ -479,7 +497,9 @@ private fun RelationIssueRow(
             // A closed row reads a step back (web `text-foreground/60`).
             titleColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (row.open) 1f else 0.6f),
             trailing = {
-                if (assigneeId != null) {
+                if (assigneeAgent != null) {
+                    AgentAvatar(icon = assigneeAgent.icon, color = assigneeAgent.color, size = 24.dp)
+                } else if (assigneeId != null) {
                     UserAvatar(
                         user = assignee,
                         nameOrEmail = assignee?.let { it.name ?: it.email },

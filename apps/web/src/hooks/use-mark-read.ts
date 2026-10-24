@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useRef } from "react"
-import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { useConversationSessions } from "@/hooks/use-session-tree"
-import { messageCollection } from "@/lib/collections"
-import { keyMessageRows, sessionConversationIds, type SyncedMessageRow } from "@/lib/session-tree"
+import { useConversationSessions, useDigestMessages } from "@/hooks/use-session-tree"
 import { trpc } from "@/lib/trpc-client"
 
 // EXP-1323: opening a thread or a session marks it read
@@ -22,32 +19,22 @@ const MARK_READ_DELAY_MS = 600
  *  live query reports ready with no rows, so it is never read as none). */
 export function useNewestAgentMessageAt(sessionIds: readonly string[]): string | null | undefined {
   const { conversations, isReady: conversationsReady } = useConversationSessions()
-  const conversationIds = sessionConversationIds(conversations, sessionIds)
   // Every session owns a conversation from its insert: a missing one lags.
   const synced = new Set(conversations.values())
   const awaiting = sessionIds.some((id) => !synced.has(id))
-  const key = conversationIds.join(`,`)
-  const { data, isReady } = useLiveQuery(
-    (query) =>
-      conversationIds.length > 0
-        ? query
-            .from({ messages: messageCollection })
-            .where(({ messages }) =>
-              and(inArray(messages.conversationId, conversationIds), eq(messages.authorKind, `agent`))
-            )
-        : undefined,
-    [key]
-  )
+  // #EXP-1380: the digests' newest agent time (`agentAt`), no transcript.
+  const { messages, isReady } = useDigestMessages({ sessionIds })
   const ready = conversationsReady && isReady && !awaiting
   return useMemo(() => {
     if (!ready) return undefined
     let newest: number | null = null
-    for (const row of keyMessageRows((data ?? []) as SyncedMessageRow[], conversations)) {
-      const at = new Date(row.createdAt).getTime()
+    for (const message of messages) {
+      if (message.authorKind !== `agent`) continue
+      const at = new Date(message.createdAt).getTime()
       if (Number.isFinite(at) && (newest === null || at > newest)) newest = at
     }
     return newest === null ? null : new Date(newest).toISOString()
-  }, [data, conversations, ready])
+  }, [messages, ready])
 }
 
 /** Mark `sessionId` read once it has been open a beat, and again when

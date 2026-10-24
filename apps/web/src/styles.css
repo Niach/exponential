@@ -353,17 +353,9 @@
 /* Inline `@email` mention pills (a decoration — the underlying text stays the
    plain token; see lib/mention-pill-extension.ts). Read-only editors hide the
    raw email and show a `@Name` widget instead; editable editors keep the
-   email visible so the caret always sits on real characters. */
-.tiptap-content .mention-pill {
-  background: var(--accent);
-  border: 1px solid var(--border);
-  border-radius: 9999px;
-  padding: 0.05rem 0.4rem;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--accent-foreground);
-  white-space: nowrap;
-}
+   email visible so the caret always sits on real characters. The pill's box
+   is @exp/ui's unscoped `.mention-pill` (shared with the chats' text path);
+   only the hidden source is the editor's own. */
 
 .tiptap-content .mention-pill-source {
   display: none;

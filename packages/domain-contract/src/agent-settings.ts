@@ -82,3 +82,43 @@ export function agentAccountValue<T extends AgentAccountOptionLike>(input: {
     null
   )
 }
+
+export interface AgentActorRowLike {
+  id: string
+  name: string
+  icon: string | null
+  color: string | null
+}
+
+export type IssueActor =
+  | { kind: `agent`; id: string; name: string; icon: string | null; color: string | null }
+  | { kind: `user`; id: string }
+
+/** #EXP-1383: who an issue event / comment / issue creation reads as
+ *  (`actor.actorCases`): a synced agent first, else the member, else null. */
+export function issueActor(
+  input: { actorAgentId: string | null | undefined; actorUserId: string | null | undefined },
+  agents: readonly AgentActorRowLike[]
+): IssueActor | null {
+  const agent = input.actorAgentId ? agents.find((row) => row.id === input.actorAgentId) : undefined
+  if (agent) return { kind: `agent`, id: agent.id, name: agent.name, icon: agent.icon, color: agent.color }
+  if (input.actorUserId) return { kind: `user`, id: input.actorUserId }
+  return null
+}
+
+/** #EXP-1383: the assignee picker's option ids ×4 (`assignee.optionCases`):
+ *  unassigned, the members in the given order, then the team's agents by
+ *  sortOrder then name. */
+export function assigneeOptions(input: {
+  members: readonly { id: string }[]
+  agents: readonly { id: string; name: string; sortOrder: number }[]
+}): string[] {
+  const agents = [...input.agents].sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
+  )
+  return [
+    `unassigned`,
+    ...input.members.map((member) => `user:${member.id}`),
+    ...agents.map((agent) => `agent:${agent.id}`),
+  ]
+}

@@ -217,7 +217,7 @@ class DomainContractLockTest {
     fun agentTriggerAndEventContractMatchesTheClient() {
         assertEquals(listOf("schedule", "event"), DomainContract.agentTriggerKindValues)
         assertEquals(
-            listOf("issue.created", "issue.status_changed", "pr.opened", "pr.merged", "session.ended"),
+            listOf("issue.created", "issue.status_changed", "issue.assigned", "pr.opened", "pr.merged", "session.ended"),
             DomainContract.eventBuiltinNames,
         )
         assertEquals(DomainContract.eventBuiltinNames.toSet(), AgentSettings.Copy.EVENTS.keys)

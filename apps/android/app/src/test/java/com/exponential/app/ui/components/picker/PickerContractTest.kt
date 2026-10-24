@@ -685,4 +685,32 @@ class PickerContractTest {
             .map(::File)
             .firstOrNull { it.isDirectory }
             ?: error("$path not found from ${File(".").absolutePath}")
+
+    /**
+     * #EXP-1383 (agent-settings.json `assignee`): the team's agents follow the
+     * members, no heading, by sortOrder then name; a row's value is
+     * `agent:<id>`, its search matches the name, and a pick splits back into
+     * the two exclusive columns.
+     */
+    @Test
+    fun agentsFollowTheMembersAndSplitBackIntoTheColumns() {
+        val items = assigneePickerItems(
+            listOf(AssigneePickerMember("U1", "Danny")),
+            allowsNone = true,
+            agents = listOf(
+                AssigneePickerAgent("G2", "Zed", "bot", "#22c55e", 0.0),
+                AssigneePickerAgent("G1", "Sloppy", "bot", "#22c55e", 0.0),
+                AssigneePickerAgent("G3", "Alpha", null, null, 1.0),
+            ),
+        )
+        assertEquals(listOf("", "U1", "agent:G1", "agent:G2", "agent:G3"), items.map { it.value })
+        assertEquals(listOf("Unassigned", "Danny", "Sloppy", "Zed", "Alpha"), items.map { it.label })
+        assertEquals(listOf("Sloppy"), items.first { it.value == "agent:G1" }.searchKeywords)
+        assertEquals(setOf("agent:G1"), assigneePickerValue("U1", "G1"))
+        assertEquals(setOf("U1"), assigneePickerValue("U1", null))
+        assertEquals(emptySet<String>(), assigneePickerValue(null, null))
+        assertEquals(com.exponential.app.domain.AgentSettings.Assignee(null, "G1"), assigneeFromPickerValue("agent:G1"))
+        assertEquals(com.exponential.app.domain.AgentSettings.Assignee("U1", null), assigneeFromPickerValue("U1"))
+        assertEquals(com.exponential.app.domain.AgentSettings.Assignee.NONE, assigneeFromPickerValue(null))
+    }
 }

@@ -77,6 +77,34 @@ enum SessionDock {
         return out
     }
 
+    /// #EXP-1383 (chats.json `agentHint`): the "Instructions changed" banner
+    /// of an agent chat's ROOT that still runs on instructions older than the
+    /// agent's current ones (`Chats.agentInstructionsChanged`); nil = no hint.
+    /// The row stays until the fresh launch re-fetches the brief (the synced
+    /// stamp hides it).
+    static func agentHint(root: SessionEntity, agent: AgentDefinitionEntity?) -> Dock.Source? {
+        guard root.isRoot, let agentId = root.agentId, let agent, agent.id == agentId,
+              Chats.agentInstructionsChanged(
+                  sessionStamp: root.agentInstructionsAt, agentStamp: agent.instructionsUpdatedAt
+              )
+        else { return nil }
+        return .banner(
+            id: Chats.AgentHint.id, icon: Chats.AgentHint.icon, label: Chats.AgentHint.label,
+            text: Chats.AgentHint.text, tone: Dock.Tint(rawValue: Chats.AgentHint.tone) ?? .muted,
+            action: Chats.AgentHint.action
+        )
+    }
+
+    /// The hint's action word: sends `/new` exactly like the agent menu's
+    /// New conversation (`send`).
+    static func agentHintAction(_ row: Dock.Row, send: @escaping (String) -> Void) -> AnyView? {
+        guard row.id == Chats.AgentHint.rowId, let action = row.action else { return nil }
+        return AnyView(
+            GlassPill(action, mode: .action { send(Chats.AgentHint.sends) })
+                .accessibilityIdentifier("dock-instructions-new")
+        )
+    }
+
     /// THE Queue's and the queued messages' sheets; nil for any other row.
     static func sheet(_ row: Dock.Row, model: AgentSessionModel, close: @escaping () -> Void) -> AnyView? {
         switch row.kind {

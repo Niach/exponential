@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react"
 import type { Issue, Label, User } from "@/db/schema"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
 import {
+  assigneeAgentValue,
+  assigneeFromPickerValue,
   assigneePickerItems,
+  assigneePickerValue,
   conceptIcon,
   Button,
   labelPickerItems,
@@ -21,6 +24,8 @@ import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBoards } from "@/hooks/use-team-data"
+import { useAgentRows } from "@/hooks/use-agent-row"
+import { assigneeWrite, type IssueAssignee } from "@/lib/issue-assignee"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { useCodingReadiness } from "@/hooks/use-coding-readiness"
 import {
@@ -159,8 +164,14 @@ export function BulkActionBar({
     [issues]
   )
   const sharedAssignee = useMemo(
-    () => sharedValue(issues, (issue) => issue.assigneeId),
+    () => sharedValue(issues, (issue) => assigneePickerValue(issue)),
     [issues]
+  )
+  // #EXP-1383: the team's agents follow the members.
+  const agents = useAgentRows(teamId)
+  const agentsByValue = useMemo(
+    () => new Map(agents.map((agent) => [assigneeAgentValue(agent.id), agent])),
+    [agents]
   )
 
   const members = useMemo(
@@ -180,8 +191,8 @@ export function BulkActionBar({
   // `Unassigned` is the menu arm's own `noneLabel` row here (it reports
   // `null`), so the picker's `allowsNone` row is left off.
   const assigneeMenuItems = useMemo(
-    () => assigneePickerItems(members),
-    [members]
+    () => assigneePickerItems(members, agents),
+    [members, agents]
   )
 
   // Sequential chunk loop; awaiting only the LAST txId is enough — Electric
@@ -224,9 +235,9 @@ export function BulkActionBar({
       (txId) => issueCollection.utils.awaitTxId(txId)
     )
 
-  const applyAssignee = (assigneeId: string | null) =>
+  const applyAssignee = (assignee: IssueAssignee) =>
     runBulk(
-      (ids) => trpc.issues.bulkUpdate.mutate({ issueIds: ids, assigneeId }),
+      (ids) => trpc.issues.bulkUpdate.mutate({ issueIds: ids, ...assigneeWrite(assignee) }),
       (txId) => issueCollection.utils.awaitTxId(txId)
     )
 
@@ -312,7 +323,8 @@ export function BulkActionBar({
   // (issue-list.tsx): `users` length 0 means the member list is still
   // syncing, and treating that as solo made the Assignee button vanish and
   // reappear on a genuine multi-member team.
-  const isSolo = users.length === 1
+  // #EXP-1383: the team's agents are someone to assign to as well.
+  const isSolo = users.length === 1 && agents.length === 0
 
   return (
     // POSITIONING ONLY. On md+ this wrapper is `display: contents`, so the bar
@@ -468,11 +480,15 @@ export function BulkActionBar({
                 value={sharedAssignee.value}
                 indeterminate={sharedAssignee.mixed}
                 noneLabel="Unassigned"
-                onNone={() => void applyAssignee(null)}
-                onChange={(assigneeId) => void applyAssignee(assigneeId)}
+                onNone={() => void applyAssignee(assigneeFromPickerValue(null))}
+                onChange={(value) => void applyAssignee(assigneeFromPickerValue(value))}
                 renderItem={(item) => (
                   <>
-                    <UserAvatar size={20} user={membersById.get(item.value)} />
+                    <UserAvatar
+                      size={20}
+                      user={membersById.get(item.value)}
+                      agent={agentsByValue.get(item.value) ?? null}
+                    />
                     <PickerItemBody item={item} />
                   </>
                 )}

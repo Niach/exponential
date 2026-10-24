@@ -25,6 +25,15 @@ vi.mock(`@/lib/trpc-client`, () => ({
     issues: { update: { mutate: vi.fn() } },
   },
 }))
+// #EXP-1383: no team agents in these cases.
+vi.mock(`@/hooks/use-agent-row`, () => {
+  const none: never[] = []
+  return {
+    useAgentRow: () => ({ agent: null, isReady: true }),
+    useAgentRows: () => none,
+    useAllAgentRows: () => none,
+  }
+})
 vi.mock(`@/lib/collections`, () => ({
   issueCollection: {},
   issueRelationCollection: {},

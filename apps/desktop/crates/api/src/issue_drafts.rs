@@ -49,6 +49,10 @@ pub struct IssueDraftUpsertInput {
     pub priority: Option<IssuePriority>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assignee_id: Option<String>,
+    /// #EXP-1383: a team agent as the assignee (exclusive with
+    /// [`Self::assignee_id`]). ALWAYS sent: `null` clears the row's (an
+    /// absent key would keep it server-side).
+    pub assignee_agent_id: Option<String>,
     pub label_ids: Vec<String>,
     /// `YYYY-MM-DD`, or an explicit `null` to clear — date only, like the
     /// issue field (REV2-49).
@@ -76,6 +80,7 @@ impl IssueDraftUpsertInput {
             status_id: None,
             priority: None,
             assignee_id: None,
+            assignee_agent_id: None,
             label_ids: Vec::new(),
             due_date: None,
             session_id: None,
@@ -192,6 +197,7 @@ mod tests {
 
     #[test]
     fn upsert_omits_unset_optionals_but_always_sends_label_ids() {
+        // #EXP-1383: `assigneeAgentId` rides always (null clears the row's).
         let (base, captured) =
             one_shot_server(200, r#"{"result":{"data":{"txId":7,"draft":{"id":"d-1"}}}}"#);
         let input = IssueDraftUpsertInput::new("d-1", "t-1", "b-1");
@@ -200,7 +206,7 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/issueDrafts.upsert HTTP/1.1"));
         assert!(request.ends_with(
-            r#"{"id":"d-1","teamId":"t-1","boardId":"b-1","title":"","description":"","labelIds":[]}"#
+            r#"{"id":"d-1","teamId":"t-1","boardId":"b-1","title":"","description":"","assigneeAgentId":null,"labelIds":[]}"#
         ));
     }
 
@@ -220,7 +226,7 @@ mod tests {
         issue_drafts_upsert(&client(&base), &input).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
-            r#"{"id":"d-1","teamId":"t-1","boardId":"b-1","title":"Title","description":"Body","statusId":"s-1","priority":"high","assigneeId":"u-1","labelIds":["l-1"],"dueDate":"2026-09-14","sessionId":"th-1"}"#
+            r#"{"id":"d-1","teamId":"t-1","boardId":"b-1","title":"Title","description":"Body","statusId":"s-1","priority":"high","assigneeId":"u-1","assigneeAgentId":null,"labelIds":["l-1"],"dueDate":"2026-09-14","sessionId":"th-1"}"#
         ));
     }
 

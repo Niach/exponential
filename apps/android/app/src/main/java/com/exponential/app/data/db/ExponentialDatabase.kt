@@ -454,8 +454,16 @@ import androidx.room.TypeConverters
     // v97 (VAPP-122): the `app_records` table (the 32nd shape, an app's own
     //      data). Explicit [MIGRATION_96_97] creates it empty; no offset
     //      resets (the new shape starts from scratch).
+    // v98 (#EXP-1383): agents act as themselves: agent actor / assignee
+    //      columns on issues, issue_drafts, issue_events and comments plus
+    //      the instructions stamps on agents and sessions. Explicit
+    //      [MIGRATION_97_98] adds the nullable columns and refetches those
+    //      six shapes.
+    // v99 (thread e4a04d22): conversations.digest (the Chats list's
+    //      per-conversation digest). Explicit [MIGRATION_98_99] adds the
+    //      nullable column and refetches only the conversations shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 97,
+    version = 99,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

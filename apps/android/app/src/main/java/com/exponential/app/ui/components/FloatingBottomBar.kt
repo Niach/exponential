@@ -165,11 +165,14 @@ fun BarCircle(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    /** #EXP-1384: the page header's circles wear this chrome at
+     *  `shell.header.circle` (web `FabButton` at the same size). */
+    size: Dp = FloatingBarRung,
     content: @Composable () -> Unit,
 ) {
     Box(
         modifier = modifier
-            .size(FloatingBarRung)
+            .size(size)
             .clip(CircleShape)
             .background(GlassTokens.OpaqueCardFill)
             .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, CircleShape)

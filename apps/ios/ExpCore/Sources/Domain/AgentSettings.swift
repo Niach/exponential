@@ -54,6 +54,7 @@ public enum AgentSettings {
         public static let events: [String: String] = [
             "issue.created": "When an issue is created",
             "issue.status_changed": "When an issue's status changes",
+            "issue.assigned": "When an issue is assigned",
             "pr.opened": "When a pull request opens",
             "pr.merged": "When a pull request merges",
             "session.ended": "When a session ends",
@@ -147,5 +148,161 @@ public enum AgentSettings {
         }
         if let cli, let first = options.first(where: { $0.agent == cli }) { return first }
         return options.first(where: \.isLastUsed) ?? options.first
+    }
+
+    // MARK: - #EXP-1383 agents act as themselves, take assignments
+
+    /// Fixture `assignee.copy`.
+    public enum AssigneeCopy {
+        public static let unassigned = "Unassigned"
+        public static let nudge = "{identifier} was assigned to you: {title}"
+        /// An agent assignee / actor whose row is gone (deleted, or not
+        /// synced) — web `AGENT_FALLBACK_NAME`.
+        public static let agentFallback = "an agent"
+    }
+
+    /// The agent an actor / assignee resolves to (an `agents` row's mark).
+    public struct ActorAgent: Equatable, Sendable {
+        public let id: String
+        public let name: String
+        public let icon: String?
+        public let color: String?
+
+        public init(id: String, name: String, icon: String?, color: String?) {
+            self.id = id
+            self.name = name
+            self.icon = icon
+            self.color = color
+        }
+
+        public init(_ agent: AgentDefinitionEntity) {
+            self.init(id: agent.id, name: agent.name, icon: agent.icon, color: agent.color)
+        }
+    }
+
+    /// Who an issue event / comment / issue creation reads as.
+    public enum IssueActor: Equatable, Sendable {
+        case agent(ActorAgent)
+        case user(id: String)
+
+        public var agent: ActorAgent? {
+            if case let .agent(agent) = self { return agent }
+            return nil
+        }
+    }
+
+    /// `actor.actorCases`: a synced agent first, else the member, else nil
+    /// (the server / a widget reporter).
+    public static func issueActor(
+        actorAgentId: String?, actorUserId: String?, agents: [ActorAgent]
+    ) -> IssueActor? {
+        if let actorAgentId, !actorAgentId.isEmpty, let agent = agents.first(where: { $0.id == actorAgentId }) {
+            return .agent(agent)
+        }
+        if let actorUserId, !actorUserId.isEmpty { return .user(id: actorUserId) }
+        return nil
+    }
+
+    public static func issueActor(
+        actorAgentId: String?, actorUserId: String?, agents: [AgentDefinitionEntity]
+    ) -> IssueActor? {
+        issueActor(actorAgentId: actorAgentId, actorUserId: actorUserId, agents: agents.map(ActorAgent.init))
+    }
+
+    /// An agent row in the assignee picker (`assigneeOptions` input).
+    public struct AssigneeAgentOption: Equatable, Sendable {
+        public let id: String
+        public let name: String
+        public let sortOrder: Double
+
+        public init(id: String, name: String, sortOrder: Double) {
+            self.id = id
+            self.name = name
+            self.sortOrder = sortOrder
+        }
+    }
+
+    /// The `agent:` prefix of an agent option id.
+    public static let assigneeAgentPrefix = "agent:"
+
+    /// `assignee.optionCases`: the picker's option ids ×4 — `unassigned`,
+    /// `user:<id>` per member in the given order, then `agent:<id>` per team
+    /// agent by sortOrder, then name (then id).
+    public static func assigneeOptions(memberIds: [String], agents: [AssigneeAgentOption]) -> [String] {
+        let sorted = agents.sorted { lhs, rhs in
+            if lhs.sortOrder != rhs.sortOrder { return lhs.sortOrder < rhs.sortOrder }
+            let byName = lhs.name.localizedCompare(rhs.name)
+            if byName != .orderedSame { return byName == .orderedAscending }
+            return lhs.id < rhs.id
+        }
+        return ["unassigned"]
+            + memberIds.map { "user:\($0)" }
+            + sorted.map { "\(assigneeAgentPrefix)\($0.id)" }
+    }
+
+    /// The team's agents in the assignee picker's order.
+    public static func assigneeAgents(_ agents: [AgentDefinitionEntity]) -> [AgentDefinitionEntity] {
+        let byId = Dictionary(agents.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return assigneeOptions(
+            memberIds: [],
+            agents: agents.map { AssigneeAgentOption(id: $0.id, name: $0.name, sortOrder: $0.sortOrder) }
+        )
+        .compactMap { id in
+            guard id.hasPrefix(assigneeAgentPrefix) else { return nil }
+            return byId[String(id.dropFirst(assigneeAgentPrefix.count))]
+        }
+    }
+
+    /// The solo-team rule: a team of one member hides its assignee control
+    /// only while it has no agents (an agent is someone to assign to).
+    public static func showsAssignee(memberCount: Int, agentCount: Int) -> Bool {
+        memberCount != 1 || agentCount > 0
+    }
+}
+
+/// #EXP-1383 (agent-settings.json `assignee`): an issue's assignee is ONE of
+/// two mutually exclusive columns, a member (`assigneeId`) or a team agent
+/// (`assigneeAgentId`). Every client write sends BOTH, the cleared one as an
+/// explicit null, so picking an agent unassigns the person and vice versa.
+public struct IssueAssignee: Equatable, Hashable, Sendable {
+    public let assigneeId: String?
+    public let assigneeAgentId: String?
+
+    public static let unassigned = IssueAssignee(assigneeId: nil, assigneeAgentId: nil)
+
+    /// The two-column write: an agent wins and clears the person.
+    public init(assigneeId: String?, assigneeAgentId: String?) {
+        if let assigneeAgentId, !assigneeAgentId.isEmpty {
+            self.assigneeId = nil
+            self.assigneeAgentId = assigneeAgentId
+        } else {
+            self.assigneeId = (assigneeId?.isEmpty ?? true) ? nil : assigneeId
+            self.assigneeAgentId = nil
+        }
+    }
+
+    public static func user(_ id: String?) -> IssueAssignee { IssueAssignee(assigneeId: id, assigneeAgentId: nil) }
+    public static func agent(_ id: String) -> IssueAssignee { IssueAssignee(assigneeId: nil, assigneeAgentId: id) }
+
+    public var isUnassigned: Bool { assigneeId == nil && assigneeAgentId == nil }
+
+    /// The ONE picker value: `agent:<id>` for an agent, the bare user id for
+    /// a member, "" for nobody (`AssigneePicker.unassignedValue`).
+    public var pickerValue: String {
+        if let assigneeAgentId { return AgentSettings.assigneeAgentPrefix + assigneeAgentId }
+        return assigneeId ?? ""
+    }
+
+    /// A pick back into the columns.
+    public init(pickerValue value: String?) {
+        guard let value, !value.isEmpty else {
+            self.init(assigneeId: nil, assigneeAgentId: nil)
+            return
+        }
+        if value.hasPrefix(AgentSettings.assigneeAgentPrefix) {
+            self.init(assigneeId: nil, assigneeAgentId: String(value.dropFirst(AgentSettings.assigneeAgentPrefix.count)))
+        } else {
+            self.init(assigneeId: value, assigneeAgentId: nil)
+        }
     }
 }

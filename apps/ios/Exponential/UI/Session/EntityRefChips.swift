@@ -28,7 +28,9 @@ enum EntityNavigation: Equatable {
     /// Settings → Prompts (team settings).
     case prompts
     case devices
-    case teamSettings
+    /// #EXP-1381: the team settings page of that category; nil = the Team
+    /// page itself (a team ref, a status — Statuses is a web-only page).
+    case teamSettings(TeamSettingsSection?)
     case myWork
 }
 
@@ -84,21 +86,24 @@ struct EntityRefChips: View {
         case let .prompt(teamId, id):
             pushRoute(.prompt(accountId: accountId, teamId: teamId, id: id))
         case .prompts:
-            if let context {
-                pushRoute(.teamSettings(accountId: accountId, teamId: context.teamId))
-            } else {
-                pushRoute(.settings)
-            }
+            openTeamSettings(.prompts)
         case .devices:
-            pushRoute(.agents)
-        case .teamSettings:
-            if let context {
-                pushRoute(.teamSettings(accountId: accountId, teamId: context.teamId))
-            } else {
-                pushRoute(.settings)
-            }
+            // #EXP-1384: Devices is the Team page's row (settings-nav.json).
+            openTeamSettings(.devices)
+        case let .teamSettings(section):
+            openTeamSettings(section)
         case .myWork:
             pushRoute(.myWork)
+        }
+    }
+
+    /// The category's own page of the ref's team; no section (or no team in
+    /// context) = the Team page.
+    private func openTeamSettings(_ section: TeamSettingsSection?) {
+        if let context, let section {
+            pushRoute(.teamSettingsSection(accountId: accountId, teamId: context.teamId, section: section))
+        } else {
+            pushRoute(.settings)
         }
     }
 }
@@ -305,7 +310,10 @@ enum EntityRefResolver {
     private static func slimOpen(_ ref: EntityRef) -> EntityNavigation? {
         switch ref.kind {
         case "action", "prompt": .prompts
-        case "label", "status", "member", "invite", "team", "repository": .teamSettings
+        case "label": .teamSettings(.labels)
+        case "member", "invite": .teamSettings(.members)
+        case "repository": .teamSettings(.repositories)
+        case "status", "team": .teamSettings(nil)
         case "device": .devices
         case "notification": .myWork
         default: nil
@@ -344,7 +352,12 @@ enum EntityRefResolver {
             }
         }
         var subtitle = board?.name
-        if let assigneeId = issue.assigneeId {
+        if let agentId = issue.assigneeAgentId {
+            // #EXP-1383: an agent assignee reads by its name.
+            let name = try AgentDefinitionEntity.fetchOne(db, key: agentId)?.name
+                ?? AgentSettings.AssigneeCopy.agentFallback
+            subtitle = [subtitle, "Assigned to \(name)"].compactMap { $0 }.joined(separator: " · ")
+        } else if let assigneeId = issue.assigneeId {
             let assignee = try UserEntity.fetchOne(db, key: assigneeId)
             let name = memberDisplayName(assignee, id: assigneeId)
             subtitle = [subtitle, "Assigned to \(name)"].compactMap { $0 }.joined(separator: " · ")
@@ -420,11 +433,17 @@ enum EntityRefResolver {
         // SLOP-4: the same caption and name the comment card carries. A
         // reporter's reply reads as the anonymous reporter here (the issue
         // card names the submission's reporter).
-        let caption = ReporterReply.caption(source: comment.source, audience: comment.audience)
+        let caption = ReporterReply.caption(source: comment.source, audience: comment.audience, authorAgentId: comment.authorAgentId)
         let eyebrow = caption.map { "Comment · \($0)" } ?? "Comment"
         let title: String
         let icon: EntityPreviewModel.Icon
-        if let override = ReporterReply.authorNameOverride(
+        let agent = try comment.authorAgentId.flatMap { try AgentDefinitionEntity.fetchOne(db, key: $0) }
+        if let agent {
+            // #EXP-1383: an agent's comment names the AGENT, in its mark.
+            let mark = UserAvatarAgent(agent)
+            title = agent.name
+            icon = .glyph(mark.iconName, mark.tint)
+        } else if let override = ReporterReply.authorNameOverride(
             source: comment.source, authorSynced: author != nil, reporterName: nil
         ) {
             title = override
@@ -479,7 +498,7 @@ enum EntityRefResolver {
             eyebrow: "Label",
             title: label.name,
             subtitle: "\(count) \(count == 1 ? "issue" : "issues")",
-            open: .teamSettings
+            open: .teamSettings(.labels)
         )
     }
 
@@ -492,7 +511,7 @@ enum EntityRefResolver {
             eyebrow: "Status",
             title: status.name,
             subtitle: categoryLabel(status.category),
-            open: .teamSettings
+            open: .teamSettings(nil)
         )
     }
 
@@ -531,7 +550,7 @@ enum EntityRefResolver {
             title: memberDisplayName(user, id: ref.id),
             subtitle: user?.email,
             facts: membership.map { [.init(id: "role", label: $0.role.capitalized)] } ?? [],
-            open: .teamSettings
+            open: .teamSettings(.members)
         )
     }
 
@@ -543,7 +562,7 @@ enum EntityRefResolver {
             eyebrow: "Team",
             title: team.name,
             subtitle: "\(members) \(members == 1 ? "member" : "members")",
-            open: .teamSettings
+            open: .teamSettings(nil)
         )
     }
 
@@ -559,7 +578,7 @@ enum EntityRefResolver {
             title: invite.email ?? ref.title ?? "Invite link",
             subtitle: "Expires \(relativeDate(invite.expiresAt))",
             facts: facts,
-            open: .teamSettings
+            open: .teamSettings(.members)
         )
     }
 

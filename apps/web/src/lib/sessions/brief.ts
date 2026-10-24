@@ -40,6 +40,9 @@ export async function composeSessionBrief(sessionId: string): Promise<{
   teamPrompt: string | null
   agentInstructions: string | null
   parentBranch: string | null
+  /** #EXP-1383: the root's agent (null = not an agent conversation tree):
+   *  the device tells agent-tree sessions apart by it. */
+  rootAgentId: string | null
 }> {
   const [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1)
   if (!session) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
@@ -90,5 +93,15 @@ export async function composeSessionBrief(sessionId: string): Promise<{
     teamPrompt: team?.agentPrompt?.trim() || null,
     agentInstructions: agent?.instructions?.trim() || null,
     parentBranch,
+    // #EXP-1383: a conversation's agent, or the agent that started the root.
+    rootAgentId: root.agentId ?? root.startedByAgentId ?? null,
   }
+}
+
+/** #EXP-1383 (chats.json `agentHint`): the device fetched this session's
+ *  brief now, so the agent instructions it launches on are the current ones.
+ *  Clients compare it (on an agent chat's root) with
+ *  `agents.instructions_updated_at`. `updated_at` stays: a launch is no edit. */
+export async function stampAgentInstructionsAt(sessionId: string, at: Date = new Date()): Promise<void> {
+  await db.update(sessions).set({ agentInstructionsAt: at }).where(eq(sessions.id, sessionId))
 }

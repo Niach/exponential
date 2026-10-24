@@ -34,6 +34,8 @@ import {
   toStatusPickerStatuses,
 } from "@/components/issue-properties/status-dropdown"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
+import { useAgentRows } from "@/hooks/use-agent-row"
+import type { IssueAssignee } from "@/lib/issue-assignee"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
 
@@ -45,7 +47,10 @@ export interface IssuePropertiesPanelProps {
   priority: IssuePriority
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
   assigneeId: string | null
-  onAssigneeChange: (userId: string | null) => void | Promise<void>
+  /** #EXP-1383: an agent assignee (exclusive with `assigneeId`). */
+  assigneeAgentId?: string | null
+  /** The pick as both columns (`assigneeWrite`), the cleared one null. */
+  onAssigneeChange: (assignee: IssueAssignee) => void | Promise<void>
   users: User[]
   teamId: string
   selectedLabelIds: string[]
@@ -214,6 +219,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
     priority,
     onPriorityChange,
     assigneeId,
+    assigneeAgentId = null,
     onAssigneeChange,
     users,
     teamId,
@@ -226,7 +232,9 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   // entirely — nobody else to assign to. `users` is the bot-excluded member
   // list; length 0 means still loading (never a genuine empty), so multi-member
   // teams never briefly read as solo.
-  const isSolo = users.length === 1
+  // #EXP-1383: the team's agents are someone to assign to as well.
+  const agents = useAgentRows(teamId)
+  const isSolo = users.length === 1 && agents.length === 0 && !assigneeAgentId
   const { options: teamStatusOptions, byId: statusById } =
     useTeamStatusesContext()
 
@@ -289,8 +297,10 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
     <AssigneePicker
       disabled={disabled}
       users={users}
+      agents={agents}
       selectedUserId={assigneeId}
-      onSelect={onAssigneeChange}
+      selectedAgentId={assigneeAgentId}
+      onSelect={(next) => void onAssigneeChange(next)}
     />
   )
 

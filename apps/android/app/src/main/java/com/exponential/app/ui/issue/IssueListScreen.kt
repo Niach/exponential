@@ -86,6 +86,12 @@ import com.exponential.app.ui.components.issuePriorityPickerOptions
 import com.exponential.app.ui.components.pickedPriority
 import com.exponential.app.ui.components.toPickerLabel
 import com.exponential.app.ui.components.toPickerMember
+import com.exponential.app.ui.components.toPickerAgent
+import com.exponential.app.ui.components.actorRow
+import com.exponential.app.ui.components.AgentAvatar
+import com.exponential.app.domain.AgentSettings
+import com.exponential.app.ui.components.picker.assigneeFromPickerValue
+import com.exponential.app.ui.components.picker.assigneePickerValue
 import com.exponential.app.ui.components.toPickerRow
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.LocalToaster
@@ -110,7 +116,7 @@ import com.exponential.app.ui.gettingstarted.GettingStartedSection
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.domain.TeamLiveRuns
-import com.exponential.app.ui.home.BoardSwitcherSheet
+import com.exponential.app.ui.components.PageHeader
 import com.exponential.app.ui.home.HomeViewModel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.CreateBoardSheet
@@ -127,9 +133,9 @@ import com.exponential.app.domain.Prompts
 
 /**
  * How the issue list is mounted:
- * - [Root] — the Issues tab's home. No back button; the pinned header is the
- *   inline board switcher (current board name + expander glyph → the
- *   switcher sheet) plus the settings gear. The board swaps in place.
+ * - [Root] — the Board tab's home. No back button; the page header is the
+ *   board's name (#EXP-1384: the board is switched by the Board tab's menu).
+ *   The board swaps in place.
  * - [Pushed] — a pushed `board/{boardId}` destination (share target,
  *   deep link, search): back button, fixed board.
  */
@@ -210,7 +216,6 @@ fun IssueListScreen(
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val syncBanner by viewModel.syncBanner.collectAsStateWithLifecycle()
     val syncingVisible by viewModel.syncingVisible.collectAsStateWithLifecycle()
-    var showSwitcher by remember { mutableStateOf(false) }
     var showCreateBoard by remember { mutableStateOf(false) }
     // Which team the create-board sheet targets — the switcher names one, every
     // other entry point means "the selected team" (null).
@@ -245,7 +250,11 @@ fun IssueListScreen(
         onDispose { barSuppression?.suppressed = false }
     }
     val haptics = LocalHapticFeedback.current
-    val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
+    val soloMemberIdRaw by viewModel.soloMemberId.collectAsStateWithLifecycle()
+    // #EXP-1383: the team's agents; a solo team hides its assignee control
+    // only while it has none (an agent is someone to assign to).
+    val teamAgents by viewModel.teamAgents.collectAsStateWithLifecycle()
+    val soloMemberId = soloMemberIdRaw.takeIf { teamAgents.isEmpty() }
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
     val steerDevices by viewModel.devices.collectAsStateWithLifecycle()
 
@@ -268,8 +277,8 @@ fun IssueListScreen(
     val sharedPriority = remember(selectedEntries) {
         selectedEntries.map { IssuePriority.fromWire(it.issue.priority) }.distinct().singleOrNull()
     }
-    val sharedAssigneeId = remember(selectedEntries) {
-        selectedEntries.map { it.issue.assigneeId }.distinct().singleOrNull()
+    val sharedAssignee = remember(selectedEntries) {
+        selectedEntries.map { assigneePickerValue(it.issue.assigneeId, it.issue.assigneeAgentId) }.distinct().singleOrNull()
     }
 
     // Selection ids are board-scoped — a board swap drops them.
@@ -301,14 +310,6 @@ fun IssueListScreen(
         LaunchedEffect(Unit) { homeViewModel.bootstrap() }
     }
 
-    // "Any signed-in account has a board" — gates the cross-account switcher
-    // (so a boardless active account with a board-bearing sibling can still
-    // switch to it). The spinner instead gates on the ACTIVE account
-    // (activeAccountHasBoard), because only the active account's board can
-    // resolve into the root list.
-    val hasAnyBoard = homeState?.boardTree
-        ?.any { group -> group.teamBlocks.any { it.boards.isNotEmpty() } } == true
-
     // Thread 58cb32df: the board chips' state + counts (Root mount only).
     var boardChip by rememberSaveable { mutableStateOf(BOARD_CHIP_ALL) }
     val myIssuesViewModel: com.exponential.app.ui.myissues.MyIssuesViewModel? =
@@ -324,50 +325,14 @@ fun IssueListScreen(
     Scaffold(containerColor = Color.Transparent) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Pinned nav row. Pushed: circular back button + the search
-            // trigger trailing. Root: the inline board switcher control +
-            // search next to the settings gear (EXP-686 put search here when
-            // it left the bottom bar); the single add-issue affordance is the
-            // bottom bar's compose FAB.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                when (mode) {
-                    IssueListMode.Pushed -> {
-                        CircleIconButton(ExpIcons.uiBack, "Back", onClick = onBack, borderless = true)
-                        Spacer(Modifier.weight(1f))
-                        CircleIconButton(
-                            ExpIcons.navSearch,
-                            "Search",
-                            onClick = onOpenSearch,
-                            modifier = Modifier.testTag("board-search"),
-                        )
-                    }
-                    IssueListMode.Root -> {
-                        BoardSwitcherControl(
-                            board = state.board,
-                            enabled = hasAnyBoard,
-                            onClick = { showSwitcher = true },
-                        )
-                        Spacer(Modifier.weight(1f))
-                        // Nothing to search before a board resolves — the
-                        // empty/create-board states have no issues yet.
-                        // Thread 58cb32df: the settings gear moved to the
-                        // Team tab; the header = the switcher + search.
-                        if (!boardId.isNullOrBlank()) {
-                            CircleIconButton(
-                                ExpIcons.navSearch,
-                                "Search",
-                                onClick = onOpenSearch,
-                                modifier = Modifier.testTag("board-search"),
-                            )
-                        }
-                    }
-                }
-            }
+            // #EXP-1384 (chats.json `shell.header`): THE page header — the
+            // board's name large, search + inbox circles (the shell's). The
+            // board is switched only by the Board tab's menu now; a pushed
+            // board wears the back control before its title.
+            PageHeader(
+                title = state.board?.name ?: com.exponential.app.domain.Chats.Copy.TABS.getValue("board"),
+                onBack = if (mode == IssueListMode.Pushed) onBack else null,
+            )
 
             // Thread 58cb32df (chats.json `shell.boardChips`): All issues ·
             // My issues N · Drafts N (Drafts only while there are drafts) as
@@ -485,6 +450,7 @@ fun IssueListScreen(
                     state = state,
                     permissions = permissions,
                     soloMemberId = soloMemberId,
+                    agents = teamAgents,
                     collapsed = collapsed,
                     onToggleCollapsed = { groupKey, isCollapsed ->
                         collapsed = if (isCollapsed) collapsed - groupKey else collapsed + groupKey
@@ -612,9 +578,10 @@ fun IssueListScreen(
         )
         BulkSheet.Assignee -> AssigneePicker(
             members = state.teamUsers.map { it.toPickerMember() },
-            value = setOfNotNull(sharedAssigneeId),
+            agents = teamAgents.map { it.toPickerAgent() },
+            value = sharedAssignee.orEmpty(),
             onChange = { picked ->
-                viewModel.bulkUpdateAssignee(selectedIds, picked.firstOrNull())
+                viewModel.bulkUpdateAssignee(selectedIds, assigneeFromPickerValue(picked.firstOrNull()))
                 selectedIds = emptySet()
             },
             open = true,
@@ -661,40 +628,6 @@ fun IssueListScreen(
         }
     }
 
-    if (showSwitcher && homeViewModel != null) {
-        BoardSwitcherSheet(
-            // Thread 58cb32df (chats.json `shell`): ONE active team per phone
-            // screen, switched ONLY on the Team tab — the sheet lists the
-            // active team's boards alone (no other teams, no New team).
-            groups = (homeState?.boardTree ?: emptyList()).mapNotNull { group ->
-                if (selectedTeamId == null) return@mapNotNull group
-                group.copy(teamBlocks = group.teamBlocks.filter { it.team.id == selectedTeamId })
-                    .takeIf { it.teamBlocks.isNotEmpty() }
-            },
-            showNewTeam = false,
-            currentBoardId = state.board?.id,
-            liveRunsByTeam = liveRunsByTeam,
-            selectedTeamId = selectedTeamId,
-            onSelect = { accountId, pickedBoardId ->
-                homeViewModel.selectBoard(accountId, pickedBoardId)
-                showSwitcher = false
-            },
-            // The switcher's own make-rows (EXP-698 r5). Both close the sheet
-            // first — they open a sheet of their own, and two stacked bottom
-            // sheets is a dead end on Android.
-            onCreateBoard = { teamId ->
-                showSwitcher = false
-                createBoardTeamId = teamId
-                showCreateBoard = true
-            },
-            onCreateTeam = {
-                showSwitcher = false
-                showTeamSetup = true
-            },
-            onDismiss = { showSwitcher = false },
-        )
-    }
-
     if (showCreateBoard) {
         // The new board's last-used pointer swaps the root list in place, so
         // dismissing is all this needs to do on success. A null team is the
@@ -738,6 +671,8 @@ private fun IssueListContent(
     state: IssueListState,
     permissions: TeamPermissions,
     soloMemberId: String?,
+    /** #EXP-1383: the team's agents (agent assignees on the rows). */
+    agents: List<com.exponential.app.data.db.AgentDefinitionEntity>,
     collapsed: Set<String>,
     onToggleCollapsed: (groupKey: String, collapsed: Boolean) -> Unit,
     onOpenIssue: (String) -> Unit,
@@ -755,6 +690,7 @@ private fun IssueListContent(
     onNewIssue: () -> Unit,
 ) {
     val usersById = remember(state.users) { state.users.associateBy { it.id } }
+    val agentsById = remember(agents) { agents.associateBy { it.id } }
 
     // EXP-1115: nothing to show until the issues shape has snapshotted at
     // least once — a full resync (or a fresh install) would otherwise flash
@@ -870,6 +806,8 @@ private fun IssueListContent(
                                 resolvedStatus = entry.status ?: group.status,
                                 // Solo teams hide the assignee avatar (one member).
                                 assignee = if (soloMemberId != null) null else usersById[entry.issue.assigneeId],
+                                // #EXP-1383: an agent assignee wears THE AGENT MARK.
+                                assigneeAgent = entry.issue.assigneeAgentId?.let { agentsById[it] }?.actorRow(),
                                 selected = if (selectionActive) entry.issue.id in selectedIds else null,
                                 // EXP-980: what blocks this row, and what
                                 // it blocks — the pill opens the graph.
@@ -912,38 +850,6 @@ private fun IssueListContent(
     }
 }
 
-// The Issues tab root's inline board switcher: the board's own icon + name +
-// an up/down expander glyph as one tappable glass control (iOS combobox
-// pattern).
-@Composable
-private fun BoardSwitcherControl(
-    board: BoardEntity?,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    // EXP-698: the control stays ENABLED-looking with nowhere to switch to —
-    // this is the screen's TITLE as much as it is a control, and dimming the
-    // board name to quaternary read as "this board is broken". Only the
-    // expander glyph (and the tap) reflect that there is no second board.
-    GlassPill(
-        board?.name ?: "Issues",
-        onClick = if (enabled) onClick else null,
-        mode = PillMode.Action,
-        maxLines = 1,
-        leading = board?.let { { BoardIcon(it) } },
-        trailing = {
-            Icon(
-                ExpIcons.uiSelector,
-                contentDescription = "Switch board",
-                modifier = Modifier.size(GlassPillDefaults.MdGlyphSize),
-                tint = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
-                ),
-            )
-        },
-    )
-}
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun IssueRow(
@@ -952,6 +858,8 @@ internal fun IssueRow(
     assignee: UserEntity?,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
+    /** #EXP-1383: an agent assignee (exclusive with [assignee]): the mark. */
+    assigneeAgent: AgentSettings.AgentRowLike? = null,
     // Multi-select rendering (EXP-239): null = no selection UI; false/true
     // show the leading check indicator, true additionally tints the row.
     selected: Boolean? = null,
@@ -1086,7 +994,10 @@ internal fun IssueRow(
                         softWrap = false,
                     )
                 }
-                if (assignee != null) {
+                if (assigneeAgent != null) {
+                    Spacer(Modifier.width(8.dp))
+                    AgentAvatar(icon = assigneeAgent.icon, color = assigneeAgent.color, size = 22.dp)
+                } else if (assignee != null) {
                     Spacer(Modifier.width(8.dp))
                     UserAvatar(
                         user = assignee,

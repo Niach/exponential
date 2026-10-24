@@ -729,13 +729,19 @@ export function buildSessionThread(input: {
   messages: readonly TreeMessage[]
   pullRequests: readonly TreePullRequest[]
   now: string
-}, options: { focus?: string | null } = {}): SessionThreadView {
+}, options: {
+  focus?: string | null
+  /** #EXP-1380 (web): the sessions' titles when `messages` is only the
+   *  newest of the tree (a first prompt may be older); absent = from them. */
+  titles?: ReadonlyMap<string, string>
+} = {}): SessionThreadView {
   const { root, now } = input
   const tree = treeOrder(input.sessions.filter((s) => s.rootId === root.id || s.id === root.id))
   if (!tree.some((s) => s.id === root.id)) tree.unshift(root)
   const byId = new Map(input.sessions.map((s) => [s.id, s]))
   byId.set(root.id, root)
-  const titles = sessionTitles([...byId.values()], input.sessionIssues, input.issues, input.messages)
+  const titles =
+    options.titles ?? sessionTitles([...byId.values()], input.sessionIssues, input.issues, input.messages)
   const issues = treeIssues(tree, input.sessionIssues, input.issues)
   const issueMap = new Map(input.issues.map((issue) => [issue.id, issue]))
   const prMap = new Map(input.pullRequests.map((pr) => [pr.id, pr]))

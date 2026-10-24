@@ -564,12 +564,18 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
                 .messages
                 .iter()
                 .any(|m| m.session_id == session_id && is_open_own_plan_card(m) && !view.handed.contains(&m.id));
+        // #EXP-1383: an agent's leading `/new` is no turn a switch could
+        // carry ([`switch_session`] keeps it pending for [`deliver`]'s
+        // restart): planning one for it would loop on `AlreadyOn` forever.
+        let carries_turn = rows.get(session_id).map_or(!fresh.is_empty(), |row| {
+            fresh.first().is_some_and(|m| !(row.is_persistent() && is_new_conversation(m)))
+        });
         let switch =
-            rows.get(session_id).and_then(|row| switch_target(row, view, !fresh.is_empty()).map(|account| (*row, account)));
+            rows.get(session_id).and_then(|row| switch_target(row, view, carries_turn).map(|account| (*row, account)));
         // EXP-1334: else the row's options moved past the engine's.
         let switch = switch.or_else(|| {
             rows.get(session_id)
-                .filter(|row| reconfigure_due(row, view, !fresh.is_empty(), plan_card))
+                .filter(|row| reconfigure_due(row, view, carries_turn, plan_card))
                 .map(|row| (*row, String::new()))
         });
         if let Some((row, account)) = switch {
@@ -953,6 +959,9 @@ pub struct LiveRegistry {
     /// EXP-1341: persistent roots and their revive state in THIS process
     /// ([`LiveRegistry::revive_held`]).
     revives: std::sync::Mutex<HashMap<String, ReviveState>>,
+    /// #EXP-1383: agents whose `/new` restart is in flight on its own
+    /// thread — one restart per `/new`, never a second for the same one.
+    restarting: std::sync::Mutex<HashSet<String>>,
 }
 
 /// EXP-1341: one persistent root's revive state in this process. An engine
@@ -1456,6 +1465,7 @@ const CLAIM_RETRY: [std::time::Duration; 2] =
     [std::time::Duration::from_secs(1), std::time::Duration::from_secs(3)];
 
 /// Everything the pickup needs from its host.
+#[derive(Clone)]
 pub struct PickupDeps {
     pub coding: std::sync::Arc<crate::CodingDeps>,
     /// THIS host's steer device id.
@@ -1667,6 +1677,81 @@ impl From<String> for WakeError {
     }
 }
 
+/// #EXP-1383: the contract's `/new` steer command (`steerCommands`; the
+/// engine's `adapters::NEW_CONVERSATION_COMMAND`, mirrored: `coding` cannot
+/// depend on `engine`).
+pub const NEW_CONVERSATION_COMMAND: &str = "/new";
+
+/// #EXP-1383: a person's `/new` (trimmed, exactly — the transcript's
+/// `dividers.new` rule).
+pub fn is_new_conversation(message: &MessageRow) -> bool {
+    message.is_from_user()
+        && message.body.as_deref().is_some_and(|body| body.trim() == NEW_CONVERSATION_COMMAND)
+}
+
+/// #EXP-1383: the session's run here is an agent's conversation ROOT (its
+/// record's kind; a child of an agent's tree is a thread run and keeps the
+/// in-process `/new`).
+fn agent_root_run(deps: &PickupDeps, session_id: &str) -> bool {
+    crate::run_registry::get(&deps.coding.data_dir, session_id)
+        .is_some_and(|record| record.kind == crate::run_registry::RunKind::Agent)
+}
+
+/// #EXP-1383: restart an agent's live, idle engine for its `/new`, off the
+/// caller's thread (a delivery to a live engine runs on the desktop's UI
+/// thread): the PROCESS stops (suspended: the row idles, never ends, the
+/// workspace stays), then the wake path ([`deliver`] with no engine) sees
+/// the `/new` first and launches the same row fresh. A pass racing it is
+/// benign: whoever takes the [`ClaimLock`] runs the same fresh launch, the
+/// other finds it contended.
+fn restart_agent_off_thread(
+    session_id: &str,
+    engine: std::sync::Arc<dyn LiveEngine>,
+    rows: Vec<MessageRow>,
+    deps: &PickupDeps,
+) {
+    if !locked(&deps.live.restarting).insert(session_id.to_string()) {
+        return;
+    }
+    let session_id = session_id.to_string();
+    let deps = deps.clone();
+    let thread_deps = deps.clone();
+    let thread_session = session_id.clone();
+    let spawned = std::thread::Builder::new().name("exp-pickup-restart".to_string()).spawn(move || {
+        let (deps, session_id) = (thread_deps, thread_session);
+        let _done = RestartDone { live: &deps.live, session_id: &session_id };
+        engine.suspend();
+        if !engine.wait_done(SWITCH_STOP_TIMEOUT) {
+            log::warn!("pickup: session {session_id} did not stop for its /new; the next pass tries again");
+            return;
+        }
+        // The old entry (and its claim lock) goes; the fresh run takes its own.
+        if deps.live.get(&session_id).is_some_and(|live| live.is_done()) {
+            deps.live.remove(&session_id);
+        }
+        match deliver(&session_id, None, &rows, &deps) {
+            Ok(_) => log::info!("pickup: session {session_id} restarted for /new"),
+            Err(err) => log::warn!("pickup: restarting session {session_id} for /new: {err}"),
+        }
+    });
+    if let Err(err) = spawned {
+        locked(&deps.live.restarting).remove(&session_id);
+        log::warn!("pickup: restart thread failed to spawn: {err}");
+    }
+}
+
+/// Clears a session's in-flight restart mark on every way out.
+struct RestartDone<'a> {
+    live: &'a LiveRegistry,
+    session_id: &'a str,
+}
+
+impl Drop for RestartDone<'_> {
+    fn drop(&mut self) {
+        locked(&self.live.restarting).remove(self.session_id);
+    }
+}
+
 fn deliver(
     session_id: &str,
     row: Option<&SessionRow>,
@@ -1687,6 +1772,21 @@ fn deliver(
             let handed = deps.live.handed(session_id);
             pending.retain(|m| !handed.contains(&m.id));
             deps.live.take_owed(&mut pending, &[]);
+            // #EXP-1383: an agent's conversation takes `/new` as a RESTART
+            // (a fresh launch re-fetches the brief, so changed instructions
+            // apply): what came before it is handed as ever, the `/new` and
+            // everything behind it wait for the engine to be between turns
+            // with nothing still queued, then the restart runs off this
+            // (possibly UI) thread.
+            if let Some(at) = pending.iter().position(|m| is_new_conversation(m)) {
+                if agent_root_run(deps, session_id) {
+                    let delivered = hand(&*engine, session_id, &pending[..at], deps);
+                    if at == 0 && handed.is_empty() && engine.is_idle() {
+                        restart_agent_off_thread(session_id, engine, rows.to_vec(), deps);
+                    }
+                    return Ok(delivered);
+                }
+            }
             return Ok(hand(&*engine, session_id, &pending, deps));
         }
         // Its process exited (an agent idles out, a thread ended): wake it.
@@ -1734,18 +1834,30 @@ fn deliver(
     if identifiers.is_empty() {
         identifiers = record.as_ref().map(|r| r.issues.clone()).unwrap_or_default();
     }
+    // #EXP-1383: a `/new` waking an agent's conversation (or the restart
+    // the live path began) is a FRESH launch of the same row: a new CLI
+    // conversation on the brief just fetched (its system append carries the
+    // current instructions), seeded with NOTHING — the agent's brief would
+    // replay the conversation's first message — and the `/new` row itself
+    // consumed here, never sent (its divider is the message row).
+    let restart = row.is_persistent() && is_new_conversation(first);
+    let mut brief = brief;
+    if restart {
+        log::info!("pickup: session {session_id}: /new restarts the agent's conversation");
+        brief.brief.clear();
+    }
     // EXP-1280: a plan approved "in a fresh context" waking the session
     // starts a NEW conversation (what the live path's `/clear` does) — the
     // stored card says `fresh: true`, and so is the run it wakes.
-    let fresh = is_answered_tool_card(first) && first.card.as_ref().is_some_and(card_fresh);
+    let fresh = restart || (is_answered_tool_card(first) && first.card.as_ref().is_some_and(card_fresh));
     let mut resume = record.map(|record| ResumeRun {
         record,
-        prompt: first.body.clone().unwrap_or_default(),
-        message_id: Some(first.id.clone()),
+        prompt: if restart { String::new() } else { first.body.clone().unwrap_or_default() },
+        message_id: (!restart).then(|| first.id.clone()),
         reconfigure: None,
         fresh,
     });
-    let seeded = resume.is_some();
+    let seeded = resume.is_some() && !restart;
     let mut options = deps.options.clone();
     // On a resume a named account is a SWITCH (EXP-849); an ordinary wake
     // keeps the recorded login — unless the row's account moved past the
@@ -1794,6 +1906,13 @@ fn deliver(
                 // The seed turn IS the first message; the engine consumes it
                 // via `PreparedLaunch::seed_message_id`.
                 deps.live.mark_handed(session_id, std::slice::from_ref(&first.id));
+                delivered.push(first.id.clone());
+                rest.remove(0);
+            } else if restart {
+                // The `/new` did its work: consumed by the pickup itself.
+                if locked(&deps.live.consuming).insert(first.id.clone()) {
+                    consume_off_thread(deps, session_id, vec![first.id.clone()], || {});
+                }
                 delivered.push(first.id.clone());
                 rest.remove(0);
             }
@@ -2213,6 +2332,13 @@ pub fn switch_session(
         .filter(|m| m.session_id == session_id && is_pending_input(m) && !handed.contains(&m.id))
         .collect();
     pending.sort_by(|a, b| message_order(a, b));
+    // #EXP-1383: an agent's `/new` is a restart of its own ([`deliver`]):
+    // it and everything behind it stay pending for the next pass.
+    if row.is_persistent() {
+        if let Some(at) = pending.iter().position(|m| is_new_conversation(m)) {
+            pending.truncate(at);
+        }
+    }
     // EXP-1334: an empty target is a RECONFIGURE — the login stays, and the
     // row's account pick (if it moved) waits for its own switch.
     let reconfiguring = target.is_empty();
@@ -3681,6 +3807,191 @@ mod tests {
         assert_eq!(spawned[0].prompt.as_deref(), Some("Review the login page."));
         assert_eq!(spawned[0].seed_message_id, None);
         assert_eq!(host.engine.delivered_ids(), vec!["m1"]);
+    }
+
+    // ---- #EXP-1383: `/new` on an agent's conversation restarts the engine ----
+
+    fn new_command(id: &str, session_id: &str, created_at: &str) -> MessageRow {
+        MessageRow { body: Some(" /new ".to_string()), ..message(id, session_id, created_at) }
+    }
+
+    /// A live agent root whose row asks for a between-turn restart: its
+    /// `/new` alone is no turn a reconfigure could carry (the switch keeps
+    /// it pending, so planning one looped on `AlreadyOn`), it is delivered;
+    /// a message before it still carries the reconfigure.
+    #[test]
+    fn an_agent_new_is_delivered_not_planned_as_a_reconfigure() {
+        let launched = SessionRow { agent_id: Some("ag-1".to_string()), ..session("sess-1", "idle", DEV, "t") };
+        let row = SessionRow { effort: Some("high".to_string()), ..launched.clone() };
+        let view = LiveView { options: Some(LaunchedOptions::of(&launched, Some(Vec::new()))), ..LiveView::default() };
+        let alone = Pass::new(vec![row.clone()], vec![new_command("n1", "sess-1", "t1")]).live("sess-1", view.clone()).run();
+        assert!(matches!(alone.as_slice(), [PickupAction::Deliver { .. }]), "{alone:?}");
+        let behind = Pass::new(vec![row], vec![message("m1", "sess-1", "t1"), new_command("n1", "sess-1", "t2")])
+            .live("sess-1", view)
+            .run();
+        assert!(matches!(behind.as_slice(), [PickupAction::Switch { account, .. }] if account.is_empty()), "{behind:?}");
+    }
+
+    /// An agent root's run record (kind `agent`) with an old conversation
+    /// on it, and its team's agent key already minted.
+    fn agent_record(host: &Host, dir: &Path, session_id: &str) {
+        let mut record = record(dir, session_id);
+        record.kind = RunKind::Agent;
+        record.acp_session_id = Some("acp-old".to_string());
+        record.agent_native_session_id = Some("claude-old".to_string());
+        record.claude_session_id = Some("claude-old".to_string());
+        crate::run_registry::record(dir, record);
+        host.deps
+            .coding
+            .token_store
+            .set("acct", api::token_store::SecretKind::AgentTeamKey("team-1".to_string()), "expu_team")
+            .unwrap();
+    }
+
+    fn wait_until(what: &str, done: impl Fn() -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        while !done() {
+            assert!(std::time::Instant::now() < deadline, "timed out waiting for {what}");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn only_a_persons_exact_new_is_the_command() {
+        assert!(is_new_conversation(&new_command("n", "s", "t")));
+        assert!(!is_new_conversation(&message("m", "s", "t")));
+        let longer = MessageRow { body: Some("/new please".to_string()), ..message("m", "s", "t") };
+        assert!(!is_new_conversation(&longer));
+        let agents = MessageRow { author_kind: Some("agent".to_string()), ..new_command("n", "s", "t") };
+        assert!(!is_new_conversation(&agents));
+    }
+
+    /// The agent's live, idle engine is SUSPENDED (the row idles, never
+    /// ends), the same row launches fresh off the brief just fetched — no
+    /// seed turn, no reopen of the old conversation, its ids gone from the
+    /// record — the `/new` row is consumed by the pickup (never sent), and
+    /// what came after it goes to the NEW engine.
+    #[test]
+    fn an_agents_new_restarts_its_idle_engine_fresh() {
+        let dir = temp_dir("pickup-new-restart");
+        let (base, requests) = canned_server_recording(vec![
+            (200, BRIEF_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()),
+            (200, CONSUME_OK.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        agent_record(&host, &dir.0, "agent-1");
+        let old = Arc::new(FakeEngine::default());
+        host.deps.live.insert("agent-1", old.clone(), None);
+        let rows = vec![
+            new_command("n1", "agent-1", "2026-10-24T10:00:01Z"),
+            message("m2", "agent-1", "2026-10-24T10:00:02Z"),
+        ];
+
+        assert!(deliver_messages("agent-1", &rows, &host.deps).unwrap().is_empty());
+        wait_until("the fresh launch", || !host.spawned.lock().unwrap().is_empty());
+        wait_until("the /new consume", || procedures(&requests).len() == 3);
+        assert_eq!(*old.killed.lock().unwrap(), Some("suspended"), "the process stops, the session stays");
+        assert!(old.delivered_ids().is_empty(), "the old conversation hears nothing");
+        let spawned = host.spawned.lock().unwrap().clone();
+        assert_eq!(
+            spawned,
+            vec![Spawned { session_id: "agent-1".to_string(), prompt: None, seed_message_id: None }]
+        );
+        assert_eq!(
+            procedures(&requests),
+            vec!["sessions.brief", "mcpServers.resolveForLaunch", "sessions.consume"]
+        );
+        assert!(requests.lock().unwrap()[2].ends_with(r#"{"sessionId":"agent-1","messageIds":["n1"]}"#));
+        assert!(!requests.lock().unwrap().iter().any(|r| r.contains(r#""status":"ended""#)));
+        let record = crate::run_registry::get(&dir.0, "agent-1").unwrap();
+        assert_eq!((record.acp_session_id, record.agent_native_session_id, record.claude_session_id), (None, None, None));
+        wait_until("the message after /new", || host.engine.delivered_ids() == vec!["m2"]);
+        assert!(host.deps.live.contains_live("agent-1"));
+        // A later pass hands nothing twice (the /new is being consumed).
+        assert!(deliver_messages("agent-1", &rows, &host.deps).unwrap().is_empty());
+        assert_eq!(host.engine.delivered_ids(), vec!["m2"]);
+    }
+
+    /// The restart waits for the agent to be between turns with nothing
+    /// queued: what came BEFORE the `/new` is handed as ever, the `/new` and
+    /// what follows it stay pending.
+    #[test]
+    fn an_agents_new_waits_for_the_turn_and_the_queue() {
+        let dir = temp_dir("pickup-new-wait");
+        let (base, requests) = canned_server_recording(vec![]);
+        let host = host(&base, &dir.0, |_| {});
+        agent_record(&host, &dir.0, "agent-1");
+        host.engine.working.store(true, Ordering::SeqCst);
+        host.deps.live.insert("agent-1", host.engine.clone(), None);
+        let rows = vec![
+            message("m1", "agent-1", "2026-10-24T10:00:01Z"),
+            new_command("n2", "agent-1", "2026-10-24T10:00:02Z"),
+            message("m3", "agent-1", "2026-10-24T10:00:03Z"),
+        ];
+        assert_eq!(deliver_messages("agent-1", &rows, &host.deps).unwrap(), vec!["m1"]);
+        // Mid-turn: nothing more.
+        assert!(deliver_messages("agent-1", &rows, &host.deps).unwrap().is_empty());
+        // Between turns but m1 not consumed yet: still waiting.
+        host.engine.working.store(false, Ordering::SeqCst);
+        assert!(deliver_messages("agent-1", &rows, &host.deps).unwrap().is_empty());
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert_eq!(*host.engine.killed.lock().unwrap(), None);
+        assert_eq!(host.engine.delivered_ids(), vec!["m1"]);
+        assert!(requests.lock().unwrap().is_empty());
+    }
+
+    /// A thread (and a child of an agent's tree: a thread run) keeps the
+    /// in-process `/new`: the engine gets the line.
+    #[test]
+    fn a_threads_new_stays_in_process() {
+        let dir = temp_dir("pickup-new-thread");
+        let host = host(&canned_server(vec![]), &dir.0, |_| {});
+        crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
+        host.deps.live.insert("sess-1", host.engine.clone(), None);
+        let rows = vec![new_command("n1", "sess-1", "t")];
+        assert_eq!(deliver_messages("sess-1", &rows, &host.deps).unwrap(), vec!["n1"]);
+        assert_eq!(host.engine.delivered_ids(), vec!["n1"]);
+        assert_eq!(*host.engine.killed.lock().unwrap(), None);
+    }
+
+    /// A `/new` waking an agent with NO engine here starts it fresh too
+    /// (never a native reopen with the line as its prompt).
+    #[test]
+    fn a_new_waking_an_engineless_agent_starts_it_fresh() {
+        let dir = temp_dir("pickup-new-wake");
+        let (base, requests) = canned_server_recording(vec![
+            (200, BRIEF_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()),
+            (200, CONSUME_OK.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        agent_record(&host, &dir.0, "agent-1");
+        let row = agent("agent-1", "idle");
+        let rows = vec![new_command("n1", "agent-1", "t")];
+        assert_eq!(resume_session(&row, &rows, &host.deps).unwrap(), vec!["n1"]);
+        let spawned = host.spawned.lock().unwrap().clone();
+        assert_eq!(spawned[0].prompt, None);
+        assert_eq!(spawned[0].seed_message_id, None);
+        assert!(host.engine.delivered_ids().is_empty());
+        wait_until("the /new consume", || procedures(&requests).len() == 3);
+        assert_eq!(crate::run_registry::get(&dir.0, "agent-1").unwrap().acp_session_id, None);
+    }
+
+    /// A switch hands an agent nothing from its `/new` on: the restart is
+    /// the next pass's.
+    #[test]
+    fn a_switch_leaves_an_agents_new_pending() {
+        let dir = temp_dir("pickup-new-switch");
+        let host = host(&canned_server(vec![]), &dir.0, |_| {});
+        agent_record(&host, &dir.0, "agent-1");
+        host.deps.live.insert_for("agent-1", host.engine.clone(), None, Some(String::new()));
+        let row = agent("agent-1", "idle");
+        let rows = vec![new_command("n1", "agent-1", "t"), message("m2", "agent-1", "u")];
+        // The row's own login: nothing moves, the pending messages are
+        // handed — but never the `/new` or what follows it.
+        let _ = switch_session(&row, "", None, &rows, &host.deps);
+        assert!(host.engine.delivered_ids().is_empty(), "{:?}", host.engine.delivered_ids());
     }
 
     #[test]

@@ -241,6 +241,12 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
     public let draftId: String?
     public let createdAt: String
     public let updatedAt: String
+    /// #EXP-1383: a team AGENT assignee (`issues.assignee_agent_id`),
+    /// mutually exclusive with `assigneeId` (agent-settings.json `assignee`).
+    public let assigneeAgentId: String?
+    /// #EXP-1383: the agent whose session created the issue (`creatorId`
+    /// keeps the member whose conversation it was).
+    public let creatorAgentId: String?
 
     public init(
         id: String,
@@ -262,8 +268,12 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
         estimate: Int? = nil,
         draftId: String? = nil,
         createdAt: String,
-        updatedAt: String
+        updatedAt: String,
+        assigneeAgentId: String? = nil,
+        creatorAgentId: String? = nil
     ) {
+        self.assigneeAgentId = assigneeAgentId
+        self.creatorAgentId = creatorAgentId
         self.id = id
         self.boardId = boardId
         self.number = number
@@ -300,6 +310,8 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
         case draftId = "draft_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case assigneeAgentId = "assignee_agent_id"
+        case creatorAgentId = "creator_agent_id"
     }
 }
 
@@ -333,6 +345,9 @@ extension IssueEntity: Codable {
         draftId = try container.decodeIfPresent(String.self, forKey: .draftId)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)
+        // #EXP-1383: absent on a pre-rotation snapshot.
+        assigneeAgentId = try container.decodeIfPresent(String.self, forKey: .assigneeAgentId)
+        creatorAgentId = try container.decodeIfPresent(String.self, forKey: .creatorAgentId)
     }
 }
 
@@ -405,6 +420,11 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// (one per app and member); like an agent's conversation it is no
     /// thread (`SessionTree.partitionThreads`).
     public let appId: String?
+    /// #EXP-1383: when this session last fetched its agent's brief
+    /// (`sessions.agent_instructions_at`; chats.json `agentHint`).
+    public let agentInstructionsAt: String?
+    /// #EXP-1383: the agent whose session started this root (an agent tree).
+    public let startedByAgentId: String?
 
     public init(
         id: String,
@@ -436,10 +456,14 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         createdAt: String,
         updatedAt: String,
         agentId: String? = nil,
-        appId: String? = nil
+        appId: String? = nil,
+        agentInstructionsAt: String? = nil,
+        startedByAgentId: String? = nil
     ) {
         self.agentId = agentId
         self.appId = appId
+        self.agentInstructionsAt = agentInstructionsAt
+        self.startedByAgentId = startedByAgentId
         self.id = id
         self.teamId = teamId
         self.parentId = parentId
@@ -498,6 +522,8 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case updatedAt = "updated_at"
         case agentId = "agent_id"
         case appId = "app_id"
+        case agentInstructionsAt = "agent_instructions_at"
+        case startedByAgentId = "started_by_agent_id"
     }
 }
 
@@ -542,6 +568,9 @@ extension SessionEntity: Codable {
         agentId = try c.decodeIfPresent(String.self, forKey: .agentId)
         // VAPP-110: absent on a pre-apps server = not an editor session.
         appId = try c.decodeIfPresent(String.self, forKey: .appId)
+        // #EXP-1383: absent on a pre-rotation snapshot.
+        agentInstructionsAt = try c.decodeIfPresent(String.self, forKey: .agentInstructionsAt)
+        startedByAgentId = try c.decodeIfPresent(String.self, forKey: .startedByAgentId)
     }
 }
 
@@ -767,6 +796,10 @@ public struct ConversationEntity: FetchableRecord, PersistableRecord, Identifiab
     public let title: String?
     public let createdAt: String
     public let updatedAt: String
+    /// Thread e4a04d22: the server-kept list digest (`conversations.digest`
+    /// jsonb, stored as its JSON text like `messages.card`): every Chats list
+    /// reads `Chats.digestMessages` over it instead of the synced messages.
+    public let digest: String?
 
     public init(
         id: String,
@@ -775,7 +808,8 @@ public struct ConversationEntity: FetchableRecord, PersistableRecord, Identifiab
         sessionId: String? = nil,
         title: String? = nil,
         createdAt: String,
-        updatedAt: String
+        updatedAt: String,
+        digest: String? = nil
     ) {
         self.id = id
         self.teamId = teamId
@@ -784,10 +818,11 @@ public struct ConversationEntity: FetchableRecord, PersistableRecord, Identifiab
         self.title = title
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.digest = digest
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, title
+        case id, kind, title, digest
         case teamId = "team_id"
         case sessionId = "session_id"
         case createdAt = "created_at"
@@ -805,6 +840,7 @@ extension ConversationEntity: Codable {
         title = try c.decodeIfPresent(String.self, forKey: .title)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
+        digest = c.decodeWireJsonString(forKey: .digest)
     }
 }
 
@@ -1010,6 +1046,9 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
     public let sortOrder: Double
     public let createdAt: String
     public let updatedAt: String
+    /// #EXP-1383: when the instructions TEXT last changed
+    /// (`agents.instructions_updated_at`; chats.json `agentHint`).
+    public let instructionsUpdatedAt: String?
 
     public init(
         id: String,
@@ -1025,8 +1064,10 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
         ownerId: String? = nil,
         sortOrder: Double = 0,
         createdAt: String,
-        updatedAt: String
+        updatedAt: String,
+        instructionsUpdatedAt: String? = nil
     ) {
+        self.instructionsUpdatedAt = instructionsUpdatedAt
         self.id = id
         self.teamId = teamId
         self.name = name
@@ -1051,6 +1092,7 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
         case sortOrder = "sort_order"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case instructionsUpdatedAt = "instructions_updated_at"
     }
 }
 
@@ -1071,6 +1113,8 @@ extension AgentDefinitionEntity: Codable {
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder) ?? 0
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
+        // #EXP-1383: absent on a pre-rotation snapshot.
+        instructionsUpdatedAt = try c.decodeIfPresent(String.self, forKey: .instructionsUpdatedAt)
     }
 }
 
@@ -1516,6 +1560,8 @@ public struct IssueDraftEntity: FetchableRecord, PersistableRecord, Identifiable
     public let sessionId: String?
     public let createdAt: String
     public let updatedAt: String
+    /// #EXP-1383: a team AGENT assignee, exclusive with `assigneeId`.
+    public let assigneeAgentId: String?
 
     public init(
         id: String,
@@ -1531,8 +1577,10 @@ public struct IssueDraftEntity: FetchableRecord, PersistableRecord, Identifiable
         dueDate: String? = nil,
         sessionId: String? = nil,
         createdAt: String = "",
-        updatedAt: String = ""
+        updatedAt: String = "",
+        assigneeAgentId: String? = nil
     ) {
+        self.assigneeAgentId = assigneeAgentId
         self.id = id
         self.userId = userId
         self.teamId = teamId
@@ -1561,6 +1609,7 @@ public struct IssueDraftEntity: FetchableRecord, PersistableRecord, Identifiable
         case sessionId = "session_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case assigneeAgentId = "assignee_agent_id"
     }
 }
 
@@ -1587,6 +1636,7 @@ extension IssueDraftEntity: Codable {
         sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
         createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
         updatedAt = (try? c.decode(String.self, forKey: .updatedAt)) ?? ""
+        assigneeAgentId = try c.decodeIfPresent(String.self, forKey: .assigneeAgentId)
     }
 }
 
@@ -1991,6 +2041,9 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// SLOP-4: `team` | `reporter` — who the words were for. A member's
     /// `reporter` comment was emailed to the reporter ("to reporter").
     public let audience: String
+    /// #EXP-1383: the agent whose session wrote it (`authorId` keeps the
+    /// member whose conversation it was); the card names the AGENT.
+    public let authorAgentId: String?
 
     public var commentKind: CommentKind { CommentKind(rawString: kind) }
     public var isViaMcp: Bool { source == DomainContract.commentSourceMcp }
@@ -2013,8 +2066,10 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, E
         updatedAt: String,
         parentId: String? = nil,
         source: String? = nil,
-        audience: String = DomainContract.commentAudienceTeam
+        audience: String = DomainContract.commentAudienceTeam,
+        authorAgentId: String? = nil
     ) {
+        self.authorAgentId = authorAgentId
         self.id = id
         self.issueId = issueId
         self.teamId = teamId
@@ -2035,6 +2090,7 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case issueId = "issue_id"
         case teamId = "team_id"
         case authorId = "author_id"
+        case authorAgentId = "author_agent_id"
         case editedAt = "edited_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -2063,6 +2119,8 @@ extension CommentEntity: Codable {
         // SLOP-4: absent from a pre-rotation snapshot — a team comment.
         audience = (try? container.decodeIfPresent(String.self, forKey: .audience))
             ?? DomainContract.commentAudienceTeam
+        // #EXP-1383: absent on a pre-rotation snapshot.
+        authorAgentId = try? container.decodeIfPresent(String.self, forKey: .authorAgentId)
     }
 }
 
@@ -2346,6 +2404,9 @@ public struct IssueEventEntity: FetchableRecord, PersistableRecord, Identifiable
     public let payload: String?
     public let createdAt: String
     public let updatedAt: String
+    /// #EXP-1383: the agent whose session acted (`actorUserId` keeps its
+    /// member); the row names the AGENT and the fold keys on it.
+    public let actorAgentId: String?
 
     public init(
         id: String,
@@ -2355,8 +2416,10 @@ public struct IssueEventEntity: FetchableRecord, PersistableRecord, Identifiable
         type: String,
         payload: String?,
         createdAt: String,
-        updatedAt: String
+        updatedAt: String,
+        actorAgentId: String? = nil
     ) {
+        self.actorAgentId = actorAgentId
         self.id = id
         self.issueId = issueId
         self.teamId = teamId
@@ -2372,6 +2435,7 @@ public struct IssueEventEntity: FetchableRecord, PersistableRecord, Identifiable
         case issueId = "issue_id"
         case teamId = "team_id"
         case actorUserId = "actor_user_id"
+        case actorAgentId = "actor_agent_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -2384,6 +2448,8 @@ extension IssueEventEntity: Codable {
         issueId = try container.decode(String.self, forKey: .issueId)
         teamId = try container.decode(String.self, forKey: .teamId)
         actorUserId = try container.decodeIfPresent(String.self, forKey: .actorUserId)
+        // #EXP-1383: absent on a pre-rotation snapshot.
+        actorAgentId = try container.decodeIfPresent(String.self, forKey: .actorAgentId)
         type = try container.decode(String.self, forKey: .type)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)

@@ -1,10 +1,19 @@
+import { existsSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
+import {
+  SETTINGS_NAV_PHONE_ROWS,
+  SETTINGS_NAV_ROWS,
+} from "@exp/domain-contract/settings-nav"
 import type { TeamPermissions } from "@/hooks/use-team-permissions"
 import {
   flattenSettingsNav,
   NEW_AGENT_LABEL,
   SETTINGS_AGENTS_GROUP,
   SETTINGS_NAV,
+  settingsRouteOf,
+  settingsSectionLabel,
   type SettingsNavContext,
 } from "@/routes/t/$teamSlug/settings/-shared"
 
@@ -242,5 +251,54 @@ describe(`SETTINGS_NAV Agents group (EXP-1293)`, () => {
 
   it(`labels the create entry with the fixture copy`, () => {
     expect(NEW_AGENT_LABEL).toBe(`New agent`)
+  })
+})
+
+// #EXP-1381: settings-nav.json (the phones' Team-page rows) is DERIVED from
+// SETTINGS_NAV, so the two cannot drift: every row is a SETTINGS_NAV page
+// with the same label, or one of the injected lists (Boards, Agents: their
+// SETTINGS_NAV group) or the Devices page; and every row resolves to a real
+// route file, so no phone row opens a 404.
+describe(`settings-nav.json rows vs SETTINGS_NAV`, () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const routeExists = (segments: string) =>
+    [`${segments}.tsx`, join(segments, `index.tsx`)].some((file) => existsSync(join(here, file)))
+
+  it.each(SETTINGS_NAV_ROWS.map((row) => [row.id, row] as const))(`%s maps to a page`, (id, row) => {
+    const item = items.find((entry) => entry.to === `/t/$teamSlug/settings/${id}`)
+    if (id === `devices`) {
+      expect(existsSync(join(here, `..`, `devices.tsx`))).toBe(true)
+      return
+    }
+    if (id === `boards` || id === `agents`) {
+      expect(SETTINGS_NAV.some((group) => group.group === row.label)).toBe(true)
+    } else {
+      expect(item?.label).toBe(row.label)
+      expect(item?.icon).toBeDefined()
+    }
+    expect(routeExists(id)).toBe(true)
+    expect(settingsSectionLabel(id)).toBe(row.label)
+  })
+
+  it(`lists every SETTINGS_NAV team/agents/features page, in order`, () => {
+    const derived = SETTINGS_NAV.filter((group) =>
+      [`Team`, `Boards`, `Agents`, `Features`].includes(group.group)
+    ).flatMap((group) => [
+      ...(group.items.length === 0 || group.group === `Agents` ? [group.group.toLowerCase()] : []),
+      ...flattenSettingsNav(group.items).map((entry) => entry.to.split(`/settings/`)[1]),
+    ])
+    expect(SETTINGS_NAV_ROWS.map((row) => row.id).filter((id) => id !== `devices`)).toEqual(derived)
+  })
+
+  it(`phoneRows are rows flagged phone, in order`, () => {
+    expect(SETTINGS_NAV_PHONE_ROWS).toEqual(SETTINGS_NAV_ROWS.filter((row) => row.phone).map((row) => row.id))
+  })
+
+  it(`titles a phone settings page from its path`, () => {
+    expect(settingsRouteOf(`/t/acme/settings/boards/b1`)).toEqual({ section: `boards`, sub: `b1` })
+    expect(settingsRouteOf(`/t/acme/settings/labels`)).toEqual({ section: `labels`, sub: null })
+    expect(settingsSectionLabel(`boards`, `archived`)).toBe(`Archived boards`)
+    expect(settingsSectionLabel(`account`)).toBe(`Account`)
+    expect(settingsSectionLabel(`apps`)).toBe(`Apps`)
   })
 })

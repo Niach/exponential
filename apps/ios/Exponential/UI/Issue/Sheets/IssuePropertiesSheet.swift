@@ -17,6 +17,8 @@ struct IssuePropertiesSheet<Child: View, Pickers: View>: View {
     /// EXP-314: the issue's status resolved against its team's status rows.
     let status: ResolvedIssueStatus
     let assignee: UserEntity?
+    /// #EXP-1383: the agent assignee's row (nil while unsynced or none).
+    var assigneeAgent: AgentDefinitionEntity? = nil
     /// The issue's team's labels, name-sorted by the caller.
     let labels: [LabelEntity]
     let assignedIds: Set<String>
@@ -24,7 +26,8 @@ struct IssuePropertiesSheet<Child: View, Pickers: View>: View {
     /// (`relationsView`, fold state, counterpart rows). The detail page draws
     /// the parent line + Sub-issues; every other relation is listed here.
     let relationsSource: IssueDetailViewModel
-    let singleMemberTeam: Bool
+    /// Solo team without agents (EXP-50, #EXP-1383): no assignee row.
+    let hidesAssignee: Bool
     /// EXP-630: the team's estimate scale; the row hides while it is `none`.
     let estimationType: String
     /// The issue's own board — the row draws its glyph + color (EXP-449).
@@ -82,13 +85,26 @@ struct IssuePropertiesSheet<Child: View, Pickers: View>: View {
                     ) { activeChild = .priority }
 
                     // Solo team: no one else to reassign to (EXP-50).
-                    if !singleMemberTeam {
+                    if !hidesAssignee {
                         GlassDivider()
 
                         // P55: a set assignee leads with the member's
                         // avatar, as every chip does; the empty state keeps
                         // the unassigned glyph.
-                        if let assigneeId = issue.assigneeId {
+                        if issue.assigneeAgentId != nil {
+                            // #EXP-1383: the agent mark + its name.
+                            GlassMetaRow(
+                                label: "Assignee",
+                                value: assigneeAgent?.name ?? AgentSettings.AssigneeCopy.agentFallback
+                            ) {
+                                UserAvatar(
+                                    agent: UserAvatarAgent(icon: assigneeAgent?.icon, color: assigneeAgent?.color),
+                                    size: 16
+                                )
+                            } action: {
+                                activeChild = .assignee
+                            }
+                        } else if let assigneeId = issue.assigneeId {
                             GlassMetaRow(
                                 label: "Assignee",
                                 value: memberDisplayName(assignee, id: assigneeId)

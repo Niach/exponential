@@ -482,7 +482,8 @@ export function IssueDraftPage({
           priority={editor.priority}
           onPriorityChange={editor.setPriority}
           assigneeId={editor.assigneeId}
-          onAssigneeChange={editor.setAssigneeId}
+          assigneeAgentId={editor.assigneeAgentId}
+          onAssigneeChange={editor.setAssignee}
           users={users}
           teamId={teamId}
           selectedLabelIds={editor.labelIds}

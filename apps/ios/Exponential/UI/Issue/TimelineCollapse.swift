@@ -11,7 +11,8 @@ enum TimelineItem: Identifiable {
     /// "«creator» created the issue" — synthesized from the issue row itself
     /// (widget/agent issues have no user creator and read "Feedback widget" /
     /// "Agent" off the issue's `source`).
-    case created(actorId: String?, createdAt: String, source: String?)
+    /// #EXP-1383: `agentId` = the agent whose session filed it.
+    case created(actorId: String?, agentId: String?, createdAt: String, source: String?)
     case comment(CommentEntity)
     case event(IssueEventEntity)
 
@@ -25,7 +26,7 @@ enum TimelineItem: Identifiable {
 
     var createdAt: String {
         switch self {
-        case .created(_, let at, _): return at
+        case .created(_, _, let at, _): return at
         case .comment(let c): return c.createdAt
         case .event(let e): return e.createdAt
         }

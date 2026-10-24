@@ -59,20 +59,33 @@ export function resolveAssignee(
   ref: string | null,
   users: Pick<User, `id` | `name` | `email`>[]
 ): string | null {
-  if (ref === null) return null
+  return resolveAssigneeRef(ref, users, []).assigneeId
+}
+
+/** #EXP-1383: an assignee reference = a member (email or name) or a team
+ *  agent (name). Exactly one side is set; `null` unassigns both. */
+export function resolveAssigneeRef(
+  ref: string | null,
+  users: Pick<User, `id` | `name` | `email`>[],
+  agents: { id: string; name: string }[]
+): { assigneeId: string | null; assigneeAgentId: string | null } {
+  if (ref === null) return { assigneeId: null, assigneeAgentId: null }
   const needle = ref.toLowerCase()
   const byEmail = users.find((u) => u.email.toLowerCase() === needle)
-  if (byEmail) return byEmail.id
+  if (byEmail) return { assigneeId: byEmail.id, assigneeAgentId: null }
   const byName = users.filter((u) => u.name.toLowerCase() === needle)
-  if (byName.length === 1 && byName[0]) return byName[0].id
-  if (byName.length > 1) {
+  const agentsByName = agents.filter((a) => a.name.toLowerCase() === needle)
+  if (byName.length + agentsByName.length > 1) {
     throw new Error(
       `Assignee name "${ref}" is ambiguous. Use an email address instead.`
     )
   }
+  if (byName[0]) return { assigneeId: byName[0].id, assigneeAgentId: null }
+  if (agentsByName[0]) return { assigneeId: null, assigneeAgentId: agentsByName[0].id }
   const members = users.map((u) => `${u.name} <${u.email}>`).join(`, `)
+  const agentNames = agents.map((a) => a.name).join(`, `)
   throw new Error(
-    `No team member matching "${ref}". Members: ${members || `none`}`
+    `No team member matching "${ref}". Members: ${members || `none`}${agentNames ? `. Agents: ${agentNames}` : ``}`
   )
 }
 
@@ -126,10 +139,11 @@ export function serializeIssue(
     | `createdAt`
     | `updatedAt`
     | `source`
-  >,
+  > & { assigneeAgentId?: string | null },
   labelNames: string[],
   userNameById: Map<string, string>,
-  pullRequest: SerializedIssuePr = null
+  pullRequest: SerializedIssuePr = null,
+  agentNameById: Map<string, string> = new Map()
 ) {
   return {
     identifier: issue.identifier,
@@ -143,7 +157,9 @@ export function serializeIssue(
     priority: issue.priority,
     assignee: issue.assigneeId
       ? (userNameById.get(issue.assigneeId) ?? issue.assigneeId)
-      : null,
+      : issue.assigneeAgentId
+        ? (agentNameById.get(issue.assigneeAgentId) ?? issue.assigneeAgentId)
+        : null,
     dueDate: issue.dueDate ?? null,
     labels: labelNames,
     prUrl: pullRequest?.url ?? null,

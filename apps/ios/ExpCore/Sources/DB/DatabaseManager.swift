@@ -2737,8 +2737,66 @@ public final class DatabaseManager: @unchecked Sendable {
             try createAppRecordsTable(db)
         }
 
+        // v80 (#EXP-1383): agents act as themselves and take assignments —
+        // the synced agent-actor columns, each a guarded additive ALTER; a
+        // shape's cursor resets only when one of its columns was added, so
+        // synced rows re-arrive carrying them.
+        migrator.registerMigration("v80_agent_actors") { db in
+            for addition in DatabaseManager.agentActorColumns {
+                guard try db.tableExists(addition.table) else { continue }
+                let existing = Set(try db.columns(in: addition.table).map(\.name))
+                let missing = addition.columns.filter { !existing.contains($0) }
+                guard !missing.isEmpty else { continue }
+                try db.alter(table: addition.table) { t in
+                    for column in missing {
+                        t.add(column: column, .text)
+                    }
+                }
+                if try db.tableExists("electric_offsets") {
+                    try db.execute(
+                        sql: """
+                            UPDATE "electric_offsets"
+                            SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                            WHERE "shape" = ?
+                            """,
+                        arguments: [addition.shape]
+                    )
+                }
+            }
+        }
+
+        // v81 (thread e4a04d22): `conversations.digest` — the server-kept
+        // list digest every Chats list reads (JSON text, like `messages.card`).
+        // A guarded additive ALTER; the conversations cursor resets only when
+        // the column was added, so synced rows re-arrive carrying it.
+        migrator.registerMigration("v81_conversation_digest") { db in
+            guard try db.tableExists("conversations") else { return }
+            let existing = Set(try db.columns(in: "conversations").map(\.name))
+            guard !existing.contains("digest") else { return }
+            try db.alter(table: "conversations") { t in
+                t.add(column: "digest", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'conversations'
+                    """)
+            }
+        }
+
         return migrator
     }
+
+    /// #EXP-1383: the columns v80 adds (table, its shape, the text columns).
+    static let agentActorColumns: [(table: String, shape: String, columns: [String])] = [
+        ("agents", "agents", ["instructions_updated_at"]),
+        ("sessions", "sessions", ["agent_instructions_at", "started_by_agent_id"]),
+        ("issues", "issues", ["assignee_agent_id", "creator_agent_id"]),
+        ("issue_drafts", "issue-drafts", ["assignee_agent_id"]),
+        ("issue_events", "issue-events", ["actor_agent_id"]),
+        ("comments", "comments", ["author_agent_id"]),
+    ]
 
     /// NEW-8: the local columns v78 drops (the server drops them in step 4).
     static let newEightDeadColumns: [(table: String, columns: [String])] = [

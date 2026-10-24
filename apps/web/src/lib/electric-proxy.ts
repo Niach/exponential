@@ -34,6 +34,84 @@ const FORWARDED_ELECTRIC_PARAMS = new Set([
 ])
 
 /**
+ * #EXP-1380: a shape that loads ON DEMAND (the web `messages` collection,
+ * TanStack DB `syncMode: 'on-demand'`) needs the `subset__*` snapshot params
+ * REV-29 drops. `prepareSubsetParams` forwards them for such a shape ONLY,
+ * and only when every identifier is one of the shape's OWN allowlisted
+ * columns: the predicate may then filter on nothing the shape doesn't
+ * already serve. Values are bound (`$n`, `subset__params`), never inlined;
+ * any other token (a function call, a literal, a cast, a comment) refuses
+ * the request. The `*_expr` forms stay dropped.
+ */
+const SUBSET_KEYWORDS = new Set([
+  `and`, `or`, `not`, `is`, `null`, `in`, `any`, `true`, `false`,
+  `asc`, `desc`, `nulls`, `first`, `last`, `like`, `ilike`,
+])
+const SUBSET_TOKEN = /\s+|"([a-z_][a-z0-9_]*)"|\$\d+|<>|!=|<=|>=|[=<>(),]|[a-zA-Z_]+/y
+
+/** True when `sql` is only allowlisted columns, `$n` params, the keyword
+ *  set, comparison operators and parentheses. */
+export function isSafeSubsetSql(sql: string, columns: readonly string[]): boolean {
+  if (sql.length > 4096) return false
+  const allowed = new Set(columns)
+  SUBSET_TOKEN.lastIndex = 0
+  let at = 0
+  while (at < sql.length) {
+    SUBSET_TOKEN.lastIndex = at
+    const match = SUBSET_TOKEN.exec(sql)
+    if (!match || match.index !== at) return false
+    const token = match[0]
+    if (match[1] !== undefined) {
+      if (!allowed.has(match[1])) return false
+    } else if (/^[a-zA-Z_]+$/.test(token) && !SUBSET_KEYWORDS.has(token.toLowerCase())) {
+      return false
+    }
+    at += token.length
+  }
+  return true
+}
+
+/** The validated `subset__*` params of `requestUrl` (none = `{}`), or null
+ *  when one fails validation (the caller answers 400). */
+export function prepareSubsetParams(
+  requestUrl: string,
+  columns: readonly string[]
+): Record<string, string> | null {
+  const url = new URL(requestUrl)
+  const out: Record<string, string> = {}
+  for (const [key, value] of url.searchParams) {
+    if (!key.startsWith(`subset__`)) continue
+    switch (key) {
+      case `subset__where`:
+      case `subset__order_by`:
+        if (!isSafeSubsetSql(value, columns)) return null
+        out[key] = value
+        break
+      case `subset__limit`:
+      case `subset__offset`:
+        if (!/^\d{1,6}$/.test(value)) return null
+        out[key] = value
+        break
+      case `subset__params`: {
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(value)
+        } catch {
+          return null
+        }
+        if (!parsed || typeof parsed !== `object` || Array.isArray(parsed)) return null
+        out[key] = value
+        break
+      }
+      default:
+        // `subset__where_expr` / `subset__order_by_expr` and anything new.
+        break
+    }
+  }
+  return out
+}
+
+/**
  * REV-8: compression must be ASYNC. A snapshot chunk can run to multiple MB
  * and zlib does ~50MB/s on JSON, so the synchronous variant froze the single
  * Bun.serve JS thread for ~hundreds of ms per chunk — and a cold-start herd

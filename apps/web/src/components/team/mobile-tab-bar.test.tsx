@@ -82,11 +82,22 @@ vi.mock(`@/hooks/use-cross-team-scope`, () => ({
 vi.mock(`@/hooks/use-team-data`, () => ({
   useBoardsForTeams: () => ({ boards: [], boardsReady: true }),
 }))
+const perms = vi.hoisted(() => ({ canCreate: true }))
+vi.mock(`@/hooks/use-team-permissions`, () => ({
+  useTeamPermissions: () => perms,
+}))
+vi.mock(`@/components/create-board-dialog`, () => ({
+  CreateBoardDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="create-board-dialog" /> : null,
+}))
 
 import { MobileTabBar } from "@/components/team/mobile-tab-bar"
 
 const team = { id: `t1`, name: `Acme` } as Team
-const boards = [{ id: `b1`, slug: `web`, name: `Web` }] as Board[]
+const boards = [
+  { id: `b1`, slug: `web`, name: `Web` },
+  { id: `b2`, slug: `ios`, name: `iOS` },
+] as Board[]
 
 function renderBar(
   boardList: Board[] | undefined = boards,
@@ -213,39 +224,95 @@ describe(`MobileTabBar Chats (chats.json)`, () => {
   })
 })
 
-// chats.json `shell.tabs`: Board · Devices · Chats · Team, each an icon over
-// its label; the Team tab = the active team's avatar + name. No Inbox tab
-// (it moved into the Chats header), no More, no Actions.
+// chats.json `shell.tabs` (#EXP-1384): Board · Chats · Apps · Team, each an
+// icon over its label; the Board tab = the active board's glyph + name, the
+// Team tab = the active team's avatar + name. No Devices tab (a Team row), no
+// Inbox tab (every page header), no More, no Actions.
 describe(`MobileTabBar tabs (chats.json shell.tabs)`, () => {
   beforeEach(() => {
     route.value = ``
     memberTeams.value = null
+    perms.canCreate = true
   })
 
-  it(`draws Board · Devices · Chats · Team and nothing else`, () => {
+  it(`draws Board · Chats · Apps · Team and nothing else`, () => {
     renderBar()
     const nav = screen.getByRole(`navigation`, { name: `Primary` })
     const tabs = [...nav.querySelectorAll(`a, button`)]
     expect(tabs.map((el) => el.getAttribute(`aria-label`))).toEqual([
-      `Board`,
-      `Devices`,
+      `Web`,
       `Chats`,
+      `Apps`,
       `Acme`,
     ])
-    expect(tabs.map((el) => el.textContent)).toEqual([`Board`, `Devices`, `Chats`, `AAcme`]) // the avatar initial, then the name
+    expect(tabs.map((el) => el.textContent)).toEqual([`Web`, `Chats`, `Apps`, `AAcme`]) // the avatar initial, then the name
     expect(screen.getByTestId(`tab-team`).getAttribute(`href`)).toBe(`/t/$teamSlug/team`)
+    expect(screen.getByTestId(`tab-apps`).getAttribute(`href`)).toBe(`/t/$teamSlug/apps`)
+    expect(screen.queryByTestId(`tab-devices`)).toBeNull()
     expect(screen.queryByLabelText(`Inbox`)).toBeNull()
     expect(screen.queryByTestId(`nav-more`)).toBeNull()
     expect(screen.queryByLabelText(`Settings`)).toBeNull()
   })
 
-  it(`lights the Team tab on its own route and the settings it pushes`, () => {
-    for (const path of [`/t/$teamSlug/team`, `/t/$teamSlug/settings`]) {
+  it(`labels the Board tab Board while the team has no board`, () => {
+    renderBar([])
+    expect(screen.getByTestId(`tab-board`).getAttribute(`aria-label`)).toBe(`Board`)
+  })
+
+  it(`lights the Team tab on its own route, the settings and Devices it pushes`, () => {
+    for (const path of [`/t/$teamSlug/team`, `/t/$teamSlug/settings`, `/t/$teamSlug/devices`]) {
       route.value = path
       const view = renderBar()
       expect(screen.getByTestId(`tab-team`).getAttribute(`aria-current`), path).toBe(`page`)
       view.unmount()
     }
+  })
+
+  it(`lights the Apps tab on the Apps list`, () => {
+    route.value = `/t/$teamSlug/apps`
+    renderBar()
+    expect(screen.getByTestId(`tab-apps`).getAttribute(`aria-current`)).toBe(`page`)
+    expect(screen.getByTestId(`tab-team`).getAttribute(`aria-current`)).toBeNull()
+  })
+
+  it(`links the Board tab to the board off the board view, no caret`, () => {
+    route.value = `/t/$teamSlug/threads`
+    renderBar()
+    const tab = screen.getByTestId(`tab-board`)
+    expect(tab.tagName).toBe(`A`)
+    expect(tab.getAttribute(`aria-haspopup`)).toBeNull()
+  })
+
+  it(`opens the board menu from the Board tab on the board view`, () => {
+    route.value = `/t/$teamSlug/boards/$boardSlug`
+    navigate.mockReset()
+    renderBar()
+    const tab = screen.getByTestId(`tab-board`)
+    expect(tab.tagName).toBe(`BUTTON`)
+    expect(tab.getAttribute(`aria-haspopup`)).toBe(`menu`)
+    expect(screen.queryByTestId(`board-menu`)).toBeNull()
+    fireEvent.click(tab)
+    expect(screen.getByTestId(`board-menu`)).toBeTruthy()
+    const rows = screen.getAllByTestId(`board-menu-row`)
+    expect(rows.map((row) => row.textContent)).toEqual([`Web`, `iOS`, `New board`])
+    // No board in the params: the fallback (first) board is the active one.
+    expect(rows[0].getAttribute(`aria-checked`)).toBe(`true`)
+    fireEvent.click(rows[1])
+    expect(navigate).toHaveBeenCalledWith({
+      to: `/t/$teamSlug/boards/$boardSlug`,
+      params: { teamSlug: `acme`, boardSlug: `ios` },
+    })
+  })
+
+  it(`offers New board only to a viewer who may create boards`, () => {
+    route.value = `/t/$teamSlug/boards/$boardSlug`
+    perms.canCreate = false
+    renderBar()
+    fireEvent.click(screen.getByTestId(`tab-board`))
+    expect(screen.getAllByTestId(`board-menu-row`).map((row) => row.textContent)).toEqual([
+      `Web`,
+      `iOS`,
+    ])
   })
 
   it(`hides on the pushed Inbox`, () => {

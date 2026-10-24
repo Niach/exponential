@@ -142,6 +142,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`pr-graph-badge`]: `Buttons & chips`,
   [`jump-to-bottom`]: `Buttons & chips`,
   [`strip-chip`]: `Buttons & chips`,
+  [`mention-pill`]: `Buttons & chips`,
   [`team-agents-settings`]: `Surfaces`,
   [`voice-call-overlay`]: `Surfaces`,
   [`computer-use-banner`]: `Feedback`,
@@ -155,6 +156,8 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`code-block`]: `Surfaces`,
   [`chat-list`]: `Lists & rows`,
   [`phone-tab-bar`]: `Surfaces`,
+  [`phone-board-menu`]: `Inputs & pickers`,
+  [`phone-page-header`]: `Surfaces`,
   [`chat-transcript`]: `Surfaces`,
   [`chat-menus`]: `Surfaces`,
 }

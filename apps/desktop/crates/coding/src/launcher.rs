@@ -639,6 +639,11 @@ pub enum DisabledReason {
     /// conversation lives in the login's own rollout store) or a missing
     /// target profile.
     AccountSwitchRefused { message: String },
+    /// #EXP-1383: a session of an agent's conversation tree could not get
+    /// its TEAM-scoped agent key (the server refused the mint, or answered
+    /// with a key not confined to the team). It never falls back to the
+    /// device's full key, so it does not run.
+    AgentKeyUnavailable { message: String },
 }
 
 impl DisabledReason {
@@ -652,6 +657,7 @@ impl DisabledReason {
             }
             DisabledReason::TokenDenied { message } => message.clone(),
             DisabledReason::AccountSwitchRefused { message } => message.clone(),
+            DisabledReason::AgentKeyUnavailable { message } => message.clone(),
             DisabledReason::AcpUnavailable { label, note } => match note {
                 Some(note) => format!("{label} cannot run a session here: {note}"),
                 None => format!("{label} cannot run a session on this machine."),
@@ -1470,21 +1476,116 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     Ok(prepared)
 }
 
-/// §7.2 — the personal key (the agent's MCP credential): read, or minted on
-/// first use, on a side thread so it races the git prep.
-fn spawn_personal_key(deps: &CodingDeps) -> std::thread::JoinHandle<Result<String, ApiError>> {
+/// #EXP-1383 — which MCP credential a session's agent is handed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SessionKeyScope {
+    /// The device's hidden agent key (`users::ensure_personal_key`): every
+    /// thread's sessions.
+    Device,
+    /// The agent key confined to this team (`users::ensure_agent_team_key`,
+    /// MCP only): every session of an agent's conversation tree.
+    AgentTeam(String),
+}
+
+/// #EXP-1383 — the key scope of a session: an agent's conversation tree
+/// (the row IS the agent's root, the brief says the tree's root is an
+/// agent, or the run record was an agent's) gets its team's agent key;
+/// everything else the device key. `Err` = an agent tree with no team to
+/// scope to (never the full key instead).
+pub fn session_key_scope(
+    row: &SessionRow,
+    brief: &SessionBrief,
+    record: Option<&RunRecord>,
+) -> Result<SessionKeyScope, DisabledReason> {
+    let agent_tree = row.is_agent()
+        || brief.in_agent_tree()
+        || record.is_some_and(|record| record.kind == RunKind::Agent);
+    if !agent_tree {
+        return Ok(SessionKeyScope::Device);
+    }
+    let team = row
+        .team_id
+        .as_deref()
+        .or(record.map(|record| record.team_id.as_str()))
+        .map(str::trim)
+        .filter(|team| !team.is_empty());
+    match team {
+        Some(team) => Ok(SessionKeyScope::AgentTeam(team.to_string())),
+        None => Err(DisabledReason::AgentKeyUnavailable {
+            message: AGENT_KEY_NO_TEAM.to_string(),
+        }),
+    }
+}
+
+/// #EXP-1383: the refusal of an agent tree's session whose team is unknown.
+pub const AGENT_KEY_NO_TEAM: &str =
+    "This agent's conversation can't start: its team is unknown, and an agent only runs on a key scoped to its team.";
+
+/// #EXP-1383: the refusal of an agent tree's session whose team key was
+/// not minted (`reason` = the server's word).
+pub fn agent_key_refusal(reason: &str) -> String {
+    format!(
+        "This agent's conversation can't start: its team key could not be minted ({reason}). An agent only runs on a key scoped to its team, never on your full key."
+    )
+}
+
+/// §7.2 — the session's MCP credential ([`SessionKeyScope`]): read, or
+/// minted on first use, on a side thread so it races the git prep.
+fn spawn_session_key(
+    deps: &CodingDeps,
+    scope: &SessionKeyScope,
+) -> std::thread::JoinHandle<Result<String, ApiError>> {
     let trpc = Arc::clone(&deps.trpc);
     let store = Arc::clone(&deps.token_store);
     let account_id = deps.account_id.clone();
-    std::thread::spawn(move || users::ensure_personal_key(&trpc, &store, &account_id))
+    let scope = scope.clone();
+    std::thread::spawn(move || match scope {
+        SessionKeyScope::Device => users::ensure_personal_key(&trpc, &store, &account_id),
+        SessionKeyScope::AgentTeam(team_id) => {
+            users::ensure_agent_team_key(&trpc, &store, &account_id, &team_id)
+        }
+    })
 }
 
-fn join_personal_key(
+/// Join [`spawn_session_key`]. The device key's failure is the launch's
+/// (as ever); a team key's TRANSIENT failure too (the pickup retries it),
+/// but a refused one disables the launch with [`agent_key_refusal`] — an
+/// agent tree never falls back to the full key.
+fn join_session_key(
     handle: std::thread::JoinHandle<Result<String, ApiError>>,
-) -> Result<String, CodingError> {
-    Ok(handle
+    scope: &SessionKeyScope,
+) -> Result<Result<String, DisabledReason>, CodingError> {
+    let result = handle
         .join()
-        .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??)
+        .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))?;
+    match (result, scope) {
+        (Ok(key), _) => Ok(Ok(key)),
+        (Err(err), SessionKeyScope::Device) => Err(err.into()),
+        (Err(err), SessionKeyScope::AgentTeam(_)) if transient_api_error(&err) => Err(err.into()),
+        (Err(err), SessionKeyScope::AgentTeam(_)) => Ok(Err(DisabledReason::AgentKeyUnavailable {
+            message: agent_key_refusal(&err.user_message()),
+        })),
+    }
+}
+
+/// The network, a server error, a timeout or a rate limit (the pickup's
+/// retry rule).
+fn transient_api_error(err: &ApiError) -> bool {
+    match err {
+        ApiError::Transport { .. } => true,
+        ApiError::Http { status, .. } => *status >= 500 || *status == 408 || *status == 429,
+        _ => false,
+    }
+}
+
+/// The launch's redactor secrets: the team servers' values plus a team
+/// agent key (the device key is the host's own, masked already).
+fn launch_secrets(team_mcp: &ResolvedMcp, scope: &SessionKeyScope, key: &str) -> McpSecrets {
+    let mut values = team_mcp.secret_values();
+    if matches!(scope, SessionKeyScope::AgentTeam(_)) {
+        values.push(key.to_string());
+    }
+    McpSecrets::new(values)
 }
 
 /// EXP-1292 — a repo-less session's scratch dir:
@@ -1539,6 +1640,11 @@ fn prepare_session(
 ) -> Result<Prepared, CodingError> {
     let row = &req.session;
     let session_id = row.id.clone();
+    // #EXP-1383: an agent's conversation tree runs on its team's key.
+    let key_scope = match session_key_scope(row, &req.brief, None) {
+        Ok(scope) => scope,
+        Err(reason) => return Ok(Prepared::Disabled(reason)),
+    };
     // EXP-1005: every fresh launch on this device starts on the signed-in
     // profile of its agent with the MOST headroom, read off the usage cache
     // (`Settings.auto_rotate_accounts`, default on, turns it off; codex
@@ -1609,7 +1715,7 @@ fn prepare_session(
             };
             // §7.2 — the personal-key read/mint races the git prep on a side
             // thread; only the MCP wiring needs the result.
-            key_handle = Some(spawn_personal_key(deps));
+            key_handle = Some(spawn_session_key(deps, &key_scope));
             let url = minted.url.clone();
             let repos_root = deps.settings.repos_root_path();
             let clone = clone_path(&repos_root, url.full_name());
@@ -1675,7 +1781,13 @@ fn prepare_session(
         None => scratch_cwd(deps, row)?,
     };
 
-    let personal_key = join_personal_key(key_handle.unwrap_or_else(|| spawn_personal_key(deps)))?;
+    let personal_key = match join_session_key(
+        key_handle.unwrap_or_else(|| spawn_session_key(deps, &key_scope)),
+        &key_scope,
+    )? {
+        Ok(key) => key,
+        Err(reason) => return Ok(Prepared::Disabled(reason)),
+    };
     // Step 2 — the branch the row runs on, now that its worktree exists.
     if let Some(workspace) = &workspace {
         report_branch(&deps.trpc, &session_id, &workspace.branch);
@@ -1878,7 +1990,7 @@ fn prepare_session(
             system_append,
             context_layers,
             servers: team_mcp.servers.clone(),
-            mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
+            mcp_secrets: launch_secrets(&team_mcp, &key_scope, &personal_key),
             confine_to,
         },
         seed_message_id: None,
@@ -1967,6 +2079,11 @@ fn prepare_resume(
     let record = &resume.record;
     let session_id = row.id.clone();
     let agent = record.agent;
+    // #EXP-1383: an agent's conversation tree resumes on its team's key.
+    let key_scope = match session_key_scope(row, &req.brief, Some(record)) {
+        Ok(scope) => scope,
+        Err(reason) => return Ok(Prepared::Disabled(reason)),
+    };
     // EXP-849: what account this resume runs on — the one asked for (a
     // switch), else the recorded one. A record that names none (written by
     // a build that ran the retired ambient login) resumes on the device's
@@ -2124,7 +2241,7 @@ fn prepare_resume(
         };
         // §7.2 — the personal key, raced against the git work like a fresh
         // launch's.
-        key_handle = Some(spawn_personal_key(deps));
+        key_handle = Some(spawn_session_key(deps, &key_scope));
         let url = minted.url.clone();
         if default_branch.is_empty() {
             default_branch = minted.default_branch.clone();
@@ -2317,7 +2434,13 @@ fn prepare_resume(
         (true, None) if walled => Some(crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT.to_string()),
         (_, body) => body,
     };
-    let personal_key = join_personal_key(key_handle.unwrap_or_else(|| spawn_personal_key(deps)))?;
+    let personal_key = match join_session_key(
+        key_handle.unwrap_or_else(|| spawn_session_key(deps, &key_scope)),
+        &key_scope,
+    )? {
+        Ok(key) => key,
+        Err(reason) => return Ok(Prepared::Disabled(reason)),
+    };
     guard_agent_mcp(agent, &cwd, false)?;
     let agent_mcp = wire_agent_mcp(
         agent,
@@ -2398,9 +2521,18 @@ fn prepare_resume(
 
     // The SAME record, re-stamped (EXP-1292: same row, same key). The ACP
     // ids stay until the engine upserts the reopened ones.
+    // #EXP-1383/EXP-1280: a FRESH run is a new conversation — the old one's
+    // handles go, so no later resume (this run crashing before the engine
+    // records its own ids included) can ever reopen it.
     let mut resumed_record = RunRecord {
         cwd: cwd.clone(),
-        claude_session_id: claude_resume_id.clone().or_else(|| record.claude_session_id.clone()),
+        claude_session_id: if fresh {
+            None
+        } else {
+            claude_resume_id.clone().or_else(|| record.claude_session_id.clone())
+        },
+        acp_session_id: if fresh { None } else { record.acp_session_id.clone() },
+        agent_native_session_id: if fresh { None } else { record.agent_native_session_id.clone() },
         codex_originator: codex_originator.clone(),
         model: options.model.clone(),
         effort: options.effort.clone(),
@@ -2475,7 +2607,7 @@ fn prepare_resume(
             system_append,
             context_layers,
             servers: team_mcp.servers.clone(),
-            mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
+            mcp_secrets: launch_secrets(&team_mcp, &key_scope, &personal_key),
             confine_to,
         },
         seed_message_id: resume.message_id.clone(),
@@ -3883,6 +4015,10 @@ mod tests {
         let dir = temp_dir("session-agent");
         let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
         let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        // #EXP-1383: an agent's tree runs on its team's key (already minted).
+        deps.token_store
+            .set("acct", SecretKind::AgentTeamKey("ws-1".to_string()), "expu_team_stored")
+            .unwrap();
         let mut agent = row("agent-1", None);
         agent.agent_id = Some("ag-1".to_string());
         agent.title = Some("Inbox watcher".to_string());
@@ -3910,6 +4046,162 @@ mod tests {
         let record = crate::run_registry::get(&dir.0, "agent-1").expect("record");
         assert_eq!(record.kind, RunKind::Agent);
         assert_eq!(record.display_name(), "Inbox watcher");
+    }
+
+    /// #EXP-1383: `users.mintPersonalApiKey` answering a key scoped to the
+    /// test row's team (`ws-1`).
+    const TEAM_MINT_OK: &str = r#"{"result":{"data":{"key":"expu_team_ws1","id":"key-t","name":"Device: box (agent)","start":"expu_te","prefix":"expu_","createdAt":"2026-10-24T10:00:00.000Z","scope":{"teams":[{"id":"ws-1","name":"Acme"}],"boards":[]}}}}"#;
+
+    fn agent_row(id: &str) -> SessionRow {
+        let mut agent = row(id, None);
+        agent.agent_id = Some("ag-1".to_string());
+        agent.plan_mode = false;
+        agent
+    }
+
+    /// #EXP-1383: who gets which key — an agent's root, a session the brief
+    /// places in an agent's tree, a recorded agent run: the team's; a thread
+    /// (root or child): the device's; an agent tree with no team: refused.
+    #[test]
+    fn the_key_scope_follows_the_agent_tree() {
+        let brief = SessionBrief::default();
+        let team = || SessionKeyScope::AgentTeam("ws-1".to_string());
+        assert_eq!(session_key_scope(&row("t-1", None), &brief, None).ok(), Some(SessionKeyScope::Device));
+        assert_eq!(session_key_scope(&agent_row("a-1"), &brief, None).ok(), Some(team()));
+        let mut child = row("c-1", None);
+        child.parent_id = Some("a-1".to_string());
+        assert_eq!(session_key_scope(&child, &brief, None).ok(), Some(SessionKeyScope::Device));
+        let in_tree = SessionBrief { root_agent_id: Some("ag-1".to_string()), ..SessionBrief::default() };
+        assert_eq!(session_key_scope(&child, &in_tree, None).ok(), Some(team()));
+        let instructed = SessionBrief { agent_instructions: Some("Triage.".to_string()), ..SessionBrief::default() };
+        assert_eq!(session_key_scope(&child, &instructed, None).ok(), Some(team()));
+        let dir = temp_dir("scope-record");
+        let mut record = resume_record(&dir.0, "a-2");
+        assert_eq!(session_key_scope(&row("a-2", None), &brief, Some(&record)).ok(), Some(SessionKeyScope::Device));
+        record.kind = RunKind::Agent;
+        record.team_id = "ws-9".to_string();
+        let mut teamless = row("a-2", None);
+        teamless.team_id = None;
+        assert_eq!(
+            session_key_scope(&teamless, &brief, Some(&record)).ok(),
+            Some(SessionKeyScope::AgentTeam("ws-9".to_string()))
+        );
+        record.team_id = String::new();
+        assert!(matches!(
+            session_key_scope(&teamless, &brief, Some(&record)),
+            Err(DisabledReason::AgentKeyUnavailable { .. })
+        ));
+    }
+
+    /// #EXP-1383: an agent's root mints its TEAM key once (`purpose: agent`,
+    /// `teamId`), stores it per (account, team), and hands it — never the
+    /// device key — to the agent's MCP wiring and the redactor.
+    #[test]
+    fn an_agent_root_launches_on_its_team_key() {
+        let dir = temp_dir("agent-team-key");
+        let (base, captured) = canned_server_recording(vec![
+            (200, TEAM_MINT_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()),
+        ]);
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        let prepared = ready(launch(session_request(agent_row("agent-1"), &[]), &deps));
+        let env = &prepared.spawn.env;
+        assert!(env.contains(&(MCP_TOKEN_ENV.to_string(), "expu_team_ws1".to_string())), "{env:?}");
+        assert!(!env.iter().any(|(_, value)| value == "expu_seeded"), "never the device key");
+        assert!(prepared.acp.mcp_secrets.clone().into_vec().contains(&"expu_team_ws1".to_string()));
+        assert_eq!(
+            deps.token_store.get("acct", SecretKind::AgentTeamKey("ws-1".to_string())).as_deref(),
+            Some("expu_team_ws1")
+        );
+        let requests = captured.lock().unwrap().clone();
+        assert!(requests[0].starts_with("POST /api/trpc/users.mintPersonalApiKey"), "{}", requests[0]);
+        assert!(
+            requests[0].contains(r#""purpose":"agent""#) && requests[0].contains(r#""teamId":"ws-1""#),
+            "{}",
+            requests[0]
+        );
+        // The second launch of the team's tree reads the stored key.
+        let again = ready(launch(session_request(agent_row("agent-2"), &[]), &make_deps(
+            &canned_server(vec![(200, RESOLVE_NONE.to_string())]),
+            &dir.0,
+            fake_worktrees(&dir.0.join("unused")),
+        )));
+        assert!(again.spawn.env.contains(&(MCP_TOKEN_ENV.to_string(), "expu_team_ws1".to_string())));
+    }
+
+    /// #EXP-1383: a thread keeps the device key, and its redactor list
+    /// carries no extra key.
+    #[test]
+    fn a_thread_keeps_the_device_key() {
+        let dir = temp_dir("thread-device-key");
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        let prepared = ready(launch(session_request(row("t-1", None), &[]), &deps));
+        assert!(prepared.spawn.env.contains(&(MCP_TOKEN_ENV.to_string(), "expu_seeded".to_string())));
+        assert!(!prepared.acp.mcp_secrets.clone().into_vec().contains(&"expu_seeded".to_string()));
+        assert_eq!(deps.token_store.get("acct", SecretKind::AgentTeamKey("ws-1".to_string())), None);
+    }
+
+    /// #EXP-1383: a refused team-key mint (or an answer not scoped to the
+    /// team) disables the launch with the agent-key message — never a
+    /// fall back to the device key; a transient failure is the pickup's to
+    /// retry.
+    #[test]
+    fn an_agent_tree_never_falls_back_to_the_device_key() {
+        let dir = temp_dir("agent-key-refused");
+        let refused = r#"{"error":{"message":"Not a member of this team","code":-32603,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#;
+        let deps = make_deps(&canned_server(vec![(403, refused.to_string())]), &dir.0, fake_worktrees(&dir.0.join("unused")));
+        match launch(session_request(agent_row("agent-1"), &[]), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::AgentKeyUnavailable { message }) => {
+                assert!(message.contains("Not a member of this team"), "{message}");
+                assert!(message.contains("team key"), "{message}");
+            }
+            other => panic!("expected the agent-key refusal, got {other:?}"),
+        }
+        // A server that ignored `teamId` (an unscoped answer): refused too.
+        let unscoped = make_deps(
+            &canned_server(vec![(200, MINT_OK.to_string()), (200, r#"{"result":{"data":{"ok":true}}}"#.to_string())]),
+            &dir.0,
+            fake_worktrees(&dir.0.join("unused")),
+        );
+        assert!(matches!(
+            launch(session_request(agent_row("agent-1"), &[]), &unscoped).unwrap(),
+            Prepared::Disabled(DisabledReason::AgentKeyUnavailable { .. })
+        ));
+        assert_eq!(unscoped.token_store.get("acct", SecretKind::AgentTeamKey("ws-1".to_string())), None);
+        // A server error is transient: the launch fails for a retry.
+        let flaky = make_deps(
+            &canned_server(vec![(500, r#"{"error":{"message":"boom"}}"#.to_string())]),
+            &dir.0,
+            fake_worktrees(&dir.0.join("unused")),
+        );
+        assert!(matches!(
+            launch(session_request(agent_row("agent-1"), &[]), &flaky),
+            Err(CodingError::Api(ApiError::Http { status: 500, .. }))
+        ));
+    }
+
+    /// #EXP-1383: a child of an agent's tree (the brief names the root's
+    /// agent) and a resumed agent run both run on the team key.
+    #[test]
+    fn an_agent_trees_child_and_resume_use_the_team_key() {
+        let dir = temp_dir("agent-tree-key");
+        let deps = make_deps(&canned_server(vec![(200, RESOLVE_NONE.to_string())]), &dir.0, fake_worktrees(&dir.0.join("unused")));
+        deps.token_store
+            .set("acct", SecretKind::AgentTeamKey("ws-1".to_string()), "expu_team_stored")
+            .unwrap();
+        let mut child = row("c-1", None);
+        child.parent_id = Some("agent-1".to_string());
+        let mut req = session_request(child, &[]);
+        req.brief.root_agent_id = Some("ag-1".to_string());
+        let prepared = ready(launch(req, &deps));
+        assert!(prepared.spawn.env.contains(&(MCP_TOKEN_ENV.to_string(), "expu_team_stored".to_string())));
+
+        let deps = make_deps(&canned_server(vec![(200, RESOLVE_NONE.to_string())]), &dir.0, fake_worktrees(&dir.0.join("unused")));
+        let mut record = resume_record(&dir.0, "agent-1");
+        record.kind = RunKind::Agent;
+        let prepared = ready(launch(resume_request(record), &deps));
+        assert!(prepared.spawn.env.contains(&(MCP_TOKEN_ENV.to_string(), "expu_team_stored".to_string())));
     }
 
     /// FEED-73: a session whose resolve carries a member roster gets the
@@ -4667,6 +4959,51 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert!(prompt.ends_with(MESSAGE), "{prompt}");
         assert!(prompt.len() > MESSAGE.len(), "seeded from the brief too: {prompt}");
         assert_eq!(prepared.seed_message_id.as_deref(), Some("msg-1"));
+        // #EXP-1383: the old conversation's handles left the record, so no
+        // later resume can reopen it.
+        let record = crate::run_registry::get(&dir.0, "sess-old").expect("record");
+        assert_eq!(record.claude_session_id, None);
+        assert_eq!(record.acp_session_id, None);
+        assert_eq!(record.agent_native_session_id, None);
+    }
+
+    /// #EXP-1383: an agent's `/new` restart = a fresh resume with an empty
+    /// prompt and the brief cleared by the pickup: NO seed turn at all, no
+    /// reopen, the system append rebuilt from the brief just fetched (the
+    /// current instructions), the old conversation's ids gone.
+    #[cfg(unix)]
+    #[test]
+    fn an_agent_restart_resume_seeds_nothing_and_takes_the_new_instructions() {
+        let dir = temp_dir("resume-restart");
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        deps.token_store
+            .set("acct", SecretKind::AgentTeamKey("ws-1".to_string()), "expu_team_stored")
+            .unwrap();
+        seed_transcript(&dir.0, &mut deps, "claude-1");
+        let mut record = resume_record(&dir.0, "agent-1");
+        record.kind = RunKind::Agent;
+        record.transport = Some("acp".to_string());
+        record.acp_session_id = Some("acp-old".to_string());
+        record.agent_native_session_id = Some("claude-1".to_string());
+        let mut req = resume_request(record);
+        req.session.agent_id = Some("ag-1".to_string());
+        req.brief.brief = String::new();
+        req.brief.agent_instructions = Some("The NEW instructions.".to_string());
+        let resume = req.resume.as_mut().unwrap();
+        resume.fresh = true;
+        resume.prompt = String::new();
+        resume.message_id = None;
+
+        let prepared = ready(launch(req, &deps));
+        assert_eq!(prepared.acp.resume, None, "a new CLI conversation");
+        assert_eq!(prepared.acp.prompt, None, "no seed turn");
+        assert_eq!(prepared.seed_message_id, None);
+        assert!(prepared.acp.system_append.ends_with("The NEW instructions.\n"), "{}", prepared.acp.system_append);
+        let record = crate::run_registry::get(&dir.0, "agent-1").expect("record");
+        assert_eq!((record.claude_session_id, record.acp_session_id, record.agent_native_session_id), (None, None, None));
+        assert_eq!(record.kind, RunKind::Agent);
     }
 
     /// EXP-1330: a `/btw` aside resumes with NO MCP servers — the team pick

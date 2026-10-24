@@ -1,5 +1,6 @@
 import {
   AssigneePicker,
+  assigneeAgentValue,
   PickerItemBody,
   PickerList,
   PickerTrigger,
@@ -20,12 +21,19 @@ const MEMBERS = [
   { id: `sam`, name: `Sam Lee`, email: `sam@example.com` },
 ]
 
+/* #EXP-1383: the team's agents follow the members — THE AGENT MARK (the
+   agent's glyph in its colour on the muted disc, the Chats bubble's) at the
+   avatar's size, then the name; search matches it. */
+const AGENTS = [
+  { id: `sloppy`, name: `Sloppy`, icon: `bot`, color: `#22c55e`, sortOrder: 0 },
+]
+
 export const entry: StyleguideEntry = {
   id: `picker-assignee`,
   section: `general`,
   owner: `EXP-1021`,
   title: `Assignee picker`,
-  blurb: `The team's members by AVATAR, name and email — the issue properties, the create-issue dialog, the list row's context menu and the bulk bar. The avatar is the one row body the primitive does not draw itself (a picker glyph is an icon, never a photo), and the email is both the muted second line and a search term. \`Unassigned\` is a row like any other and reports \`null\`: no \`__unassign__\` sentinel exists anywhere. On a solo team the control is hidden entirely — there is nobody to assign to.`,
+  blurb: `The team's members by AVATAR, name and email — the issue properties, the create-issue dialog, the list row's context menu and the bulk bar. The avatar is the one row body the primitive does not draw itself (a picker glyph is an icon, never a photo), and the email is both the muted second line and a search term. After the members come the team's AGENTS (sortOrder, then name), each wearing the agent mark (its glyph in its colour on the muted disc) where a person wears the avatar; picking one writes \`assigneeAgentId\` and clears the person. \`Unassigned\` is a row like any other and reports \`null\`: no \`__unassign__\` sentinel exists anywhere. On a solo team the control is hidden entirely — there is nobody to assign to.`,
   status: typedPickerStatus(`AssigneePicker`, {
     web: `assignee-picker.tsx`,
     desktop: `assignee_picker.rs`,
@@ -37,6 +45,7 @@ export const entry: StyleguideEntry = {
       trigger={
         <AssigneePicker
           members={MEMBERS}
+          agents={AGENTS}
           allowsNone
           value="mina"
           onChange={noop}
@@ -59,7 +68,7 @@ export const entry: StyleguideEntry = {
           mode="single"
           search
           searchPlaceholder="Search people…"
-          items={assigneePickerItems(MEMBERS)}
+          items={assigneePickerItems(MEMBERS, AGENTS)}
           value="mina"
           onChange={noop}
           noneLabel="Unassigned"
@@ -68,9 +77,10 @@ export const entry: StyleguideEntry = {
           // then the primitive's own row body.
           renderItem={(item) => {
             const member = MEMBERS.find((row) => row.id === item.value)
+            const agent = AGENTS.find((row) => assigneeAgentValue(row.id) === item.value)
             return (
               <>
-                {member && <UserAvatar size={20} user={member} />}
+                {(member || agent) && <UserAvatar size={20} user={member} agent={agent} />}
                 <PickerItemBody item={item} />
               </>
             )

@@ -17,6 +17,11 @@
 // left alone entirely (no partial fold). An event without an actor never
 // folds and breaks every open run on its issue.
 //
+// THE ACTOR (#EXP-1383): an event (or barrier) with `actorAgentId` set is
+// the AGENT `agent:<id>`, else the member `user:<actorUserId>`. An agent and
+// the member whose conversation it runs in are DIFFERENT actors, and so are
+// two agents of one member.
+//
 // "Field" derives from the event type: `status_changed` → status,
 // `assignee_changed` → assignee, `priority_changed` → priority,
 // `estimate_changed` → estimate, `title_changed` → title,
@@ -24,14 +29,16 @@
 // `label_added`/`label_removed` → that ONE label (`payload.labelId`; an add
 // and a remove of the same label cancel),
 // `relation_added`/`relation_removed` → that one relation
-// (`payload.type` + `payload.relatedIssueId`).
+// (`payload.type` + `payload.relatedIssueId`). An assignee side compares as
+// `agent:<fromAgentId|toAgentId>` when the payload names an agent, else the
+// user id.
 import type { IssueEvent } from "@/db/schema"
 
 /** The row shape the fold reads: the synced `issue_events` columns. */
 export type ActivityEvent = Pick<
   IssueEvent,
   `id` | `issueId` | `actorUserId` | `type` | `payload` | `createdAt`
->
+> & { actorAgentId?: string | null }
 
 /**
  * Something that is not an event but still breaks another actor's run: a
@@ -42,7 +49,17 @@ export type ActivityEvent = Pick<
 export interface ActivityBarrier {
   issueId: string
   actorUserId: string | null
+  actorAgentId?: string | null
   createdAt: ActivityEvent[`createdAt`]
+}
+
+/** The fold's actor key: the agent when set, else the member, else null. */
+export function foldActorKey(row: {
+  actorUserId: string | null
+  actorAgentId?: string | null
+}): string | null {
+  if (row.actorAgentId) return `agent:${row.actorAgentId}`
+  return row.actorUserId ? `user:${row.actorUserId}` : null
 }
 
 /** First-to-last span a run may cover and still fold. */
@@ -104,7 +121,10 @@ function beforeOf(event: ActivityEvent): string {
   switch (event.type) {
     case `status_changed`:
       return String(payload.fromStatusId ?? payload.from ?? ``)
-    case `assignee_changed`:
+    case `assignee_changed`: {
+      const agentId = optionalString(payload.fromAgentId)
+      return agentId ? `agent:${agentId}` : String(payload.from ?? ``)
+    }
     case `priority_changed`:
     case `estimate_changed`:
     case `title_changed`:
@@ -127,7 +147,10 @@ function afterOf(event: ActivityEvent): string {
   switch (event.type) {
     case `status_changed`:
       return String(payload.toStatusId ?? payload.to ?? ``)
-    case `assignee_changed`:
+    case `assignee_changed`: {
+      const agentId = optionalString(payload.toAgentId)
+      return agentId ? `agent:${agentId}` : String(payload.to ?? ``)
+    }
     case `priority_changed`:
     case `estimate_changed`:
     case `title_changed`:
@@ -159,7 +182,7 @@ function mergePayload(first: ActivityEvent, last: ActivityEvent): Payload {
 
 interface Run {
   issueId: string
-  actorUserId: string
+  actor: string
   events: { event: ActivityEvent; index: number }[]
 }
 
@@ -225,10 +248,10 @@ export function foldActivity(
   const open = new Map<string, Run>()
   const out: Out[] = []
 
-  const breakOthers = (issueId: string, actorUserId: string | null) => {
+  const breakOthers = (issueId: string, actor: string | null) => {
     for (const [key, run] of open) {
       if (run.issueId !== issueId) continue
-      if (actorUserId !== null && run.actorUserId === actorUserId) continue
+      if (actor !== null && run.actor === actor) continue
       flushRun(run, out)
       open.delete(key)
     }
@@ -236,11 +259,11 @@ export function foldActivity(
 
   for (const step of steps) {
     if (step.kind === `barrier`) {
-      breakOthers(step.barrier.issueId, step.barrier.actorUserId)
+      breakOthers(step.barrier.issueId, foldActorKey(step.barrier))
       continue
     }
     const { event, index } = step
-    const actor = event.actorUserId
+    const actor = foldActorKey(event)
     breakOthers(event.issueId, actor)
     const field = actor ? foldFieldKey(event) : null
     if (!actor || !field) {
@@ -254,7 +277,7 @@ export function foldActivity(
     } else {
       open.set(key, {
         issueId: event.issueId,
-        actorUserId: actor,
+        actor,
         events: [{ event, index }],
       })
     }

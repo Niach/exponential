@@ -1,30 +1,29 @@
 import {
   createFileRoute,
-  Link,
   Outlet,
   redirect,
+  useNavigate,
   useRouterState,
 } from "@tanstack/react-router"
-import { Fragment, useEffect, useRef, useState } from "react"
-import { Separator, SEGMENTED_ITEM, SEGMENTED_LIST, conceptIcon, BoardGlyph } from "@exp/ui"
+import { Separator, useIsMobile } from "@exp/ui"
+import { SETTINGS_NAV_TEST_IDS } from "@exp/domain-contract/settings-nav"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
-import { cn } from "@/lib/utils"
-import { useTeamBoards } from "@/hooks/use-team-data"
+import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
+import { NEW_PROMPT_LABEL } from "@/components/team/prompts-section"
+import { useTeamBoards, useTeamBySlug } from "@/hooks/use-team-data"
 import { useAgents } from "@/hooks/use-session-tree"
+import { useApps } from "@/hooks/use-apps"
+import { usePrompts } from "@/hooks/use-prompts"
 import { useSession } from "@/hooks/use-session"
-import { CreateBoardDialog } from "@/components/create-board-dialog"
 import {
-  flattenSettingsNav,
   NEW_AGENT_LABEL,
-  NEW_BOARD_LABEL,
-  SETTINGS_AGENTS_GROUP,
-  SETTINGS_BOARDS_GROUP,
-  SETTINGS_NAV,
+  NEW_APP_LABEL,
+  SETTINGS_LIST_SECTIONS,
+  settingsRouteOf,
+  settingsSectionLabel,
   useSettingsPage,
 } from "@/routes/t/$teamSlug/settings/-shared"
 import { pageTitle } from "@/lib/page-title"
-
-const AddIcon = conceptIcon(`ui-add`)
 
 export const Route = createFileRoute(`/t/$teamSlug/settings`)({
   head: () => ({ meta: [{ title: pageTitle(`Settings`) }] }),
@@ -40,200 +39,130 @@ export const Route = createFileRoute(`/t/$teamSlug/settings`)({
 })
 
 function SettingsLayout() {
+  const isMobile = useIsMobile()
+  return isMobile ? <PhoneSettingsLayout /> : <WideSettingsLayout />
+}
+
+// EXP-456: on md+ the settings nav lives in the app sidebar (the main nav
+// slides out, the settings nav slides in — see TeamSidebar/SettingsSidebar),
+// so the page is the title over the section.
+function WideSettingsLayout() {
   const { teamSlug } = Route.useParams()
-  const { team, permissions, config } = useSettingsPage(teamSlug)
-  const navContext = { isCloud: Boolean(config?.isCloud) }
-  const navItems = SETTINGS_NAV.flatMap((group) =>
-    flattenSettingsNav(group.items).filter((item) => item.visible(permissions, navContext))
-  )
-  // EXP-862: the Boards group lists every board, here as well as in the
-  // sidebar panel — this strip is the ONLY settings nav on a phone.
-  const boards = useTeamBoards(team?.id)
-  const showBoards = permissions.isOwner
-  const [createOpen, setCreateOpen] = useState(false)
-  // EXP-1293: the Agents group, injected the same way (member-visible rows,
-  // owner-only "New agent").
-  const { data: authSession } = useSession()
-  const { agents } = useAgents(team?.id, authSession?.user?.id)
-
-  // EXP-698: the strip is wider than a phone, so the section you are ON can
-  // start scrolled out of frame ("…torage"). Bring it into view once the row
-  // is populated — permissions land async, so this keys on the item count
-  // rather than plain mount. `nearest` on both axes means an already-visible
-  // tab is left alone and the page never scrolls vertically. EXP-862: the
-  // strip also lists the boards (they hydrate off Electric, separately from
-  // permissions), so a board page keys on that count too — or its own row
-  // could still be off-screen when the nav items settled first.
-  const navRef = useRef<HTMLElement | null>(null)
-  const boardRows = (showBoards ? boards.length : 0) + agents.length
-  // The layout stays mounted across sections, so every section change
-  // re-centres the strip on the new active pill as well.
-  const pathname = useRouterState({ select: (state) => state.location.pathname })
-  useEffect(() => {
-    navRef.current
-      ?.querySelector(`[aria-current="page"]`)
-      ?.scrollIntoView({ inline: `nearest`, block: `nearest` })
-  }, [navItems.length, boardRows, pathname])
-
+  const { team } = useSettingsPage(teamSlug)
   return (
-    <div
-      className={`mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 ${TAB_BAR_CLEARANCE}`}
-    >
+    <div className={`mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 ${TAB_BAR_CLEARANCE}`}>
       <div>
         <h1 className="text-2xl font-bold">Settings</h1>
         <p className="text-sm text-muted-foreground">
           Manage {team?.name ?? `your team`} and your account
         </p>
       </div>
-
       <Separator />
-
-      <div className="flex flex-col gap-6">
-        {/* EXP-456: on md+ the settings nav lives in the app sidebar (the
-            main nav slides out, the settings nav slides in — see
-            TeamSidebar/SettingsSidebar), so this in-page nav is the mobile
-            horizontally-scrollable row only (group labels hidden there). */}
-        {/* EXP-616: iOS capsule segmented control look — these are route
-            links, not stateful tabs, so they borrow the segmented-control
-            classes (EXP-698) rather than forcing Radix Tabs semantics onto
-            them. Groups flatten into one strip (their labels were already
-            hidden here); the strip still scrolls horizontally, with the
-            scrollbar itself hidden so the capsule edge stays clean.
-            EXP-698: `px-1` keeps the first and last pill off the capsule's
-            rounded edge — flush against it they read as clipped.
-            `justify-start` overrides the segmented list's `justify-center`:
-            centred, an overflowing row spills off BOTH edges and the left
-            spill (General … Statuses) can never be scrolled to. */}
-        <nav
-          ref={navRef}
-          className={cn(
-            SEGMENTED_LIST,
-            `max-w-full justify-start gap-1 self-start overflow-x-auto px-1 scrollbar-none md:hidden`
-          )}
-        >
-          {SETTINGS_NAV.map((group) => (
-            <Fragment key={group.group}>
-              {group.group === SETTINGS_BOARDS_GROUP && showBoards && (
-                <>
-                  {boards.map((board) => (
-                    <Link
-                      key={board.id}
-                      to="/t/$teamSlug/settings/boards/$boardId"
-                      params={{ teamSlug, boardId: board.id }}
-                      className={SEGMENTED_ITEM}
-                      activeProps={{
-                        className: `border-glass-stroke-active bg-glass-active text-foreground`,
-                      }}
-                      inactiveProps={{
-                        className: `border-transparent text-muted-foreground hover:text-foreground`,
-                      }}
-                    >
-                      <BoardGlyph board={board} />
-                      {board.name}
-                    </Link>
-                  ))}
-                  {team && (
-                    <button
-                      type="button"
-                      onClick={() => setCreateOpen(true)}
-                      className={cn(
-                        SEGMENTED_ITEM,
-                        `border-transparent text-muted-foreground hover:text-foreground`
-                      )}
-                    >
-                      <AddIcon className="h-4 w-4" />
-                      {NEW_BOARD_LABEL}
-                    </button>
-                  )}
-                </>
-              )}
-              {group.group === SETTINGS_AGENTS_GROUP && (
-                <>
-                  {/* NEW-2: the Agents page (the list + Events). */}
-                  <Link
-                    to="/t/$teamSlug/settings/agents"
-                    params={{ teamSlug }}
-                    activeOptions={{ exact: true }}
-                    className={SEGMENTED_ITEM}
-                    activeProps={{
-                      className: `border-glass-stroke-active bg-glass-active text-foreground`,
-                    }}
-                    inactiveProps={{
-                      className: `border-transparent text-muted-foreground hover:text-foreground`,
-                    }}
-                  >
-                    {SETTINGS_AGENTS_GROUP}
-                  </Link>
-                  {agents.map((agent) => (
-                    <Link
-                      key={agent.agentId}
-                      to="/t/$teamSlug/settings/agents/$agentId"
-                      params={{ teamSlug, agentId: agent.agentId }}
-                      className={SEGMENTED_ITEM}
-                      activeProps={{
-                        className: `border-glass-stroke-active bg-glass-active text-foreground`,
-                      }}
-                      inactiveProps={{
-                        className: `border-transparent text-muted-foreground hover:text-foreground`,
-                      }}
-                    >
-                      <BoardGlyph board={{ icon: agent.icon, color: agent.color }} />
-                      {agent.name}
-                    </Link>
-                  ))}
-                  {permissions.isOwner && (
-                    <Link
-                      to="/t/$teamSlug/settings/agents/new"
-                      params={{ teamSlug }}
-                      className={SEGMENTED_ITEM}
-                      activeProps={{
-                        className: `border-glass-stroke-active bg-glass-active text-foreground`,
-                      }}
-                      inactiveProps={{
-                        className: `border-transparent text-muted-foreground hover:text-foreground`,
-                      }}
-                    >
-                      <AddIcon className="h-4 w-4" />
-                      {NEW_AGENT_LABEL}
-                    </Link>
-                  )}
-                </>
-              )}
-              {flattenSettingsNav(group.items)
-                .filter((item) => item.visible(permissions, navContext))
-                .map((item) => (
-                  <Link
-                    key={item.label}
-                    to={item.to}
-                    params={{ teamSlug }}
-                    className={SEGMENTED_ITEM}
-                    activeProps={{
-                      className: `border-glass-stroke-active bg-glass-active text-foreground`,
-                    }}
-                    inactiveProps={{
-                      className: `border-transparent text-muted-foreground hover:text-foreground`,
-                    }}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    {item.label}
-                  </Link>
-                ))}
-            </Fragment>
-          ))}
-        </nav>
-
-        <div className="min-w-0 flex-1">
-          <Outlet />
-        </div>
+      <div className="min-w-0 flex-1">
+        <Outlet />
       </div>
-
-      {team && (
-        <CreateBoardDialog
-          open={createOpen}
-          onOpenChange={setCreateOpen}
-          team={team}
-        />
-      )}
     </div>
   )
+}
+
+// #EXP-1381 (settings-nav.json): on a phone every settings page is its OWN
+// page, opened from a Team-page row: the phone detail header (back + the
+// section's label) over only that section — never the h1 + the strip of
+// every category. A list's sub-page (one board, agent, app, prompt) goes
+// back to its list and wears the row's name.
+function PhoneSettingsLayout() {
+  const { teamSlug } = Route.useParams()
+  const navigate = useNavigate()
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
+  const { section, sub } = settingsRouteOf(pathname)
+  const isListSub =
+    section !== null &&
+    sub !== null &&
+    sub !== `archived` &&
+    (SETTINGS_LIST_SECTIONS as readonly string[]).includes(section)
+  const label = section ? settingsSectionLabel(section, sub) : null
+
+  const back = () => {
+    if (isListSub && section) {
+      void navigate({ to: `/t/$teamSlug/settings/${section}` as `/t/$teamSlug/settings/boards`, params: { teamSlug } })
+      return
+    }
+    void navigate({ to: `/t/$teamSlug/team`, params: { teamSlug } })
+  }
+
+  return (
+    <div className={`flex w-full flex-col ${TAB_BAR_CLEARANCE}`} data-testid={SETTINGS_NAV_TEST_IDS.page}>
+      <MobileDetailHeader
+        title={
+          isListSub && section && sub ? (
+            <SubPageTitle teamSlug={teamSlug} section={section} sub={sub} fallback={label ?? ``} />
+          ) : (
+            label ?? `Settings`
+          )
+        }
+        onBack={back}
+      />
+      <div className="min-w-0 px-4 pb-4 pt-2">
+        <Outlet />
+      </div>
+    </div>
+  )
+}
+
+/** The row's own name on a list's sub-page; each list mounts only its own data. */
+function SubPageTitle({
+  teamSlug,
+  section,
+  sub,
+  fallback,
+}: {
+  teamSlug: string
+  section: string
+  sub: string
+  fallback: string
+}) {
+  if (sub === `new`) {
+    if (section === `agents`) return <>{NEW_AGENT_LABEL}</>
+    if (section === `apps`) return <>{NEW_APP_LABEL}</>
+    if (section === `prompts`) return <>{NEW_PROMPT_LABEL}</>
+  }
+  switch (section) {
+    case `boards`:
+      return <BoardName teamSlug={teamSlug} id={sub} fallback={fallback} />
+    case `agents`:
+      return <AgentName teamSlug={teamSlug} id={sub} fallback={fallback} />
+    case `apps`:
+      return <AppName teamSlug={teamSlug} id={sub} fallback={fallback} />
+    case `prompts`:
+      return <PromptName teamSlug={teamSlug} id={sub} fallback={fallback} />
+    default:
+      return <>{fallback}</>
+  }
+}
+
+type NameProps = { teamSlug: string; id: string; fallback: string }
+
+function BoardName({ teamSlug, id, fallback }: NameProps) {
+  const team = useTeamBySlug(teamSlug)
+  const boards = useTeamBoards(team?.id)
+  return <>{boards.find((row) => row.id === id)?.name ?? fallback}</>
+}
+
+function AgentName({ teamSlug, id, fallback }: NameProps) {
+  const team = useTeamBySlug(teamSlug)
+  const { data: authSession } = useSession()
+  const { agents } = useAgents(team?.id, authSession?.user?.id)
+  return <>{agents.find((row) => row.agentId === id)?.name ?? fallback}</>
+}
+
+function AppName({ teamSlug, id, fallback }: NameProps) {
+  const team = useTeamBySlug(teamSlug)
+  const { apps } = useApps(team?.id)
+  return <>{apps.find((row) => row.id === id)?.name ?? fallback}</>
+}
+
+function PromptName({ teamSlug, id, fallback }: NameProps) {
+  const team = useTeamBySlug(teamSlug)
+  const { prompts } = usePrompts(team?.id)
+  return <>{prompts.find((row) => row.id === id)?.name || fallback}</>
 }

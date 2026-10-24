@@ -146,14 +146,20 @@ public enum IssueSearch {
         exclude: Set<String> = [],
         projection: (T) -> Row
     ) -> [T] {
-        let queryTokens = tokens(query)
         var entries: [Entry<T>] = []
         entries.reserveCapacity(rows.count)
         for (index, value) in rows.enumerated() {
             let row = projection(value)
             if exclude.contains(row.id) { continue }
-            entries.append(Entry(value: value, index: index, row: row))
+            entries.append(Entry(value: value, index: index, row: row, eager: false))
         }
+        return rank(entries: entries, query: query, limit: limit)
+    }
+
+    /// The ranking over decorated entries — `rank` and `Index.rank` both end
+    /// here, so the two can never order differently.
+    fileprivate static func rank<T>(entries: [Entry<T>], query: String, limit: Int) -> [T] {
+        let queryTokens = tokens(query)
         guard limit > 0 else { return [] }
         if queryTokens.isEmpty {
             let sorted = entries.sorted { a, b in
@@ -187,6 +193,51 @@ public enum IssueSearch {
         exclude: Set<String> = []
     ) -> [Row] {
         rank(rows, query: query, limit: limit, exclude: exclude, projection: { $0 })
+    }
+
+    // MARK: - Prepared pool
+
+    /// #EXP-1382: a pool PREPARED once per snapshot of the rows — lowercased
+    /// fields, word splits and the two parsed timestamps — so a keystroke
+    /// only scores and sorts, never re-parses. Immutable once built, so a
+    /// rank may run off the main actor (a debounced task). `reusing` keeps
+    /// the previous snapshot's entry for every row whose projection did not
+    /// change, so a sync that touches one issue prepares one row.
+    public final class Index<T: Sendable>: @unchecked Sendable {
+        fileprivate let entries: [Entry<T>]
+        private let positions: [String: Int]
+
+        public init(_ rows: [T], reusing previous: Index<T>? = nil, projection: (T) -> Row) {
+            var entries: [Entry<T>] = []
+            entries.reserveCapacity(rows.count)
+            var positions: [String: Int] = [:]
+            positions.reserveCapacity(rows.count)
+            for (index, value) in rows.enumerated() {
+                let row = projection(value)
+                if let previous, let at = previous.positions[row.id], previous.entries[at].row == row {
+                    entries.append(previous.entries[at].moved(value: value, index: index))
+                } else {
+                    entries.append(Entry(value: value, index: index, row: row, eager: true))
+                }
+                if positions[row.id] == nil { positions[row.id] = index }
+            }
+            self.entries = entries
+            self.positions = positions
+        }
+
+        /// How many rows the pool holds.
+        public var count: Int { entries.count }
+
+        /// The pooled row with this id (the first, should ids repeat).
+        public func value(id: String) -> T? {
+            positions[id].map { entries[$0].value }
+        }
+
+        /// `IssueSearch.rank` over the prepared pool — the same order.
+        public func rank(query: String, limit: Int = IssueSearch.defaultLimit, exclude: Set<String> = []) -> [T] {
+            let pool = exclude.isEmpty ? entries : entries.filter { !exclude.contains($0.row.id) }
+            return IssueSearch.rank(entries: pool, query: query, limit: limit)
+        }
     }
 
     // MARK: - Server merge
@@ -234,9 +285,10 @@ public enum IssueSearch {
     /// need: the lowercased fields, the parsed instants and the input index
     /// that keeps `sorted(by:)` — which Swift does not promise is stable —
     /// stable for fully equal keys, as every other client's sort is.
-    private struct Entry<T> {
+    fileprivate struct Entry<T> {
         let value: T
         let index: Int
+        let row: Row
         let prepared: Prepared
         let created: Double
         let updated: Double
@@ -247,15 +299,36 @@ public enum IssueSearch {
         var score = 0
         var exact = false
 
-        init(value: T, index: Int, row: Row) {
+        /// `eager` lowercases and splits the description now (a pooled
+        /// entry, read from several ranks and threads) instead of on first
+        /// use (a one-shot rank).
+        init(value: T, index: Int, row: Row, eager: Bool) {
             self.value = value
             self.index = index
-            self.prepared = IssueSearch.prepare(row)
+            self.row = row
+            self.prepared = Prepared(row: row, eager: eager)
             self.created = IssueSearch.instant(row.createdAt)
             self.updated = IssueSearch.instant(row.updatedAt)
             self.identifier = row.identifier
             self.number = IssueSearch.identifierNumber(row.identifier)
             self.open = IssueSearch.isOpen(row.status)
+        }
+
+        private init(_ other: Entry<T>, value: T, index: Int) {
+            self.value = value
+            self.index = index
+            self.row = other.row
+            self.prepared = other.prepared
+            self.created = other.created
+            self.updated = other.updated
+            self.identifier = other.identifier
+            self.number = other.number
+            self.open = other.open
+        }
+
+        /// The same prepared row carried into a newer snapshot.
+        func moved(value: T, index: Int) -> Entry<T> {
+            Entry(self, value: value, index: index)
         }
     }
 
@@ -265,7 +338,7 @@ public enum IssueSearch {
     /// is the only unbounded field a ranked pool carries — every keystroke
     /// prepares the whole pool. A reference type so the cache survives being
     /// held in an `Entry`.
-    private final class Prepared {
+    fileprivate final class Prepared {
         let identifier: String
         let number: String?
         let title: String
@@ -274,17 +347,24 @@ public enum IssueSearch {
         lazy var description: String = rawDescription.lowercased()
         lazy var descriptionWords: [String] = IssueSearch.words(description)
 
-        init(row: Row) {
+        init(row: Row, eager: Bool = false) {
             self.identifier = row.identifier.lowercased()
             self.number = IssueSearch.numericTail(row.identifier)
             let title = row.title.lowercased()
             self.title = title
             self.titleWords = IssueSearch.words(title)
             self.rawDescription = row.description ?? ""
+            if eager {
+                // Assigned once here, the lazy storage is never written again:
+                // concurrent ranks only read it.
+                let description = rawDescription.lowercased()
+                self.description = description
+                self.descriptionWords = IssueSearch.words(description)
+            }
         }
     }
 
-    private static func prepare(_ row: Row) -> Prepared {
+    fileprivate static func prepare(_ row: Row) -> Prepared {
         Prepared(row: row)
     }
 

@@ -5,6 +5,8 @@ import {
   appVersions,
   appRecords,
   apps,
+  comments,
+  issueEvents,
   conversations,
   events,
   issueDrafts,
@@ -32,6 +34,8 @@ import { PROMPT_COLUMNS } from "./prompts"
 import { CONVERSATION_COLUMNS } from "./conversations"
 import { APP_COLUMNS } from "./apps"
 import { APP_VERSION_COLUMNS } from "./app-versions"
+import { COMMENT_COLUMNS } from "./comments"
+import { ISSUE_EVENT_COLUMNS } from "./issue-events"
 import { APP_RECORD_COLUMNS } from "@/routes/api/shapes/app-records"
 
 // A proxy's `columns` allowlist is sent to Electric verbatim: a name the table
@@ -59,6 +63,9 @@ const lists = {
   // VAPP-110
   apps: [APP_COLUMNS, apps],
   app_versions: [APP_VERSION_COLUMNS, appVersions],
+  // #EXP-1383
+  comments: [COMMENT_COLUMNS, comments],
+  issue_events: [ISSUE_EVENT_COLUMNS, issueEvents],
   // VAPP-122
   app_records: [APP_RECORD_COLUMNS, appRecords],
 } as const
@@ -96,6 +103,16 @@ describe(`sessions allowlist`, () => {
     expect(AGENT_COLUMNS).not.toContain(`instructions`)
     expect(AGENT_COLUMNS).not.toContain(`trigger_state`)
     expect(PROMPT_COLUMNS).not.toContain(`body`)
+  })
+  it(`syncs the #EXP-1383 agent columns, never the instructions text`, () => {
+    expect(AGENT_COLUMNS).toContain(`instructions_updated_at`)
+    expect(SESSION_COLUMNS).toContain(`agent_instructions_at`)
+    expect(SESSION_COLUMNS).toContain(`started_by_agent_id`)
+    expect(ISSUE_COLUMNS).toEqual(expect.arrayContaining([`assignee_agent_id`, `creator_agent_id`]))
+    expect(ISSUE_DRAFT_COLUMNS).toContain(`assignee_agent_id`)
+    expect(COMMENT_COLUMNS).toContain(`author_agent_id`)
+    expect(ISSUE_EVENT_COLUMNS).toContain(`actor_agent_id`)
+    expect(ISSUE_EVENT_COLUMNS).not.toContain(`via_mcp`)
   })
   it(`keeps the never-written assignment column the shipped desktop names`, () => {
     expect(SESSION_ISSUE_COLUMNS).toContain(`assigned_session_id`)

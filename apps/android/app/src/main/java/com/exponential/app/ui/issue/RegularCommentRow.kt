@@ -54,7 +54,9 @@ import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.LargeCommentAttachments
 import com.exponential.app.ui.components.PendingAttachmentStrip
+import com.exponential.app.ui.components.AgentAvatar
 import com.exponential.app.ui.components.UserAvatar
+import com.exponential.app.domain.AgentSettings
 import com.exponential.app.ui.components.commentAuthorName
 import com.exponential.app.ui.components.commentCaption
 import com.exponential.app.ui.emoji.EmojiPickerSheet
@@ -93,6 +95,13 @@ internal data class CommentCardActions(
 // EXP-741: the card is the THREAD — its replies sit indented under the body
 // behind one hairline, each with a 20dp avatar, and the "Leave a reply…" row
 // closes every top-level card (it hands the docked composer a reply target).
+/** #EXP-1383: the agent whose session wrote [comment], else null (`issueActor`). */
+internal fun commentAuthorAgent(
+    comment: CommentEntity,
+    agents: List<AgentSettings.AgentRowLike>,
+): AgentSettings.IssueActor.Agent? =
+    AgentSettings.issueActor(comment.authorAgentId, comment.authorId, agents) as? AgentSettings.IssueActor.Agent
+
 @Composable
 internal fun RegularCommentRow(
     comment: CommentEntity,
@@ -115,9 +124,14 @@ internal fun RegularCommentRow(
     mentionMembers: List<MentionMember>,
     reporterName: String? = null,
     canModerate: Boolean = false,
+    /** #EXP-1383: the synced agents an agent author resolves to. */
+    agents: List<AgentSettings.AgentRowLike> = emptyList(),
 ) {
     val author = comment.authorId?.let { usersById[it] }
-    val authorName = commentAuthorName(comment, author, reporterName)
+    // #EXP-1383 (agent-settings.json `actor`): an agent's session wrote it →
+    // the card names the AGENT and wears its mark, never the member's.
+    val authorAgent = commentAuthorAgent(comment, agents)
+    val authorName = authorAgent?.name ?: commentAuthorName(comment, author, reporterName)
     Row(
         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
         verticalAlignment = Alignment.Top,
@@ -138,15 +152,19 @@ internal fun RegularCommentRow(
             // EXP-698 r4: the author's PICTURE when they have one, else their
             // initials on their own hashed hue — the same avatar every other
             // surface draws, not a comment-only glass chip.
-            UserAvatar(
-                user = author,
-                nameOrEmail = authorName,
-                size = 26.dp,
-                // The author row may not have synced (or may have left the
-                // team); the comment still carries the id web/iOS hash, so the
-                // hue stays the same person's everywhere.
-                userId = comment.authorId,
-            )
+            if (authorAgent != null) {
+                AgentAvatar(icon = authorAgent.icon, color = authorAgent.color, size = 26.dp)
+            } else {
+                UserAvatar(
+                    user = author,
+                    nameOrEmail = authorName,
+                    size = 26.dp,
+                    // The author row may not have synced (or may have left the
+                    // team); the comment still carries the id web/iOS hash, so the
+                    // hue stays the same person's everywhere.
+                    userId = comment.authorId,
+                )
+            }
             Box(
                 Modifier
                     .weight(1f)
@@ -188,18 +206,28 @@ internal fun RegularCommentRow(
             replies.forEach { reply ->
                 key(reply.id) {
                     val replyAuthor = reply.authorId?.let { usersById[it] }
-                    val replyAuthorName = commentAuthorName(reply, replyAuthor, reporterName)
+                    val replyAgent = commentAuthorAgent(reply, agents)
+                    val replyAuthorName = replyAgent?.name ?: commentAuthorName(reply, replyAuthor, reporterName)
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                         verticalAlignment = Alignment.Top,
                     ) {
-                        UserAvatar(
-                            user = replyAuthor,
-                            nameOrEmail = replyAuthorName,
-                            size = 20.dp,
-                            userId = reply.authorId,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
+                        if (replyAgent != null) {
+                            AgentAvatar(
+                                icon = replyAgent.icon,
+                                color = replyAgent.color,
+                                size = 20.dp,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                        } else {
+                            UserAvatar(
+                                user = replyAuthor,
+                                nameOrEmail = replyAuthorName,
+                                size = 20.dp,
+                                userId = reply.authorId,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                        }
                         Spacer(Modifier.width(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             CommentCardContent(

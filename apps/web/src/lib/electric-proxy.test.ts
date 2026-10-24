@@ -1,7 +1,12 @@
 import { gunzipSync } from "node:zlib"
 import { ELECTRIC_PROTOCOL_QUERY_PARAMS } from "@electric-sql/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { prepareElectricUrl, proxyElectricRequest } from "@/lib/electric-proxy"
+import {
+  isSafeSubsetSql,
+  prepareElectricUrl,
+  prepareSubsetParams,
+  proxyElectricRequest,
+} from "@/lib/electric-proxy"
 
 // REV-29: the proxy forwards a repo-owned param allowlist, never the
 // dependency's ELECTRIC_PROTOCOL_QUERY_PARAMS — that array grew the
@@ -394,5 +399,61 @@ describe(`snapshot proxy concurrency gate`, () => {
     ])
     expect(failed.status).toBe(502)
     for (const response of rest) expect(response.status).toBe(200)
+  })
+})
+
+// #EXP-1380: an on-demand shape's subset params pass only over its own
+// allowlisted columns, values bound.
+describe(`prepareSubsetParams`, () => {
+  const columns = [`id`, `conversation_id`, `root_id`, `author_kind`, `created_at`]
+  it(`passes TanStack DB's compiled predicates over allowlisted columns`, () => {
+    for (const sql of [
+      `"root_id" = $1`,
+      `"conversation_id" = ANY($1)`,
+      `("conversation_id" = ANY($1)) AND ("author_kind" = $2)`,
+      `true = true`,
+      `"answered_at" IS NOT NULL`.replace(`answered_at`, `created_at`),
+      `NOT ("root_id" = $1) OR "created_at" >= $2`,
+      `"created_at" DESC NULLS LAST,"id" ASC`,
+    ])
+      expect(isSafeSubsetSql(sql, columns)).toBe(true)
+  })
+  it(`refuses hidden columns, literals, functions, casts and comments`, () => {
+    for (const sql of [
+      `"owner_id" = $1`,
+      `"root_id" = 'x'`,
+      `lower("root_id") = $1`,
+      `"root_id" = $1::text`,
+      `"root_id" = $1 -- x`,
+      `"root_id" = $1; DROP TABLE messages`,
+      `owner_id = $1`,
+      `"root_id" = 1`,
+    ])
+      expect(isSafeSubsetSql(sql, columns)).toBe(false)
+  })
+  it(`forwards the validated params and drops the *_expr forms`, () => {
+    const query = new URLSearchParams({
+      subset__where: `"root_id" = $1`,
+      subset__params: `{"1":"abc"}`,
+      subset__order_by: `"created_at" DESC`,
+      subset__limit: `100`,
+      subset__where_expr: `x`,
+      offset: `-1`,
+    })
+    expect(prepareSubsetParams(`http://x/api/shapes/messages?${query}`, columns)).toEqual({
+      subset__where: `"root_id" = $1`,
+      subset__params: `{"1":"abc"}`,
+      subset__order_by: `"created_at" DESC`,
+      subset__limit: `100`,
+    })
+    expect(prepareSubsetParams(`http://x/api/shapes/messages?offset=-1`, columns)).toEqual({})
+  })
+  it(`refuses a bad predicate, limit or params`, () => {
+    const bad = (params: Record<string, string>) =>
+      prepareSubsetParams(`http://x/api/shapes/messages?${new URLSearchParams(params)}`, columns)
+    expect(bad({ subset__where: `"owner_id" = $1` })).toBeNull()
+    expect(bad({ subset__limit: `-1` })).toBeNull()
+    expect(bad({ subset__params: `[1]` })).toBeNull()
+    expect(bad({ subset__params: `nope` })).toBeNull()
   })
 })

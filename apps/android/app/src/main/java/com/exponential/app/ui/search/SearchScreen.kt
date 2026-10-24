@@ -52,8 +52,9 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 
 /**
- * Search: a pure cross-board search — instant local matching over identifier +
- * title, augmented by the server's full-text search. Assigned issues no longer
+ * Search: the ACTIVE team's issues (#EXP-1382, every board of that team) —
+ * local matching ranked off the UI thread, augmented by ONE server full-text
+ * search scoped to the team. Assigned issues no longer
  * live here (EXP-58): they moved to the "My Work" tab (PersonalScreen)
  * alongside the inbox.
  *
@@ -110,7 +111,7 @@ fun SearchScreen(
             // Android (web `lib/issue-search.ts`; `issue-search-surfaces.test.ts` greps this file).
             when {
                 state.query.isEmpty() -> EmptyState(
-                    title = "Search issues across all your boards.",
+                    title = "Search issues across this team's boards.",
                     description = "Matches identifiers, titles, and full text.",
                     icon = ExpIcons.navSearch,
                 )

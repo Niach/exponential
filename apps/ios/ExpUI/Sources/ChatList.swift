@@ -219,46 +219,9 @@ public struct AgentBubbles: View {
     }
 }
 
-/// The Chats header's trailing circle (search, the inbox with its dot).
-public struct ChatsHeaderCircle: View {
-    let icon: String
-    let dot: Bool
-    let label: String
-    let action: () -> Void
-
-    public init(icon: String, dot: Bool = false, label: String, action: @escaping () -> Void) {
-        self.icon = icon
-        self.dot = dot
-        self.label = label
-        self.action = action
-    }
-
-    public var body: some View {
-        Button(action: action) {
-            AppIcon(icon, size: AppIcon.Size.large)
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .background(GlassTokens.opaqueCardFill, in: Circle())
-                .overlay(Circle().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline))
-                .overlay(alignment: .topTrailing) {
-                    if dot {
-                        Circle()
-                            .fill(DesignTokens.Semantic.blue)
-                            .frame(width: 10, height: 10)
-                            .offset(x: -3, y: 3)
-                    }
-                }
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-    }
-}
-
 public extension View {
-    /// EXP-1373: a toolbar item that paints its OWN chrome (the board
-    /// switcher pill, the chat header's title block, the Chats header
-    /// circles) opts out of iOS 26's shared Liquid Glass item background.
+    /// EXP-1373: a toolbar item that paints its OWN chrome (the chat
+    /// header's title block) opts out of iOS 26's shared Liquid Glass item background.
     /// The availability check lives in a VIEW builder, never inside a
     /// `ToolbarContentBuilder`: the toolbar builder's limited-availability
     /// symbol does not exist below iOS 26 and the app links against 17.4.

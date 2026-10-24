@@ -18,9 +18,11 @@ object MainTabs {
     /** The Agent tab — the stack root and launch landing (the launcher's
      *  Chat arm). */
     const val AGENT = "agent-tab"
-    /** Thread 58cb32df (chats.json `shell.tabs`): Board · Devices · Chats · Team. */
+    /** #EXP-1384 (chats.json `shell.tabs`): Board · Chats · Apps · Team
+     *  (Devices left the bar: a row on the Team page, pushed). */
     const val ISSUES = "home"
-    const val DEVICES = "agents"
+    /** The Apps tab: the team's apps list (`Routes.APPS`). */
+    const val APPS = "apps"
     /** The Chats tab (EXP-1291's Threads tab, renamed). */
     const val THREADS = "threads"
     /** The Team tab: the active team, the team switch, the settings rows. */
@@ -29,7 +31,7 @@ object MainTabs {
      *  circle pushes it), no longer a tab root. */
     const val INBOX = "personal"
 
-    val routes: Set<String> = setOf(AGENT, ISSUES, DEVICES, THREADS, TEAM)
+    val routes: Set<String> = setOf(AGENT, ISSUES, THREADS, APPS, TEAM)
 
     /**
      * The tab whose stack is up, given which tab roots are [onStack]: the

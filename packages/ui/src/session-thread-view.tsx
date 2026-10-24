@@ -65,6 +65,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
 import { UserMessageBubble } from "./user-message-bubble"
 import { CHAT_BUBBLE_ENTER_CLASS, ChatBubble, SurfaceCard, TranscriptDivider, useLiveArrivals } from "./surface-card"
 import { Spinner } from "./feedback"
+import { StableRow } from "./transcript-window"
 import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 
 // EXP-1293 Threads v2: the THREAD screen's presentational parts ×web (the
@@ -818,185 +819,216 @@ export interface ThreadConversationProps {
 /** EXP-1317: the queued row's X (tooltip + accessible name). */
 export const THREAD_UNQUEUE_LABEL = `Remove from queue`
 
-export function ThreadConversation({
-  rows,
-  renderText,
-  messageCaption,
-  attachmentSrc,
-  onOpenSession,
-  onAnswer,
-  onDecide,
-  pending,
-  docked,
-  viewerId,
-  onUnqueue,
-  suggestions,
-  renderIssueRef,
-  tail,
-  layout = `transcript`,
-  messageTime,
-  onSurfaceReply,
-  arrived,
-  className,
-}: ThreadConversationProps) {
+export function ThreadConversation(props: ThreadConversationProps) {
+  const {
+    rows,
+    renderText,
+    messageCaption,
+    attachmentSrc,
+    onOpenSession,
+    onAnswer,
+    onDecide,
+    pending,
+    docked,
+    viewerId,
+    onUnqueue,
+    suggestions,
+    renderIssueRef,
+    tail,
+    layout = `transcript`,
+    messageTime,
+    onSurfaceReply,
+    arrived,
+    className,
+  } = props
+  // #EXP-1380 (chats.json PERF): rows render once per change of their own
+  // data (`StableRow`); the callbacks a skipped row holds read the latest
+  // props through this ref.
+  const latest = useRef(props)
+  latest.current = props
   const ownArrivals = useLiveArrivals(rows.map((row) => row.id))
   const isLive = arrived ?? ownArrivals
   const bubbles = layout === `bubbles`
+  const renderRow = (row: ThreadRow): ReactNode => {
+    // FEED-140: a waiting plan / question never leaves the conversation.
+    if (docked?.has(row.id) && row.type !== `plan` && row.type !== `question`) return null
+    const enter = bubbles && isLive(row.id) ? CHAT_BUBBLE_ENTER_CLASS : undefined
+    switch (row.type) {
+      case `message`:
+        if (row.author === `user`) {
+          const own = row.queued && onUnqueue && viewerId && row.authorId === viewerId
+          return (
+            <UserMessageBubble
+              key={row.id}
+              text={row.body}
+              renderText={renderText}
+              variant={bubbles ? `chat` : `transcript`}
+              time={bubbles ? (messageTime?.(row) ?? null) : null}
+              caption={bubbles ? (row.queued ? `queued` : null) : (messageCaption?.(row) ?? null)}
+              action={own ? <UnqueueButton onClick={() => latest.current.onUnqueue?.(row.id)} /> : undefined}
+              className={enter}
+            />
+          )
+        }
+        if (row.author === `system`) {
+          return (
+            <div
+              key={row.id}
+              data-slot="thread-system"
+              className="text-xs text-muted-foreground"
+            >
+              {row.body}
+            </div>
+          )
+        }
+        if (bubbles) {
+          return (
+            <ChatBubble key={row.id} time={messageTime?.(row) ?? null} className={enter}>
+              {renderText(row.body)}
+            </ChatBubble>
+          )
+        }
+        return (
+          <div key={row.id} data-slot="thread-agent" className="text-sm text-foreground">
+            {renderText(row.body)}
+          </div>
+        )
+      case `divider`:
+        return <TranscriptDivider key={row.id} kind={row.kind} at={row.at} className={enter} />
+      case `surface`:
+        return (
+          <SurfaceCard
+            key={row.id}
+            surface={row.surface}
+            title={row.title}
+            testKey={row.id}
+            onReply={onSurfaceReply ? (text) => latest.current.onSurfaceReply?.(text) : undefined}
+            animate={isLive(row.id)}
+            className={bubbles ? `max-w-[94%]` : undefined}
+          />
+        )
+      case `session`:
+        return (
+          <SessionCard
+            key={row.id}
+            card={row.card}
+            onOpen={onOpenSession ? () => latest.current.onOpenSession?.(row.card.sessionId) : undefined}
+          />
+        )
+      case `question`:
+        return (
+          <ThreadQuestionCard
+            key={row.id}
+            row={row}
+            renderText={renderText}
+            attachmentSrc={attachmentSrc}
+            busy={pending?.has(row.id) ?? false}
+            onAnswer={onAnswer ? (input) => latest.current.onAnswer?.(row.id, input) : undefined}
+          />
+        )
+      case `plan`:
+        return (
+          <ThreadPlanCard
+            key={row.id}
+            row={row}
+            renderText={renderText}
+            attachmentSrc={attachmentSrc}
+            busy={pending?.has(row.id) ?? false}
+            onDecide={onDecide ? (input) => latest.current.onDecide?.(row.id, input) : undefined}
+          />
+        )
+      case `subagent`:
+        return (
+          <div
+            key={row.id}
+            data-slot="thread-subagent"
+            className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
+          >
+            <SubagentIcon className="size-3.5 shrink-0" />
+            <span className="min-w-0 truncate">{row.title}</span>
+            {row.status && <span className="shrink-0">{row.status}</span>}
+          </div>
+        )
+      case `picture`:
+        return (
+          <figure key={row.id} data-slot="thread-picture" className="flex flex-col gap-1">
+            <img
+              src={attachmentSrc(row.attachmentId)}
+              alt={row.caption ?? ``}
+              width={row.width ?? undefined}
+              height={row.height ?? undefined}
+              loading="lazy"
+              className="h-auto max-h-96 w-auto max-w-full rounded-lg border border-glass-stroke-card object-contain"
+            />
+            {row.caption && (
+              <figcaption className="text-xs text-muted-foreground">{row.caption}</figcaption>
+            )}
+          </figure>
+        )
+      case `event`:
+        return (
+          <div
+            key={row.id}
+            data-slot="thread-event"
+            data-event={row.event}
+            className="text-xs text-muted-foreground"
+          >
+            {row.text}
+          </div>
+        )
+      case `report`:
+        return (
+          <ThreadReportLine
+            key={row.id}
+            text={row.text}
+            onOpen={onOpenSession ? () => latest.current.onOpenSession?.(row.sessionId) : undefined}
+          />
+        )
+      case `suggestions`:
+        return (
+          <ThreadSuggestionsCard
+            key={row.id}
+            row={row}
+            actions={suggestions}
+            onOpenSession={onOpenSession ? (id) => latest.current.onOpenSession?.(id) : undefined}
+            renderIssueRef={renderIssueRef}
+          />
+        )
+      default:
+        return null
+    }
+  }
   return (
     <div
       data-testid="thread-conversation"
       data-layout={layout}
       className={cn(`flex flex-col`, bubbles ? `gap-2.5` : `gap-4`, className)}
     >
-      {rows.map((row) => {
-        // FEED-140: a waiting plan / question never leaves the conversation.
-        if (docked?.has(row.id) && row.type !== `plan` && row.type !== `question`) return null
-        const enter = bubbles && isLive(row.id) ? CHAT_BUBBLE_ENTER_CLASS : undefined
-        switch (row.type) {
-          case `message`:
-            if (row.author === `user`) {
-              const own = row.queued && onUnqueue && viewerId && row.authorId === viewerId
-              return (
-                <UserMessageBubble
-                  key={row.id}
-                  text={row.body}
-                  renderText={renderText}
-                  variant={bubbles ? `chat` : `transcript`}
-                  time={bubbles ? (messageTime?.(row) ?? null) : null}
-                  caption={bubbles ? (row.queued ? `queued` : null) : (messageCaption?.(row) ?? null)}
-                  action={own ? <UnqueueButton onClick={() => onUnqueue(row.id)} /> : undefined}
-                  className={enter}
-                />
-              )
-            }
-            if (row.author === `system`) {
-              return (
-                <div
-                  key={row.id}
-                  data-slot="thread-system"
-                  className="text-xs text-muted-foreground"
-                >
-                  {row.body}
-                </div>
-              )
-            }
-            if (bubbles) {
-              return (
-                <ChatBubble key={row.id} time={messageTime?.(row) ?? null} className={enter}>
-                  {renderText(row.body)}
-                </ChatBubble>
-              )
-            }
-            return (
-              <div key={row.id} data-slot="thread-agent" className="text-sm text-foreground">
-                {renderText(row.body)}
-              </div>
-            )
-          case `divider`:
-            return <TranscriptDivider key={row.id} kind={row.kind} at={row.at} className={enter} />
-          case `surface`:
-            return (
-              <SurfaceCard
-                key={row.id}
-                surface={row.surface}
-                title={row.title}
-                testKey={row.id}
-                onReply={onSurfaceReply}
-                animate={isLive(row.id)}
-                className={bubbles ? `max-w-[94%]` : undefined}
-              />
-            )
-          case `session`:
-            return (
-              <SessionCard
-                key={row.id}
-                card={row.card}
-                onOpen={onOpenSession ? () => onOpenSession(row.card.sessionId) : undefined}
-              />
-            )
-          case `question`:
-            return (
-              <ThreadQuestionCard
-                key={row.id}
-                row={row}
-                renderText={renderText}
-                attachmentSrc={attachmentSrc}
-                busy={pending?.has(row.id) ?? false}
-                onAnswer={onAnswer ? (input) => onAnswer(row.id, input) : undefined}
-              />
-            )
-          case `plan`:
-            return (
-              <ThreadPlanCard
-                key={row.id}
-                row={row}
-                renderText={renderText}
-                attachmentSrc={attachmentSrc}
-                busy={pending?.has(row.id) ?? false}
-                onDecide={onDecide ? (input) => onDecide(row.id, input) : undefined}
-              />
-            )
-          case `subagent`:
-            return (
-              <div
-                key={row.id}
-                data-slot="thread-subagent"
-                className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
-              >
-                <SubagentIcon className="size-3.5 shrink-0" />
-                <span className="min-w-0 truncate">{row.title}</span>
-                {row.status && <span className="shrink-0">{row.status}</span>}
-              </div>
-            )
-          case `picture`:
-            return (
-              <figure key={row.id} data-slot="thread-picture" className="flex flex-col gap-1">
-                <img
-                  src={attachmentSrc(row.attachmentId)}
-                  alt={row.caption ?? ``}
-                  width={row.width ?? undefined}
-                  height={row.height ?? undefined}
-                  loading="lazy"
-                  className="h-auto max-h-96 w-auto max-w-full rounded-lg border border-glass-stroke-card object-contain"
-                />
-                {row.caption && (
-                  <figcaption className="text-xs text-muted-foreground">{row.caption}</figcaption>
-                )}
-              </figure>
-            )
-          case `event`:
-            return (
-              <div
-                key={row.id}
-                data-slot="thread-event"
-                data-event={row.event}
-                className="text-xs text-muted-foreground"
-              >
-                {row.text}
-              </div>
-            )
-          case `report`:
-            return (
-              <ThreadReportLine
-                key={row.id}
-                text={row.text}
-                onOpen={onOpenSession ? () => onOpenSession(row.sessionId) : undefined}
-              />
-            )
-          case `suggestions`:
-            return (
-              <ThreadSuggestionsCard
-                key={row.id}
-                row={row}
-                actions={suggestions}
-                onOpenSession={onOpenSession}
-                renderIssueRef={renderIssueRef}
-              />
-            )
-          default:
-            return null
-        }
-      })}
+      {rows.map((row) => (
+        <StableRow
+          key={row.id}
+          row={row}
+          render={renderRow}
+          deps={[
+            bubbles,
+            isLive(row.id),
+            docked?.has(row.id) ?? false,
+            pending?.has(row.id) ?? false,
+            row.type === `message` ? (messageCaption?.(row) ?? null) : null,
+            row.type === `message` ? (messageTime?.(row) ?? null) : null,
+            viewerId ?? null,
+            !onUnqueue,
+            !onAnswer,
+            !onDecide,
+            !onOpenSession,
+            !onSurfaceReply,
+            renderText,
+            attachmentSrc,
+            row.type === `suggestions` ? suggestions : null,
+            row.type === `suggestions` ? renderIssueRef : null,
+          ]}
+        />
+      ))}
       {tail}
     </div>
   )

@@ -1,6 +1,5 @@
 package com.exponential.app.ui.threads
 
-import com.exponential.app.data.db.keyedMessages
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.auth.AuthRepository
@@ -68,7 +67,21 @@ class ThreadsViewModel @Inject constructor(
         sessions,
         dbFlow.scopedQuery(emptyList()) { it.sessionIssueDao().observeAll() }.map { it.map(SessionTree::sessionIssue) },
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }.map { it.map(SessionTree::issue) },
-        dbFlow.scopedQuery(emptyList()) { it.keyedMessages(it.messageDao().observeAll()) },
+        // #EXP-1380 / thread e4a04d22: the ACTIVE team's conversation
+        // DIGESTS, never its messages — every list row, preview, unread count
+        // and bubble ring reads the server-kept digest turned back into
+        // messages (`Chats.digestMessages`, chats.json `digestCases`), so no
+        // transcript loads here and a new message re-reads one row.
+        activeTeam.flatMapLatest { team ->
+            dbFlow.scopedQuery(emptyList()) {
+                if (team == null) it.conversationDao().observeAll() else it.conversationDao().observeByTeam(team)
+            }
+        }.map { rows ->
+            rows.flatMap { row ->
+                val session = row.sessionId ?: return@flatMap emptyList()
+                Chats.digestMessages(session, Chats.parseDigest(row.digest))
+            }
+        },
         // EXP-1323: the viewer's read marks (bold rows + the nav dot).
         dbFlow.scopedQuery(emptyList()) { it.sessionReadDao().observeAll() }.map { it.map(SessionTree::sessionRead) },
     ) { s, links, issues, messages, reads -> Inputs(s, links, issues, messages, reads) }

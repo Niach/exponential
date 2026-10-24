@@ -191,6 +191,16 @@ class IssueListViewModel @Inject constructor(
             else db.userDao().observeByTeam(board.teamId)
         }
 
+    /** #EXP-1383: the board team's agents: agent assignees on the rows and
+     *  the bulk assignee picker's rows after the members. */
+    val teamAgents: StateFlow<List<com.exponential.app.data.db.AgentDefinitionEntity>> =
+        combine(dbFlow, _board) { db, board -> db to board }
+            .flatMapLatest { (db, board) ->
+                if (db == null || board == null) flowOf(emptyList())
+                else db.agentDefinitionDao().observeByTeam(board.teamId)
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // EXP-50: the target team's lone member when it has exactly one — else
     // null. A solo team hides the assignee picker and defaults new issues to
     // that member (the server default-assigns anyway; the UI just stops
@@ -478,16 +488,19 @@ class IssueListViewModel @Inject constructor(
         }
     }
 
-    /** Bulk (re)assignment from the selection bar (EXP-247). null = unassign. */
-    fun bulkUpdateAssignee(issueIds: Collection<String>, assigneeId: String?) {
+    /** Bulk (re)assignment from the selection bar (EXP-247). NONE = unassign;
+     *  #EXP-1383: an agent clears the person and vice versa. */
+    fun bulkUpdateAssignee(issueIds: Collection<String>, assignee: com.exponential.app.domain.AgentSettings.Assignee) {
+        val next = assignee.write()
         runBulk(issueIds, "change", "the assignee") { accountId, ids ->
-            // clearAssignee sends an explicit JSON null — without it the
-            // shared Json omits the key and "Unassigned" is a silent no-op.
+            // clearAssignee sends explicit JSON nulls — without it the
+            // shared Json omits the keys and "Unassigned" is a silent no-op.
             issuesApi.bulkUpdate(
                 accountId,
                 ids,
-                assigneeId = assigneeId,
-                clearAssignee = assigneeId == null,
+                assigneeId = next.userId,
+                clearAssignee = next.isEmpty,
+                assigneeAgentId = next.agentId,
             )
         }
     }

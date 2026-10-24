@@ -26,7 +26,12 @@ data class UpsertIssueDraftInput(
     @SerialName("statusId") val statusId: String? = null,
     val priority: String? = null,
     @SerialName("assigneeId") val assigneeId: String? = null,
-    @SerialName("labelIds") val labelIds: List<String> = emptyList(),
+    /** #EXP-1383: a team AGENT as the assignee (exclusive with
+     *  [assigneeId]). ALWAYS on the wire: an absent key keeps the row's
+     *  agent, so `Unassigned` / a person must clear it with an explicit
+     *  JSON null ([JsonNull], which the shared Json never drops). */
+    @SerialName("assigneeAgentId") val assigneeAgentId: kotlinx.serialization.json.JsonElement =
+        kotlinx.serialization.json.JsonNull, val labelIds: List<String> = emptyList(),
     /** `YYYY-MM-DD`, or omitted for no due date. */
     @SerialName("dueDate") val dueDate: String? = null,
     /** EXP-1291: the thread root session the issue files into (wire

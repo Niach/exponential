@@ -8,6 +8,7 @@ import { jsonResponse } from "@/lib/mcp/helpers"
 import { createExponentialMcpServer } from "@/lib/mcp/server"
 import { resolveMcpToolGates } from "@/lib/mcp/gates"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
+import { confineMcpAccessToActingSession } from "@/lib/sessions/acting"
 import {
   FULL_ACCESS,
   resolveMcpAccessForGrant,
@@ -36,11 +37,18 @@ const methodNotAllowed = () =>
 async function resolveMcpRequest(
   request: Request
 ): Promise<{ userId: string; access: McpAccess } | null> {
-  const { session, keyScope } = await resolveMcpCredential(request)
+  const { session, keyScope, keyKind } = await resolveMcpCredential(request)
   if (session?.user) {
     const userId = session.user.id
     if (!keyScope) return { userId, access: FULL_ACCESS }
-    return { userId, access: await resolveMcpAccessForGrant(keyScope, `apiKey`) }
+    // #EXP-1383: a team agent's key (one team) words its denials as such.
+    return {
+      userId,
+      access: await resolveMcpAccessForGrant(
+        keyScope,
+        keyKind === `agent` ? `agent` : `apiKey`
+      ),
+    }
   }
 
   const authz = request.headers.get(`authorization`)
@@ -93,12 +101,23 @@ async function handle(request: Request) {
 
   // EXP-637: parsed once per request; ownership is enforced per tool.
   const sessionId = parseMcpSessionHeader(request)
+  // #EXP-1383 (defense in depth behind the team agent's scoped key): a
+  // request speaking for an AGENT-tree session of the caller's (its root has
+  // `agent_id`) is confined to that session's team, whatever credential
+  // carried it. A foreign session id changes nothing (the header grants
+  // nothing on its own).
+  const access = await confineMcpAccessToActingSession(
+    resolved.access,
+    request,
+    user.id,
+    sessionId
+  )
   // EXP-660: which conditional tool families this caller gets to see.
-  const gates = await resolveMcpToolGates(user.id, resolved.access, sessionId)
+  const gates = await resolveMcpToolGates(user.id, access, sessionId)
   const server = createExponentialMcpServer(
     user,
     request,
-    resolved.access,
+    access,
     sessionId,
     gates
   )

@@ -114,4 +114,105 @@ final class AgentSettingsTests: XCTestCase {
             XCTAssertEqual(value == nil, expected == nil, name)
         }
     }
+
+    /// #EXP-1383 `actor.actorCases`.
+    func testIssueActorReplaysEveryCase() throws {
+        let actor = try XCTUnwrap(try fixture()["actor"] as? [String: Any])
+        let cases = try XCTUnwrap(actor["actorCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let agents = try XCTUnwrap(testCase["agents"] as? [[String: Any]]).map { row in
+                AgentSettings.ActorAgent(
+                    id: row["id"] as? String ?? "",
+                    name: row["name"] as? String ?? "",
+                    icon: row["icon"] as? String,
+                    color: row["color"] as? String
+                )
+            }
+            let got = AgentSettings.issueActor(
+                actorAgentId: input["actorAgentId"] as? String,
+                actorUserId: input["actorUserId"] as? String,
+                agents: agents
+            )
+            let expected: AgentSettings.IssueActor? = (testCase["expected"] as? [String: Any]).map { row in
+                if row["kind"] as? String == "agent" {
+                    return .agent(AgentSettings.ActorAgent(
+                        id: row["id"] as? String ?? "",
+                        name: row["name"] as? String ?? "",
+                        icon: row["icon"] as? String,
+                        color: row["color"] as? String
+                    ))
+                }
+                return .user(id: row["id"] as? String ?? "")
+            }
+            XCTAssertEqual(got, expected, name)
+        }
+    }
+
+    /// #EXP-1383 `assignee.optionCases` + `assignee.copy`.
+    func testAssigneeOptionsReplayEveryCase() throws {
+        let assignee = try XCTUnwrap(try fixture()["assignee"] as? [String: Any])
+        let copy = try XCTUnwrap(assignee["copy"] as? [String: String])
+        XCTAssertEqual(copy, [
+            "unassigned": AgentSettings.AssigneeCopy.unassigned,
+            "nudge": AgentSettings.AssigneeCopy.nudge,
+        ])
+        let cases = try XCTUnwrap(assignee["optionCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let members = try XCTUnwrap(input["members"] as? [[String: Any]]).compactMap { $0["id"] as? String }
+            let agents = try XCTUnwrap(input["agents"] as? [[String: Any]]).map { row in
+                AgentSettings.AssigneeAgentOption(
+                    id: row["id"] as? String ?? "",
+                    name: row["name"] as? String ?? "",
+                    sortOrder: (row["sortOrder"] as? NSNumber)?.doubleValue ?? 0
+                )
+            }
+            XCTAssertEqual(
+                AgentSettings.assigneeOptions(memberIds: members, agents: agents),
+                testCase["expected"] as? [String],
+                name
+            )
+        }
+    }
+
+    /// The two-column write and the ONE picker value.
+    func testIssueAssigneeWrites() {
+        XCTAssertEqual(IssueAssignee(assigneeId: "U1", assigneeAgentId: "G1"), .agent("G1"))
+        XCTAssertEqual(IssueAssignee(pickerValue: "agent:G1").assigneeAgentId, "G1")
+        XCTAssertNil(IssueAssignee(pickerValue: "agent:G1").assigneeId)
+        XCTAssertEqual(IssueAssignee(pickerValue: "U1"), .user("U1"))
+        XCTAssertTrue(IssueAssignee(pickerValue: "").isUnassigned)
+        XCTAssertEqual(IssueAssignee.agent("G1").pickerValue, "agent:G1")
+        XCTAssertEqual(IssueAssignee.user("U1").pickerValue, "U1")
+        XCTAssertEqual(IssueAssignee.unassigned.pickerValue, "")
+        XCTAssertTrue(AgentSettings.showsAssignee(memberCount: 1, agentCount: 1))
+        XCTAssertFalse(AgentSettings.showsAssignee(memberCount: 1, agentCount: 0))
+        XCTAssertTrue(AgentSettings.showsAssignee(memberCount: 2, agentCount: 0))
+    }
+
+    /// The wire: both columns ride every assignee write, the cleared one null.
+    func testAssigneeWritesSendBothColumns() throws {
+        func json<T: Encodable>(_ value: T) throws -> [String: Any] {
+            try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) as? [String: Any])
+        }
+        let agent = try json(UpdateIssueInput(id: "i", assignee: .agent("G1")))
+        XCTAssertEqual(agent["assigneeAgentId"] as? String, "G1")
+        XCTAssertTrue(agent["assigneeId"] is NSNull)
+        let person = try json(UpdateIssueInput(id: "i", assignee: .user("U1")))
+        XCTAssertEqual(person["assigneeId"] as? String, "U1")
+        XCTAssertTrue(person["assigneeAgentId"] is NSNull)
+        let bulk = try json(BulkUpdateIssuesInput(ids: ["i"], assignee: .unassigned))
+        XCTAssertTrue(bulk["assigneeId"] is NSNull)
+        XCTAssertTrue(bulk["assigneeAgentId"] is NSNull)
+        let draft = try json(UpsertIssueDraftInput(
+            id: "d", teamId: "t", boardId: "b", title: "", description: "", assigneeId: "U1"
+        ))
+        XCTAssertEqual(draft["assigneeId"] as? String, "U1")
+        XCTAssertTrue(draft["assigneeAgentId"] is NSNull)
+    }
 }

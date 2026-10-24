@@ -1,5 +1,6 @@
 import ExpCore
 import ExpUI
+import GRDB
 import SwiftUI
 
 /// What an agent-markdown render needs to fetch the images it embeds: the
@@ -27,6 +28,52 @@ struct AgentIssueRefContext {
     /// Off for an uploaded markdown file: only `#IDENT` chips there, as on
     /// the web; agent narration keeps the bare form.
     var bareRefs = true
+    /// The team's members, so a chat's `@email` renders as the comments'
+    /// round name pill (`ChatMentionMembers`); an unresolved address stays
+    /// text. Empty = no pills.
+    var mentionMembers: [MentionMember] = []
+
+    /// Part of the prototype cache key and the row's re-adopt trigger: the
+    /// pill pass bakes the resolved NAMES into the model.
+    var mentionKey: String { ChatMentionMembers.fingerprint(mentionMembers) }
+}
+
+/// The `@` vocabulary of a chat surface, read synchronously off the two
+/// synced tables (both whole and small) and memoized per account × team for
+/// a few seconds, exactly like `IssueRefChipCache`: a feed re-renders every
+/// row on each emission, and they all share one read.
+@MainActor
+enum ChatMentionMembers {
+    private struct Key: Hashable {
+        let accountId: String
+        let teamId: String
+    }
+
+    private static var entries: [Key: (value: [MentionMember], at: Date)] = [:]
+    private static let ttl: TimeInterval = 5
+
+    static func members(teamId: String, db: DatabaseManager, accountId: String) -> [MentionMember] {
+        let key = Key(accountId: accountId, teamId: teamId)
+        let now = Date()
+        if let hit = entries[key], now.timeIntervalSince(hit.at) < ttl { return hit.value }
+        let users = (try? db.pool(forAccountId: accountId).read { db -> [UserEntity] in
+            let memberIds = try TeamMemberEntity
+                .filter(Column("team_id") == teamId)
+                .fetchAll(db)
+                .map(\.userId)
+            return try UserEntity.filter(keys: memberIds).fetchAll(db)
+        }) ?? []
+        let value = users
+            .map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
+            .sorted { $0.email < $1.email }
+        if entries.count >= 64 { entries.removeAll(keepingCapacity: true) }
+        entries[key] = (value, now)
+        return value
+    }
+
+    nonisolated static func fingerprint(_ members: [MentionMember]) -> String {
+        members.isEmpty ? "" : members.map { "\($0.email)=\($0.name)" }.joined(separator: ",")
+    }
 }
 
 /// Read-only GFM render of agent-authored prose (plan bodies, question
@@ -155,6 +202,7 @@ struct AgentMarkdownText: View {
         let db = refs.db
         model.isDisplayOnly = true
         model.bareIssueRefs = refs.bareRefs
+        model.mentionMembers = refs.mentionMembers
         model.issueRefResolver = { identifier in
             IssueRefChipCache.chip(identifier, scope: scope, db: db, accountId: accountId)?
                 .issueId
@@ -206,7 +254,7 @@ struct AgentMarkdownText: View {
         let accountId = context?.accountId ?? ""
         let key = cacheKey(
             text: text, baseURL: context?.baseURL, options: options, overrides: overrides,
-            refsKey: refs.map { "\(accountId)/\($0.teamId)/\($0.bareRefs)" } ?? ""
+            refsKey: refs.map { "\(accountId)/\($0.teamId)/\($0.bareRefs)/\($0.mentionKey)" } ?? ""
         )
         if let cached = cache.object(forKey: key) { return cached }
         let model = IssueEditorModel()
@@ -246,6 +294,13 @@ struct AgentMarkdownText: View {
             ))
         }
         .onChange(of: dynamicTypeSize) { _, _ in
+            displayModel.adoptDisplayBlocks(from: Self.prototype(
+                text, context: context, options: options, overrides: overrides
+            ))
+        }
+        // Members syncing in after the row rendered: re-adopt the pilled parse.
+        .onChange(of: context?.issueRefs?.mentionKey ?? "") { _, _ in
+            displayModel.mentionMembers = context?.issueRefs?.mentionMembers ?? []
             displayModel.adoptDisplayBlocks(from: Self.prototype(
                 text, context: context, options: options, overrides: overrides
             ))

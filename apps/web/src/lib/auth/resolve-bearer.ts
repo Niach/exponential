@@ -9,6 +9,7 @@ import {
 import { authDbFailureCount } from "@/lib/auth/db-failure-signal"
 import {
   apiKeySessionMetadata,
+  type ApiKeyKind,
   type ApiKeyScope,
 } from "@/lib/auth/api-key-kind"
 import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
@@ -21,6 +22,9 @@ export interface ResolvedCredential {
   session: Session
   /** Non-null only behind a scoped personal key (lib/auth/api-key-kind.ts). */
   keyScope: ApiKeyScope | null
+  /** #EXP-1383: the kind of the `expu_` key behind the request (null = a
+   *  cookie/bearer session): a team agent's scoped key reads `agent`. */
+  keyKind?: ApiKeyKind | null
 }
 
 // REV2-7: short-TTL cache for TOKEN-credentialed sessions only. The cookie
@@ -112,7 +116,7 @@ async function resolveCredentialCore(
   if (!authorization && !apiKey) {
     // Cookie-only: never an api key (the plugin reads only the two token
     // headers), so no scope probe and no caching — cookieCache covers it.
-    return { session: await getSessionBearerOnly(request), keyScope: null }
+    return { session: await getSessionBearerOnly(request), keyScope: null, keyKind: null }
   }
   const cacheKey = createHash(`sha256`)
     .update(`${authorization ?? ``}\0${apiKey ?? ``}`)
@@ -120,7 +124,7 @@ async function resolveCredentialCore(
   return sessionCache.get(cacheKey, async () => {
     const session = await getSessionBearerOnly(request)
     if (!session?.user || !carriesApiKey(authorization, apiKey)) {
-      return { session, keyScope: null }
+      return { session, keyScope: null, keyKind: null }
     }
     let metadata
     try {
@@ -130,7 +134,11 @@ async function resolveCredentialCore(
         cause: err,
       })
     }
-    return { session, keyScope: metadata?.scope ?? null }
+    return {
+      session,
+      keyScope: metadata?.scope ?? null,
+      keyKind: metadata?.kind ?? null,
+    }
   })
 }
 

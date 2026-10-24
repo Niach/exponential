@@ -204,9 +204,18 @@ public enum MarkdownChipDecorator {
         _ attrs: [NSAttributedString.Key: Any]
     ) -> [NSAttributedString.Key: Any] {
         guard attrs[.markdownChip] != nil || attrs[.attachment] != nil
-            || attrs[.markdownThematicBreak] != nil else { return attrs }
+            || attrs[.markdownThematicBreak] != nil || attrs[.markdownMentionLead] != nil else { return attrs }
         var out = attrs
+        if out[.markdownMentionLead] != nil, out[.markdownChip] == nil {
+            // Only the pill's leading pad rides on this character.
+            out[.markdownMentionLead] = nil
+            out[.kern] = nil
+            return out
+        }
         let base = out[.markdownChipBaseColor] as? PlatformColor
+        if let font = out[.markdownChipBaseFont] as? PlatformFont { out[.font] = font }
+        out[.markdownChipBaseFont] = nil
+        out[.markdownMentionLead] = nil
         out[.markdownChip] = nil
         out[.markdownThematicBreak] = nil
         out[.markdownChipBaseColor] = nil
@@ -326,17 +335,33 @@ public enum MarkdownChipDecorator {
 
     private static func unchip(_ attributed: NSAttributedString) -> NSAttributedString {
         var ranges: [(NSRange, PlatformColor?)] = []
+        var leads: [NSRange] = []
+        let full = NSRange(location: 0, length: attributed.length)
         attributed.enumerateAttribute(
             .markdownChip,
-            in: NSRange(location: 0, length: attributed.length),
+            in: full,
             options: []
         ) { value, range, _ in
             guard value != nil else { return }
             let base = attributed.attribute(.markdownChipBaseColor, at: range.location, effectiveRange: nil)
             ranges.append((range, base as? PlatformColor))
         }
-        guard !ranges.isEmpty else { return attributed }
+        attributed.enumerateAttribute(.markdownMentionLead, in: full, options: []) { value, range, _ in
+            if value != nil { leads.append(range) }
+        }
+        guard !ranges.isEmpty || !leads.isEmpty else { return attributed }
         let mutable = NSMutableAttributedString(attributedString: attributed)
+        // A mention pill's leading pad lives on the character before it.
+        for range in leads {
+            mutable.removeAttribute(.markdownMentionLead, range: range)
+            mutable.removeAttribute(.kern, range: range)
+        }
+        // A mention pill's 13pt medium goes back to the font it replaced.
+        attributed.enumerateAttribute(.markdownChipBaseFont, in: full, options: []) { value, range, _ in
+            guard let font = value as? PlatformFont else { return }
+            mutable.addAttribute(.font, value: font, range: range)
+            mutable.removeAttribute(.markdownChipBaseFont, range: range)
+        }
         for (range, base) in ranges {
             mutable.removeAttribute(.markdownChip, range: range)
             mutable.removeAttribute(.markdownChipBaseColor, range: range)

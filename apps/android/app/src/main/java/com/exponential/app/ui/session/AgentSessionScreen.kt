@@ -4,6 +4,7 @@ import com.exponential.app.domain.TaskQueue
 import androidx.compose.runtime.Stable
 import androidx.compose.foundation.shape.CircleShape
 import com.exponential.app.data.api.AnswerInput
+import com.exponential.app.ui.components.TranscriptLoadEarlierButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
 import android.net.Uri
@@ -687,6 +688,10 @@ private fun RunFaceContent(
             searchServer = viewModel::searchIssueRefs,
         ) { target -> currentOnOpenIssue(target.issueId) }
     }
+    // Inline `@email` mention pills in the transcript: the run team's
+    // members (the composer's `@` vocabulary); unknown addresses stay text.
+    val mentionMembers by viewModel.mentionMembers.collectAsStateWithLifecycle()
+    val mentionResolver = remember(mentionMembers) { MentionResolver(mentionMembers) }
     // EXP-1188: links the agent writes to this instance open in the app.
     val appLinkHandler = rememberAppLinkHandler()
     val answerStates = activity.answerLocks
@@ -1064,6 +1069,7 @@ private fun RunFaceContent(
             // `#IDENTIFIER` contract.
             LocalIssueRefs provides issueRefHandler,
             LocalIssueRefBare provides true,
+            LocalMentions provides mentionResolver,
             // EXP-920: what a tool row's entity chips resolve
             // their preview sheets against — the run's team.
             LocalEntityRefResolver provides entityRefResolver,
@@ -1738,12 +1744,14 @@ private fun ActivityFeed(
     )
 
     // Only user drags flip follow-mode; programmatic scrolls keep it.
-    // EXP-529 batch: "at the bottom" carries ~96dp of slack — the pixel-exact
+    // EXP-529 batch: "at the bottom" carries slack — the pixel-exact
     // canScrollForward check dropped follow-mode (and surfaced the "Jump to
     // bottom" chip) while the list sat a few px shy of the true bottom, which
     // visually IS the bottom. Near-bottom counts as bottom, so the chip only
     // appears after a real scroll-up and hides again within the same slack.
-    val followSlackPx = with(LocalDensity.current) { 96.dp.toPx() }
+    // #EXP-1383: the chats' slack (chats.json `transcript.followSlack`), so
+    // the run view and a chat show THE jump button at the same scroll.
+    val followSlackPx = with(LocalDensity.current) { Chats.Transcript.FOLLOW_SLACK.dp.toPx() }
     val jumpScope = rememberCoroutineScope()
     LaunchedEffect(listState, followSlackPx) {
         snapshotFlow { listState.isScrollInProgress to listState.isNearBottom(followSlackPx) }
@@ -1848,7 +1856,8 @@ private fun ActivityFeed(
             } else {
             if (canLoadEarlier) {
                 item(key = "load-earlier") {
-                    TextButton(
+                    // THE Load earlier ×4 (chats.json WINDOW), shared with the chats.
+                    TranscriptLoadEarlierButton(
                         onClick = {
                             if (windowStart > 0) {
                                 windowFrom = feed[maxOf(0, windowStart - FEED_WINDOW_STEP)].id
@@ -1861,8 +1870,7 @@ private fun ActivityFeed(
                                 onLoadEarlier()
                             }
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Load earlier") }
+                    )
                 }
             }
             // EXP-787: the row's space comes from the row BEFORE it — the one
@@ -2131,7 +2139,11 @@ internal fun LazyListState.isNearBottom(slackPx: Float): Boolean {
     val info = layoutInfo
     val last = info.visibleItemsInfo.lastOrNull() ?: return true
     if (last.index < info.totalItemsCount - 1) return false
-    return last.offset + last.size - info.viewportEndOffset <= slackPx
+    // #EXP-1383: measured from the CONTENT's end — the bottom content
+    // padding (the floating composer band, ~150dp) is not slack; counting
+    // it kept a reader "at the bottom" for a screen-third, re-pinned short
+    // flicks and hid the jump button.
+    return last.offset + last.size - (info.viewportEndOffset - info.afterContentPadding) <= slackPx
 }
 
 /** EXP-356: conversation tabs — Main plus one chip per RUNNING subagent
@@ -2398,6 +2410,7 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
     val hostOffline by viewModel.hostDeviceOffline.collectAsStateWithLifecycle()
     val accountSwitch by viewModel.accountSwitch.collectAsStateWithLifecycle()
     val serverQueue by viewModel.queuedMessages.collectAsStateWithLifecycle()
+    val agentDefinition by viewModel.agentDefinition.collectAsStateWithLifecycle()
     val sessionEnded = session?.isEnded == true
     val feed = activity.feed
     val nowMs = rememberUsageClock()
@@ -2471,6 +2484,14 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
                 ),
             )
         }
+        // #EXP-1383 (chats.json `agentHint`): an agent chat's ROOT still on
+        // instructions older than the agent's → ONE more banner row.
+        val root = session
+        if (root != null && root.parentId == null && agentDefinition != null &&
+            Chats.agentInstructionsChanged(root.agentInstructionsAt, agentDefinition?.instructionsUpdatedAt)
+        ) {
+            add(Chats.AgentHint.banner)
+        }
         if (phase == AgentPhase.Starting && !paused && feed.isNotEmpty()) {
             add(
                 Dock.Source.Banner(
@@ -2509,6 +2530,17 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
                     mode = PillMode.Action,
                     icon = ExpIcons.uiRefresh,
                     modifier = Modifier.testTag("session-reconnect"),
+                )
+            }
+            // #EXP-1383: the action sends `/new` exactly like the agent
+            // menu's New conversation (`agentMenu.sends.newConversation`).
+            if (row.id == Chats.AgentHint.ROW_ID && row.action != null) {
+                GlassPill(
+                    row.action,
+                    onClick = { viewModel.sendCommand(Chats.AgentHint.SENDS) },
+                    size = PillSize.Sm,
+                    mode = PillMode.Action,
+                    modifier = Modifier.testTag("dock-instructions-new"),
                 )
             }
             if (row.id == "banner:blocked" && row.action != null && onOpenUsage != null) {

@@ -8,6 +8,11 @@
 //!   `scope` = the consent screen's team/board selection
 //!   (`{allTeams, teamIds, boardIds}`, [`ScopeSelection`]); absent or
 //!   `allTeams` = an ordinary full key. The server clamps it to membership.
+//! - #EXP-1383: `users.mintPersonalApiKey({name?, purpose: 'agent',
+//!   teamId})` → the same output, a hidden agent key scoped to that ONE
+//!   team (valid on `/api/mcp` only; `scope.teams` names it). The launcher
+//!   mints one per (account, team) for an agent's conversation tree
+//!   ([`ensure_agent_team_key`]).
 //! - `users.listPersonalApiKeys()` → `{keys: [{id, name, start, prefix,
 //!   createdAt, lastRequest, scope}]}` — FEED-76: `scope` = `null` for an
 //!   unscoped key, else `{teams: [{id, name}], boards: [{id, name, prefix}]}`
@@ -183,6 +188,10 @@ struct MintInput<'a> {
     /// wire a pre-FEED-76 server accepts). Never sent for the agent's key.
     #[serde(skip_serializing_if = "Option::is_none")]
     scope: Option<&'a ScopeSelection>,
+    /// #EXP-1383: the ONE team an agent key is confined to (with `purpose`
+    /// [`AGENT_KEY_PURPOSE`]); absent = the device's full agent key.
+    #[serde(rename = "teamId", skip_serializing_if = "Option::is_none")]
+    team_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -212,8 +221,49 @@ pub fn mint_personal_api_key(
             name,
             purpose,
             scope,
+            team_id: None,
         },
     )
+}
+
+/// #EXP-1383: `users.mintPersonalApiKey({name, purpose: 'agent', teamId})`
+/// — mutation, the hidden agent key confined to `team_id` (MCP only). The
+/// answer must SAY so (`scope.teams` names exactly that team): a server
+/// that ignored `teamId` minted a full agent key, which is revoked again
+/// at once and refused here, never handed to an agent tree.
+pub fn mint_agent_team_key(
+    trpc: &TrpcClient,
+    name: Option<&str>,
+    team_id: &str,
+) -> Result<MintedPersonalKey, ApiError> {
+    let minted: MintedPersonalKey = trpc.mutation(
+        "users.mintPersonalApiKey",
+        &MintInput {
+            name,
+            purpose: Some(AGENT_KEY_PURPOSE),
+            scope: None,
+            team_id: Some(team_id),
+        },
+    )?;
+    if !scoped_to_team(minted.scope.as_ref(), team_id) {
+        let _ = revoke_personal_api_key(trpc, &minted.id);
+        return Err(ApiError::Decode(AGENT_TEAM_KEY_UNSCOPED.to_string()));
+    }
+    Ok(minted)
+}
+
+/// #EXP-1383: what a mint answering with a key NOT confined to the team
+/// says (a server older than the team-scoped agent key).
+pub const AGENT_TEAM_KEY_UNSCOPED: &str =
+    "the server did not scope the agent key to the team (update the server)";
+
+/// The minted scope is exactly `team_id` (one team, no single boards).
+fn scoped_to_team(scope: Option<&PersonalKeyScope>, team_id: &str) -> bool {
+    scope.is_some_and(|scope| {
+        scope.boards.is_empty()
+            && scope.teams.len() == 1
+            && scope.teams[0].id == team_id
+    })
 }
 
 /// `users.listPersonalApiKeys` — query (GET; POST would 405).
@@ -508,6 +558,38 @@ pub fn ensure_personal_key(
     Ok(minted.key)
 }
 
+/// #EXP-1383: the device's agent key for ONE team (the MCP credential of
+/// every session in an agent's conversation tree of `team_id`): read from
+/// the token store (bounded, [`PERSONAL_KEY_READ_TIMEOUT`]), else minted
+/// once ([`mint_agent_team_key`]) and stored per (account, team) with its
+/// row id. There is deliberately NO fallback to [`ensure_personal_key`]:
+/// an agent tree that cannot get its team key does not run.
+pub fn ensure_agent_team_key(
+    trpc: &TrpcClient,
+    store: &TokenStore,
+    account_id: &str,
+    team_id: &str,
+) -> Result<String, ApiError> {
+    let team_id = team_id.trim();
+    if team_id.is_empty() {
+        return Err(ApiError::InvalidUrl(
+            "an agent key needs the session's team".to_string(),
+        ));
+    }
+    if let Some(key) = store.get_bounded(
+        account_id,
+        SecretKind::AgentTeamKey(team_id.to_string()),
+        PERSONAL_KEY_READ_TIMEOUT,
+    ) {
+        return Ok(key);
+    }
+    let name = format!("{} (agent)", device_key_name());
+    let minted = mint_agent_team_key(trpc, Some(&name), team_id)?;
+    store.set(account_id, SecretKind::AgentTeamKey(team_id.to_string()), &minted.key)?;
+    let _ = store.set(account_id, SecretKind::AgentTeamKeyId(team_id.to_string()), &minted.id);
+    Ok(minted.key)
+}
+
 /// §7.2 Regenerate — **mint-new-then-revoke-old; order is load-bearing**:
 /// never revoke before the new key is safely stored, or a crash mid-operation
 /// leaves the device with no working key. `revoke_id` lets the settings row
@@ -696,6 +778,73 @@ mod tests {
             }],
         };
         assert_eq!(scope_caption(Some(&scope)), "Scoped to Acme, Mobile (MOB)");
+    }
+
+    const TEAM_MINT_BODY: &str = r#"{"result":{"data":{
+        "key":"expu_teamsecret","id":"key-t1","name":"Device: testbox (agent)",
+        "start":"expu_te","prefix":"expu_","createdAt":"2026-10-24T10:00:00.000Z",
+        "scope":{"teams":[{"id":"t-1","name":"Acme"}],"boards":[]}}}}"#;
+
+    /// #EXP-1383: the team key's wire = `{name, purpose: "agent", teamId}`
+    /// (never a `scope` selection), stored per (account, team) with its row
+    /// id, and read back from the store without the network afterwards.
+    #[test]
+    fn ensure_agent_team_key_mints_once_per_team() {
+        let dir = TempDir::new("team-mint");
+        let store = TokenStore::file_only(dir.0.clone());
+        let (base, captured) = one_shot_server(200, TEAM_MINT_BODY);
+        let key = ensure_agent_team_key(&client(&base), &store, "acct", "t-1").unwrap();
+        assert_eq!(key, "expu_teamsecret");
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/users.mintPersonalApiKey HTTP/1.1"));
+        let body: serde_json::Value =
+            serde_json::from_str(&request[request.find("\r\n\r\n").unwrap() + 4..]).unwrap();
+        assert_eq!(body["purpose"], "agent");
+        assert_eq!(body["teamId"], "t-1");
+        assert!(body.get("scope").is_none());
+        assert!(body["name"].as_str().unwrap().ends_with("(agent)"));
+        assert_eq!(
+            store.get("acct", SecretKind::AgentTeamKey("t-1".to_string())).as_deref(),
+            Some("expu_teamsecret")
+        );
+        assert_eq!(
+            store.get("acct", SecretKind::AgentTeamKeyId("t-1".to_string())).as_deref(),
+            Some("key-t1")
+        );
+        // The device's full key is untouched (never minted here).
+        assert_eq!(store.get("acct", SecretKind::PersonalApiKey), None);
+        // A second need is a store hit: an unroutable server proves it.
+        let offline = client("http://127.0.0.1:1");
+        assert_eq!(
+            ensure_agent_team_key(&offline, &store, "acct", "t-1").unwrap(),
+            "expu_teamsecret"
+        );
+        // Another team is another key: no store hit, so the mint is tried.
+        assert!(ensure_agent_team_key(&offline, &store, "acct", "t-2").is_err());
+    }
+
+    /// #EXP-1383: a server that ignored `teamId` answers with an unscoped
+    /// key — refused (and nothing stored), never used as the team's key.
+    #[test]
+    fn ensure_agent_team_key_refuses_an_unscoped_answer() {
+        let dir = TempDir::new("team-unscoped");
+        let store = TokenStore::file_only(dir.0.clone());
+        let (base, _captured) = one_shot_server(200, MINT_BODY);
+        let err = ensure_agent_team_key(&client(&base), &store, "acct", "t-1").unwrap_err();
+        assert!(err.to_string().contains(AGENT_TEAM_KEY_UNSCOPED), "{err}");
+        assert_eq!(store.get("acct", SecretKind::AgentTeamKey("t-1".to_string())), None);
+        // A blank team never mints.
+        assert!(ensure_agent_team_key(&client("http://127.0.0.1:1"), &store, "acct", " ").is_err());
+    }
+
+    #[test]
+    fn scoped_to_team_wants_exactly_that_team() {
+        let team = |id: &str| ScopedTeam { id: id.to_string(), name: "x".to_string() };
+        let scope = |teams: Vec<ScopedTeam>| PersonalKeyScope { teams, boards: Vec::new() };
+        assert!(scoped_to_team(Some(&scope(vec![team("t-1")])), "t-1"));
+        assert!(!scoped_to_team(Some(&scope(vec![team("t-2")])), "t-1"));
+        assert!(!scoped_to_team(Some(&scope(vec![team("t-1"), team("t-2")])), "t-1"));
+        assert!(!scoped_to_team(None, "t-1"));
     }
 
     #[test]

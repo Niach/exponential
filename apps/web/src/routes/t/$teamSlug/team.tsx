@@ -1,8 +1,14 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { Link, createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
-import { APPS_COPY } from "@exp/domain-contract/apps"
 import { CHATS_COPY } from "@exp/domain-contract/chats"
+import {
+  SETTINGS_NAV_PHONE_ROWS,
+  SETTINGS_NAV_ROWS,
+  SETTINGS_NAV_TEST_IDS,
+  settingsNavVisible,
+  type SettingsNavRow,
+} from "@exp/domain-contract/settings-nav"
 import {
   GlassGroup,
   TeamAvatar,
@@ -12,6 +18,7 @@ import {
   whileBlocking,
 } from "@exp/ui"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { MobilePageHeader } from "@/components/team/mobile-page-header"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { ChangelogSheet } from "@/components/whats-new"
 import { openFeedbackWidget } from "@/components/feedback-widget-provider"
@@ -30,15 +37,17 @@ import {
   useSettingsPage,
 } from "@/routes/t/$teamSlug/settings/-shared"
 
-// Thread 58cb32df (#EXP-1373, chats.json `shell`, ×3 with iOS and Android):
-// the phone's TEAM tab. The active team's avatar (84) + name + meta, a
-// glass group of the viewer's teams (the active one checked, a team with an
-// unread notification an amber dot; a tap SWITCHES = opens that team's Team
-// tab — the only place a phone switches team), then the settings rows the
-// sidebar's settings nav holds (same order, same destinations, the boards /
-// agents / apps groups as one row each with their count), then the account
-// row (the viewer's avatar) and the rest of the old avatar menu. md+ has the
-// sidebar for all of it; this route still renders there (a plain column).
+// Thread 58cb32df (#EXP-1373) → #EXP-1384 (chats.json `shell`, ×3 with iOS
+// and Android): the phone's TEAM tab. THE page header titled with the team's
+// name, the active team's avatar (84) + meta, a glass group of the viewer's
+// teams (the active one checked, a team with an unread notification an
+// amber dot; a tap SWITCHES = opens that team's Team tab — the only place a
+// phone switches team), then the team's settings rows FROM settings-nav.json
+// (`phoneRows` in fixture order, each group's web-only rows after its phone
+// rows; each opens its OWN page, Devices pushed; no Apps row: Apps is a
+// tab), then the account row (the viewer's avatar) and the rest of the old
+// avatar menu. md+ has the sidebar for all of it; this route still renders
+// there (a plain column).
 
 export const Route = createFileRoute(`/t/$teamSlug/team`)({
   head: () => ({ meta: [{ title: pageTitle(CHATS_COPY.tabs.team) }] }),
@@ -53,9 +62,6 @@ export const Route = createFileRoute(`/t/$teamSlug/team`)({
 const CheckIcon = conceptIcon(`ui-check`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 const AddIcon = conceptIcon(`ui-add`)
-const BoardsIcon = conceptIcon(`settings-boards`)
-const AgentsIcon = conceptIcon(`settings-agents`)
-const AppsIcon = conceptIcon(`nav-apps`)
 const AdminIcon = conceptIcon(`nav-admin`)
 const ChangelogIcon = conceptIcon(`nav-changelog`)
 const AboutIcon = conceptIcon(`settings-about`)
@@ -103,6 +109,33 @@ function useUnreadTeamIds(): Set<string> {
   }, [unread.map((n) => n.id).join(`,`), issues, boards])
 }
 
+type TeamRowPath =
+  | SettingsSectionPath
+  | `/t/$teamSlug/settings/agents`
+  | `/t/$teamSlug/settings/boards`
+  | `/t/$teamSlug/devices`
+
+/** Where a settings-nav.json row opens: its own settings page, Devices its
+ *  pushed page. */
+export function teamRowPath(id: string): TeamRowPath {
+  if (id === `devices`) return `/t/$teamSlug/devices`
+  return `/t/$teamSlug/settings/${id}` as TeamRowPath
+}
+
+/** The Team page's settings rows in order: per fixture group, the
+ *  `phoneRows` first (fixture order), then that group's web-only rows. */
+export function teamSettingsRows(visible: (row: SettingsNavRow) => boolean): SettingsNavRow[] {
+  const groups: string[] = []
+  for (const row of SETTINGS_NAV_ROWS) if (!groups.includes(row.group)) groups.push(row.group)
+  const phone = SETTINGS_NAV_PHONE_ROWS.map((id) => SETTINGS_NAV_ROWS.find((row) => row.id === id)).filter(
+    (row): row is SettingsNavRow => Boolean(row)
+  )
+  return groups.flatMap((group) => [
+    ...phone.filter((row) => row.group === group),
+    ...SETTINGS_NAV_ROWS.filter((row) => row.group === group && !row.phone),
+  ]).filter(visible)
+}
+
 function RowLink({
   to,
   teamSlug,
@@ -110,14 +143,14 @@ function RowLink({
   label,
   count,
 }: {
-  to: SettingsSectionPath | `/t/$teamSlug/settings/agents` | `/t/$teamSlug/settings/boards` | `/t/$teamSlug/apps`
+  to: TeamRowPath
   teamSlug: string
   icon: ReactNode
   label: string
   count?: number
 }) {
   return (
-    <Link to={to} params={{ teamSlug }} className={ROW} data-testid="team-settings-row">
+    <Link to={to} params={{ teamSlug }} className={ROW} data-testid={SETTINGS_NAV_TEST_IDS.row}>
       <span className="flex size-6 shrink-0 items-center justify-center text-foreground/80">{icon}</span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {count !== undefined && count > 0 && (
@@ -173,16 +206,19 @@ function TeamTabPage() {
     const Icon = item.icon
     return <Icon className="size-5" />
   }
-  const itemRow = (item: SettingsNavItem, count?: number) => (
-    <RowLink
-      key={item.to}
-      to={item.to}
-      teamSlug={teamSlug}
-      icon={iconOf(item)}
-      label={item.label}
-      count={count}
-    />
+  const itemRow = (item: SettingsNavItem) => (
+    <RowLink key={item.to} to={item.to} teamSlug={teamSlug} icon={iconOf(item)} label={item.label} />
   )
+  const viewer = { isOwner: permissions.isOwner, isCloud: navContext.isCloud }
+  const settingsRows = teamSettingsRows((row) => settingsNavVisible(row, viewer))
+  const countOf = (row: SettingsNavRow): number | undefined =>
+    row.count === `members`
+      ? members.length
+      : row.count === `boards`
+        ? boards.length
+        : row.count === `agents`
+          ? agents.length
+          : undefined
   const personal = group(`Personal`)
   const account = personal.find((item) => item.to === `/t/$teamSlug/settings/account`)
 
@@ -198,11 +234,11 @@ function TeamTabPage() {
   return (
     <div className="h-full overflow-y-auto" data-testid="team-tab">
       <div
-        className={`mx-auto flex w-full max-w-xl flex-col gap-4 px-4 pt-[max(1.5rem,env(safe-area-inset-top))] ${TAB_BAR_CLEARANCE}`}
+        className={`mx-auto flex w-full max-w-xl flex-col gap-4 px-4 pt-[max(1rem,env(safe-area-inset-top))] ${TAB_BAR_CLEARANCE}`}
       >
-        <div className="flex flex-col items-center gap-1.5 pb-2 text-center">
+        <MobilePageHeader teamSlug={teamSlug} title={teamName} />
+        <div className="flex flex-col items-center gap-3 pb-2 text-center">
           <TeamAvatar name={teamName} size={84} />
-          <h1 className="mt-2 text-2xl font-bold">{teamName}</h1>
           <p className="text-sm text-muted-foreground">{teamMeta(members.length, boards.length)}</p>
         </div>
 
@@ -232,35 +268,19 @@ function TeamTabPage() {
         </GlassGroup>
 
         <GlassGroup data-testid="team-settings">
-          {group(`Team`).map((item) =>
-            itemRow(item, item.to === `/t/$teamSlug/settings/members` ? members.length : undefined)
-          )}
-          {permissions.isOwner && (
-            <RowLink
-              to="/t/$teamSlug/settings/boards"
-              teamSlug={teamSlug}
-              icon={<BoardsIcon className="size-5" />}
-              label="Boards"
-              count={boards.length}
-            />
-          )}
-          <RowLink
-            to="/t/$teamSlug/settings/agents"
-            teamSlug={teamSlug}
-            icon={<AgentsIcon className="size-5" />}
-            label="Agents"
-            count={agents.length}
-          />
-          {group(`Agents`).map((item) => itemRow(item))}
-          {/* apps.json: the phones' way into the Apps LIST (it left the
-              Chats header, which carries search + the inbox now). */}
-          <RowLink
-            to="/t/$teamSlug/apps"
-            teamSlug={teamSlug}
-            icon={<AppsIcon className="size-5" />}
-            label={APPS_COPY.title}
-          />
-          {group(`Features`).map((item) => itemRow(item))}
+          {settingsRows.map((row) => {
+            const Icon = conceptIcon(row.icon as Parameters<typeof conceptIcon>[0])
+            return (
+              <RowLink
+                key={row.id}
+                to={teamRowPath(row.id)}
+                teamSlug={teamSlug}
+                icon={<Icon className="size-5" />}
+                label={row.label}
+                count={countOf(row)}
+              />
+            )
+          })}
         </GlassGroup>
 
         <GlassGroup data-testid="team-account">

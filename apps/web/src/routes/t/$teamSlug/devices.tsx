@@ -1,5 +1,6 @@
-import { createFileRoute, redirect } from "@tanstack/react-router"
-import { SkeletonRows } from "@exp/ui"
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
+import { CHATS_COPY } from "@exp/domain-contract/chats"
+import { Button, SkeletonRows, conceptIcon } from "@exp/ui"
 import { MyMachines } from "@/components/my-machines"
 import { useSteerConfig } from "@/hooks/use-steer-config"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
@@ -8,6 +9,7 @@ import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { MobilePageHeader } from "@/components/team/mobile-page-header"
 import { pageTitle } from "@/lib/page-title"
 
 // Team Devices view (EXP-686 — the old Agents route, minus the actions
@@ -20,6 +22,13 @@ import { pageTitle } from "@/lib/page-title"
 // and every machine lists the logins it holds under its own row — a credential
 // lives on a machine and is repaired there, so the device row is the only
 // place that can act on it.
+
+// #EXP-1384 (chats.json `shell.header`, settings-nav.json): phones PUSH
+// Devices from the Team page (its last settings row), so it wears THE page
+// header with a back control to the Team page before the title; the tab bar
+// stays, the Team tab lit.
+
+const UiBackIcon = conceptIcon(`ui-back`)
 
 export const Route = createFileRoute(`/t/$teamSlug/devices`)({
   head: () => ({ meta: [{ title: pageTitle(`Devices`) }] }),
@@ -36,6 +45,7 @@ export const Route = createFileRoute(`/t/$teamSlug/devices`)({
 
 function DevicesPage() {
   const { teamSlug } = Route.useParams()
+  const navigate = useNavigate()
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
   const { isMember } = useTeamPermissions(team)
@@ -59,11 +69,31 @@ function DevicesPage() {
     listTeamIds: scope.teamIds,
   })
 
+  const header = (
+    <MobilePageHeader
+      teamSlug={teamSlug}
+      title={CHATS_COPY.headers.devices}
+      leading={
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={CHATS_COPY.tabs.team}
+          className="-ml-2 size-9 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+          onClick={() => void navigate({ to: `/t/$teamSlug/team`, params: { teamSlug } })}
+        >
+          <UiBackIcon className="size-5" />
+        </Button>
+      }
+      className="pb-3 pt-[max(0rem,calc(env(safe-area-inset-top)-1rem))] md:hidden"
+    />
+  )
+
   if (!team) {
     // D8 first load: the device row geometry (MyMachines' two-line ListRow,
     // 12px padding around a 20px name + 16px state line = 60px).
     return (
       <div className="mx-auto w-full max-w-3xl px-4 py-4 md:max-w-5xl">
+        {header}
         <SkeletonRows rowHeight={60} />
       </div>
     )
@@ -78,6 +108,7 @@ function DevicesPage() {
         <div
           className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-5xl ${TAB_BAR_CLEARANCE}`}
         >
+          {header}
           {isMember && steerConfig?.enabled && (
             <MyMachines
               devices={remote.devices}

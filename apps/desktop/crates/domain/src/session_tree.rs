@@ -405,6 +405,26 @@ pub fn thread_row_mark_state(needs_you: bool, busy: bool) -> SessionState {
     }
 }
 
+/// #EXP-1380: a thread row's PR lead (`threadRowLeadPr`): an open PR
+/// beats a merged one; none = the bare mark.
+pub fn thread_row_lead_pr<'a>(states: impl IntoIterator<Item = &'a str>) -> Option<PrLead> {
+    let states: Vec<&str> = states.into_iter().collect();
+    if states.contains(&"open") {
+        Some(PrLead::Open)
+    } else if states.contains(&"merged") {
+        Some(PrLead::Merged)
+    } else {
+        None
+    }
+}
+
+/// [`thread_row_lead_pr`]'s answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PrLead {
+    Open,
+    Merged,
+}
+
 /// Sessions of one tree in creation order (ties by id).
 pub fn tree_order<'a>(sessions: &[&'a SessionRow]) -> Vec<&'a SessionRow> {
     let mut ordered = sessions.to_vec();
@@ -2012,7 +2032,8 @@ pub fn threads_unread(groups: &[ThreadsListGroup]) -> bool {
 
 /// EXP-1309/1318: the ONE quiet trailing word of a thread row ×4 (EXP-1339:
 /// no lock; `Merged` has no text, it only turns the lead violet).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ThreadRowWord {
     Stack,
     ReadyToMerge,
@@ -2121,7 +2142,7 @@ pub fn rail_threads(
 }
 
 /// One row of the rail's Agents section.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentRow {
     /// NEW-2: the `agents` definition row.

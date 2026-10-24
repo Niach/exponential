@@ -42,6 +42,10 @@ export const ISSUE_COLUMNS = [
   // another client lands on this issue instead of resurrecting the row.
   // Appended = one benign rotation; old native builds drop it.
   `draft_id`,
+  // #EXP-1383: an agent assignee (exclusive with assignee_id) and the agent
+  // whose session created it. Appended = one benign rotation.
+  `assignee_agent_id`,
+  `creator_agent_id`,
   `created_at`,
   `updated_at`,
 ]

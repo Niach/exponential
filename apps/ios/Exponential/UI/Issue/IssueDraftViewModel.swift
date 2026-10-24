@@ -105,6 +105,8 @@ final class IssueDraftViewModel {
     var status: ResolvedIssueStatus = IssueStatusResolver.builtinDefault(for: .backlog)
     var priority: IssuePriority = .none
     var assigneeId: String?
+    /// #EXP-1383: a team AGENT assignee, exclusive with `assigneeId`.
+    var assigneeAgentId: String?
     var labelIds: Set<String> = []
     /// Wire `yyyy-MM-dd`, like the issue row's.
     var dueDate: String?
@@ -118,6 +120,11 @@ final class IssueDraftViewModel {
     private(set) var teamBoards: [BoardEntity] = []
     private(set) var teamId: String?
     private(set) var singleMemberTeam = false
+    /// #EXP-1383: the team's agents in the assignee picker's order.
+    private(set) var agents: [AgentDefinitionEntity] = []
+    /// #EXP-1383: a solo team hides the assignee chip only while it has no
+    /// agents.
+    var hidesAssignee: Bool { singleMemberTeam && agents.isEmpty }
     private(set) var permissions: TeamPermissions = .denied
     private(set) var parentIssue: IssueEntity?
 
@@ -282,6 +289,9 @@ final class IssueDraftViewModel {
 
     var assignee: UserEntity? { users.first { $0.id == assigneeId } }
 
+    /// #EXP-1383: the draft's agent assignee's row.
+    var assigneeAgent: AgentDefinitionEntity? { agents.first { $0.id == assigneeAgentId } }
+
     var assignedLabels: [LabelEntity] { labels.filter { labelIds.contains($0.id) } }
 
     var mentionMembers: [MentionMember] {
@@ -300,14 +310,15 @@ final class IssueDraftViewModel {
             // Backlog builtin", which is exactly what the column means.
             statusId: status.rowId,
             priority: priority.rawValue,
-            assigneeId: assigneeId,
+            assigneeId: assigneeAgentId == nil ? assigneeId : nil,
             // Only filter once the team's labels are here: an empty `labels`
             // means "not loaded yet", not "every label was deleted".
             labelIds: labels.isEmpty
                 ? Array(labelIds)
                 : Array(labelIds.filter { id in labels.contains { $0.id == id } }),
             dueDate: dueDate,
-            sessionId: threadId
+            sessionId: threadId,
+            assigneeAgentId: assigneeAgentId
         )
     }
 
@@ -346,6 +357,7 @@ final class IssueDraftViewModel {
                 editor.load(markdown: row.description ?? "", baseURL: baseURL)
                 priority = IssuePriority.from(row.priority)
                 assigneeId = row.assigneeId
+                assigneeAgentId = row.assigneeAgentId
                 labelIds = Set(row.labelIds)
                 dueDate = row.dueDate
                 // EXP-1284: the route's thread wins; else the row's.
@@ -419,6 +431,10 @@ final class IssueDraftViewModel {
         if !members.isEmpty, let id = assigneeId, !members.contains(where: { $0.id == id }) {
             assigneeId = nil
         }
+        // #EXP-1383: the team's agents follow the members in the picker.
+        agents = AgentSettings.assigneeAgents((try? await pool.read { db in
+            try AgentDefinitionEntity.filter(Column("team_id") == teamId).fetchAll(db)
+        }) ?? [])
 
         if let rows = try? await pool.read({ db in
             try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
@@ -919,7 +935,7 @@ final class IssueDraftViewModel {
             status: status.rowId == nil ? status.anchor.rawValue : nil,
             statusId: status.rowId,
             priority: priority.rawValue,
-            assigneeId: assigneeId,
+            assigneeId: assigneeAgentId == nil ? assigneeId : nil,
             description: description.isEmpty ? nil : description,
             dueDate: dueDate,
             labelIds: validLabelIds.isEmpty ? nil : Array(validLabelIds),
@@ -927,7 +943,8 @@ final class IssueDraftViewModel {
             // row inside the create's transaction.
             draftId: rowExists && !defersUploads ? draftId : nil,
             parentId: parentId,
-            sessionId: threadId
+            sessionId: threadId,
+            assigneeAgentId: assigneeAgentId
         )
 
         do {
@@ -1149,8 +1166,11 @@ final class IssueDraftViewModel {
 extension IssueDraftViewModel: IssuePropertyActions {
     var pickedStatus: ResolvedIssueStatus { status }
     var pickedPriority: IssuePriority { priority }
-    var pickedAssigneeId: String? { assigneeId }
+    var pickedAssignee: IssueAssignee {
+        IssueAssignee(assigneeId: assigneeId, assigneeAgentId: assigneeAgentId)
+    }
     var teamUsers: [UserEntity] { users }
+    var teamAgents: [AgentDefinitionEntity] { agents }
     var teamLabels: [LabelEntity] { labels }
     var assignedLabelIds: Set<String> { labelIds }
     var pickerBoards: [BoardEntity] { teamBoards }
@@ -1166,8 +1186,9 @@ extension IssueDraftViewModel: IssuePropertyActions {
         noteChipChange()
     }
 
-    func pickAssignee(_ userId: String?) {
-        assigneeId = userId
+    func pickAssignee(_ assignee: IssueAssignee) {
+        assigneeId = assignee.assigneeId
+        assigneeAgentId = assignee.assigneeAgentId
         noteChipChange()
     }
 

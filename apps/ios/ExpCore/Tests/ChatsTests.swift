@@ -5,7 +5,7 @@ import XCTest
 // Thread 58cb32df: Chats, locked ×4 (TS `chats.test.ts`, Android `ChatsTest`,
 // desktop `domain::chats`) against fixtures/chats.json: every case group
 // (previewCases, timeCases, listCases, bubbleCases, menuCases,
-// agentMenuCases, replyCases, dividerCases, plainCases) plus the copy, test
+// agentMenuCases, replyCases, dividerCases, plainCases, windowCases, digestCases) plus the copy, test
 // ids, shell and surface-card constants. Whole expected objects are compared
 // as JSON values.
 final class ChatsTests: XCTestCase {
@@ -261,6 +261,35 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(mirrored, sends)
     }
 
+    /// #EXP-1383 `agentHint`: the stamp compare and the banner row.
+    func testAgentHintCases() throws {
+        let hint = try XCTUnwrap(try fixture()["agentHint"] as? [String: Any])
+        let cases = try XCTUnwrap(hint["cases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            XCTAssertEqual(
+                Chats.agentInstructionsChanged(
+                    sessionStamp: input["sessionStamp"] as? String,
+                    agentStamp: input["agentStamp"] as? String
+                ),
+                try XCTUnwrap(testCase["expected"] as? Bool),
+                string(testCase["name"]) ?? ""
+            )
+        }
+        let banner = try XCTUnwrap(hint["banner"] as? [String: String])
+        XCTAssertEqual(banner, [
+            "id": Chats.AgentHint.id,
+            "icon": Chats.AgentHint.icon,
+            "label": Chats.AgentHint.label,
+            "text": Chats.AgentHint.text,
+            "tone": Chats.AgentHint.tone,
+            "action": Chats.AgentHint.action,
+        ])
+        XCTAssertEqual(hint["sends"] as? String, Chats.AgentHint.sends)
+        XCTAssertEqual(Chats.AgentHint.sends, Chats.agentMenuSends[.newConversation])
+    }
+
     func testReplyCases() throws {
         for testCase in try cases("replyCases") {
             let name = try XCTUnwrap(string(testCase["name"]))
@@ -288,6 +317,36 @@ final class ChatsTests: XCTestCase {
         }
     }
 
+    func testWindowCases() throws {
+        for testCase in try cases("windowCases") {
+            let name = string(testCase["name"]) ?? ""
+            let start = Chats.Transcript.windowStart(
+                rowCount: try XCTUnwrap(testCase["rowCount"] as? Int, name),
+                waitingIndexes: try XCTUnwrap(testCase["waitingIndexes"] as? [Int], name),
+                pinnedStart: testCase["pinnedStart"] as? Int,
+                loadedSteps: try XCTUnwrap(testCase["loadedSteps"] as? Int, name)
+            )
+            XCTAssertEqual(start, testCase["start"] as? Int, name)
+        }
+    }
+
+    /// Thread e4a04d22 `digestCases`: the digest back as messages, the WHOLE
+    /// list compared (order + every field; the card as the parsed card).
+    func testDigestCases() throws {
+        for testCase in try cases("digestCases") {
+            let name = string(testCase["name"]) ?? ""
+            let sessionId = try XCTUnwrap(string(testCase["sessionId"]), name)
+            let digest = testCase["digest"] as? [String: Any]
+            let got = Chats.digestMessages(sessionId: sessionId, digest: digest)
+            XCTAssertEqual(got, try messages(testCase["messages"]), name)
+            // The synced JSON text reads the same as the object.
+            let raw = try digest.map {
+                String(decoding: try JSONSerialization.data(withJSONObject: $0), as: UTF8.self)
+            }
+            XCTAssertEqual(Chats.digestMessages(sessionId: sessionId, digest: raw), got, name)
+        }
+    }
+
     // MARK: - Constants
 
     func testCopyMatchesTheFixture() throws {
@@ -295,8 +354,13 @@ final class ChatsTests: XCTestCase {
         typealias C = Chats.Copy
         XCTAssertEqual(copy["title"] as? String, C.title)
         XCTAssertEqual(copy["tabs"] as? [String: String], [
-            "board": C.Tabs.board, "devices": C.Tabs.devices, "chats": C.Tabs.chats, "team": C.Tabs.team,
+            "board": C.Tabs.board, "chats": C.Tabs.chats, "apps": C.Tabs.apps, "team": C.Tabs.team,
         ])
+        XCTAssertEqual(copy["headers"] as? [String: String], [
+            "chats": C.Headers.chats, "apps": C.Headers.apps, "devices": C.Headers.devices,
+            "agent": C.Headers.agent,
+        ])
+        XCTAssertEqual(copy["boardMenu"] as? [String: String], ["newBoard": C.BoardMenu.newBoard])
         XCTAssertEqual(copy["filters"] as? [String: String], [
             "all": C.Filters.all, "needs_you": C.Filters.needsYou, "running": C.Filters.running,
             "unread": C.Filters.unread,
@@ -329,9 +393,11 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(copy["team"] as? [String: String], ["meta": C.Team.meta, "switch": C.Team.`switch`])
         XCTAssertEqual(C.Team.metaLine(members: 8, boards: 3), "8 members · 3 boards")
         XCTAssertEqual(copy["inbox"] as? String, C.inbox)
+        XCTAssertEqual(copy["loadEarlier"] as? String, C.loadEarlier)
+        XCTAssertEqual(copy["working"] as? String, C.working)
         XCTAssertEqual(Set(copy.keys), [
-            "title", "tabs", "filters", "preview", "time", "menu", "confirmDelete", "toasts", "dividers",
-            "superseded", "boardChips", "team", "inbox",
+            "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete", "toasts", "dividers",
+            "superseded", "boardChips", "team", "inbox", "loadEarlier", "working",
         ])
         XCTAssertEqual(AskDock.Copy.superseded, C.superseded)
     }
@@ -342,8 +408,15 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(fixture["testIds"] as? [String: String], [
             "chatRow": T.chatRow, "chatFilter": T.chatFilter, "agentBubble": T.agentBubble,
             "inboxButton": T.inboxButton, "tabTeam": T.tabTeam, "boardChip": T.boardChip,
-            "surfaceCard": T.surfaceCard, "divider": T.divider,
+            "surfaceCard": T.surfaceCard, "divider": T.divider, "tabBoard": T.tabBoard,
+            "boardMenu": T.boardMenu, "boardMenuRow": T.boardMenuRow, "pageHeader": T.pageHeader,
+            "searchButton": T.searchButton,
+            "loadEarlier": T.loadEarlier, "jumpToBottom": T.jumpToBottom,
         ])
+        let transcript = try XCTUnwrap(fixture["transcript"] as? [String: Any])
+        XCTAssertEqual(transcript["window"] as? Int, Chats.Transcript.window)
+        XCTAssertEqual(transcript["windowStep"] as? Int, Chats.Transcript.windowStep)
+        XCTAssertEqual(transcript["followSlack"] as? Double, Chats.Transcript.followSlack)
         XCTAssertEqual(fixture["filters"] as? [String], Chats.filters.map(\.rawValue))
 
         let shell = try XCTUnwrap(fixture["shell"] as? [String: Any])
@@ -351,7 +424,38 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(shell["tabIcons"] as? [String: String], Chats.Shell.tabIcons)
         for tab in Chats.Shell.tabs { XCTAssertEqual(tab.icon, Chats.Shell.tabIcons[tab.rawValue]) }
         XCTAssertEqual(shell["boardChips"] as? [String], Chats.Shell.boardChips.map(\.rawValue))
-        XCTAssertEqual(shell["chatsHeader"] as? [String], Chats.Shell.chatsHeader)
+        typealias Sh = Chats.Shell
+        let bar = try XCTUnwrap(shell["bar"] as? [String: Any])
+        XCTAssertEqual(bar["height"] as? Double, Sh.Bar.height)
+        XCTAssertEqual(bar["padding"] as? Double, Sh.Bar.padding)
+        XCTAssertEqual(bar["gap"] as? Double, Sh.Bar.gap)
+        XCTAssertEqual(bar["tabMinWidth"] as? Double, Sh.Bar.tabMinWidth)
+        XCTAssertEqual(bar["tabPaddingX"] as? Double, Sh.Bar.tabPaddingX)
+        let drag = try XCTUnwrap(bar["drag"] as? [String: Double])
+        XCTAssertEqual(drag, ["lensScale": Sh.Bar.Drag.lensScale, "cancelDistance": Sh.Bar.Drag.cancelDistance])
+        XCTAssertEqual(Set(bar.keys), ["height", "padding", "gap", "tabMinWidth", "tabPaddingX", "drag"])
+        let boardTab = try XCTUnwrap(shell["boardTab"] as? [String: Any])
+        XCTAssertEqual(boardTab["caret"] as? String, Sh.BoardTab.caret)
+        XCTAssertEqual(boardTab["caretSize"] as? Double, Sh.BoardTab.caretSize)
+        XCTAssertEqual(Set(boardTab.keys), ["caret", "caretSize"])
+        let boardMenu = try XCTUnwrap(shell["boardMenu"] as? [String: Any])
+        XCTAssertEqual(boardMenu["rowHeight"] as? Double, Sh.BoardMenu.rowHeight)
+        XCTAssertEqual(boardMenu["maxVisibleRows"] as? Int, Sh.BoardMenu.maxVisibleRows)
+        XCTAssertEqual(boardMenu["radius"] as? Double, Sh.BoardMenu.radius)
+        XCTAssertEqual(boardMenu["motion"] as? [String: String], [
+            "open": Sh.BoardMenu.Motion.open, "openEase": Sh.BoardMenu.Motion.openEase,
+            "close": Sh.BoardMenu.Motion.close, "closeEase": Sh.BoardMenu.Motion.closeEase,
+        ])
+        XCTAssertEqual(Set(boardMenu.keys), ["rowHeight", "maxVisibleRows", "radius", "motion"])
+        let header = try XCTUnwrap(shell["header"] as? [String: Any])
+        XCTAssertEqual(header["pages"] as? [String], Sh.Header.pages.map(\.rawValue))
+        XCTAssertEqual(header["buttons"] as? [String], Sh.Header.buttons)
+        XCTAssertEqual(header["circle"] as? Double, Sh.Header.circle)
+        XCTAssertEqual(Set(header.keys), ["pages", "buttons", "circle"])
+        XCTAssertEqual(Set(shell.keys), [
+            "tabs", "tabIcons", "bar", "boardTab", "boardMenu", "header", "boardChips", "leadDisc",
+            "bubble", "bubbleRing",
+        ])
         XCTAssertEqual(shell["leadDisc"] as? Double, Chats.Shell.leadDisc)
         XCTAssertEqual(shell["bubble"] as? Double, Chats.Shell.bubble)
         XCTAssertEqual(shell["bubbleRing"] as? Double, Chats.Shell.bubbleRing)

@@ -3,6 +3,7 @@ import { checkClientVersion } from "@/lib/client-version"
 import {
   isLiveRequest,
   prepareElectricUrl,
+  prepareSubsetParams,
   proxyElectricRequest,
 } from "@/lib/electric-proxy"
 import { recordShapeRequest } from "@/lib/metrics/registry"
@@ -36,6 +37,10 @@ interface ShapeRouteHandlerOptions {
   // list than members (deterministic per caller class — columns are part of
   // Electric's shape identity, same stability rule as the where clause).
   columns?: string[] | ((userId: string | null) => string[] | undefined)
+  // #EXP-1380: the shape loads on demand (TanStack DB `syncMode:
+  // 'on-demand'`): its `subset__*` snapshot params are forwarded when they
+  // only name its allowlisted `columns` (`prepareSubsetParams`).
+  subsets?: boolean
 }
 
 export function createShapeRouteHandler({
@@ -43,6 +48,7 @@ export function createShapeRouteHandler({
   table,
   requireAuth = false,
   columns,
+  subsets = false,
 }: ShapeRouteHandlerOptions) {
   return async ({ request }: { request: Request }) => {
     // Outdated native clients get 426 before anything else — sync engines
@@ -91,6 +97,13 @@ export function createShapeRouteHandler({
       typeof columns === `function` ? columns(userId) : columns
     if (resolvedColumns) {
       originUrl.searchParams.set(`columns`, resolvedColumns.join(`,`))
+    }
+    if (subsets && resolvedColumns) {
+      const subset = prepareSubsetParams(request.url, resolvedColumns)
+      if (!subset) {
+        return new Response(`Bad Request`, { status: 400, headers: { "cache-control": `no-store` } })
+      }
+      for (const [key, value] of Object.entries(subset)) originUrl.searchParams.set(key, value)
     }
 
     const where = await getWhere?.(userId)

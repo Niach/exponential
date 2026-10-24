@@ -59,8 +59,12 @@ pub(crate) mod getting_started;
 // Thread 58cb32df (#EXP-1373): Chats.
 pub(crate) mod chat_list;
 pub(crate) mod phone_tab_bar;
+pub(crate) mod phone_board_menu;
+pub(crate) mod phone_page_header;
 pub(crate) mod chat_transcript;
 pub(crate) mod chat_menus;
+// Thread e4a04d22: mention pills in chats.
+pub(crate) mod mention_pill;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
 /// than a demo. EXP-1268 landed its design draft on the web page first; its
@@ -108,6 +112,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: toast::ID, owner: toast::OWNER, render: toast::render },
     Entry { id: jump_to_bottom::ID, owner: jump_to_bottom::OWNER, render: jump_to_bottom::render },
     Entry { id: strip_chip::ID, owner: strip_chip::OWNER, render: strip_chip::render },
+    Entry { id: mention_pill::ID, owner: mention_pill::OWNER, render: mention_pill::render },
     Entry { id: feedback_states::ID, owner: feedback_states::OWNER, render: feedback_states::render },
     Entry { id: trace::ID, owner: trace::OWNER, render: trace::render },
     Entry { id: code_block::ID, owner: code_block::OWNER, render: code_block::render },
@@ -141,6 +146,8 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: getting_started::ID, owner: getting_started::OWNER, render: getting_started::render },
     Entry { id: chat_list::ID, owner: chat_list::OWNER, render: chat_list::render },
     Entry { id: phone_tab_bar::ID, owner: phone_tab_bar::OWNER, render: phone_tab_bar::render },
+    Entry { id: phone_board_menu::ID, owner: phone_board_menu::OWNER, render: phone_board_menu::render },
+    Entry { id: phone_page_header::ID, owner: phone_page_header::OWNER, render: phone_page_header::render },
     Entry { id: chat_transcript::ID, owner: chat_transcript::OWNER, render: chat_transcript::render },
     Entry { id: chat_menus::ID, owner: chat_menus::OWNER, render: chat_menus::render },
 ];

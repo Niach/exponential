@@ -77,9 +77,9 @@ struct AgentsView: View {
                 machinesContent(vm)
             }
         }
-        .navigationTitle("Devices")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        // #EXP-1384: pushed from the Team page's Devices row, under the
+        // page header (the back control before the title).
+        .pageHeader(Chats.Copy.Headers.devices, pushed: true)
         // EXP-944: the 30s beat the login rows' "as of …" captions and their
         // reset countdowns age on — a countdown that never moves is a stamp.
         .task {

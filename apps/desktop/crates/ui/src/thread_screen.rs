@@ -1,7 +1,7 @@
 //! EXP-1294 — the THREAD screen ([`Screen::Thread`]): a thread IS a root
 //! session (kind `thread`), its model the contract's
 //! [`domain::session_tree::build_session_thread`] over the synced rows
-//! ([`crate::session_data::session_thread_view`], fixture
+//! ([`crate::session_data::thread_view_and_messages`], fixture
 //! `session-thread.json`).
 //!
 //! * The HEADER: the title (EXP-1316: derived, plain text, nobody renames
@@ -2660,7 +2660,9 @@ impl ThreadModel {
 }
 
 fn thread_model(root_id: &str, focus: Option<&str>, cx: &App) -> Option<ThreadModel> {
-    let view = crate::session_data::session_thread_view(root_id, focus, crate::session_data::now_ms(), cx)?;
+    // #EXP-1380: the view and the root's messages off ONE scan.
+    let (view, own) =
+        crate::session_data::thread_view_and_messages(root_id, focus, crate::session_data::now_ms(), false, cx)?;
     let root = crate::session_data::session(root_id, cx)?;
     let store = Store::try_global(cx)?;
     let links: Vec<SessionIssueRow> = store
@@ -2675,10 +2677,7 @@ fn thread_model(root_id: &str, focus: Option<&str>, cx: &App) -> Option<ThreadMo
         .into_iter()
         .map(|issue| (issue.id.clone(), issue))
         .collect();
-    let messages = crate::session_data::messages_of_session(root_id, cx)
-        .into_iter()
-        .map(|message| (message.id.clone(), message))
-        .collect();
+    let messages = own.into_iter().map(|message| (message.id.clone(), message)).collect();
     Some(ThreadModel {
         root,
         view,
@@ -2705,6 +2704,17 @@ struct ConversationRows {
     /// The inputs the projection was built from (model generation, chip
     /// generation, may message, tail shown).
     synced: Option<(u64, u64, bool, bool)>,
+    /// #EXP-1380: the WHOLE projection (indices into the model's rows);
+    /// `rows` is its window from `start`.
+    all: Vec<usize>,
+    /// The window's first row in `all`.
+    start: usize,
+    /// The window (`transcript.window`, pinned once painted).
+    window: crate::chat_transcript::TranscriptWindow,
+    /// The indexes (into `all`) of WAITING plan / question cards.
+    waiting: Vec<usize>,
+    /// What the keys were built for (the inputs, the start).
+    windowed: Option<((u64, u64, bool, bool), usize)>,
 }
 
 /// EXP-1346: a Conversation row's content identity (its measured height
@@ -2712,7 +2722,7 @@ struct ConversationRows {
 /// and, for a row that may render an issue pill (a `#` in its text), the
 /// chip generation — a pill's title comes from the issue, not the row, and
 /// a retitled pill wraps differently.
-fn conversation_fingerprint(row: &SessionThreadRow, at: Option<&str>, chip_gen: u64) -> u64 {
+pub(crate) fn conversation_fingerprint(row: &SessionThreadRow, at: Option<&str>, chip_gen: u64) -> u64 {
     use std::hash::{Hash as _, Hasher as _};
     let mut hasher = std::hash::DefaultHasher::new();
     let json = serde_json::to_string(row).unwrap_or_default();
@@ -2740,6 +2750,8 @@ pub(crate) struct ThreadScreenView {
     model: Option<Rc<ThreadModel>>,
     /// Bumped on every [`Self::refresh`]: what [`Self::sync_list`] diffs on.
     model_gen: u64,
+    /// #EXP-1380: a [`Self::queue_refresh`] is pending.
+    refresh_queued: bool,
     /// Bumped whenever [`Self::chip_cache`] is cleared (an issue or a status
     /// changed): the pills' titles moved, so the rows showing them
     /// re-measure ([`conversation_fingerprint`]).
@@ -2811,16 +2823,16 @@ impl ThreadScreenView {
         let mut subscriptions = vec![cx.observe(&composer, |_, _, cx| cx.notify())];
         if let Some(store) = Store::try_global(cx) {
             let collections = store.collections().clone();
-            subscriptions.push(cx.observe(&collections.sessions, |this, _, cx| this.refresh(cx)));
-            subscriptions.push(cx.observe(&collections.session_issues, |this, _, cx| this.refresh(cx)));
-            subscriptions.push(cx.observe(&collections.messages, |this, _, cx| this.refresh(cx)));
+            subscriptions.push(cx.observe(&collections.sessions, |this, _, cx| this.queue_refresh(cx)));
+            subscriptions.push(cx.observe(&collections.session_issues, |this, _, cx| this.queue_refresh(cx)));
+            subscriptions.push(cx.observe(&collections.messages, |this, _, cx| this.queue_refresh(cx)));
             // NEW-8: a message's session is its conversation's.
-            subscriptions.push(cx.observe(&collections.conversations, |this, _, cx| this.refresh(cx)));
-            subscriptions.push(cx.observe(&collections.pull_requests, |this, _, cx| this.refresh(cx)));
+            subscriptions.push(cx.observe(&collections.conversations, |this, _, cx| this.queue_refresh(cx)));
+            subscriptions.push(cx.observe(&collections.pull_requests, |this, _, cx| this.queue_refresh(cx)));
             subscriptions.push(cx.observe(&collections.issues, |this, _, cx| {
                 this.chip_cache.borrow_mut().clear();
                 this.chip_gen = this.chip_gen.wrapping_add(1);
-                this.refresh(cx);
+                this.queue_refresh(cx);
             }));
             subscriptions.push(cx.observe(&collections.issue_statuses, |this, _, cx| {
                 this.chip_cache.borrow_mut().clear();
@@ -2848,6 +2860,7 @@ impl ThreadScreenView {
             child: ThreadChildSel::Conversation,
             model: None,
             model_gen: 0,
+            refresh_queued: false,
             chip_gen: 0,
             issue_view: None,
             guide: GuideState::default(),
@@ -2883,6 +2896,22 @@ impl ThreadScreenView {
             this.child = ThreadChildSel::Guide;
         }
         this
+    }
+
+    /// #EXP-1380: one [`Self::refresh`] per effect cycle, however many
+    /// collections synced in it.
+    fn queue_refresh(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.refresh_queued {
+            return;
+        }
+        self.refresh_queued = true;
+        let view = cx.entity().downgrade();
+        cx.defer(move |cx| {
+            let _ = view.update(cx, |this, cx| {
+                this.refresh_queued = false;
+                this.refresh(cx);
+            });
+        });
     }
 
     fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
@@ -3292,33 +3321,48 @@ impl ThreadScreenView {
     /// that changed (or slid under another) re-measures.
     fn sync_list(&mut self, model: &ThreadModel, may_message: bool) {
         let inputs = (self.model_gen, self.chip_gen, may_message, self.tail.is_some());
-        if self.conv.synced == Some(inputs) {
+        if self.conv.synced != Some(inputs) {
+            self.conv.synced = Some(inputs);
+            // FEED-140: a waiting plan / question stays inline (with its
+            // actions) besides THE Dock; only the open suggestions leave.
+            let docked = if may_message {
+                docked_ids(&model.view.rows, &[], true)
+            } else {
+                HashSet::new()
+            };
+            self.conv.all = model
+                .view
+                .rows
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| !docked.contains(row.id()))
+                .map(|(index, _)| index)
+                .collect();
+            self.conv.waiting =
+                crate::chat_transcript::waiting_indexes(self.conv.all.iter().map(|&index| &model.view.rows[index]));
+            self.conv.tail = self.tail.is_some();
+            // #EXP-1380 FOLLOW: an arrival keeps a reader inside the slack
+            // on the tail.
+            crate::chat_transcript::rearm_near_tail(&self.list);
+        }
+        // #EXP-1380 WINDOW: the newest rows (up to the oldest waiting
+        // card), pinned once painted; only the window is fingerprinted and
+        // measured.
+        let total = self.conv.all.len();
+        let start = self.conv.window.start(total, &self.conv.waiting);
+        if self.conv.windowed == Some((inputs, start)) {
             return;
         }
-        self.conv.synced = Some(inputs);
-        // FEED-140: a waiting plan / question stays inline (with its
-        // actions) besides THE Dock; only the open suggestions leave.
-        let docked = if may_message {
-            docked_ids(&model.view.rows, &[], true)
-        } else {
-            HashSet::new()
-        };
-        self.conv.rows = model
-            .view
-            .rows
-            .iter()
-            .enumerate()
-            .filter(|(_, row)| !docked.contains(row.id()))
-            .map(|(index, _)| index)
-            .collect();
-        self.conv.tail = self.tail.is_some();
+        self.conv.windowed = Some((inputs, start));
+        self.conv.start = start;
+        self.conv.rows = self.conv.all[start..].to_vec();
         let chip_gen = self.chip_gen;
         let mut keys: Vec<RowKey> = self
             .conv
             .rows
             .iter()
             .enumerate()
-            .map(|(position, &index)| {
+            .map(|(offset, &index)| {
                 let row = &model.view.rows[index];
                 let at = match row {
                     SessionThreadRow::Message { id, .. } => {
@@ -3326,7 +3370,13 @@ impl ThreadScreenView {
                     }
                     _ => None,
                 };
-                RowKey { id: position as u64, fingerprint: conversation_fingerprint(row, at, chip_gen) }
+                let mut fingerprint = conversation_fingerprint(row, at, chip_gen);
+                // The first row carries `Load earlier` while rows hide above.
+                if offset == 0 && start > 0 {
+                    fingerprint = fingerprint.rotate_left(1) ^ 1;
+                }
+                // Absolute positions: a widened window is a front splice.
+                RowKey { id: (start + offset) as u64, fingerprint }
             })
             .collect();
         if self.conv.tail {
@@ -3358,6 +3408,17 @@ impl ThreadScreenView {
         let Some(content) = content else {
             return div().into_any_element();
         };
+        // #EXP-1380 WINDOW: `Load earlier` over the window's first row.
+        let earlier = (ix == 0 && self.conv.start > 0).then(|| {
+            crate::chat_transcript::load_earlier_button(
+                cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    this.conv.window.load_earlier();
+                    this.list.pause_following_tail();
+                    cx.notify();
+                }),
+                cx,
+            )
+        });
         div()
             .w_full()
             .child(
@@ -3367,56 +3428,23 @@ impl ThreadScreenView {
                     .mx_auto()
                     .px(px(crate::work_header::WORK_GUTTER))
                     .when(ix > 0, |this| this.pt_5())
+                    .children(earlier)
                     .child(content),
             )
             .into_any_element()
     }
 
-    /// The Conversation's jump-to-bottom button
-    /// ([`crate::controls::jump_to_bottom_button`]) while the reader is off
-    /// the tail; a click re-arms the follow. gpui re-arms the follow in
-    /// LAYOUT, so a paint-time probe repaints once when it flipped.
+    /// The Conversation's jump-to-bottom button (#EXP-1380: past
+    /// `transcript.followSlack`, [`crate::chat_transcript::jump_overlay`]).
     fn render_jump_to_bottom(&self, band: f32, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let following = self.list.is_following_tail();
-        let shown = !self.conv.keys.is_empty() && !following;
-        let probe_list = self.list.clone();
-        let entity_id = cx.entity_id();
-        let probe = gpui::canvas(
-            move |_, _, cx| {
-                if probe_list.is_following_tail() != following {
-                    cx.defer(move |cx| cx.notify(entity_id));
-                }
-            },
-            |_, _: (), _, _| {},
+        crate::chat_transcript::jump_overlay(
+            "thread-conversation-scroll-jump-to-bottom",
+            &self.list,
+            self.conv.keys.len(),
+            band,
+            cx.entity_id(),
+            cx,
         )
-        .absolute()
-        .size_0();
-        let target = self.list.clone();
-        let button = shown.then(|| {
-            h_flex()
-                .absolute()
-                .left_0()
-                .right_0()
-                .bottom(px(band + crate::controls::JUMP_TO_BOTTOM_GAP))
-                .justify_center()
-                .child(crate::controls::jump_to_bottom_button(
-                    "thread-conversation-scroll-jump-to-bottom",
-                    cx.listener(move |_, _: &ClickEvent, _window, cx| {
-                        target.set_follow_mode(FollowMode::Tail);
-                        target.scroll_to_end();
-                        cx.notify();
-                    }),
-                    cx,
-                ))
-        });
-        div()
-            .absolute()
-            .left_0()
-            .right_0()
-            .bottom_0()
-            .child(probe)
-            .children(button)
-            .into_any_element()
     }
 
     fn render_conversation(&mut self, model: &ThreadModel, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {

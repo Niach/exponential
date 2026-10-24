@@ -610,11 +610,28 @@ internal fun annotateLine(
         // Resolved `@email` mentions render as the member's name pill
         // (REV2-42) — display-only, not tappable (there is nothing to open),
         // so they can never collide with a link annotation.
+        //
+        // Thread e4a04d22: the web `.mention-pill` look — `--accent-foreground`
+        // at 13 medium inside a painted round capsule ([drawIssueRefChips],
+        // `pill = true`). The splice wraps the name in two [MENTION_PAD]
+        // cells; letter-spaced to the web's `0.4rem`, they ARE the padding.
         for (range in display.pills) {
             addStyle(
-                SpanStyle(color = MdStyle.Link, background = MdStyle.IssueRefBg),
+                SpanStyle(
+                    color = MdStyle.MentionText,
+                    fontSize = MdStyle.mentionFontSize,
+                    fontWeight = FontWeight.Medium,
+                ),
                 range.first,
                 range.second,
+            )
+            if (range.second - range.first >= 2) {
+                val pad = SpanStyle(letterSpacing = MdStyle.mentionPadLetterSpacing)
+                addStyle(pad, range.first, range.first + 1)
+                addStyle(pad, range.second - 1, range.second)
+            }
+            chipSpecs.add(
+                IssueRefChipSpec(start = range.first, end = range.second, tokenStart = range.first, pill = true),
             )
         }
     }
@@ -637,6 +654,20 @@ internal const val MAX_CHIP_TITLE_CHARS = 60
  * above its identifier.
  */
 internal const val CHIP_GLYPH_CELL = "\u00A0"
+
+/**
+ * Thread e4a04d22: the cell opening and closing a mention pill's display text.
+ * Letter-spaced up to the web pill's `0.4rem` side padding, it is the room
+ * the painted capsule draws its padding in (a span cannot pad). Non-breaking,
+ * like the spaces inside the name: the pill never wraps (web `nowrap`).
+ */
+internal const val MENTION_PAD = "\u00A0"
+
+/** The displayed text of a resolved mention: `@<name>`, unbreakable, padded. */
+internal fun mentionPillText(name: String): String {
+    val joined = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString("\u00A0")
+    return "$MENTION_PAD@$joined$MENTION_PAD"
+}
 
 /**
  * The title text a `#IDENTIFIER` chip appends, truncated web-identically
@@ -770,7 +801,7 @@ internal class MentionDisplay private constructor(
         ): MentionDisplay {
             val candidates = ArrayList<Candidate>(pills.size + refPills.size)
             for ((match, member) in pills) {
-                candidates.add(Candidate(match.start, match.end, "@${member.name}", true))
+                candidates.add(Candidate(match.start, match.end, mentionPillText(member.name), true))
             }
             // EXP-307: the chip shows the whole title next to the short code
             // (blank titles keep the bare token). EXP-885: a bare token that

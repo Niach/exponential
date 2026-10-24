@@ -410,9 +410,17 @@ export const conversationCollection = createCollection(
   })
 )
 
+// #EXP-1380: ON DEMAND — the web never syncs every visible transcript: a
+// live query loads the rows its `where` names (a chat's root / its
+// conversations) as an Electric subset snapshot (the proxy validates the
+// predicate, `prepareSubsetParams`), and only changes stream after that.
+// The lists read each conversation's digest instead (`useDigestMessages`).
+// Every query on this collection MUST narrow by `rootId` or
+// `conversationId`: an unscoped one would snapshot the whole shape.
 export const messageCollection = createCollection(
   electricCollectionOptions({
     id: `messages`,
+    syncMode: `on-demand`,
     shapeOptions: shapeOptions(`/api/shapes/messages`),
     // NEW-8: a message is keyed through its conversation; the legacy
     // `session_id` the server still serves is optional and never read here.
