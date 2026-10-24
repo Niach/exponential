@@ -271,6 +271,30 @@ class ChatsTest {
     }
 
     @Test
+    fun `every agent hint case and the banner equal the fixture (EXP-1383)`() {
+        val hint = fixture.getValue("agentHint").jsonObject
+        val cases = hint.list("cases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            assertEquals(
+                case.str("name"),
+                case.bool("expected"),
+                Chats.agentInstructionsChanged(input.str("sessionStamp"), input.str("agentStamp")),
+            )
+        }
+        val banner = hint.getValue("banner").jsonObject
+        val row = Chats.AgentHint.banner
+        assertEquals(banner.str("id"), row.id)
+        assertEquals(banner.str("icon"), row.icon)
+        assertEquals(banner.str("label"), row.label)
+        assertEquals(banner.str("text"), row.text)
+        assertEquals(banner.str("tone"), row.tone.wire)
+        assertEquals(banner.str("action"), row.action)
+        assertEquals(hint.str("sends"), Chats.AgentHint.SENDS)
+    }
+
+    @Test
     fun `the copy, shell, sends and surface card equal the fixture`() {
         val copy = fixture.getValue("copy").jsonObject
         assertEquals(copy.str("title"), Chats.Copy.TITLE)

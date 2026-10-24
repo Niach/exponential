@@ -6,6 +6,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.AgentSettings
+import com.exponential.app.ui.components.AgentAvatar
 import com.exponential.app.ui.components.MemberAvatar
 import com.exponential.app.ui.icons.ExpIcons
 
@@ -21,14 +23,49 @@ data class AssigneePickerMember(
     val image: String? = null,
 )
 
+/**
+ * #EXP-1383 (agent-settings.json `assignee`): a team AGENT as an assignee
+ * row, listed straight after the members (no heading) by sortOrder then name
+ * (`AgentSettings.assigneeOptions`); the row = THE AGENT MARK + the name,
+ * which search matches. Its value is `agent:<id>` ([assigneeAgentValue]); a
+ * member's stays the bare user id, so [assigneeFromPickerValue] splits a pick
+ * into the two exclusive columns.
+ */
+data class AssigneePickerAgent(
+    val id: String,
+    val name: String,
+    val icon: String?,
+    val color: String?,
+    val sortOrder: Double = 0.0,
+)
+
+fun assigneeAgentValue(agentId: String): String = "${AgentSettings.ASSIGNEE_AGENT_PREFIX}$agentId"
+
+/** The single picker's value for an issue's two exclusive columns. */
+fun assigneePickerValue(assigneeId: String?, assigneeAgentId: String?): Set<String> = when {
+    !assigneeAgentId.isNullOrEmpty() -> setOf(assigneeAgentValue(assigneeAgentId))
+    !assigneeId.isNullOrEmpty() -> setOf(assigneeId)
+    else -> emptySet()
+}
+
+/** A pick back into the columns: an agent clears the person, a person (or
+ *  `Unassigned`) clears the agent. */
+fun assigneeFromPickerValue(value: String?): AgentSettings.Assignee = when {
+    value.isNullOrEmpty() -> AgentSettings.Assignee.NONE
+    value.startsWith(AgentSettings.ASSIGNEE_AGENT_PREFIX) ->
+        AgentSettings.Assignee(null, value.removePrefix(AgentSettings.ASSIGNEE_AGENT_PREFIX))
+    else -> AgentSettings.Assignee(value, null)
+}
+
 /** The row that clears the pick. */
 const val UNASSIGNED_VALUE: String = ""
 
 fun assigneePickerItems(
     members: List<AssigneePickerMember>,
     allowsNone: Boolean,
+    agents: List<AssigneePickerAgent> = emptyList(),
 ): List<PickerItem<String>> {
-    val rows = members.map { member ->
+    val memberRows = members.map { member ->
         PickerItem(
             value = member.id,
             label = member.name,
@@ -36,10 +73,16 @@ fun assigneePickerItems(
             keywords = listOfNotNull(member.name, member.email).filter { it.isNotEmpty() },
         )
     }
+    val agentRows = AgentSettings.sortedAssigneeAgents(agents) {
+        AgentSettings.AgentRowLike(it.id, it.name, it.icon, it.color, it.sortOrder)
+    }.map { agent ->
+        PickerItem(value = assigneeAgentValue(agent.id), label = agent.name, keywords = listOf(agent.name))
+    }
+    val rows = memberRows + agentRows
     // `Unassigned` carries its OWN glyph (iOS's `uiUnassigned`): every member
     // row below it leads with an avatar, so a bare label there would read as a
     // row with its picture still loading.
-    val none = PickerItem(value = UNASSIGNED_VALUE, label = "Unassigned", icon = ExpIcons.uiUnassigned)
+    val none = PickerItem(value = UNASSIGNED_VALUE, label = AgentSettings.ASSIGNEE_UNASSIGNED_LABEL, icon = ExpIcons.uiUnassigned)
     return if (allowsNone) listOf(none) + rows else rows
 }
 
@@ -59,11 +102,14 @@ fun AssigneePicker(
     open: Boolean? = null,
     onOpenChange: ((Boolean) -> Unit)? = null,
     trigger: @Composable (open: () -> Unit) -> Unit = {},
+    /** #EXP-1383: the team's agents, listed after the members. */
+    agents: List<AssigneePickerAgent> = emptyList(),
 ) {
     val single = mode == PickerMode.Single
     val byId = remember(members) { members.associateBy { it.id } }
+    val agentByValue = remember(agents) { agents.associateBy { assigneeAgentValue(it.id) } }
     Picker(
-        items = assigneePickerItems(members, allowsNone = single && allowsNone),
+        items = assigneePickerItems(members, allowsNone = single && allowsNone, agents = agents),
         mode = mode,
         value = if (single && value.isEmpty() && allowsNone) setOf(UNASSIGNED_VALUE) else value,
         onChange = { picked -> onChange(picked - UNASSIGNED_VALUE) },
@@ -79,7 +125,11 @@ fun AssigneePicker(
         // `Unassigned` keeps the plain body: there is nobody to picture.
         renderItem = { item ->
             val member = byId[item.value]
-            if (member != null) {
+            val agent = agentByValue[item.value]
+            if (agent != null) {
+                AgentAvatar(icon = agent.icon, color = agent.color, size = 20.dp)
+                Spacer(Modifier.width(PickerDefaults.LeadingGap))
+            } else if (member != null) {
                 MemberAvatar(
                     imageUrl = member.image,
                     nameOrEmail = member.name,

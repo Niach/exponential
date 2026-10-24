@@ -341,6 +341,31 @@ pub(crate) fn user_menu_item(
     .on_click(move |_, window, cx| on_select(window, cx))
 }
 
+/// #EXP-1383: [`user_menu_item`]'s agent twin: THE AGENT MARK + the name.
+pub(crate) fn agent_menu_item(
+    agent: domain::agent_settings::AgentActorRow,
+    checked: bool,
+    on_select: impl Fn(&mut Window, &mut App) + 'static,
+) -> PopupMenuItem {
+    PopupMenuItem::element(move |_, cx| {
+        crate::controls::pointer_row_fill(
+            gpui_component::h_flex()
+                .gap_2()
+                .items_center()
+                .child(crate::user_avatar::agent_avatar(
+                    agent.icon.as_deref(),
+                    agent.color.as_deref(),
+                    gpui_component::Size::XSmall,
+                    cx,
+                ))
+                .child(gpui::SharedString::from(agent.name.clone())),
+            false,
+        )
+    })
+    .checked(checked)
+    .on_click(move |_, window, cx| on_select(window, cx))
+}
+
 // ---------------------------------------------------------------------------
 // EXP-1021 — the row marks and the keyboard model the SHARED picker
 // (`crate::picker`) rides. EXP-963's `searchable_picker` and the per-subject

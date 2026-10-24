@@ -9,6 +9,7 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useMyIssuesData } from "@/hooks/use-my-issues-data"
 import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
+import { useAgentRows } from "@/hooks/use-agent-row"
 
 // Cross-board "My Issues": every issue assigned to the signed-in user across
 // all boards in the team, grouped by status like the board
@@ -43,6 +44,8 @@ export function MyIssuesView({
   } = useMyIssuesData({ userId, teamSlug })
 
   const permissions = useTeamPermissions(team)
+  // #EXP-1383: the team's agents (agent assignees, the picker's agent rows).
+  const agents = useAgentRows(team?.id)
 
   // Bulk-selection state lives here so the action bar can render in the
   // header region above the scroll container (EXP-251); IssueList keeps all
@@ -101,6 +104,7 @@ export function MyIssuesView({
             issueLabelMap={issueLabelMap}
             users={users}
             userMap={userMap}
+            agents={agents}
             menuFrom="inbox:my-issues"
             hideAssigneeOnPhone
             onNewIssue={() => {}}

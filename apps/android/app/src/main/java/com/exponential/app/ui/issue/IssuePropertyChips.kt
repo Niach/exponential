@@ -27,6 +27,8 @@ import com.exponential.app.ui.components.GlassPillDefaults
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.domain.AgentSettings
+import com.exponential.app.ui.components.AgentAvatar
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.formatDueDate
@@ -44,6 +46,8 @@ data class IssuePropertySubject(
     val assigneeId: String?,
     val dueDate: String?,
     val estimate: Int?,
+    /** #EXP-1383: a team AGENT as the assignee (exclusive with [assigneeId]). */
+    val assigneeAgentId: String? = null,
 ) {
     companion object {
         fun fromIssue(issue: IssueEntity) = IssuePropertySubject(
@@ -51,6 +55,7 @@ data class IssuePropertySubject(
             assigneeId = issue.assigneeId,
             dueDate = issue.dueDate,
             estimate = issue.estimate,
+            assigneeAgentId = issue.assigneeAgentId,
         )
     }
 }
@@ -93,6 +98,8 @@ fun IssuePropertyChips(
     onOpenBoard: (() -> Unit)? = null,
     /** P44: the board itself, so the chip draws ITS glyph in ITS colour. */
     boardEntity: BoardEntity? = null,
+    /** #EXP-1383: the resolved agent assignee: THE AGENT MARK + its name. */
+    assigneeAgent: AgentSettings.AgentRowLike? = null,
 ) {
     val priority = subject.priority
     val pageMode = onOpenProperties == null
@@ -131,7 +138,22 @@ fun IssuePropertyChips(
             onClick = onOpenPriority,
             leading = { PriorityIcon(priority, size = GlassPillDefaults.SmGlyphSize) },
         )
-        if (!hideAssignee) {
+        if (!hideAssignee && assigneeAgent != null && subject.assigneeAgentId == assigneeAgent.id) {
+            // #EXP-1383: an agent assignee reads like a member: mark + name.
+            GlassPill(
+                assigneeAgent.name,
+                size = PillSize.Sm,
+                enabled = isModerator,
+                onClick = onOpenAssignee,
+                leading = {
+                    AgentAvatar(
+                        icon = assigneeAgent.icon,
+                        color = assigneeAgent.color,
+                        size = GlassPillDefaults.AvatarSize,
+                    )
+                },
+            )
+        } else if (!hideAssignee) {
             val assigneeName = subject.assigneeId?.let { userDisplayName(assignee, it) }
             GlassPill(
                 assigneeName ?: IssuePropertyChipCopy.EMPTY_ASSIGNEE,

@@ -434,7 +434,7 @@ export const statusesRouter = router({
               issueId: issue.id,
               teamId: input.teamId,
               actorUserId: ctx.session.user.id,
-              origin: eventOrigin(ctx),
+              origin: await eventOrigin(ctx),
               type: `status_changed`,
               payload: {
                 fromStatusId: row.id,

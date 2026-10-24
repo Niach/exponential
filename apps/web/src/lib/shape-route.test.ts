@@ -894,6 +894,8 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
       `status_id`,
       `priority`,
       `assignee_id`,
+      // #EXP-1383: an agent assignee.
+      `assignee_agent_id`,
       `label_ids`,
       `due_date`,
       // EXP-1291: the thread a "New issue in this thread" draft files into.

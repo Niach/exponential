@@ -250,6 +250,40 @@ fn initials_avatar(user_id: &str, label: &str, size: gpui_component::Size) -> Di
         .child(avatar_text(div(), size).child(initials(label)))
 }
 
+/// #EXP-1383 (agent-settings.json `actor` / `assignee`): an AGENT where a
+/// person would be (an actor, an assignee) reads as THE AGENT MARK at the
+/// avatar's size: its glyph in its colour on the muted disc (the Chats agent
+/// bubble's 24px disc with its 14px glyph, scaled), never initials (web
+/// `UserAvatar agent`).
+pub fn agent_avatar(
+    icon: Option<&str>,
+    color: Option<&str>,
+    size: gpui_component::Size,
+    cx: &App,
+) -> gpui::AnyElement {
+    use gpui_component::ActiveTheme as _;
+    let side = avatar_box(size);
+    div()
+        .flex_shrink_0()
+        .size(side)
+        .rounded_full()
+        .overflow_hidden()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(cx.theme().secondary)
+        .child(crate::icons::agent_icon(icon, color).with_size(agent_glyph_px(side)))
+        .into_any_element()
+}
+
+/// The glyph inside [`agent_avatar`]'s disc per side (web
+/// `USER_AVATAR_SIZES[*].glyph`: 16→10, 20→12, 24→14, 28→16, 32→18, 48→24).
+fn agent_glyph_px(side: Pixels) -> Pixels {
+    let side = f32::from(side);
+    let glyph = if side >= 48. { 24. } else { (side / 2. + 2.).round() };
+    px(glyph)
+}
+
 /// The TEAM mark (EXP-723, mirror of web `components/team/team-avatar.tsx`,
 /// iOS `TeamAvatar.swift`, Android `Avatars.kt`): the primary fill under its
 /// foreground, a rounded SQUARE at a quarter of its side, and the team name's

@@ -222,6 +222,16 @@ class IssueDetailViewModel @AssistedInject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** #EXP-1383: the issue team's agents: the assignee picker's rows after
+     *  the members, and what an agent assignee resolves to. */
+    val teamAgents: StateFlow<List<com.exponential.app.data.db.AgentDefinitionEntity>> =
+        combine(dbFlow, _board) { db, board -> db to board }
+            .flatMapLatest { (db, board) ->
+                if (db == null || board == null) flowOf(emptyList())
+                else db.agentDefinitionDao().observeByTeam(board.teamId)
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // EXP-312: live sessions are owner-only — the screen gates tap-to-watch
     // on the session row's userId matching this.
     val currentUserId: StateFlow<String?> = auth.userId
@@ -1109,15 +1119,15 @@ class IssueDetailViewModel @AssistedInject constructor(
         }
     }
 
-    fun updateAssignee(userId: String?) {
+    fun updateAssignee(assignee: com.exponential.app.domain.AgentSettings.Assignee) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            // setAssignee, not update(): a null userId ("Unassigned") has to
-            // reach the server as an explicit JSON null, and the shared Json
-            // drops nulls — through update() this was a silent no-op.
+            // setAssignee, not update(): "Unassigned" (and the cleared column
+            // of the #EXP-1383 pair) has to reach the server as an explicit
+            // JSON null, and the shared Json drops nulls.
             runCatching {
-                issuesApi.setAssignee(accountId, issueId, userId)
-            }.onFailure { reportMutationFailure(it, "change", "the assignee") { updateAssignee(userId) } }
+                issuesApi.setAssignee(accountId, issueId, assignee)
+            }.onFailure { reportMutationFailure(it, "change", "the assignee") { updateAssignee(assignee) } }
         }
     }
 

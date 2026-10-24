@@ -481,6 +481,52 @@ pub fn team_users(cx: &App, team_id: &str) -> Vec<domain::rows::User> {
     out
 }
 
+/// #EXP-1383 (agent-settings.json `assignee`): a team's agents as assignee
+/// options, in the picker's order (`assignee_options`: sortOrder, then name).
+pub fn team_agents(cx: &App, team_id: &str) -> Vec<domain::agent_settings::AgentActorRow> {
+    let collections = Store::global(cx).collections();
+    let rows: Vec<domain::rows::AgentDefRow> = collections
+        .agents
+        .read(cx)
+        .iter()
+        .filter(|agent| agent.team_id.as_deref() == Some(team_id))
+        .cloned()
+        .collect();
+    let keyed: Vec<(String, String, f64)> = rows
+        .iter()
+        .map(|row| (row.id.clone(), row.name.clone().unwrap_or_default(), row.sort_order.unwrap_or(0.)))
+        .collect();
+    domain::agent_settings::assignee_options(&[], &keyed)
+        .into_iter()
+        .filter_map(|id| id.strip_prefix(domain::agent_settings::ASSIGNEE_AGENT_PREFIX).map(str::to_string))
+        .filter_map(|id| rows.iter().find(|row| row.id == id))
+        .map(domain::agent_settings::AgentActorRow::of)
+        .collect()
+}
+
+/// #EXP-1383 (agent-settings.json `actor`): every synced agent, the rows an
+/// agent actor / assignee resolves against (`issue_actor`).
+pub fn agent_actor_rows(cx: &App) -> Vec<domain::agent_settings::AgentActorRow> {
+    Store::global(cx)
+        .collections()
+        .agents
+        .read(cx)
+        .iter()
+        .map(domain::agent_settings::AgentActorRow::of)
+        .collect()
+}
+
+/// #EXP-1383: one synced agent as an actor / assignee, `None` when its row
+/// is gone (deleted, or not synced).
+pub fn agent_actor(cx: &App, agent_id: &str) -> Option<domain::agent_settings::AgentActorRow> {
+    Store::try_global(cx)?
+        .collections()
+        .agents
+        .read(cx)
+        .get(agent_id)
+        .map(domain::agent_settings::AgentActorRow::of)
+}
+
 /// A team's saved prompts from the synced `prompts` shape (NEW-2: prompts
 /// replaced actions; the body never syncs), sorted `sortOrder` then `name`
 /// (collections hydrate unordered — the server ordering must be re-applied

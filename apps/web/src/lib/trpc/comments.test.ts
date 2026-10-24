@@ -340,6 +340,7 @@ describe(`comments.update mention resolution (REV2-26)`, () => {
     expect(h.fireAndForgetIssueMentionNotify).toHaveBeenCalledWith({
       issueId: ISSUE_ID,
       actorUserId: `actor`,
+      actorAgentId: null,
       mentionedUserIds: [`user-alice`],
     })
     // An edit is not a new comment — subscribers get no issue_comment ping.

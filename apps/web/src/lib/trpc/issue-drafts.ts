@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { assertAgentInTeam } from "@/lib/agents/assignment"
 import { and, eq, inArray } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
@@ -91,6 +92,10 @@ export const issueDraftsRouter = router({
         statusId: z.string().uuid().nullish(),
         priority: issuePrioritySchema.default(`none`),
         assigneeId: z.string().nullish(),
+        // #EXP-1383: a team agent as the assignee (exclusive with
+        // assigneeId). Absent keeps the row's (old clients) unless a person
+        // is picked; null clears it.
+        assigneeAgentId: z.string().uuid().nullish(),
         labelIds: z.array(z.string().uuid()).max(50).default([]),
         dueDate: dateOnlySchema.nullish(),
         // EXP-1291: "New issue in this thread" — the thread (a session; its
@@ -127,6 +132,16 @@ export const issueDraftsRouter = router({
             message: `The status must belong to this team`,
           })
         }
+      }
+
+      if (input.assigneeId && input.assigneeAgentId) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `Pass assigneeId or assigneeAgentId, not both`,
+        })
+      }
+      if (input.assigneeAgentId) {
+        await assertAgentInTeam(ctx.db, input.assigneeAgentId, input.teamId)
       }
 
       let threadRootId: string | null | undefined = input.sessionId
@@ -206,7 +221,8 @@ export const issueDraftsRouter = router({
           description: canonicalDescription,
           statusId: input.statusId ?? null,
           priority: input.priority ?? (`none` as const),
-          assigneeId: input.assigneeId ?? null,
+          assigneeId: input.assigneeAgentId ? null : (input.assigneeId ?? null),
+          assigneeAgentId: input.assigneeAgentId ?? null,
           labelIds: input.labelIds ?? [],
           dueDate: input.dueDate ?? null,
           sessionId: threadRootId ?? null,
@@ -224,6 +240,11 @@ export const issueDraftsRouter = router({
               statusId: values.statusId,
               priority: values.priority,
               assigneeId: values.assigneeId,
+              ...(input.assigneeAgentId !== undefined
+                ? { assigneeAgentId: values.assigneeAgentId }
+                : values.assigneeId
+                  ? { assigneeAgentId: null }
+                  : {}),
               labelIds: values.labelIds,
               dueDate: values.dueDate,
               // Absent keeps the row's thread; null clears it.

@@ -19,6 +19,11 @@ import Foundation
 // left alone entirely (no partial fold). An event without an actor never
 // folds and breaks every open run on its issue.
 //
+// THE ACTOR (#EXP-1383): an event (or barrier) with `actorAgentId` set is
+// the AGENT `agent:<id>`, else the member `user:<actorUserId>`. An agent and
+// the member whose conversation it runs in are DIFFERENT actors, and so are
+// two agents of one member.
+//
 // "Field" derives from the event type: `status_changed` → status,
 // `assignee_changed` → assignee, `priority_changed` → priority,
 // `estimate_changed` → estimate, `title_changed` → title,
@@ -26,7 +31,9 @@ import Foundation
 // `label_added`/`label_removed` → that ONE label (`payload.labelId`; an add
 // and a remove of the same label cancel),
 // `relation_added`/`relation_removed` → that one relation
-// (`payload.type` + `payload.relatedIssueId`).
+// (`payload.type` + `payload.relatedIssueId`). An assignee side compares as
+// `agent:<fromAgentId|toAgentId>` when the payload names an agent, else the
+// user id.
 
 /// Something that is not an event but still breaks another actor's run: a
 /// comment. "Reviewer says no" is usually a comment, not a status change, so
@@ -35,13 +42,24 @@ import Foundation
 public struct ActivityBarrier: Sendable {
     public let issueId: String
     public let actorUserId: String?
+    /// #EXP-1383: the agent whose session wrote the comment.
+    public let actorAgentId: String?
     public let createdAt: String
 
-    public init(issueId: String, actorUserId: String?, createdAt: String) {
+    public init(issueId: String, actorUserId: String?, actorAgentId: String? = nil, createdAt: String) {
         self.issueId = issueId
         self.actorUserId = actorUserId
+        self.actorAgentId = actorAgentId
         self.createdAt = createdAt
     }
+}
+
+/// #EXP-1383: the fold's actor key: the agent when set, else the member,
+/// else nil (web `foldActorKey`).
+public func foldActorKey(actorUserId: String?, actorAgentId: String?) -> String? {
+    if let actorAgentId, !actorAgentId.isEmpty { return "agent:\(actorAgentId)" }
+    if let actorUserId, !actorUserId.isEmpty { return "user:\(actorUserId)" }
+    return nil
 }
 
 /// Namespace for the fold's one tunable. The rule itself is the two free
@@ -118,11 +136,11 @@ public func foldActivity(
     var open: [String: ActivityRun] = [:]
     var out: [ActivityOut] = []
 
-    func breakOthers(issueId: String, actorUserId: String?) {
+    func breakOthers(issueId: String, actor: String?) {
         // Keys first: the dictionary is mutated in the same pass.
         let broken = open.keys.filter { key in
             guard let run = open[key], run.issueId == issueId else { return false }
-            if let actorUserId, run.actorUserId == actorUserId { return false }
+            if let actor, run.actor == actor { return false }
             return true
         }
         for key in broken {
@@ -134,10 +152,13 @@ public func foldActivity(
     for step in steps {
         switch step {
         case let .barrier(_, _, barrier):
-            breakOthers(issueId: barrier.issueId, actorUserId: barrier.actorUserId)
+            breakOthers(
+                issueId: barrier.issueId,
+                actor: foldActorKey(actorUserId: barrier.actorUserId, actorAgentId: barrier.actorAgentId)
+            )
         case let .event(at, index, event, parsed):
-            let actor = event.actorUserId
-            breakOthers(issueId: event.issueId, actorUserId: actor)
+            let actor = foldActorKey(actorUserId: event.actorUserId, actorAgentId: event.actorAgentId)
+            breakOthers(issueId: event.issueId, actor: actor)
             let field = actor == nil ? nil : foldFieldKey(event)
             guard let actor, let field, parsed else {
                 out.append(ActivityOut(event: event, at: at, index: index))
@@ -148,7 +169,7 @@ public func foldActivity(
             if open[key] != nil {
                 open[key]?.events.append(entry)
             } else {
-                open[key] = ActivityRun(issueId: event.issueId, actorUserId: actor, events: [entry])
+                open[key] = ActivityRun(issueId: event.issueId, actor: actor, events: [entry])
             }
         }
     }
@@ -191,7 +212,7 @@ private struct ActivityRunEvent {
 
 private struct ActivityRun {
     let issueId: String
-    let actorUserId: String
+    let actor: String
     var events: [ActivityRunEvent]
 }
 
@@ -250,7 +271,8 @@ private func mergedActivityEvent(
         type: last.type,
         payload: payload ?? last.payload,
         createdAt: last.createdAt,
-        updatedAt: last.updatedAt
+        updatedAt: last.updatedAt,
+        actorAgentId: last.actorAgentId
     )
 }
 
@@ -298,8 +320,10 @@ private func activityBefore(_ event: IssueEventEntity) -> String {
     switch event.type {
     case DomainContract.issueEventTypeStatusChanged:
         return activityStringified(activityCoalesce(payload, "fromStatusId", "from"))
-    case DomainContract.issueEventTypeAssigneeChanged,
-         DomainContract.issueEventTypePriorityChanged,
+    case DomainContract.issueEventTypeAssigneeChanged:
+        if let agentId = activityOptionalString(payload["fromAgentId"]) { return "agent:\(agentId)" }
+        return activityStringified(activityCoalesce(payload, "from"))
+    case DomainContract.issueEventTypePriorityChanged,
          DomainContract.issueEventTypeEstimateChanged,
          DomainContract.issueEventTypeTitleChanged:
         return activityStringified(activityCoalesce(payload, "from"))
@@ -321,8 +345,10 @@ private func activityAfter(_ event: IssueEventEntity) -> String {
     switch event.type {
     case DomainContract.issueEventTypeStatusChanged:
         return activityStringified(activityCoalesce(payload, "toStatusId", "to"))
-    case DomainContract.issueEventTypeAssigneeChanged,
-         DomainContract.issueEventTypePriorityChanged,
+    case DomainContract.issueEventTypeAssigneeChanged:
+        if let agentId = activityOptionalString(payload["toAgentId"]) { return "agent:\(agentId)" }
+        return activityStringified(activityCoalesce(payload, "to"))
+    case DomainContract.issueEventTypePriorityChanged,
          DomainContract.issueEventTypeEstimateChanged,
          DomainContract.issueEventTypeTitleChanged:
         return activityStringified(activityCoalesce(payload, "to"))

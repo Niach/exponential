@@ -80,3 +80,26 @@ describe(`activityWire`, () => {
     ).toBe(`automation`)
   })
 })
+
+// #EXP-1383: a team agent's session acts as the agent; an agent assignee
+// reads as the picker's `agent:<id>`.
+describe(`activityWire — agents`, () => {
+  it(`names the acting agent and reports it as an agent actor`, () => {
+    const wire = activityWire(
+      row({ viaMcp: true, sessionId: `s1`, actorAgentId: `g1`, actorAgentName: `Sloppy`, payload: { from: `A`, to: `B` } })
+    )
+    expect(wire).toMatchObject({ actorId: `u1`, actorKind: `agent`, agent: { id: `g1`, name: `Sloppy` }, sessionId: `s1` })
+    expect(`agent` in activityWire(row({}))).toBe(false)
+  })
+
+  it(`reads an agent assignee as agent:<id>`, () => {
+    expect(
+      activityWire(
+        row({ type: `assignee_changed`, payload: { from: `u2`, to: null, fromAgentId: null, toAgentId: `g1` } })
+      )
+    ).toMatchObject({ field: `assignee`, from: `u2`, to: `agent:g1` })
+    expect(
+      activityWire(row({ type: `assignee_changed`, payload: { from: null, to: `u2`, fromAgentId: `g1`, toAgentId: null } }))
+    ).toMatchObject({ from: `agent:g1`, to: `u2` })
+  })
+})

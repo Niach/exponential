@@ -22,6 +22,8 @@ export interface DraftSnapshot {
   statusId: string | null
   priority: IssuePriority
   assigneeId: string | null
+  /** #EXP-1383: an agent assignee (exclusive with `assigneeId`). */
+  assigneeAgentId: string | null
   labelIds: string[]
   dueDate: string | null
   /** EXP-1291: the thread (root session) a "New issue in this thread"
@@ -60,6 +62,7 @@ export function toUpsertInput(snapshot: DraftSnapshot) {
     statusId: snapshot.statusId,
     priority: snapshot.priority,
     assigneeId: snapshot.assigneeId,
+    assigneeAgentId: snapshot.assigneeAgentId,
     labelIds: snapshot.labelIds,
     dueDate: snapshot.dueDate,
     sessionId: snapshot.sessionId,
@@ -75,6 +78,8 @@ export interface DraftDialogSeed {
   statusId: string | null
   priority: IssuePriority
   assigneeId: string | null
+  /** #EXP-1383: an agent assignee (exclusive with `assigneeId`). */
+  assigneeAgentId: string | null
   labelIds: string[]
   dueDate: string | null
   /** EXP-1291: the thread (root session) it files into (null = none). */
@@ -109,10 +114,13 @@ export function toDialogSeed(
     description: draft.description ?? ``,
     statusId: draft.statusId,
     priority: draft.priority,
+    // #EXP-1383: an agent assignee is kept as is: its FK sets it null when
+    // the agent goes, and it never names somebody who left the team.
     assigneeId:
-      draft.assigneeId && userIds.has(draft.assigneeId)
+      !draft.assigneeAgentId && draft.assigneeId && userIds.has(draft.assigneeId)
         ? draft.assigneeId
         : null,
+    assigneeAgentId: draft.assigneeAgentId ?? null,
     labelIds: (draft.labelIds ?? []).filter((id) => labelIds.has(id)),
     dueDate: draft.dueDate ?? null,
     sessionId: draft.sessionId ?? null,

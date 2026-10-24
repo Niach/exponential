@@ -1,5 +1,5 @@
 {
-  "id": "8c2aa80b-d0e5-400f-975a-c6770ecfb54f",
+  "id": "36db4ffd-6b33-4491-bccc-65630c007538",
   "prevId": "3c2ab716-2642-40fb-b3f9-036040b2ef05",
   "version": "7",
   "dialect": "postgresql",
@@ -162,6 +162,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "''"
+        },
+        "instructions_updated_at": {
+          "name": "instructions_updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "triggers": {
           "name": "triggers",
@@ -1308,6 +1314,12 @@
           "notNull": true,
           "default": "'user'"
         },
+        "author_agent_id": {
+          "name": "author_agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "audience": {
           "name": "audience",
           "type": "comment_audience",
@@ -1492,6 +1504,19 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
+        "comments_author_agent_id_agents_id_fk": {
+          "name": "comments_author_agent_id_agents_id_fk",
+          "tableFrom": "comments",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "author_agent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
         "comments_email_delivery_id_email_deliveries_id_fk": {
           "name": "comments_email_delivery_id_email_deliveries_id_fk",
           "tableFrom": "comments",
@@ -1641,12 +1666,6 @@
         "owner_id": {
           "name": "owner_id",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "digest": {
-          "name": "digest",
-          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -3534,6 +3553,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "assignee_agent_id": {
+          "name": "assignee_agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "label_ids": {
           "name": "label_ids",
           "type": "uuid[]",
@@ -3681,6 +3706,19 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
+        "issue_drafts_assignee_agent_id_agents_id_fk": {
+          "name": "issue_drafts_assignee_agent_id_agents_id_fk",
+          "tableFrom": "issue_drafts",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "assignee_agent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
         "issue_drafts_session_id_sessions_id_fk": {
           "name": "issue_drafts_session_id_sessions_id_fk",
           "tableFrom": "issue_drafts",
@@ -3698,7 +3736,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "issue_drafts_single_assignee_check": {
+          "name": "issue_drafts_single_assignee_check",
+          "value": "assignee_id IS NULL OR assignee_agent_id IS NULL"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.issue_events": {
@@ -3745,6 +3788,12 @@
         "actor_user_id": {
           "name": "actor_user_id",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "actor_agent_id": {
+          "name": "actor_agent_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
@@ -3882,6 +3931,19 @@
           "tableTo": "users",
           "columnsFrom": [
             "actor_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "issue_events_actor_agent_id_agents_id_fk": {
+          "name": "issue_events_actor_agent_id_agents_id_fk",
+          "tableFrom": "issue_events",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "actor_agent_id"
           ],
           "columnsTo": [
             "id"
@@ -4804,6 +4866,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "assignee_agent_id": {
+          "name": "assignee_agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "creator_id": {
           "name": "creator_id",
           "type": "text",
@@ -4817,6 +4885,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'user'"
+        },
+        "creator_agent_id": {
+          "name": "creator_agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         },
         "due_date": {
           "name": "due_date",
@@ -4934,6 +5008,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_issues_assignee_agent": {
+          "name": "idx_issues_assignee_agent",
+          "columns": [
+            {
+              "expression": "assignee_agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "assignee_agent_id IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5090,12 +5180,38 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
+        "issues_assignee_agent_id_agents_id_fk": {
+          "name": "issues_assignee_agent_id_agents_id_fk",
+          "tableFrom": "issues",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "assignee_agent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
         "issues_creator_id_users_id_fk": {
           "name": "issues_creator_id_users_id_fk",
           "tableFrom": "issues",
           "tableTo": "users",
           "columnsFrom": [
             "creator_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "issues_creator_agent_id_agents_id_fk": {
+          "name": "issues_creator_agent_id_agents_id_fk",
+          "tableFrom": "issues",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "creator_agent_id"
           ],
           "columnsTo": [
             "id"
@@ -5120,7 +5236,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "issues_single_assignee_check": {
+          "name": "issues_single_assignee_check",
+          "value": "assignee_id IS NULL OR assignee_agent_id IS NULL"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.labels": {
@@ -8230,6 +8351,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "agent_instructions_at": {
+          "name": "agent_instructions_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",

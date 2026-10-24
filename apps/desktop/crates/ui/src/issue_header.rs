@@ -201,6 +201,21 @@ impl IssueHeader {
         queries::team_users(cx, &board.team_id)
     }
 
+    /// #EXP-1383: the issue's team's agents (the assignee picker's rows after
+    /// the members).
+    fn team_agents(&self, issue: &Issue, cx: &App) -> Vec<domain::agent_settings::AgentActorRow> {
+        let Some(team_id) = Store::global(cx)
+            .collections()
+            .boards
+            .read(cx)
+            .get(&issue.board_id)
+            .map(|board| board.team_id.clone())
+        else {
+            return Vec::new();
+        };
+        queries::team_agents(cx, &team_id)
+    }
+
     /// The team's labels, sort-order sorted (web LabelPicker query).
     fn team_labels(&self, issue: &Issue, cx: &App) -> Vec<Label> {
         let collections = Store::global(cx).collections();
@@ -327,18 +342,36 @@ impl IssueHeader {
     /// "Assignee" otherwise; menu offers Unassign + every member.
     fn assignee_control(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let users = self.member_users(issue, cx);
+        let agents = self.team_agents(issue, cx);
         let selected = issue
             .assignee_id
             .as_deref()
             .and_then(|id| users.iter().find(|user| user.id == id))
             .cloned();
         let issue_id = issue.id.clone();
-        let current_id = issue.assignee_id.clone();
+        let current = crate::picker::assignee_picker::assignee_value(
+            issue.assignee_id.as_deref(),
+            issue.assignee_agent_id.as_deref(),
+        );
+        // #EXP-1383: an agent assignee reads like a member: THE AGENT MARK +
+        // its name (web `AssigneePicker` trigger).
+        let selected_agent = issue
+            .assignee_agent_id
+            .as_deref()
+            .and_then(|id| queries::agent_actor(cx, id));
 
-        let trigger = match issue.assignee_id.as_deref() {
+        let trigger = match (selected_agent, issue.assignee_id.as_deref()) {
+            (Some(agent), _) => chip_button("prop-assignee", cx)
+                .child(crate::user_avatar::agent_avatar(
+                    agent.icon.as_deref(),
+                    agent.color.as_deref(),
+                    gpui_component::Size::XSmall,
+                    cx,
+                ))
+                .child(crate::pickers::chip_label(agent.name.clone(), false, cx)),
             // Assigned — render the member's name, falling back to `Member
             // <LAST4>` when the co-member's user row didn't sync.
-            Some(id) => chip_button("prop-assignee", cx)
+            (None, Some(id)) => chip_button("prop-assignee", cx)
                 .icon(
                     Icon::new(registry::UI_ASSIGNEE)
                         .xsmall()
@@ -349,7 +382,7 @@ impl IssueHeader {
                     false,
                     cx,
                 )),
-            None => chip_button("prop-assignee", cx)
+            (None, None) => chip_button("prop-assignee", cx)
                 .icon(
                     Icon::new(registry::UI_UNASSIGNED)
                         .xsmall()
@@ -360,27 +393,23 @@ impl IssueHeader {
 
         let trigger = trigger.into_any_element();
         crate::picker::deferred(move |window, cx| {
-            use crate::picker::assignee_picker::UNASSIGNED_VALUE;
             crate::picker::assignee_picker::assignee_picker(
                 &users,
+                &agents,
                 crate::picker::PickerMode::Single,
                 // Unassigned is a real ROW with a real value, so an
                 // unassigned issue PICKS it — an empty set would leave the
                 // picker with nothing marked at all.
-                vec![current_id
-                    .clone()
-                    .unwrap_or_else(|| UNASSIGNED_VALUE.to_string())],
+                vec![current.clone()],
                 // `Unassigned` is a real ROW, never a hidden placeholder.
                 true,
                 trigger,
                 Rc::new(move |picked, _window, cx| {
-                    let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
-                    input.assignee_id = match picked.first() {
-                        Some(user_id) if user_id != UNASSIGNED_VALUE => {
-                            api::Patch::Set(user_id.clone())
-                        }
-                        _ => api::Patch::Null,
-                    };
+                    // #EXP-1383: both columns, the cleared one null.
+                    let assignee = crate::picker::assignee_picker::assignee_from_value(
+                        picked.first().map(String::as_str),
+                    );
+                    let input = api::issues::IssuesUpdateInput::new(issue_id.clone()).assign(&assignee);
                     spawn_issue_update(cx, input);
                 }),
             )
@@ -725,7 +754,12 @@ impl IssueHeader {
         // choice — hide the assignee chip entirely (server-side default
         // assignment keeps the data correct). Multi-member (and the not-yet-
         // synced 0-member snapshot) keeps the picker.
-        let solo_team = self.member_users(issue, cx).len() == 1;
+        // #EXP-1383: a team agent is someone to assign to as well.
+        let solo_team = crate::picker::assignee_picker::hides_assignee(
+            self.member_users(issue, cx).len(),
+            self.team_agents(issue, cx).len(),
+            issue.assignee_agent_id.is_some(),
+        );
 
         // EXP-568/EXP-601: everything lives in ONE tray (EXP-1170:
         // `work_header::property_tray`, shared with the New issue page).

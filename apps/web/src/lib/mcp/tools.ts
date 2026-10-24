@@ -50,6 +50,7 @@ import {
 import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
 import {
+  agents,
   prompts,
   attachments,
   comments,
@@ -429,6 +430,8 @@ const commentWireColumns = {
   teamId: comments.teamId,
   boardId: comments.boardId,
   authorId: comments.authorId,
+  // #EXP-1383: the agent whose session wrote it.
+  authorAgentId: comments.authorAgentId,
   parentId: comments.parentId,
   source: comments.source,
   body: comments.body,
@@ -1204,6 +1207,7 @@ export function registerExponentialTools(
         statusId: uuidString.optional(),
         priority: issuePriorityEnumSchema.optional(),
         assigneeId: z.string().nullable().optional(),
+        assigneeAgentId: uuidString.nullable().optional(),
         description: z
           .string()
           .max(MAX_ISSUE_DESCRIPTION)
@@ -1288,6 +1292,7 @@ export function registerExponentialTools(
         statusId: uuidString.optional(),
         priority: issuePriorityEnumSchema.optional(),
         assigneeId: z.string().nullable().optional(),
+        assigneeAgentId: uuidString.nullable().optional(),
         description: z
           .string()
           .max(MAX_ISSUE_DESCRIPTION)
@@ -1868,11 +1873,14 @@ export function registerExponentialTools(
             type: issueEvents.type,
             payload: issueEvents.payload,
             actorUserId: issueEvents.actorUserId,
+            actorAgentId: issueEvents.actorAgentId,
+            actorAgentName: agents.name,
             viaMcp: issueEvents.viaMcp,
             sessionId: issueEvents.sessionId,
             createdAt: issueEvents.createdAt,
           })
           .from(issueEvents)
+          .leftJoin(agents, eq(agents.id, issueEvents.actorAgentId))
           .where(
             and(
               eq(issueEvents.issueId, issueId),
@@ -2332,8 +2340,11 @@ export function registerExponentialTools(
         ...pageInput,
       }),
     },
-    async ({ agentId, teamId, live, limit, offset }) => {
+    async ({ agentId, teamId: namedTeam, live, limit, offset }) => {
       try {
+        // #EXP-1383: a confined caller (a team agent's session) lists its
+        // own session's team unless it names one.
+        const teamId = namedTeam ?? (access.full ? undefined : (await loadCallerSession())?.teamId)
         if (!access.full) {
           if (!teamId) throw new Error(`Pass teamId: this connection is confined to chosen teams.`)
           assertTeamFullyGranted(access, teamId)
@@ -3556,7 +3567,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_events_emit`,
     {
-      description: `Emit a team event: name (free text, e.g. ui-changed; builtins are issue.created, issue.status_changed, pr.opened, pr.merged, session.ended) plus a JSON payload. Every agent with an event trigger on that name is woken with it; never your own agent. teamId defaults to your session's.`,
+      description: `Emit a team event: name (free text, e.g. ui-changed; builtins are issue.created, issue.status_changed, issue.assigned, pr.opened, pr.merged, session.ended) plus a JSON payload. Every agent with an event trigger on that name is woken with it; never your own agent. teamId defaults to your session's.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         name: z.string().min(1).max(128),

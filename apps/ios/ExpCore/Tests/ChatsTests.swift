@@ -261,6 +261,35 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(mirrored, sends)
     }
 
+    /// #EXP-1383 `agentHint`: the stamp compare and the banner row.
+    func testAgentHintCases() throws {
+        let hint = try XCTUnwrap(try fixture()["agentHint"] as? [String: Any])
+        let cases = try XCTUnwrap(hint["cases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            XCTAssertEqual(
+                Chats.agentInstructionsChanged(
+                    sessionStamp: input["sessionStamp"] as? String,
+                    agentStamp: input["agentStamp"] as? String
+                ),
+                try XCTUnwrap(testCase["expected"] as? Bool),
+                string(testCase["name"]) ?? ""
+            )
+        }
+        let banner = try XCTUnwrap(hint["banner"] as? [String: String])
+        XCTAssertEqual(banner, [
+            "id": Chats.AgentHint.id,
+            "icon": Chats.AgentHint.icon,
+            "label": Chats.AgentHint.label,
+            "text": Chats.AgentHint.text,
+            "tone": Chats.AgentHint.tone,
+            "action": Chats.AgentHint.action,
+        ])
+        XCTAssertEqual(hint["sends"] as? String, Chats.AgentHint.sends)
+        XCTAssertEqual(Chats.AgentHint.sends, Chats.agentMenuSends[.newConversation])
+    }
+
     func testReplyCases() throws {
         for testCase in try cases("replyCases") {
             let name = try XCTUnwrap(string(testCase["name"]))

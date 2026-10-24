@@ -21,6 +21,7 @@ final class ReporterReplyTests: XCTestCase {
     private struct CaptionCase: Decodable {
         let source: String
         let audience: String
+        let authorAgentId: String?
         let caption: String?
     }
 
@@ -81,8 +82,9 @@ final class ReporterReplyTests: XCTestCase {
         XCTAssertTrue(captions.cases.contains { $0.source == "mcp" && $0.audience == "reporter" })
         for c in captions.cases {
             XCTAssertEqual(
-                ReporterReply.caption(source: c.source, audience: c.audience), c.caption,
-                "\(c.source)/\(c.audience)"
+                ReporterReply.caption(source: c.source, audience: c.audience, authorAgentId: c.authorAgentId),
+                c.caption,
+                "\(c.source)/\(c.audience)/\(c.authorAgentId ?? "-")"
             )
         }
     }

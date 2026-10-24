@@ -59,6 +59,19 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_78: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-24-agents-as-themselves",
+    date: "2026-10-24",
+    title: "Agents act as themselves, stay in their team and take assigned issues",
+    summary: "Agents now show under their own name and mark in an issue's activity and comments, work only inside their own team, can be assigned issues, and their chat says when its instructions changed.",
+    body: r#"- **Agents as themselves**: what an agent does reads under its own name and mark: "Triage changed status to In Review", its comments, the issues it files and the notifications they send.
+- **Assign to agents**: the assignee picker lists the team's agents after its members; assigning one nudges your chat with that agent and emits the new `issue.assigned` event for triggers.
+- **Instructions changed**: after you edit an agent's instructions its chat shows a banner with Start new conversation; a new conversation restarts the agent so it runs on the new instructions.
+- **Team boundary**: an agent and everything it starts work only inside the agent's team, on a key that reaches no other team."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_77: ChangelogEntry = ChangelogEntry {
     id: "2026-10-24-release-train",
     date: "2026-10-24",

@@ -4,6 +4,8 @@ import { ListTodo } from "lucide-react"
 import type { Board, Issue, IssueLabel, Team } from "@/db/schema"
 import { formatDateForMutation, type IssueEstimation } from "@/lib/domain"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
+import { assigneeWrite } from "@/lib/issue-assignee"
+import { useAgentRows } from "@/hooks/use-agent-row"
 import { trpc } from "@/lib/trpc-client"
 import { deleteIssuePrompt, promptActions } from "@/lib/prompts"
 import {
@@ -87,6 +89,8 @@ export function IssueMenuSession({
   }, [issueLabelRows, labels])
   const boards = useTeamBoards(team?.id)
   const { users, userMap } = useTeamUsers(team?.id)
+  // #EXP-1383: the team's agents follow the members in the assignee rows.
+  const agents = useAgentRows(team?.id)
   const { resolve: resolveStatus, options: statusOptions } =
     useTeamStatusesContext()
   const issueRefs = useIssueRefs()
@@ -100,6 +104,7 @@ export function IssueMenuSession({
 
   const updateIssue = async (updates: {
     assigneeId?: Issue[`assigneeId`]
+    assigneeAgentId?: Issue[`assigneeAgentId`]
     dueDate?: Issue[`dueDate`]
     duplicateOfId?: Issue[`duplicateOfId`]
     estimate?: Issue[`estimate`]
@@ -209,9 +214,11 @@ export function IssueMenuSession({
             }),
             assignee: assigneeSlot({
               assigneeId: issue.assigneeId,
+              assigneeAgentId: issue.assigneeAgentId,
               orderedUsers,
+              agents,
               selectedAssignee,
-              onSelect: (userId) => void updateIssue({ assigneeId: userId }),
+              onSelect: (next) => void updateIssue(assigneeWrite(next)),
             }),
             priority: prioritySlot({
               priority: issue.priority,

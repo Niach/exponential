@@ -1,8 +1,9 @@
 import { sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issueEvents, issues } from "@/db/schema"
+import { issueEvents, issues, sessions } from "@/db/schema"
 import type { IssueEventType } from "@/lib/domain"
 import { emitIssueEventInTx } from "@/lib/events"
+import { onIssueAssignedInTx } from "@/lib/agents/assignment"
 import type { IssueEventOrigin } from "@/lib/integrations/event-origin"
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -36,7 +37,36 @@ export async function recordIssueEvent(
     payload: args.payload ?? null,
     viaMcp: args.origin?.viaMcp ?? false,
     sessionId: args.origin?.sessionId ?? null,
+    // #EXP-1383: the acting agent. Resolved by the caller (tRPC: the
+    // caller's own session, verified); an internal writer that passes only a
+    // (verified) session id gets that session's root agent.
+    actorAgentId:
+      args.origin?.agentId !== undefined
+        ? args.origin.agentId
+        : args.origin?.sessionId
+          ? sql`(select coalesce(r.agent_id, r.started_by_agent_id) from ${sessions} s join ${sessions} r on r.id = s.root_id where s.id = ${args.origin.sessionId})`
+          : null,
   })
+  // #EXP-1383: a new assignee (person or agent) emits `issue.assigned`; an
+  // agent assignee is nudged in the assigner's conversation.
+  if (args.type === `assignee_changed`) {
+    const payload = args.payload ?? {}
+    const to = (payload.to as string | null | undefined) ?? null
+    const toAgentId = (payload.toAgentId as string | null | undefined) ?? null
+    const from = (payload.from as string | null | undefined) ?? null
+    const fromAgentId = (payload.fromAgentId as string | null | undefined) ?? null
+    if ((to && to !== from) || (toAgentId && toAgentId !== fromAgentId)) {
+      await onIssueAssignedInTx(tx, {
+        issueId: args.issueId,
+        teamId: args.teamId,
+        actorUserId: args.actorUserId,
+        origin: args.origin,
+        assigneeId: to,
+        assigneeAgentId: toAgentId,
+      })
+    }
+    return
+  }
   // NEW-2: the builtin team events `issue.created` / `issue.status_changed`
   // ride the same write (every path that records the activity emits them).
   if (args.type !== `created` && args.type !== `status_changed`) return

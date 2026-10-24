@@ -12,7 +12,7 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // user|mcp|reporter source; SLOP-4 the team|reporter audience (and a
 // NULLABLE author_id for reporter rows); every client's local schema
 // carries all of them.
-const COMMENT_COLUMNS = [
+export const COMMENT_COLUMNS = [
   `id`,
   `issue_id`,
   `team_id`,
@@ -23,6 +23,8 @@ const COMMENT_COLUMNS = [
   `audience`,
   `body`,
   `edited_at`,
+  // #EXP-1383: the agent whose session wrote it (author_id = its member).
+  `author_agent_id`,
   `created_at`,
   `updated_at`,
 ]

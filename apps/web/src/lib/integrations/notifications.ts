@@ -11,6 +11,7 @@ import {
 } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
+  agents,
   comments,
   messages,
   sessions,
@@ -79,7 +80,20 @@ async function loadIssueMeta(issueId: string): Promise<IssueMeta | null> {
   return row ?? null
 }
 
-async function actorName(actorUserId: string): Promise<string> {
+async function actorName(
+  actorUserId: string,
+  // #EXP-1383: the agent whose session acted names the notification
+  // (`Sloppy commented on EXP-12`); a deleted one falls back to the member.
+  actorAgentId?: string | null
+): Promise<string> {
+  if (actorAgentId) {
+    const [agent] = await db
+      .select({ name: agents.name })
+      .from(agents)
+      .where(eq(agents.id, actorAgentId))
+      .limit(1)
+    if (agent?.name) return agent.name
+  }
   const [actor] = await db
     .select({ name: users.name, email: users.email })
     .from(users)
@@ -287,6 +301,7 @@ async function deliver(args: {
 export function fireAndForgetAssignmentNotify(args: {
   issueId: string
   actorUserId: string
+  actorAgentId?: string | null
   newAssigneeId: string | null | undefined
   previousAssigneeId?: string | null
 }): void {
@@ -299,7 +314,7 @@ export function fireAndForgetAssignmentNotify(args: {
     try {
       const issue = await loadIssueMeta(issueId)
       if (!issue) return
-      const name = await actorName(actorUserId)
+      const name = await actorName(actorUserId, args.actorAgentId)
       await deliver({
         issue,
         recipientIds: [newAssigneeId],
@@ -354,6 +369,7 @@ export function fireAndForgetNewIssueNotify(args: { issueId: string }): void {
 export function fireAndForgetCommentNotify(args: {
   issueId: string
   actorUserId: string
+  actorAgentId?: string | null
   commentBodyText: string
   mentionedUserIds?: string[]
   attachmentCount?: number
@@ -379,7 +395,7 @@ export function fireAndForgetCommentNotify(args: {
       )
       const commentRecipients = subscribers.filter((id) => !mentioned.has(id))
 
-      const name = await actorName(actorUserId)
+      const name = await actorName(actorUserId, args.actorAgentId)
       const previewSource = commentBodyText.trim()
       const preview =
         previewSource.length > 140
@@ -428,6 +444,7 @@ export function fireAndForgetCommentNotify(args: {
 export function fireAndForgetIssueMentionNotify(args: {
   issueId: string
   actorUserId: string
+  actorAgentId?: string | null
   mentionedUserIds: string[]
 }): void {
   void (async () => {
@@ -439,7 +456,7 @@ export function fireAndForgetIssueMentionNotify(args: {
       const issue = await loadIssueMeta(args.issueId)
       if (!issue) return
 
-      const name = await actorName(args.actorUserId)
+      const name = await actorName(args.actorUserId, args.actorAgentId)
       await deliver({
         issue,
         recipientIds: [...mentioned],
@@ -460,6 +477,7 @@ export function fireAndForgetIssueMentionNotify(args: {
 export function fireAndForgetStatusChangeNotify(args: {
   issueId: string
   actorUserId: string
+  actorAgentId?: string | null
   fromStatus: string
   toStatus: string
   // EXP-314: the precise status-row pair + display-name snapshot. The ids
@@ -487,7 +505,7 @@ export function fireAndForgetStatusChangeNotify(args: {
       )
       if (recipients.length === 0) return
 
-      const name = await actorName(actorUserId)
+      const name = await actorName(actorUserId, args.actorAgentId)
       await deliver({
         issue,
         recipientIds: recipients,

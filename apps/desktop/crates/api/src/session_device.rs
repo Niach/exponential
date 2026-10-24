@@ -3,7 +3,7 @@
 //! against `apps/web/src/lib/trpc/sessions.ts`:
 //!
 //! - `sessions.brief({sessionId})` → `{brief, teamPrompt, agentInstructions,
-//!   parentBranch}` — **query**: the server-composed first prompt plus the
+//!   parentBranch, rootAgentId?}` — **query**: the server-composed first prompt plus the
 //!   system-append layers (runbook + team prompt + agent instructions).
 //! - `sessions.claim({sessionId, branch?})` — **mutation**, queued → running
 //!   (idempotent for the claiming device). Called BEFORE the launcher
@@ -51,6 +51,21 @@ pub struct SessionBrief {
     /// A child's parent branch: its worktree bases on `origin/<parent>`.
     #[serde(default)]
     pub parent_branch: Option<String>,
+    /// #EXP-1383: the tree ROOT's `agent_id` (the agent whose conversation
+    /// the session belongs to, a child's too); `None` = a thread's tree, or
+    /// a server that does not send it yet.
+    #[serde(default)]
+    pub root_agent_id: Option<String>,
+}
+
+impl SessionBrief {
+    /// #EXP-1383: the brief says the session runs in an agent's
+    /// conversation tree — the root names its agent, or the server
+    /// composed agent instructions (only an agent tree has any).
+    pub fn in_agent_tree(&self) -> bool {
+        let set = |value: &Option<String>| value.as_deref().is_some_and(|v| !v.trim().is_empty());
+        set(&self.root_agent_id) || set(&self.agent_instructions)
+    }
 }
 
 #[derive(Serialize)]
@@ -423,6 +438,28 @@ mod tests {
         request.split("\r\n\r\n").nth(1).unwrap_or_default()
     }
 
+    /// #EXP-1383: `rootAgentId` decodes, and either it or composed agent
+    /// instructions mark the session as one of an agent's tree.
+    #[test]
+    fn brief_marks_an_agent_tree() {
+        let decoded: SessionBrief =
+            serde_json::from_str(r#"{"brief":"","rootAgentId":"ag-1"}"#).unwrap();
+        assert_eq!(decoded.root_agent_id.as_deref(), Some("ag-1"));
+        assert!(decoded.in_agent_tree());
+        let instructed = SessionBrief {
+            agent_instructions: Some("Triage.".to_string()),
+            ..SessionBrief::default()
+        };
+        assert!(instructed.in_agent_tree());
+        let blank = SessionBrief {
+            root_agent_id: Some(" ".to_string()),
+            agent_instructions: Some(String::new()),
+            ..SessionBrief::default()
+        };
+        assert!(!blank.in_agent_tree());
+        assert!(!SessionBrief::default().in_agent_tree());
+    }
+
     #[test]
     fn brief_queries_with_the_session_id_and_decodes_the_layers() {
         let (base, captured) = one_shot_server(
@@ -437,6 +474,7 @@ mod tests {
                 team_prompt: Some("Be terse.".to_string()),
                 agent_instructions: None,
                 parent_branch: Some("exp/EXP-0".to_string()),
+                root_agent_id: None,
             }
         );
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();

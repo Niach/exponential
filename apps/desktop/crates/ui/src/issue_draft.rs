@@ -47,7 +47,12 @@ pub(crate) struct IssueDraft {
     /// open time — the assignee chip hides and `assignee_id` defaults (and
     /// resets) to that member so the created issue is optimistically correct.
     pub(crate) solo_member_id: Option<String>,
+    /// #EXP-1383: the team has agents at open time — someone to assign to,
+    /// so a solo team keeps the assignee chip.
+    has_agents: bool,
     pub(crate) assignee_id: Option<String>,
+    /// #EXP-1383: an agent assignee (exclusive with `assignee_id`).
+    pub(crate) assignee_agent_id: Option<String>,
     pub(crate) selected_label_ids: Vec<String>,
     // EXP-1021: the label picker used to make the draft hold its query
     // field and its keyboard cursor. The shared picker primitive owns both
@@ -80,10 +85,14 @@ impl IssueDraft {
             _ => None,
         };
 
+        let has_agents = !queries::team_agents(cx, &team_id).is_empty();
+
         Self {
             status: default_status(&team_id, cx),
             priority: IssuePriority::None,
             assignee_id: solo_member_id.clone(),
+            assignee_agent_id: None,
+            has_agents,
             solo_member_id,
             selected_label_ids: Vec::new(),
             due_date: None,
@@ -107,6 +116,7 @@ impl IssueDraft {
         self.status = seed.status.clone();
         self.priority = seed.priority;
         self.assignee_id = seed.assignee_id.clone();
+        self.assignee_agent_id = seed.assignee_agent_id.clone();
         self.selected_label_ids = seed.label_ids.clone();
         self.due_date = seed.due_date;
         // Keep the popover's calendar on the stored day, not on today.
@@ -122,6 +132,7 @@ impl IssueDraft {
         self.status = default_status(&self.team_id, cx);
         self.priority = IssuePriority::None;
         self.assignee_id = self.solo_member_id.clone();
+        self.assignee_agent_id = None;
         self.selected_label_ids.clear();
         self.due_date = None;
         cx.notify();
@@ -133,7 +144,10 @@ impl IssueDraft {
     pub(crate) fn apply_to_create(&self, input: &mut api::issues::IssuesCreateInput) {
         self.status.apply_to_create(input);
         input.priority = Some(self.priority);
-        input.assignee_id = self.assignee_id.clone();
+        // #EXP-1383: an agent assignee wins and clears the person.
+        let assignee = api::issues::Assignee::of(self.assignee_id.as_deref(), self.assignee_agent_id.as_deref());
+        input.assignee_id = assignee.user_id().map(str::to_string);
+        input.assignee_agent_id = assignee.agent_id().map(str::to_string);
         input.due_date = self
             .due_date
             .map(|date| date.format("%Y-%m-%d").to_string());
@@ -156,7 +170,8 @@ impl IssueDraft {
             self.status_chip(prefix, cx).into_any_element(),
             self.priority_chip(prefix, cx).into_any_element(),
         ];
-        if self.solo_member_id.is_none() {
+        // #EXP-1383: a solo team with agents keeps the chip.
+        if self.solo_member_id.is_none() || self.has_agents || self.assignee_agent_id.is_some() {
             chips.push(self.assignee_chip(prefix, cx).into_any_element());
         }
         chips.push(self.labels_chip(prefix, cx).into_any_element());
@@ -252,49 +267,71 @@ impl IssueDraft {
     }
 
     /// Web `AssigneePicker`: "Assignee" or the selected member's name;
-    /// options = team members + Unassign.
+    /// options = team members + Unassign, then the team's agents
+    /// (#EXP-1383: an agent pick reads as its mark + name).
     fn assignee_chip(
         &self,
         prefix: &'static str,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let users = queries::team_users(cx, &self.team_id);
+        let agents = queries::team_agents(cx, &self.team_id);
+        let selected_agent = self
+            .assignee_agent_id
+            .as_deref()
+            .and_then(|id| agents.iter().find(|agent| agent.id == id))
+            .cloned();
         let selected = self
             .assignee_id
             .as_deref()
             .and_then(|id| users.iter().find(|user| user.id == id));
-        let label: SharedString = selected
-            .map(|user| SharedString::from(display_name(user)))
-            .unwrap_or_else(|| "Assignee".into());
-        let current = self.assignee_id.clone();
+        let label: SharedString = match (&selected_agent, selected) {
+            (Some(agent), _) => SharedString::from(agent.name.clone()),
+            (None, Some(user)) => SharedString::from(display_name(user)),
+            (None, None) => "Assignee".into(),
+        };
+        let unset = selected_agent.is_none() && selected.is_none();
+        let current = crate::picker::assignee_picker::assignee_value(
+            self.assignee_id.as_deref(),
+            self.assignee_agent_id.as_deref(),
+        );
         let view = cx.entity().clone();
 
-        let trigger = chip_button(SharedString::from(format!("{prefix}-assignee-chip")), cx)
-            .icon(
+        let chip = chip_button(SharedString::from(format!("{prefix}-assignee-chip")), cx);
+        let chip = match &selected_agent {
+            Some(agent) => chip.child(crate::user_avatar::agent_avatar(
+                agent.icon.as_deref(),
+                agent.color.as_deref(),
+                gpui_component::Size::XSmall,
+                cx,
+            )),
+            None => chip.icon(
                 Icon::new(registry::UI_ASSIGNEE)
                     .xsmall()
                     .text_color(cx.theme().muted_foreground),
-            )
-            .child(crate::pickers::chip_label(label, selected.is_none(), cx))
+            ),
+        };
+        let trigger = chip
+            .child(crate::pickers::chip_label(label, unset, cx))
             .into_any_element();
         crate::picker::deferred(move |window, cx| {
-            use crate::picker::assignee_picker::UNASSIGNED_VALUE;
             crate::picker::assignee_picker::assignee_picker(
                 &users,
+                &agents,
                 crate::picker::PickerMode::Single,
                 // Unassigned is a real ROW with a real value, so an
                 // unassigned draft PICKS it — an empty set would leave the
                 // picker with nothing marked at all.
-                vec![current.unwrap_or_else(|| UNASSIGNED_VALUE.to_string())],
+                vec![current.clone()],
                 true,
                 trigger,
                 Rc::new(move |picked, _window, cx| {
-                    let assignee_id = picked
-                        .first()
-                        .filter(|user_id| user_id.as_str() != UNASSIGNED_VALUE)
-                        .cloned();
+                    let assignee = crate::picker::assignee_picker::assignee_from_value(
+                        picked.first().map(String::as_str),
+                    );
                     view.update(cx, |this, cx| {
-                        this.assignee_id = assignee_id;
+                        this.assignee_id = assignee.user_id().map(str::to_string);
+                        this.assignee_agent_id = assignee.agent_id().map(str::to_string);
                         cx.notify();
                     });
                 }),

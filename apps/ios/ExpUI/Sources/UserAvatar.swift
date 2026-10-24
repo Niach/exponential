@@ -15,6 +15,9 @@ internal import ExponentialUIPrimitives
 public struct UserAvatar: View {
     let image: String?
     let initials: String
+    /// #EXP-1383: set = an AGENT where a person would be (an actor, an
+    /// assignee): THE AGENT MARK, never initials.
+    var agent: UserAvatarAgent?
     /// What the fallback hue is keyed on — the synced row's id when there is
     /// one, the raw id otherwise; both are the same string, so a member whose
     /// row lands mid-session keeps its colour.
@@ -39,10 +42,29 @@ public struct UserAvatar: View {
         self.size = size
     }
 
+    /// #EXP-1383 (agent-settings.json `actor` / `assignee`): THE AGENT MARK
+    /// at the avatar's size — the agent's glyph in its colour on the muted
+    /// disc, the Chats agent bubbles' and Settings → Agents rows' mark.
+    public init(agent: UserAvatarAgent, size: CGFloat = 32) {
+        self.image = nil
+        self.initials = ""
+        self.hueKey = nil
+        self.agent = agent
+        self.size = size
+    }
+
     /// SLOP-18 / VAPP-88: the drawing is the SDK's `AvatarView`, fed ExpUI's
     /// own hue (`avatarHueIndex`) and initials so no avatar changes colour.
     public var body: some View {
-        if let urlString = image,
+        if let agent {
+            ZStack {
+                Circle().fill(DesignTokens.Palette.muted)
+                AppIcon(agent.iconName, size: size * UserAvatarTokens.agentGlyphScale, weight: .medium)
+                    .foregroundStyle(agent.tint)
+            }
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+        } else if let urlString = image,
            !urlString.isEmpty,
            let url = URL(string: urlString) {
             AvatarView(name: initials, size: size) {
@@ -87,4 +109,38 @@ public enum UserAvatarTokens {
     public static let minimumScaleFactor: CGFloat = 0.6
     /// The hue's alpha in the chip fill.
     public static let fillOpacity: Double = 0.2
+    /// #EXP-1383: the agent glyph's size as a share of the diameter (web
+    /// `USER_AVATAR_SIZES[*].glyph`: 12 of 20, 16 of 28).
+    public static let agentGlyphScale: CGFloat = 0.6
+}
+
+/// #EXP-1383: an agent where a person would be — its curated `icon` and
+/// `color` (an `agents` row), drawn as THE AGENT MARK.
+public struct UserAvatarAgent: Equatable, Sendable {
+    public let icon: String?
+    public let color: String?
+
+    public init(icon: String?, color: String?) {
+        self.icon = icon
+        self.color = color
+    }
+
+    public init(_ agent: AgentDefinitionEntity) {
+        self.init(icon: agent.icon, color: agent.color)
+    }
+
+    public init(_ agent: AgentSettings.ActorAgent) {
+        self.init(icon: agent.icon, color: agent.color)
+    }
+
+    /// The curated glyph, else the contract default (`bot`).
+    public var iconName: String {
+        BoardTypeDisplay.iconName(for: icon) ?? SessionTree.ListCopy.agentDefaultIcon
+    }
+
+    /// The agent's colour, else the contract default.
+    public var tint: Color {
+        Color(hex: color ?? SessionTree.ListCopy.agentDefaultColor)
+            ?? Color(hex: SessionTree.ListCopy.agentDefaultColor) ?? .gray
+    }
 }

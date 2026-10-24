@@ -380,8 +380,8 @@ describe(`issues.bulkUpdate`, () => {
 
     const assigneeEvents = eventsOfType(`assignee_changed`)
     expect(assigneeEvents.map((e) => [e.issueId, e.payload])).toEqual([
-      [ID_A, { from: null, to: `victim` }],
-      [ID_B, { from: `other`, to: `victim` }],
+      [ID_A, { from: null, to: `victim`, fromAgentId: null, toAgentId: null }],
+      [ID_B, { from: `other`, to: `victim`, fromAgentId: null, toAgentId: null }],
     ])
     // The new assignee is auto-subscribed per changed issue.
     expect(

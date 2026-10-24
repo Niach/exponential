@@ -879,29 +879,77 @@ impl SteerSessionView {
                 );
                 this.phase = viewer_phase(phase.clone());
             }
-            // `subscribe` replays the buffered backlog first, so a view built
-            // long after the run started (a reopened tab, a rebuilt screen)
-            // sees the whole session and not just the tail.
-            let events = session.subscribe();
-            this._drain = cx.spawn_in(window, async move |this, cx| {
-                while let Ok(event) = events.recv_async().await {
-                    if this
-                        .update_in(cx, |this, window, cx| this.apply_local(event, window, cx))
-                        .is_err()
-                    {
-                        return;
-                    }
-                }
-                // The engine dropped its sender: the run is over, whether or
-                // not a `Phase(Ended)` made it out first.
-                let _ = this.update(cx, |this, cx| {
-                    // The reason, if there was one, already arrived as
-                    // `Phase(Failed)` (EXP-758); this edge only closes.
-                    this.note_run_ended(None, cx);
-                });
-            });
+            this.subscribe_local(&session, window, cx);
+        }
+        // #EXP-1383: a LOCAL source follows its session's engine. An agent's
+        // `/new` (and any revive) ends the engine process and launches a
+        // FRESH one for the same row; a view still bound to the old engine
+        // showed its last turn forever and nothing the new one did.
+        if matches!(this.source, FeedSource::Local { .. }) {
+            let local = crate::coding_flow::LocalSessions::global(cx);
+            this._subscriptions.push(cx.observe_in(&local, window, |this, _, window, cx| {
+                this.follow_local_engine(window, cx);
+            }));
         }
         this
+    }
+
+    /// Drain `session`'s local feed into this view. `subscribe` replays the
+    /// buffered backlog first, so a view built long after the run started (a
+    /// reopened tab, a rebuilt screen) sees the whole session and not just
+    /// the tail.
+    fn subscribe_local(&mut self, session: &engine::EngineSession, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let events = session.subscribe();
+        self._drain = cx.spawn_in(window, async move |this, cx| {
+            while let Ok(event) = events.recv_async().await {
+                if this
+                    .update_in(cx, |this, window, cx| this.apply_local(event, window, cx))
+                    .is_err()
+                {
+                    return;
+                }
+            }
+            // The engine dropped its sender: the run is over, whether or
+            // not a `Phase(Ended)` made it out first.
+            let _ = this.update(cx, |this, cx| {
+                // The reason, if there was one, already arrived as
+                // `Phase(Failed)` (EXP-758); this edge only closes.
+                this.note_run_ended(None, cx);
+            });
+        });
+    }
+
+    /// #EXP-1383: re-bind a LOCAL source whose engine finished to the live
+    /// engine that now hosts the same session here (the agent's `/new`
+    /// restart, a revive): a fresh feed over the new engine, its phase seeded
+    /// like a fresh view's. A live engine of ours, or none hosted here, is
+    /// left alone.
+    fn follow_local_engine(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let FeedSource::Local { session: current } = &self.source else {
+            return;
+        };
+        let next = crate::coding_flow::LocalSessions::global_ref(cx)
+            .and_then(|sessions| sessions.read(cx).session_by_id(&self.session_id).map(|entry| entry.host.session.clone()));
+        let Some(next) = next else {
+            return;
+        };
+        if !follows_engine(current.is_done(), next.is_done()) {
+            return;
+        }
+        log::info!("[ui] session {}: the view follows its restarted engine", self.session_id);
+        self.feed = SteerFeed::new();
+        self.derived_for = None;
+        self.extras = crate::session_extras::LocalExtras::default();
+        self.picked.clear();
+        self.answer_cursor = None;
+        self.answer_cursor_for = None;
+        self.refresh_derived();
+        self.phase = next.phase().map(viewer_phase).unwrap_or(ViewerPhase::Connecting);
+        self.connected = !matches!(self.phase, ViewerPhase::Ended { .. });
+        self.subscribe_local(&next, window, cx);
+        self.source = FeedSource::Local { session: next };
+        self.list.scroll_to_end();
+        cx.notify();
     }
 
     /// The builtin agent behind this session, for the usage sheet's device
@@ -5623,7 +5671,13 @@ impl SteerSessionView {
                     .author_id
                     .as_deref()
                     .and_then(|author_id| collections.as_ref()?.users.read(cx).get(author_id).cloned());
-                Some(crate::comments::thread_comment_author(comment, user.as_ref()))
+                // #EXP-1383: an agent's session wrote it → the agent's name.
+                let agent = comment
+                    .author_agent_id
+                    .as_deref()
+                    .and_then(|agent_id| crate::queries::agent_actor(cx, agent_id))
+                    .map(|agent| agent.name);
+                Some(agent.unwrap_or_else(|| crate::comments::thread_comment_author(comment, user.as_ref())))
             }
             // Not synced here yet: the run's owner, whose key posted it.
             None => self.row.as_ref().and_then(|row| {
@@ -5636,14 +5690,21 @@ impl SteerSessionView {
         let meta = match comment.as_ref() {
             Some(comment) => crate::comments::thread_comment_meta(comment, now),
             // The settle's own time until the row syncs (the synced meta's
-            // "<time> · via MCP" order).
-            None => match settled_at {
-                Some(ms) => {
-                    let ago = crate::comments::relative_time_epoch(ms.div_euclid(1000), now);
-                    format!("{ago} · via MCP")
+            // "<time> · via MCP" order). #EXP-1383: an agent's own comment
+            // never reads via MCP.
+            None => {
+                let agent_tree = self
+                    .row
+                    .as_ref()
+                    .is_some_and(|row| row.agent_id.is_some() || row.started_by_agent_id.is_some());
+                let ago = settled_at.map(|ms| crate::comments::relative_time_epoch(ms.div_euclid(1000), now));
+                match (ago, agent_tree) {
+                    (Some(ago), false) => format!("{ago} · via MCP"),
+                    (Some(ago), true) => ago,
+                    (None, false) => "via MCP".to_string(),
+                    (None, true) => String::new(),
                 }
-                None => "via MCP".to_string(),
-            },
+            }
         };
         let body = comment
             .as_ref()
@@ -7252,7 +7313,38 @@ impl SteerSessionView {
         if let Some(notice) = self.notice.clone() {
             out.push(banner("notice", "ui-warning", "Notice", notice.to_string(), DockTint::Warning, None));
         }
+        // #EXP-1383 (chats.json `agentHint`): an agent chat whose root still
+        // runs on instructions older than the agent's current ones.
+        if self.agent_hint_agent(cx).is_some() {
+            let hint = &domain::chats::CHATS.agent_hint.banner;
+            out.push(banner(
+                &hint.id,
+                &hint.icon,
+                &hint.label,
+                hint.text.clone(),
+                DockTint::Muted,
+                Some(&hint.action),
+            ));
+        }
         out
+    }
+
+    /// #EXP-1383 (chats.json `agentHint`): the agent whose chat THIS root is,
+    /// while the root fetched its brief before the agent's instructions last
+    /// changed (`agent_instructions_changed`); `None` = no hint (a thread, a
+    /// child, an agent never stamped, a fresh launch since the edit).
+    fn agent_hint_agent(&self, cx: &App) -> Option<String> {
+        let row = self.row.as_ref()?;
+        if row.parent_id.is_some() || row.depth.is_some_and(|depth| depth != 0) {
+            return None;
+        }
+        let agent_id = row.agent_id.as_deref()?;
+        let agent = crate::session_data::agent_def(agent_id, cx)?;
+        domain::chats::agent_instructions_changed(
+            row.agent_instructions_at.as_deref(),
+            agent.instructions_updated_at.as_deref(),
+        )
+        .then(|| agent_id.to_string())
     }
 
     /// EXP-1191 — the transcript's jump-to-bottom button
@@ -7495,6 +7587,28 @@ impl SteerSessionView {
         }
         if let Some(switch) = self.switch_account_control(cx) {
             out.push(("banner:rate-limit".to_string(), switch));
+        }
+        // #EXP-1383: the hint's action word sends exactly what the agent
+        // menu's New conversation sends (`sessions.send({agentId, text:
+        // "/new"})`), a MESSAGE the hosting device's pickup turns into the
+        // engine restart; the row stays until the fresh launch re-fetches
+        // the brief (the shape update hides it).
+        if let Some(agent_id) = self.agent_hint_agent(cx) {
+            let hint = &domain::chats::CHATS.agent_hint;
+            let line = hint.sends.clone();
+            out.push((
+                format!("banner:{}", hint.banner.id),
+                Button::new("dock-instructions-new")
+                    .outline()
+                    .small()
+                    .cursor_pointer()
+                    .label(hint.banner.action.clone())
+                    .on_click(move |_: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        crate::chat_actions::send_to_agent(&agent_id, &line, cx);
+                    })
+                    .into_any_element(),
+            ));
         }
         out
     }
@@ -8094,6 +8208,12 @@ impl SteerSessionView {
 
 const PAUSED_BODY: &str =
     "The agent is paused on that machine and continues when it comes back online.";
+
+/// #EXP-1383: a view over a FINISHED local engine follows a LIVE one hosting
+/// the same session (the restarted agent); a live engine of its own stays.
+fn follows_engine(current_done: bool, next_done: bool) -> bool {
+    current_done && !next_done
+}
 
 fn paused_title(device: Option<&str>) -> String {
     match device {
@@ -8872,6 +8992,15 @@ mod tests {
     /// cards with no row to sit above) key ascending between the feed and
     /// the working row, and a position past the room never reaches the
     /// working row's id nor wraps into the feed's ids.
+    /// #EXP-1383: the chat follows its restarted engine — only a FINISHED
+    /// local engine hands over, and only to a LIVE one.
+    #[test]
+    fn a_finished_local_engine_hands_the_view_to_the_live_one() {
+        assert!(follows_engine(true, false));
+        assert!(!follows_engine(false, false), "our own engine is still live");
+        assert!(!follows_engine(true, true), "nothing live to follow");
+        assert!(!follows_engine(false, true));
+    }
     #[test]
     fn synthetic_row_ids_stay_below_the_working_row() {
         use crate::transcript_rows::{ORPHAN_ROW_BASE, WORKING_ROW_ID};

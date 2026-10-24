@@ -25,10 +25,16 @@ class CommentCaptionTest {
     private fun JsonObject.stringOrNull(key: String): String? =
         get(key)?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
 
-    private fun comment(source: String, audience: String = "team", authorId: String? = "u1") =
+    private fun comment(
+        source: String,
+        audience: String = "team",
+        authorId: String? = "u1",
+        authorAgentId: String? = null,
+    ) =
         CommentEntity(
             id = "c1", issueId = "i1", teamId = "t1", authorId = authorId,
             source = source, audience = audience, createdAt = "c", updatedAt = "u",
+            authorAgentId = authorAgentId,
         )
 
     @Test
@@ -42,10 +48,11 @@ class CommentCaptionTest {
             val row = case.jsonObject
             val source = row.getValue("source").jsonPrimitive.content
             val audience = row.getValue("audience").jsonPrimitive.content
+            val agentId = row.stringOrNull("authorAgentId")
             assertEquals(
-                "$source/$audience",
+                "$source/$audience/$agentId",
                 row.stringOrNull("caption"),
-                commentCaption(comment(source, audience)),
+                commentCaption(comment(source, audience, authorAgentId = agentId)),
             )
         }
     }

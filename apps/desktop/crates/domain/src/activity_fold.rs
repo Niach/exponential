@@ -25,7 +25,14 @@
 //! `label_added`/`label_removed` → that ONE label (`payload.labelId`; an add
 //! and a remove of the same label cancel),
 //! `relation_added`/`relation_removed` → that one relation (`payload.type` +
-//! `payload.relatedIssueId`).
+//! `payload.relatedIssueId`). An assignee side compares as
+//! `agent:<fromAgentId|toAgentId>` when the payload names an agent, else the
+//! user id.
+//!
+//! THE ACTOR (#EXP-1383): an event (or barrier) with `actor_agent_id` set is
+//! the AGENT `agent:<id>`, else the member `user:<actor_user_id>`
+//! ([`fold_actor_key`]). An agent and the member whose conversation it runs
+//! in are DIFFERENT actors, and so are two agents of one member.
 
 use std::collections::HashMap;
 
@@ -41,7 +48,18 @@ use crate::rows::IssueEvent;
 pub struct ActivityBarrier {
     pub issue_id: String,
     pub actor_user_id: Option<String>,
+    /// #EXP-1383: the agent whose session wrote the comment.
+    pub actor_agent_id: Option<String>,
     pub created_at: String,
+}
+
+/// #EXP-1383: the fold's actor key: the agent when set, else the member,
+/// else `None` (web `foldActorKey`).
+pub fn fold_actor_key(actor_user_id: Option<&str>, actor_agent_id: Option<&str>) -> Option<String> {
+    if let Some(agent) = actor_agent_id.filter(|id| !id.is_empty()) {
+        return Some(format!("agent:{agent}"));
+    }
+    actor_user_id.filter(|id| !id.is_empty()).map(|user| format!("user:{user}"))
 }
 
 /// First-to-last span a run may cover and still fold (10 minutes, in millis).
@@ -112,7 +130,11 @@ fn before_of(event: &IssueEvent) -> String {
     let payload = payload_of(event);
     match kind_of(event) {
         "status_changed" => coalesced_string(&payload, &["fromStatusId", "from"]),
-        "assignee_changed" | "priority_changed" | "estimate_changed" | "title_changed" => coalesced_string(&payload, &["from"]),
+        "assignee_changed" => match optional_string(payload.get("fromAgentId")) {
+            Some(agent) => format!("agent:{agent}"),
+            None => coalesced_string(&payload, &["from"]),
+        },
+        "priority_changed" | "estimate_changed" | "title_changed" => coalesced_string(&payload, &["from"]),
         "board_moved" => coalesced_string(&payload, &["fromBoardId"]),
         "label_added" | "relation_added" => "absent".to_string(),
         "label_removed" | "relation_removed" => "present".to_string(),
@@ -124,7 +146,11 @@ fn after_of(event: &IssueEvent) -> String {
     let payload = payload_of(event);
     match kind_of(event) {
         "status_changed" => coalesced_string(&payload, &["toStatusId", "to"]),
-        "assignee_changed" | "priority_changed" | "estimate_changed" | "title_changed" => coalesced_string(&payload, &["to"]),
+        "assignee_changed" => match optional_string(payload.get("toAgentId")) {
+            Some(agent) => format!("agent:{agent}"),
+            None => coalesced_string(&payload, &["to"]),
+        },
+        "priority_changed" | "estimate_changed" | "title_changed" => coalesced_string(&payload, &["to"]),
         "board_moved" => coalesced_string(&payload, &["toBoardId"]),
         "label_added" | "relation_added" => "present".to_string(),
         "label_removed" | "relation_removed" => "absent".to_string(),
@@ -158,7 +184,7 @@ struct Out {
 
 struct Run {
     issue_id: String,
-    actor_user_id: String,
+    actor: String,
     events: Vec<Out>,
 }
 
@@ -221,10 +247,17 @@ pub fn fold_activity(events: &[IssueEvent], barriers: &[ActivityBarrier]) -> Vec
     let mut out: Vec<Out> = Vec::new();
 
     for (at, index, step) in steps {
-        let (issue_id, actor): (&str, Option<&str>) = match step {
-            Step::Event { event, .. } => (event.issue_id.as_str(), event.actor_user_id.as_deref()),
-            Step::Barrier(barrier) => (barrier.issue_id.as_str(), barrier.actor_user_id.as_deref()),
+        let (issue_id, actor): (&str, Option<String>) = match step {
+            Step::Event { event, .. } => (
+                event.issue_id.as_str(),
+                fold_actor_key(event.actor_user_id.as_deref(), event.actor_agent_id.as_deref()),
+            ),
+            Step::Barrier(barrier) => (
+                barrier.issue_id.as_str(),
+                fold_actor_key(barrier.actor_user_id.as_deref(), barrier.actor_agent_id.as_deref()),
+            ),
         };
+        let actor = actor.as_deref();
         // Everything by ANOTHER actor (or by nobody) on this issue flushes
         // every open run there.
         open_keys.retain(|key| {
@@ -234,7 +267,7 @@ pub fn fold_activity(events: &[IssueEvent], barriers: &[ActivityBarrier]) -> Vec
             if run.issue_id != issue_id {
                 return true;
             }
-            if actor.is_some_and(|actor| run.actor_user_id == actor) {
+            if actor.is_some_and(|actor| run.actor == actor) {
                 return true;
             }
             if let Some(run) = open.remove(key) {
@@ -273,7 +306,7 @@ pub fn fold_activity(events: &[IssueEvent], barriers: &[ActivityBarrier]) -> Vec
                     key.clone(),
                     Run {
                         issue_id: event.issue_id.clone(),
-                        actor_user_id: actor.to_string(),
+                        actor: actor.to_string(),
                         events: vec![entry],
                     },
                 );
@@ -406,6 +439,8 @@ mod tests {
         issue_id: String,
         #[serde(default)]
         actor_user_id: Option<String>,
+        #[serde(default)]
+        actor_agent_id: Option<String>,
         #[serde(rename = "type")]
         kind: String,
         #[serde(default)]
@@ -419,6 +454,8 @@ mod tests {
         issue_id: String,
         #[serde(default)]
         actor_user_id: Option<String>,
+        #[serde(default)]
+        actor_agent_id: Option<String>,
         created_at: String,
     }
 
@@ -438,6 +475,7 @@ mod tests {
                 issue_id: self.issue_id.clone(),
                 team_id: None,
                 actor_user_id: self.actor_user_id.clone(),
+                actor_agent_id: self.actor_agent_id.clone(),
                 kind: Some(self.kind.clone()),
                 payload: self.payload.clone(),
                 created_at: Some(self.created_at.clone()),
@@ -473,6 +511,7 @@ mod tests {
                 .map(|barrier| ActivityBarrier {
                     issue_id: barrier.issue_id.clone(),
                     actor_user_id: barrier.actor_user_id.clone(),
+                    actor_agent_id: barrier.actor_agent_id.clone(),
                     created_at: barrier.created_at.clone(),
                 })
                 .collect();
@@ -494,6 +533,7 @@ mod tests {
             issue_id: "i1".to_string(),
             team_id: None,
             actor_user_id: actor.map(str::to_string),
+            actor_agent_id: None,
             kind: Some(kind.to_string()),
             payload: Some(payload),
             created_at: Some(at.to_string()),

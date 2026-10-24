@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode, type RefObject } from "react"
 import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
+import { useAgentRow } from "@/hooks/use-agent-row"
 import type { Issue, IssueLabel, Label, User } from "@/db/schema"
 import {
   issueCollection,
@@ -96,6 +97,8 @@ export function IssuePreviewCard({ issueId }: { issueId: string }) {
     [assigneeId]
   )
   const assignee = (userRows?.[0] ?? null) as User | null
+  // #EXP-1383: an agent assignee reads as THE AGENT MARK + its name.
+  const { agent: assigneeAgent } = useAgentRow(issue?.assigneeAgentId ?? null)
 
   if (!issue) return null
 
@@ -110,7 +113,14 @@ export function IssuePreviewCard({ issueId }: { issueId: string }) {
         <span className="shrink-0 font-mono text-xs text-muted-foreground">
           {issue.identifier}
         </span>
-        {assigneeId && (
+        {assigneeAgent ? (
+          <span className="ml-auto flex min-w-0 items-center gap-1.5">
+            <UserAvatar size={16} className="shrink-0" user={null} agent={assigneeAgent} />
+            <span className="min-w-0 truncate text-xs text-muted-foreground">
+              {assigneeAgent.name}
+            </span>
+          </span>
+        ) : assigneeId && (
           <span className="ml-auto flex min-w-0 items-center gap-1.5">
             <UserAvatar
               size={16}

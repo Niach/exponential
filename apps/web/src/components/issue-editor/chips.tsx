@@ -7,6 +7,8 @@ import {
   creatableStatusOptions,
   type StatusRowOption,
 } from "@/lib/team-statuses"
+import { useAgentRows } from "@/hooks/use-agent-row"
+import type { IssueAssignee } from "@/lib/issue-assignee"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import {
@@ -38,6 +40,8 @@ export interface IssueEditorChipsProps {
   status: StatusRowOption
   priority: IssuePriority
   assigneeId: string | null
+  /** #EXP-1383: an agent assignee (exclusive with `assigneeId`). */
+  assigneeAgentId?: string | null
   selectedLabelIds: string[]
   teamId: string
   users: User[]
@@ -51,7 +55,8 @@ export interface IssueEditorChipsProps {
   overflowMenuItems?: ReactNode
   onStatusChange: (status: StatusRowOption) => void | Promise<void>
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
-  onAssigneeChange: (userId: string | null) => void | Promise<void>
+  /** The pick as both columns (`assigneeWrite`), the cleared one null. */
+  onAssigneeChange: (assignee: IssueAssignee) => void | Promise<void>
   onToggleLabel: (labelId: string) => void | Promise<void>
   onDueDateSelect: (date: string | null) => void | Promise<void>
 }
@@ -60,6 +65,7 @@ export function IssueEditorChips({
   status,
   priority,
   assigneeId,
+  assigneeAgentId = null,
   selectedLabelIds,
   teamId,
   users,
@@ -77,6 +83,8 @@ export function IssueEditorChips({
   onDueDateSelect,
 }: IssueEditorChipsProps) {
   const { options, byId } = useTeamStatusesContext()
+  // #EXP-1383: the team's agents follow the members in the picker.
+  const agents = useAgentRows(teamId)
   const statusOptions = creatableStatusOptions(options)
   // EXP-958: both chips draw the RESOLVED property the editor holds, never
   // the picker's matched option — a duplicate-status issue is not in
@@ -145,8 +153,10 @@ export function IssueEditorChips({
         <AssigneePicker
           disabled={disabled}
           users={users}
+          agents={agents}
           selectedUserId={assigneeId}
-          onSelect={onAssigneeChange}
+          selectedAgentId={assigneeAgentId}
+          onSelect={(next) => void onAssigneeChange(next)}
         />
       )}
 

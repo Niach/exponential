@@ -5,6 +5,8 @@ import type { IssuePriority } from "@/lib/domain"
 import { conceptIcon, Button, Input, Pill } from "@exp/ui"
 import { statusUpdatePayload, type StatusRowOption } from "@/lib/team-statuses"
 import { trpc } from "@/lib/trpc-client"
+import { useAgentRows } from "@/hooks/use-agent-row"
+import { assigneeWrite, UNASSIGNED, type IssueAssignee } from "@/lib/issue-assignee"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import { IssueEditorChips } from "@/components/issue-editor/chips"
 import {
@@ -62,7 +64,7 @@ export function SubIssueComposer({
   // upgrades the constructed fallback in place (the New issue page's rule).
   const [pickedStatus, setPickedStatus] = useState<StatusRowOption | null>(null)
   const [priority, setPriority] = useState<IssuePriority>(`none`)
-  const [assigneeId, setAssigneeId] = useState<string | null>(null)
+  const [assignee, setAssignee] = useState<IssueAssignee>(UNASSIGNED)
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
   const titleRef = useRef<HTMLInputElement>(null)
   const editorRef = useRef<MarkdownEditorRef>(null)
@@ -72,7 +74,9 @@ export function SubIssueComposer({
     pickedStatus ?? resolveStatus({ status: `backlog`, statusId: null })
   // `users` is the bot-excluded member list; 0 means still loading, so only
   // an actual 1 hides the control (the New issue page's rule).
-  const isSolo = users.length === 1
+  // #EXP-1383: the team's agents are someone to assign to as well.
+  const agents = useAgentRows(teamId)
+  const isSolo = users.length === 1 && agents.length === 0
 
   const close = () => {
     setOpen(false)
@@ -81,7 +85,7 @@ export function SubIssueComposer({
     descriptionRef.current = ``
     setPickedStatus(null)
     setPriority(`none`)
-    setAssigneeId(null)
+    setAssignee(UNASSIGNED)
     setSelectedLabelIds([])
   }
 
@@ -99,7 +103,8 @@ export function SubIssueComposer({
         // writes the anchor enum instead.
         ...statusUpdatePayload(status),
         priority,
-        assigneeId: assigneeId ?? undefined,
+        assigneeId: assignee.assigneeId ?? undefined,
+        assigneeAgentId: assignee.assigneeAgentId ?? undefined,
         description: body ? body : undefined,
         labelIds:
           selectedLabelIds.length > 0 ? selectedLabelIds : undefined,
@@ -187,8 +192,9 @@ export function SubIssueComposer({
             onStatusChange={setPickedStatus}
             priority={priority}
             onPriorityChange={setPriority}
-            assigneeId={assigneeId}
-            onAssigneeChange={setAssigneeId}
+            assigneeId={assignee.assigneeId}
+            assigneeAgentId={assignee.assigneeAgentId}
+            onAssigneeChange={(next) => setAssignee(assigneeWrite(next))}
             hideAssignee={isSolo}
             users={users}
             teamId={teamId}
