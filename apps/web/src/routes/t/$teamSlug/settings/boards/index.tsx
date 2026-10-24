@@ -1,38 +1,31 @@
-import { useEffect } from "react"
-import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { createFileRoute } from "@tanstack/react-router"
 import { useTeamBoardsWithReady } from "@/hooks/use-team-data"
-import { BoardsEmptyState } from "@/components/team/boards-section"
+import { BoardsListBand } from "@/components/team/boards-section"
 import {
   SettingsSectionGuard,
   useSettingsPage,
 } from "@/routes/t/$teamSlug/settings/-shared"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/t/$teamSlug/settings/boards/`)({
+  head: () => ({ meta: [{ title: pageTitle(`Boards`, `Settings`) }] }),
   component: SettingsBoardsIndex,
 })
 
-// EXP-862: the Boards section has no list page any more — the settings nav
-// IS the list. Bare /settings/boards forwards to the first board; a team
-// with none renders the create prompt instead.
+// #EXP-1381: the Boards page (settings-nav.json `boards`): the team's boards,
+// a row opens that board's settings (owners), "New board" for owners.
+// Every member sees the list (settings-nav.json `boards` is `visible: all`). The phones'
+// Team page row lands here; on md+ the settings sidebar lists the boards too.
 function SettingsBoardsIndex() {
   const { teamSlug } = Route.useParams()
-  const navigate = useNavigate()
   const { team, permissions, resolved } = useSettingsPage(teamSlug)
   const { boards, boardsReady } = useTeamBoardsWithReady(team?.id)
-  const first = boards[0]
-
-  useEffect(() => {
-    if (!first) return
-    void navigate({
-      to: `/t/$teamSlug/settings/boards/$boardId`,
-      params: { teamSlug, boardId: first.id },
-      replace: true,
-    })
-  }, [first, navigate, teamSlug])
 
   return (
-    <SettingsSectionGuard resolved={resolved} allowed={permissions.isOwner}>
-      {team && boardsReady && !first && <BoardsEmptyState team={team} />}
+    <SettingsSectionGuard resolved={resolved} allowed>
+      {team && boardsReady && (
+        <BoardsListBand team={team} boards={boards} canManage={permissions.isOwner} />
+      )}
     </SettingsSectionGuard>
   )
 }

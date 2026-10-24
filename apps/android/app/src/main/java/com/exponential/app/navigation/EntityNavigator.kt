@@ -20,7 +20,8 @@ sealed interface EntityTarget {
     /** NEW-7: an agent's conversation (the caller's DM with it). */
     data class Agent(val id: String) : EntityTarget
     data object Devices : EntityTarget
-    data object TeamSettings : EntityTarget
+    /** #EXP-1381: the team settings category's own page (a `SettingsNav` id). */
+    data class TeamSettings(val section: String) : EntityTarget
     data object Inbox : EntityTarget
 }
 

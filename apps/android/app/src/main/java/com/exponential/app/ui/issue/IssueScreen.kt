@@ -63,7 +63,8 @@ fun IssueScreen(
     /** The issue's `Threads` row and a PR row's thread. */
     onOpenThread: (rootSessionId: String) -> Unit,
     /** EXP-1121: the "Ready to code?" fixes that leave the screen; null hides. */
-    onOpenTeamSettings: ((teamId: String) -> Unit)? = null,
+    /** #EXP-1381: [section] = the settings category the fix lives on. */
+    onOpenTeamSettings: ((teamId: String, section: String) -> Unit)? = null,
     onOpenDevices: (() -> Unit)? = null,
     /** EXP-1097: the Sub-issues `+`; null hides it. */
     onCreateSubIssue: ((boardId: String, parentId: String) -> Unit)? = null,
@@ -266,8 +267,10 @@ fun IssueScreen(
             onNavigateFix = { fix ->
                 readinessSheetOpen = false
                 when (fix) {
-                    CodingReadiness.Fix.CONNECT_GITHUB, CodingReadiness.Fix.BOARD_SETTINGS ->
-                        teamId?.let { openTeamSettings?.invoke(it) }
+                    CodingReadiness.Fix.CONNECT_GITHUB ->
+                        teamId?.let { openTeamSettings?.invoke(it, com.exponential.app.domain.SettingsNav.REPOSITORIES) }
+                    CodingReadiness.Fix.BOARD_SETTINGS ->
+                        teamId?.let { openTeamSettings?.invoke(it, com.exponential.app.domain.SettingsNav.BOARDS) }
                     CodingReadiness.Fix.OPEN_DEVICES -> onOpenDevices?.invoke()
                     else -> Unit
                 }

@@ -373,11 +373,14 @@ struct IssueScreen: View {
             openComposer()
         case let .route(route):
             switch route {
-            // Repositories (and the GitHub connect) + the boards' repository
-            // controls both live in Team settings on iOS.
-            case .connectGithub, .boardSettings:
+            // #EXP-1381: the GitHub connect lives on the Repositories page,
+            // a board's repository control on the Boards page.
+            case .connectGithub:
                 guard let teamId else { return }
-                pushRoute(.teamSettings(accountId: accountId, teamId: teamId))
+                pushRoute(.teamSettingsSection(accountId: accountId, teamId: teamId, section: .repositories))
+            case .boardSettings:
+                guard let teamId else { return }
+                pushRoute(.teamSettingsSection(accountId: accountId, teamId: teamId, section: .boards))
             case .openDevices:
                 pushRoute(.agents)
             }

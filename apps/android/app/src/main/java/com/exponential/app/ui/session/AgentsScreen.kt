@@ -104,8 +104,12 @@ import kotlinx.coroutines.delay
  * seeing that a shared server's codex login expired explains a refused start,
  * but only its owner can fix it.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun AgentsScreen(
+    // #EXP-1381: pushed from the Team page's Devices row (settings-nav.json)
+    // the page wears a back + "Devices" top bar instead of the tab headline.
+    onBack: (() -> Unit)? = null,
     viewModel: AgentsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -175,14 +179,27 @@ fun AgentsScreen(
     val ownDevices = devices?.filter { it.isMine }
     val teamDevices = devices?.filterNot { it.isMine }.orEmpty()
 
-    Scaffold(containerColor = Color.Transparent) { padding ->
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            if (onBack != null) {
+                androidx.compose.material3.TopAppBar(
+                    title = { Text("Devices") },
+                    navigationIcon = { com.exponential.app.ui.components.TopBarBackButton(onClick = onBack) },
+                    colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                )
+            }
+        },
+    ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            Text(
-                "Devices",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
-            )
+            if (onBack == null) {
+                Text(
+                    "Devices",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+                )
+            }
             // No relay → nothing here can take a start: the full empty state.
             if (state.steerEnabled == false) {
                 // No relay → nothing here can take a start.
@@ -195,7 +212,7 @@ fun AgentsScreen(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize().testTag("devices-list"),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = if (onBack == null) BottomBarInset else 16.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     item(key = "__machines_header__") {

@@ -64,6 +64,14 @@ interface IssueDao {
     @Query("SELECT * FROM issues")
     fun observeAll(): Flow<List<IssueEntity>>
 
+    // #EXP-1382: the ACTIVE team's issues (the global search's local pool),
+    // over its live boards only.
+    @Query(
+        "SELECT issues.* FROM issues INNER JOIN boards ON boards.id = issues.board_id " +
+            "WHERE boards.team_id = :teamId AND boards.deleted_at IS NULL",
+    )
+    fun observeByTeam(teamId: String): Flow<List<IssueEntity>>
+
     // Cross-board "My Issues" view (masterplan §5a): everything assigned to me.
     @Query("SELECT * FROM issues WHERE assignee_id = :userId ORDER BY sort_order, created_at")
     fun observeByAssignee(userId: String): Flow<List<IssueEntity>>

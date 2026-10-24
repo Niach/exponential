@@ -724,7 +724,7 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.nav,
             "The Team tab never showed its teams group"
         )
-        let teamRow = app.buttons["team-settings-boards"]
+        let teamRow = teamSettingsRow(app, "Boards")
         expect(teamRow, within: Wait.nav, "The Team tab has no Boards row")
         snapshot("sg_settings-root", settle: 2)
 
@@ -749,15 +749,16 @@ final class StyleguideScreenshots: XCTestCase {
         _ = gettingStartedSheet.waitForNonExistence(timeout: Wait.nav)
 
         // ── sg_settings-team: team settings ─────────────────────────────────
+        // #EXP-1381: every Team row opens its OWN page; the Boards page,
+        // anchored on the seeded board it lists.
         teamRow.tap()
-        // TeamSettingsView carries the nav title "Settings" too — anchor on the
-        // seeded board listed in its Boards section instead.
         expect(
             app.staticTexts[Self.seededBoardName],
             within: Wait.sync,
             "Team settings never listed the seeded boards"
         )
         snapshot("sg_settings-team", settle: 2)
+        goBack(app)
 
         // ── sg_settings-team-agent: Settings → Agents, one agent's page ─────
         // EXP-1293/1309: the Triage agent (DEMO_AGENT_ID) — its build
@@ -765,6 +766,9 @@ final class StyleguideScreenshots: XCTestCase {
         // (`sessions.getAgent`, so gate on their text). A detour: nothing is
         // edited, Back returns to the team settings.
         if ScreenshotShots.isWanted("sg_settings-team-agent") {
+            let agentsRow = teamSettingsRow(app, "Agents")
+            scrollUntilVisible(app, agentsRow, attempts: 4)
+            agentsRow.tap()
             let agentRow = app.buttons
                 .matching(identifier: "agent-settings-row")
                 .matching(NSPredicate(format: "label CONTAINS %@", Self.agentName))
@@ -779,7 +783,8 @@ final class StyleguideScreenshots: XCTestCase {
             expect(instructions, within: Wait.network, "\(Self.agentName)'s instructions never loaded (sessions.getAgent)")
             snapshot("sg_settings-team-agent", settle: 2)
             goBack(app)
-            expect(app.staticTexts[Self.seededBoardName], within: Wait.nav, "Did not return to the team settings")
+            expect(agentRow, within: Wait.nav, "Did not return to the Agents page")
+            goBack(app)
         }
 
         // ── sg_settings-prompts · sg_settings-prompt: Settings → Prompts ────
@@ -788,6 +793,9 @@ final class StyleguideScreenshots: XCTestCase {
         // (the owner pill): the same page an existing prompt opens, in create
         // mode so the capture needs no seeded id. Nothing is saved.
         if ScreenshotShots.isWanted("sg_settings-prompts") || ScreenshotShots.isWanted("sg_settings-prompt") {
+            let promptsRow = teamSettingsRow(app, "Prompts")
+            scrollUntilVisible(app, promptsRow, attempts: 4)
+            promptsRow.tap()
             let newPrompt = anyElement(app, identified: "prompts-new")
             scrollUntilVisible(app, newPrompt, attempts: 10)
             expect(newPrompt, within: Wait.sync, "Team settings drew no Prompts band with New prompt")
@@ -796,9 +804,9 @@ final class StyleguideScreenshots: XCTestCase {
             expect(anyElement(app, identified: "prompt-form"), within: Wait.nav, "New prompt did not open its form")
             snapshot("sg_settings-prompt", settle: 2)
             goBack(app)
-            expect(newPrompt, within: Wait.nav, "Did not return to the team settings")
+            expect(newPrompt, within: Wait.nav, "Did not return to the Prompts page")
+            goBack(app)
         }
-        goBack(app)
 
         // ── sg_settings-account: the account / server detail ──────────────────
         // There is no separate profile screen (EXP-311): the signed-in
@@ -952,6 +960,16 @@ final class StyleguideScreenshots: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// #EXP-1381: a Team page row (`team-settings-row`, settings-nav.json)
+    /// by its label.
+    @MainActor
+    private func teamSettingsRow(_ app: XCUIApplication, _ label: String) -> XCUIElement {
+        app.buttons
+            .matching(identifier: "team-settings-row")
+            .matching(NSPredicate(format: "label BEGINSWITH %@", label))
+            .firstMatch
+    }
 
     /// EXP-1259: relaunch signed out onto one run-thread card specimen.
     @MainActor

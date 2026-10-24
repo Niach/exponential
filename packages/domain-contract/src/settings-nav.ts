@@ -5,7 +5,7 @@
 
 import fixture from "../fixtures/settings-nav.json" with { type: "json" }
 
-export type SettingsNavVisibility = `all` | `manageTeam` | `cloudManageTeam` | `manageWidgets`
+export type SettingsNavVisibility = `all` | `owner` | `ownerCloud`
 export type SettingsNavCount = `members` | `boards` | `agents`
 
 export interface SettingsNavRow {
@@ -26,19 +26,26 @@ export function settingsNavRow(id: string): SettingsNavRow | undefined {
   return SETTINGS_NAV_ROWS.find((row) => row.id === id)
 }
 
-/** Whether a viewer sees a row (`visible`). */
+/** `visible`, the same on every client (`visibleCases`): `isOwner` =
+ *  teamRole owner, `cloud` = a cloud instance. */
 export function settingsNavVisible(
   row: SettingsNavRow,
-  viewer: { canManageTeam: boolean; canManageWidgets: boolean; isCloud: boolean }
+  viewer: { isOwner: boolean; isCloud: boolean }
 ): boolean {
   switch (row.visible) {
     case `all`:
       return true
-    case `manageTeam`:
-      return viewer.canManageTeam
-    case `cloudManageTeam`:
-      return viewer.canManageTeam && viewer.isCloud
-    case `manageWidgets`:
-      return viewer.canManageWidgets
+    case `owner`:
+      return viewer.isOwner
+    case `ownerCloud`:
+      return viewer.isOwner && viewer.isCloud
   }
+}
+
+/** The phone rows a viewer sees, in order. */
+export function settingsNavPhoneRows(viewer: { isOwner: boolean; isCloud: boolean }): string[] {
+  return SETTINGS_NAV_PHONE_ROWS.filter((id) => {
+    const row = settingsNavRow(id)
+    return row !== undefined && settingsNavVisible(row, viewer)
+  })
 }

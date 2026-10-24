@@ -107,8 +107,8 @@
       "height": 52,
       "padding": 4,
       "gap": 12,
-      "tabMinWidth": 56,
-      "tabPaddingX": 10,
+      "tabMinWidth": 48,
+      "tabPaddingX": 8,
       "labelMaxWidth": 96,
       "drag": {
         "lensScale": 1.12,

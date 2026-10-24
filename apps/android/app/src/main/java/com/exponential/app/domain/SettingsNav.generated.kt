@@ -28,17 +28,17 @@ object SettingsNav {
     const val DEVICES = "devices"
 
     val ROWS: List<Row> = listOf(
-        Row("general", "General", "settings-general", "team", "manageTeam", true, null),
+        Row("general", "General", "settings-general", "team", "owner", true, null),
         Row("members", "Members", "settings-members", "team", "all", true, "members"),
         Row("issues", "Issues", "settings-issues", "team", "all", false, null),
         Row("labels", "Labels", "settings-labels", "team", "all", true, null),
         Row("statuses", "Statuses", "settings-statuses", "team", "all", false, null),
-        Row("billing", "Plan & Billing", "settings-billing", "team", "cloudManageTeam", false, null),
+        Row("billing", "Plan & Billing", "settings-billing", "team", "ownerCloud", false, null),
         Row("boards", "Boards", "settings-boards", "boards", "all", true, "boards"),
         Row("agents", "Agents", "settings-agents", "agents", "all", true, "agents"),
         Row("repositories", "Repositories", "settings-repositories", "agents", "all", true, null),
         Row("prompts", "Prompts", "nav-actions", "agents", "all", true, null),
-        Row("widget", "Widget", "settings-widget", "features", "manageWidgets", false, null),
+        Row("widget", "Widget", "settings-widget", "features", "owner", false, null),
         Row("mcp-servers", "MCP servers", "settings-mcp", "features", "all", false, null),
         Row("devices", "Devices", "nav-devices", "features", "all", true, null),
     )
@@ -46,6 +46,19 @@ object SettingsNav {
     val PHONE_ROWS: List<String> = listOf(GENERAL, MEMBERS, LABELS, BOARDS, AGENTS, REPOSITORIES, PROMPTS, DEVICES)
 
     fun row(id: String): Row = ROWS.first { it.id == id }
+
+    /** visible, the same on every client: [isOwner] = teamRole owner,
+     *  [cloud] = a cloud instance (the natives pass false). */
+    fun isVisible(row: Row, isOwner: Boolean, cloud: Boolean): Boolean = when (row.visible) {
+        "all" -> true
+        "owner" -> isOwner
+        "ownerCloud" -> isOwner && cloud
+        else -> false
+    }
+
+    /** The phone rows a viewer sees, in order. */
+    fun visiblePhoneRows(isOwner: Boolean, cloud: Boolean = false): List<String> =
+        PHONE_ROWS.filter { isVisible(row(it), isOwner, cloud) }
 
     const val ROW_TEST_ID = "team-settings-row"
     const val PAGE_TEST_ID = "team-settings-page"

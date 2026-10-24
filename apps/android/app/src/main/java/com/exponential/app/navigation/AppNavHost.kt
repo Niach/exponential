@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,6 +54,7 @@ import com.exponential.app.AppViewModel
 import com.exponential.app.ExponentialApp
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.domain.TeamLiveRuns
+import com.exponential.app.domain.SettingsNav
 import com.exponential.app.data.electric.SyncHealth
 import androidx.browser.customtabs.CustomTabsIntent
 import com.exponential.app.data.push.DeepLinkBus
@@ -512,9 +514,9 @@ private fun AuthenticatedNav(
     // is); it is PUSHED over the issue, so Back returns to Start coding.
     // Devices is a tab (EXP-1210): a switch; an issue opened inside a
     // non-Agent tab comes back with that tab's restored stack.
-    val openReadinessTeamSettings: (String) -> Unit = { teamId ->
+    val openReadinessTeamSettings: (String, String) -> Unit = { teamId, section ->
         if (teamSelection.selectedId.value != teamId) teamSelection.select(teamId)
-        navController.navigate("team-settings") { launchSingleTop = true }
+        navController.navigate(Routes.teamSettings(section)) { launchSingleTop = true }
     }
     val openReadinessDevices: () -> Unit = {
         navController.selectTab(MainTabs.DEVICES, tabSwitch)
@@ -551,7 +553,7 @@ private fun AuthenticatedNav(
                 is EntityTarget.Agent -> navController.navigate(Routes.agentDm(target.id))
                 // EXP-1210: a tab is never pushed — its ref switches to it.
                 EntityTarget.Devices -> navController.selectTab(MainTabs.DEVICES, tabSwitch)
-                EntityTarget.TeamSettings -> navController.navigate("team-settings")
+                is EntityTarget.TeamSettings -> navController.navigate(Routes.teamSettings(target.section))
                 // Thread 58cb32df: the inbox is a page, pushed.
                 EntityTarget.Inbox -> navController.navigate(MainTabs.INBOX) { launchSingleTop = true }
             }
@@ -706,9 +708,8 @@ private fun AuthenticatedNav(
             // switch, the settings rows, the servers, General).
             TeamTabScreen(
                 onOpenServerDetail = { accountId -> navController.navigate("server/$accountId") },
-                onOpenTeamSettings = { navController.navigate("team-settings") },
-                onOpenAgents = { navController.navigate(Routes.AGENTS_SETTINGS) },
-                onOpenApps = { navController.navigate(Routes.APPS) },
+                // #EXP-1381: every settings row opens its own page.
+                onOpenTeamSettings = { section -> navController.navigate(Routes.teamSettings(section)) },
                 onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },
                 onOpenAbout = { navController.navigate("about") },
                 onAddServer = { navController.navigate("add-server") },
@@ -731,7 +732,7 @@ private fun AuthenticatedNav(
         composable("settings") {
             SettingsScreen(
                 onOpenServerDetail = { accountId -> navController.navigate("server/$accountId") },
-                onOpenTeamSettings = { navController.navigate("team-settings") },
+                onOpenTeamSettings = { section -> navController.navigate(Routes.teamSettings(section)) },
                 onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },
                 onOpenAbout = { navController.navigate("about") },
                 onAddServer = { navController.navigate("add-server") },
@@ -777,14 +778,31 @@ private fun AuthenticatedNav(
             val accountId = entry.arguments?.getString("accountId").orEmpty()
             ServerDetailScreen(accountId = accountId, onBack = { navController.popBackStack() })
         }
-        composable("team-settings") {
-            TeamSettingsScreen(
-                onBack = { navController.popBackStack() },
-                onOpenAgent = { id -> navController.navigate(Routes.agentSettings(id)) },
-                onNewAgent = { navController.navigate(Routes.AGENT_NEW) },
-                onOpenPrompt = { id -> navController.navigate(Routes.promptSettings(id)) },
-                onNewPrompt = { navController.navigate(Routes.PROMPT_NEW) },
-            )
+        composable(
+            // #EXP-1381 (settings-nav.json): ONE team settings category per
+            // page, its label the title; the TeamSettingsViewModel reads
+            // `section` off the SavedStateHandle and observes only its data.
+            Routes.TEAM_SETTINGS_PATTERN,
+            arguments = listOf(navArgument("section") { type = NavType.StringType }),
+        ) { entry ->
+            val back: () -> Unit = { navController.popBackStack() }
+            Box(Modifier.fillMaxSize().testTag(SettingsNav.PAGE_TEST_ID)) {
+            when (entry.arguments?.getString("section")) {
+                SettingsNav.AGENTS -> AgentsSettingsScreen(
+                    onBack = back,
+                    onOpenAgent = { id -> navController.navigate(Routes.agentSettings(id)) },
+                    onNewAgent = { navController.navigate(Routes.AGENT_NEW) },
+                )
+                SettingsNav.PROMPTS -> PromptsSettingsScreen(
+                    onBack = back,
+                    onOpenPrompt = { id -> navController.navigate(Routes.promptSettings(id)) },
+                    onNewPrompt = { navController.navigate(Routes.PROMPT_NEW) },
+                )
+                // The devices page, moved here from the tab bar (chats.json `shell`).
+                SettingsNav.DEVICES -> AgentsScreen(onBack = back)
+                else -> TeamSettingsScreen(onBack = back)
+            }
+            }
         }
         composable("share-compose") {
             // Single-screen share composer: the prefilled create form with the

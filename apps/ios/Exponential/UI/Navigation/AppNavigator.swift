@@ -60,8 +60,8 @@ enum AppRoute: Hashable {
     case agent(accountId: String, seed: AgentComposerSeed)
     case settings
     case serverDetail(accountId: String)
-    case teamSettings(accountId: String, teamId: String)
-    /// EXP-1373: a Team tab row → that section of the team's settings.
+    /// #EXP-1381 (settings-nav.json): a Team page row → that category's
+    /// OWN page (Devices included: it left the tab bar for the Team page).
     case teamSettingsSection(accountId: String, teamId: String, section: TeamSettingsSection)
     case invite(token: String)
     case syncDebug
@@ -1012,11 +1012,8 @@ extension MainNavigator {
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .serverDetail(accountId):
             ServerDetailView(accountId: accountId)
-        case let .teamSettings(accountId, teamId):
-            TeamSettingsView(teamId: teamId)
-                .environment(\.accountId, accountId)
         case let .teamSettingsSection(accountId, teamId, section):
-            TeamSettingsView(teamId: teamId, focus: section)
+            TeamSettingsPage(teamId: teamId, section: section)
                 .environment(\.accountId, accountId)
         case let .invite(token):
             InviteAcceptView(token: token)

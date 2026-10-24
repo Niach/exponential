@@ -24,6 +24,12 @@ object Routes {
     const val SESSION_PATTERN = "session/{sessionId}"
     fun session(sessionId: String): String = "session/$sessionId"
 
+    /** #EXP-1381 (settings-nav.json): ONE team settings category's own page,
+     *  `section` = a `SettingsNav` row id (General, Members, Labels, Boards,
+     *  Agents, Repositories, Prompts, Devices). */
+    const val TEAM_SETTINGS_PATTERN = "team-settings/{section}"
+    fun teamSettings(section: String): String = "team-settings/$section"
+
     const val AGENTS_SETTINGS = "settings/agents"
     // NEW-2: an agent = a definition row (`agents.id`).
     const val AGENT_SETTINGS_PATTERN = "settings/agent/{agentId}"

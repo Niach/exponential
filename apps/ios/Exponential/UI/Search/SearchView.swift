@@ -2,9 +2,9 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// The Search tab: cross-board issue search over the active account's local
-/// data, augmented by a debounced server full-text search (description +
-/// comments). Pure search (EXP-58): the empty-query state is a hint — the
+/// The Search page: issue search over the ACTIVE team's boards (#EXP-1382,
+/// search-list.json TEAM SCOPE), augmented by a debounced server full-text
+/// search (description + comments) for that team. Pure search (EXP-58): the empty-query state is a hint — the
 /// "Assigned to you" list that used to live here moved to My Work.
 ///
 /// SLOP-28 (EXP-1259 D4): it is THE search list (`SearchListView`,
@@ -16,6 +16,7 @@ struct SearchView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
+    @Environment(TeamState.self) private var teamState
     @State private var viewModel: SearchViewModel?
     @State private var query = ""
 
@@ -25,8 +26,10 @@ struct SearchView: View {
 
             if let vm = viewModel {
                 let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                // The results are the view model's STATE (ranked off the main
+                // actor, #EXP-1382) — the input paints every keystroke at once.
                 SearchListView(
-                    items: vm.results(for: trimmed).map(Self.item),
+                    items: vm.results.map(Self.item),
                     query: $query,
                     // EXP-922: the ×4 copy set — same words on web, desktop,
                     // iOS and Android (web `lib/issue-search.ts`;
@@ -55,15 +58,18 @@ struct SearchView: View {
             // Re-arm on every appear: pushing an issue detail stops the
             // observation (onDisappear), popping back must resume it. Same for
             // the server search — onDisappear cancels any in-flight request.
-            viewModel?.startObserving()
-            viewModel?.queryChanged(query)
+            viewModel?.startObserving(teamId: teamState.activeTeamId)
+        }
+        .onChange(of: teamState.activeTeamId) { _, teamId in
+            // Switching the team re-runs the query against it.
+            viewModel?.startObserving(teamId: teamId)
         }
         .onDisappear {
             viewModel?.stopObserving()
         }
         .onChange(of: query) { _, newValue in
             // Debounced + cancelled-on-keystroke inside the VM — never blocks
-            // typing; local substring results stay instant.
+            // typing.
             viewModel?.queryChanged(newValue)
         }
     }
@@ -86,7 +92,7 @@ struct SearchView: View {
 
     private var searchHint: some View {
         EmptyState(
-            title: "Search issues across all your boards.",
+            title: "Search issues across this team's boards.",
             description: "Matches identifiers, titles, and full text.",
             icon: AppIcons.navSearch
         )

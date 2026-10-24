@@ -63,7 +63,20 @@ object IssueSearch {
          * type that carries no status (a server-hit stand-in) still ranks.
          */
         val status: String? get() = null
+
+        /**
+         * #EXP-1382: [updatedAt] / [createdAt] already parsed to epoch millis
+         * ([Long.MIN_VALUE] = missing or unparseable) by a row type that
+         * prepares its rows ONCE (the Search tab caches them per issues
+         * emission), so a keystroke's rank never re-parses a timestamp. Null =
+         * parse the wire string.
+         */
+        val updatedAtMs: Long? get() = null
+        val createdAtMs: Long? get() = null
     }
+
+    /** #EXP-1382: a wire timestamp as the rank's epoch millis (missing/unparseable = oldest). */
+    fun epochMs(value: String?): Long = timeOf(value)
 
     /**
      * The `limit` every consumer gets without asking — and, since EXP-922, the
@@ -317,19 +330,22 @@ object IssueSearch {
 
     /** updatedAt desc → createdAt desc → identifier number desc → identifier desc. */
     private val RECENCY_ORDER = Comparator<Row> { a, b ->
-        var c = timeOf(b.updatedAt).compareTo(timeOf(a.updatedAt))
-        if (c == 0) c = timeOf(b.createdAt).compareTo(timeOf(a.createdAt))
+        var c = updatedOf(b).compareTo(updatedOf(a))
+        if (c == 0) c = createdOf(b).compareTo(createdOf(a))
         if (c == 0) c = identifierNumber(b.identifier).compareTo(identifierNumber(a.identifier))
         if (c == 0) c = b.identifier.compareTo(a.identifier)
         c
     }
+
+    private fun updatedOf(row: Row): Long = row.updatedAtMs ?: timeOf(row.updatedAt)
+    private fun createdOf(row: Row): Long = row.createdAtMs ?: timeOf(row.createdAt)
 
     /** EXP-922: undone before done. */
     private val OPEN_ORDER = Comparator<Row> { a, b -> isOpen(b.status).compareTo(isOpen(a.status)) }
 
     /** The empty-query order: createdAt desc → identifier number desc → identifier desc. */
     private val CREATED_ORDER = Comparator<Row> { a, b ->
-        var c = timeOf(b.createdAt).compareTo(timeOf(a.createdAt))
+        var c = createdOf(b).compareTo(createdOf(a))
         if (c == 0) c = identifierNumber(b.identifier).compareTo(identifierNumber(a.identifier))
         if (c == 0) c = b.identifier.compareTo(a.identifier)
         c

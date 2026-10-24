@@ -2,6 +2,7 @@ package com.exponential.app.ui.settings
 
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
+import com.exponential.app.domain.SettingsNav
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -104,7 +105,7 @@ class SettingsViewModel @Inject constructor(
 @Composable
 fun SettingsScreen(
     onOpenServerDetail: (accountId: String) -> Unit,
-    onOpenTeamSettings: () -> Unit,
+    onOpenTeamSettings: (section: String) -> Unit,
     onOpenSyncDiagnostics: () -> Unit,
     onOpenAbout: () -> Unit,
     onAddServer: () -> Unit,
@@ -181,7 +182,7 @@ fun SettingsScreen(
                                     showHeader = serverGroups.size > 1,
                                     onTeamTap = { teamId ->
                                         viewModel.onTeamSettingsTap(group.accountId, teamId)
-                                        onOpenTeamSettings()
+                                        onOpenTeamSettings(SettingsNav.GENERAL)
                                     },
                                 )
                             }
@@ -435,6 +436,8 @@ data class TeamTabState(
     val members: Int = 0,
     val boards: Int = 0,
     val agents: Int = 0,
+    /** The viewer owns the active team (settings-nav.json `visible: owner`). */
+    val manageTeam: Boolean = false,
     /** Teams (of the active account) with an unread notification: an amber dot. */
     val unreadTeamIds: Set<String> = emptySet(),
 )
@@ -474,6 +477,9 @@ class TeamTabViewModel @Inject constructor(
                             members = memberRows.size,
                             boards = boards.count { it.teamId == teamId },
                             agents = agentRows.size,
+                            manageTeam = me != null && memberRows.any {
+                                it.userId == me && it.role == com.exponential.app.domain.DomainContract.teamRoleOwner
+                            },
                             unreadTeamIds = notes.filter { it.readAt == null }
                                 .mapNotNull { it.teamId ?: it.issueId?.let(issueTeam::get) }
                                 .toSet(),
@@ -498,16 +504,15 @@ class TeamTabViewModel @Inject constructor(
  * (84) + name + `copy.team.meta`, a glass group of the viewer's teams (the
  * active one checked, a team with an unread notification an amber dot; a tap
  * SWITCHES — the only place a phone switches its team), then the team's
- * settings rows (same destinations as before: the team settings page,
- * Settings → Agents, the team's Apps), then the old settings root: the
- * servers (the account rows) and General.
+ * settings rows (#EXP-1381: settings-nav.json `phoneRows`, each opening its
+ * OWN page `team-settings/<id>`), then the old settings root: the servers
+ * (the account rows) and General.
  */
 @Composable
 fun TeamTabScreen(
     onOpenServerDetail: (accountId: String) -> Unit,
-    onOpenTeamSettings: () -> Unit,
-    onOpenAgents: () -> Unit,
-    onOpenApps: () -> Unit,
+    /** A [com.exponential.app.domain.SettingsNav] row id. */
+    onOpenTeamSettings: (section: String) -> Unit,
     onOpenSyncDiagnostics: () -> Unit,
     onOpenAbout: () -> Unit,
     onAddServer: () -> Unit,
@@ -606,14 +611,25 @@ fun TeamTabScreen(
                 )
             }
 
-            // The team's settings rows (same destinations as before).
+            // The team's settings rows: settings-nav.json `phoneRows`, in order,
+            // filtered by the fixture's `visible` rule (`visibleCases`).
             Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
-                SettingsRow(icon = ExpIcons.settingsGeneral, title = "General", onClick = onOpenTeamSettings)
-                SettingsRow(icon = ExpIcons.settingsMembers, title = "Members", trailingCount = state.members, onClick = onOpenTeamSettings)
-                SettingsRow(icon = ExpIcons.settingsBoards, title = "Boards", trailingCount = state.boards, onClick = onOpenTeamSettings)
-                SettingsRow(icon = ExpIcons.settingsAgents, title = "Agents", trailingCount = state.agents, onClick = onOpenAgents)
-                SettingsRow(icon = ExpIcons.navApps, title = com.exponential.app.domain.Apps.Copy.NAV, onClick = onOpenApps)
-                SettingsRow(icon = ExpIcons.settingsRepositories, title = "Repositories", onClick = onOpenTeamSettings)
+                SettingsNav.visiblePhoneRows(isOwner = state.manageTeam).map(SettingsNav::row).forEach { row ->
+                    run {
+                        SettingsRow(
+                            icon = ExpIcons.byConcept(row.icon) ?: ExpIcons.uiChevronRight,
+                            title = row.label,
+                            trailingCount = when (row.count) {
+                                "members" -> state.members
+                                "boards" -> state.boards
+                                "agents" -> state.agents
+                                else -> null
+                            },
+                            onClick = { onOpenTeamSettings(row.id) },
+                            modifier = Modifier.testTag(SettingsNav.ROW_TEST_ID),
+                        )
+                    }
+                }
             }
 
             // The old settings root: the servers (the account rows) + General.

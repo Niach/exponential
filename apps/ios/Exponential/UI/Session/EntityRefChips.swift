@@ -28,7 +28,9 @@ enum EntityNavigation: Equatable {
     /// Settings → Prompts (team settings).
     case prompts
     case devices
-    case teamSettings
+    /// #EXP-1381: the team settings page of that category; nil = the Team
+    /// page itself (a team ref, a status — Statuses is a web-only page).
+    case teamSettings(TeamSettingsSection?)
     case myWork
 }
 
@@ -84,21 +86,23 @@ struct EntityRefChips: View {
         case let .prompt(teamId, id):
             pushRoute(.prompt(accountId: accountId, teamId: teamId, id: id))
         case .prompts:
-            if let context {
-                pushRoute(.teamSettings(accountId: accountId, teamId: context.teamId))
-            } else {
-                pushRoute(.settings)
-            }
+            openTeamSettings(.prompts)
         case .devices:
             pushRoute(.agents)
-        case .teamSettings:
-            if let context {
-                pushRoute(.teamSettings(accountId: accountId, teamId: context.teamId))
-            } else {
-                pushRoute(.settings)
-            }
+        case let .teamSettings(section):
+            openTeamSettings(section)
         case .myWork:
             pushRoute(.myWork)
+        }
+    }
+
+    /// The category's own page of the ref's team; no section (or no team in
+    /// context) = the Team page.
+    private func openTeamSettings(_ section: TeamSettingsSection?) {
+        if let context, let section {
+            pushRoute(.teamSettingsSection(accountId: accountId, teamId: context.teamId, section: section))
+        } else {
+            pushRoute(.settings)
         }
     }
 }
@@ -305,7 +309,10 @@ enum EntityRefResolver {
     private static func slimOpen(_ ref: EntityRef) -> EntityNavigation? {
         switch ref.kind {
         case "action", "prompt": .prompts
-        case "label", "status", "member", "invite", "team", "repository": .teamSettings
+        case "label": .teamSettings(.labels)
+        case "member", "invite": .teamSettings(.members)
+        case "repository": .teamSettings(.repositories)
+        case "status", "team": .teamSettings(nil)
         case "device": .devices
         case "notification": .myWork
         default: nil
@@ -479,7 +486,7 @@ enum EntityRefResolver {
             eyebrow: "Label",
             title: label.name,
             subtitle: "\(count) \(count == 1 ? "issue" : "issues")",
-            open: .teamSettings
+            open: .teamSettings(.labels)
         )
     }
 
@@ -492,7 +499,7 @@ enum EntityRefResolver {
             eyebrow: "Status",
             title: status.name,
             subtitle: categoryLabel(status.category),
-            open: .teamSettings
+            open: .teamSettings(nil)
         )
     }
 
@@ -531,7 +538,7 @@ enum EntityRefResolver {
             title: memberDisplayName(user, id: ref.id),
             subtitle: user?.email,
             facts: membership.map { [.init(id: "role", label: $0.role.capitalized)] } ?? [],
-            open: .teamSettings
+            open: .teamSettings(.members)
         )
     }
 
@@ -543,7 +550,7 @@ enum EntityRefResolver {
             eyebrow: "Team",
             title: team.name,
             subtitle: "\(members) \(members == 1 ? "member" : "members")",
-            open: .teamSettings
+            open: .teamSettings(nil)
         )
     }
 
@@ -559,7 +566,7 @@ enum EntityRefResolver {
             title: invite.email ?? ref.title ?? "Invite link",
             subtitle: "Expires \(relativeDate(invite.expiresAt))",
             facts: facts,
-            open: .teamSettings
+            open: .teamSettings(.members)
         )
     }
 

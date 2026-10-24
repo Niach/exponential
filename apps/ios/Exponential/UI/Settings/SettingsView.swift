@@ -9,6 +9,8 @@ private struct TeamCounts: Equatable, Sendable {
     var members = 0
     var boards = 0
     var agents = 0
+    /// The viewer owns the team (`owner` rows).
+    var isOwner = false
 }
 
 /// EXP-1373 (chats.json `shell`): the phone's TEAM tab (the old settings
@@ -186,47 +188,61 @@ struct TeamTabView: View {
         .accessibilityIdentifier("team-row-\(team.id)")
     }
 
-    /// The team's settings (the old root's team row) — one row per page
-    /// section, each landing on that section of the team's settings.
+    /// #EXP-1381 (settings-nav.json): the team's settings rows, rendered
+    /// FROM `SettingsNav.visiblePhoneRows` (order, label, icon concept,
+    /// count, visibility); each opens that category's OWN page. Apps are not a row
+    /// (the Apps tab).
     @ViewBuilder
     private var teamSettingsSection: some View {
         if let teamId = teamState.activeTeamId {
             VStack(spacing: 0) {
-                teamLink(teamId, section: .members, icon: AppIcons.settingsMembers, title: "Members", count: counts.members)
-                teamLink(teamId, section: .boards, icon: AppIcons.settingsBoards, title: "Boards", count: counts.boards)
-                teamLink(teamId, section: .agents, icon: AppIcons.settingsAgents, title: "Agents", count: counts.agents)
-                teamLink(teamId, section: .prompts, icon: AppIcons.navActions, title: "Prompts", count: nil)
-                teamLink(teamId, section: .repositories, icon: AppIcons.settingsRepositories, title: "Repositories", count: nil)
-                teamLink(teamId, section: .labels, icon: AppIcons.settingsLabels, title: "Labels", count: nil)
-                // VAPP-110: the team's Apps (they used to ride the Threads
-                // header).
-                NavigationLink(value: AppRoute.apps(accountId: activeAccountId)) {
-                    settingsRow(icon: AppIcons.navApps, title: Apps.Copy.nav)
+                // Visibility is the fixture's (`visiblePhoneRows`): owner
+                // rows for the team's owner; the natives are never "cloud".
+                ForEach(SettingsNav.visiblePhoneRows(isOwner: counts.isOwner), id: \.self) { id in
+                    if let section = TeamSettingsSection(id) {
+                        teamLink(teamId, section: section, row: SettingsNav.row(id))
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("nav-apps")
             }
             .glassSection()
         }
     }
 
-    private func teamLink(
-        _ teamId: String, section: TeamSettingsSection, icon: String, title: String, count: Int?
-    ) -> some View {
+    private func count(_ count: SettingsNav.Count?) -> Int? {
+        switch count {
+        case .members: counts.members
+        case .boards: counts.boards
+        case .agents: counts.agents
+        case nil: nil
+        }
+    }
+
+    private func teamLink(_ teamId: String, section: TeamSettingsSection, row: SettingsNav.Row) -> some View {
         NavigationLink(value: AppRoute.teamSettingsSection(accountId: activeAccountId, teamId: teamId, section: section)) {
-            settingsRow(icon: icon, title: title, count: count)
+            settingsRow(
+                icon: AppIcons.conceptOrName(row.icon) ?? AppIcons.uiChevronRight,
+                title: row.label,
+                count: count(row.count)
+            )
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("team-settings-\(section.rawValue)")
+        .accessibilityIdentifier(SettingsNav.rowTestId)
     }
 
     private func observeCounts(teamId: String) async {
         guard let pool = try? deps.db.pool(forAccountId: activeAccountId) else { return }
+        let userId = deps.auth.userId
         let observation = ValueObservation.tracking { db in
             TeamCounts(
                 members: try TeamMemberEntity.filter(Column("team_id") == teamId).fetchCount(db),
                 boards: try BoardEntity.filter(Column("team_id") == teamId).fetchCount(db),
-                agents: try AgentDefinitionEntity.filter(Column("team_id") == teamId).fetchCount(db)
+                agents: try AgentDefinitionEntity.filter(Column("team_id") == teamId).fetchCount(db),
+                isOwner: try userId.map { userId in
+                    try TeamMemberEntity
+                        .filter(Column("team_id") == teamId && Column("user_id") == userId)
+                        .filter(Column("role") == DomainContract.teamRoleOwner)
+                        .fetchCount(db) > 0
+                } ?? false
             )
         }.removeDuplicates()
         do {

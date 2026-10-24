@@ -25,6 +25,7 @@ import com.exponential.app.data.db.PromptEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.SettingsNav
 import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.ExponentialDatabase
@@ -178,7 +179,7 @@ fun EntityRefPreviewSheet(
             "invite" -> InviteCard(ref, open)
             "notification" -> NotificationCard(ref, open)
             "attachment" -> AttachmentCard(ref, open)
-            "repository" -> SlimCard(ref, onOpen = { open(EntityTarget.TeamSettings) })
+            "repository" -> SlimCard(ref, onOpen = { open(teamSettingsTarget(ref.kind)) })
             "list" -> ListCard(ref, members, open)
             else -> SlimCard(ref, onOpen = null)
         }
@@ -427,7 +428,7 @@ private fun SessionCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
 @Composable
 private fun LabelCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
     val label = teamLabels().firstOrNull { it.id == ref.id } ?: run {
-        SlimCard(ref, onOpen = { open(EntityTarget.TeamSettings) })
+        SlimCard(ref, onOpen = { open(teamSettingsTarget("label")) })
         return
     }
     val color = remember(label.color) { parseColor(label.color) }
@@ -435,14 +436,14 @@ private fun LabelCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         icon = { LabelDot(color, size = 12.dp) },
         eyebrow = "Label",
         title = label.name,
-        onOpen = { open(EntityTarget.TeamSettings) },
+        onOpen = { open(teamSettingsTarget("label")) },
     )
 }
 
 @Composable
 private fun StatusCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
     val status = teamStatuses().firstOrNull { it.rowId == ref.id } ?: run {
-        SlimCard(ref, onOpen = { open(EntityTarget.TeamSettings) })
+        SlimCard(ref, onOpen = { open(teamSettingsTarget("status")) })
         return
     }
     EntityPreviewCard(
@@ -450,7 +451,7 @@ private fun StatusCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         eyebrow = "Status",
         title = status.name,
         subtitle = status.category.wire.replaceFirstChar { it.uppercase() },
-        onOpen = { open(EntityTarget.TeamSettings) },
+        onOpen = { open(teamSettingsTarget("status")) },
     )
 }
 
@@ -488,7 +489,7 @@ private fun MemberCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         if (teamId == null) flowOf(emptyList()) else db.teamMemberDao().observeByTeam(teamId)
     }
     val row = user ?: run {
-        SlimCard(ref, onOpen = { open(EntityTarget.TeamSettings) })
+        SlimCard(ref, onOpen = { open(teamSettingsTarget("member")) })
         return
     }
     val role = members.firstOrNull { it.userId == row.id }?.role
@@ -503,7 +504,7 @@ private fun MemberCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         } else {
             { GlassPill(role.replaceFirstChar { c -> c.uppercase() }, size = PillSize.Sm, mode = PillMode.Readonly) }
         },
-        onOpen = { open(EntityTarget.TeamSettings) },
+        onOpen = { open(teamSettingsTarget("member")) },
     )
 }
 
@@ -511,14 +512,14 @@ private fun MemberCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
 private fun TeamCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
     val team by observeScoped(ref.id, null) { it.teamDao().observeById(ref.id) }
     val row = team ?: run {
-        SlimCard(ref, onOpen = { open(EntityTarget.TeamSettings) })
+        SlimCard(ref, onOpen = { open(teamSettingsTarget("team")) })
         return
     }
     EntityPreviewCard(
         icon = { TeamAvatar(row, size = 24.dp) },
         eyebrow = "Team",
         title = row.name,
-        onOpen = { open(EntityTarget.TeamSettings) },
+        onOpen = { open(teamSettingsTarget("team")) },
     )
 }
 
@@ -529,7 +530,7 @@ private fun InviteCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         if (teamId == null) flowOf(emptyList()) else db.teamInviteDao().observeByTeam(teamId)
     }
     val invite = invites.firstOrNull { it.id == ref.id } ?: run {
-        SlimCard(ref, onOpen = { open(EntityTarget.TeamSettings) })
+        SlimCard(ref, onOpen = { open(teamSettingsTarget("invite")) })
         return
     }
     EntityPreviewCard(
@@ -537,7 +538,7 @@ private fun InviteCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         eyebrow = "Invite",
         title = invite.email?.takeIf { it.isNotBlank() } ?: "Invite link",
         facts = { GlassPill(invite.role.replaceFirstChar { it.uppercase() }, size = PillSize.Sm, mode = PillMode.Readonly) },
-        onOpen = { open(EntityTarget.TeamSettings) },
+        onOpen = { open(teamSettingsTarget("invite")) },
     )
 }
 
@@ -615,6 +616,17 @@ private fun ListCard(ref: EntityRef, members: List<EntityRef>, open: (EntityTarg
     )
 }
 
+/** #EXP-1381: a team-scoped kind opens ITS settings category's page
+ *  (settings-nav.json); statuses have no phone page, so they open General. */
+private fun teamSettingsTarget(kind: String): EntityTarget = EntityTarget.TeamSettings(
+    when (kind) {
+        "label" -> SettingsNav.LABELS
+        "member", "invite" -> SettingsNav.MEMBERS
+        "repository" -> SettingsNav.REPOSITORIES
+        else -> SettingsNav.GENERAL
+    },
+)
+
 /** Where a list member's row lands — the same mapping the Open rows use,
  *  minus the kinds that need a synced row to know their issue. */
 private fun memberTarget(ref: EntityRef): EntityTarget? = when (ref.kind) {
@@ -624,7 +636,7 @@ private fun memberTarget(ref: EntityRef): EntityTarget? = when (ref.kind) {
     "prompt", "action" -> EntityTarget.Prompt(ref.id)
     "agent" -> EntityTarget.Agent(ref.id)
     "device" -> EntityTarget.Devices
-    "label", "status", "member", "invite", "team", "repository" -> EntityTarget.TeamSettings
+    "label", "status", "member", "invite", "team", "repository" -> teamSettingsTarget(ref.kind)
     "notification" -> EntityTarget.Inbox
     else -> null
 }
