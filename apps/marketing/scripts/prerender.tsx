@@ -124,6 +124,29 @@ function assertReadingTimes(): void {
   }
 }
 
+/* No tracker references on the blog (EXP-1390): there is no public board,
+   so an issue identifier is a dead end for a reader. Every rendered blog
+   page (markup and attributes) and the feed are scanned for anything
+   shaped like one; the build refuses and names it. Display connector names
+   in the concept drawings (`DP-1`) and the feed's `UTF-8` are the allowed shapes. */
+const ISSUE_IDENTIFIER = /\b[A-Z][A-Z0-9]*-\d+\b/g
+const NOT_AN_ISSUE = /^(DP|UTF)-\d+$/
+
+function assertNoIssueIdentifiers(): void {
+  const pages: [string, string][] = [
+    [BLOG_PATH, renderToStaticMarkup(<BlogIndexPage />)],
+    ...BLOG_POSTS.map((post): [string, string] => [postPath(post.meta.slug), renderToStaticMarkup(<BlogPostPage post={post} />)]),
+    [`${BLOG_PATH}rss.xml`, rssXml({ origin: SITE_ORIGIN, siteName: SITE_NAME, posts: BLOG_POSTS.map((post) => post.meta) })],
+  ]
+  const offenders = pages.flatMap(([path, html]) => {
+    const ids = [...new Set(html.match(ISSUE_IDENTIFIER) ?? [])].filter((id) => !NOT_AN_ISSUE.test(id))
+    return ids.length ? [`${path}: ${ids.join(`, `)}`] : []
+  })
+  if (offenders.length) {
+    throw new Error(`blog: issue identifiers render on a public page (no public board):\n${offenders.join(`\n`)}`)
+  }
+}
+
 const SECTIONS = [
     { heading: `Product`, paths: [`/`, `/pricing/`, `/download/`] },
     {
@@ -155,6 +178,7 @@ const SECTIONS = [
 assertDocsNavParity()
 assertTitleParity()
 assertReadingTimes()
+assertNoIssueIdentifiers()
 prerenderSite({
   root: ROOT,
   origin: SITE_ORIGIN,

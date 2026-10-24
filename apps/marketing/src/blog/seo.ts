@@ -7,7 +7,7 @@ import { BLOG_POSTS } from "./posts"
 import { BLOG_PATH, postPath } from "./types"
 
 export const BLOG_INDEX_TITLE = `Blog · Exponential`
-export const BLOG_INDEX_DESCRIPTION = `Notes on how Exponential works: the coding agent's session as the interface, and the generative UI the apps are made of. Each claim has a screenshot or an issue number.`
+export const BLOG_INDEX_DESCRIPTION = `Notes on how Exponential works: the coding agent's session as the interface, and the generative UI the apps are made of. Each claim has a screenshot.`
 
 export const postTitle = (title: string) => `${title} · Exponential blog`
 

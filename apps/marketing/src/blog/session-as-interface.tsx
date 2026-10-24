@@ -1,6 +1,6 @@
 /* Article 1 (EXP-1367): the session as the interface. Written like a Guide:
    numbered sections, two or three sentences, a real capture each. */
-import { Callout, IssueLink, Section, Shot, ShotRow } from "../components/blog"
+import { Callout, Section, Shot, ShotRow } from "../components/blog"
 import { shotSrc } from "../components/DocShot"
 import type { PostMeta } from "./types"
 
@@ -36,8 +36,8 @@ export function Post() {
         <h2>Tool calls drawn by kind</h2>
         <p>
           File reads, searches and commands fold into one-line trace entries; a failing test run turns red and opens
-          onto its output. A comment written through MCP is drawn as the comment (<IssueLink id="EXP-1241" />), a
-          code-mode script as one card with its calls grouped by tool (<IssueLink id="EXP-1279" />). The engine tags
+          onto its output. A comment written through MCP is drawn as the comment itself, and a code-mode script as
+          one card with its calls grouped by tool. The engine tags
           every call with a kind before it reaches a client, so all four platforms draw the same card.
         </p>
         <Shot view="trace" platform="web" caption="Trace lines: a command with its output, a sub-agent, a failed test run, the task list." />
@@ -49,7 +49,7 @@ export function Post() {
           Any issue identifier in a message, a comment or a tool result is a chip: status glyph, identifier, title.
           Hover shows the assignee, status, priority and labels from data the client already has; a click opens the
           issue in the nearest view that shows it. Tool results return references by kind and id, not URLs, and
-          each client resolves them from its own rows (<IssueLink id="EXP-988" />).
+          each client resolves them from its own rows.
         </p>
         <Shot view="thread" platform="web" caption="Issue chips in the tab strip, in the agent's text and in a child's report." />
       </Section>
@@ -59,8 +59,7 @@ export function Post() {
         <p>
           The agent uploads a screenshot through MCP and references it in markdown; the message, comment or plan
           renders it inline on every platform. When the agent reads an attachment back, the inline copy is capped at
-          about 300 KB and 1280 px, because one full phone screenshot costs tens of thousands of tokens
-          (<IssueLink id="EXP-854" />).
+          about 300 KB and 1280 px, because one full phone screenshot costs tens of thousands of tokens.
         </p>
       </Section>
 
@@ -68,8 +67,7 @@ export function Post() {
         <h2>The agent draws its own UI</h2>
         <p>
           A plan or a question can carry an A2UI surface: the agent describes a screen as JSON and the card paints it
-          with the Exponential UI renderer, native on web, iPhone, Android and the desktop app
-          (<IssueLink id="EXP-1280" />). On the native platforms there is no webview in between, on the web the
+          with the Exponential UI renderer, native on web, iPhone, Android and the desktop app. On the native platforms there is no webview in between, on the web the
           renderer emits DOM, and what the person sets in the surface travels back with the answer.
         </p>
         <Shot view="plan-card" platform="web" caption="A plan card: a picture, the agent's surface as a live preview, a choice question." />
@@ -106,7 +104,7 @@ export function Post() {
         <p>
           One tool, <code>sessions.send</code>, messages a session or a team agent, or starts a child. The server
           posts every child transition into the parent as a message, and a message is what wakes a session, so
-          nothing polls (<IssueLink id="NEW-1" />). A team agent is a session with a longer life: a channel that
+          nothing polls. A team agent is a session with a longer life: a channel that
           triages, reports and starts threads.
         </p>
         <Shot view="agent-channel" platform="web" caption="A team agent's channel: its reports, a request, the thread it started as one card." />

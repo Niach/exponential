@@ -1,6 +1,5 @@
 export { Figure, Shot, ShotRow } from "./Figure"
 export { StatusChip } from "./StatusChip"
-export { IssueLink } from "./IssueLink"
 export { BeforeAfter } from "./BeforeAfter"
 export { LiveSurface } from "./LiveSurface"
 export { CompositorTree, ConceptFigure, DesktopConcept, WatchView } from "./concepts"

@@ -327,6 +327,30 @@ describe(`design-tokens parity with web styles.css`, () => {
     }
   })
 
+  // EXP-1390: the marketing sites (site-shell) set their type on the same
+  // scale, so their :root mirrors type.size / type.lineHeight.
+  it(`site-shell tokens.css mirrors the type scale`, () => {
+    const siteCss = readFileSync(
+      join(repoRoot, `packages/site-shell/styles/tokens.css`),
+      `utf8`
+    ).replace(/\/\*[\s\S]*?\*\//g, ``)
+    const siteVars = parseBlockVars(siteCss, /:root\s*\{([^}]*)\}/, `site-shell :root`)
+    const groups: [string, Record<string, number>][] = [
+      [`type-size`, tokens.type.size],
+      [`type-line-height`, tokens.type.lineHeight],
+    ]
+    for (const [prefix, group] of groups) {
+      for (const [key, value] of Object.entries(group)) {
+        if (key.startsWith(`$`)) continue
+        const cssVar = `${prefix}-${kebab(key)}`
+        expect(
+          siteVars[cssVar],
+          `tokens ${prefix}.${key} should equal --${cssVar} in site-shell tokens.css`
+        ).toBe(`${value}px`)
+      }
+    }
+  })
+
   // EXP-1074: menu row geometry, both density classes, as flat px vars in
   // :root — the live --menu-* set aliases one of them per breakpoint, and
   // every menu-like row in @exp/ui reads the live set.
