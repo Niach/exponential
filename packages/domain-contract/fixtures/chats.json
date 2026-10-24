@@ -1926,5 +1926,67 @@
       "text": "  spaced\n\n\nout  ",
       "expected": "spaced out"
     }
-  ]
+  ],
+  "agentHint": {
+    "$comment": "#EXP-1383: INSTRUCTIONS CHANGED. An agent's instructions reach its conversation once per engine launch: the device fetches `sessions.brief`, which stamps `sessions.agent_instructions_at` = now on the fetching session. `agents.update` stamps `agents.instructions_updated_at` = now ONLY when the instructions TEXT changes (a rename, a trigger toggle or a device pick never does); `agents.create` stamps it too. `agentInstructionsChanged({sessionStamp, agentStamp})` (TS reference packages/domain-contract/src/chats.ts; mirrors desktop domain::chats, iOS Chats.swift, Android Chats.kt) replays `cases`: true iff BOTH stamps are set and sessionStamp < agentStamp (equal = current; a session that never fetched a brief or an agent never stamped = false). Read on an agent chat's ROOT session only (`sessions.agent_id` set, depth 0) against its agent row. While true the chat's Dock carries ONE more banner row (dock.json: kind `banner`, NO new component) `banner` = {id, icon concept, label, text, tone, action}; its action word sends `sends` exactly like the agent menu's New conversation (`agentMenu.sends.newConversation`) and the row stays until the fresh launch re-fetches the brief (the shape update hides it). On an AGENT chat `/new` RESTARTS the engine (the CLI process ends, a fresh launch re-fetches the brief, so the new instructions apply) instead of the in-process clear (claude `/clear`, codex `thread/start`); the transcript keeps its `dividers.new` divider either way. Normal threads keep the in-process `/new`.",
+    "banner": {
+      "id": "instructions",
+      "icon": "ui-info",
+      "label": "Instructions changed",
+      "text": "This conversation still follows the previous instructions",
+      "tone": "muted",
+      "action": "Start new conversation"
+    },
+    "sends": "/new",
+    "cases": [
+      {
+        "name": "session fetched before the edit → changed",
+        "input": {
+          "sessionStamp": "2026-10-24T10:00:00Z",
+          "agentStamp": "2026-10-24T11:00:00Z"
+        },
+        "expected": true
+      },
+      {
+        "name": "session fetched after the edit → current",
+        "input": {
+          "sessionStamp": "2026-10-24T12:00:00Z",
+          "agentStamp": "2026-10-24T11:00:00Z"
+        },
+        "expected": false
+      },
+      {
+        "name": "equal stamps → current",
+        "input": {
+          "sessionStamp": "2026-10-24T11:00:00Z",
+          "agentStamp": "2026-10-24T11:00:00Z"
+        },
+        "expected": false
+      },
+      {
+        "name": "session never fetched a brief → no hint",
+        "input": {
+          "sessionStamp": null,
+          "agentStamp": "2026-10-24T11:00:00Z"
+        },
+        "expected": false
+      },
+      {
+        "name": "agent never stamped → no hint",
+        "input": {
+          "sessionStamp": "2026-10-24T10:00:00Z",
+          "agentStamp": null
+        },
+        "expected": false
+      },
+      {
+        "name": "neither stamped → no hint",
+        "input": {
+          "sessionStamp": null,
+          "agentStamp": null
+        },
+        "expected": false
+      }
+    ]
+  }
 }

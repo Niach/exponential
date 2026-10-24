@@ -52,6 +52,7 @@
     "events": {
       "issue.created": "When an issue is created",
       "issue.status_changed": "When an issue's status changes",
+      "issue.assigned": "When an issue is assigned",
       "pr.opened": "When a pull request opens",
       "pr.merged": "When a pull request merges",
       "session.ended": "When a session ends"
@@ -344,5 +345,154 @@
       },
       "expected": null
     }
-  ]
+  ],
+  "actor": {
+    "$comment": "#EXP-1383: AGENTS ACT AS THEMSELVES. A write made by an agent session (any session whose ROOT has `agent_id`; the server resolves it from the session the request speaks for, X-Exp-Session-Id or the agent credential, never from input) stamps the agent: `issue_events.actor_agent_id`, `comments.author_agent_id`, `issues.creator_agent_id` (FK agents, SET NULL; synced). The member column (`actor_user_id` / `author_id` / `creator_id`) keeps the member whose conversation it is, for audit. `issueActor({actorAgentId, actorUserId}, agents)` (TS reference src/agent-settings.ts; mirrors desktop domain::agent_settings, iOS AgentSettings.swift, Android AgentSettings.kt) replays `actorCases`: an agent id that resolves to a synced agent row = {kind: agent, id, name, icon, color}; else the user id = {kind: user, id}; else null (the server / a widget reporter). An agent actor renders EVERYWHERE a person would (timeline event rows, comment cards, the issue's Created-by row, notifications): its NAME where the person's name goes (`Sloppy changed status to Done`, the same per-type copy) and as the avatar the AGENT MARK = the agent's icon glyph in its color on the muted disc, the exact mark of the Chats agent bubbles and the Settings → Agents rows, at the avatar's size; never a person's initials and never the member's avatar. Activity folding keys the actor on the agent when set (activity-fold.json: an agent and its member are DIFFERENT actors; two agents of one member are different actors). Notifications name the agent (`Sloppy commented on EXP-12`).",
+    "actorCases": [
+      {
+        "name": "agent resolves → the agent",
+        "input": {
+          "actorAgentId": "G1",
+          "actorUserId": "U1"
+        },
+        "agents": [
+          {
+            "id": "G1",
+            "name": "Sloppy",
+            "icon": "bot",
+            "color": "#22c55e"
+          }
+        ],
+        "expected": {
+          "kind": "agent",
+          "id": "G1",
+          "name": "Sloppy",
+          "icon": "bot",
+          "color": "#22c55e"
+        }
+      },
+      {
+        "name": "no agent → the member",
+        "input": {
+          "actorAgentId": null,
+          "actorUserId": "U1"
+        },
+        "agents": [
+          {
+            "id": "G1",
+            "name": "Sloppy",
+            "icon": "bot",
+            "color": "#22c55e"
+          }
+        ],
+        "expected": {
+          "kind": "user",
+          "id": "U1"
+        }
+      },
+      {
+        "name": "an unsynced agent falls back to the member",
+        "input": {
+          "actorAgentId": "G9",
+          "actorUserId": "U1"
+        },
+        "agents": [
+          {
+            "id": "G1",
+            "name": "Sloppy",
+            "icon": "bot",
+            "color": "#22c55e"
+          }
+        ],
+        "expected": {
+          "kind": "user",
+          "id": "U1"
+        }
+      },
+      {
+        "name": "nobody → null",
+        "input": {
+          "actorAgentId": null,
+          "actorUserId": null
+        },
+        "agents": [],
+        "expected": null
+      },
+      {
+        "name": "a deleted agent's row without a member → null",
+        "input": {
+          "actorAgentId": "G9",
+          "actorUserId": null
+        },
+        "agents": [],
+        "expected": null
+      }
+    ]
+  },
+  "assignee": {
+    "$comment": "#EXP-1383: ASSIGN ISSUES TO AGENTS. `issues.assignee_agent_id` (+ `issue_drafts.assignee_agent_id`; FK agents, SET NULL; synced) is MUTUALLY EXCLUSIVE with `assignee_id` (DB check: at most one set); setting one clears the other in the same write. THE assignee picker ×4 (styleguide `picker-assignee`, no new component) lists `copy.unassigned`, the team's members, then the team's agents (sorted by sortOrder then name; each row = the agent mark + name; `assigneeOptions` replays `optionCases`, ids `user:<id>` / `agent:<id>`), search matches agent names too. The selected agent reads like a member everywhere an assignee shows (issue rows, the detail property row, the board card): the agent mark + name. `My issues` stays the viewer's OWN `assignee_id`. The `assignee_changed` event payload keeps `from`/`to` (user ids) and adds `fromAgentId`/`toAgentId`; the timeline reads the agent's name (`assigned Sloppy`). On an assignment TO an agent (any path: tRPC, MCP `issues update {assigneeAgentId}`, a draft create) the server, in the same transaction, (1) emits the builtin team event `issue.assigned` {issueId, identifier, title, assigneeId, assigneeAgentId} and (2) posts a NUDGE card into the ASSIGNER's conversation with that agent (created if missing; the trigger firing card of an event trigger, `copy.nudge` as its line, the issue as its entity) and relays it so a live engine wakes; an agent assigning itself never nudges itself, and an assigner who is an agent session nudges as its member.",
+    "copy": {
+      "unassigned": "Unassigned",
+      "agentsHeading": "Agents",
+      "nudge": "{identifier} was assigned to you: {title}"
+    },
+    "optionCases": [
+      {
+        "name": "members then agents by sortOrder then name",
+        "input": {
+          "members": [
+            {
+              "id": "U1",
+              "name": "Danny"
+            },
+            {
+              "id": "U2",
+              "name": "Mia"
+            }
+          ],
+          "agents": [
+            {
+              "id": "G2",
+              "name": "Zed",
+              "sortOrder": 0
+            },
+            {
+              "id": "G1",
+              "name": "Sloppy",
+              "sortOrder": 0
+            },
+            {
+              "id": "G3",
+              "name": "Alpha",
+              "sortOrder": 1
+            }
+          ]
+        },
+        "expected": [
+          "unassigned",
+          "user:U1",
+          "user:U2",
+          "agent:G1",
+          "agent:G2",
+          "agent:G3"
+        ]
+      },
+      {
+        "name": "no agents → members only",
+        "input": {
+          "members": [
+            {
+              "id": "U1",
+              "name": "Danny"
+            }
+          ],
+          "agents": []
+        },
+        "expected": [
+          "unassigned",
+          "user:U1"
+        ]
+      }
+    ]
+  }
 }
