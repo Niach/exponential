@@ -53,6 +53,15 @@ const LABEL_SIDE: f32 = 4.;
 const KEY_SIDE: f32 = 6.;
 const GLYPH: f32 = 16.;
 
+/// The air the window gives the bar beyond its sum: the toolkit snaps
+/// every box to whole device pixels (fractional rem sizes, fractional
+/// scale factors) and takes each text whole pixels up, so the drawn bar
+/// can be a few device pixels wider than the sum of its parts. The bar
+/// fills the window ([`Banner`]'s `w_full`) and the air lands inside its
+/// padding, unseen; without it the window was 1 px narrower than the bar
+/// for some labels and ellipsized them.
+const BAR_SLACK: f32 = 4.;
+
 /// The bar's height at `rem`: one item between the padding and the
 /// stroke, whole pixels up.
 fn bar_height(rem: f32) -> f32 {
@@ -86,7 +95,8 @@ fn rem_size(cx: &App) -> Pixels {
 }
 
 /// One line's shaped width in the theme's font, the path the text element
-/// takes, without a window (the banner's does not exist yet).
+/// takes, without a window (the banner's does not exist yet); whole pixels
+/// up, as the text element takes it.
 fn shaped_width(text: &str, size: Pixels, weight: FontWeight, cx: &App) -> f32 {
     if text.is_empty() {
         return 0.;
@@ -94,11 +104,11 @@ fn shaped_width(text: &str, size: Pixels, weight: FontWeight, cx: &App) -> f32 {
     let font = Font { weight, ..gpui::font(cx.theme().font_family.clone()) };
     let run = TextRun { len: text.len(), font, color: gpui::black(), background_color: None, underline: None, strikethrough: None };
     let layout = WindowTextSystem::new(cx.text_system().clone()).layout_line(text, size, &[run], None);
-    f32::from(layout.width)
+    f32::from(layout.width).ceil()
 }
 
-/// The banner window's size: exactly the bar around these words, capped at
-/// `max_width` (a longer label ellipsizes).
+/// The banner window's size: the bar around these words plus
+/// [`BAR_SLACK`], capped at `max_width` (a longer label ellipsizes).
 pub(crate) fn banner_size(label: Option<&str>, max_width: f32, cx: &App) -> Size<Pixels> {
     let words = copy();
     let rem = rem_size(cx);
@@ -111,7 +121,7 @@ pub(crate) fn banner_size(label: Option<&str>, max_width: f32, cx: &App) -> Size
         abort: shaped_width(&words.abort, sm, FontWeight::NORMAL, cx),
     };
     let rem = f32::from(rem);
-    size(px(measured.bar_width(rem).min(max_width.max(0.))), px(bar_height(rem)))
+    size(px((measured.bar_width(rem) + BAR_SLACK).min(max_width.max(0.))), px(bar_height(rem)))
 }
 
 const FIXTURE: &str =
@@ -145,7 +155,7 @@ pub(crate) fn banner_bar(label: Option<SharedString>, cx: &App) -> Stateful<Div>
     let words = copy();
     let foreground = cx.theme().foreground;
     let hairline = cx.theme().border;
-    let mut bar = glass_bar(cx).id("computer-use-banner").flex_shrink_0().max_w_full().child(
+    let mut bar = glass_bar(cx).id("computer-use-banner").flex_shrink_0().max_w_full().justify_center().child(
         item(cx)
             .child(Icon::new(registry::NAV_COMPUTER).with_size(px(16.)))
             .child(SharedString::from(words.title.clone())),
@@ -199,7 +209,9 @@ impl Render for Banner {
             .items_center()
             .justify_center()
             .font_family(cx.theme().font_family.clone())
-            .child(banner_bar(self.label.clone(), cx))
+            // The bar is the window: its air (`BAR_SLACK`) stays inside the
+            // capsule, whatever ground the window has.
+            .child(banner_bar(self.label.clone(), cx).w_full())
     }
 }
 
@@ -348,6 +360,11 @@ mod tests {
     /// fixed 560 px window.
     const LONG: &str = "Razer Synapse: Basilisk V3 Pro mappings (retry)";
 
+    /// Labels whose words shape to fractions: the first window (the bare
+    /// sum, whole pixels up once) was 1 px narrower than the drawn bar for
+    /// these, and the label ellipsized.
+    const FRACTIONS: [&str; 3] = ["iii", "Razer Synapse: Basilisk", "WWWW mmmm"];
+
     /// The banner's view with a probe on the bar: the drawn bar's size.
     struct Probe {
         label: Option<SharedString>,
@@ -386,15 +403,17 @@ mod tests {
         assert_eq!(bar_height(14.), 48.);
     }
 
-    /// EXP-1372: the window is exactly the bar the banner draws, for no
-    /// label, a short one and the long one of the issue's picture.
+    /// EXP-1372: the window holds the bar the banner draws (never narrower,
+    /// at most the slack wider), for no label, a short one, the long one
+    /// of the issue's picture and the fractional ones.
     #[gpui::test]
-    async fn the_banner_window_is_exactly_the_drawn_bar(cx: &mut gpui::TestAppContext) {
+    async fn the_banner_window_holds_the_drawn_bar(cx: &mut gpui::TestAppContext) {
         cx.update(|cx| {
             gpui_component::init(cx);
             theme::init(cx);
         });
-        for label in [None, Some("EXP-1273"), Some(LONG)] {
+        let labels = [None, Some("EXP-1273"), Some(LONG)].into_iter().chain(FRACTIONS.map(Some));
+        for label in labels {
             let drawn = Rc::new(Cell::new((0., 0.)));
             let probe = Probe { label: label.map(SharedString::from), drawn: drawn.clone() };
             let (_view, window) = cx.add_window_view(|_, _| probe);
@@ -402,10 +421,10 @@ mod tests {
             let size = window.update(|_, cx| banner_size(label, f32::MAX, cx));
             let (width, height) = drawn.get();
             assert!(width > 0., "{label:?}: the bar draws");
+            let window_width = f32::from(size.width);
             assert!(
-                (f32::from(size.width) - width).abs() <= 1.,
-                "{label:?}: the window is {} wide, the bar {width}",
-                f32::from(size.width)
+                window_width >= width && window_width <= width + BAR_SLACK + 1.,
+                "{label:?}: the window is {window_width} wide, the bar {width}"
             );
             assert_eq!(f32::from(size.height), height, "{label:?}: the window is the bar's height");
         }
