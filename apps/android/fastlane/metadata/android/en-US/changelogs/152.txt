@@ -1,5 +1,5 @@
 Chats: threads are chats; the bottom bar is Board, Devices, Chats and Team, and the Chats tab lists your team's chats like a messenger, agents as bubbles on top.
 Long-press a chat to stop it or stop and delete it.
-Agents: Compact and New conversation in the chat menu, or /compact and /new; agents draw live previews into the chat.
-One active team at a time, switched on the Team tab; My issues and Drafts are chips on the board; the inbox has its own page.
-Agents can wake every 5 to 30 minutes. Apps lists only your team's apps.
+Agents: Compact and New conversation in the chat menu, or /compact and /new; live previews in the chat.
+One active team at a time, switched on the Team tab; My issues and Drafts are chips on the board.
+Agents wake every 5 to 30 minutes. Apps lists only your team's apps.
