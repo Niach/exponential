@@ -63,13 +63,15 @@ is around, Compose on a device when `adb devices` lists one. Every runner
 takes `--scenario <id>` and `--repeat <n>` (default 3; the median per metric).
 The fragments land in `.bench/`, the merged record in `results/<machine>.json`
 (`EXPONENTIAL_UI_BENCH_MACHINE` names the machine; default = the CPU model +
-the OS). Commit a rerun whole, never edit a number.
+the OS; `EXPONENTIAL_UI_BENCH_COMMIT` the commit, CI = the PR's head; default =
+HEAD). Commit a rerun whole, never edit a number.
 
 ## The ratchet
 
 `budgets.json` holds, per machine × renderer × scenario × metric, the number
 CI accepts (`exponential-ui.yml`: each renderer's job runs its runner and
-uploads the fragment; `bench` ratchets them all). The rules (`src/ratchet.ts`),
+uploads the fragment, overwriting its earlier attempt's, so a re-run job
+replaces it; `bench` ratchets them all and uploads `ratchet-results`). The rules (`src/ratchet.ts`),
 in the style of the Compose conformance budgets:
 
 - a metric **worse** than its budget fails;
