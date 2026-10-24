@@ -360,6 +360,13 @@ class StyleguideScreenshotsTest {
         // options pills are its).
         flow.waitFor(hasTestTag(AgentHome.HOME_TEST_ID), FIRST_SYNC_TIMEOUT)
         flow.waitFor(hasTestTag(Chats.TestIds.TAB_BOARD), SYNC_TIMEOUT)
+        // The Team tab wears the synced team's name (not the "?" placeholder):
+        // before that the page still shows the board-less newcomer's state.
+        flow.waitFor(
+            (hasTestTag(Chats.TestIds.TAB_TEAM) and (hasText(TEAM_NAME) or hasAnyDescendant(hasText(TEAM_NAME)))) or
+                (hasText(TEAM_NAME) and hasAnyAncestor(hasTestTag(Chats.TestIds.TAB_TEAM))),
+            SYNC_TIMEOUT,
+        )
         flow.waitForGone(hasText("No desktop online", substring = true), NETWORK_TIMEOUT)
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), NETWORK_TIMEOUT)
         flow.settle()
@@ -840,8 +847,7 @@ class StyleguideScreenshotsTest {
         // `shell`): the team, the team switch, its settings rows, then the
         // old root (Servers, General). Header matches keep ignoreCase so they
         // hold whichever case SectionHeader renders (sentence case since EXP-698).
-        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_TEAM)).performClick()
-        flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
+        openTeamRoot()
         flow.waitFor(hasText("Servers", ignoreCase = true), NAV_TIMEOUT)
         flow.waitFor(hasText(TEAM_NAME), SYNC_TIMEOUT)
         flow.settle()
@@ -1150,10 +1156,25 @@ class StyleguideScreenshotsTest {
         flow.settle(longer = true)
     }
 
+    /**
+     * The Team tab keeps its own stack: a page pushed from it earlier (Devices)
+     * is what the tab shows again, so pop back to the Team page itself.
+     */
+    private fun openTeamRoot() {
+        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_TEAM)).performClick()
+        flow.settle()
+        repeat(3) {
+            if (!flow.exists(hasTestTag("team-tab"))) {
+                Espresso.pressBack()
+                flow.settle()
+            }
+        }
+        flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
+    }
+
     /** #EXP-1384: Devices = the Team page's Devices row (settings-nav.json), pushed. */
     private fun openDevices() {
-        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_TEAM)).performClick()
-        flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
+        openTeamRoot()
         val devices = Chats.Copy.HEADERS.getValue("devices")
         val row = hasTestTag(SettingsNav.ROW_TEST_ID) and
             (hasText(devices) or hasAnyDescendant(hasText(devices)))
