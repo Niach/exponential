@@ -3535,22 +3535,22 @@
         "file": "shots/mention-pill/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 25064,
-        "sha256": "8ee195c72f81a65e1569bc2576d3b0fa83a905a304887d2c4d5efc2ef9c98b3d"
+        "bytes": 22850,
+        "sha256": "9454982356767c51dfab48d0c9162d988c9e6425fe36c10d3c9e6b3ae0c7eec4"
       },
       "desktop": {
         "file": "shots/mention-pill/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 28642,
-        "sha256": "69a90da88d7b7fd9d7930935f3cf62b15e28d10ce06ef52f3efa188437b10f1e"
+        "bytes": 28810,
+        "sha256": "820c78b1782ea85ea54a070daabdf16843080143dcbe10f43ff2101371884c90"
       },
       "ios": {
         "file": "shots/mention-pill/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 16686,
-        "sha256": "8c6e0cc7c541b8998de4e2e0995aee5b280522403f137017417ceb52d23ffbe7"
+        "bytes": 15886,
+        "sha256": "bbd5247f38d1ec3f26c1165da790c3f6072dadf0279f52ce7ea51b1f7e8fa86b"
       }
     },
     "my-issues": {

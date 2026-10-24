@@ -19,6 +19,15 @@ extension NSAttributedString.Key {
     /// restores the blockquote / body color instead of guessing (EXP-322).
     public static let markdownChipBaseColor = NSAttributedString.Key("exp.markdownChipBaseColor")
 
+    /// The `.font` a mention ran in before it took the pill's 13pt medium, so
+    /// un-chipping restores it (thread e4a04d22).
+    public static let markdownChipBaseFont = NSAttributedString.Key("exp.markdownChipBaseFont")
+
+    /// Editor only: the character right BEFORE a mention pill, kerned by the
+    /// pill's leading padding (the editor keeps every character, so the gap
+    /// cannot be a character of its own). Un-chipping drops the kern with it.
+    public static let markdownMentionLead = NSAttributedString.Key("exp.markdownMentionLead")
+
     /// The `IssueRefStatusInfo` of a resolved `#IDENTIFIER` chip — the glyph
     /// `MarkdownLayoutManager` paints over the token's `#` cell (EXP-423).
     /// Render-only like every other chip attribute.

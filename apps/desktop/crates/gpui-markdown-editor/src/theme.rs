@@ -140,6 +140,13 @@ pub struct ThemeColors {
     /// `1px solid var(--border)` — the border is what makes the pill legible
     /// when the accent fill sits close to the surface behind it).
     pub reference_border: Hsla,
+    /// Exponential thread e4a04d22: the `@member` mention pill's own chrome
+    /// (web `.mention-pill`: opaque `var(--accent)` fill, `var(--border)`
+    /// hairline, `var(--accent-foreground)` text) — issue chips keep the
+    /// `reference_*` trio.
+    pub mention_bg: Hsla,
+    pub mention_border: Hsla,
+    pub mention_text: Hsla,
     /// Text colour inside code blocks.
     pub code_text: Hsla,
     /// Background of the focused code-block language input.
@@ -590,6 +597,9 @@ struct ThemeColorsDe {
     reference_text: Option<Hsla>,
     reference_token_text: Option<Hsla>,
     reference_border: Option<Hsla>,
+    mention_bg: Option<Hsla>,
+    mention_border: Option<Hsla>,
+    mention_text: Option<Hsla>,
     code_text: Hsla,
     code_language_input_bg: Option<Hsla>,
     code_language_input_border: Option<Hsla>,
@@ -748,6 +758,18 @@ impl<'de> Deserialize<'de> for ThemeColors {
             reference_border: raw
                 .reference_border
                 .unwrap_or_else(|| Hsla::from(rgba(0xffffff1a))),
+            mention_bg: raw
+                .mention_bg
+                .or(raw.reference_bg)
+                .unwrap_or_else(|| Hsla::from(rgba(0x1f2937ff))),
+            mention_border: raw
+                .mention_border
+                .or(raw.reference_border)
+                .unwrap_or_else(|| Hsla::from(rgba(0xffffff1a))),
+            mention_text: raw
+                .mention_text
+                .or(raw.reference_text)
+                .unwrap_or_else(|| Hsla::from(rgba(0xe5e7ebff))),
             code_text: raw.code_text,
             code_language_input_bg: raw
                 .code_language_input_bg
@@ -1207,6 +1229,9 @@ impl Theme {
                 reference_text: Hsla::from(rgba(0xe6e6e6ff)),
                 reference_token_text: Hsla::from(rgba(0x9ca3afff)),
                 reference_border: Hsla::from(rgba(0xffffff1a)),
+                mention_bg: Hsla::from(rgba(0x262626ff)),
+                mention_border: Hsla::from(rgba(0xffffff1a)),
+                mention_text: Hsla::from(rgba(0xfafafaff)),
                 code_text: Hsla::from(rgba(0xe5e7ebff)),
                 code_language_input_bg: Hsla::from(rgba(0x343941ff)),
                 code_language_input_border: Hsla::from(rgba(0x4b5563cc)),
@@ -1464,6 +1489,9 @@ impl Theme {
                 reference_text: Hsla::from(rgba(0x0f172aff)),
                 reference_token_text: Hsla::from(rgba(0x64748bff)),
                 reference_border: Hsla::from(rgba(0x0000001a)),
+                mention_bg: Hsla::from(rgba(0xf4f4f5ff)),
+                mention_border: Hsla::from(rgba(0x0000001a)),
+                mention_text: Hsla::from(rgba(0x18181bff)),
                 code_text: Hsla::from(rgba(0x111827ff)),
                 code_language_input_bg: Hsla::from(rgba(0xffffffff)),
                 code_language_input_border: Hsla::from(rgba(0xcbd5e1ff)),

@@ -69,7 +69,12 @@ final class MarkdownLayoutManager: NSLayoutManager {
             drawn.append(range)
             let glyphs = self.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
             guard glyphs.length > 0 else { return }
-            // Issue chips are rounded rects (Linear); mention pills stay round.
+            // Mention pills are their own capsule (web `.mention-pill`).
+            if storage.attribute(.markdownMention, at: range.location, effectiveRange: nil) != nil {
+                self.drawMentionPill(range: range, glyphs: glyphs, storage: storage, at: origin)
+                return
+            }
+            // Issue chips are rounded rects (Linear).
             let isIssueRef = storage.attribute(
                 .markdownIssueRef, at: range.location, effectiveRange: nil) != nil
             var boxes = [CGRect]()
@@ -94,11 +99,78 @@ final class MarkdownLayoutManager: NSLayoutManager {
         }
     }
 
+    /// The mention pill, box for box web's inline `.mention-pill`: the content
+    /// area of the 13pt medium font (ascender to descender) plus `0.05rem`
+    /// vertical padding and the 1pt `--border` hairline, `0.4rem` horizontal
+    /// padding (kerned in by `MentionRefs`, so the box simply spans it),
+    /// fully round, filled with `--accent`.
+    private func drawMentionPill(range: NSRange, glyphs: NSRange, storage: NSTextStorage, at origin: CGPoint) {
+        let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? UIFont
+            ?? MarkdownStyle.mentionFont
+        let pad = MarkdownStyle.mentionPaddingX
+        let padY = MarkdownStyle.mentionPaddingY
+        let stroke = MarkdownStyle.mentionBorderWidth
+        // A display pill opens with a hair space that carries its leading pad;
+        // an editor pill keeps its characters and gets the pad kerned onto
+        // the character before it, so its box starts one pad left of the `@`.
+        let opensWithPad = (storage.string as NSString).substring(
+            with: NSRange(location: range.location, length: 1)) == MentionRefs.leadingPad
+        var boxes = [CGRect]()
+        enumerateLineFragments(forGlyphRange: glyphs) { fragment, used, _, lineGlyphs, _ in
+            let intersect = NSIntersectionRange(lineGlyphs, glyphs)
+            guard intersect.length > 0 else { return }
+            let first = intersect.location
+            let firstPoint = self.location(forGlyphAt: first)
+            var minX = fragment.minX + firstPoint.x
+            if first == glyphs.location, !opensWithPad { minX = max(fragment.minX, minX - pad) }
+            let after = NSMaxRange(intersect)
+            let maxX: CGFloat
+            if after < NSMaxRange(lineGlyphs) {
+                // The next glyph starts right after the last one's kerned pad.
+                maxX = fragment.minX + self.location(forGlyphAt: after).x
+            } else {
+                maxX = used.maxX
+            }
+            let baseline = fragment.minY + firstPoint.y
+            let box = CGRect(
+                x: minX + origin.x,
+                y: baseline - font.ascender - padY - stroke + origin.y,
+                width: maxX - minX,
+                height: font.ascender - font.descender + 2 * (padY + stroke)
+            )
+            guard box.width > 0, box.height > 0 else { return }
+            boxes.append(box)
+        }
+        for (index, box) in boxes.enumerated() {
+            Self.drawChipBox(
+                box,
+                radius: box.height / 2,
+                openLeft: index > 0,
+                openRight: index < boxes.count - 1,
+                fill: MarkdownStyle.mentionBackground,
+                border: MarkdownStyle.mentionBorder,
+                inset: true
+            )
+        }
+    }
+
     /// Fill + hairline of one chip fragment. An open side is drawn by
     /// extending the rounded rect past that edge and clipping it back to the
     /// fragment, so the corners and the stroke simply never appear there.
-    private static func drawChipBox(_ box: CGRect, radius: CGFloat, openLeft: Bool, openRight: Bool) {
+    private static func drawChipBox(
+        _ box: CGRect,
+        radius: CGFloat,
+        openLeft: Bool,
+        openRight: Bool,
+        fill: UIColor = MarkdownStyle.chipBackground,
+        border: UIColor = MarkdownStyle.chipBorder,
+        inset: Bool = false
+    ) {
         let lineWidth: CGFloat = 1
+        // `inset`: the hairline sits INSIDE the box (CSS border-box), so the
+        // box is the pill's outer edge.
+        let box = inset ? box.insetBy(dx: lineWidth / 2, dy: lineWidth / 2) : box
+        let radius = inset ? max(0, radius - lineWidth / 2) : radius
         let overshoot = radius + lineWidth
         var shape = box
         // Half the stroke straddles the box edge; keep it on the closed sides.
@@ -117,9 +189,9 @@ final class MarkdownLayoutManager: NSLayoutManager {
         context?.saveGState()
         if openLeft || openRight { UIBezierPath(rect: clip).addClip() }
         let path = UIBezierPath(roundedRect: shape, cornerRadius: radius)
-        MarkdownStyle.chipBackground.setFill()
+        fill.setFill()
         path.fill()
-        MarkdownStyle.chipBorder.setStroke()
+        border.setStroke()
         path.lineWidth = lineWidth
         path.stroke()
         context?.restoreGState()

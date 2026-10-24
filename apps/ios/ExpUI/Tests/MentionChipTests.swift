@@ -63,7 +63,7 @@ final class MentionChipDecorationTests: XCTestCase {
         XCTAssertEqual(decorated.attribute(.markdownChip, at: start, effectiveRange: nil) as? Bool, true)
         XCTAssertEqual(
             decorated.attribute(.foregroundColor, at: start, effectiveRange: nil) as? PlatformColor,
-            MarkdownStyle.linkColor
+            MarkdownStyle.mentionForeground
         )
     }
 
@@ -107,7 +107,7 @@ final class MentionDisplayTests: XCTestCase {
 
     func testAResolvedMentionShowsTheNameNotTheAddress() {
         let decorated = MentionRefs.decorateForDisplay(content("Ping @ada@example.com about it"), resolver: names)
-        XCTAssertEqual(decorated.string, "Ping @Ada\u{00A0}Lovelace about it")
+        XCTAssertEqual(decorated.string, "Ping \u{200A}@Ada\u{00A0}Lovelace about it")
         let start = (decorated.string as NSString).range(of: "@Ada").location
         XCTAssertEqual(
             decorated.attribute(.markdownMention, at: start, effectiveRange: nil) as? String,
@@ -116,7 +116,7 @@ final class MentionDisplayTests: XCTestCase {
         XCTAssertEqual(decorated.attribute(.markdownChip, at: start, effectiveRange: nil) as? Bool, true)
         XCTAssertEqual(
             decorated.attribute(.foregroundColor, at: start, effectiveRange: nil) as? PlatformColor,
-            MarkdownStyle.linkColor
+            MarkdownStyle.mentionForeground
         )
         // The pill ends exactly with the name: the text after it is plain.
         let after = start + ("@Ada\u{00A0}Lovelace" as NSString).length
@@ -151,7 +151,7 @@ final class MentionDisplayTests: XCTestCase {
         // like an address is the only way the regex could re-match it).
         let resolver: (String) -> String? = { $0 == "ada@example.com" ? "bot@example.com" : nil }
         let once = MentionRefs.decorateForDisplay(content("Ping @ada@example.com"), resolver: resolver)
-        XCTAssertEqual(once.string, "Ping @bot@example.com")
+        XCTAssertEqual(once.string, "Ping \u{200A}@bot@example.com")
         let twice = MentionRefs.decorateForDisplay(once, resolver: { _ in "Nope" })
         XCTAssertEqual(twice.string, once.string)
     }
@@ -167,7 +167,7 @@ final class MentionDisplayTests: XCTestCase {
         display.mentionMembers = members
         display.load(markdown: src, baseURL: nil)
         guard case let .text(_, shown) = display.blocks[0] else { return XCTFail("expected a text block") }
-        XCTAssertEqual(shown.string, "Ping @Ada\u{00A0}Lovelace about #EXP-42 Fix login flow")
+        XCTAssertEqual(shown.string, "Ping \u{200A}@Ada\u{00A0}Lovelace about #EXP-42 Fix login flow")
 
         let editable = IssueEditorModel()
         editable.issueRefResolver = display.issueRefResolver
@@ -189,7 +189,7 @@ final class MentionDisplayTests: XCTestCase {
         XCTAssertEqual(before.string, "Ping @ada@example.com")
         display.mentionMembers = [MentionMember(name: "Ada Lovelace", email: "ada@example.com")]
         guard case let .text(_, after) = display.blocks[0] else { return XCTFail("expected a text block") }
-        XCTAssertEqual(after.string, "Ping @Ada\u{00A0}Lovelace")
+        XCTAssertEqual(after.string, "Ping \u{200A}@Ada\u{00A0}Lovelace")
     }
 
     /// Thread e4a04d22: the chat feed renders with `.autolinkBareURLs`, which
@@ -206,9 +206,79 @@ final class MentionDisplayTests: XCTestCase {
             options: [.autolinkBareURLs, .hardLineBreaks]
         )
         guard case let .text(_, shown) = display.blocks[0] else { return XCTFail("expected a text block") }
-        XCTAssertEqual(shown.string, "Ask @Ada\u{00A0}Lovelace and @x@y.com")
+        XCTAssertEqual(shown.string, "Ask \u{200A}@Ada\u{00A0}Lovelace and @x@y.com")
         let pill = (shown.string as NSString).range(of: "@Ada")
         XCTAssertEqual(shown.attribute(.markdownMention, at: pill.location, effectiveRange: nil) as? String, "Ada Lovelace")
         XCTAssertNil(shown.attribute(.link, at: pill.location + 1, effectiveRange: nil))
+    }
+}
+
+/// Thread e4a04d22: the pill is ONE look ×4 — web `.mention-pill`: the
+/// `--accent` fill, the `--border` hairline, `--accent-foreground` text at
+/// 13 medium, `0.4rem` side padding. The colours come off the shared design
+/// tokens; this locks both the values and that both paths carry them.
+@MainActor
+final class MentionPillLookTests: XCTestCase {
+
+    private func rgba(_ color: PlatformColor) -> [Int] {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return [r, g, b, a].map { Int(($0 * 255).rounded()) }
+    }
+
+    private func content(_ markdown: String) -> NSAttributedString {
+        let blocks = MarkdownConversion.markdownToBlocks(markdown)
+        guard case let .text(_, content) = blocks[0] else { fatalError("expected a text block") }
+        return content
+    }
+
+    func testThePaletteIsTheWebTokens() {
+        // oklch(0.269 0 0) / oklch(0.985 0 0) / oklch(1 0 0 / 10%).
+        XCTAssertEqual(rgba(MarkdownStyle.mentionBackground), [38, 38, 38, 255])
+        XCTAssertEqual(rgba(MarkdownStyle.mentionForeground), [250, 250, 250, 255])
+        XCTAssertEqual(rgba(MarkdownStyle.mentionBorder), [255, 255, 255, 26])
+        XCTAssertEqual(MarkdownStyle.mentionFontSize, 13)
+        XCTAssertEqual(MarkdownStyle.mentionPaddingX, 6.4, accuracy: 0.001)
+        XCTAssertEqual(MarkdownStyle.mentionBorderWidth, 1)
+    }
+
+    func testTheDisplayPillIsAccentForegroundAt13Medium() {
+        let shown = MentionRefs.decorateForDisplay(
+            content("Ping @ada@example.com about it"), resolver: { _ in "Ada Lovelace" })
+        let start = (shown.string as NSString).range(of: "@Ada").location
+        let font = shown.attribute(.font, at: start, effectiveRange: nil) as? PlatformFont
+        XCTAssertEqual(font?.pointSize ?? 0, MarkdownStyle.mentionFont.pointSize, accuracy: 0.01)
+        let weight = (font?.fontDescriptor.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any])?[.weight]
+            as? CGFloat
+        XCTAssertEqual(weight ?? 0, UIFont.Weight.medium.rawValue, accuracy: 0.01)
+        XCTAssertEqual(
+            shown.attribute(.foregroundColor, at: start, effectiveRange: nil) as? PlatformColor,
+            MarkdownStyle.mentionForeground)
+        // The hair space opening the pill + the last character carry the pad.
+        XCTAssertNotNil(shown.attribute(.kern, at: start - 1, effectiveRange: nil))
+        let last = start + ("@Ada\u{00A0}Lovelace" as NSString).length - 1
+        XCTAssertEqual(shown.attribute(.kern, at: last, effectiveRange: nil) as? CGFloat, MarkdownStyle.mentionPaddingX)
+    }
+
+    func testTheEditorPillRestoresTheBodyWhenItStopsResolving() {
+        let src = "Ping @ada@example.com about it"
+        let base = content(src)
+        let chipped = MarkdownChipDecorator.decorate(
+            base, issueRefResolver: nil, mentionResolver: { _ in "Ada Lovelace" }).attributed
+        let start = (chipped.string as NSString).range(of: "@ada").location
+        XCTAssertEqual(
+            (chipped.attribute(.font, at: start, effectiveRange: nil) as? PlatformFont)?.pointSize ?? 0,
+            MarkdownStyle.mentionFont.pointSize, accuracy: 0.01)
+        XCTAssertEqual(chipped.attribute(.kern, at: start - 1, effectiveRange: nil) as? CGFloat,
+                       MarkdownStyle.mentionPaddingX)
+        // Idempotent: a second pass changes nothing.
+        XCTAssertFalse(MarkdownChipDecorator.decorate(
+            chipped, issueRefResolver: nil, mentionResolver: { _ in "Ada Lovelace" }).changed)
+        // The member leaves: font, colour and both pads go back.
+        let plain = MarkdownChipDecorator.decorate(
+            chipped, issueRefResolver: nil, mentionResolver: { _ in nil }).attributed
+        XCTAssertTrue(plain.isEqual(to: base))
+        XCTAssertEqual(
+            MarkdownConversion.blocksToMarkdown([.text(id: UUID(), attributedContent: chipped)]), src)
     }
 }

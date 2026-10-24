@@ -92,6 +92,7 @@ fn build_text_runs(
     link_color: Hsla,
     reference_text_color: Hsla,
     reference_token_color: Hsla,
+    mention_text_color: Hsla,
     code_bg: Hsla,
     show_inline_code_backgrounds: bool,
     mono_family: &SharedString,
@@ -250,6 +251,9 @@ fn build_text_runs(
                 } else {
                     run_color = reference_text_color;
                 }
+            } else {
+                // Exponential thread e4a04d22: web `.mention-pill` text.
+                run_color = mention_text_color;
             }
         }
 
@@ -1226,6 +1230,7 @@ impl Element for BlockTextElement {
                     theme.colors.text_link,
                     theme.colors.reference_text,
                     theme.colors.reference_token_text,
+                    theme.colors.mention_text,
                     theme.colors.code_bg,
                     show_inline_code_backgrounds,
                     &SharedString::from(theme.fonts.mono_family.clone()),
@@ -1534,8 +1539,8 @@ impl Element for BlockTextElement {
             let pad_x = px(theme.dimensions.reference_pad_x);
             let pad_y = px(theme.dimensions.reference_pad_y);
             // EXP-423: per-kind radius — issue chips are Linear-style small
-            // rounded rects, mention pills stay fully round (gpui clamps 999
-            // to half the smaller side, so it's "as round as it gets").
+            // rounded rects, mention pills stay fully round (999, clamped
+            // to half the quad's smaller side when painted).
             let mention_radius = px(theme.dimensions.reference_radius);
             let issue_radius = px(theme.dimensions.issue_chip_radius);
             // EXP-899: how far the quad pulls IN from the row box before
@@ -1560,10 +1565,14 @@ impl Element for BlockTextElement {
                 let Some(chip) = shaped.chip_range(index) else {
                     continue;
                 };
-                let radius = if span.kind == crate::host::ReferenceKind::IssueRef {
-                    issue_radius
+                let is_issue = span.kind == crate::host::ReferenceKind::IssueRef;
+                let radius = if is_issue { issue_radius } else { mention_radius };
+                // Exponential thread e4a04d22: the mention pill's own chrome
+                // (web `.mention-pill`: opaque accent + border hairline).
+                let (fill_color, border_color) = if is_issue {
+                    (reference_color, reference_border)
                 } else {
-                    mention_radius
+                    (theme.colors.mention_bg, theme.colors.mention_border)
                 };
                 for segment in range_segment_bounds(
                     &lines,
@@ -1581,14 +1590,17 @@ impl Element for BlockTextElement {
                         ),
                     );
                     code_quads.push({
-                        let mut q = fill(quad_bounds, reference_color);
-                        q.corner_radii = Corners::all(radius);
+                        let mut q = fill(quad_bounds, fill_color);
+                        // `paint_quad` does NOT clamp radii: an unclamped 999
+                        // made the shader drop the whole mention quad.
+                        q.corner_radii =
+                            Corners::all(radius).clamp_radii_for_quad_size(quad_bounds.size);
                         // EXP-381: the border is what keeps the pill visible —
                         // the accent fill is nearly the surface colour (web
                         // `.issue-ref-pill` leans on `var(--border)` the same
                         // way).
                         q.border_widths = gpui::Edges::all(px(1.));
-                        q.border_color = reference_border;
+                        q.border_color = border_color;
                         q
                     });
                 }
@@ -2062,6 +2074,7 @@ mod tests {
                 Hsla::from(rgba(0x0066ccff)),
                 Hsla::from(rgba(0xeeeeeeff)),
                 Hsla::from(rgba(0x9999aaff)),
+                Hsla::from(rgba(0xfafafaff)),
                 Hsla::from(rgba(0x111111ff)),
                 true,
                 &SharedString::from(".SystemUIFont"),
@@ -2695,6 +2708,7 @@ mod chip_tests {
                 Hsla::from(rgba(0x0066ccff)),
                 Hsla::from(rgba(0xeeeeeeff)),
                 Hsla::from(rgba(0x9999aaff)),
+                Hsla::from(rgba(0xfafafaff)),
                 Hsla::from(rgba(0x111111ff)),
                 true,
                 &SharedString::from(".SystemUIFont"),
@@ -2737,6 +2751,7 @@ mod chip_tests {
                 link,
                 reference,
                 token_color,
+                Hsla::from(rgba(0xfafafaff)),
                 Hsla::from(rgba(0x111111ff)),
                 true,
                 &mono,
@@ -2799,6 +2814,7 @@ mod chip_tests {
                 Hsla::from(rgba(0x0066ccff)),
                 reference,
                 token_color,
+                Hsla::from(rgba(0xfafafaff)),
                 Hsla::from(rgba(0x111111ff)),
                 true,
                 &mono,

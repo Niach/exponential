@@ -95,9 +95,26 @@ public enum MarkdownStyle {
     /// `.backgroundColor` run.
     public nonisolated(unsafe) static let chipBackground = PlatformColor.white.withAlphaComponent(0.08)
     public nonisolated(unsafe) static let chipBorder = PlatformColor.white.withAlphaComponent(0.16)
+    /// The mention pill (thread e4a04d22, web `.mention-pill` ×4): the
+    /// `--accent` fill, the `--border` hairline, `--accent-foreground` text
+    /// at 13pt medium, fully round, 0.05rem × 0.4rem padding. Straight off
+    /// the shared design tokens so it can never drift from web.
+    public nonisolated(unsafe) static let mentionBackground = PlatformColor(DesignTokens.Palette.accent)
+    public nonisolated(unsafe) static let mentionBorder = PlatformColor(DesignTokens.Palette.border)
+    public nonisolated(unsafe) static let mentionForeground = PlatformColor(DesignTokens.Palette.accentForeground)
+    public static let mentionFontSize: CGFloat = 13
+    /// Web `padding: 0.05rem 0.4rem` at a 16px root.
+    public static let mentionPaddingX: CGFloat = 6.4
+    public static let mentionPaddingY: CGFloat = 0.8
+    public static let mentionBorderWidth: CGFloat = 1
+    /// 13pt medium, scaled with Dynamic Type like the body it sits in.
+    public static var mentionFont: PlatformFont {
+        UIFontMetrics(forTextStyle: .body)
+            .scaledFont(for: PlatformFont.systemFont(ofSize: mentionFontSize, weight: .medium))
+    }
     /// The muted `#IDENT` identifier inside an issue chip (Linear look —
     /// Android's `MdStyle.ChipToken`, web's `--muted-foreground`). Mention
-    /// pills keep `linkColor` via `expChipAttributes`.
+    /// pills paint `mentionForeground` via `expMentionAttributes`.
     public nonisolated(unsafe) static let chipTokenColor = PlatformColor.white.withAlphaComponent(0.55)
     /// Issue chips are rounded RECTS (web 6px / desktop 4 / Android 5dp);
     /// mention pills stay fully round on every platform.
