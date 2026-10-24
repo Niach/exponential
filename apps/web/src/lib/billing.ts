@@ -475,19 +475,22 @@ export function assertAppRecordCreatable(limits: PlanLimits, currentCount: numbe
   }
 }
 
-/** Live (not trashed) records across the team's apps. */
-export async function countTeamAppRecords(teamId: string): Promise<number> {
-  const [row] = await db
+/** Live (not trashed) records across the team's apps (`tx` = count inside
+ *  the write transaction). */
+export async function countTeamAppRecords(teamId: string, tx: Pick<typeof db, `select`> = db): Promise<number> {
+  const [row] = await tx
     .select({ count: sql<number>`count(*)::int` })
     .from(appRecords)
     .where(and(eq(appRecords.teamId, teamId), isNull(appRecords.deletedAt)))
   return row?.count ?? 0
 }
 
-// Record-create gate (apps.records.upsert without an id). Self-hosted is unlimited.
-export async function assertCanCreateAppRecord(teamId: string): Promise<void> {
+// Record-create gate (apps.records.upsert without an id). Self-hosted is
+// unlimited. Called INSIDE the insert's transaction behind the team's
+// advisory lock (`apps.ts`), so two creates at the limit cannot both pass.
+export async function assertCanCreateAppRecord(teamId: string, tx: Pick<typeof db, `select`> = db): Promise<void> {
   if (!isCloudInstance()) return
-  const [{ limits }, count] = await Promise.all([getTeamPlan(teamId), countTeamAppRecords(teamId)])
+  const [{ limits }, count] = await Promise.all([getTeamPlan(teamId), countTeamAppRecords(teamId, tx)])
   assertAppRecordCreatable(limits, count)
 }
 

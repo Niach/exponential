@@ -128,7 +128,8 @@ public enum AppRecords {
             self.updatedAt = updatedAt
         }
 
-        /// From a synced row (`data` = its JSON text; a non-object = {}).
+        /// From a synced row (`data` = its JSON text; a non-object = {}); the
+        /// timestamps as the web host's `toISOString` (the same ×4).
         public init(_ entity: AppRecordEntity) {
             let parsed = (try? JSONSerialization.jsonObject(with: Data(entity.data.utf8), options: [.fragmentsAllowed]))
             self.init(
@@ -136,10 +137,24 @@ public enum AppRecords {
                 kind: entity.kind,
                 data: CardJSON(any: parsed)?.objectValue ?? [:],
                 createdBy: entity.createdBy,
-                createdAt: entity.createdAt,
-                updatedAt: entity.updatedAt
+                createdAt: AppRecords.isoTimestamp(entity.createdAt),
+                updatedAt: AppRecords.isoTimestamp(entity.updatedAt)
             )
         }
+    }
+
+    private nonisolated(unsafe) static let isoMillis: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    /// A wire timestamp (the Postgres text Electric syncs, or ISO) as
+    /// JavaScript's `toISOString()` (`2026-10-05T18:00:00.000Z`), the web
+    /// host's form (Android `isoTimestamp`, desktop `iso_millis` alike);
+    /// unparseable text stays as is.
+    public static func isoTimestamp(_ raw: String) -> String {
+        WireTimestamps.parse(raw).map(isoMillis.string(from:)) ?? raw
     }
 
     /// JS `Number(text)` for a trimmed, non-empty string (nil = NaN).

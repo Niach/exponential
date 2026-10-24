@@ -106,4 +106,20 @@ final class AppRecordsTests: XCTestCase {
         XCTAssertEqual(AppRecords.monthDays("2028-02").count, 29)
         XCTAssertEqual(AppRecords.monthDays("2026-10").first?.weekday, "Thu")
     }
+
+    /// A synced row's timestamps reach the binding as the web host's
+    /// `toISOString` (the same ×4), whatever wire form Electric sent.
+    func testRowTimestampsAreIsoMillis() {
+        XCTAssertEqual(AppRecords.isoTimestamp("2026-10-05 18:00:00+00"), "2026-10-05T18:00:00.000Z")
+        XCTAssertEqual(AppRecords.isoTimestamp("2026-10-05 18:00:00.123456+00"), "2026-10-05T18:00:00.123Z")
+        XCTAssertEqual(AppRecords.isoTimestamp("2026-10-05T18:00:00Z"), "2026-10-05T18:00:00.000Z")
+        XCTAssertEqual(AppRecords.isoTimestamp("garbage"), "garbage")
+        let entity = AppRecordEntity(
+            id: "r1", appId: "a1", teamId: "t1", kind: "entry", data: "{\"hours\":3}",
+            createdBy: "u1", createdAt: "2026-10-05 18:00:00+00", updatedAt: "2026-10-06 07:30:00.5+00"
+        )
+        let row = AppRecords.Row(entity)
+        XCTAssertEqual(row.createdAt, "2026-10-05T18:00:00.000Z")
+        XCTAssertEqual(row.updatedAt, "2026-10-06T07:30:00.500Z")
+    }
 }

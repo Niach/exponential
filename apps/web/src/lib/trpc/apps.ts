@@ -366,13 +366,17 @@ export const appsRouter = router({
         if (bytes > APP_RECORD_MAX_BYTES) {
           throw new TRPCError({ code: `BAD_REQUEST`, message: `record is ${bytes} bytes; the cap is ${APP_RECORD_MAX_BYTES}` })
         }
-        if (!existing) await assertCanCreateAppRecord(app.teamId)
         return await ctx.db.transaction(async (tx) => {
           const txId = await generateTxId(tx)
           if (existing) {
             await tx.update(appRecords).set({ data, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
             return { txid: txId, id: existing.id, created: false }
           }
+          // The team's quota, counted in THIS transaction behind the team's
+          // lock: concurrent creates at the limit queue here and the second
+          // one sees the first's row (no race past `appRecords`).
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`app_records:${app.teamId}`}))`)
+          await assertCanCreateAppRecord(app.teamId, tx)
           const [row] = await tx
             .insert(appRecords)
             .values({ appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId })
