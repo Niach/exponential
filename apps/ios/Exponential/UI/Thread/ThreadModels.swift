@@ -39,7 +39,8 @@ final class ThreadScreenModel {
         startObserving()
         guard clockTask == nil else { return }
         // #EXP-1380 PERF: the clock ticks only while a session of the chat
-        // is live, and a tick re-reads the session cards' elapsed alone
+        // is live, and a tick re-reads the live cards' elapsed alone (the
+        // session cards and the suggested tasks' started items)
         // (`ThreadRows.ticked`): nothing is rebuilt, and a tick that moves
         // no caption publishes nothing. The Working… line keeps its own
         // timeline (`WorkingIndicatorRow`).
@@ -111,7 +112,8 @@ final class ThreadScreenModel {
         }.value
     }
 
-    /// The clock: the session cards' elapsed move, nothing else.
+    /// The clock: the live cards' elapsed move (session cards, started
+    /// suggestions), nothing else.
     private func tick() {
         guard let rows, let view else { return }
         let now = Date()

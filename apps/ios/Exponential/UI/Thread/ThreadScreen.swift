@@ -532,7 +532,6 @@ struct ThreadScreen: View {
                                 )
                             },
                             onReply: { text in reply(text, sessionId: view.composer.sessionId) },
-                            following: atBottom,
                             onLoadEarlier: { anchor in
                                 // The widened window lays out first; then the
                                 // row the reader saw on top stays on top.

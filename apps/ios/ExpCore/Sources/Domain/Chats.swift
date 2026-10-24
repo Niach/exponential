@@ -89,9 +89,20 @@ public enum Chats {
         public static let windowStep = 100
         public static let followSlack: Double = 32
 
-        /// The index of the first painted row: the newest `limit` of `count`.
-        public static func windowStart(count: Int, limit: Int) -> Int {
-            max(0, count - max(0, limit))
+        /// WINDOW (`windowCases`, TS `transcriptWindowStart`): the index of
+        /// the first painted row. The newest `window` rows, the start reaching
+        /// up to the oldest WAITING card (`waitingIndexes`, never cut off);
+        /// once painted the start is PINNED (`pinnedStart` = the first
+        /// paint's start: arrivals append, a shrink only grows the window);
+        /// each `Load earlier` press (`loadedSteps`) moves it up one step.
+        /// A reopen passes nil / 0 again.
+        public static func windowStart(
+            rowCount: Int, waitingIndexes: [Int], pinnedStart: Int?, loadedSteps: Int
+        ) -> Int {
+            let tail = max(0, rowCount - window)
+            var base = pinnedStart.map { min(max(0, $0), tail) } ?? tail
+            for index in waitingIndexes where index >= 0 && index < rowCount && index < base { base = index }
+            return max(0, base - max(0, loadedSteps) * windowStep)
         }
     }
 

@@ -109,19 +109,40 @@ struct ThreadRows: Sendable {
         messageCreatedAt[messageId] ?? messages.first { $0.id == messageId }?.createdAt
     }
 
-    /// #EXP-1380 PERF: the clock's tick re-reads ONLY the session cards'
-    /// elapsed (`SessionTree.sessionCard`); every other row is untouched,
-    /// and nil = no card moved (the view is not re-published at all).
+    /// #EXP-1380 PERF: the clock's tick re-reads ONLY the elapsed of the
+    /// cards naming a live session (`SessionTree.sessionCard`): the session
+    /// cards and the started items of a suggested tasks card. Every other
+    /// row is untouched, and nil = no card moved (the view is not
+    /// re-published at all).
     func ticked(_ view: SessionThreadView, now: Date) -> SessionThreadView? {
         var changed = false
-        let rows = view.rows.map { row -> ThreadRow in
-            guard case let .session(id, card) = row,
-                  let session = session(id: card.sessionId), session.isLive
-            else { return row }
+        func refreshed(_ card: SessionCard) -> SessionCard? {
+            guard let session = session(id: card.sessionId), session.isLive else { return nil }
             let next = SessionTree.sessionCard(TreeSession(sessionRow: session), title: card.name, now: now)
-            guard next != card else { return row }
-            changed = true
-            return .session(id: id, card: next)
+            return next == card ? nil : next
+        }
+        let rows = view.rows.map { row -> ThreadRow in
+            switch row {
+            case let .session(id, card):
+                guard let next = refreshed(card) else { return row }
+                changed = true
+                return .session(id: id, card: next)
+            case let .suggestions(id, sessionId, header, startAll, items):
+                var moved = false
+                let nextItems = items.map { item -> SuggestionRow in
+                    guard let card = item.card, let next = refreshed(card) else { return item }
+                    moved = true
+                    return SuggestionRow(
+                        id: item.id, title: item.title, text: item.text, state: item.state,
+                        card: next, issueId: item.issueId, identifier: item.identifier
+                    )
+                }
+                guard moved else { return row }
+                changed = true
+                return .suggestions(id: id, sessionId: sessionId, header: header, startAll: startAll, items: nextItems)
+            default:
+                return row
+            }
         }
         return changed ? view.replacingRows(rows) : nil
     }

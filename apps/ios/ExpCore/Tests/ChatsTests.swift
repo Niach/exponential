@@ -5,7 +5,7 @@ import XCTest
 // Thread 58cb32df: Chats, locked ×4 (TS `chats.test.ts`, Android `ChatsTest`,
 // desktop `domain::chats`) against fixtures/chats.json: every case group
 // (previewCases, timeCases, listCases, bubbleCases, menuCases,
-// agentMenuCases, replyCases, dividerCases, plainCases) plus the copy, test
+// agentMenuCases, replyCases, dividerCases, plainCases, windowCases) plus the copy, test
 // ids, shell and surface-card constants. Whole expected objects are compared
 // as JSON values.
 final class ChatsTests: XCTestCase {
@@ -317,6 +317,19 @@ final class ChatsTests: XCTestCase {
         }
     }
 
+    func testWindowCases() throws {
+        for testCase in try cases("windowCases") {
+            let name = string(testCase["name"]) ?? ""
+            let start = Chats.Transcript.windowStart(
+                rowCount: try XCTUnwrap(testCase["rowCount"] as? Int, name),
+                waitingIndexes: try XCTUnwrap(testCase["waitingIndexes"] as? [Int], name),
+                pinnedStart: testCase["pinnedStart"] as? Int,
+                loadedSteps: try XCTUnwrap(testCase["loadedSteps"] as? Int, name)
+            )
+            XCTAssertEqual(start, testCase["start"] as? Int, name)
+        }
+    }
+
     // MARK: - Constants
 
     func testCopyMatchesTheFixture() throws {
@@ -380,8 +393,6 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(transcript["window"] as? Int, Chats.Transcript.window)
         XCTAssertEqual(transcript["windowStep"] as? Int, Chats.Transcript.windowStep)
         XCTAssertEqual(transcript["followSlack"] as? Double, Chats.Transcript.followSlack)
-        XCTAssertEqual(Chats.Transcript.windowStart(count: 1500, limit: 100), 1400)
-        XCTAssertEqual(Chats.Transcript.windowStart(count: 40, limit: 100), 0)
         XCTAssertEqual(fixture["filters"] as? [String], Chats.filters.map(\.rawValue))
 
         let shell = try XCTUnwrap(fixture["shell"] as? [String: Any])

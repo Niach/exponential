@@ -74,9 +74,6 @@ struct ThreadConversationView: View {
     /// press posts its text as the person's next message.
     var onReply: (String) -> Void = { _ in }
 
-    /// #EXP-1380: the reader follows the tail (the host's pin): a window
-    /// whose reader scrolled up grows by the arrivals instead of sliding.
-    var following = true
     /// #EXP-1380: `Load earlier` widened the window; the host keeps this row
     /// (the previous first one) where the reader saw it.
     var onLoadEarlier: (String) -> Void = { _ in }
@@ -85,8 +82,16 @@ struct ThreadConversationView: View {
     /// the chat was open (its bubble rises in, a surface card plays its
     /// ENTER); history, a reopen or a scroll never animates.
     @State private var painted: Set<String>?
-    /// #EXP-1380 WINDOW: how many of the newest rows are painted.
-    @State private var limit = Chats.Transcript.window
+    /// #EXP-1380 WINDOW (chats.json, review of #1218): the start the FIRST
+    /// paint fixed (nil until painted) and the `Load earlier` presses since
+    /// the open — `Chats.Transcript.windowStart` derives the start from both.
+    @State private var pinnedStart: Int?
+    @State private var loadedSteps = 0
+    /// The rows' actions, ONE reference for the view's life: every body
+    /// pass points it at the CURRENT closures, and a row calls through it at
+    /// tap time — an Equatable row that skipped a re-render never holds a
+    /// closure over stale state (review of #1218).
+    @State private var handlers = ThreadRowHandlers()
 
     /// A card still waiting on its answer (`AskDock.threadPendingAsks`).
     static func isPending(_ row: ThreadRow) -> Bool {
@@ -110,16 +115,23 @@ struct ThreadConversationView: View {
     }
 
     var body: some View {
-        // #EXP-1380 WINDOW ×4: the newest `transcript.window` rows; `Load
-        // earlier` above them widens by `windowStep`, the reader's row kept
-        // in place (`onLoadEarlier`).
+        // #EXP-1380 WINDOW ×4: the newest `transcript.window` rows, reaching
+        // up to the oldest waiting card; the start is PINNED once painted
+        // (arrivals append, following or not); `Load earlier` above them
+        // moves it up by `windowStep` in one press, the reader's row kept in
+        // place (`onLoadEarlier`).
         let all = shownRows
-        let start = Chats.Transcript.windowStart(count: all.count, limit: limit)
+        let _ = handlers.update(
+            onOpenSession: onOpenSession, onOpenThread: onOpenThread, onSubmit: onSubmit,
+            onUnqueue: onUnqueue, onReply: onReply, suggestions: suggestions
+        )
+        let start = windowStart(all, pinned: pinnedStart)
         LazyVStack(alignment: .leading, spacing: 14) {
             if start > 0 {
                 TranscriptLoadEarlierButton {
                     let anchor = all[start].id
-                    limit += Chats.Transcript.windowStep
+                    if pinnedStart == nil { pinnedStart = start }
+                    loadedSteps += 1
                     onLoadEarlier(anchor)
                 }
             }
@@ -140,13 +152,26 @@ struct ThreadConversationView: View {
         .accessibilityIdentifier(SessionTree.ThreadCopy.conversationTestId)
         .onAppear {
             if painted == nil { painted = Set(all.map(\.id)) }
+            if pinnedStart == nil { pinnedStart = windowStart(all, pinned: nil) }
         }
-        // A new arrival never shrinks the window: a reader scrolled up keeps
-        // their rows (the window grows by the arrivals); a following reader's
-        // window slides with the tail.
-        .onChange(of: all.count) { old, new in
-            if !following, new > old, limit < new { limit += new - old }
+        // Another root in the same view (an agent chat switched): its own
+        // fresh window, as a reopen.
+        .onChange(of: rows.root.id) { _, _ in
+            painted = Set(all.map(\.id))
+            loadedSteps = 0
+            pinnedStart = windowStart(all, pinned: nil)
         }
+    }
+
+    /// The window's first painted row (`Chats.Transcript.windowStart`): the
+    /// waiting plan / question cards' indexes feed it, so none is cut off.
+    private func windowStart(_ all: [ThreadRow], pinned: Int?) -> Int {
+        Chats.Transcript.windowStart(
+            rowCount: all.count,
+            waitingIndexes: all.indices.filter { Self.isPending(all[$0]) },
+            pinnedStart: pinned,
+            loadedSteps: pinned == nil ? 0 : loadedSteps
+        )
     }
 
     private static func isSurface(_ row: ThreadRow) -> Bool {
@@ -170,7 +195,7 @@ struct ThreadConversationView: View {
 
     /// One row with its inputs resolved here (indexed lookups, #EXP-1380).
     private func rowView(_ row: ThreadRow) -> ThreadConversationRow {
-        var item = ThreadConversationRow(row: row, teamId: rows.root.teamId)
+        var item = ThreadConversationRow(row: row, teamId: rows.root.teamId, handlers: handlers)
         item.arrived = arrived(row.id) && !Self.isSurface(row)
         item.animateSurface = arrived(row.id)
         item.canAnswer = canAnswer
@@ -194,7 +219,7 @@ struct ThreadConversationView: View {
         case let .suggestions(id, _, _, _, _):
             item.docked = canAnswer && suggestions != nil && Self.isDocked(row)
             item.pending = suggestions?.pending.filter { $0.hasPrefix("\(id):") } ?? []
-            item.suggestions = canAnswer ? suggestions : nil
+            item.suggestable = canAnswer && suggestions != nil
         case let .event(_, _, text):
             item.eventIssue = rows.issues.first { issue in issue.identifier.map { text.hasSuffix(" \($0)") } ?? false }
         case let .divider(_, _, at):
@@ -202,22 +227,65 @@ struct ThreadConversationView: View {
         default:
             break
         }
-        item.onOpenSession = onOpenSession
-        item.onOpenThread = onOpenThread
-        item.onSubmit = onSubmit
-        item.onUnqueue = onUnqueue
-        item.onReply = canAnswer ? onReply : nil
+        item.replies = canAnswer
         return item
     }
 }
 
+/// The conversation rows' actions behind ONE stable reference
+/// (`ThreadConversationView.handlers`): the host's closures are swapped in
+/// on every pass, the rows read them when tapped. Not observed — swapping
+/// a closure never re-renders a row.
+@MainActor
+final class ThreadRowHandlers {
+    private(set) var onOpenSession: (String) -> Void = { _ in }
+    private(set) var onOpenThread: (String) -> Void = { _ in }
+    private(set) var onSubmit: (ThreadCardAnswer) -> Void = { _ in }
+    private(set) var onUnqueue: (String) -> Void = { _ in }
+    private(set) var onReply: (String) -> Void = { _ in }
+    private(set) var suggestions: ThreadSuggestionActions?
+
+    init() {}
+
+    func update(
+        onOpenSession: @escaping (String) -> Void,
+        onOpenThread: @escaping (String) -> Void,
+        onSubmit: @escaping (ThreadCardAnswer) -> Void,
+        onUnqueue: @escaping (String) -> Void,
+        onReply: @escaping (String) -> Void,
+        suggestions: ThreadSuggestionActions?
+    ) {
+        self.onOpenSession = onOpenSession
+        self.onOpenThread = onOpenThread
+        self.onSubmit = onSubmit
+        self.onUnqueue = onUnqueue
+        self.onReply = onReply
+        self.suggestions = suggestions
+    }
+
+    /// A suggested tasks card's actions calling through this reference;
+    /// `pending` = the row's own in-flight keys (compared by the row).
+    func suggestionActions(pending: Set<String>) -> ThreadSuggestionActions {
+        ThreadSuggestionActions(
+            onStart: { [self] in suggestions?.onStart($0, $1) },
+            onStartAll: { [self] in suggestions?.onStartAll($0) },
+            onMenu: { [self] in suggestions?.onMenu($0, $1, $2) },
+            devices: { [self] in await suggestions?.devices() ?? [] },
+            pending: pending
+        )
+    }
+}
+
 /// #EXP-1380 PERF ×4: ONE conversation row, rendered once per change of its
-/// OWN inputs (`==` compares the row and what the screen resolved for it;
-/// the closures ride along uncompared). The markdown parse is the run view's
+/// OWN inputs (`==` compares the row and what the screen resolved for it).
+/// Its actions are never captured per row: they call through the view's
+/// ONE `ThreadRowHandlers`, so a row that skipped a re-render still runs
+/// the host's current closures. The markdown parse is the run view's
 /// cached text path (`AgentMarkdownText`).
 struct ThreadConversationRow: View, Equatable {
     let row: ThreadRow
     let teamId: String
+    let handlers: ThreadRowHandlers
     var arrived = false
     var animateSurface = false
     var canAnswer = true
@@ -231,21 +299,25 @@ struct ThreadConversationRow: View, Equatable {
     var docked = false
     var pending: Set<String> = []
     var eventIssue: IssueEntity?
-    var suggestions: ThreadSuggestionActions?
-    var onOpenSession: (String) -> Void = { _ in }
-    var onOpenThread: (String) -> Void = { _ in }
-    var onSubmit: (ThreadCardAnswer) -> Void = { _ in }
-    var onUnqueue: (String) -> Void = { _ in }
-    var onReply: ((String) -> Void)?
+    /// The suggested tasks card takes actions (a member, actions handed in).
+    var suggestable = false
+    /// A surface card's reply presses post (a member).
+    var replies = false
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.threadIssueOutlet) private var threadIssueOutlet
 
-    init(row: ThreadRow, teamId: String) {
+    init(row: ThreadRow, teamId: String, handlers: ThreadRowHandlers) {
         self.row = row
         self.teamId = teamId
+        self.handlers = handlers
     }
+
+    private func onOpenSession(_ id: String) { handlers.onOpenSession(id) }
+    private func onOpenThread(_ id: String) { handlers.onOpenThread(id) }
+    private func onUnqueue(_ id: String) { handlers.onUnqueue(id) }
+    private func onSubmit(_ answer: ThreadCardAnswer) { handlers.onSubmit(answer) }
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.row == rhs.row && lhs.teamId == rhs.teamId && lhs.arrived == rhs.arrived
@@ -253,7 +325,7 @@ struct ThreadConversationRow: View, Equatable {
             && lhs.answeringId == rhs.answeringId && lhs.time == rhs.time && lhs.caption == rhs.caption
             && lhs.removable == rhs.removable && lhs.otherRoot == rhs.otherRoot && lhs.docked == rhs.docked
             && lhs.pending == rhs.pending && lhs.eventIssue == rhs.eventIssue
-            && (lhs.suggestions == nil) == (rhs.suggestions == nil) && (lhs.onReply == nil) == (rhs.onReply == nil)
+            && lhs.suggestable == rhs.suggestable && lhs.replies == rhs.replies && lhs.handlers === rhs.handlers
     }
 
     /// Attachment images through the instance, `#EXP-1` refs chipped against
@@ -319,7 +391,7 @@ struct ThreadConversationRow: View, Equatable {
                     header: header,
                     startAll: startAll,
                     items: items,
-                    actions: suggestions,
+                    actions: suggestable ? handlers.suggestionActions(pending: pending) : nil,
                     onOpenSession: onOpenSession,
                     onOpenIssue: { issueId in
                         openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
@@ -392,7 +464,7 @@ struct ThreadConversationRow: View, Equatable {
                 surface: surface,
                 title: title,
                 animate: animateSurface,
-                onReply: onReply
+                onReply: replies ? { [handlers] text in handlers.onReply(text) } : nil
             )
         }
     }
