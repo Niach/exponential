@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -19,7 +20,8 @@ import org.junit.runner.RunWith
  * today's schema without the `app_records` table. Room opens it with the
  * migration (then the idempotent [MIGRATION_97_98] and [MIGRATION_98_99]) and NO destructive fallback, so the new table is validated
  * against [AppRecordEntity]; it starts empty and takes a record, while the
- * apps row and every offset survive untouched.
+ * apps row and the `apps` offset survive untouched (the `sessions` offset
+ * refetches: it is one of [MIGRATION_97_98]'s agent shapes).
  */
 @RunWith(AndroidJUnit4::class)
 class Migration96To97Test {
@@ -62,11 +64,15 @@ class Migration96To97Test {
 
             val app = runBlocking { db.appDao().observeById("a1").first() }!!
             assertEquals("hours", app.slug)
-            for (kept in listOf("apps", "sessions")) {
-                val row = runBlocking { db.electricOffsetDao().get(kept) }!!
-                assertEquals("h", row.handle)
-                assertTrue(row.isLive)
-            }
+            // `apps` is no agent shape: its offset survives; `sessions` is one,
+            // so [MIGRATION_97_98] made it refetch (#EXP-1383).
+            val kept = runBlocking { db.electricOffsetDao().get("apps") }!!
+            assertEquals("h", kept.handle)
+            assertTrue(kept.isLive)
+            val refetched = runBlocking { db.electricOffsetDao().get("sessions") }!!
+            assertEquals("", refetched.handle)
+            assertFalse(refetched.isLive)
+            assertTrue(refetched.needsRefetch)
         } finally {
             db.close()
         }
