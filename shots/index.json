@@ -170,15 +170,15 @@
         "file": "shots/apps/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 13080,
-        "sha256": "f3301abafb145d680298c015f7e881abf21bba0f6cab7ce68f88d1e751b86b90"
+        "bytes": 19868,
+        "sha256": "619a8859224bc43fbf99d19f05fc47c97e698abc26e66633d96c246f19a0be77"
       },
       "ios": {
         "file": "shots/apps/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 14692,
-        "sha256": "ce3b19038d48643126ac42af7be80027e920a0e69e12b21c9f363c58ae6c3b5e"
+        "bytes": 20158,
+        "sha256": "edcaf3298c545f9ff67ff80827922453c58cdb2e586820f5a16a9f5c96c39320"
       },
       "web": {
         "file": "shots/apps/web.webp",
@@ -191,8 +191,8 @@
         "file": "shots/apps/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 18168,
-        "sha256": "73e7a6bd50b6b84fedba0a3df11ca3ab7e7dd04a3d58b216c764dc143d2ba4c1"
+        "bytes": 21038,
+        "sha256": "e75fe4e08a6e31a850b37165f0d0ece7b3c38d95ba2f314c16e23358adc71fc7"
       }
     },
     "ask-dock": {
@@ -3528,6 +3528,29 @@
         "height": 1800,
         "bytes": 28040,
         "sha256": "e036934d3847fa21d16150384c9cb3ba107beb0011645c3f1456cbed92050673"
+      }
+    },
+    "mention-pill": {
+      "android": {
+        "file": "shots/mention-pill/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 25064,
+        "sha256": "8ee195c72f81a65e1569bc2576d3b0fa83a905a304887d2c4d5efc2ef9c98b3d"
+      },
+      "desktop": {
+        "file": "shots/mention-pill/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 28642,
+        "sha256": "69a90da88d7b7fd9d7930935f3cf62b15e28d10ce06ef52f3efa188437b10f1e"
+      },
+      "ios": {
+        "file": "shots/mention-pill/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 16686,
+        "sha256": "8c6e0cc7c541b8998de4e2e0995aee5b280522403f137017417ceb52d23ffbe7"
       }
     },
     "my-issues": {
