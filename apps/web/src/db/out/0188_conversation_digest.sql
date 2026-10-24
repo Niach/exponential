@@ -1,1 +1,1 @@
-ALTER TABLE "conversations" ADD COLUMN "digest" jsonb;
+ALTER TABLE "conversations" ADD COLUMN IF NOT EXISTS "digest" jsonb;
