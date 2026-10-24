@@ -437,7 +437,7 @@ export function createAppHost(options: AppHostOptions): ExponentialHost {
     policy: {
       functions: { ask: [`harness.mcp`, `exponential.*`] },
       // A granted typed action runs without the card; anything else asks.
-      onFunctionCall: (call) => (parseActionName(call.name) && grantAllows(options.grantedTools?.() ?? [], call.name) ? true : options.consent.ask(call)),
+      onFunctionCall: (call) => (parseActionName(call.name) && grantAllows(options.grantedTools?.() ?? [], call.name, call.args) ? true : options.consent.ask(call)),
       media: { baseUrl: origin, allowPrivate },
       urls: { baseUrl: origin, allowPrivate },
       openUrl: (url) => {

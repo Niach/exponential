@@ -39,6 +39,10 @@ struct ActionsSpec {
     prefix: String,
     #[serde(rename = "grantRole")]
     grant_role: String,
+    #[serde(rename = "destructiveWords")]
+    destructive_words: Vec<String>,
+    #[serde(rename = "destructiveArgs")]
+    destructive_args: BTreeMap<String, Vec<String>>,
     functions: Vec<String>,
     tools: BTreeMap<String, ToolRow>,
     copy: ActionsCopy,
@@ -94,8 +98,6 @@ pub fn can_grant_actions(role: Option<&str>) -> bool {
     role == Some(GRANT_ROLE)
 }
 
-const DESTRUCTIVE_WORDS: &[&str] = &["delete", "merge", "close", "end", "remove", "trash"];
-
 /// A destructive action: a word of its tool name or op is delete, merge,
 /// close, end, remove or trash. Never grantable; always asks.
 pub fn action_destructive(name: &str) -> bool {
@@ -103,7 +105,7 @@ pub fn action_destructive(name: &str) -> bool {
     let words = format!("{} {}", target.tool, target.op.as_deref().unwrap_or("")).to_lowercase();
     words
         .split(|c: char| !c.is_ascii_lowercase())
-        .any(|w| DESTRUCTIVE_WORDS.contains(&w))
+        .any(|w| SPEC.destructive_words.iter().any(|d| d == w))
 }
 
 /// May `name` be granted at all: an offered, non-destructive action.
@@ -111,11 +113,24 @@ pub fn action_grantable(name: &str) -> bool {
     parse_action_name(name).is_some() && !action_destructive(name)
 }
 
-/// Does the app's `granted_tools` list let `name` run without asking?
+/// A destructive CALL: a destructive action, or a grantable one whose args
+/// carry a `destructiveArgs` key (present and not false/null):
+/// `exponential.sessions.send` with `stop` = prompts.json's stop-run.
+pub fn call_destructive(name: &str, args: &Map<String, Value>) -> bool {
+    if action_destructive(name) {
+        return true;
+    }
+    SPEC.destructive_args.get(name).is_some_and(|keys| {
+        keys.iter()
+            .any(|key| args.get(key).is_some_and(|v| !v.is_null() && *v != Value::Bool(false)))
+    })
+}
+
+/// Does the app's `granted_tools` list let this call run without asking?
 /// Exact names only (a grant is a person's choice, never a pattern), and a
-/// destructive action ignores a stored grant: it always asks.
-pub fn grant_allows<S: AsRef<str>>(granted: &[S], name: &str) -> bool {
-    action_grantable(name) && granted.iter().any(|g| g.as_ref() == name)
+/// destructive action or call ignores a stored grant: it always asks.
+pub fn grant_allows<S: AsRef<str>>(granted: &[S], name: &str, args: &Map<String, Value>) -> bool {
+    action_grantable(name) && !call_destructive(name, args) && granted.iter().any(|g| g.as_ref() == name)
 }
 
 /// The consent card's words for a typed action call.
@@ -176,7 +191,7 @@ pub fn action_consent(name: &str, args: &Map<String, Value>) -> Option<ActionCon
         Some(subject) => format!("Allow this surface to {base} {subject}?"),
         None => format!("Allow this surface to {base}?"),
     };
-    let destructive = action_destructive(name);
+    let destructive = call_destructive(name, args);
     let args = (!args.is_empty()).then(|| Value::Object(args.clone()).to_string());
     Some(ActionConsent { tool: target.tool, title, destructive, args })
 }
@@ -225,8 +240,10 @@ mod tests {
     fn grant_cases() {
         for case in cases("grantCases") {
             let name = case["name"].as_str().unwrap();
+            let empty = Map::new();
+            let args = case["args"].as_object().unwrap_or(&empty);
             assert_eq!(
-                grant_allows(&strings(&case["granted"]), name),
+                grant_allows(&strings(&case["granted"]), name, args),
                 case["expected"].as_bool().unwrap(),
                 "{name}"
             );
@@ -240,6 +257,7 @@ mod tests {
             assert_eq!(action_grantable(name), case["expected"].as_bool().unwrap(), "{name}");
         }
         assert_eq!(SPEC.grant_role, GRANT_ROLE);
+        assert!(!SPEC.destructive_words.is_empty() && SPEC.destructive_args.contains_key("exponential.sessions.send"));
     }
 
     #[test]

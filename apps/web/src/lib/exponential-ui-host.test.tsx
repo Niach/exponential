@@ -165,6 +165,19 @@ describe(`VAPP-120: typed actions`, () => {
     expect(bodies).toHaveLength(1)
     vi.unstubAllGlobals()
   })
+
+  it(`a granted send still asks before it stops a session (prompts.json stop-run)`, async () => {
+    vi.stubGlobal(`fetch`, answering((id) => new Response(JSON.stringify({ jsonrpc: `2.0`, id, result: { content: [] } }), { status: 200, headers: { "content-type": `application/json` } })))
+    const ask = vi.fn(async () => false)
+    const host = createAppHost({ consent: { ask } as unknown as ReturnType<typeof createConsentGate>, navigate: () => {}, grantedTools: () => [`exponential.sessions.send`] })
+    const sent = await host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential.sessions.send`, args: { sessionId: `s1`, text: `hi` } })
+    expect(sent.decision).toBe(`allow`)
+    expect(ask).not.toHaveBeenCalled()
+    const stopped = await host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential.sessions.send`, args: { sessionId: `s1`, stop: true } })
+    expect(stopped.decision).toBe(`deny`)
+    expect(ask).toHaveBeenCalledTimes(1)
+    vi.unstubAllGlobals()
+  })
 })
 
 describe(`callMcp`, () => {

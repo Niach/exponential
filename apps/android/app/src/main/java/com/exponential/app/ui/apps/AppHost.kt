@@ -498,7 +498,7 @@ fun rememberAppHost(
                     // A granted typed action runs without the card; anything else asks.
                     onFunctionCall = { call ->
                         val granted = AppActions.parseActionName(call.name) != null &&
-                            AppActions.grantAllows(AppActions.grantedList(hostingApp.first()?.grantedTools), call.name)
+                            AppActions.grantAllows(AppActions.grantedList(hostingApp.first()?.grantedTools), call.name, call.args)
                         granted || consent.ask(call)
                     },
                     // VAPP-107: private hosts are denied unless opted in; the

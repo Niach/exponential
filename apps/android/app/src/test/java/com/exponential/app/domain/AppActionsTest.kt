@@ -40,6 +40,8 @@ class AppActionsTest {
         assertEquals(copy["granted"]!!.string, AppActions.Copy.GRANTED)
         assertEquals(copy["always"]!!.string, AppActions.Copy.ALWAYS)
         assertEquals(fixture["grantRole"]!!.string, AppActions.GRANT_ROLE)
+        assertEquals(strings(fixture["destructiveWords"]), AppActions.DESTRUCTIVE_WORDS)
+        assertEquals(fixture["destructiveArgs"]!!.obj!!.mapValues { strings(it.value) }, AppActions.DESTRUCTIVE_ARGS)
         for (excluded in strings(fixture["excluded"])) {
             assert(AppActions.ALL.none { it.startsWith("${AppActions.PREFIX}$excluded.") }) { excluded }
         }
@@ -63,7 +65,7 @@ class AppActionsTest {
     fun grantCases() {
         for (case in cases("grantCases")) {
             val name = case["name"]!!.string!!
-            assertEquals(name, case["expected"] == JsonValue.Bool(true), AppActions.grantAllows(strings(case["granted"]), name))
+            assertEquals(name, case["expected"] == JsonValue.Bool(true), AppActions.grantAllows(strings(case["granted"]), name, case["args"]?.obj ?: emptyMap()))
         }
     }
 

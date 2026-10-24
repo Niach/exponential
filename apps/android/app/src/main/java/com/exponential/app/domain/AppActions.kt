@@ -154,14 +154,28 @@ object AppActions {
     /** Does the app's `granted_tools` list let [name] run without asking?
      *  Exact names only (a grant is a person's choice, never a pattern), and
      *  a destructive action ignores a stored grant: it always asks. */
-    fun grantAllows(granted: List<String>, name: String): Boolean = actionGrantable(name) && name in granted
+    fun grantAllows(granted: List<String>, name: String, args: Map<String, JsonValue>): Boolean =
+        actionGrantable(name) && !callDestructive(name, args) && name in granted
 
     /** An `apps.granted_tools` column (a JSON string[]) as a list; null,
      *  malformed or non-string entries read as none. */
     fun grantedList(json: String?): List<String> =
         json?.let { runCatching { JsonValue.parse(it) }.getOrNull() }?.array?.mapNotNull { it.string } ?: emptyList()
 
-    private val DESTRUCTIVE_WORDS = listOf("delete", "merge", "close", "end", "remove", "trash")
+    /** The fixture's `destructiveWords` (`AppActionsTest` locks the copy). */
+    internal val DESTRUCTIVE_WORDS = listOf("delete", "merge", "close", "end", "remove", "trash")
+
+    /** The fixture's `destructiveArgs`: an arg that makes a grantable
+     *  action's call destructive (`sessions.send` + `stop` = stop-run). */
+    internal val DESTRUCTIVE_ARGS: Map<String, List<String>> = mapOf("exponential.sessions.send" to listOf("stop"))
+
+    /** A destructive CALL: a destructive action, or a grantable one whose
+     *  args carry a [DESTRUCTIVE_ARGS] key (present and not false/null). */
+    fun callDestructive(name: String, args: Map<String, JsonValue>): Boolean =
+        actionDestructive(name) || DESTRUCTIVE_ARGS[name].orEmpty().any { key ->
+            val value = args[key]
+            value != null && value != JsonValue.Null && value != JsonValue.Bool(false)
+        }
 
     data class ActionConsent(
         val tool: String,
@@ -200,7 +214,7 @@ object AppActions {
         return ActionConsent(
             tool = target.tool,
             title = "Allow this surface to $base${if (!subject.isNullOrEmpty()) " $subject" else ""}?",
-            destructive = actionDestructive(name),
+            destructive = callDestructive(name, args),
             args = json.takeIf { it != "{}" },
         )
     }

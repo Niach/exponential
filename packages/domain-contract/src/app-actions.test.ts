@@ -17,7 +17,7 @@ describe(`app actions (VAPP-120)`, () => {
     expect(parseActionName(c.name)).toEqual(c.expected as never)
   })
   test.each(fixture.grantCases)(`grantAllows %j`, (c) => {
-    expect(grantAllows(c.granted, c.name)).toBe(c.expected)
+    expect(grantAllows(c.granted, c.name, (c as { args?: Record<string, unknown> }).args ?? {})).toBe(c.expected)
   })
   test.each(fixture.grantableCases)(`actionGrantable $name`, (c) => {
     expect(actionGrantable(c.name)).toBe(c.expected)

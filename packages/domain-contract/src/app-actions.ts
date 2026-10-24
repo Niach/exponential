@@ -42,6 +42,7 @@ export function declaredActions(functions: readonly string[]): string[] {
  *  creator gets no grant power from creating it (the 2026-10-24 ruling). */
 export const APP_ACTION_GRANT_ROLE: string = fixture.grantRole
 const DESTRUCTIVE_WORDS: readonly string[] = fixture.destructiveWords
+const DESTRUCTIVE_ARGS = fixture.destructiveArgs as Record<string, readonly string[]>
 
 /** May a member with `role` set an app's grants? Owners only. */
 export function canGrantActions(role: string | null | undefined): boolean {
@@ -62,11 +63,20 @@ export function actionGrantable(name: string): boolean {
   return parseActionName(name) !== null && !actionDestructive(name)
 }
 
-/** Does the app's `granted_tools` list let `name` run without asking?
+/** A destructive CALL: a destructive action, or a grantable one whose
+ *  args carry a `destructiveArgs` key (present and not false/null):
+ *  `exponential.sessions.send` with `stop` = prompts.json's stop-run. */
+export function callDestructive(name: string, args: Record<string, unknown> | null | undefined): boolean {
+  if (actionDestructive(name)) return true
+  const keys = Object.prototype.hasOwnProperty.call(DESTRUCTIVE_ARGS, name) ? DESTRUCTIVE_ARGS[name]! : []
+  return keys.some((key) => args != null && args[key] !== undefined && args[key] !== null && args[key] !== false)
+}
+
+/** Does the app's `granted_tools` list let this call run without asking?
  *  Exact names only (a grant is a person's choice, never a pattern), and a
- *  destructive action ignores a stored grant: it always asks. */
-export function grantAllows(granted: readonly string[], name: string): boolean {
-  return actionGrantable(name) && granted.includes(name)
+ *  destructive action or call ignores a stored grant: it always asks. */
+export function grantAllows(granted: readonly string[], name: string, args: Record<string, unknown> | null | undefined): boolean {
+  return actionGrantable(name) && !callDestructive(name, args) && granted.includes(name)
 }
 
 export interface ActionConsent {
@@ -103,5 +113,5 @@ export function actionConsent(name: string, args: Record<string, unknown>): Acti
   const subject = row?.subjectKey ? args[row.subjectKey] : undefined
   const title = `Allow this surface to ${base}${typeof subject === `string` && subject ? ` ${subject}` : ``}?`
   const json = JSON.stringify(args)
-  return { tool: target.tool, title, destructive: actionDestructive(name), args: json === `{}` ? null : json }
+  return { tool: target.tool, title, destructive: callDestructive(name, args), args: json === `{}` ? null : json }
 }

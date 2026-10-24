@@ -46,7 +46,22 @@ public enum AppActions {
         role == grantRole
     }
 
-    private static let destructiveWords: Set<String> = ["delete", "merge", "close", "end", "remove", "trash"]
+    /// The fixture's `destructiveWords` (`AppActionsTests` locks the copy).
+    static let destructiveWords: Set<String> = ["delete", "merge", "close", "end", "remove", "trash"]
+
+    /// The fixture's `destructiveArgs`: an arg that makes a grantable
+    /// action's call destructive (`sessions.send` + `stop` = stop-run).
+    static let destructiveArgs: [String: [String]] = ["exponential.sessions.send": ["stop"]]
+
+    /// A destructive CALL: a destructive action, or a grantable one whose
+    /// args carry a `destructiveArgs` key (present and not false/null).
+    public static func callDestructive(_ name: String, args: [String: CardJSON]) -> Bool {
+        if actionDestructive(name) { return true }
+        return (destructiveArgs[name] ?? []).contains { key in
+            guard let value = args[key] else { return false }
+            return value != .null && value != .bool(false)
+        }
+    }
 
     /// A destructive action: a word of its tool name or op is delete, merge,
     /// close, end, remove or trash. Never grantable; always asks.
@@ -113,11 +128,11 @@ public enum AppActions {
         return merged
     }
 
-    /// Does the app's `granted_tools` list let `name` run without asking?
-    /// Exact names only (a grant is a person's choice, never a pattern), and
-    /// a destructive action ignores a stored grant: it always asks.
-    public static func grantAllows(_ granted: [String], _ name: String) -> Bool {
-        actionGrantable(name) && granted.contains(name)
+    /// Does the app's `granted_tools` list let this call run without
+    /// asking? Exact names only (a grant is a person's choice, never a
+    /// pattern), and a destructive action or call ignores a stored grant.
+    public static func grantAllows(_ granted: [String], _ name: String, args: [String: CardJSON]) -> Bool {
+        actionGrantable(name) && !callDestructive(name, args: args) && granted.contains(name)
     }
 
     public struct ActionConsent: Equatable, Sendable {
@@ -174,7 +189,7 @@ public enum AppActions {
         return ActionConsent(
             tool: target.tool,
             title: title,
-            destructive: actionDestructive(name),
+            destructive: callDestructive(name, args: Dictionary(args.map { ($0.key, $0.value) }, uniquingKeysWith: { _, last in last })),
             args: json == "{}" ? nil : json
         )
     }

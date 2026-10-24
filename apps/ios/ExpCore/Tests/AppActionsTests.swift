@@ -44,6 +44,8 @@ final class AppActionsTests: XCTestCase {
         XCTAssertEqual(copy["granted"], AppActions.Copy.granted)
         XCTAssertEqual(copy["always"], AppActions.Copy.always)
         XCTAssertEqual(fixture["grantRole"] as? String, AppActions.grantRole)
+        XCTAssertEqual(Set(try XCTUnwrap(fixture["destructiveWords"] as? [String])), AppActions.destructiveWords)
+        XCTAssertEqual(try XCTUnwrap(fixture["destructiveArgs"] as? [String: [String]]), AppActions.destructiveArgs)
     }
 
     func testParseCases() throws {
@@ -63,7 +65,8 @@ final class AppActionsTests: XCTestCase {
         for item in try cases("grantCases") {
             let name = try XCTUnwrap(item["name"] as? String)
             let granted = try XCTUnwrap(item["granted"] as? [String])
-            XCTAssertEqual(AppActions.grantAllows(granted, name), try XCTUnwrap(item["expected"] as? Bool), "\(granted) \(name)")
+            let args = (item["args"] as? [String: Any] ?? [:]).compactMapValues { CardJSON(any: $0) }
+            XCTAssertEqual(AppActions.grantAllows(granted, name, args: args), try XCTUnwrap(item["expected"] as? Bool), "\(granted) \(name)")
         }
     }
 

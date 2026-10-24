@@ -316,7 +316,8 @@ final class ExpAppHost {
                     // at call time: a granted typed action runs without the
                     // card (`harness.mcp` always asks).
                     if AppActions.parseActionName(call.name) != nil,
-                       AppActions.grantAllows(AppHostStore.grantedTools(appId: scope.appId, pool: pool), call.name) {
+                       AppActions.grantAllows(AppHostStore.grantedTools(appId: scope.appId, pool: pool), call.name,
+                                              args: call.args.compactMapValues { CardJSON(any: $0.any) }) {
                         return true
                     }
                     return await consent.ask(ExpAppHost.consentWords(name: call.name, args: call.args))

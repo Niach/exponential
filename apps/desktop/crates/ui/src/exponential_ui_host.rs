@@ -821,8 +821,10 @@ fn action_fn(target: domain::app_actions::ActionTarget) -> HostFunction {
 /// VAPP-120: a typed action the app's grants name runs without asking
 /// (the web's `onFunctionCall`); `harness.mcp` and anything untyped always
 /// ask.
-pub(crate) fn call_granted(name: &str, granted: &[String]) -> bool {
-    domain::app_actions::parse_action_name(name).is_some() && domain::app_actions::grant_allows(granted, name)
+pub(crate) fn call_granted(name: &str, args: &Value, granted: &[String]) -> bool {
+    let empty = serde_json::Map::new();
+    let args = args.as_object().unwrap_or(&empty);
+    domain::app_actions::parse_action_name(name).is_some() && domain::app_actions::grant_allows(granted, name, args)
 }
 
 /// The hosting app's live `granted_tools` (no scope / no row = none).
@@ -923,7 +925,7 @@ pub(crate) fn consent_args_preview(args: &str) -> String {
 /// typed action the hosting app's live row grants runs without the window.
 fn consent_hook(scope: Option<HostScope>) -> ConsentHook {
     Rc::new(move |call: &FunctionCallInfo, cx: &mut App| -> Task<bool> {
-        if call_granted(&call.name, &scope_grants(scope.as_ref(), cx)) {
+        if call_granted(&call.name, &call.args, &scope_grants(scope.as_ref(), cx)) {
             return Task::ready(true);
         }
         let (tx, rx) = flume::bounded::<bool>(1);
@@ -1664,10 +1666,15 @@ mod tests {
         assert_eq!(action_arguments(Some("list"), &Value::Null).to_string(), r#"{"op":"list"}"#);
         // A grant lets a typed action run without asking; harness.mcp never.
         let granted = vec!["exponential.issues.update_status".to_string(), "harness.mcp".to_string()];
-        assert!(call_granted("exponential.issues.update_status", &granted));
-        assert!(!call_granted("exponential.issues.delete", &granted));
-        assert!(!call_granted("harness.mcp", &granted));
-        assert!(!call_granted("exponential.issues.update_status", &[]));
+        let none = Value::Null;
+        assert!(call_granted("exponential.issues.update_status", &none, &granted));
+        assert!(!call_granted("exponential.issues.delete", &none, &granted));
+        assert!(!call_granted("harness.mcp", &none, &granted));
+        assert!(!call_granted("exponential.issues.update_status", &none, &[]));
+        // A granted send never stops a session without the window (stop-run).
+        let send = vec!["exponential.sessions.send".to_string()];
+        assert!(call_granted("exponential.sessions.send", &json!({"text": "hi"}), &send));
+        assert!(!call_granted("exponential.sessions.send", &json!({"sessionId": "s1", "stop": true}), &send));
         // The card's words: the action's title, its args, its destructive flag.
         let call = FunctionCallInfo {
             surface_id: "s".into(),
