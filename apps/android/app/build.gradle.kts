@@ -53,6 +53,15 @@ val releaseStorePassword = releaseProp("RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = releaseProp("RELEASE_KEY_ALIAS")
 val releaseKeyPassword = releaseProp("RELEASE_KEY_PASSWORD")
 
+// VAPP-110: the app host's assets = the shared package's `extension.json`
+// alone (its `templates/` are SDK samples, not built-in apps).
+val appHostAssetsDir = layout.buildDirectory.dir("generated/appHostAssets")
+val syncAppHostAssets = tasks.register<Sync>("syncAppHostAssets") {
+    from("../../../packages/ui/exponential-ui") { include("extension.json") }
+    into(appHostAssetsDir)
+}
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(syncAppHostAssets) }
+
 android {
     namespace = "com.exponential.app"
     compileSdk = 36
@@ -116,11 +125,11 @@ android {
         }
     }
 
-    // VAPP-110: the app host's extension catalog (`extension.json`) and the
-    // built-in declarative packages (`templates/devices.json`), byte for byte
-    // what the web and desktop hosts install, read from the shared package
-    // (never copied into src/main/assets).
-    sourceSets["main"].assets.srcDir("../../../packages/ui/exponential-ui")
+    // VAPP-110: the app host's extension catalog (`extension.json`), byte for
+    // byte what the web and desktop hosts install, synced from the shared
+    // package (never copied into src/main/assets). Exponential ships no
+    // built-in apps, so the package's `templates/` stay out of the APK.
+    sourceSets["main"].assets.srcDir(appHostAssetsDir.get().asFile)
 
     // Product flavors mirror the iOS Tuist targets (Exponential / Exponential-Staging):
     // `production` ships the public cloud default, `staging` co-installs under a

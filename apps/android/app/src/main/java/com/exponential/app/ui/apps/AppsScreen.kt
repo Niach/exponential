@@ -64,15 +64,15 @@ import com.exponential.app.ui.theme.flatRow
 
 // VAPP-110 (fixtures/apps.json, web `components/apps/apps-list.tsx`): the
 // Apps list = the band with `New app` as its trailing pill, then one row per
-// app (glyph, name, the version pill, the `…` menu: Rename, Delete); the
-// built-in app first with its `Built-in` pill and no menu. A row opens the
+// app by name (glyph, name, the version pill, the `…` menu: Rename, Delete);
+// Exponential ships no built-in apps. A row opens the
 // editor. New app / Rename = the board form's identity row (icon + colour +
 // name) and the optional description, in a sheet.
 
 private const val DEFAULT_ICON = "puzzle"
 private const val DEFAULT_COLOR = "#6366f1"
 
-/** An app's glyph: its icon in its colour (the board set), the built-in one muted. */
+/** An app's glyph: its icon in its colour (the board set), muted without one. */
 @Composable
 fun AppGlyph(icon: String?, color: String?, size: Dp = 16.dp, modifier: Modifier = Modifier) {
     val glyph = icon?.let { ExpIcons.byName(it) } ?: ExpIcons.navApps
@@ -81,12 +81,12 @@ fun AppGlyph(icon: String?, color: String?, size: Dp = 16.dp, modifier: Modifier
     Icon(glyph, contentDescription = null, tint = tint, modifier = modifier.size(size))
 }
 
-/** The version pill: `Built-in`, `v{n}`, or the muted "no version" copy. */
+/** The version pill: `v{n}`, or the muted "no version" copy. */
 @Composable
 fun AppVersionPill(app: AppListEntry) {
-    val versioned = app.builtin || app.headVersion > 0
+    val versioned = app.headVersion > 0
     GlassPill(
-        if (app.builtin) Apps.Copy.BUILTIN else Apps.versionLabel(app.headVersion),
+        Apps.versionLabel(app.headVersion),
         size = PillSize.Sm,
         contentColor = if (versioned) null else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
     )

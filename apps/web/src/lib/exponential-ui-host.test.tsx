@@ -1,4 +1,4 @@
-// VAPP-91: the app host — the Devices package through the public host API
+// VAPP-91: the app host — the Devices package (installed explicitly) through the public host API
 // with the `exp:devices` binding over the (mocked) synced devices, the
 // consent gate in front of harness.mcp, and the banners.
 
@@ -35,12 +35,15 @@ vi.mock(`@exp/ui`, async (importOriginal) => {
   return { ...actual, toast }
 })
 
-import { MemoryTransport } from "@exponential_app/ui"
+import { MemoryTransport, type AppPackage } from "@exponential_app/ui"
 import { HostSurface } from "@exponential_app/ui-react"
-import { appReactExtension } from "@exp/ui"
+import { appReactExtension, devicesPackage } from "@exp/ui"
 import { contract } from "@exp/domain-contract"
 import { exponentialUiConsentPrompt } from "@/lib/prompts"
 import { ConsentCard, HostBanner, LIVENESS_TICK_MS, McpCallError, callMcp, createAppHost, createConsentGate, devicesValue, ownPrivateHosts } from "./exponential-ui-host"
+
+/** The Devices template, the SDK's example package (no client preinstalls it). */
+const DEVICES = [devicesPackage as unknown as AppPackage]
 
 /** A fetch that answers each tools/call with `answer(id)` (the request's id). */
 const answering = (answer: (id: number) => Response) =>
@@ -69,7 +72,7 @@ describe(`VAPP-107: the app opts only its own private origin in`, () => {
 describe(`the app host`, () => {
   it(`renders the Devices package from the synced devices and runs a row press through the policy`, async () => {
     const consent = createConsentGate()
-    const host = createAppHost({ consent, navigate: () => {} })
+    const host = createAppHost({ consent, navigate: () => {}, packages: DEVICES })
     act(() => {
       host.receive({ version: `v0.9`, applyTemplate: { surfaceId: `devices`, templateId: `devices` } })
     })
@@ -173,7 +176,7 @@ describe(`exp:devices liveness`, () => {
     try {
       vi.setSystemTime(new Date(`2026-10-09T12:00:00.000Z`))
       mocks.devices = [{ ...mocks.devices[0], id: `d1`, label: `MacBook`, lastSeenAt: new Date().toISOString() }]
-      const host = createAppHost({ consent: createConsentGate(), navigate: () => {} })
+      const host = createAppHost({ consent: createConsentGate(), navigate: () => {}, packages: DEVICES })
       act(() => {
         host.receive({ version: `v0.9`, applyTemplate: { surfaceId: `devices`, templateId: `devices` } })
       })

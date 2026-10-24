@@ -31,6 +31,7 @@ import {
   IcPackage,
   IcPalette,
   IcPlus,
+  IcRocket,
   IcSearch,
   IcSettings,
   IcSourceControl,
@@ -223,8 +224,8 @@ export function Rail() {
 
         <div className="ide-rail-gap" />
         <SectionLabel label="Apps" />
-        {/* VAPP-110: the built-in Devices app leads the team's apps. */}
-        <RailRow Icon={IcMonitor} label="Devices" />
+        {/* VAPP-110: the team's apps (no built-in ones). */}
+        <RailRow Icon={IcRocket} tint="#f97316" label="Release checklist" />
 
         <div className="ide-rail-gap" />
         <SectionLabel label="Boards" />

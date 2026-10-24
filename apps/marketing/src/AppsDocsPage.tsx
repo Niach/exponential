@@ -251,9 +251,8 @@ export function AppsDocsPage() {
               between Agents and Boards; its <strong>+</strong> opens{` `}
               <strong>New app</strong> (icon, colour, name and an optional
               description), and <strong>Create app</strong> opens the editor.
-              Every team has the <strong>Built-in</strong>{` `}
-              <strong>Devices</strong> app first. Any member can create an
-              app; the creator or an owner can rename and delete it.
+              The group lists only your team&apos;s apps. Any member can
+              create an app; the creator or an owner can rename and delete it.
             </p>
             <DocShot
               view="app"

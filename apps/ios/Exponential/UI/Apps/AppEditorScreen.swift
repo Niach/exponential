@@ -49,7 +49,7 @@ struct AppEditorScreen: View {
     var body: some View {
         Group {
             if let app = model.app {
-                if !app.builtin, let rootId = model.rootId {
+                if let rootId = model.rootId {
                     ThreadScreen(rootId: rootId, editor: slot(app))
                         .id(rootId)
                 } else {
@@ -111,8 +111,6 @@ struct AppEditorScreen: View {
             label: \.label,
             identifier: { "\(Apps.TestIds.tabs)-\($0)" }
         ) { next in
-            // The built-in app has no versions (web: the tab disabled).
-            guard !(app.builtin && next == .versions) else { return }
             tab = next
         }
         .padding(.horizontal, 16)
@@ -125,7 +123,7 @@ struct AppEditorScreen: View {
     private func pane(_ app: AppListEntry) -> AnyView? {
         switch tab {
         case .chat:
-            return app.builtin ? AnyView(builtinChat(app)) : nil
+            return nil
         case .preview:
             return AnyView(preview(app))
         case .versions:
@@ -134,18 +132,6 @@ struct AppEditorScreen: View {
     }
 
     // MARK: - Chat
-
-    private func builtinChat(_ app: AppListEntry) -> some View {
-        ZStack {
-            AppBackground()
-            EmptyState(
-                title: Apps.Copy.builtin,
-                icon: AppIcons.navApps,
-                size: .page
-            )
-            .padding(24)
-        }
-    }
 
     /// No session yet: the empty chat and THE floating composer whose send
     /// opens the editor session.
@@ -307,7 +293,7 @@ struct AppEditorScreen: View {
     }
 }
 
-/// The editor before its first message (or the built-in app): the same
+/// The editor before its first message: the same
 /// chrome the thread screen gives an editor root — the title, the band, a
 /// pane covering the chat — over the empty chat.
 private struct AppEditorShell<Title: View, Band: View, Chat: View>: View {

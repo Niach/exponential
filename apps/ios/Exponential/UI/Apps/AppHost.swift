@@ -17,8 +17,8 @@ import ExponentialUI
 //   - functions: `harness.toast`, `harness.openIssue`, `harness.openDevice`,
 //     `harness.mcp` (a tools/call on the instance's /api/mcp as the viewer);
 //   - extensions: the app extension (`packages/ui/exponential-ui/extension.json`,
-//     bundled) with the `IconDisc` + `LiveDot` painters, and the built-in
-//     Devices package (`templates/devices.json`, bundled);
+//     bundled) with the `IconDisc` + `LiveDot` painters (Exponential ships
+//     no built-in apps: only the team's packages install);
 //   - policy: `harness.mcp` asks first (THE consent card, the
 //     `exponential-ui-consent` prompt), urls through the URL policy (an
 //     instance link opens in-app like a markdown link, anything else in the
@@ -105,12 +105,11 @@ struct AppConsentCard: ViewModifier {
     }
 }
 
-/// The bundled app-extension catalog and Devices package (bundled from
+/// The bundled app-extension catalog (bundled from
 /// `packages/ui/exponential-ui/` by Project.swift, byte for byte what the web
 /// and desktop hosts install).
 enum AppHostResources {
     static let extensionJSON: String? = text("extension")
-    static let devicesPackageJSON: String? = text("devices")
 
     private static func text(_ name: String) -> String? {
         guard let url = Bundle.main.url(forResource: name, withExtension: "json") else { return nil }
@@ -168,7 +167,7 @@ final class ExpAppHost {
                 "LiveDot": LiveDotPainter(),
             ]))
         }
-        let installed = [AppHostResources.devicesPackageJSON].compactMap { $0 } + packages
+        let installed = packages
 
         let schemes = ["https"] + (base?.scheme == "http" ? ["http"] : [])
         host = ExponentialHost(HostOptions(

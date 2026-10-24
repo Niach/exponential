@@ -509,7 +509,7 @@ export const RUN_ACCOUNT = `danny@exponential.at`
 export const RUN_MODEL = `Fable`
 
 /* ─── The rail's team sections (sidebar.rs): the team's AGENTS (each its
-   own glyph in its colour), its APPS (the built-in Devices app first) and
+   own glyph in its colour), its APPS and
    its boards. ─── */
 export type RailAgent = { name: string; color: string; icon: `bug` | `palette` | `package` }
 

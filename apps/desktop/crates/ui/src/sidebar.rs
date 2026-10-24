@@ -1284,8 +1284,7 @@ impl RailView {
 
     /// VAPP-110: one Apps row (the Agents row's twin): the app's glyph and
     /// name, lit while its editor is up; click = the editor. The hover gear
-    /// (the creator's and the owners') opens Settings → Apps → the app; the
-    /// built-in Devices app has none.
+    /// (the creator's and the owners') opens Settings → Apps → the app.
     fn rail_app_row(
         &self,
         index: usize,
@@ -2084,8 +2083,8 @@ impl Render for RailView {
                     })
                     .into_any_element()
             });
-        // VAPP-110: the Apps section — the team's apps (the built-in Devices
-        // app first) under an "Apps" label whose `+` opens the New app form
+        // VAPP-110: the Apps section — the team's apps (by name) under an
+        // "Apps" label whose `+` opens the New app form
         // (every member creates apps).
         let me = crate::queries::active_account(cx).map(|account| account.user_id);
         let app_owner = active_team.as_deref().is_some_and(|team_id| crate::settings::is_owner(cx, team_id));

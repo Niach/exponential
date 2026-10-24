@@ -21,11 +21,9 @@ import { trpc } from "@/lib/trpc-client"
 
 // VAPP-110 (fixtures/apps.json): the Apps list = the band with `New app` as
 // its trailing pill, then one ListRow per app (glyph, name, the version
-// pill, the `…` menu: Rename, Delete); the built-in app first with its
-// `Built-in` pill and no menu. Manage = create, rename, delete, open.
+// pill, the `…` menu: Rename, Delete). Manage = create, rename, delete, open.
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
-const NavDevicesIcon = conceptIcon(`nav-devices`)
 const UiAddIcon = conceptIcon(`ui-add`)
 const UiMoreIcon = conceptIcon(`ui-more`)
 const UiEditIcon = conceptIcon(`ui-edit`)
@@ -54,7 +52,7 @@ export function AppsList({
   const [busy, setBusy] = useState(false)
 
   const open = (app: AppListEntry) =>
-    void (rowsOpen === `settings` && !app.builtin
+    void (rowsOpen === `settings`
       ? navigate({ to: `/t/$teamSlug/settings/apps/$appId`, params: { teamSlug, appId: app.id } })
       : navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: app.slug } }))
 
@@ -72,7 +70,7 @@ export function AppsList({
     }
   }
 
-  const canManage = (app: AppListEntry) => !app.builtin && (isOwner || app.createdBy === me)
+  const canManage = (app: AppListEntry) => isOwner || app.createdBy === me
 
   return (
     <div data-testid={APPS_TEST_IDS.list}>
@@ -97,10 +95,10 @@ export function AppsList({
               className="gap-3 px-3 py-2 text-sm"
               data-testid={`${APPS_TEST_IDS.row}-${app.slug}`}
             >
-              {app.builtin ? <NavDevicesIcon className="size-4 shrink-0" /> : <BoardGlyph board={{ icon: app.icon, color: app.color }} />}
+              <BoardGlyph board={{ icon: app.icon, color: app.color }} />
               <span className="min-w-0 flex-1 truncate font-medium">{app.name}</span>
-              <Pill size="sm" className={app.builtin || app.headVersion > 0 ? `tabular-nums` : `text-muted-foreground`}>
-                {app.builtin ? APPS_COPY.builtin : versionLabel(app.headVersion)}
+              <Pill size="sm" className={app.headVersion > 0 ? `tabular-nums` : `text-muted-foreground`}>
+                {versionLabel(app.headVersion)}
               </Pill>
               {canManage(app) && (
                 <div onClick={(event) => event.stopPropagation()}>

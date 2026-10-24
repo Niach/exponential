@@ -30,7 +30,7 @@ const NOUNS = [
   {
     icon: IcGrid,
     title: `Apps`,
-    text: `Describe an app to an agent and watch it build it in a live preview. Every app your team makes opens on web, desktop, iOS and Android, starting with the built-in Devices app.`,
+    text: `Describe an app to an agent and watch it build it in a live preview. Every app your team makes opens on web, desktop, iOS and Android.`,
   },
   {
     icon: IcBot,
