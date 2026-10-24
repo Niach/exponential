@@ -1,0 +1,1 @@
+ALTER TABLE "apps" ADD COLUMN "granted_tools" jsonb DEFAULT '[]'::jsonb NOT NULL;

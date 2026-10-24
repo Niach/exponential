@@ -383,7 +383,7 @@ export function AppEditor({
           </Button>
         </div>
       )}
-      <AppPreview pkg={viewing !== null ? viewingPackage : headPackage} appId={app.id} teamId={teamId} me={me} />
+      <AppPreview pkg={viewing !== null ? viewingPackage : headPackage} appId={app.id} teamId={teamId} me={me} grantedTools={app.row?.grantedTools ?? []} />
     </div>
   )
 

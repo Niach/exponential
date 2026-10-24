@@ -19,6 +19,7 @@ import { validateRecord } from "@exponential_app/ui"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { APP_RECORDS_QUERY } from "@exp/domain-contract/app-records"
+import { APP_ACTIONS } from "@exp/domain-contract/app-actions"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import type { Tx } from "@/lib/sessions/tx"
 
@@ -117,6 +118,9 @@ export const appUpdateInputSchema = z.object({
   icon: boardIconSchema.nullable().optional(),
   color: colorSchema.nullable().optional(),
   description: descriptionSchema.optional(),
+  // VAPP-120: the typed host actions the app may run without asking (exact
+  // names out of the contract's list; the creator or an owner).
+  grantedTools: z.array(z.string().refine((name) => APP_ACTIONS.includes(name), { message: `not an offered action` })).max(200).optional(),
 })
 
 async function takenSlugs(tx: Tx, teamId: string): Promise<string[]> {

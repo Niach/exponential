@@ -764,16 +764,21 @@ async function seedSessionTree(ctx: {
   // example package, packages/ui/exponential-ui/templates/working-hours.json).
   // v4 (VAPP-119) = the whole template: a teammate's month through
   // exp:members + bind, the issues you worked on as exp:issues suggestions.
-  const hoursPackage = (version: `1.0.0` | `1.1.0` | `1.2.0` | `1.3.0`) => {
+  // v5 (VAPP-120) = the whole template: "Post to the issue" calls the typed
+  // action exponential.comments.create, granted on the settings page.
+  const hoursPackage = (version: `1.0.0` | `1.1.0` | `1.2.0` | `1.3.0` | `1.4.0`) => {
     const full = workingHoursTemplate as unknown as {
       version: string
       sources: string[]
+      functions: string[]
       templates: { month: { components: Record<string, unknown>[]; bindings: { path: string; source: string }[]; data: Record<string, unknown> } }
     }
-    if (version === `1.3.0`) return { ...full, version }
+    if (version === `1.4.0`) return { ...full, version }
+    const v4 = version === `1.3.0`
     const dropped = new Set<string>([
-      `toolbarActions`,
-      `who`,
+      `editorFooter`,
+      `postComment`,
+      ...(v4 ? [] : [`toolbarActions`, `who`]),
       ...(version === `1.0.0` ? [`prev`, `next`, `statTarget`, `statLeft`, `target`, `targetRow`, `targetField`, `targetSave`] : version === `1.1.0` ? [`prev`, `next`] : []),
     ])
     const components = full.templates.month.components
@@ -781,6 +786,9 @@ async function seedSessionTree(ctx: {
       .map((c) => {
         const out: Record<string, unknown> = { ...c }
         if (Array.isArray(out.children)) out.children = (out.children as string[]).filter((id) => !dropped.has(id))
+        // Before v5 the dialog's footer is the Delete button alone.
+        if (out.id === `editor`) out.slots = { footer: `deleteEntry` }
+        if (v4) return out
         // Before v4 the Log hours button sits in the toolbar's trailing slot itself.
         if (out.id === `toolbar`) out.slots = { trailing: `log` }
         if (out.id === `issues`) {
@@ -796,10 +804,13 @@ async function seedSessionTree(ctx: {
         if (version === `1.0.0` && out.id === `stats`) out.columns = 1
         return out
       })
+    const functions = full.functions.filter((f) => !f.startsWith(`exponential.`))
+    if (v4) return { ...full, version, functions, templates: { month: { ...full.templates.month, components } } }
     const { members: _m, issues: _i, who: _w, ...data } = full.templates.month.data
     return {
       ...full,
       version,
+      functions,
       sources: [`exp:records`],
       templates: { month: { ...full.templates.month, data, bindings: full.templates.month.bindings.filter((b) => b.source.startsWith(`exp:records`)), components } },
     }
@@ -813,11 +824,13 @@ async function seedSessionTree(ctx: {
       icon: `clock`,
       color: `#10b981`,
       description: `Your hours per day, a month at a time: log them, see the total against the target, keep the issues you worked on.`,
-      package: hoursPackage(`1.3.0`),
-      headVersion: 4,
+      package: hoursPackage(`1.4.0`),
+      headVersion: 5,
+      // VAPP-120: the person granted the one typed action the app declares.
+      grantedTools: [`exponential.comments.create`],
       createdBy: demoId,
       createdAt: daysAgo(6),
-      updatedAt: DEMO_APP_CHAT_TIMES.fourth,
+      updatedAt: DEMO_APP_CHAT_TIMES.fifth,
     },
     {
       id: DEMO_APP_DASHBOARD_ID,
@@ -855,9 +868,9 @@ async function seedSessionTree(ctx: {
       repositoryId: null,
       status: `idle`,
       startedAt: DEMO_APP_CHAT_TIMES.request,
-      lastTurnAt: DEMO_APP_CHAT_TIMES.fourth,
+      lastTurnAt: DEMO_APP_CHAT_TIMES.fifth,
       createdAt: DEMO_APP_CHAT_TIMES.request,
-      updatedAt: DEMO_APP_CHAT_TIMES.fourth,
+      updatedAt: DEMO_APP_CHAT_TIMES.fifth,
     }),
   ])
   await db.insert(appVersions).values([
@@ -867,6 +880,7 @@ async function seedSessionTree(ctx: {
         [DEMO_APP_VERSION_IDS[1], 2, `1.1.0`, `A monthly target and what is left`, DEMO_APP_CHAT_TIMES.second],
         [DEMO_APP_VERSION_IDS[2], 3, `1.2.0`, `Previous months with the switcher, the per-day trend`, DEMO_APP_CHAT_TIMES.third],
         [DEMO_APP_VERSION_IDS[3], 4, `1.3.0`, `A teammate's month, the issues you worked on`, DEMO_APP_CHAT_TIMES.fourth],
+        [DEMO_APP_VERSION_IDS[4], 5, `1.4.0`, `Post a day to its issue as a comment`, DEMO_APP_CHAT_TIMES.fifth],
       ] as const
     ).map(([id, number, version, note, at]) => ({
       id,
@@ -1346,6 +1360,18 @@ async function seedSessionTree(ctx: {
         author: `agent`,
         body: `v4: a member picker from exp:members re-binds the month for that person; the issues field suggests your assigned issues from exp:issues.`,
         at: DEMO_APP_CHAT_TIMES.fourth,
+      },
+      {
+        sessionId: DEMO_APP_EDITOR_SESSION_ID,
+        author: `user`,
+        body: `When I log a day on an issue, let me post it there as a comment.`,
+        at: DEMO_APP_CHAT_TIMES.post,
+      },
+      {
+        sessionId: DEMO_APP_EDITOR_SESSION_ID,
+        author: `agent`,
+        body: `v5: Post to the issue calls exponential.comments.create with the hours and the note; allow it once on the app's settings page and it posts without asking.`,
+        at: DEMO_APP_CHAT_TIMES.fifth,
       },
     ].map((spec) => message(spec as MessageSpec))
   )

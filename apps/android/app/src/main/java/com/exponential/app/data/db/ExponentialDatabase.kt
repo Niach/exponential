@@ -454,8 +454,12 @@ import androidx.room.TypeConverters
     // v97 (VAPP-122): the `app_records` table (the 32nd shape, an app's own
     //      data). Explicit [MIGRATION_96_97] creates it empty; no offset
     //      resets (the new shape starts from scratch).
+    // v98 (VAPP-120): apps.granted_tools (the typed actions an app may run
+    //      without asking, a JSON string[]). Explicit [MIGRATION_97_98] adds
+    //      the column with "[]"; no offset resets (the apps shape's next
+    //      change carries the real value).
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 97,
+    version = 98,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

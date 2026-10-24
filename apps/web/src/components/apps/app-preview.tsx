@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { useRouter } from "@tanstack/react-router"
 import { DEFAULT_THEME_ID, type AppPackage } from "@exponential_app/ui"
 import { HostSurface } from "@exponential_app/ui-react"
@@ -16,11 +16,14 @@ import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const EXTENSIONS = [appReactExtension]
 
-function PackageSurface({ pkg, mode, appId, teamId, me }: { pkg: AppPackage; mode: `light` | `dark`; appId: string | null; teamId: string | null; me: string | null }) {
+function PackageSurface({ pkg, mode, appId, teamId, me, grantedTools }: { pkg: AppPackage; mode: `light` | `dark`; appId: string | null; teamId: string | null; me: string | null; grantedTools: readonly string[] }) {
   const router = useRouter()
   const consent = useMemo(createConsentGate, [])
+  // VAPP-120: the grants follow the synced row without remounting the host.
+  const grants = useRef(grantedTools)
+  grants.current = grantedTools
   const host = useMemo(
-    () => createAppHost({ consent, navigate: (href) => router.history.push(href), packages: [pkg], appId, teamId, me }),
+    () => createAppHost({ consent, navigate: (href) => router.history.push(href), packages: [pkg], appId, teamId, me, grantedTools: () => grants.current }),
     [consent, router, pkg, appId, teamId, me]
   )
   const plugin = useMemo(() => ({ icons: exponentialUiIcons }), [])
@@ -57,6 +60,7 @@ export function AppPreview({
   appId = null,
   teamId = null,
   me = null,
+  grantedTools = [],
 }: {
   pkg: Record<string, unknown> | null
   mode?: `light` | `dark`
@@ -65,6 +69,8 @@ export function AppPreview({
   appId?: string | null
   teamId?: string | null
   me?: string | null
+  /** VAPP-120: the typed actions the app may run without asking. */
+  grantedTools?: readonly string[]
 }) {
   // The key = the package's identity: a new version mounts a fresh host.
   const key = useMemo(() => (pkg ? JSON.stringify(pkg) : ``), [pkg])
@@ -75,7 +81,7 @@ export function AppPreview({
       data-testid={APPS_TEST_IDS.preview}
     >
       {pkg ? (
-        <PackageSurface key={key} pkg={pkg as unknown as AppPackage} mode={mode} appId={appId} teamId={teamId} me={me} />
+        <PackageSurface key={key} pkg={pkg as unknown as AppPackage} mode={mode} appId={appId} teamId={teamId} me={me} grantedTools={grantedTools} />
       ) : (
         <div className="flex h-full min-h-48 items-center justify-center">
           <EmptyState icon={NavAppsIcon} title={APPS_COPY.previewEmpty} size="page" />

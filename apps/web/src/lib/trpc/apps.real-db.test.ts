@@ -197,4 +197,13 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     await expect(api.delete({ id: created.app.id, recordId: made.id })).rejects.toMatchObject({ code: `NOT_FOUND` })
     expect((await api.list({ id: created.app.id })).records).toEqual([])
   })
+  // VAPP-120: the grants are exact action names, written by a manager.
+  it(`grants: update keeps exact offered actions, refuses anything else, and only for a manager`, async () => {
+    const w = await world()
+    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours` })
+    const updated = await caller(w.owner).update({ id: created.app.id, grantedTools: [`exponential.comments.create`, `exponential.issues.update_status`] })
+    expect(updated.app.grantedTools).toEqual([`exponential.comments.create`, `exponential.issues.update_status`])
+    await expect(caller(w.owner).update({ id: created.app.id, grantedTools: [`exponential.issues.*`] })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await expect(caller(w.mate).update({ id: created.app.id, grantedTools: [] })).rejects.toMatchObject({ code: `FORBIDDEN` })
+  })
 })

@@ -141,6 +141,32 @@ describe(`the app host`, () => {
   })
 })
 
+describe(`VAPP-120: typed actions`, () => {
+  it(`a granted action runs without the card and the name's op wins over a forged one`, async () => {
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as { id: number; params: Record<string, unknown> }
+        bodies.push(body.params)
+        return new Response(JSON.stringify({ jsonrpc: `2.0`, id: body.id, result: { content: [] } }), { status: 200, headers: { "content-type": `application/json` } })
+      })
+    )
+    const ask = vi.fn(async () => false)
+    const host = createAppHost({ consent: { ask } as unknown as ReturnType<typeof createConsentGate>, navigate: () => {}, grantedTools: () => [`exponential.issues.get`] })
+    const granted = await host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential.issues.get`, args: { id: `APP-5`, op: `delete` } })
+    expect(granted.decision).toBe(`allow`)
+    expect(ask).not.toHaveBeenCalled()
+    expect(bodies[0]).toMatchObject({ name: `exponential_issues`, arguments: { id: `APP-5`, op: `get` } })
+    // An ungranted action asks; a refusal is a deny and no call.
+    const denied = await host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential.issues.delete`, args: { id: `APP-5` } })
+    expect(denied.decision).toBe(`deny`)
+    expect(ask).toHaveBeenCalledTimes(1)
+    expect(bodies).toHaveLength(1)
+    vi.unstubAllGlobals()
+  })
+})
+
 describe(`callMcp`, () => {
   it(`rejects a JSON-RPC error with its message and code`, async () => {
     vi.stubGlobal(`fetch`, answering((id) => new Response(JSON.stringify({ jsonrpc: `2.0`, id, error: { code: -32602, message: `Unknown tool: nope` } }), { status: 200, headers: { "content-type": `application/json` } })))

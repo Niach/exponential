@@ -1133,6 +1133,11 @@ pub struct AppRow {
     pub head_version: Option<i64>,
     #[serde(default)]
     pub created_by: Option<String>,
+    /// VAPP-120: the exact `exponential.*` function names this app may run as
+    /// the viewer without the consent card (jsonb `string[]`; null, absent or
+    /// garbage reads as EMPTY, never a dropped row).
+    #[serde(default, deserialize_with = "tolerant_id_list")]
+    pub granted_tools: Vec<String>,
     #[serde(default)]
     pub deleted_at: Option<String>,
     #[serde(default)]

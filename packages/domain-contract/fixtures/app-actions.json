@@ -1,0 +1,711 @@
+{
+  "$comment": "VAPP-120 typed host ACTIONS ×4: every Exponential MCP operation is a host function an app may call, `exponential.<noun>.<op>` (the apps noun's ops included; the `exponential_sessions_send` verb tool = `exponential.sessions.send`; `session_self` and `guide_write` are not offered: they need an agent's session), run by the client's app host as a tools/call on the instance's MCP as the viewer (the `harness.mcp` transport, arguments = {op, …args}; no `op` for the verb tool). A package lists what it calls in `functions` (an exact name or a `prefix*` pattern: `exponential.issues.*`); the SDK denies anything else. GRANTS: `apps.granted_tools` (synced on the apps shape, a list of exact function names) = what the app may run as the viewer WITHOUT asking: the app's SETTINGS page (web + desktop; phones have no app settings) shows a `copy.tools` group under the records line with one row per declared function (`declaredActions`: patterns expand against `functions`), the display row's title (contract `expToolDisplay`, `<noun>_<op>`) + the function name muted + a Switch (the creator or an owner; others see it disabled), `copy.tools.none` when the package declares none, `copy.tools.hint` under the title. CONSENT: a declared, ungranted call shows the consent card worded for the operation (`actionConsent`: title `Allow this surface to <title, lower-cased><subject>?` where subject = the arg named by the row's `subjectKey` when it is a string; the destructive variant when a word of the tool name or op is delete, merge, close, end, remove, trash; the arguments block = the args without `op`), Allow runs it ONCE; a granted call runs without a card; `harness.mcp` keeps the generic copy and always asks. The TS reference `app-actions.ts` is replayed by desktop `domain::app_actions`, iOS `AppActions.swift`, Android `AppActions.kt` (`parseCases`, `grantCases`, `declaredCases`, `consentCases`); `functions` is the ×4 list (the web gates it against its noun table).",
+  "prefix": "exponential.",
+  "excluded": [
+    "session_self",
+    "guide_write"
+  ],
+  "functions": [
+    "exponential.apps.catalog",
+    "exponential.apps.delete",
+    "exponential.apps.get",
+    "exponential.apps.list",
+    "exponential.apps.records_delete",
+    "exponential.apps.records_list",
+    "exponential.apps.records_upsert",
+    "exponential.apps.upsert",
+    "exponential.attachments.delete",
+    "exponential.attachments.get",
+    "exponential.attachments.list",
+    "exponential.attachments.upload",
+    "exponential.boards.create",
+    "exponential.boards.delete",
+    "exponential.boards.get",
+    "exponential.boards.list",
+    "exponential.boards.set_repository",
+    "exponential.boards.update",
+    "exponential.comments.create",
+    "exponential.comments.delete",
+    "exponential.comments.list",
+    "exponential.comments.update",
+    "exponential.devices.account_login",
+    "exponential.devices.list",
+    "exponential.events.emit",
+    "exponential.events.list",
+    "exponential.issues.activity",
+    "exponential.issues.create",
+    "exponential.issues.delete",
+    "exponential.issues.get",
+    "exponential.issues.labels_add",
+    "exponential.issues.labels_remove",
+    "exponential.issues.list",
+    "exponential.issues.relations_add",
+    "exponential.issues.relations_remove",
+    "exponential.issues.show",
+    "exponential.issues.subscribe",
+    "exponential.issues.unsubscribe",
+    "exponential.issues.update",
+    "exponential.issues.update_status",
+    "exponential.notifications.list",
+    "exponential.notifications.mark_read",
+    "exponential.people.add",
+    "exponential.people.invites_create",
+    "exponential.people.invites_list",
+    "exponential.people.invites_revoke",
+    "exponential.people.list",
+    "exponential.pr.close",
+    "exponential.pr.files",
+    "exponential.pr.merge",
+    "exponential.pr.open",
+    "exponential.pr.retarget",
+    "exponential.pr.unlink",
+    "exponential.pr.update",
+    "exponential.sessions.end",
+    "exponential.sessions.get",
+    "exponential.sessions.link",
+    "exponential.sessions.list",
+    "exponential.sessions.send",
+    "exponential.sessions.unlink",
+    "exponential.team_config.agents_list",
+    "exponential.team_config.labels_create",
+    "exponential.team_config.labels_delete",
+    "exponential.team_config.labels_get",
+    "exponential.team_config.labels_list",
+    "exponential.team_config.labels_update",
+    "exponential.team_config.mcp_servers_add",
+    "exponential.team_config.mcp_servers_list",
+    "exponential.team_config.mcp_servers_remove",
+    "exponential.team_config.prompts_get",
+    "exponential.team_config.prompts_list",
+    "exponential.team_config.repositories_add",
+    "exponential.team_config.repositories_list",
+    "exponential.team_config.statuses_create",
+    "exponential.team_config.statuses_delete",
+    "exponential.team_config.statuses_list",
+    "exponential.team_config.statuses_update",
+    "exponential.teams.create",
+    "exponential.teams.get",
+    "exponential.teams.list",
+    "exponential.teams.update"
+  ],
+  "tools": {
+    "exponential.issues.list": {
+      "tool": "exponential_issues",
+      "op": "list"
+    },
+    "exponential.issues.get": {
+      "tool": "exponential_issues",
+      "op": "get"
+    },
+    "exponential.issues.show": {
+      "tool": "exponential_issues",
+      "op": "show"
+    },
+    "exponential.issues.create": {
+      "tool": "exponential_issues",
+      "op": "create"
+    },
+    "exponential.issues.update": {
+      "tool": "exponential_issues",
+      "op": "update"
+    },
+    "exponential.issues.delete": {
+      "tool": "exponential_issues",
+      "op": "delete"
+    },
+    "exponential.issues.activity": {
+      "tool": "exponential_issues",
+      "op": "activity"
+    },
+    "exponential.issues.update_status": {
+      "tool": "exponential_issues",
+      "op": "update_status"
+    },
+    "exponential.issues.subscribe": {
+      "tool": "exponential_issues",
+      "op": "subscribe"
+    },
+    "exponential.issues.unsubscribe": {
+      "tool": "exponential_issues",
+      "op": "unsubscribe"
+    },
+    "exponential.issues.labels_add": {
+      "tool": "exponential_issues",
+      "op": "labels_add"
+    },
+    "exponential.issues.labels_remove": {
+      "tool": "exponential_issues",
+      "op": "labels_remove"
+    },
+    "exponential.issues.relations_add": {
+      "tool": "exponential_issues",
+      "op": "relations_add"
+    },
+    "exponential.issues.relations_remove": {
+      "tool": "exponential_issues",
+      "op": "relations_remove"
+    },
+    "exponential.comments.list": {
+      "tool": "exponential_comments",
+      "op": "list"
+    },
+    "exponential.comments.create": {
+      "tool": "exponential_comments",
+      "op": "create"
+    },
+    "exponential.comments.update": {
+      "tool": "exponential_comments",
+      "op": "update"
+    },
+    "exponential.comments.delete": {
+      "tool": "exponential_comments",
+      "op": "delete"
+    },
+    "exponential.attachments.list": {
+      "tool": "exponential_attachments",
+      "op": "list"
+    },
+    "exponential.attachments.get": {
+      "tool": "exponential_attachments",
+      "op": "get"
+    },
+    "exponential.attachments.upload": {
+      "tool": "exponential_attachments",
+      "op": "upload"
+    },
+    "exponential.attachments.delete": {
+      "tool": "exponential_attachments",
+      "op": "delete"
+    },
+    "exponential.boards.list": {
+      "tool": "exponential_boards",
+      "op": "list"
+    },
+    "exponential.boards.get": {
+      "tool": "exponential_boards",
+      "op": "get"
+    },
+    "exponential.boards.create": {
+      "tool": "exponential_boards",
+      "op": "create"
+    },
+    "exponential.boards.update": {
+      "tool": "exponential_boards",
+      "op": "update"
+    },
+    "exponential.boards.delete": {
+      "tool": "exponential_boards",
+      "op": "delete"
+    },
+    "exponential.boards.set_repository": {
+      "tool": "exponential_boards",
+      "op": "set_repository"
+    },
+    "exponential.teams.list": {
+      "tool": "exponential_teams",
+      "op": "list"
+    },
+    "exponential.teams.get": {
+      "tool": "exponential_teams",
+      "op": "get"
+    },
+    "exponential.teams.create": {
+      "tool": "exponential_teams",
+      "op": "create"
+    },
+    "exponential.teams.update": {
+      "tool": "exponential_teams",
+      "op": "update"
+    },
+    "exponential.people.list": {
+      "tool": "exponential_people",
+      "op": "list"
+    },
+    "exponential.people.add": {
+      "tool": "exponential_people",
+      "op": "add"
+    },
+    "exponential.people.invites_list": {
+      "tool": "exponential_people",
+      "op": "invites_list"
+    },
+    "exponential.people.invites_create": {
+      "tool": "exponential_people",
+      "op": "invites_create"
+    },
+    "exponential.people.invites_revoke": {
+      "tool": "exponential_people",
+      "op": "invites_revoke"
+    },
+    "exponential.team_config.labels_list": {
+      "tool": "exponential_team_config",
+      "op": "labels_list"
+    },
+    "exponential.team_config.labels_get": {
+      "tool": "exponential_team_config",
+      "op": "labels_get"
+    },
+    "exponential.team_config.labels_create": {
+      "tool": "exponential_team_config",
+      "op": "labels_create"
+    },
+    "exponential.team_config.labels_update": {
+      "tool": "exponential_team_config",
+      "op": "labels_update"
+    },
+    "exponential.team_config.labels_delete": {
+      "tool": "exponential_team_config",
+      "op": "labels_delete"
+    },
+    "exponential.team_config.statuses_list": {
+      "tool": "exponential_team_config",
+      "op": "statuses_list"
+    },
+    "exponential.team_config.statuses_create": {
+      "tool": "exponential_team_config",
+      "op": "statuses_create"
+    },
+    "exponential.team_config.statuses_update": {
+      "tool": "exponential_team_config",
+      "op": "statuses_update"
+    },
+    "exponential.team_config.statuses_delete": {
+      "tool": "exponential_team_config",
+      "op": "statuses_delete"
+    },
+    "exponential.team_config.prompts_list": {
+      "tool": "exponential_team_config",
+      "op": "prompts_list"
+    },
+    "exponential.team_config.prompts_get": {
+      "tool": "exponential_team_config",
+      "op": "prompts_get"
+    },
+    "exponential.team_config.agents_list": {
+      "tool": "exponential_team_config",
+      "op": "agents_list"
+    },
+    "exponential.team_config.mcp_servers_list": {
+      "tool": "exponential_team_config",
+      "op": "mcp_servers_list"
+    },
+    "exponential.team_config.mcp_servers_add": {
+      "tool": "exponential_team_config",
+      "op": "mcp_servers_add"
+    },
+    "exponential.team_config.mcp_servers_remove": {
+      "tool": "exponential_team_config",
+      "op": "mcp_servers_remove"
+    },
+    "exponential.team_config.repositories_list": {
+      "tool": "exponential_team_config",
+      "op": "repositories_list"
+    },
+    "exponential.team_config.repositories_add": {
+      "tool": "exponential_team_config",
+      "op": "repositories_add"
+    },
+    "exponential.apps.list": {
+      "tool": "exponential_apps",
+      "op": "list"
+    },
+    "exponential.apps.get": {
+      "tool": "exponential_apps",
+      "op": "get"
+    },
+    "exponential.apps.upsert": {
+      "tool": "exponential_apps",
+      "op": "upsert"
+    },
+    "exponential.apps.delete": {
+      "tool": "exponential_apps",
+      "op": "delete"
+    },
+    "exponential.apps.catalog": {
+      "tool": "exponential_apps",
+      "op": "catalog"
+    },
+    "exponential.apps.records_list": {
+      "tool": "exponential_apps",
+      "op": "records_list"
+    },
+    "exponential.apps.records_upsert": {
+      "tool": "exponential_apps",
+      "op": "records_upsert"
+    },
+    "exponential.apps.records_delete": {
+      "tool": "exponential_apps",
+      "op": "records_delete"
+    },
+    "exponential.sessions.send": {
+      "tool": "exponential_sessions_send",
+      "op": null
+    },
+    "exponential.sessions.get": {
+      "tool": "exponential_sessions",
+      "op": "get"
+    },
+    "exponential.sessions.list": {
+      "tool": "exponential_sessions",
+      "op": "list"
+    },
+    "exponential.sessions.link": {
+      "tool": "exponential_sessions",
+      "op": "link"
+    },
+    "exponential.sessions.unlink": {
+      "tool": "exponential_sessions",
+      "op": "unlink"
+    },
+    "exponential.sessions.end": {
+      "tool": "exponential_sessions",
+      "op": "end"
+    },
+    "exponential.pr.open": {
+      "tool": "exponential_pr",
+      "op": "open"
+    },
+    "exponential.pr.merge": {
+      "tool": "exponential_pr",
+      "op": "merge"
+    },
+    "exponential.pr.close": {
+      "tool": "exponential_pr",
+      "op": "close"
+    },
+    "exponential.pr.retarget": {
+      "tool": "exponential_pr",
+      "op": "retarget"
+    },
+    "exponential.pr.update": {
+      "tool": "exponential_pr",
+      "op": "update"
+    },
+    "exponential.pr.unlink": {
+      "tool": "exponential_pr",
+      "op": "unlink"
+    },
+    "exponential.pr.files": {
+      "tool": "exponential_pr",
+      "op": "files"
+    },
+    "exponential.devices.list": {
+      "tool": "exponential_devices",
+      "op": "list"
+    },
+    "exponential.devices.account_login": {
+      "tool": "exponential_devices",
+      "op": "account_login"
+    },
+    "exponential.events.emit": {
+      "tool": "exponential_events",
+      "op": "emit"
+    },
+    "exponential.events.list": {
+      "tool": "exponential_events",
+      "op": "list"
+    },
+    "exponential.notifications.list": {
+      "tool": "exponential_notifications",
+      "op": "list"
+    },
+    "exponential.notifications.mark_read": {
+      "tool": "exponential_notifications",
+      "op": "mark_read"
+    }
+  },
+  "copy": {
+    "title": "Tools",
+    "hint": "What this app may do as you without asking. Anything else asks each time.",
+    "none": "This app uses no tools.",
+    "granted": "Allowed"
+  },
+  "parseCases": [
+    {
+      "name": "exponential.issues.update_status",
+      "expected": {
+        "tool": "exponential_issues",
+        "op": "update_status"
+      }
+    },
+    {
+      "name": "exponential.sessions.send",
+      "expected": {
+        "tool": "exponential_sessions_send",
+        "op": null
+      }
+    },
+    {
+      "name": "exponential.apps.records_upsert",
+      "expected": {
+        "tool": "exponential_apps",
+        "op": "records_upsert"
+      }
+    },
+    {
+      "name": "exponential.team_config.labels_create",
+      "expected": {
+        "tool": "exponential_team_config",
+        "op": "labels_create"
+      }
+    },
+    {
+      "name": "exponential.session_self.ask",
+      "expected": null
+    },
+    {
+      "name": "exponential.issues.nope",
+      "expected": null
+    },
+    {
+      "name": "harness.toast",
+      "expected": null
+    },
+    {
+      "name": "exponential.issues",
+      "expected": null
+    }
+  ],
+  "grantCases": [
+    {
+      "granted": [
+        "exponential.issues.update"
+      ],
+      "name": "exponential.issues.update",
+      "expected": true
+    },
+    {
+      "granted": [
+        "exponential.issues.update"
+      ],
+      "name": "exponential.issues.delete",
+      "expected": false
+    },
+    {
+      "granted": [],
+      "name": "exponential.issues.update",
+      "expected": false
+    },
+    {
+      "granted": [
+        "exponential.issues.*"
+      ],
+      "name": "exponential.issues.update",
+      "expected": false
+    },
+    {
+      "granted": [
+        "exponential.comments.create",
+        "exponential.sessions.send"
+      ],
+      "name": "exponential.sessions.send",
+      "expected": true
+    }
+  ],
+  "declaredCases": [
+    {
+      "functions": [
+        "exponential.comments.create",
+        "harness.toast",
+        "exponential.issues.update_status"
+      ],
+      "expected": [
+        "exponential.comments.create",
+        "exponential.issues.update_status"
+      ]
+    },
+    {
+      "functions": [
+        "exponential.boards.*",
+        "exponential.sessions.send"
+      ],
+      "expected": [
+        "exponential.boards.create",
+        "exponential.boards.delete",
+        "exponential.boards.get",
+        "exponential.boards.list",
+        "exponential.boards.set_repository",
+        "exponential.boards.update",
+        "exponential.sessions.send"
+      ]
+    },
+    {
+      "functions": [
+        "exponential.*"
+      ],
+      "expected": [
+        "exponential.apps.catalog",
+        "exponential.apps.delete",
+        "exponential.apps.get",
+        "exponential.apps.list",
+        "exponential.apps.records_delete",
+        "exponential.apps.records_list",
+        "exponential.apps.records_upsert",
+        "exponential.apps.upsert",
+        "exponential.attachments.delete",
+        "exponential.attachments.get",
+        "exponential.attachments.list",
+        "exponential.attachments.upload",
+        "exponential.boards.create",
+        "exponential.boards.delete",
+        "exponential.boards.get",
+        "exponential.boards.list",
+        "exponential.boards.set_repository",
+        "exponential.boards.update",
+        "exponential.comments.create",
+        "exponential.comments.delete",
+        "exponential.comments.list",
+        "exponential.comments.update",
+        "exponential.devices.account_login",
+        "exponential.devices.list",
+        "exponential.events.emit",
+        "exponential.events.list",
+        "exponential.issues.activity",
+        "exponential.issues.create",
+        "exponential.issues.delete",
+        "exponential.issues.get",
+        "exponential.issues.labels_add",
+        "exponential.issues.labels_remove",
+        "exponential.issues.list",
+        "exponential.issues.relations_add",
+        "exponential.issues.relations_remove",
+        "exponential.issues.show",
+        "exponential.issues.subscribe",
+        "exponential.issues.unsubscribe",
+        "exponential.issues.update",
+        "exponential.issues.update_status",
+        "exponential.notifications.list",
+        "exponential.notifications.mark_read",
+        "exponential.people.add",
+        "exponential.people.invites_create",
+        "exponential.people.invites_list",
+        "exponential.people.invites_revoke",
+        "exponential.people.list",
+        "exponential.pr.close",
+        "exponential.pr.files",
+        "exponential.pr.merge",
+        "exponential.pr.open",
+        "exponential.pr.retarget",
+        "exponential.pr.unlink",
+        "exponential.pr.update",
+        "exponential.sessions.end",
+        "exponential.sessions.get",
+        "exponential.sessions.link",
+        "exponential.sessions.list",
+        "exponential.sessions.send",
+        "exponential.sessions.unlink",
+        "exponential.team_config.agents_list",
+        "exponential.team_config.labels_create",
+        "exponential.team_config.labels_delete",
+        "exponential.team_config.labels_get",
+        "exponential.team_config.labels_list",
+        "exponential.team_config.labels_update",
+        "exponential.team_config.mcp_servers_add",
+        "exponential.team_config.mcp_servers_list",
+        "exponential.team_config.mcp_servers_remove",
+        "exponential.team_config.prompts_get",
+        "exponential.team_config.prompts_list",
+        "exponential.team_config.repositories_add",
+        "exponential.team_config.repositories_list",
+        "exponential.team_config.statuses_create",
+        "exponential.team_config.statuses_delete",
+        "exponential.team_config.statuses_list",
+        "exponential.team_config.statuses_update",
+        "exponential.teams.create",
+        "exponential.teams.get",
+        "exponential.teams.list",
+        "exponential.teams.update"
+      ]
+    },
+    {
+      "functions": [
+        "harness.*",
+        "bind"
+      ],
+      "expected": []
+    },
+    {
+      "functions": [
+        "exponential.session_self.ask",
+        "exponential.issues.nope"
+      ],
+      "expected": []
+    }
+  ],
+  "consentCases": [
+    {
+      "name": "exponential.issues.update_status",
+      "args": {
+        "id": "APP-5",
+        "status": "done"
+      },
+      "expected": {
+        "tool": "exponential_issues",
+        "title": "Allow this surface to set issue status APP-5?",
+        "destructive": false,
+        "args": "{\"id\":\"APP-5\",\"status\":\"done\"}"
+      }
+    },
+    {
+      "name": "exponential.comments.create",
+      "args": {
+        "issueId": "APP-5",
+        "body": "Logged 3 h"
+      },
+      "expected": {
+        "tool": "exponential_comments",
+        "title": "Allow this surface to comment on issue APP-5?",
+        "destructive": false,
+        "args": "{\"issueId\":\"APP-5\",\"body\":\"Logged 3 h\"}"
+      }
+    },
+    {
+      "name": "exponential.issues.delete",
+      "args": {
+        "id": "APP-5"
+      },
+      "expected": {
+        "tool": "exponential_issues",
+        "title": "Allow this surface to delete issue APP-5?",
+        "destructive": true,
+        "args": "{\"id\":\"APP-5\"}"
+      }
+    },
+    {
+      "name": "exponential.sessions.send",
+      "args": {
+        "text": "Profile the launch path",
+        "issueIds": [
+          "APP-5"
+        ]
+      },
+      "expected": {
+        "tool": "exponential_sessions_send",
+        "title": "Allow this surface to send to session?",
+        "destructive": false,
+        "args": "{\"text\":\"Profile the launch path\",\"issueIds\":[\"APP-5\"]}"
+      }
+    },
+    {
+      "name": "exponential.boards.list",
+      "args": {},
+      "expected": {
+        "tool": "exponential_boards",
+        "title": "Allow this surface to list boards?",
+        "destructive": false,
+        "args": null
+      }
+    },
+    {
+      "name": "harness.mcp",
+      "args": {
+        "tool": "exponential_issues",
+        "arguments": {
+          "op": "get",
+          "id": "APP-5"
+        }
+      },
+      "expected": null
+    }
+  ]
+}

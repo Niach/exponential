@@ -57,6 +57,7 @@ import com.exponential.app.data.api.AppsApi
 import com.exponential.app.data.db.AppEntity
 import com.exponential.app.data.db.AppRecordEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.AppActions
 import com.exponential.app.domain.AppHostValues
 import com.exponential.app.domain.AppRecords
 import com.exponential.app.domain.AppSources
@@ -117,7 +118,12 @@ import kotlinx.coroutines.launch
  *  - extensions: the app extension (`packages/ui/exponential-ui/extension.json`)
  *    with Compose painters for its `IconDisc` and `LiveDot` natives (Exponential
  *    ships no built-in apps: only the team's packages are installed);
- *  - policy: `harness.mcp` ASKS first (the consent card, [AppConsentCard]);
+ *  - VAPP-120 typed actions: every `exponential.<noun>.<op>` of
+ *    [AppActions] is the same `tools/call` as the viewer (`{op, …args}`; no
+ *    op for the verb tool `exponential.sessions.send`);
+ *  - policy: `harness.mcp` and `exponential.*` ASK first (the consent card,
+ *    [AppConsentCard]); a typed action the hosting app's synced
+ *    `granted_tools` names runs without the card;
  *    urls and media resolve against the instance (attachments with the
  *    account's bearer), every href through the URL policy.
  */
@@ -169,7 +175,14 @@ class AppConsentGate {
  *  MCP `arguments`, else the function's own args; an empty object = none)
  *  and whether it sounds destructive. The web `consentWords` and desktop
  *  `consent_words` derive the same three. */
-data class AppConsentWords(val tool: String, val args: String?, val destructive: Boolean) {
+data class AppConsentWords(
+    val tool: String,
+    val args: String?,
+    val destructive: Boolean,
+    /** VAPP-120: a typed action's own title ([AppActions.actionConsent]),
+     *  replacing the generic prompt's; null = the generic copy. */
+    val title: String? = null,
+) {
     /** Past [PREVIEW_CHARS] characters the arguments show as a preview
      *  (desktop's rule; the web adds a Show all disclosure). */
     val argsPreview: String?
@@ -179,6 +192,10 @@ data class AppConsentWords(val tool: String, val args: String?, val destructive:
         const val PREVIEW_CHARS = 160
 
         fun of(call: FunctionCallInfo): AppConsentWords {
+            // VAPP-120: a typed action is worded for its operation (the contract's rows).
+            AppActions.actionConsent(call.name, call.args)?.let { typed ->
+                return AppConsentWords(tool = typed.tool, args = typed.args, destructive = typed.destructive, title = typed.title)
+            }
             val mcp = call.name == "harness.mcp"
             val tool = if (mcp) call.args["tool"]?.string.orEmpty() else call.name
             val raw: JsonValue? = if (mcp) call.args["arguments"] else JsonValue.Obj(call.args)
@@ -202,7 +219,9 @@ fun AppConsentCard(gate: AppConsentGate) {
     val call = gate.current ?: return
     val words = AppConsentWords.of(call)
     PromptAlert(
-        prompt = Prompts.exponentialUiConsent(words.tool, words.destructive),
+        prompt = Prompts.exponentialUiConsent(words.tool, words.destructive).let { copy ->
+            words.title?.let { copy.copy(title = it) } ?: copy
+        },
         onDismiss = { gate.answer(false) },
         handlers = mapOf("deny" to { gate.answer(false) }, "allow" to { gate.answer(true) }),
         testTags = mapOf("deny" to "exponential-ui-consent-deny", "allow" to "exponential-ui-consent-allow"),
@@ -333,6 +352,10 @@ fun rememberAppHost(
         val devices: Flow<List<DeviceEntity>> = db.scopedQuery(emptyList()) { it.deviceDao().observeAll() }
         val issues: Flow<List<IssueEntity>> = db.scopedQuery(emptyList()) { it.issueDao().observeAll() }
         val users: Flow<List<UserEntity>> = db.scopedQuery(emptyList()) { it.userDao().observeAll() }
+        // VAPP-120: the hosting app's row, read at call time for its grants
+        // (the web/desktop settings page may change them while the host lives).
+        val hostingApp: Flow<AppEntity?> =
+            if (appId == null) flowOf(null) else db.scopedQuery(null) { it.appDao().observeById(appId) }
         val teamApps: Flow<List<AppEntity>> =
             if (teamId == null) flowOf(emptyList()) else db.scopedQuery(emptyList()) { it.appDao().observeByTeam(teamId) }
         fun recordsOf(app: String?): Flow<List<AppRecordEntity>> =
@@ -441,7 +464,17 @@ fun rememberAppHost(
                 throw e
             }
         }
-        val functions = mapOf(
+        // VAPP-120: every MCP operation as a typed function
+        // (fixtures/app-actions.json): the same tools/call as the viewer,
+        // `op` + the args (no op for a verb tool).
+        val actions: Map<String, HostFunction> = AppActions.TOOLS.mapValues { (_, target) ->
+            val fn: HostFunction = { args, _ ->
+                val arguments = if (target.op != null) args + mapOf("op" to JsonValue.Str(target.op)) else args
+                callMcp(deps.httpClient(), origin, token, target.tool, JsonValue.Obj(arguments))
+            }
+            fn
+        }
+        val functions = actions + mapOf(
             "harness.records.upsert" to recordsUpsert,
             "harness.records.delete" to recordsDelete,
             "harness.toast" to toast,
@@ -462,8 +495,13 @@ fun rememberAppHost(
                 ),
                 packages = packages,
                 policy = HostPolicy(
-                    functions = FunctionPolicy(ask = listOf("harness.mcp")),
-                    onFunctionCall = { call -> consent.ask(call) },
+                    functions = FunctionPolicy(ask = listOf("harness.mcp", "exponential.*")),
+                    // A granted typed action runs without the card; anything else asks.
+                    onFunctionCall = { call ->
+                        val granted = AppActions.parseActionName(call.name) != null &&
+                            AppActions.grantAllows(AppActions.grantedList(hostingApp.first()?.grantedTools), call.name)
+                        granted || consent.ask(call)
+                    },
                     // VAPP-107: private hosts are denied unless opted in; the
                     // app's OWN instance is (the localhost dev setup), nothing
                     // else. A public origin listed here changes nothing.

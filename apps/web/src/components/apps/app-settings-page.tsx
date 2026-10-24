@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { APPS_COPY, APP_DESCRIPTION_MAX, versionLabel } from "@exp/domain-contract/apps"
 import { recordsCountLabel } from "@exp/domain-contract/app-records"
-import { Button, conceptIcon, FEEDBACK_WORDS, GlassGroup, Pill, Prompt, Textarea } from "@exp/ui"
+import { APP_ACTIONS_COPY, actionTitle, declaredActions } from "@exp/domain-contract/app-actions"
+import { Button, conceptIcon, FEEDBACK_WORDS, GlassGroup, Pill, Prompt, Switch, Textarea } from "@exp/ui"
 import type { Team } from "@/db/schema"
 import { BoardIdentityRow } from "@/components/board-form-fields"
 import type { AppListEntry } from "@/hooks/use-apps"
@@ -51,6 +52,24 @@ export function AppSettingsPage({
     [app?.id]
   )
   const [recordsMax, setRecordsMax] = useState<number | null>(null)
+  // VAPP-120: the typed actions the head package declares, each with its
+  // grant (the synced row); a toggle writes the whole list.
+  const declared = useMemo(() => declaredActions(((app?.row?.package as { functions?: string[] } | null)?.functions ?? []) as string[]), [app?.row?.package])
+  const granted = (app?.row?.grantedTools ?? []) as string[]
+  const [toolBusy, setToolBusy] = useState<string | null>(null)
+  const toggleTool = async (name: string, on: boolean) => {
+    if (!app || readOnly) return
+    setToolBusy(name)
+    try {
+      const next = on ? [...granted.filter((g) => g !== name), name] : granted.filter((g) => g !== name)
+      const result = await trpc.apps.update.mutate({ id: app.id, grantedTools: next }, SKIP_ERROR_TOAST)
+      await appCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
+    } catch (error) {
+      failedAction(`save`, `the app`, error)
+    } finally {
+      setToolBusy(null)
+    }
+  }
   useEffect(() => {
     if (!app) return
     let live = true
@@ -166,6 +185,35 @@ export function AppSettingsPage({
         <p className="px-1 text-sm text-muted-foreground" data-testid="app-settings-records">
           {recordsCountLabel(records?.length ?? 0, recordsMax)}
         </p>
+      )}
+
+      {!creating && (
+        <div className="space-y-1" data-testid="app-settings-tools">
+          <div className="px-1">
+            <h2 className="text-sm font-medium">{APP_ACTIONS_COPY.title}</h2>
+            <p className="text-sm text-muted-foreground">{APP_ACTIONS_COPY.hint}</p>
+          </div>
+          <GlassGroup>
+            {declared.length === 0 ? (
+              <p className="px-4 py-3 text-sm text-muted-foreground">{APP_ACTIONS_COPY.none}</p>
+            ) : (
+              declared.map((name) => (
+                <div key={name} className="flex items-center justify-between gap-3 px-4 py-3" data-testid={`app-tool-${name}`}>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm">{actionTitle(name)}</div>
+                    <div className="truncate font-mono text-xs text-muted-foreground">{name}</div>
+                  </div>
+                  <Switch
+                    checked={granted.includes(name)}
+                    disabled={readOnly || toolBusy === name}
+                    onCheckedChange={(next) => void toggleTool(name, next)}
+                    aria-label={`${APP_ACTIONS_COPY.granted}: ${actionTitle(name)}`}
+                  />
+                </div>
+              ))
+            )}
+          </GlassGroup>
+        </div>
       )}
 
       {creating ? (

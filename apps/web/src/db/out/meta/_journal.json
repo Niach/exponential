@@ -1324,6 +1324,13 @@
       "when": 1792836400000,
       "tag": "0188_app_records",
       "breakpoints": true
+    },
+    {
+      "idx": 189,
+      "version": "7",
+      "when": 1792860000000,
+      "tag": "0189_app_granted_tools",
+      "breakpoints": true
     }
   ]
 }
