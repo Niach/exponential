@@ -147,6 +147,28 @@ async function recipeOpenAppPreviewTab(page: Page): Promise<void> {
   await page.getByTestId(`app-editor-preview`).waitFor({ state: `visible`, timeout: 30_000 })
 }
 
+/** VAPP-121: the app editor's Export, Include records switched on. */
+async function recipeOpenAppExport(page: Page): Promise<void> {
+  const button = page.getByTestId(`app-editor-export`)
+  await button.waitFor({ state: `visible`, timeout: 30_000 })
+  await button.click()
+  const dialog = page.getByTestId(`app-export-dialog`)
+  await dialog.waitFor({ state: `visible`, timeout: 15_000 })
+  await page.getByTestId(`app-export-records`).click()
+}
+
+/** VAPP-121: New app → Import…, the fixture's capture text pasted, the
+ *  server's issue rows listed. */
+async function recipeOpenAppImport(page: Page): Promise<void> {
+  const { default: fixture } = await import(`@exp/domain-contract/fixtures/app-export.json`, { with: { type: `json` } })
+  await page.getByRole(`button`, { name: `New app` }).first().click()
+  const importButton = page.getByTestId(`app-import`)
+  await importButton.waitFor({ state: `visible`, timeout: 15_000 })
+  await importButton.click()
+  await page.getByTestId(`app-import-text`).fill(fixture.capture.importText)
+  await page.getByTestId(`app-import-issues`).waitFor({ state: `visible`, timeout: 15_000 })
+}
+
 async function recipeOpenOnboardingJoin(page: Page): Promise<void> {
   const trigger = page.getByRole(`button`, { name: /^Join a team/ })
   if (!(await appears(trigger, 20_000))) {
@@ -666,6 +688,8 @@ async function recipeOpenGettingStarted(page: Page): Promise<void> {
 export const RECIPES: Record<string, Recipe> = {
   openOnboardingCreateTeam: recipeOpenOnboardingCreateTeam,
   openAppPreviewTab: recipeOpenAppPreviewTab,
+  openAppExport: recipeOpenAppExport,
+  openAppImport: recipeOpenAppImport,
   openOnboardingJoin: recipeOpenOnboardingJoin,
   openOnboardingInvite: recipeOpenOnboardingInvite,
   openOnboardingDevices: recipeOpenOnboardingDevices,

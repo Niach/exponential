@@ -222,4 +222,43 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     await caller(w.mate).upsertPackage({ id: created.app.id, package: declaring([`exponential.comments.create`, `exponential.issues.update_status`]) })
     expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([`exponential.comments.create`])
   })
+  // VAPP-121: an app file round-trips: the import lists issues as rows, then
+  // creates the app as v1 "Imported" with its records as the importer's and
+  // no grants; a bare package imports under its own name.
+  it(`import: issues as rows, an exported file round-trips, a bare package imports`, async () => {
+    const w = await world()
+    const { buildAppExport, appExportText } = await import(`@exp/domain-contract/app-export`)
+    const declaring = { ...RECORDS_PACKAGE, functions: [`exponential.comments.create`] }
+    const source = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, icon: `clock`, color: `#10b981`, description: `Mine`, package: declaring })
+    await caller(w.owner).update({ id: source.app.id, grantedTools: [`exponential.comments.create`] })
+    await caller(w.owner).records.upsert({ id: source.app.id, kind: `entry`, data: { date: `2026-10-05`, hours: 3 } })
+    const records = await db.select().from(appRecords).where(eq(appRecords.appId, source.app.id))
+    const text = appExportText(
+      buildAppExport({ app: source.app, package: declaring, records: records.map((r) => ({ ...r, data: r.data as Record<string, unknown> })), includeRecords: true })
+    )
+
+    // Issues: a record off its kind's schema, an undeclared kind, a broken package.
+    const bad = JSON.parse(text)
+    bad.records.push({ kind: `entry`, data: { date: `2026-10-06`, hours: 99 } }, { kind: `nope`, data: {} })
+    const checked = await caller(w.mate).validateImport({ teamId: w.teamId, text: JSON.stringify(bad) })
+    expect(checked.issues.map((i: { path: string }) => i.path)).toEqual([`/records/1/data/hours`, `/records/2/kind`])
+    const broken = await caller(w.mate).validateImport({ teamId: w.teamId, text: JSON.stringify({ ...bad, package: { id: `x` } }) })
+    expect(broken.issues.length).toBeGreaterThan(0)
+    expect(broken.issues.every((i: { path: string }) => i.path.startsWith(`/package`))).toBe(true)
+    await expect(caller(w.mate).import({ teamId: w.teamId, text: JSON.stringify(bad) })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+
+    // The round trip: a member imports; the name's slug is taken, so `-2`.
+    expect(await caller(w.mate).validateImport({ teamId: w.teamId, text })).toEqual({ issues: [], name: `Hours`, records: 1 })
+    const imported = await caller(w.mate).import({ teamId: w.teamId, text })
+    expect(imported.app).toMatchObject({ slug: `hours-2`, name: `Hours`, icon: `clock`, color: `#10b981`, description: `Mine`, headVersion: 1, createdBy: w.mate, grantedTools: [] })
+    const [v1] = await db.select().from(appVersions).where(eq(appVersions.appId, imported.app.id))
+    expect(v1).toMatchObject({ number: 1, note: `Imported`, createdBy: w.mate })
+    const copies = await db.select().from(appRecords).where(eq(appRecords.appId, imported.app.id))
+    expect(copies.map((r) => ({ kind: r.kind, data: r.data, createdBy: r.createdBy }))).toEqual([{ kind: `entry`, data: { date: `2026-10-05`, hours: 3 }, createdBy: w.mate }])
+
+    // A bare package, named by its name.
+    const bare = await caller(w.mate).import({ teamId: w.teamId, text: JSON.stringify(RECORDS_PACKAGE) })
+    expect(bare.app).toMatchObject({ name: `Hours`, slug: `hours-3`, icon: null, headVersion: 1 })
+    await expect(caller(await user()).validateImport({ teamId: w.teamId, text })).rejects.toBeTruthy()
+  })
 })

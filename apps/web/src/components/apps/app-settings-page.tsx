@@ -5,9 +5,11 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import { APPS_COPY, APP_DESCRIPTION_MAX, versionLabel } from "@exp/domain-contract/apps"
 import { recordsCountLabel } from "@exp/domain-contract/app-records"
 import { APP_ACTIONS_COPY, actionGrantable, actionTitle, declaredActions } from "@exp/domain-contract/app-actions"
+import { APP_EXPORT_COPY } from "@exp/domain-contract/app-export"
 import { Button, conceptIcon, FEEDBACK_WORDS, GlassGroup, Pill, Prompt, Switch, Textarea } from "@exp/ui"
 import type { Team } from "@/db/schema"
 import { BoardIdentityRow } from "@/components/board-form-fields"
+import { AppExportDialog } from "@/components/apps/app-export-dialog"
 import type { AppListEntry } from "@/hooks/use-apps"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { appCollection, appRecordCollection } from "@/lib/collections"
@@ -21,6 +23,7 @@ import { trpc } from "@/lib/trpc-client"
 
 const UiDeleteIcon = conceptIcon(`ui-delete`)
 const NavAppsIcon = conceptIcon(`nav-apps`)
+const UiShareIcon = conceptIcon(`ui-share`)
 const DEFAULT_COLOR = `#6366f1`
 const DEFAULT_ICON: BoardIcon = `puzzle`
 
@@ -48,6 +51,7 @@ export function AppSettingsPage({
   const [description, setDescription] = useState(app?.description ?? ``)
   const [busy, setBusy] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   // VAPP-122: the app's records (the synced shape) against the team's quota
   // (null = unlimited: self-hosted, or the plan still loading).
@@ -243,6 +247,12 @@ export function AppSettingsPage({
             {APPS_COPY.openEditor}
           </Button>
           <Pill size="sm" className="tabular-nums">{versionLabel(app.headVersion)}</Pill>
+          {app.headVersion > 0 && (
+            <Button variant="outline" size="sm" onClick={() => setExportOpen(true)} data-testid="app-export">
+              <UiShareIcon />
+              {APP_EXPORT_COPY.export}
+            </Button>
+          )}
           {canManage && (
             <Button variant="destructive" size="sm" className="ml-auto" onClick={() => setDeleteOpen(true)} data-testid="app-delete">
               <UiDeleteIcon />
@@ -252,6 +262,7 @@ export function AppSettingsPage({
         </div>
       )}
 
+      {!creating && <AppExportDialog app={exportOpen ? app : null} onOpenChange={setExportOpen} />}
       <Prompt
         open={deleteOpen}
         onOpenChange={setDeleteOpen}

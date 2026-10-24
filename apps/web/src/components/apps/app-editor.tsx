@@ -11,6 +11,7 @@ import {
   versionLabel,
   type AppEditorLayout,
 } from "@exp/domain-contract/apps"
+import { APP_EXPORT_COPY } from "@exp/domain-contract/app-export"
 import {
   BoardGlyph,
   Button,
@@ -37,6 +38,7 @@ import type { SyncedAppVersion, User } from "@/db/schema"
 import { AppPreview } from "@/components/apps/app-preview"
 import { SessionComposer } from "@/components/session-composer"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
+import { AppExportDialog } from "@/components/apps/app-export-dialog"
 import { AgentChannel, AgentComposer } from "@/components/thread/agent-channel"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useAppVersions, useEditorSession, type AppListEntry } from "@/hooks/use-apps"
@@ -67,6 +69,7 @@ import { cn } from "@/lib/utils"
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const UiHistoryIcon = conceptIcon(`ui-history`)
+const UiShareIcon = conceptIcon(`ui-share`)
 const DockSideIcon = conceptIcon(APPS_DOCK_CARD.dockIcon as Parameters<typeof conceptIcon>[0])
 const FloatIcon = conceptIcon(APPS_DOCK_CARD.floatIcon as Parameters<typeof conceptIcon>[0])
 
@@ -275,6 +278,17 @@ export function AppEditor({
       {versionLabel(head)}
     </Pill>
   )
+  // VAPP-121: Export beside Versions (desktop) / the header's trailing button (phones).
+  const [exportOpen, setExportOpen] = useState(false)
+  const exportButton =
+    app.headVersion > 0 ? (
+      <Button variant="outline" size={isMobile ? `icon-sm` : `sm`} onClick={() => setExportOpen(true)} aria-label={APP_EXPORT_COPY.export} data-testid="app-editor-export">
+        <UiShareIcon className="size-4" />
+        {!isMobile && APP_EXPORT_COPY.export}
+      </Button>
+    ) : null
+  const exportDialog = <AppExportDialog app={exportOpen ? app : null} onOpenChange={setExportOpen} />
+
   const versionsButton = (
     <Button variant="outline" size="sm" onClick={() => setVersionsOpen(true)} data-testid="app-editor-versions-button">
       <UiHistoryIcon className="size-4" />
@@ -403,6 +417,7 @@ export function AppEditor({
             </span>
           }
           onBack={() => void navigate({ to: `/t/$teamSlug/apps`, params: { teamSlug } })}
+          menu={exportButton ?? undefined}
           below={
             <div className="px-4 pb-2" data-testid={APPS_TEST_IDS.tabs}>
               <SegmentedControl
@@ -423,6 +438,7 @@ export function AppEditor({
           {tab === `preview` && preview}
           {tab === `versions` && <div className="h-full overflow-y-auto p-4">{versionsList}</div>}
         </div>
+        {exportDialog}
       </div>
     )
   }
@@ -434,7 +450,9 @@ export function AppEditor({
         <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight">{app.name}</h1>
         {versionPill}
         <div className="flex-1" />
+        {exportButton}
         {versionsButton}
+        {exportDialog}
       </div>
       {floating ? (
         <div className="relative min-h-0 flex-1" data-layout="floating">

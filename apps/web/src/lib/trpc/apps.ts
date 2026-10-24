@@ -14,7 +14,8 @@ import {
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { appRecords, appVersions, apps, sessions, type App } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
-import { packageBytes, recordKindSchema, validateAppPackage } from "@/lib/apps/package"
+import { appPackageIssues, packageBytes, recordKindSchema, validateAppPackage } from "@/lib/apps/package"
+import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImport, type ImportIssue } from "@exp/domain-contract/app-export"
 import { validateRecord } from "@exponential_app/ui"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
@@ -154,6 +155,31 @@ export const appUpdateInputSchema = z.object({
     .optional(),
 })
 
+/** VAPP-121: an import's text, checked end to end (the structure, then the
+ *  package's rules, then every record against its kind's schema and the
+ *  record cap): the issues the import step lists, and the file when there
+ *  are none. A package's issue paths sit under `/package` in an app file. */
+export function checkAppImport(text: string): { issues: ImportIssue[]; file: ReturnType<typeof parseAppImport>[`file`] } {
+  const parsed = parseAppImport(text)
+  if (!parsed.file) return parsed
+  const { file } = parsed
+  const bare = !(`format` in (JSON.parse(text) as object))
+  const at = (path: string) => (bare ? path : `/package${path === `/` ? `` : path}`)
+  const issues: ImportIssue[] = appPackageIssues(file.package).map((issue) => ({ path: at(issue.path), message: issue.message }))
+  if (issues.length === 0) {
+    file.records.forEach((record, i) => {
+      const schema = recordKindSchema(file.package, record.kind)
+      if (!schema) return void issues.push({ path: `/records/${i}/kind`, message: `the package declares no record kind "${record.kind}"` })
+      for (const issue of validateRecord(schema, record.data)) issues.push({ path: `/records/${i}/data${issue.path === `/` ? `` : issue.path}`, message: issue.message })
+      const bytes = packageBytes(record.data)
+      if (bytes > APP_RECORD_MAX_BYTES) issues.push({ path: `/records/${i}/data`, message: `is ${bytes} bytes; the cap is ${APP_RECORD_MAX_BYTES}` })
+    })
+  }
+  return issues.length > 0 ? { issues, file: null } : { issues: [], file }
+}
+
+const importInputSchema = z.object({ teamId: uuid, text: z.string().max(APP_EXPORT_LIMITS.importMaxBytes * 2) })
+
 async function takenSlugs(tx: Tx, teamId: string): Promise<string[]> {
   // Release train 2026-10-23: only live slugs count (the unique index is partial).
   const rows = await tx
@@ -261,6 +287,57 @@ export const appsRouter = router({
         }
         throw error
       }
+    }),
+
+  /** VAPP-121: the import step's live check (no write): `issues` = the
+   *  rows it lists under the field; empty = Import is enabled. Any member. */
+  validateImport: authedProcedure
+    .input(importInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await assertTeamMember(ctx.session.user.id, input.teamId)
+      const { issues, file } = checkAppImport(input.text)
+      return { issues, name: file?.app.name ?? null, records: file?.records.length ?? 0 }
+    }),
+
+  /** VAPP-121: a new app out of an app file (or a bare package): the
+   *  identity from the file, the package as v1 noted "Imported", the records
+   *  as the importer's within the team's quota. No grants: an owner grants
+   *  on the settings page. Any member. */
+  import: authedProcedure
+    .input(importInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      await assertTeamMember(userId, input.teamId)
+      const { issues, file } = checkAppImport(input.text)
+      if (!file) {
+        const listed = issues.slice(0, 10).map((issue) => `${issue.path}: ${issue.message}`)
+        throw new TRPCError({ code: `BAD_REQUEST`, message: `the app file is invalid: ${listed.join(`; `)}` })
+      }
+      const icon = boardIconSchema.safeParse(file.app.icon)
+      const color = colorSchema.safeParse(file.app.color)
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        const slug = slugify(file.app.name, await takenSlugs(tx, input.teamId))
+        const [app] = await tx
+          .insert(apps)
+          .values({
+            teamId: input.teamId,
+            slug,
+            name: file.app.name,
+            icon: icon.success ? icon.data : null,
+            color: color.success ? color.data : null,
+            description: file.app.description,
+            createdBy: userId,
+          })
+          .returning()
+        const { number } = await writeVersionInTx(tx, app!, file.package, { note: APP_EXPORT_COPY.importNote, sessionId: null, createdBy: userId })
+        if (file.records.length > 0) {
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`app_records:${input.teamId}`}))`)
+          await assertCanCreateAppRecord(input.teamId, tx, file.records.length)
+          await tx.insert(appRecords).values(file.records.map((r) => ({ appId: app!.id, teamId: input.teamId, kind: r.kind, data: r.data, createdBy: userId })))
+        }
+        return { txid: txId, app: { ...app!, headVersion: number }, records: file.records.length }
+      })
     }),
 
   update: authedProcedure
