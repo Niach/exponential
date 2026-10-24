@@ -16,6 +16,9 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.swipe
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
@@ -857,7 +860,7 @@ class StyleguideScreenshotsTest {
         // The row shows while the demo team has open steps (the seed never
         // sets up a server), and opens the block in a bottom sheet.
         flow.waitFor(hasTestTag(GettingStartedCopy.ENTRY_TEST_ID), SYNC_TIMEOUT)
-        composeRule.onNode(hasTestTag(GettingStartedCopy.ENTRY_TEST_ID)).performClick()
+        tapClearOfBar(hasTestTag(GettingStartedCopy.ENTRY_TEST_ID))
         flow.waitFor(hasTestTag("getting-started-sheet"), NAV_TIMEOUT)
         flow.waitFor(hasTestTag(GettingStartedCopy.rowTestId(GettingStartedStepKey.Board)), NAV_TIMEOUT)
         flow.settle()
@@ -866,56 +869,67 @@ class StyleguideScreenshotsTest {
         flow.waitForGone(hasTestTag("getting-started-sheet"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
-        // --- Team settings: one tap deeper (the Team tab's General row), then
-        // back out for the account screen.
-        composeRule.onAllNodes(hasText("General")).onFirst().performScrollTo().performClick()
-        flow.waitFor(hasText("Boards", ignoreCase = true), NAV_TIMEOUT)
-        flow.waitFor(hasText("Repositories", ignoreCase = true), NAV_TIMEOUT)
+        // --- sg_settings-team: #EXP-1381 every Team row opens its OWN page
+        // (settings-nav.json); the Boards page, anchored on the seeded board
+        // it lists (iOS parity).
+        tapClearOfBar(teamSettingsRow("Boards"))
+        flow.waitFor(hasTestTag(SettingsNav.PAGE_TEST_ID), NAV_TIMEOUT)
         flow.waitFor(hasText(TEAM_BOARD_NAME, substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_settings-team")
+        Espresso.closeSoftKeyboard()
+        Espresso.pressBack()
+        flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
+        flow.settle()
 
-        // --- sg_settings-team-agent: Settings → Agents (the team page's
-        // section, EXP-1296) → Triage: its device, account, schedule and the
-        // seeded instructions (fetched, so they are the gate).
+        // --- sg_settings-team-agent: the Team page's Agents row → Triage: its
+        // device, account, schedule and the seeded instructions (fetched, so
+        // they are the gate).
+        tapClearOfBar(teamSettingsRow("Agents"))
         val settingsAgentRow = hasTestTag(SessionTree.ListCopy.TEST_ID_AGENT_ROW) and hasText(AGENT_NAME)
         flow.waitFor(settingsAgentRow, SYNC_TIMEOUT)
-        composeRule.onAllNodes(settingsAgentRow).onFirst().performScrollTo().performClick()
+        tapClearOfBar(settingsAgentRow)
         flow.waitFor(hasTestTag(AgentSettings.TEST_ID_PAGE), NAV_TIMEOUT)
         flow.waitFor(hasTestTag("agent-settings-trigger"), SYNC_TIMEOUT)
         flow.waitFor(hasText(AGENT_INSTRUCTIONS_FRAGMENT, substring = true), NETWORK_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_settings-team-agent")
-        composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.waitFor(hasText(TEAM_BOARD_NAME, substring = true), NAV_TIMEOUT)
+        Espresso.closeSoftKeyboard()
+        Espresso.pressBack()
+        flow.waitFor(settingsAgentRow, NAV_TIMEOUT)
+        Espresso.closeSoftKeyboard()
+        Espresso.pressBack()
+        flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
         flow.settle()
 
-        // --- sg_settings-prompts / sg_settings-prompt (NEW-7): the team
-        // page's Prompts section (prompts replaced actions; the band with
-        // the owner's New prompt pill over one row per prompt), then New
-        // prompt: THE prompt page in create mode (web `settings-prompt`), so
-        // neither shot needs a seeded prompt id.
+        // --- sg_settings-prompts / sg_settings-prompt (NEW-7): the Team page's
+        // Prompts row (the band with the owner's New prompt pill over one row
+        // per prompt), then New prompt: THE prompt page in create mode (web
+        // `settings-prompt`), so neither shot needs a seeded prompt id.
+        tapClearOfBar(teamSettingsRow("Prompts"))
+        flow.waitFor(hasTestTag("prompts-new"), SYNC_TIMEOUT)
         composeRule.onNode(hasTestTag("prompts-new")).performScrollTo()
         flow.waitFor(hasTestTag("prompts-settings-list"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_settings-prompts")
-        composeRule.onNode(hasTestTag("prompts-new")).performClick()
+        tapClearOfBar(hasTestTag("prompts-new"))
         flow.waitFor(hasTestTag("prompt-page"), NAV_TIMEOUT)
         flow.waitFor(hasTestTag("prompt-edit-body"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_settings-prompt")
-        composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.waitFor(hasText(TEAM_BOARD_NAME, substring = true), NAV_TIMEOUT)
+        Espresso.closeSoftKeyboard()
+        Espresso.pressBack()
+        flow.waitFor(hasTestTag("prompts-new"), NAV_TIMEOUT)
         flow.settle()
-
-        composeRule.onNode(hasContentDescription("Back")).performClick()
+        Espresso.closeSoftKeyboard()
+        Espresso.pressBack()
         flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
 
         // --- Account settings: there is no separate profile screen (EXP-311) —
         // the signed-in identity, sign out and delete account live on the
         // server row's detail. The row is titled by the SERVER with the email
         // below, so the email addresses it; "Sign out" only exists there.
-        composeRule.onAllNodes(hasText(DEMO_EMAIL, substring = true)).onFirst().performScrollTo().performClick()
+        tapClearOfBar(hasText(DEMO_EMAIL, substring = true))
         flow.waitFor(hasText("Sign out"), NAV_TIMEOUT)
         flow.waitFor(hasText("Delete account", substring = true), NAV_TIMEOUT)
         flow.settle()
@@ -1154,6 +1168,35 @@ class StyleguideScreenshotsTest {
         composeRule.onAllNodes(row).onFirst().performClick()
         flow.waitForGone(hasTestTag(Chats.TestIds.BOARD_MENU), NAV_TIMEOUT)
         flow.settle(longer = true)
+    }
+
+    /** A Team-page settings row (settings-nav.json) by its label. */
+    private fun teamSettingsRow(label: String): SemanticsMatcher =
+        hasTestTag(SettingsNav.ROW_TEST_ID) and (hasText(label) or hasAnyDescendant(hasText(label)))
+
+    /**
+     * Tap a row on a page under the floating tab bar: `performClick` touches the
+     * node's centre, so a row scrolled only just into view (under the bar) would
+     * hit the bar instead. Scroll it in, then drag the page up by the overlap.
+     */
+    private fun tapClearOfBar(matcher: SemanticsMatcher) {
+        val node = composeRule.onAllNodes(matcher).onFirst()
+        node.performScrollTo()
+        flow.settle()
+        val bar = composeRule.onAllNodes(hasTestTag(Chats.TestIds.TAB_TEAM)).fetchSemanticsNodes()
+        if (bar.isNotEmpty()) {
+            // The tab sits inside the capsule; keep a margin above the capsule.
+            val clearLine = bar.first().boundsInRoot.top - 48f
+            val bottom = node.fetchSemanticsNode().boundsInRoot.bottom
+            if (bottom > clearLine) {
+                val dy = bottom - clearLine + 96f
+                composeRule.onRoot().performTouchInput {
+                    swipe(Offset(centerX, centerY), Offset(centerX, centerY - dy), durationMillis = 600)
+                }
+                flow.settle()
+            }
+        }
+        node.performClick()
     }
 
     /**

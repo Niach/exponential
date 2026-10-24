@@ -3207,8 +3207,8 @@
         "file": "shots/getting-started/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 26828,
-        "sha256": "3331d31c403f279159ed8a7b758626cdcc99dff9f01684d9ab1bd4b0f505ce14"
+        "bytes": 27026,
+        "sha256": "2f11f8bafd0162204752e939768c31964b03acb110de59c02fd9f38636630bf0"
       },
       "desktop": {
         "file": "shots/getting-started/desktop.webp",
@@ -4485,8 +4485,8 @@
         "file": "shots/settings-prompts/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 36366,
-        "sha256": "d7aeb53c94113313b920751f3230b5604661ff080414184eb44b8e0ff57865d7"
+        "bytes": 14984,
+        "sha256": "8011073837f6276094f481a1168816cc41a224bb81abad54186bb071cf1916a7"
       },
       "desktop": {
         "file": "shots/settings-prompts/desktop.webp",
@@ -4614,8 +4614,8 @@
         "file": "shots/settings-team/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 36366,
-        "sha256": "d7aeb53c94113313b920751f3230b5604661ff080414184eb44b8e0ff57865d7"
+        "bytes": 15278,
+        "sha256": "733339b7dbd57e8e7cc960a6c61f75ce0f283d7ffa9183ecfdd436f236f73114"
       },
       "ios": {
         "file": "shots/settings-team/ios.webp",
