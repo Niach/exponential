@@ -1,0 +1,166 @@
+{
+  "$comment": "NEW-52 exponentialTalk spike numbers. Synthetic clips: the 20 phrases of data/phrases.json spoken by Kokoro (en) and Qwen3-TTS 1.7B (de + en); no human recordings yet (scripts/record.sh). WER is scored against the spoken form; identifiers like 'E X P twelve forty two' count word by word, which penalises engines that normalise them to 'exp1242'.",
+  "machine": "macbook (Apple M4 Pro, 10P+4E cores, 24 GB, macOS 27.0)",
+  "platform": "macOS-27.0-arm64-arm-64bit",
+  "asr": [
+    {
+      "engine": "whistle (cactus-rs 0.2.1), CPU",
+      "clips": "whistle-kokoro-en",
+      "wer": 24.1,
+      "first_partial_audio_ms_median": 2783.5,
+      "tail_ms_median": 16.0,
+      "tail_ms_max": 54,
+      "rtf_median": 0.006,
+      "load_ms": 1493,
+      "wall_ms_median": null
+    },
+    {
+      "engine": "whistle (cactus-rs 0.2.1), CPU",
+      "clips": "whistle-qwen17b-en",
+      "wer": 27.6,
+      "first_partial_audio_ms_median": 3040.0,
+      "tail_ms_median": 12.0,
+      "tail_ms_max": 26,
+      "rtf_median": 0.004,
+      "load_ms": 15,
+      "wall_ms_median": null
+    },
+    {
+      "engine": "whistle (cactus-rs 0.2.1), CPU",
+      "clips": "whistle-qwen17b-de",
+      "wer": 27.2,
+      "first_partial_audio_ms_median": 3360.0,
+      "tail_ms_median": 18.5,
+      "tail_ms_max": 29,
+      "rtf_median": 0.005,
+      "load_ms": 13,
+      "wall_ms_median": null
+    },
+    {
+      "engine": "zipformer streaming en-2023-06-26 (sherpa-onnx), CPU 4 threads",
+      "clips": "zipformer-en-kokoro",
+      "wer": 13.8,
+      "first_partial_audio_ms_median": 800,
+      "tail_ms_median": 18.5,
+      "tail_ms_max": 24,
+      "rtf_median": 0.032,
+      "load_ms": 826,
+      "wall_ms_median": null
+    },
+    {
+      "engine": "zipformer streaming en-2023-06-26 (sherpa-onnx), CPU 4 threads",
+      "clips": "zipformer-qwen17b-en",
+      "wer": 21.8,
+      "first_partial_audio_ms_median": 1200.0,
+      "tail_ms_median": 7.0,
+      "tail_ms_max": 15,
+      "rtf_median": 0.024,
+      "load_ms": 740,
+      "wall_ms_median": null
+    }
+  ],
+  "tts": [
+    {
+      "engine": "kokoro v1.0 (sherpa-onnx 2.0, lexicon, no espeak-ng), CPU 4 threads",
+      "clips": 10,
+      "ttfa_ms_median": 599.0,
+      "wall_ms_median": 599.0,
+      "rtf_median": 0.215,
+      "load_ms": 563
+    }
+  ],
+  "vad": [
+    {
+      "engine": "silero-vad (sherpa-onnx)",
+      "clips": 10,
+      "segments": 10,
+      "eou_lag_ms_median": 500.0,
+      "compute_ms_per_clip_median": 7.5
+    }
+  ],
+  "kws": [
+    {
+      "engine": "sherpa-onnx kws zipformer zh-en 3M",
+      "clips": 10,
+      "hits": [
+        [
+          "en-01.wav",
+          "HEY",
+          700
+        ]
+      ],
+      "rtf_median": 0.008
+    }
+  ],
+  "manual": {
+    "os_voice_macos_say": {
+      "engine": "macOS `say` (AVSpeechSynthesizer), voices Anna de_DE + Samantha en_US, the compact voices installed by default (no Enhanced/Premium voice downloaded), --data-format=LEI16@16000 -o <wav>",
+      "clips": 20,
+      "wall_ms_median_de": 1107.0,
+      "wall_ms_median_en": 840.0,
+      "wall_ms_min": 748,
+      "wall_ms_max": 4016,
+      "rtf_median_de": 0.387,
+      "rtf_median_en": 0.332,
+      "rss_kb_max_client": 32032,
+      "note": "wall = request → whole clip on disk (say -o does not stream); the very first Anna call took 4.0 s (voice load), every later call ~1.0-1.1 s for Anna and ~0.75-0.98 s for Samantha regardless of length, so the per-call floor is ~0.75 s of process+engine start, not synthesis. RSS is the say client only: synthesis runs in the system speech daemon.",
+      "transcribed": {
+        "whistle_en_wer": 31.0,
+        "whistle_de_wer": 45.7,
+        "zipformer_en_wer": 24.1,
+        "whistle_tail_ms_median": 17.0,
+        "zipformer_tail_ms_median": 7.5
+      },
+      "quality": "not judged by ear in this session (the agent cannot listen; clips are in out/os-voice-mac for Danny: `afplay out/os-voice-mac/de-01.wav`). Proxy: Whistle hears Anna's German at 45.7 % WER against 27.2 % for Qwen3-TTS's German, and the Zipformer hears Samantha at 24.1 % against 13.8 % for Kokoro, so both compact voices are harder for the recognisers than the neural engines; Anna is the 2000s concatenative voice."
+    },
+    "qwen3_tts_1_7b_q4km_llama_cpp_metal": {
+      "engine": "Qwen3-TTS-12Hz-1.7B-Base Q4_K_M + mmproj Q8_0 (ggml-org), llama-tts b11846 macOS arm64, Metal on Apple M4 Pro",
+      "clips": 20,
+      "model_rtf_median": 0.569,
+      "model_rtf_median_de": 0.609,
+      "model_rtf_median_en": 0.565,
+      "model_total_s_median": 1.835,
+      "model_total_s_min": 0.98,
+      "model_total_s_max": 3.85,
+      "vocoder_s": 0.67,
+      "process_wall_ms_median": 2736.0,
+      "audio_s_total": 64.6,
+      "rss_kb_max": 6892640,
+      "cpu_only_de_01": {
+        "flag": "-dev none",
+        "model_total_s": 3.82,
+        "prompt_s": 0.06,
+        "generation_s": 0.75,
+        "vocoder_s": 3.01,
+        "audio_s": 2.8,
+        "model_rtf": 1.364,
+        "process_wall_s": 5.17,
+        "rss_kb_max": 8451328,
+        "note": "the vocoder is the CPU cost (3.0 s vs 0.67 s on Metal); slower than real time, as on mint's CPU"
+      },
+      "transcribed": {
+        "whistle_en_wer": 27.6,
+        "whistle_de_wer": 27.2,
+        "zipformer_en_wer": 21.8
+      },
+      "note": "not streaming: total = prompt eval + generation + vocoder for the whole utterance; process wall adds ~0.8-1.0 s of model load per call (a resident worker pays it once; the first call paid 2.3 s more). RSS 6.9 GB is unified memory (Metal maps the weights into the process). German: all 10 de clips generated; quality not judged by ear here."
+    },
+    "vad_knob": {
+      "min_silence_0_5_s": "end-of-utterance lag 500 ms on every clip (Kokoro and say sets)",
+      "min_silence_0_3_s": "300 ms"
+    },
+    "kws_exponential": "EXPONENTIAL / HEY_EXPONENTIAL / EXPO never fired on the Kokoro set, plain or boosted 2.5x at threshold 0.05 (same as mint); HEY fired on en-01 at 700 ms; on the say set STOP fired on en-01 at 1600 ms and HEY did not",
+    "peak_rss_kb": {
+      "kokoro_10_clips": 767072,
+      "zipformer_10_clips": 714288,
+      "whistle_10_clips": 59744,
+      "say_client": 32032
+    },
+    "not_measured": [
+      "Nemotron 3.5 (transcribe.cpp has no macOS Metal build in the time box; CUDA-only on mint)",
+      "channels (CoreAudio per-app capture needs a tap, not tried)",
+      "human recordings",
+      "false accepts per hour"
+    ]
+  }
+}
