@@ -6,30 +6,30 @@
       "host": "darwin-arm64",
       "entries": {
         "@exponential_app/ui/index": {
-          "bytes": 402522,
-          "gzip": 113943,
+          "bytes": 403614,
+          "gzip": 112766,
           "parts": {
-            "index.js": 74579,
-            "chunks/index-8cz6cxqc.js": 110991,
-            "chunks/index-gz6r1stk.js": 124382,
-            "chunks/index-zyw6as1c.js": 11815,
-            "chunks/index-2dv34xze.js": 80755
+            "index.js": 75970,
+            "chunks/index-1n9yn0kq.js": 80663,
+            "chunks/index-hakgb7qn.js": 123919,
+            "chunks/index-1wb9k276.js": 11809,
+            "chunks/index-8knpm47y.js": 111253
           }
         },
         "@exponential_app/ui-react/index": {
-          "bytes": 140150,
-          "gzip": 48701,
+          "bytes": 140230,
+          "gzip": 48362,
           "parts": {
-            "index.js": 137161,
-            "chunks/index-gtejaxjh.js": 2989
+            "index.js": 137276,
+            "chunks/index-6m2nd6yt.js": 2954
           }
         },
         "@exponential_app/ui-react/primitives": {
-          "bytes": 54977,
-          "gzip": 15541,
+          "bytes": 54936,
+          "gzip": 15389,
           "parts": {
-            "primitives/index.js": 51988,
-            "chunks/index-gtejaxjh.js": 2989
+            "primitives/index.js": 51982,
+            "chunks/index-6m2nd6yt.js": 2954
           }
         },
         "@exponential_app/ui-react/styles.css": {
@@ -37,57 +37,57 @@
           "gzip": 13836
         },
         "@exponential_app/ui/prompt": {
-          "bytes": 134021,
-          "gzip": 33708,
+          "bytes": 133883,
+          "gzip": 33776,
           "parts": {
-            "entries/prompt.js": 8100,
-            "chunks/index-wkfqcka2.js": 45166,
-            "chunks/index-2dv34xze.js": 80755
+            "entries/prompt.js": 8065,
+            "chunks/index-1n9yn0kq.js": 80663,
+            "chunks/index-88w53wtc.js": 45155
           }
         },
         "@exponential_app/ui/schema": {
-          "bytes": 171305,
-          "gzip": 41861,
+          "bytes": 171167,
+          "gzip": 41697,
           "parts": {
-            "entries/schema.js": 33569,
-            "chunks/index-wkfqcka2.js": 45166,
-            "chunks/index-2dv34xze.js": 80755,
-            "chunks/index-zyw6as1c.js": 11815
+            "entries/schema.js": 33540,
+            "chunks/index-1n9yn0kq.js": 80663,
+            "chunks/index-88w53wtc.js": 45155,
+            "chunks/index-1wb9k276.js": 11809
           }
         },
         "@exponential_app/ui/conformance": {
-          "bytes": 2038389,
-          "gzip": 180489,
+          "bytes": 2037777,
+          "gzip": 180384,
           "parts": {
-            "conformance.js": 1821437,
-            "chunks/index-gz6r1stk.js": 124382,
-            "chunks/index-zyw6as1c.js": 11815,
-            "chunks/index-2dv34xze.js": 80755
+            "conformance.js": 1821386,
+            "chunks/index-1n9yn0kq.js": 80663,
+            "chunks/index-hakgb7qn.js": 123919,
+            "chunks/index-1wb9k276.js": 11809
           }
         },
         "@exponential_app/ui/host": {
-          "bytes": 329973,
-          "gzip": 87023,
+          "bytes": 329356,
+          "gzip": 85885,
           "parts": {
-            "host/index.js": 2030,
-            "chunks/index-8cz6cxqc.js": 110991,
-            "chunks/index-gz6r1stk.js": 124382,
-            "chunks/index-zyw6as1c.js": 11815,
-            "chunks/index-2dv34xze.js": 80755
+            "host/index.js": 1712,
+            "chunks/index-8knpm47y.js": 111253,
+            "chunks/index-1n9yn0kq.js": 80663,
+            "chunks/index-hakgb7qn.js": 123919,
+            "chunks/index-1wb9k276.js": 11809
           }
         },
         "@exponential_app/ui/web": {
-          "bytes": 82718,
-          "gzip": 23182,
+          "bytes": 82705,
+          "gzip": 22936,
           "parts": {
-            "web/index.js": 82718
+            "web/index.js": 82705
           }
         },
         "@exponential_app/ui/web/primitives": {
-          "bytes": 54073,
-          "gzip": 14856,
+          "bytes": 54069,
+          "gzip": 14811,
           "parts": {
-            "web/primitives/index.js": 54073
+            "web/primitives/index.js": 54069
           }
         },
         "@exponential_app/ui-solid/index": {
@@ -111,19 +111,19 @@
           "gzip": 13836
         },
         "@exponential_app/ui-element/index": {
-          "bytes": 15283,
-          "gzip": 5735,
+          "bytes": 15192,
+          "gzip": 5624,
           "parts": {
             "index.js": 416,
-            "chunks/index-nqfnepbw.js": 14867
+            "chunks/index-r3gz09sf.js": 14776
           }
         },
         "@exponential_app/ui-element/define": {
-          "bytes": 15372,
-          "gzip": 5768,
+          "bytes": 15196,
+          "gzip": 5627,
           "parts": {
-            "define.js": 505,
-            "chunks/index-nqfnepbw.js": 14867
+            "define.js": 420,
+            "chunks/index-r3gz09sf.js": 14776
           }
         },
         "@exponential_app/ui-element/standalone.js": {
