@@ -564,12 +564,18 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
                 .messages
                 .iter()
                 .any(|m| m.session_id == session_id && is_open_own_plan_card(m) && !view.handed.contains(&m.id));
+        // #EXP-1383: an agent's leading `/new` is no turn a switch could
+        // carry ([`switch_session`] keeps it pending for [`deliver`]'s
+        // restart): planning one for it would loop on `AlreadyOn` forever.
+        let carries_turn = rows.get(session_id).map_or(!fresh.is_empty(), |row| {
+            fresh.first().is_some_and(|m| !(row.is_persistent() && is_new_conversation(m)))
+        });
         let switch =
-            rows.get(session_id).and_then(|row| switch_target(row, view, !fresh.is_empty()).map(|account| (*row, account)));
+            rows.get(session_id).and_then(|row| switch_target(row, view, carries_turn).map(|account| (*row, account)));
         // EXP-1334: else the row's options moved past the engine's.
         let switch = switch.or_else(|| {
             rows.get(session_id)
-                .filter(|row| reconfigure_due(row, view, !fresh.is_empty(), plan_card))
+                .filter(|row| reconfigure_due(row, view, carries_turn, plan_card))
                 .map(|row| (*row, String::new()))
         });
         if let Some((row, account)) = switch {
@@ -3807,6 +3813,23 @@ mod tests {
 
     fn new_command(id: &str, session_id: &str, created_at: &str) -> MessageRow {
         MessageRow { body: Some(" /new ".to_string()), ..message(id, session_id, created_at) }
+    }
+
+    /// A live agent root whose row asks for a between-turn restart: its
+    /// `/new` alone is no turn a reconfigure could carry (the switch keeps
+    /// it pending, so planning one looped on `AlreadyOn`), it is delivered;
+    /// a message before it still carries the reconfigure.
+    #[test]
+    fn an_agent_new_is_delivered_not_planned_as_a_reconfigure() {
+        let launched = SessionRow { agent_id: Some("ag-1".to_string()), ..session("sess-1", "idle", DEV, "t") };
+        let row = SessionRow { effort: Some("high".to_string()), ..launched.clone() };
+        let view = LiveView { options: Some(LaunchedOptions::of(&launched, Some(Vec::new()))), ..LiveView::default() };
+        let alone = Pass::new(vec![row.clone()], vec![new_command("n1", "sess-1", "t1")]).live("sess-1", view.clone()).run();
+        assert!(matches!(alone.as_slice(), [PickupAction::Deliver { .. }]), "{alone:?}");
+        let behind = Pass::new(vec![row], vec![message("m1", "sess-1", "t1"), new_command("n1", "sess-1", "t2")])
+            .live("sess-1", view)
+            .run();
+        assert!(matches!(behind.as_slice(), [PickupAction::Switch { account, .. }] if account.is_empty()), "{behind:?}");
     }
 
     /// An agent root's run record (kind `agent`) with an old conversation
