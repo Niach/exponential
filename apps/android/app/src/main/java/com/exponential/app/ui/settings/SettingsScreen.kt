@@ -248,7 +248,7 @@ fun SettingsScreen(
 // A navigational glass row: leading icon (22dp, secondary), title (+ optional
 // subtitle), then a trailing chevron (quaternary) by default. iOS settingsRow.
 @Composable
-private fun SettingsRow(
+internal fun SettingsRow(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,

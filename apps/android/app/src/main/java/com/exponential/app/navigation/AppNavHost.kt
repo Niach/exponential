@@ -108,6 +108,7 @@ import com.exponential.app.ui.settings.AgentsSettingsScreen
 import com.exponential.app.ui.session.AgentsScreen
 import com.exponential.app.ui.settings.AboutScreen
 import com.exponential.app.ui.settings.ServerDetailScreen
+import com.exponential.app.ui.settings.VoiceSettingsScreen
 import com.exponential.app.ui.settings.SettingsScreen
 import com.exponential.app.ui.settings.TeamTabScreen
 import com.exponential.app.ui.settings.SyncDiagnosticsScreen
@@ -810,7 +811,16 @@ private fun AuthenticatedNav(
         }
         composable("server/{accountId}") { entry ->
             val accountId = entry.arguments?.getString("accountId").orEmpty()
-            ServerDetailScreen(accountId = accountId, onBack = { navController.popBackStack() })
+            ServerDetailScreen(
+                accountId = accountId,
+                onBack = { navController.popBackStack() },
+                onOpenVoice = { navController.navigate("server/$accountId/voice") },
+            )
+        }
+        // NEW-67: the account's Settings → Voice page (`voice.json`); the
+        // ViewModel reads `accountId` off the SavedStateHandle.
+        composable("server/{accountId}/voice") {
+            VoiceSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable(
             // #EXP-1381 (settings-nav.json): ONE team settings category per

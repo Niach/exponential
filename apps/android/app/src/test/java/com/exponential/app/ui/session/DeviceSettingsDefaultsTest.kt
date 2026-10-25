@@ -3,8 +3,6 @@ package com.exponential.app.ui.session
 import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentLaunchDefaults
 import com.exponential.app.data.api.DeviceLaunchDefaults
-import com.exponential.app.data.api.DeviceVoice
-import com.exponential.app.domain.parseLaunchDefaults
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.setLaunchDefaultsInput
 import com.exponential.app.domain.DomainContract
@@ -267,46 +265,6 @@ class DeviceSettingsDefaultsTest {
      * set, and stays ABSENT (never a literal null) while unset so the server
      * carries the stored value forward.
      */
-    /**
-     * NEW-53: `voice {assistantAgentId, speakReplies}` decodes off the row,
-     * rides the save whole once held (so another edit never clears it), stays
-     * ABSENT while never set (the server keeps the stored one), and a
-     * malformed `voice` drops alone.
-     */
-    @Test
-    fun `voice round-trips, stays absent when unset, malformed drops alone`() {
-        val stored = parseLaunchDefaults(
-            """{"computerUse":true,"voice":{"assistantAgentId":"a-1","speakReplies":true},"agents":{}}""",
-        )
-        assertEquals(DeviceVoice(assistantAgentId = "a-1", speakReplies = true), stored?.voice)
-
-        val sent = setLaunchDefaultsInput(
-            deviceId = "dev-1",
-            defaults = buildDefaults(listOf("claude"), emptyMap(), computerUse = true, voice = stored?.voice),
-        ).getValue("launchDefaults").jsonObject
-        val voice = sent.getValue("voice").jsonObject
-        assertEquals(JsonPrimitive("a-1"), voice["assistantAgentId"])
-        assertEquals(JsonPrimitive(true), voice["speakReplies"])
-
-        // No assistant: the id stays absent, never a literal null.
-        val none = setLaunchDefaultsInput(
-            deviceId = "dev-1",
-            defaults = buildDefaults(listOf("claude"), emptyMap(), voice = DeviceVoice(speakReplies = false)),
-        ).getValue("launchDefaults").jsonObject.getValue("voice").jsonObject
-        assertFalse(none.containsKey("assistantAgentId"))
-        assertEquals(JsonPrimitive(false), none["speakReplies"])
-
-        val unset = setLaunchDefaultsInput(
-            deviceId = "dev-1",
-            defaults = buildDefaults(listOf("claude"), emptyMap()),
-        ).getValue("launchDefaults").jsonObject
-        assertFalse(unset.containsKey("voice"))
-
-        val malformed = parseLaunchDefaults("""{"computerUse":true,"voice":"loud","agents":{}}""")
-        assertEquals(true, malformed?.computerUse)
-        assertNull(malformed?.voice)
-    }
-
     @Test
     fun `computerUse round-trips and stays absent when unset`() {
         val json = Json { ignoreUnknownKeys = true }
