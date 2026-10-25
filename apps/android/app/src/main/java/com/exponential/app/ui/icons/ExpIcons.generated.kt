@@ -8740,6 +8740,7 @@ public object ExpIcons {
         "settings-storage" -> `hard-drive`
         "settings-sync" -> `refresh-cw`
         "settings-tools" -> `square-terminal`
+        "settings-voice" -> `mic`
         "settings-widget" -> `message-square-plus`
         "status-backlog" -> `circle-dashed`
         "status-cancelled" -> `circle-x`
@@ -9163,6 +9164,8 @@ public object ExpIcons {
     public val settingsSync: ImageVector get() = `refresh-cw`
     /** Concept `settings-tools`. */
     public val settingsTools: ImageVector get() = `square-terminal`
+    /** Concept `settings-voice`. */
+    public val settingsVoice: ImageVector get() = `mic`
     /** Concept `settings-widget`. */
     public val settingsWidget: ImageVector get() = `message-square-plus`
     /** Concept `status-backlog`. */

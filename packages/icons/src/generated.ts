@@ -580,6 +580,7 @@ export const SEMANTIC_ICONS = {
   "settings-storage": `hard-drive`,
   "settings-sync": `refresh-cw`,
   "settings-tools": `square-terminal`,
+  "settings-voice": `mic`,
   "settings-widget": `message-square-plus`,
   "status-backlog": `circle-dashed`,
   "status-cancelled": `circle-x`,

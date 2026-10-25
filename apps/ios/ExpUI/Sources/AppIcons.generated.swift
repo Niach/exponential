@@ -549,6 +549,7 @@ public enum AppIcons {
         "settings-storage": "hard-drive",
         "settings-sync": "refresh-cw",
         "settings-tools": "square-terminal",
+        "settings-voice": "mic",
         "settings-widget": "message-square-plus",
         "status-backlog": "circle-dashed",
         "status-cancelled": "circle-x",
@@ -977,6 +978,8 @@ public enum AppIcons {
     public static let settingsSync: String = "refresh-cw"
     /// Concept `settings-tools`.
     public static let settingsTools: String = "square-terminal"
+    /// Concept `settings-voice`.
+    public static let settingsVoice: String = "mic"
     /// Concept `settings-widget`.
     public static let settingsWidget: String = "message-square-plus"
     /// Concept `status-backlog`.

@@ -691,6 +691,8 @@ pub const SETTINGS_STORAGE: ExpIcon = ExpIcon::HardDrive;
 pub const SETTINGS_SYNC: ExpIcon = ExpIcon::RefreshCw;
 /// Registry concept `settings-tools` -> Lucide `square-terminal`.
 pub const SETTINGS_TOOLS: ExpIcon = ExpIcon::SquareTerminal;
+/// Registry concept `settings-voice` -> Lucide `mic`.
+pub const SETTINGS_VOICE: ExpIcon = ExpIcon::Mic;
 /// Registry concept `settings-widget` -> Lucide `message-square-plus`.
 pub const SETTINGS_WIDGET: ExpIcon = ExpIcon::MessageSquarePlus;
 /// Registry concept `status-backlog` -> Lucide `circle-dashed`.
@@ -1110,6 +1112,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "settings-storage" => SETTINGS_STORAGE,
         "settings-sync" => SETTINGS_SYNC,
         "settings-tools" => SETTINGS_TOOLS,
+        "settings-voice" => SETTINGS_VOICE,
         "settings-widget" => SETTINGS_WIDGET,
         "status-backlog" => STATUS_BACKLOG,
         "status-cancelled" => STATUS_CANCELLED,

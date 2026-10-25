@@ -158,6 +158,7 @@
     "settings-sessions": "history",
     "settings-account": "circle-user",
     "settings-notifications": "bell",
+    "settings-voice": "mic",
     "settings-api": "key",
     "settings-servers": "server",
     "settings-mcp": "plug",
