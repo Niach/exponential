@@ -298,7 +298,7 @@ private fun AppPreviewPane(
             if (pkg != null) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Apps.Preview.PADDING.dp)) {
                     // A new package = a new host (the key): every synced upsert repaints.
-                    androidx.compose.runtime.key(pkg) { AppPackageSurface(pkg, onOpenIssue, appId, teamId, me) }
+                    androidx.compose.runtime.key(pkg, viewing) { AppPackageSurface(pkg, onOpenIssue, appId, teamId, me, grants = viewing == null) }
                 }
             } else {
                 EmptyState(
@@ -314,7 +314,7 @@ private fun AppPreviewPane(
 
 /** One package's first template on the app host (`applyTemplate`). */
 @Composable
-private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit, appId: String, teamId: String?, me: String?) {
+private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit, appId: String, teamId: String?, me: String?, grants: Boolean) {
     val parsed = remember(packageJson) { runCatching { JsonValue.parse(packageJson) }.getOrNull() }
     val packageId = parsed?.get("id")?.string
     val templateId = parsed?.get("templates")?.obj?.keys?.firstOrNull()
@@ -327,6 +327,7 @@ private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit
         teamId = teamId,
         me = me,
         themeId = parsed?.get("theme")?.string,
+        grants = grants,
     )
     LaunchedEffect(host, packageId, templateId) {
         if (packageId != null && templateId != null) {

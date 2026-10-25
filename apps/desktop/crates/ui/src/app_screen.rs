@@ -242,7 +242,9 @@ impl AppScreenView {
     /// the package), so every synced upsert repaints.
     fn sync_preview(&mut self, cx: &mut gpui::Context<Self>) {
         let pkg = self.shown_package();
-        let key = pkg.as_ref().map(Value::to_string).unwrap_or_default();
+        // The key carries the viewing flag: the head's host reads the grants,
+        // an older version's never does (a grant is about the HEAD package).
+        let key = format!("{}:{}", self.viewing.is_some(), pkg.as_ref().map(Value::to_string).unwrap_or_default());
         if self.preview.as_ref().map(|p| p.key.as_str()) == Some(key.as_str()) {
             return;
         }
@@ -256,6 +258,7 @@ impl AppScreenView {
         let scope = self.app.as_ref().map(|app| crate::exponential_ui_host::HostScope {
             app_id: app.id.clone(),
             team_id: app.row.as_ref().and_then(|row| row.team_id.clone()),
+            grants: self.viewing.is_none(),
         });
         let ide = IdeHost::with_packages(ide_mode(cx), std::slice::from_ref(&pkg), Some(&theme), scope, cx);
         if let Some(message) = apply_template_message(&pkg) {

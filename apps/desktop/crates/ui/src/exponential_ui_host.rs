@@ -167,6 +167,9 @@ enum Query {
 pub(crate) struct HostScope {
     pub(crate) app_id: String,
     pub(crate) team_id: Option<String>,
+    /// Release train 2026-10-25: the row's grants apply (the HEAD package);
+    /// an older version's preview runs with none, like the web.
+    pub(crate) grants: bool,
 }
 
 /// One synced `app_records` row as the cache holds it (timestamps as the
@@ -829,7 +832,7 @@ pub(crate) fn call_granted(name: &str, args: &Value, granted: &[String]) -> bool
 
 /// The hosting app's live `granted_tools` (no scope / no row = none).
 fn scope_grants(scope: Option<&HostScope>, cx: &App) -> Vec<String> {
-    let (Some(scope), Some(store)) = (scope, sync::Store::try_global(cx)) else {
+    let (Some(scope), Some(store)) = (scope.filter(|scope| scope.grants), sync::Store::try_global(cx)) else {
         return Vec::new();
     };
     store
@@ -1313,7 +1316,7 @@ mod tests {
 
     fn records_feed() -> RecordsFeed {
         RecordsFeed {
-            scope: Some(HostScope { app_id: "a1".into(), team_id: Some("t1".into()) }),
+            scope: Some(HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true }),
             me: Some("u1".into()),
             records: vec![record("r1", "a1", 3, "u1"), record("r2", "a2", 4, "u2"), record("r3", "a3", 5, "u2")],
             apps: vec![
@@ -1426,7 +1429,7 @@ mod tests {
             ]), cx);
         });
         let ide = cx.update(|cx| {
-            let scope = HostScope { app_id: "a1".into(), team_id: Some("t1".into()) };
+            let scope = HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true };
             IdeHost::with_packages(Mode::Dark, &[], None, Some(scope), cx)
         });
         let feeds = ide._feeds.clone();

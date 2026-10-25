@@ -18,14 +18,17 @@ struct AppPreview: View {
     /// `harness.records.*` writes the app's own rows).
     var appId: String?
     var teamId: String?
+    /// Release train 2026-10-25: the row's grants are about the HEAD
+    /// package; an older version's preview runs with none (web alike).
+    var grants = true
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Apps.Preview.radius)
         ScrollView {
             Group {
                 if let packageJSON {
-                    AppPackageSurface(packageJSON: packageJSON, appId: appId, teamId: teamId)
-                        .id(packageJSON)
+                    AppPackageSurface(packageJSON: packageJSON, appId: appId, teamId: teamId, grants: grants)
+                        .id("\(grants):\(packageJSON)")
                 } else {
                     EmptyState(title: Apps.Copy.previewEmpty, icon: AppIcons.navApps, size: .page)
                         .frame(maxWidth: .infinity, minHeight: 192)
@@ -50,6 +53,7 @@ private struct AppPackageSurface: View {
     let packageJSON: String
     let appId: String?
     let teamId: String?
+    let grants: Bool
 
     #if canImport(ExponentialUI)
     @Environment(AppDependencies.self) private var deps
@@ -85,6 +89,7 @@ private struct AppPackageSurface: View {
             accountId: accountId,
             deps: deps,
             consent: consent,
+            grants: grants,
             onOpenIssue: { [pushRoute, accountId] issueId in
                 pushRoute(.issue(accountId: accountId, id: issueId))
             }
