@@ -82,6 +82,20 @@ export interface ParsedAppImport {
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === `object` && v !== null && !Array.isArray(v)
 
+/** Iteratively: does any value sit deeper than `max` levels? (The package and
+ *  record validators and `JSON.stringify` recurse; a hostile file nested
+ *  thousands deep would overflow the stack in them.) */
+function nestedDeeperThan(root: unknown, max: number): boolean {
+  const stack: [unknown, number][] = [[root, 1]]
+  while (stack.length > 0) {
+    const [value, depth] = stack.pop()!
+    if (typeof value !== `object` || value === null) continue
+    if (depth > max) return true
+    for (const child of Object.values(value)) stack.push([child, depth + 1])
+  }
+  return false
+}
+
 /** The structural half of an import: JSON, the format, the app identity,
  *  the package's presence and the records' shape. A bare package (an object
  *  with `templates` and no `format`) is accepted and named by its `name`. */
@@ -98,6 +112,9 @@ export function parseAppImport(text: string): ParsedAppImport {
     return fail([{ path: `/`, message: `is not JSON` }])
   }
   if (!isObject(value)) return fail([{ path: `/`, message: `must be an app file {format, app, package} or a package` }])
+  if (nestedDeeperThan(value, APP_EXPORT_LIMITS.maxDepth)) {
+    return fail([{ path: `/`, message: `is nested deeper than ${APP_EXPORT_LIMITS.maxDepth} levels` }])
+  }
   if (value.format === undefined && `templates` in value) {
     const name = typeof value.name === `string` && value.name.trim() ? value.name.trim().slice(0, APP_NAME_MAX) : `Imported app`
     return { issues: [], file: { app: { name, icon: null, color: null, description: `` }, package: value, records: [] } }

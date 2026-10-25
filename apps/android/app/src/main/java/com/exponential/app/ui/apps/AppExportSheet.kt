@@ -111,7 +111,7 @@ fun AppExportSheet(app: AppListEntry, records: List<AppRecordEntity>, onDismiss:
     }
 }
 
-/** The file for [app] under the cache's export dir (one file per slug). */
+/** The file for [app] under the cache's export dir (the latest export only). */
 private fun writeAppExport(context: Context, app: AppListEntry, records: List<AppRecordEntity>, includeRecords: Boolean): File {
     val pkg = JsonValue.parse(app.packageJson ?: error("no version yet"))
     val file = AppExport.buildAppExport(
@@ -128,6 +128,8 @@ private fun writeAppExport(context: Context, app: AppListEntry, records: List<Ap
         includeRecords = includeRecords,
     )
     val dir = File(context.cacheDir, EXPORT_DIR).apply { mkdirs() }
+    // Only the latest export stays in the cache (the share intent holds its grant).
+    dir.listFiles()?.forEach { it.delete() }
     return File(dir, AppExport.appExportFileName(app.slug)).apply { writeText(AppExport.appExportText(file)) }
 }
 

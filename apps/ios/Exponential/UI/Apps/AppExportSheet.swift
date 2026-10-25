@@ -20,6 +20,8 @@ struct AppExportSheet: View {
     @State private var includeRecords = false
     @State private var records: [AppRecordEntity] = []
     @State private var share: ShareTarget?
+    /// The temporary file's directory, removed once the share sheet closes.
+    @State private var exportedDir: URL?
 
     var body: some View {
         GlassSheetChrome(
@@ -49,7 +51,11 @@ struct AppExportSheet: View {
         .accessibilityIdentifier(AppExport.TestIds.dialog)
         .task(id: app.id) { loadRecords() }
         // The share sheet is the system's (iOS: Export = the share sheet).
-        .sheet(item: $share, onDismiss: { dismiss() }) { target in
+        .sheet(item: $share, onDismiss: {
+            if let exportedDir { try? FileManager.default.removeItem(at: exportedDir) }
+            exportedDir = nil
+            dismiss()
+        }) { target in
             ActivityShareSheet(items: [target.url])
         }
     }
@@ -79,6 +85,7 @@ struct AppExportSheet: View {
                 includeRecords: includeRecords
             )
             let url = try AppExport.writeTemporaryFile(slug: app.slug, file: file)
+            exportedDir = url.deletingLastPathComponent()
             share = ShareTarget(url: url, text: AppExport.fileName(slug: app.slug))
         } catch {
             toaster.error(
