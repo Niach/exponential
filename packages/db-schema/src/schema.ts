@@ -985,7 +985,20 @@ export interface DeviceLaunchDefaults {
    * (contract `computerUseModel`); absent = contract
    * `deviceComputerUseDefaults.model`. Same carry-forward as `computerUse`. */
   computerUseModel?: string | null
+  /** NEW-53: exponentialTalk on this device (Settings → Device → Voice).
+   * Device-level like `computerUse`; a save WITHOUT the key keeps the stored
+   * one (older clients and the device's own pushes never send it), an
+   * explicit `null` clears it. */
+  voice?: DeviceVoice | null
   agents?: Record<string, DeviceAgentLaunchDefaults>
+}
+/** NEW-53: the member's voice settings on one device (`voice.json`). */
+export interface DeviceVoice {
+  /** The agent whose conversation answers this member's voice (one of the
+   * member's own agent conversations); absent = no assistant. */
+  assistantAgentId?: string
+  /** Speak the assistant's final reply aloud on this device. */
+  speakReplies?: boolean
 }
 // Every field is `.nullish()`, not `.optional()`: an explicit `null` clears
 // a field (EXP-495). `clampLaunchDefaults` strips the nulls; stored copies
@@ -999,6 +1012,13 @@ export const deviceLaunchDefaultsSchema = z.object({
   computerUse: z.boolean().nullish(),
   // EXP-1236: see DeviceLaunchDefaults.computerUseModel.
   computerUseModel: z.string().max(32).nullish(),
+  // NEW-53: see DeviceLaunchDefaults.voice.
+  voice: z
+    .object({
+      assistantAgentId: z.string().uuid().nullish(),
+      speakReplies: z.boolean().nullish(),
+    })
+    .nullish(),
   agents: z
     .record(
       z.string().min(1).max(32),

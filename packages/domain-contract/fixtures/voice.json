@@ -1,0 +1,384 @@
+{
+  "$comment": "NEW-53 exponentialTalk, slice (b) speak replies. THE voice settings x4 and the spoken-reply rules (TS reference packages/domain-contract/src/voice.ts; desktop domain::voice; iOS ExpCore Voice.swift and Android domain/Voice.kt mirror `copy` only until the phones speak). STORAGE: `devices.launch_defaults.voice` = {assistantAgentId?, speakReplies?}, device-level like `computerUse`, owner-only, written through devices.setLaunchDefaults; a save WITHOUT a `voice` key keeps the stored one, `voice: null` clears it. UI: Device settings gains ONE group under the header `copy.group`: row `copy.assistant` = THE picker over the member's agents (`assistantOptions`: every agent in the member's teams, label = the agent's name, `{name} · {team}` when two agents share a name; the first option is `copy.assistantNone` = no assistant), then the toggle row `copy.speakReplies` (disabled while no assistant). The rows render on all four clients wherever the device's settings render (own device and another device of the same member); only the desktop app speaks in this slice. SPEAKING (desktop): `shouldSpeak` decides whether a synced `messages` row is spoken: author_kind `agent`, no card, non-blank body, no author_session_id (a child's post is not the assistant talking), the row belongs to the member's conversation session with the assistant agent (`assistantSessionId`), speakReplies on, and created at or after the moment the watcher armed (a backfill is never read aloud). The text spoken is `spokenText(body)`: Markdown reduced to what a voice can say, in order: fenced code blocks and tables are dropped; images are dropped; a link keeps its text; a bare URL becomes `copy.link`; inline code, emphasis, strike, heading and quote markers are unwrapped; list bullets and numbers drop; a mention `@local@domain` keeps `local`; an issue ref `#EXP-12` loses the `#`; an identifier `ABC-123` is spelled letter by letter and its number read the way people say issue numbers (`identifierNumberWords`: 1-3 digits as a cardinal, 4 digits as two pairs with `hundred` for a trailing 00 and `oh` for a leading 0 in the second pair, `x000` as a cardinal, 5+ digits digit by digit), an all-caps word of 2-5 letters is spelled letter by letter (the voice's lexicon has no such words and SKIPS what it does not know: measured in the NEW-52 spike); any other number becomes English cardinal words (`numberWords`: integers up to 999,999,999, a decimal reads `point` then each digit, `%` reads `percent`); whitespace collapses; the result stops at the last sentence end within `maxChars` (else at a word boundary + `copy.ellipsis`). While a reply is spoken the session shows a Dock banner (dock.json `Banner`: icon `media-volume-up`, label `copy.speaking`, title = the spoken text's first sentence, action `copy.stop`, tone muted); Stop ends the voice. The voice model downloads on first use (pinned + sha256, never in the binary); while it downloads the toggle row's trailing detail reads `copy.downloading`; a failed download is a toast `copy.downloadFailed` and the switch stays on (retried on the next reply).",
+  "copy": {
+    "group": "Voice",
+    "assistant": "Assistant",
+    "assistantNone": "None",
+    "speakReplies": "Speak replies",
+    "downloading": "Downloading voice…",
+    "downloadFailed": "Couldn't download the voice",
+    "speaking": "Speaking",
+    "stop": "Stop",
+    "link": "link",
+    "ellipsis": "…"
+  },
+  "maxChars": 600,
+  "testIds": {
+    "group": "device-voice",
+    "assistant": "device-voice-assistant",
+    "speakReplies": "device-voice-speak-replies"
+  },
+  "shouldSpeakCases": [
+    {
+      "name": "the assistant's final reply is spoken",
+      "message": {
+        "authorKind": "agent",
+        "body": "Done, the PR is open.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "assistantSessionId": "s-1",
+        "speakReplies": true,
+        "armedAt": "2026-10-25T10:00:00.000Z"
+      },
+      "speak": true
+    },
+    {
+      "name": "speak replies off",
+      "message": {
+        "authorKind": "agent",
+        "body": "Done.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "assistantSessionId": "s-1",
+        "speakReplies": false,
+        "armedAt": "2026-10-25T10:00:00.000Z"
+      },
+      "speak": false
+    },
+    {
+      "name": "no assistant conversation",
+      "message": {
+        "authorKind": "agent",
+        "body": "Done.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "assistantSessionId": null,
+        "speakReplies": true,
+        "armedAt": "2026-10-25T10:00:00.000Z"
+      },
+      "speak": false
+    },
+    {
+      "name": "another session's reply",
+      "message": {
+        "authorKind": "agent",
+        "body": "Done.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-2",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "assistantSessionId": "s-1",
+        "speakReplies": true,
+        "armedAt": "2026-10-25T10:00:00.000Z"
+      },
+      "speak": false
+    },
+    {
+      "name": "the person's own message",
+      "message": {
+        "authorKind": "user",
+        "body": "What is running?",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "assistantSessionId": "s-1",
+        "speakReplies": true,
+        "armedAt": "2026-10-25T10:00:00.000Z"
+      },
+      "speak": false
+    },
+    {
+      "name": "a card row (a question, a plan, a session card)",
+      "message": {
+        "authorKind": "agent",
+        "body": "",
+        "card": {
+          "kind": "question"
+        },
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "assistantSessionId": "s-1",
+        "speakReplies": true,
+        "armedAt": "2026-10-25T10:00:00.000Z"
+      },
+      "speak": false
+    },
+    {
+      "name": "a blank body",
+      "message": {
+        "authorKind": "agent",
+        "body": "   \n",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "assistantSessionId": "s-1",
+        "speakReplies": true,
+        "armedAt": "2026-10-25T10:00:00.000Z"
+      },
+      "speak": false
+    },
+    {
+      "name": "a child session posting into the conversation",
+      "message": {
+        "authorKind": "agent",
+        "body": "Report from the child.",
+        "card": null,
+        "authorSessionId": "child-1",
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "assistantSessionId": "s-1",
+        "speakReplies": true,
+        "armedAt": "2026-10-25T10:00:00.000Z"
+      },
+      "speak": false
+    },
+    {
+      "name": "a backfilled row older than the arm time",
+      "message": {
+        "authorKind": "agent",
+        "body": "Old reply.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T09:59:59.000Z"
+      },
+      "context": {
+        "assistantSessionId": "s-1",
+        "speakReplies": true,
+        "armedAt": "2026-10-25T10:00:00.000Z"
+      },
+      "speak": false
+    }
+  ],
+  "spokenTextCases": [
+    {
+      "name": "plain prose passes",
+      "body": "The build is green.",
+      "spoken": "The build is green."
+    },
+    {
+      "name": "emphasis, inline code and headings unwrap",
+      "body": "## Result\n\nThe **tests** pass and `cargo build` is _clean_.",
+      "spoken": "Result The tests pass and cargo build is clean."
+    },
+    {
+      "name": "code blocks drop",
+      "body": "Run this:\n\n```bash\nbun install\n```\n\nThen restart.",
+      "spoken": "Run this: Then restart."
+    },
+    {
+      "name": "links keep their text, bare urls become the word link",
+      "body": "See [the guide](https://example.com/guide) or https://example.com.",
+      "spoken": "See the guide or link."
+    },
+    {
+      "name": "images drop",
+      "body": "Here it is ![shot](/api/attachments/abc) done.",
+      "spoken": "Here it is done."
+    },
+    {
+      "name": "issue refs and identifiers are spelled",
+      "body": "I fixed #EXP-1242 and NEW-9.",
+      "spoken": "I fixed E X P twelve forty-two and N E W nine."
+    },
+    {
+      "name": "numbers become words",
+      "body": "3 threads, 1369 lines, 25% done, 0.5 seconds.",
+      "spoken": "three threads, one thousand three hundred sixty-nine lines, twenty-five percent done, zero point five seconds."
+    },
+    {
+      "name": "acronyms are spelled",
+      "body": "The PR and the API are ready.",
+      "spoken": "The P R and the A P I are ready."
+    },
+    {
+      "name": "bullets and numbered items drop their markers",
+      "body": "Done:\n- the tests\n- the docs\n1. first\n2. second",
+      "spoken": "Done: the tests the docs first second"
+    },
+    {
+      "name": "mentions keep the local part",
+      "body": "Pinged @danny@example.com about it.",
+      "spoken": "Pinged danny about it."
+    },
+    {
+      "name": "tables drop",
+      "body": "Numbers:\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nThat is all.",
+      "spoken": "Numbers: That is all."
+    },
+    {
+      "name": "quotes and strike unwrap",
+      "body": "> careful\n\n~~old~~ new",
+      "spoken": "careful old new"
+    },
+    {
+      "name": "long text stops at the last sentence within maxChars",
+      "body": "One sentence here. Two sentence here. Three sentence here.",
+      "maxChars": 40,
+      "spoken": "One sentence here. Two sentence here."
+    },
+    {
+      "name": "long text without a sentence end stops at a word",
+      "body": "alpha beta gamma delta epsilon zeta eta theta",
+      "maxChars": 20,
+      "spoken": "alpha beta gamma…"
+    }
+  ],
+  "numberWordsCases": [
+    {
+      "n": "0",
+      "words": "zero"
+    },
+    {
+      "n": "7",
+      "words": "seven"
+    },
+    {
+      "n": "13",
+      "words": "thirteen"
+    },
+    {
+      "n": "42",
+      "words": "forty-two"
+    },
+    {
+      "n": "100",
+      "words": "one hundred"
+    },
+    {
+      "n": "1369",
+      "words": "one thousand three hundred sixty-nine"
+    },
+    {
+      "n": "2026",
+      "words": "two thousand twenty-six"
+    },
+    {
+      "n": "1000000",
+      "words": "one million"
+    },
+    {
+      "n": "3.14",
+      "words": "three point one four"
+    }
+  ],
+  "assistantOptionsCases": [
+    {
+      "name": "names unique: the bare name; None first",
+      "agents": [
+        {
+          "id": "a1",
+          "name": "Studio",
+          "team": "Feedback"
+        },
+        {
+          "id": "a2",
+          "name": "Helper",
+          "team": "Feedback"
+        }
+      ],
+      "options": [
+        {
+          "id": null,
+          "label": "None"
+        },
+        {
+          "id": "a2",
+          "label": "Helper"
+        },
+        {
+          "id": "a1",
+          "label": "Studio"
+        }
+      ]
+    },
+    {
+      "name": "two agents share a name: the team follows",
+      "agents": [
+        {
+          "id": "a1",
+          "name": "Studio",
+          "team": "Feedback"
+        },
+        {
+          "id": "a2",
+          "name": "Studio",
+          "team": "Acme"
+        }
+      ],
+      "options": [
+        {
+          "id": null,
+          "label": "None"
+        },
+        {
+          "id": "a2",
+          "label": "Studio · Acme"
+        },
+        {
+          "id": "a1",
+          "label": "Studio · Feedback"
+        }
+      ]
+    }
+  ],
+  "identifierNumberCases": [
+    {
+      "n": "9",
+      "words": "nine"
+    },
+    {
+      "n": "52",
+      "words": "fifty-two"
+    },
+    {
+      "n": "783",
+      "words": "seven hundred eighty-three"
+    },
+    {
+      "n": "1242",
+      "words": "twelve forty-two"
+    },
+    {
+      "n": "1200",
+      "words": "twelve hundred"
+    },
+    {
+      "n": "1205",
+      "words": "twelve oh five"
+    },
+    {
+      "n": "2000",
+      "words": "two thousand"
+    },
+    {
+      "n": "12345",
+      "words": "one two three four five"
+    }
+  ]
+}
