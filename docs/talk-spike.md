@@ -171,10 +171,29 @@ read before shipping), transcribe.cpp (MIT), Qwen3-TTS weights (Apache-2.0),
 llama.cpp (MIT), CrispASR (MIT). Excluded as planned: espeak-ng as a linked
 library, Piper, Kitten TTS, Supertonic (OpenRAIL-M).
 
+## Decision after listening (2026-10-25)
+
+The owner heard the candidates on the macbook (macOS Anna and Samantha, Kokoro
+English, Qwen3-TTS 1.7B German on Metal) after hearing espeak-ng on mint:
+Kokoro sounded best, and both OS voices (espeak-ng on Linux, the macOS compact
+voices) are not acceptable. So the `Speaker` plan changes:
+
+- **OS voices are dropped as the fallback** on every platform, Windows
+  included until someone hears WinRT and says otherwise.
+- **Kokoro is the CPU voice** (English, ~0.5 s to first audio, RTF ~0.2,
+  310 MB model downloaded on first use, Apache-2.0, through sherpa-onnx 2.0
+  with the lexicon, no espeak-ng).
+- **Qwen3-TTS stays the GPU voice** and the only German voice: 0.6B on CUDA
+  (2.3 GB VRAM), 1.7B on Metal (~7 GB unified memory, slower than measured
+  in the spike on a busy Mac).
+- **German without a usable GPU has no voice**: replies are shown, not spoken,
+  until a German neural CPU voice that passes the ear test turns up. Kokoro
+  never reads German text with an English voice.
+
 ## What this changes in the slices
 
-- NEW-53 speak replies: the CPU fallback on Linux is Kokoro for English, not
-  the OS voice; German without a GPU stays open; the `Speaker` runs in the
+- NEW-53 speak replies: the CPU voice is Kokoro (English) on all three
+  OSes, no OS voice anywhere; German without a GPU stays open; the `Speaker` runs in the
   resident `speech-worker` so a model loads once.
 - NEW-54 push-to-talk: `Transcriber` = Nemotron (ggml) on GPU machines,
   Whistle on CPU; both wrote "hey exponential" and `reject one` reliably;
