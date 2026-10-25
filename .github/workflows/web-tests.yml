@@ -24,6 +24,9 @@ jobs:
         run: bun run test:shots
       - name: Widget unit tests
         run: bun run test:widget
+      # EXP-1393: release_lock never frees a lock another lane owns.
+      - name: Lane lock tests
+        run: bun run test:lanes
       - name: Steer relay + ticket tests
         run: bun run test:steer-relay
       # EXP-446: nothing ran the push relay's typecheck in CI before; EXP-1289

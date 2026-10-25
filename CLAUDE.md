@@ -37,7 +37,10 @@ bun run ios / ios:test · bun run android · bun run dev:desktop / {build,test}:
 bun run shots -- --platform <p> --views <id> --skip-seed   # natives + desktop captures
 cd apps/web && bun run seed:screenshots && bun run capture:views -- --form-factor web|web-mobile --views <id>
 bun run build                   # widget FIRST, then web + marketing
+scripts/lanes/lane.sh <ios|android|heavy> <owner> -- <cmd>   # device + heavy-build lanes
 ```
+
+Lane locks (`scripts/lanes/lock.sh`): work only after your own `take_lock`; free one only with `release_lock <dir> <owner>`, never `rm` (it refuses a lock another owner holds).
 
 Never lint/format. Schema change = edit `packages/db-schema/src/schema.ts`, `bun run migrate:generate && bun run migrate`; custom triggers in `apps/web/src/db/out/custom/0001_triggers.sql` apply at boot (`applyCustomSql`; `bun dev` does not run it: apply by hand in dev). Enum change = `contract.json` + regenerate ×4. Icon change = `packages/icons/icons.json` + regenerate; `pickable`/`devicePickable` are APPEND-ONLY. New styleguide entry = five sites (sections.json, entries/index.ts, entries/<id>.tsx, page.ts ENTRY_BAND, desktop styleguide twin). Every user-facing release PREPENDS a `ChangelogEntry` to `lib/changelog.ts` (mirror `crates/ui/src/changelog.rs`).
 
