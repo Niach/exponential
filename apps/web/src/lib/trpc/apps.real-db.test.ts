@@ -261,4 +261,18 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     expect(bare.app).toMatchObject({ name: `Hours`, slug: `hours-3`, icon: null, headVersion: 1 })
     await expect(caller(await user()).validateImport({ teamId: w.teamId, text })).rejects.toBeTruthy()
   })
+
+  // VAPP-154: same-name imports at once race on the slug; the loser retries
+  // with the next free one (like a sequential duplicate), never a 500.
+  it(`import: concurrent same-name imports each land on their own slug`, async () => {
+    const w = await world()
+    const text = JSON.stringify({ ...RECORDS_PACKAGE, name: `Race` })
+    const results = await Promise.allSettled([1, 2, 3, 4].map(() => caller(w.mate).import({ teamId: w.teamId, text })))
+    const failures = results.flatMap((r) => (r.status === `rejected` ? [r.reason as { code?: string }] : []))
+    expect(failures.every((e) => e.code === `CONFLICT`)).toBe(true)
+    const slugs = results.flatMap((r) => (r.status === `fulfilled` ? [r.value.app.slug] : []))
+    expect(new Set(slugs).size).toBe(slugs.length)
+    expect(slugs.length).toBeGreaterThanOrEqual(1)
+    expect(slugs).toContain(`race`)
+  })
 })

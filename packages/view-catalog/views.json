@@ -5824,7 +5824,8 @@
         },
         "anchorDelayMs": 2500,
         "env": {
-          "EXP_DEV_SCREEN": "apps"
+          "EXP_DEV_SCREEN": "settings",
+          "EXP_DEV_SETTINGS": "apps"
         }
       },
       "ios": {
@@ -5839,7 +5840,7 @@
         "web": "The capture text comes from fixtures/app-export.json `capture.importText`.",
         "ios": "The live walk: the Apps list → New app → Import…, the capture text typed into the field, the issue row from the server.",
         "android": "See ios: the same walk in StyleguideScreenshotsTest.",
-        "desktop": "DEV-ONLY `EXP_DEV_DIALOG=app-import`: the New app dialog on its import step with the capture text.",
+        "desktop": "DEV-ONLY `EXP_DEV_DIALOG=app-import`: the New app dialog on its import step with the capture text, over Settings → Apps (the IDE has no Apps page; VAPP-155).",
         "web-mobile": "Inherits web at the phone's width."
       }
     }

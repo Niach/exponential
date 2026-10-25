@@ -100,7 +100,15 @@ function nestedDeeperThan(root: unknown, max: number): boolean {
  *  the package's presence and the records' shape. A bare package (an object
  *  with `templates` and no `format`) is accepted and named by its `name`. */
 export function parseAppImport(text: string): ParsedAppImport {
-  const fail = (issues: ImportIssue[]): ParsedAppImport => ({ issues, file: null })
+  const { issues, file } = parseAppImportShape(text)
+  return { issues, file }
+}
+
+/** `parseAppImport` plus whether the text was a BARE package (the server
+ *  roots a package's issue paths at `/` then, not `/package`): one JSON
+ *  parse for the whole import check (VAPP-155). */
+export function parseAppImportShape(text: string): ParsedAppImport & { bare: boolean } {
+  const fail = (issues: ImportIssue[]) => ({ issues, file: null, bare: false })
   if (!text.trim()) return fail([{ path: `/`, message: `paste an app file or a package` }])
   if (new TextEncoder().encode(text).byteLength > APP_EXPORT_LIMITS.importMaxBytes) {
     return fail([{ path: `/`, message: `is over ${APP_EXPORT_LIMITS.importMaxBytes} bytes` }])
@@ -117,7 +125,7 @@ export function parseAppImport(text: string): ParsedAppImport {
   }
   if (value.format === undefined && `templates` in value) {
     const name = typeof value.name === `string` && value.name.trim() ? value.name.trim().slice(0, APP_NAME_MAX) : `Imported app`
-    return { issues: [], file: { app: { name, icon: null, color: null, description: `` }, package: value, records: [] } }
+    return { issues: [], file: { app: { name, icon: null, color: null, description: `` }, package: value, records: [] }, bare: true }
   }
   if (value.format !== APP_EXPORT_FORMAT) return fail([{ path: `/format`, message: `must be "${APP_EXPORT_FORMAT}"` }])
   const issues: ImportIssue[] = []
@@ -156,5 +164,6 @@ export function parseAppImport(text: string): ParsedAppImport {
       package: value.package as Record<string, unknown>,
       records,
     },
+    bare: false,
   }
 }

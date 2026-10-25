@@ -15,13 +15,13 @@ import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { appRecords, appVersions, apps, sessions, type App } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { appPackageIssues, packageBytes, recordKindSchema, validateAppPackage } from "@/lib/apps/package"
-import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImport, type ImportIssue } from "@exp/domain-contract/app-export"
+import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImportShape, type ImportIssue, type ParsedAppImport } from "@exp/domain-contract/app-export"
 import { validateRecord } from "@exponential_app/ui"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { APP_RECORDS_QUERY } from "@exp/domain-contract/app-records"
 import { APP_ACTIONS, actionGrantable, canGrantActions, declaredActions } from "@exp/domain-contract/app-actions"
-import { isUniqueViolation } from "@/lib/trpc/db-errors"
+import { isUniqueViolation, uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import type { Tx } from "@/lib/sessions/tx"
 
 // VAPP-110: Exponential APPS. The rows sync (the `apps` shape carries the
@@ -159,11 +159,9 @@ export const appUpdateInputSchema = z.object({
  *  package's rules, then every record against its kind's schema and the
  *  record cap): the issues the import step lists, and the file when there
  *  are none. A package's issue paths sit under `/package` in an app file. */
-export function checkAppImport(text: string): { issues: ImportIssue[]; file: ReturnType<typeof parseAppImport>[`file`] } {
-  const parsed = parseAppImport(text)
-  if (!parsed.file) return parsed
-  const { file } = parsed
-  const bare = !(`format` in (JSON.parse(text) as object))
+export function checkAppImport(text: string): ParsedAppImport {
+  const { issues: structural, file, bare } = parseAppImportShape(text)
+  if (!file) return { issues: structural, file: null }
   const at = (path: string) => (bare ? path : `/package${path === `/` ? `` : path}`)
   const issues: ImportIssue[] = appPackageIssues(file.package).map((issue) => ({ path: at(issue.path), message: issue.message }))
   if (issues.length === 0) {
@@ -177,6 +175,8 @@ export function checkAppImport(text: string): { issues: ImportIssue[]; file: Ret
   }
   return issues.length > 0 ? { issues, file: null } : { issues: [], file }
 }
+
+const IMPORT_SLUG_ATTEMPTS = 5
 
 const importInputSchema = z.object({ teamId: uuid, text: z.string().max(APP_EXPORT_LIMITS.importMaxBytes * 2) })
 
@@ -315,7 +315,7 @@ export const appsRouter = router({
       }
       const icon = boardIconSchema.safeParse(file.app.icon)
       const color = colorSchema.safeParse(file.app.color)
-      return await ctx.db.transaction(async (tx) => {
+      const importInTx = () => ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const slug = slugify(file.app.name, await takenSlugs(tx, input.teamId))
         const [app] = await tx
@@ -338,6 +338,20 @@ export const appsRouter = router({
         }
         return { txid: txId, app: { ...app!, headVersion: number }, records: file.records.length }
       })
+      // VAPP-154: two same-name imports at once derive the same slug; the
+      // loser's insert hits the unique index and retries on a fresh read of
+      // the taken slugs, like a sequential duplicate (`-2`). Out of
+      // attempts = CONFLICT, never a 500.
+      for (let attempt = 1; ; attempt++) {
+        try {
+          return await importInTx()
+        } catch (error) {
+          if (uniqueViolationConstraint(error) !== `uniq_apps_team_slug`) throw error
+          if (attempt >= IMPORT_SLUG_ATTEMPTS) {
+            throw new TRPCError({ code: `CONFLICT`, message: `An app named "${file.app.name}" is being imported at the same time; try again` })
+          }
+        }
+      }
     }),
 
   update: authedProcedure
