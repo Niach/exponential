@@ -7,6 +7,8 @@ import fixture from "../fixtures/voice.json" with { type: "json" }
 export const VOICE_COPY = fixture.copy
 export const VOICE_TEST_IDS = fixture.testIds
 export const VOICE_MAX_CHARS = fixture.maxChars
+export const VOICE_SHORTCUTS = fixture.shortcuts
+export const VOICE_DEFAULTS = fixture.defaults
 
 export interface VoiceMessageLike {
   authorKind?: string | null
@@ -19,8 +21,10 @@ export interface VoiceMessageLike {
 }
 
 export interface VoiceContext {
-  /** The member's conversation session with the assistant agent. */
-  assistantSessionId: string | null
+  /** The member's conversation session with the voice agent. */
+  agentSessionId: string | null
+  /** THIS device is the member's voice device. */
+  isVoiceDevice: boolean
   speakReplies: boolean
   /** When the watcher armed; older rows are a backfill. */
   armedAt: string
@@ -28,12 +32,12 @@ export interface VoiceContext {
 
 /** Whether a synced message row is read aloud. */
 export function shouldSpeak(message: VoiceMessageLike, context: VoiceContext): boolean {
-  if (!context.speakReplies || !context.assistantSessionId) return false
+  if (!context.speakReplies || !context.agentSessionId || !context.isVoiceDevice) return false
   if (message.authorKind !== `agent`) return false
   if (message.card) return false
   if (!message.body || message.body.trim() === ``) return false
   if (message.authorSessionId) return false
-  if (message.sessionId !== context.assistantSessionId) return false
+  if (message.sessionId !== context.agentSessionId) return false
   const created = Date.parse(message.createdAt ?? ``)
   const armed = Date.parse(context.armedAt)
   if (Number.isNaN(created) || Number.isNaN(armed)) return false
@@ -172,13 +176,13 @@ export interface VoiceAgentLike {
   team: string
 }
 
-export interface VoiceAssistantOption {
+export interface VoiceOption {
   id: string | null
   label: string
 }
 
-/** The Assistant picker's options: None first, then the agents by label. */
-export function assistantOptions(agents: VoiceAgentLike[]): VoiceAssistantOption[] {
+/** The Agent picker's options: None first, then the agents by label. */
+export function agentOptions(agents: VoiceAgentLike[]): VoiceOption[] {
   const counts = new Map<string, number>()
   for (const agent of agents) counts.set(agent.name, (counts.get(agent.name) ?? 0) + 1)
   const options = agents
@@ -187,5 +191,52 @@ export function assistantOptions(agents: VoiceAgentLike[]): VoiceAssistantOption
       label: (counts.get(agent.name) ?? 0) > 1 ? `${agent.name} · ${agent.team}` : agent.name,
     }))
     .sort((a, b) => a.label.localeCompare(b.label, `en`))
-  return [{ id: null, label: fixture.copy.assistantNone }, ...options]
+  return [{ id: null, label: fixture.copy.agentNone }, ...options]
+}
+
+export interface VoiceDeviceLike {
+  deviceId: string
+  name: string
+  /** Contract `deviceKind`; only `desktop` can be a voice device. */
+  kind: string
+}
+
+/** The Voice device picker's options: None first, then the member's
+ *  desktops by name (phones and servers are never a voice device). */
+export function voiceDeviceOptions(devices: VoiceDeviceLike[]): VoiceOption[] {
+  const options = devices
+    .filter((device) => device.kind === `desktop`)
+    .map((device) => ({ id: device.deviceId, label: device.name }))
+    .sort((a, b) => a.label.localeCompare(b.label, `en`))
+  return [{ id: null, label: fixture.copy.voiceDeviceNone }, ...options]
+}
+
+export interface VoiceSwitches {
+  voiceDeviceId: string | null
+  agentId: string | null
+  speakReplies: boolean
+  pushToTalk: boolean
+  wakeWord: boolean
+}
+
+/** Apply a change; choosing None for the device or the agent clears every
+ *  switch, so picking again never turns listening or speaking on. */
+export function clearOnNone<T extends VoiceSwitches>(before: T, change: Partial<T>): T {
+  const after = { ...before, ...change }
+  if (after.voiceDeviceId === null || after.agentId === null) {
+    after.speakReplies = false
+    after.pushToTalk = false
+    after.wakeWord = false
+  }
+  return after
+}
+
+/** The tray group's header for the voice device. */
+export function trayHeader(deviceName: string): string {
+  return fixture.copy.trayHeader.replace(`{device}`, deviceName)
+}
+
+/** The wake phrase's placeholder (and its value when empty). */
+export function wakePhrasePlaceholder(agentName: string): string {
+  return fixture.copy.wakePhrasePlaceholder.replace(`{agent}`, agentName)
 }

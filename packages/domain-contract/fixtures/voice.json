@@ -1,10 +1,18 @@
 {
-  "$comment": "NEW-53 exponentialTalk, slice (b) speak replies. THE voice settings x4 and the spoken-reply rules (TS reference packages/domain-contract/src/voice.ts; desktop domain::voice; iOS ExpCore Voice.swift and Android domain/Voice.kt mirror `copy` only until the phones speak). STORAGE: `devices.launch_defaults.voice` = {assistantAgentId?, speakReplies?}, device-level like `computerUse`, owner-only, written through devices.setLaunchDefaults; a save WITHOUT a `voice` key keeps the stored one, `voice: null` clears it. UI: Device settings gains ONE group under the header `copy.group`: row `copy.assistant` = THE picker over the member's agents (`assistantOptions`: every agent in the member's teams, label = the agent's name, `{name} · {team}` when two agents share a name; the first option is `copy.assistantNone` = no assistant), then the toggle row `copy.speakReplies` (disabled while no assistant). The rows render on all four clients wherever the device's settings render (own device and another device of the same member); only the desktop app speaks in this slice. SPEAKING (desktop): `shouldSpeak` decides whether a synced `messages` row is spoken: author_kind `agent`, no card, non-blank body, no author_session_id (a child's post is not the assistant talking), the row belongs to the member's conversation session with the assistant agent (`assistantSessionId`), speakReplies on, and created at or after the moment the watcher armed (a backfill is never read aloud). The text spoken is `spokenText(body)`: Markdown reduced to what a voice can say, in order: fenced code blocks and tables are dropped; images are dropped; a link keeps its text; a bare URL becomes `copy.link`; inline code, emphasis, strike, heading and quote markers are unwrapped; list bullets and numbers drop; a mention `@local@domain` keeps `local`; an issue ref `#EXP-12` loses the `#`; an identifier `ABC-123` is spelled letter by letter and its number read the way people say issue numbers (`identifierNumberWords`: 1-3 digits as a cardinal, 4 digits as two pairs with `hundred` for a trailing 00 and `oh` for a leading 0 in the second pair, `x000` as a cardinal, 5+ digits digit by digit), an all-caps word of 2-5 letters is spelled letter by letter (the voice's lexicon has no such words and SKIPS what it does not know: measured in the NEW-52 spike); any other number becomes English cardinal words (`numberWords`: integers up to 999,999,999, a decimal reads `point` then each digit, `%` reads `percent`); whitespace collapses; the result stops at the last sentence end within `maxChars` (else at a word boundary + `copy.ellipsis`). While a reply is spoken the session shows a Dock banner (dock.json `Banner`: icon `media-volume-up`, label `copy.speaking`, title = the spoken text's first sentence, action `copy.stop`, tone muted); Stop ends the voice. The voice model downloads on first use (pinned + sha256, never in the binary); while it downloads the toggle row's trailing detail reads `copy.downloading`; a failed download is a toast `copy.downloadFailed` and the switch stays on; the worker retries it with backoff (1 min doubling to 1 h), never on every reply. A worker that keeps crashing is restarted with backoff (2, 4, 8 s) and given up on after 3 crashes in a row: a toast `copy.unavailable`, no more speaking until the setting changes. Speaking stops when the assistant changes, the setting turns off, or the account changes or signs out (which also ends the worker). TOGGLE: with no assistant the Speak replies switch reads off and is disabled on every client, and choosing None clears `speakReplies`, so picking an assistant later never turns speaking on by itself.",
+  "$comment": "NEW-67 (voice plan v3, V1): THE Settings → Voice section ×4 and the spoken-reply rules (TS reference packages/domain-contract/src/voice.ts; desktop domain::voice; iOS ExpCore Voice.swift and Android domain/Voice.kt mirror `copy`, `testIds`, `shortcuts` and the option builders). STORAGE: ONE row per member, `user_voice_settings` (server-only table, no shape): voiceDeviceId (a `devices.device_id` of the member's own desktop), agentId (an agent of one of the member's teams), speakReplies, pushToTalk, pttShortcut (one of `shortcuts`), wakeWord, wakePhrase (empty = `Hey {agent}`); read with tRPC `voice.get` (missing row = the defaults below), written with `voice.update` (the member only; an unknown device or agent is refused), and handed to the member's devices on every heartbeat (`voice`), with a nudge to the old and new voice device on each write. The per-device `launch_defaults.voice` of NEW-53 is migrated into it and retired. UI: Settings → Personal gains `copy.group` (icon concept `settings-voice`) after Notifications, on web, the IDE, iOS and Android; Device settings no longer has a Voice group. The page = ONE group: row `copy.voiceDevice` = THE device picker over `voiceDeviceOptions` (None first, then the member's desktop devices by name; phones and servers are never a voice device), row `copy.agent` = THE picker over `agentOptions` (None first, the member's agents by label, `{name} · {team}` on a shared name), toggle row `copy.speakReplies`. While a voice device is picked a second group follows under the header `copy.trayHeader` with {device} = the device's name: toggle `copy.pushToTalk`, picker row `copy.shortcut` over `shortcuts`, toggle `copy.wakeWord`, input row `copy.wakePhrase` (placeholder `copy.wakePhrasePlaceholder` with {agent}). TOGGLES: every switch reads off and is disabled while the voice device or the agent is None; choosing None for either clears speakReplies, pushToTalk and wakeWord, so picking again never turns listening or speaking on by itself (`clearOnNone`). Push to talk and the wake word are stored now and used from V2/V3/V7. SPEAKING (desktop): `shouldSpeak` decides whether a synced `messages` row is spoken: author_kind `agent`, no card, non-blank body, no author_session_id (a child's post is not the assistant talking), the row belongs to the member's conversation session with the voice agent (`agentSessionId`), speakReplies on, THIS device is the member's voice device (`isVoiceDevice`), and created at or after the moment the watcher armed (a backfill is never read aloud). The text spoken is `spokenText(body)`: Markdown reduced to what a voice can say, in order: fenced code blocks and tables are dropped; images are dropped; a link keeps its text; a bare URL becomes `copy.link`; inline code, emphasis, strike, heading and quote markers are unwrapped; list bullets and numbers drop; a mention `@local@domain` keeps `local`; an issue ref `#EXP-12` loses the `#`; an identifier `ABC-123` is spelled letter by letter and its number read the way people say issue numbers (`identifierNumberWords`: 1-3 digits as a cardinal, 4 digits as two pairs with `hundred` for a trailing 00 and `oh` for a leading 0 in the second pair, `x000` as a cardinal, 5+ digits digit by digit), an all-caps word of 2-5 letters is spelled letter by letter (the voice's lexicon has no such words and SKIPS what it does not know: measured in the NEW-52 spike); any other number becomes English cardinal words (`numberWords`: integers up to 999,999,999, a decimal reads `point` then each digit, `%` reads `percent`); whitespace collapses; the result stops at the last sentence end within `maxChars` (else at a word boundary + `copy.ellipsis`). While a reply is spoken the session shows a Dock banner (dock.json `Banner`: icon `media-volume-up`, label `copy.speaking`, title = the spoken text's first sentence, action `copy.stop`, tone muted); Stop ends the voice. The voice model downloads on first use (pinned + sha256, never in the binary); while it downloads the toggle row's trailing detail reads `copy.downloading`; a failed download is a toast `copy.downloadFailed` and the switch stays on; the worker retries it with backoff (1 min doubling to 1 h), never on every reply. A worker that keeps crashing is restarted with backoff (2, 4, 8 s) and given up on after 3 crashes in a row: a toast `copy.unavailable`, no more speaking until the setting changes. Speaking stops when the agent or the voice device changes, the setting turns off, or the account changes or signs out (which also ends the worker).",
   "copy": {
     "group": "Voice",
-    "assistant": "Assistant",
-    "assistantNone": "None",
+    "voiceDevice": "Voice device",
+    "voiceDeviceNone": "None",
+    "agent": "Agent",
+    "agentNone": "None",
     "speakReplies": "Speak replies",
+    "trayHeader": "On {device} (tray)",
+    "pushToTalk": "Push to talk",
+    "shortcut": "Shortcut",
+    "wakeWord": "Wake word",
+    "wakePhrase": "Wake phrase",
+    "wakePhrasePlaceholder": "Hey {agent}",
     "downloading": "Downloading voice…",
     "downloadFailed": "Couldn't download the voice",
     "unavailable": "The voice stopped working",
@@ -13,12 +21,227 @@
     "link": "link",
     "ellipsis": "…"
   },
-  "maxChars": 600,
   "testIds": {
-    "group": "device-voice",
-    "assistant": "device-voice-assistant",
-    "speakReplies": "device-voice-speak-replies"
+    "page": "settings-voice",
+    "voiceDevice": "settings-voice-device",
+    "agent": "settings-voice-agent",
+    "speakReplies": "settings-voice-speak-replies",
+    "pushToTalk": "settings-voice-push-to-talk",
+    "shortcut": "settings-voice-shortcut",
+    "wakeWord": "settings-voice-wake-word",
+    "wakePhrase": "settings-voice-wake-phrase"
   },
+  "shortcuts": [
+    {
+      "value": "ctrl+space",
+      "label": "Ctrl + Space"
+    },
+    {
+      "value": "alt+space",
+      "label": "Alt + Space"
+    },
+    {
+      "value": "ctrl+shift+space",
+      "label": "Ctrl + Shift + Space"
+    },
+    {
+      "value": "f13",
+      "label": "F13"
+    },
+    {
+      "value": "mouse4",
+      "label": "Mouse button 4"
+    },
+    {
+      "value": "mouse5",
+      "label": "Mouse button 5"
+    }
+  ],
+  "defaults": {
+    "voiceDeviceId": null,
+    "agentId": null,
+    "speakReplies": false,
+    "pushToTalk": false,
+    "pttShortcut": "ctrl+space",
+    "wakeWord": false,
+    "wakePhrase": ""
+  },
+  "maxChars": 600,
+  "voiceDeviceOptionsCases": [
+    {
+      "name": "desktops only, by name, None first",
+      "devices": [
+        {
+          "deviceId": "d-mint",
+          "name": "mint",
+          "kind": "desktop"
+        },
+        {
+          "deviceId": "d-srv",
+          "name": "server",
+          "kind": "server"
+        },
+        {
+          "deviceId": "d-mac",
+          "name": "macbook",
+          "kind": "desktop"
+        },
+        {
+          "deviceId": "d-phone",
+          "name": "iPhone",
+          "kind": "phone"
+        }
+      ],
+      "options": [
+        {
+          "id": null,
+          "label": "None"
+        },
+        {
+          "id": "d-mac",
+          "label": "macbook"
+        },
+        {
+          "id": "d-mint",
+          "label": "mint"
+        }
+      ]
+    }
+  ],
+  "agentOptionsCases": [
+    {
+      "name": "names unique: the bare name; None first",
+      "agents": [
+        {
+          "id": "a1",
+          "name": "Studio",
+          "team": "Feedback"
+        },
+        {
+          "id": "a2",
+          "name": "Helper",
+          "team": "Feedback"
+        }
+      ],
+      "options": [
+        {
+          "id": null,
+          "label": "None"
+        },
+        {
+          "id": "a2",
+          "label": "Helper"
+        },
+        {
+          "id": "a1",
+          "label": "Studio"
+        }
+      ]
+    },
+    {
+      "name": "two agents share a name: the team follows",
+      "agents": [
+        {
+          "id": "a1",
+          "name": "Studio",
+          "team": "Feedback"
+        },
+        {
+          "id": "a2",
+          "name": "Studio",
+          "team": "Acme"
+        }
+      ],
+      "options": [
+        {
+          "id": null,
+          "label": "None"
+        },
+        {
+          "id": "a2",
+          "label": "Studio · Acme"
+        },
+        {
+          "id": "a1",
+          "label": "Studio · Feedback"
+        }
+      ]
+    }
+  ],
+  "clearOnNoneCases": [
+    {
+      "name": "agent cleared",
+      "before": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "speakReplies": true,
+        "pushToTalk": true,
+        "wakeWord": true
+      },
+      "change": {
+        "agentId": null
+      },
+      "after": {
+        "voiceDeviceId": "d-mint",
+        "agentId": null,
+        "speakReplies": false,
+        "pushToTalk": false,
+        "wakeWord": false
+      }
+    },
+    {
+      "name": "voice device cleared",
+      "before": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "speakReplies": true,
+        "pushToTalk": false,
+        "wakeWord": true
+      },
+      "change": {
+        "voiceDeviceId": null
+      },
+      "after": {
+        "voiceDeviceId": null,
+        "agentId": "a1",
+        "speakReplies": false,
+        "pushToTalk": false,
+        "wakeWord": false
+      }
+    },
+    {
+      "name": "another agent keeps the switches",
+      "before": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a1",
+        "speakReplies": true,
+        "pushToTalk": true,
+        "wakeWord": false
+      },
+      "change": {
+        "agentId": "a2"
+      },
+      "after": {
+        "voiceDeviceId": "d-mint",
+        "agentId": "a2",
+        "speakReplies": true,
+        "pushToTalk": true,
+        "wakeWord": false
+      }
+    }
+  ],
+  "trayHeaderCases": [
+    {
+      "device": "mint",
+      "header": "On mint (tray)"
+    }
+  ],
+  "wakePhrasePlaceholderCases": [
+    {
+      "agent": "Ops",
+      "placeholder": "Hey Ops"
+    }
+  ],
   "shouldSpeakCases": [
     {
       "name": "the assistant's final reply is spoken",
@@ -31,9 +254,10 @@
         "createdAt": "2026-10-25T10:00:05.000Z"
       },
       "context": {
-        "assistantSessionId": "s-1",
         "speakReplies": true,
-        "armedAt": "2026-10-25T10:00:00.000Z"
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true
       },
       "speak": true
     },
@@ -48,9 +272,10 @@
         "createdAt": "2026-10-25T10:00:05.000Z"
       },
       "context": {
-        "assistantSessionId": "s-1",
         "speakReplies": false,
-        "armedAt": "2026-10-25T10:00:00.000Z"
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true
       },
       "speak": false
     },
@@ -65,9 +290,10 @@
         "createdAt": "2026-10-25T10:00:05.000Z"
       },
       "context": {
-        "assistantSessionId": null,
         "speakReplies": true,
-        "armedAt": "2026-10-25T10:00:00.000Z"
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": null,
+        "isVoiceDevice": true
       },
       "speak": false
     },
@@ -82,9 +308,10 @@
         "createdAt": "2026-10-25T10:00:05.000Z"
       },
       "context": {
-        "assistantSessionId": "s-1",
         "speakReplies": true,
-        "armedAt": "2026-10-25T10:00:00.000Z"
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true
       },
       "speak": false
     },
@@ -99,9 +326,10 @@
         "createdAt": "2026-10-25T10:00:05.000Z"
       },
       "context": {
-        "assistantSessionId": "s-1",
         "speakReplies": true,
-        "armedAt": "2026-10-25T10:00:00.000Z"
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true
       },
       "speak": false
     },
@@ -118,9 +346,10 @@
         "createdAt": "2026-10-25T10:00:05.000Z"
       },
       "context": {
-        "assistantSessionId": "s-1",
         "speakReplies": true,
-        "armedAt": "2026-10-25T10:00:00.000Z"
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true
       },
       "speak": false
     },
@@ -135,9 +364,10 @@
         "createdAt": "2026-10-25T10:00:05.000Z"
       },
       "context": {
-        "assistantSessionId": "s-1",
         "speakReplies": true,
-        "armedAt": "2026-10-25T10:00:00.000Z"
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true
       },
       "speak": false
     },
@@ -152,9 +382,10 @@
         "createdAt": "2026-10-25T10:00:05.000Z"
       },
       "context": {
-        "assistantSessionId": "s-1",
         "speakReplies": true,
-        "armedAt": "2026-10-25T10:00:00.000Z"
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true
       },
       "speak": false
     },
@@ -169,9 +400,28 @@
         "createdAt": "2026-10-25T09:59:59.000Z"
       },
       "context": {
-        "assistantSessionId": "s-1",
         "speakReplies": true,
-        "armedAt": "2026-10-25T10:00:00.000Z"
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true
+      },
+      "speak": false
+    },
+    {
+      "name": "not the voice device",
+      "message": {
+        "authorKind": "agent",
+        "body": "Done.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "agentSessionId": "s-1",
+        "speakReplies": true,
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "isVoiceDevice": false
       },
       "speak": false
     }
@@ -286,66 +536,6 @@
     {
       "n": "3.14",
       "words": "three point one four"
-    }
-  ],
-  "assistantOptionsCases": [
-    {
-      "name": "names unique: the bare name; None first",
-      "agents": [
-        {
-          "id": "a1",
-          "name": "Studio",
-          "team": "Feedback"
-        },
-        {
-          "id": "a2",
-          "name": "Helper",
-          "team": "Feedback"
-        }
-      ],
-      "options": [
-        {
-          "id": null,
-          "label": "None"
-        },
-        {
-          "id": "a2",
-          "label": "Helper"
-        },
-        {
-          "id": "a1",
-          "label": "Studio"
-        }
-      ]
-    },
-    {
-      "name": "two agents share a name: the team follows",
-      "agents": [
-        {
-          "id": "a1",
-          "name": "Studio",
-          "team": "Feedback"
-        },
-        {
-          "id": "a2",
-          "name": "Studio",
-          "team": "Acme"
-        }
-      ],
-      "options": [
-        {
-          "id": null,
-          "label": "None"
-        },
-        {
-          "id": "a2",
-          "label": "Studio · Acme"
-        },
-        {
-          "id": "a1",
-          "label": "Studio · Feedback"
-        }
-      ]
     }
   ],
   "identifierNumberCases": [

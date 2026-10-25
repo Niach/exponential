@@ -985,20 +985,7 @@ export interface DeviceLaunchDefaults {
    * (contract `computerUseModel`); absent = contract
    * `deviceComputerUseDefaults.model`. Same carry-forward as `computerUse`. */
   computerUseModel?: string | null
-  /** NEW-53: exponentialTalk on this device (Settings → Device → Voice).
-   * Device-level like `computerUse`; a save WITHOUT the key keeps the stored
-   * one (older clients and the device's own pushes never send it), an
-   * explicit `null` clears it. */
-  voice?: DeviceVoice | null
   agents?: Record<string, DeviceAgentLaunchDefaults>
-}
-/** NEW-53: the member's voice settings on one device (`voice.json`). */
-export interface DeviceVoice {
-  /** The agent whose conversation answers this member's voice (one of the
-   * member's own agent conversations); absent = no assistant. */
-  assistantAgentId?: string
-  /** Speak the assistant's final reply aloud on this device. */
-  speakReplies?: boolean
 }
 // Every field is `.nullish()`, not `.optional()`: an explicit `null` clears
 // a field (EXP-495). `clampLaunchDefaults` strips the nulls; stored copies
@@ -1012,13 +999,6 @@ export const deviceLaunchDefaultsSchema = z.object({
   computerUse: z.boolean().nullish(),
   // EXP-1236: see DeviceLaunchDefaults.computerUseModel.
   computerUseModel: z.string().max(32).nullish(),
-  // NEW-53: see DeviceLaunchDefaults.voice.
-  voice: z
-    .object({
-      assistantAgentId: z.string().uuid().nullish(),
-      speakReplies: z.boolean().nullish(),
-    })
-    .nullish(),
   agents: z
     .record(
       z.string().min(1).max(32),
@@ -2857,6 +2837,30 @@ export const userNotificationPrefs = pgTable(`user_notification_prefs`, {
   unsubscribeToken: varchar(`unsubscribe_token`, { length: 64 })
     .notNull()
     .unique(),
+  ...timestamps,
+})
+
+// NEW-67 (voice plan v3): the member's ONE voice settings row
+// (`fixtures/voice.json`), SERVER-ONLY like the notification prefs: read
+// with `voice.get`, written with `voice.update`, handed to the member's
+// devices on every heartbeat. Missing row = the fixture's `defaults`.
+// Replaces the per-device `launch_defaults.voice` of NEW-53 (migrated).
+export const userVoiceSettings = pgTable(`user_voice_settings`, {
+  userId: text(`user_id`)
+    .primaryKey()
+    .references(() => users.id, { onDelete: `cascade` }),
+  // A `devices.device_id` of the member's own desktop; null = none. Not a
+  // FK: device rows are keyed by their uuid `id`, and a removed device
+  // simply stops being found (the page reads None).
+  voiceDeviceId: varchar(`voice_device_id`, { length: 128 }),
+  agentId: uuid(`agent_id`).references(() => agents.id, { onDelete: `set null` }),
+  speakReplies: boolean(`speak_replies`).notNull().default(false),
+  pushToTalk: boolean(`push_to_talk`).notNull().default(false),
+  // One of `voice.json` `shortcuts` values.
+  pttShortcut: varchar(`ptt_shortcut`, { length: 32 }).notNull().default(`ctrl+space`),
+  wakeWord: boolean(`wake_word`).notNull().default(false),
+  // Empty = `Hey {agent}`.
+  wakePhrase: varchar(`wake_phrase`, { length: 64 }).notNull().default(``),
   ...timestamps,
 })
 
