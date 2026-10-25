@@ -3,7 +3,8 @@
 //! apps as a group like the Agents): the band `Apps` with `New app` as
 //! its trailing pill, then one row per app = its glyph (the board set) +
 //! name + the version pill (`v{n}`, `No version yet` muted) + the `…` menu
-//! (Rename → the New app form prefilled, Delete → the confirm). Only the
+//! (Export → the export dialog, VAPP-121; Rename → the New app form
+//! prefilled, Delete → the confirm). Only the
 //! team's synced apps, by name (Exponential ships no built-in apps); members
 //! manage only their own apps, owners every app. A row opens the editor
 //! ([`Screen::App`]).
@@ -172,10 +173,12 @@ pub(crate) fn confirm_delete(
     crate::native_dialog::open_alert(window, cx, spec);
 }
 
-/// The row's `…` menu: Rename, Delete app.
-fn row_menu(index: usize, row: AppRow, cx: &App) -> gpui::AnyElement {
+/// The row's `…` menu: Export (VAPP-121: any member, once the app has a
+/// version), then Rename, Delete app (the creator or an owner).
+fn row_menu(index: usize, row: AppRow, manage: bool, cx: &App) -> gpui::AnyElement {
     let copy = &APPS.copy;
     let (rename, delete) = (copy.menu.rename.clone(), copy.menu.delete.clone());
+    let export = row.head_version.unwrap_or(0) > 0;
     div()
         .flex_shrink_0()
         // The menu is not the row: a press here never opens the editor.
@@ -185,6 +188,24 @@ fn row_menu(index: usize, row: AppRow, cx: &App) -> gpui::AnyElement {
                 .dropdown_menu(move |menu, _window, cx| {
                     let rename_row = row.clone();
                     let (delete_id, delete_name) = (row.id.clone(), row.name.clone());
+                    let export_id = row.id.clone();
+                    let menu = if export {
+                        menu.item(
+                            crate::controls::pointer_label_item(
+                                domain::app_export::APP_EXPORT_COPY.export.clone(),
+                                false,
+                            )
+                            .icon(Icon::new(registry::UI_SHARE))
+                            .on_click(move |_: &ClickEvent, window, cx| {
+                                crate::app_export_dialog::open(window, cx, export_id.clone(), false)
+                            }),
+                        )
+                    } else {
+                        menu
+                    };
+                    if !manage {
+                        return menu;
+                    }
                     menu.item(
                         crate::controls::pointer_label_item(rename.clone(), false)
                             .icon(Icon::new(registry::UI_EDIT))
@@ -248,7 +269,13 @@ fn app_row(index: usize, entry: &AppEntry, manage: bool, to_settings: bool, cx: 
                     .child(SharedString::from(entry.name.clone())),
             )
             .child(version_pill(("apps-row-pill", index), entry, cx))
-            .children(entry.row.clone().filter(|_| manage).map(|row| row_menu(index, row, cx))),
+            .children(
+                entry
+                    .row
+                    .clone()
+                    .filter(|_| manage || entry.head_version > 0)
+                    .map(|row| row_menu(index, row, manage, cx)),
+            ),
     )
     .into_any_element()
 }

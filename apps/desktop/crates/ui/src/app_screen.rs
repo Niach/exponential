@@ -1,6 +1,6 @@
 //! VAPP-110 — one app's EDITOR ([`Screen::App`], web `app-editor.tsx`,
 //! fixtures/apps.json). Header = the app's glyph + name + the version pill +
-//! `Versions` (a count pill); body = two panes `5fr : 7fr` with a hairline
+//! `Export` (VAPP-121, once there is a version) + `Versions` (a count pill); body = two panes `5fr : 7fr` with a hairline
 //! between: the CHAT (the member's editor session,
 //! [`crate::agent_screen::AgentScreenView::for_app`]: the agent channel's
 //! rows and THE composer; the first send `sessions.send({appId, text,
@@ -408,6 +408,17 @@ impl AppScreenView {
                 )
                 .on_click(cx.listener(|this, _, window, cx| this.open_versions(window, cx)))
         };
+        // VAPP-121: Export beside Versions, once the app has a version.
+        let export = (app.head_version > 0).then(|| {
+            let app_id = app.id.clone();
+            Button::new("app-editor-export")
+                .outline()
+                .web_sm()
+                .cursor_pointer()
+                .icon(Icon::new(registry::UI_SHARE).small())
+                .label(domain::app_export::APP_EXPORT_COPY.export.clone())
+                .on_click(move |_, window, cx| crate::app_export_dialog::open(window, cx, app_id.clone(), false))
+        });
         h_flex()
             .flex_shrink_0()
             .items_center()
@@ -428,6 +439,7 @@ impl AppScreenView {
             )
             .child(version_pill("app-editor-version", app, cx))
             .child(div().flex_1())
+            .children(export)
             .child(versions)
             .into_any_element()
     }

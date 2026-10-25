@@ -12,6 +12,7 @@ import com.exponential.app.data.api.SessionsSendInput
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.AppEntity
+import com.exponential.app.data.db.AppRecordEntity
 import com.exponential.app.data.db.AppVersionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.ExponentialDatabase
@@ -19,6 +20,7 @@ import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.AppExport
 import com.exponential.app.domain.Apps
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.LaunchDeviceRules
@@ -145,6 +147,31 @@ class AppsViewModel @Inject constructor(
             onDone()
         }
 
+    /** VAPP-121: app [appId]'s synced records (the export's switch + rows). */
+    fun records(appId: String): Flow<List<AppRecordEntity>> =
+        dbFlow.scopedQuery(emptyList<AppRecordEntity>()) { it.appRecordDao().observeByApp(appId) }
+
+    /** VAPP-121: the server's issues with [text] (`apps.validateImport`);
+     *  null = the check itself failed (the step keeps Import disabled). */
+    suspend fun validateImport(text: String): List<AppExport.Issue>? {
+        val team = selection.selectedId.value ?: return null
+        val accountId = auth.activeAccountId.value ?: return null
+        return try {
+            api.validateImport(accountId, team, text).issues.map { AppExport.Issue(it.path, it.message) }
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
+            null
+        }
+    }
+
+    /** VAPP-121: Import → `apps.import`; [onCreated] opens the new app's editor. */
+    fun importApp(text: String, onCreated: (String) -> Unit) {
+        val team = selection.selectedId.value ?: return
+        write("import", { importApp(text, onCreated) }) { accountId ->
+            onCreated(api.importApp(accountId, team, text).app.id)
+        }
+    }
+
     private fun write(verb: String, retry: () -> Unit, call: suspend (accountId: String) -> Unit) {
         if (_busy.value) return
         val accountId = auth.activeAccountId.value ?: return
@@ -189,6 +216,11 @@ class AppEditorViewModel @Inject constructor(
         dbFlow.scopedQuery<AppEntity?>(null) { it.appDao().observeById(appId) }
             .map { it?.toListEntry() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** VAPP-121: the app's synced records (Export's switch + rows). */
+    val records: StateFlow<List<AppRecordEntity>> =
+        dbFlow.scopedQuery(emptyList<AppRecordEntity>()) { it.appRecordDao().observeByApp(appId) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Newest first. */
     val versions: StateFlow<List<AppVersionEntity>> =

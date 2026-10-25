@@ -182,6 +182,27 @@
       }
     },
     "app-export": {
+      "android": {
+        "file": "shots/app-export/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 18780,
+        "sha256": "ef520fa01fb76a02207bd2852c5d3fd268ebbebaad6d366376f568f06d0f5be6"
+      },
+      "desktop": {
+        "file": "shots/app-export/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 55404,
+        "sha256": "5d5fd786350d8554b4883a14af8c0c8712ab62cefded6718bfe7f63981f6df10"
+      },
+      "ios": {
+        "file": "shots/app-export/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 19036,
+        "sha256": "04c663decbf0f26eb47c132476d550adf5c086fa36d9e96b7cd7da114f0c6775"
+      },
       "web": {
         "file": "shots/app-export/web.webp",
         "width": 1800,
@@ -198,6 +219,27 @@
       }
     },
     "app-import": {
+      "android": {
+        "file": "shots/app-import/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 23280,
+        "sha256": "c17506e229d6189b677ca353ca5d339d4b60e129090b16a8dd305403a2e346cb"
+      },
+      "desktop": {
+        "file": "shots/app-import/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 32648,
+        "sha256": "5826e39af877f0f10c13c26a94d467dc7fa06d1d2add7b8151f0b64b220dfe8f"
+      },
+      "ios": {
+        "file": "shots/app-import/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 30086,
+        "sha256": "53a6b27f2583e5564e8391dade6aac998455140260a2f7c2479938063fcb6e33"
+      },
       "web": {
         "file": "shots/app-import/web.webp",
         "width": 1800,

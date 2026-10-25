@@ -65,6 +65,24 @@ data class AppRecordUpsertResult(val id: String, val created: Boolean = false, v
 @Serializable
 private data class AppRecordDeleteInput(val id: String, val recordId: String)
 
+// VAPP-121: `apps.validateImport` / `apps.import` (fixtures/app-export.json):
+// the SERVER is the one authority on a pasted app file or bare package.
+@Serializable
+private data class AppImportInput(val teamId: String, val text: String)
+
+@Serializable
+data class AppImportIssue(val path: String = "", val message: String = "")
+
+@Serializable
+data class AppValidateImportResult(
+    val issues: List<AppImportIssue> = emptyList(),
+    val name: String? = null,
+    val records: Int = 0,
+)
+
+@Serializable
+data class AppImportResult(val app: AppRow, val records: Int = 0, val txid: Long? = null)
+
 @Singleton
 class AppsApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -142,4 +160,25 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
             outputSerializer = TxResult.serializer(),
         )
     }
+
+    /** VAPP-121: the server's issues with [text] (an app file or a bare
+     *  package); none = importable. */
+    suspend fun validateImport(accountId: String, teamId: String, text: String): AppValidateImportResult =
+        trpc.mutation(
+            accountId,
+            path = "apps.validateImport",
+            input = AppImportInput(teamId, text),
+            inputSerializer = AppImportInput.serializer(),
+            outputSerializer = AppValidateImportResult.serializer(),
+        )
+
+    /** VAPP-121: create the app [text] describes (package as v1, its records). */
+    suspend fun importApp(accountId: String, teamId: String, text: String): AppImportResult =
+        trpc.mutation(
+            accountId,
+            path = "apps.import",
+            input = AppImportInput(teamId, text),
+            inputSerializer = AppImportInput.serializer(),
+            outputSerializer = AppImportResult.serializer(),
+        )
 }

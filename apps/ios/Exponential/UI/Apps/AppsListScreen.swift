@@ -21,6 +21,7 @@ struct AppsListScreen: View {
     /// The menu's pick, run once its sheet has dismissed.
     @State private var pendingMenu: (app: AppListEntry, action: AppMenuSheet.Action)?
     @State private var deleting: AppListEntry?
+    @State private var exporting: AppListEntry?
 
     private var teamId: String? { teamState.activeTeamId ?? teamState.teams.first?.id }
 
@@ -64,8 +65,15 @@ struct AppsListScreen: View {
         .sheet(item: $renaming) { app in
             AppFormSheet(teamId: app.teamId ?? teamId ?? "", app: app) { _ in }
         }
+        .sheet(item: $exporting) { app in
+            AppExportSheet(app: app)
+        }
         .sheet(item: $menuTarget, onDismiss: runPendingMenu) { app in
-            AppMenuSheet(title: app.name) { action in
+            AppMenuSheet(
+                title: app.name,
+                canExport: app.headVersion > 0,
+                canManage: model.canManage(app, userId: deps.auth.userId)
+            ) { action in
                 pendingMenu = (app, action)
                 menuTarget = nil
             }
@@ -113,7 +121,8 @@ struct AppsListScreen: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if model.canManage(app, userId: deps.auth.userId) {
+            // VAPP-121: any member exports an app that has a version.
+            if app.headVersion > 0 || model.canManage(app, userId: deps.auth.userId) {
                 Button {
                     UIApplication.endEditing()
                     menuTarget = app
@@ -138,6 +147,7 @@ struct AppsListScreen: View {
         guard let pick = pendingMenu else { return }
         pendingMenu = nil
         switch pick.action {
+        case .export: exporting = pick.app
         case .rename: renaming = pick.app
         case .delete: deleting = pick.app
         }
@@ -174,28 +184,40 @@ struct AppVersionPill: View {
     }
 }
 
-/// An app row's `…` — THE Menu in its sheet presentation: Rename · Delete app
-/// (destructive). A pick hands the action back; the host acts once the sheet
-/// has dismissed.
+/// An app row's `…` — THE Menu in its sheet presentation: Export (VAPP-121:
+/// any member, once the app has a version) · Rename · Delete app
+/// (destructive; the creator or an owner). A pick hands the action back; the
+/// host acts once the sheet has dismissed.
 struct AppMenuSheet: View {
-    enum Action { case rename, delete }
+    enum Action { case export, rename, delete }
 
     let title: String
+    var canExport = false
+    var canManage = true
     let onPick: (Action) -> Void
 
     var body: some View {
         GlassSheetChrome(title: title) {
             VStack(spacing: 0) {
-                Button { onPick(.rename) } label: {
-                    GlassMenuItemLabel(Apps.Copy.Menu.rename, icon: AppIcons.uiEdit)
+                if canExport {
+                    Button { onPick(.export) } label: {
+                        GlassMenuItemLabel(AppExport.Copy.export, icon: AppIcons.uiShare)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(AppExport.TestIds.menuItem)
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("app-menu-rename")
-                Button { onPick(.delete) } label: {
-                    GlassMenuItemLabel(Apps.Copy.Menu.delete, icon: AppIcons.uiDelete, destructive: true)
+                if canManage {
+                    Button { onPick(.rename) } label: {
+                        GlassMenuItemLabel(Apps.Copy.Menu.rename, icon: AppIcons.uiEdit)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("app-menu-rename")
+                    Button { onPick(.delete) } label: {
+                        GlassMenuItemLabel(Apps.Copy.Menu.delete, icon: AppIcons.uiDelete, destructive: true)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("app-menu-delete")
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("app-menu-delete")
             }
             .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
             .padding(.bottom, 16)
@@ -226,6 +248,8 @@ struct AppFormSheet: View {
     @State private var saving = false
     @State private var errorText: String?
     @State private var seeded = false
+    /// VAPP-121: New app's import step (`Import…`, create mode only).
+    @State private var importing = false
 
     /// Web `app-form-dialog.tsx` defaults.
     static let defaultIcon = "puzzle"
@@ -236,8 +260,25 @@ struct AppFormSheet: View {
     }
 
     var body: some View {
+        if importing {
+            AppImportStep(teamId: teamId, onImported: onCreated)
+        } else {
+            form
+        }
+    }
+
+    private var form: some View {
         GlassSheetChrome(
             title: app == nil ? Apps.Copy.newApp : Apps.Copy.Menu.rename,
+            headerTrailing: {
+                if app == nil {
+                    GlassPill(AppExport.Copy.import, mode: .action {
+                        UIApplication.endEditing()
+                        importing = true
+                    })
+                    .accessibilityIdentifier(AppExport.TestIds.import)
+                }
+            },
             content: {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {

@@ -31,6 +31,7 @@ import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
 import com.exponential.app.domain.AgentHome
+import com.exponential.app.domain.AppExport
 import com.exponential.app.domain.Apps
 import com.exponential.app.domain.AgentSettings
 import com.exponential.app.domain.ComposerMenu
@@ -115,7 +116,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
- *   sg_chat-menus · sg_schedule-picker · sg_mention-pill · sg_app-consent
+ *   sg_chat-menus · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
+ *   sg_app-export · sg_app-import
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -202,6 +204,10 @@ class StyleguideScreenshotsTest {
 
         /** VAPP-122: the seeded Working hours app, with records (web `DEMO_APP_SLUG`). */
         private const val DEMO_APP_SLUG = "working-hours"
+
+        /** VAPP-121: app-export.json `capture.importText` and its one issue. */
+        private const val APP_IMPORT_CAPTURE_TEXT = """{"format":"exponential-app/1","app":{"name":"Todos"}}"""
+        private const val APP_IMPORT_CAPTURE_ISSUE = "/package: is required"
 
         // APP-5 — the only seeded issue with a comment thread.
         private const val SHOWCASE_ISSUE_TITLE = ScreenshotFlow.SHOWCASE_ISSUE_TITLE
@@ -788,6 +794,43 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_app")
         Espresso.pressBack()
         flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
+        flow.settle()
+
+        // --- sg_app-export / sg_app-import (VAPP-121, app-export.json
+        // `capture`): Working hours' row menu → Export with "Include records"
+        // switched on; New app → Import… holding the fixture's capture text
+        // and the server's ONE issue. A scoped run not naming them skips both.
+        if (ScreenshotFlow.anyRequested("sg_app-export")) {
+            composeRule.onNode(hasContentDescription("Menu for Working hours")).performClick()
+            flow.waitFor(hasText(AppExport.Copy.EXPORT), NAV_TIMEOUT)
+            composeRule.onNode(hasText(AppExport.Copy.EXPORT)).performClick()
+            flow.waitFor(hasTestTag("app-export-dialog"), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag("app-export-records"), SYNC_TIMEOUT)
+            composeRule.onNode(hasTestTag("app-export-records")).performClick()
+            flow.settle()
+            flow.screenshot("sg_app-export")
+            Espresso.pressBack()
+            flow.settle()
+            if (flow.exists(hasTestTag("app-export-dialog"))) Espresso.pressBack()
+            flow.waitForGone(hasTestTag("app-export-dialog"), NAV_TIMEOUT)
+            flow.settle()
+        }
+        if (ScreenshotFlow.anyRequested("sg_app-import")) {
+            composeRule.onNode(hasTestTag(Apps.TestIds.NEW_APP)).performClick()
+            flow.waitFor(hasTestTag("app-import"), NAV_TIMEOUT)
+            composeRule.onNode(hasTestTag("app-import")).performClick()
+            flow.waitFor(hasTestTag("app-import-text"), NAV_TIMEOUT)
+            composeRule.onNode(hasTestTag("app-import-text")).performTextInput(APP_IMPORT_CAPTURE_TEXT)
+            Espresso.closeSoftKeyboard()
+            flow.waitFor(hasText(APP_IMPORT_CAPTURE_ISSUE), SYNC_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_app-import")
+            Espresso.pressBack()
+            flow.settle()
+            if (flow.exists(hasTestTag("app-form-dialog"))) Espresso.pressBack()
+            flow.waitForGone(hasTestTag("app-form-dialog"), NAV_TIMEOUT)
+            flow.settle()
+        }
         composeRule.onNode(hasTestTag("tab-threads")).performClick()
         flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
         flow.settle(longer = true)

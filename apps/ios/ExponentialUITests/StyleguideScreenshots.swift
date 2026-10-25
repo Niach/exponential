@@ -28,7 +28,8 @@ import XCTest
 ///   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
 ///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header ·
-///   sg_chat-transcript · sg_chat-menus · sg_schedule-picker · sg_mention-pill
+///   sg_chat-transcript · sg_chat-menus · sg_schedule-picker · sg_mention-pill ·
+///   sg_app-export · sg_app-import
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
@@ -224,7 +225,8 @@ final class StyleguideScreenshots: XCTestCase {
         // the Team dashboard editor (VAPP-110, DEMO_APP_SLUG) on its Chat tab.
         // Gated: opening the editor and leaving it ENDS the seeded editor
         // session, so only a run that wants these shots visits.
-        if ScreenshotShots.isWanted("sg_apps") || ScreenshotShots.isWanted("sg_app") {
+        // VAPP-121: sg_app-export · sg_app-import ride the same walk.
+        if ["sg_apps", "sg_app", "sg_app-export", "sg_app-import"].map(ScreenshotShots.isWanted).contains(true) {
             walkApps(app)
         }
 
@@ -1003,6 +1005,12 @@ final class StyleguideScreenshots: XCTestCase {
         let appRow = anyElement(app, identified: "apps-row-\(Self.appSlug)")
         expect(appRow, within: Wait.sync, "The Apps list has no \(Self.appName) row — reseed with `bun run seed:screenshots`")
         snapshot("sg_apps", settle: 2)
+        if ScreenshotShots.isWanted("sg_app-export") {
+            walkAppExport(app)
+        }
+        if ScreenshotShots.isWanted("sg_app-import") {
+            walkAppImport(app)
+        }
         guard ScreenshotShots.isWanted("sg_app") else { return }
         appRow.tap()
         expect(anyElement(app, identified: "app-editor-tabs"), within: Wait.sync, "The editor drew no Chat | Preview | Versions control")
@@ -1016,6 +1024,54 @@ final class StyleguideScreenshots: XCTestCase {
         )
         snapshot("sg_app", settle: 3)
         goBack(app)
+        settle(1)
+    }
+
+    /// VAPP-121 (app-export.json `capture`): the Working hours row's `…` →
+    /// Export → Include records ON → sg_app-export → dismissed; ends on the
+    /// Apps list.
+    @MainActor
+    private func walkAppExport(_ app: XCUIApplication) {
+        let menuButton = app.buttons.matching(NSPredicate(format: "label == %@", "Menu for \(Self.appName)")).firstMatch
+        expect(menuButton, within: Wait.nav, "The \(Self.appName) row has no … menu")
+        menuButton.tap()
+        let exportItem = anyElement(app, identified: "app-menu-export")
+        expect(exportItem, within: Wait.nav, "The row menu has no Export (the app has no version?)")
+        exportItem.tap()
+        let dialog = anyElement(app, identified: "app-export-dialog")
+        expect(dialog, within: Wait.nav, "Export opened no sheet")
+        let records = anyElement(app, identified: "app-export-records")
+        expect(records, within: Wait.sync, "The Export sheet has no Include records row — reseed with `bun run seed:screenshots`")
+        for _ in 0..<3 where (records.value as? String) != "On" {
+            records.tap()
+            usleep(400_000)
+        }
+        snapshot("sg_app-export", settle: 2)
+        dismissSheet(app, whileVisible: app.staticTexts["Export \(Self.appName)"])
+        settle(1)
+    }
+
+    /// VAPP-121: Apps list → New app → Import… → the capture text typed →
+    /// the server's `/package: is required` row → sg_app-import → dismissed.
+    @MainActor
+    private func walkAppImport(_ app: XCUIApplication) {
+        let newApp = anyElement(app, identified: "apps-new")
+        expect(newApp, within: Wait.nav, "The Apps band has no New app pill")
+        newApp.tap()
+        let importButton = anyElement(app, identified: "app-import")
+        expect(importButton, within: Wait.nav, "New app has no Import… button")
+        importButton.tap()
+        let field = anyElement(app, identified: "app-import-text")
+        expect(field, within: Wait.nav, "The import step has no text field")
+        focus(field)
+        field.typeText(#"{"format":"exponential-app/1","app":{"name":"Todos"}}"#)
+        expect(
+            anyElement(app, containing: "/package: is required"),
+            within: Wait.network,
+            "The import step never listed the server's /package issue"
+        )
+        snapshot("sg_app-import", settle: 2)
+        dismissSheet(app, whileVisible: app.staticTexts["Import an app"])
         settle(1)
     }
 
