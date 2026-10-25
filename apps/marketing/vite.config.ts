@@ -38,7 +38,7 @@ function uiSection(): Plugin {
       server.middlewares.use((req, _res, next) => {
         const path = (req.url ?? ``).split(`?`)[0]
         const isPage = req.method === `GET` && (req.headers.accept ?? ``).includes(`text/html`)
-        if (isPage && (path === `/ui` || (path.startsWith(`/ui/`) && path.endsWith(`/`)))) req.url = `/ui/index.html`
+        if (isPage && (path === `/ui` || (path.startsWith(`/ui/`) && !/\.[a-z0-9]+$/i.test(path)))) req.url = `/ui/index.html`
         next()
       })
     },
