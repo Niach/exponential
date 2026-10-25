@@ -535,7 +535,7 @@ export function DeviceSettingsDialog({
           // NEW-53: sent on EVERY save, so this dialog never clears it.
           voice: {
             assistantAgentId: snapshot.voiceAssistant,
-            speakReplies: snapshot.speakReplies,
+            speakReplies: Boolean(snapshot.voiceAssistant) && snapshot.speakReplies,
           },
           agents,
         },
@@ -701,8 +701,11 @@ export function DeviceSettingsDialog({
   }
 
   // NEW-53: the Voice group rides the same debounced save.
+  // voice.json: choosing None clears Speak replies, so a later pick never
+  // turns speaking on by itself.
   const pickVoiceAssistant = (value: string | null) => {
     setVoiceAssistant(value)
+    if (!value) setSpeakReplies(false)
     scheduleDefaults()
   }
   const toggleSpeakReplies = (checked: boolean) => {
@@ -967,7 +970,7 @@ export function DeviceSettingsDialog({
               <GlassToggleRow
                 id={VOICE_TEST_IDS.speakReplies}
                 label={VOICE_COPY.speakReplies}
-                checked={speakReplies}
+                checked={Boolean(voiceAssistant) && speakReplies}
                 onCheckedChange={toggleSpeakReplies}
                 disabled={!voiceAssistant}
               />

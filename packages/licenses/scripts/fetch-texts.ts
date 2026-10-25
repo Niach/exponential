@@ -160,6 +160,50 @@ writeFileSync(
     `Do not hand-edit these files.\n`
 )
 
+// NEW-53: the native code sherpa-onnx 2.0.0's static archive links into the
+// desktop app (SHERPA_ONNX_STATIC_LIBS in apps/desktop/vendor/sherpa-onnx-sys/
+// build.rs). The archive ships no licence files, so each upstream text is
+// fetched at the exact version sherpa-onnx v2.0.0's cmake/*.cmake builds.
+const SHERPA = [
+  { file: `sherpa-onnx-LICENSE.txt`, repo: `k2-fsa/sherpa-onnx`, rev: `v2.0.0`, path: `LICENSE` },
+  { file: `onnxruntime-LICENSE.txt`, repo: `microsoft/onnxruntime`, rev: `v1.28.2`, path: `LICENSE` },
+  { file: `onnxruntime-ThirdPartyNotices.txt`, repo: `microsoft/onnxruntime`, rev: `v1.28.2`, path: `ThirdPartyNotices.txt` },
+  { file: `kissfft-COPYING.txt`, repo: `mborgerding/kissfft`, rev: `febd4caeed32e33ad8b2e0bb5ea77542c40f18ec`, path: `COPYING` },
+  { file: `kissfft-BSD-3-Clause.txt`, repo: `mborgerding/kissfft`, rev: `febd4caeed32e33ad8b2e0bb5ea77542c40f18ec`, path: `LICENSES/BSD-3-Clause` },
+  { file: `utf8proc-LICENSE.txt`, repo: `JuliaStrings/utf8proc`, rev: `v2.12.0`, path: `LICENSE.md` },
+  { file: `openfst-COPYING.txt`, repo: `csukuangfj/openfst`, rev: `v1.8.5-2026-07-09`, path: `COPYING` },
+  { file: `kaldi-native-fbank-LICENSE.txt`, repo: `csukuangfj/kaldi-native-fbank`, rev: `v1.22.4`, path: `LICENSE` },
+  { file: `kaldi-decoder-LICENSE.txt`, repo: `k2-fsa/kaldi-decoder`, rev: `v0.3.0`, path: `LICENSE` },
+  { file: `simple-sentencepiece-LICENSE.txt`, repo: `pkufool/simple-sentencepiece`, rev: `v0.7`, path: `LICENSE` },
+]
+
+const sherpaDir = join(pkgRoot, `texts/sherpa-onnx`)
+mkdirSync(sherpaDir, { recursive: true })
+
+for (const text of SHERPA) {
+  const url = `https://raw.githubusercontent.com/${text.repo}/${text.rev}/${text.path}`
+  const res = await fetch(url)
+  if (!res.ok) {
+    console.error(`FAILED ${text.file}: ${res.status} ${url}`)
+    failed++
+    continue
+  }
+  writeFileSync(join(sherpaDir, text.file), normalise(await res.text()))
+  console.log(`wrote sherpa-onnx/${text.file}`)
+}
+
+writeFileSync(
+  join(sherpaDir, `SOURCE.txt`),
+  `Licences of the native code sherpa-onnx v2.0.0's static archive links into\n` +
+    `the desktop app, vendored verbatim, pinned to the upstream tag or commit\n` +
+    `sherpa-onnx's cmake files build:\n` +
+    `\n` +
+    SHERPA.map((t) => `  ${t.file}\n    https://github.com/${t.repo}/blob/${t.rev}/${t.path}\n`).join(``) +
+    `\n` +
+    `Regenerate with: bun run --filter @exp/licenses fetch:texts\n` +
+    `Do not hand-edit these files.\n`
+)
+
 if (failed > 0) {
   console.error(`\n${failed} text(s) failed to fetch`)
   process.exit(1)

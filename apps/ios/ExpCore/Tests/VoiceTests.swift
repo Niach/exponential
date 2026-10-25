@@ -27,6 +27,7 @@ final class VoiceTests: XCTestCase {
             "speakReplies": Voice.Copy.speakReplies,
             "downloading": Voice.Copy.downloading,
             "downloadFailed": Voice.Copy.downloadFailed,
+            "unavailable": Voice.Copy.unavailable,
             "speaking": Voice.Copy.speaking,
             "stop": Voice.Copy.stop,
             "link": Voice.Copy.link,

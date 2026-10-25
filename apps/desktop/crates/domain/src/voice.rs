@@ -18,6 +18,7 @@ pub struct VoiceCopy {
     pub speak_replies: String,
     pub downloading: String,
     pub download_failed: String,
+    pub unavailable: String,
     pub speaking: String,
     pub stop: String,
     pub link: String,

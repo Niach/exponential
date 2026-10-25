@@ -458,12 +458,31 @@ ISC notice without widening that list.
 ### What we ship and what we download
 
 - **sherpa-onnx** (Apache-2.0, k2-fsa) is linked statically into the desktop
-  app through its Rust crate, together with ONNX Runtime (MIT). Its FFI crate
-  is vendored at `apps/desktop/vendor/sherpa-onnx-sys` (Apache-2.0 text
-  beside it) with one change: the build verifies the prebuilt library
-  archive against a pinned SHA-256 before linking it. The 2.0.0 archives no
-  longer contain espeak-ng or piper-phonemize (removed upstream in PR #4055,
-  2026-10-20), so no GPL code is linked.
+  app through its Rust crate. Its prebuilt archive (`SHERPA_ONNX_STATIC_LIBS`
+  in the vendored build.rs) carries, unmodified, the native code below; the
+  archive ships no licence files, so each upstream text is fetched at the
+  version sherpa-onnx v2.0.0's cmake files build into
+  `packages/licenses/texts/sherpa-onnx/` and reproduced in the desktop
+  notices ("Native code linked through sherpa-onnx"):
+
+  | library | version | licence |
+  |---|---|---|
+  | sherpa-onnx (c-api, core, kaldifst, fst, fstfar) | 2.0.0 | Apache-2.0 |
+  | ONNX Runtime | 1.28.2 | MIT (+ its ThirdPartyNotices) |
+  | KISS FFT | commit febd4ca | BSD-3-Clause |
+  | utf8proc | 2.12.0 | MIT + Unicode data licence |
+  | OpenFst (csukuangfj fork) | 1.8.5-2026-07-09 | Apache-2.0 |
+  | kaldi-native-fbank | 1.22.4 | Apache-2.0 |
+  | kaldi-decoder | 0.3.0 | Apache-2.0 |
+  | simple-sentencepiece (`ssentencepiece_core`) | 0.7 | Apache-2.0 |
+
+  The 2.0.0 archives no longer contain espeak-ng or piper-phonemize (removed
+  upstream in PR #4055, 2026-10-20), so no GPL code is linked. The archive's
+  portaudio library is not linked.
+- **sherpa-onnx-sys**, the FFI crate, is vendored at
+  `apps/desktop/vendor/sherpa-onnx-sys` (Apache-2.0); its NOTICE states the
+  one change (build.rs verifies the archive against pinned SHA-256s and picks
+  the /MD Windows archive) and sits in the notices' vendored-source section.
 - **Kokoro v1.0** (weights Apache-2.0, hexgrad/Kokoro-82M as packaged by
   sherpa-onnx) is NOT in the binary: the speech worker downloads
   `kokoro-multi-lang-v1_0.tar.bz2` on first use, verifies its SHA-256

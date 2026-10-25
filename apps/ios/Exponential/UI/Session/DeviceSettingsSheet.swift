@@ -602,6 +602,9 @@ struct DeviceSettingsSheet: View {
                     get: { assistantAgentId },
                     set: { newValue in
                         assistantAgentId = newValue
+                        // voice.json: choosing None clears Speak replies, so a
+                        // later pick never turns speaking on by itself.
+                        if newValue == nil { speakReplies = false }
                         defaultsPending = true
                         scheduleDefaultsAutosave()
                     }
@@ -615,7 +618,8 @@ struct DeviceSettingsSheet: View {
             GlassToggleRow(
                 Voice.Copy.speakReplies,
                 isOn: Binding(
-                    get: { speakReplies },
+                    // Off while no assistant, like every client.
+                    get: { assistantAgentId != nil && speakReplies },
                     set: { newValue in
                         speakReplies = newValue
                         defaultsPending = true
@@ -788,7 +792,7 @@ struct DeviceSettingsSheet: View {
             computerUse: computerUse,
             computerUseModel: computerUseModel,
             // NEW-53: always sent, so this save never clears the voice.
-            voice: VoiceLaunchDefaults(assistantAgentId: assistantAgentId, speakReplies: speakReplies)
+            voice: VoiceLaunchDefaults(assistantAgentId: assistantAgentId, speakReplies: assistantAgentId != nil && speakReplies)
         )
         defaultsPending = false
         savingDefaults = true

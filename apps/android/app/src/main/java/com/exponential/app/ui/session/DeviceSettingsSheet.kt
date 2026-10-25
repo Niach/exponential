@@ -446,7 +446,13 @@ fun DeviceSettingsSheet(
                             options = assistantOptions.map { ModelPickerOption(it.id.orEmpty(), it.label) },
                             value = assistantId.orEmpty(),
                             onChange = { picked ->
-                                val next = (voice ?: DeviceVoice()).copy(assistantAgentId = picked.ifEmpty { null })
+                                // voice.json: choosing None clears Speak replies, so a
+                                // later pick never turns speaking on by itself.
+                                val assistant = picked.ifEmpty { null }
+                                val next = (voice ?: DeviceVoice()).copy(
+                                    assistantAgentId = assistant,
+                                    speakReplies = if (assistant == null) false else voice?.speakReplies,
+                                )
                                 voice = next
                                 queueDefaults(nextVoice = next)
                             },
@@ -462,7 +468,8 @@ fun DeviceSettingsSheet(
                         GroupDivider()
                         SwitchRow(
                             title = Voice.Copy.SPEAK_REPLIES,
-                            checked = voice?.speakReplies == true,
+                            // Off while no assistant, like every client.
+                            checked = voice?.assistantAgentId != null && voice?.speakReplies == true,
                             onCheckedChange = { checked ->
                                 val next = (voice ?: DeviceVoice()).copy(speakReplies = checked)
                                 voice = next

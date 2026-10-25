@@ -15,6 +15,7 @@ public enum Voice {
         public static let speakReplies = "Speak replies"
         public static let downloading = "Downloading voice…"
         public static let downloadFailed = "Couldn't download the voice"
+        public static let unavailable = "The voice stopped working"
         public static let speaking = "Speaking"
         public static let stop = "Stop"
         public static let link = "link"

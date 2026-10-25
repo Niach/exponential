@@ -25,14 +25,24 @@ pub fn open(rate: u32) -> Result<Arc<dyn Sink>, String> {
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod platform {
     use std::io::Write;
-    use std::process::{Child, Command, Stdio};
+    use std::process::{Child, ChildStdin, Command, Stdio};
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
 
     use super::Sink;
 
+    /// The player's stdin and the player itself sit behind SEPARATE locks:
+    /// a write blocked on a full pipe holds only `stdin`, so `stop` can
+    /// still take `child` and kill it at once (the blocked write then fails
+    /// with a broken pipe and returns).
     pub struct PipeSink {
+        stdin: Mutex<Option<ChildStdin>>,
         child: Mutex<Option<Child>>,
+        stopped: AtomicBool,
     }
+
+    /// Samples per write: ~85 ms at 24 kHz, so a stop lands between chunks.
+    const CHUNK: usize = 2048;
 
     pub fn open(rate: u32) -> Result<Arc<dyn Sink>, String> {
         let candidates: [(&str, Vec<String>); 2] = [
@@ -54,41 +64,63 @@ mod platform {
                 .stderr(Stdio::null())
                 .spawn()
             {
-                Ok(child) => return Ok(Arc::new(PipeSink { child: Mutex::new(Some(child)) })),
+                Ok(mut child) => {
+                    let stdin = child.stdin.take();
+                    return Ok(Arc::new(PipeSink {
+                        stdin: Mutex::new(stdin),
+                        child: Mutex::new(Some(child)),
+                        stopped: AtomicBool::new(false),
+                    }));
+                }
                 Err(err) => errors.push(format!("{program}: {err}")),
             }
         }
         Err(format!("no audio player (needs PipeWire or PulseAudio): {}", errors.join("; ")))
     }
 
+    impl PipeSink {
+        fn kill(&self) {
+            let child = self.child.lock().ok().and_then(|mut guard| guard.take());
+            if let Some(mut child) = child {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
     impl Sink for PipeSink {
         fn push(&self, samples: &[f32]) {
-            let Ok(mut guard) = self.child.lock() else { return };
-            let Some(child) = guard.as_mut() else { return };
-            let bytes: Vec<u8> = samples.iter().flat_map(|sample| sample.to_le_bytes()).collect();
-            let failed = child.stdin.as_mut().is_none_or(|stdin| stdin.write_all(&bytes).is_err());
-            if failed {
-                if let Some(mut child) = guard.take() {
-                    let _ = child.kill();
-                    let _ = child.wait();
+            for chunk in samples.chunks(CHUNK) {
+                if self.stopped.load(Ordering::SeqCst) {
+                    return;
+                }
+                let bytes: Vec<u8> = chunk.iter().flat_map(|sample| sample.to_le_bytes()).collect();
+                let Ok(mut guard) = self.stdin.lock() else { return };
+                let failed = guard.as_mut().is_none_or(|stdin| stdin.write_all(&bytes).is_err());
+                if failed {
+                    guard.take();
+                    drop(guard);
+                    self.kill();
+                    return;
                 }
             }
         }
 
         fn finish(&self) {
+            // Closing stdin lets the player drain and exit on its own.
+            drop(self.stdin.lock().ok().and_then(|mut guard| guard.take()));
             let child = self.child.lock().ok().and_then(|mut guard| guard.take());
             if let Some(mut child) = child {
-                // Closing stdin lets the player drain and exit on its own.
-                drop(child.stdin.take());
                 let _ = child.wait();
             }
         }
 
         fn stop(&self) {
-            let child = self.child.lock().ok().and_then(|mut guard| guard.take());
-            if let Some(mut child) = child {
-                let _ = child.kill();
-                let _ = child.wait();
+            self.stopped.store(true, Ordering::SeqCst);
+            // Kill first (never waits on `stdin`), then drop the pipe if free.
+            self.kill();
+            if let Ok(mut guard) = self.stdin.try_lock() {
+                guard.take();
             }
         }
     }

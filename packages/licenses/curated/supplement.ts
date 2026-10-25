@@ -157,7 +157,7 @@ export const VENDORED: CuratedEntry[] = [
     title: `Vendored source in the desktop application`,
     clients: [`desktop`],
     body: [
-      `Two crates in this repository contain third-party source that was copied in and modified rather than depended on. Both are Apache-2.0, and both carry the statement of changes that Apache-2.0 section 4(b) requires. Their NOTICE files are reproduced in full below.`,
+      `Three crates in this repository contain third-party source that was copied in and modified rather than depended on. All are Apache-2.0, and each carries the statement of changes that Apache-2.0 section 4(b) requires. Their NOTICE files are reproduced in full below.`,
     ],
     reproduce: [
       {
@@ -168,6 +168,37 @@ export const VENDORED: CuratedEntry[] = [
         label: `apps/desktop/crates/gpui-markdown-editor/NOTICE`,
         path: `apps/desktop/crates/gpui-markdown-editor/NOTICE`,
       },
+      // NEW-53: the FFI crate of sherpa-onnx, build.rs changed to verify
+      // the prebuilt archive against pinned SHA-256s.
+      {
+        label: `apps/desktop/vendor/sherpa-onnx-sys/NOTICE`,
+        path: `apps/desktop/vendor/sherpa-onnx-sys/NOTICE`,
+      },
+    ],
+  },
+  // NEW-53: sherpa-onnx's prebuilt static archive is linked into the desktop
+  // binary (exponentialTalk's speech worker). No dependency graph sees the
+  // C/C++ inside it, so each linked library gets its upstream licence here
+  // (texts/sherpa-onnx/, fetched by scripts/fetch-texts.ts at the versions
+  // sherpa-onnx v2.0.0 builds). The Kokoro voice is downloaded at runtime,
+  // never shipped (docs/third-party-licences.md, NEW-53 section).
+  {
+    title: `Native code linked through sherpa-onnx (exponentialTalk)`,
+    clients: [`desktop`],
+    body: [
+      `The desktop application statically links the prebuilt library archive of sherpa-onnx v2.0.0 (https://github.com/k2-fsa/sherpa-onnx, Apache-2.0), which contains the following third-party native code, unmodified: ONNX Runtime 1.28.2 (Microsoft, MIT; its third-party notices follow its licence), KISS FFT (Mark Borgerding, BSD-3-Clause), utf8proc 2.12.0 (MIT and the Unicode data licence), OpenFst 1.8.5 as forked by csukuangfj (Apache-2.0), kaldi-native-fbank 1.22.4 (Apache-2.0), kaldi-decoder 0.3.0 (Apache-2.0) and simple-sentencepiece 0.7 (Apache-2.0). The archive contains no espeak-ng or piper-phonemize code (removed upstream in sherpa-onnx 2.0.0). Each licence is reproduced in full below.`,
+    ],
+    reproduce: [
+      { label: `Apache License 2.0 — sherpa-onnx`, path: `packages/licenses/texts/sherpa-onnx/sherpa-onnx-LICENSE.txt` },
+      { label: `MIT License — ONNX Runtime`, path: `packages/licenses/texts/sherpa-onnx/onnxruntime-LICENSE.txt` },
+      { label: `ONNX Runtime third-party notices`, path: `packages/licenses/texts/sherpa-onnx/onnxruntime-ThirdPartyNotices.txt` },
+      { label: `KISS FFT — COPYING`, path: `packages/licenses/texts/sherpa-onnx/kissfft-COPYING.txt` },
+      { label: `BSD-3-Clause — KISS FFT`, path: `packages/licenses/texts/sherpa-onnx/kissfft-BSD-3-Clause.txt` },
+      { label: `utf8proc licence`, path: `packages/licenses/texts/sherpa-onnx/utf8proc-LICENSE.txt` },
+      { label: `Apache License 2.0 — OpenFst`, path: `packages/licenses/texts/sherpa-onnx/openfst-COPYING.txt` },
+      { label: `Apache License 2.0 — kaldi-native-fbank`, path: `packages/licenses/texts/sherpa-onnx/kaldi-native-fbank-LICENSE.txt` },
+      { label: `Apache License 2.0 — kaldi-decoder`, path: `packages/licenses/texts/sherpa-onnx/kaldi-decoder-LICENSE.txt` },
+      { label: `Apache License 2.0 — simple-sentencepiece`, path: `packages/licenses/texts/sherpa-onnx/simple-sentencepiece-LICENSE.txt` },
     ],
   },
   // VAPP-87: the web app bundles the Exponential UI catalog package

@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use talk::{Event, Request};
 
@@ -71,7 +72,8 @@ fn run(data_dir: PathBuf) {
         let request = match serde_json::from_str::<Request>(&line) {
             Ok(request) => request,
             Err(err) => {
-                eprintln!("unreadable request ({err}): {line}");
+                // Never the line itself: a Speak carries the reply's text.
+                eprintln!("unreadable request ({err})");
                 continue;
             }
         };
@@ -104,8 +106,17 @@ fn silence(shared: &Shared) {
     }
 }
 
+/// The wait after the `failures`-th failed download or load: 1 min,
+/// doubling, at most 1 h. A changed or broken upstream asset is fetched
+/// again on that schedule, never on every reply.
+fn retry_after(failures: u32) -> Duration {
+    Duration::from_secs(60u64.saturating_mul(1u64 << failures.saturating_sub(1).min(6))).min(Duration::from_secs(3600))
+}
+
 fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
     let mut tts: Option<sherpa_onnx::OfflineTts> = None;
+    let mut failures = 0u32;
+    let mut retry_at: Option<Instant> = None;
     while let Ok(first) = rx.recv() {
         // Only the newest Speak matters: drain what queued up behind it.
         let mut job = first;
@@ -115,13 +126,25 @@ fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
             }
         }
         if tts.is_none() {
+            if retry_at.is_some_and(|at| Instant::now() < at) {
+                // Backing off: the voice is not tried again yet.
+                if let Job::Speak { id, .. } = job {
+                    emit(&Event::Failed { id, error: "the voice is unavailable for now".into() });
+                }
+                continue;
+            }
             match load(data_dir) {
                 Ok(engine) => {
                     tts = Some(engine);
+                    failures = 0;
+                    retry_at = None;
                     emit(&Event::ModelReady);
                 }
                 Err(err) => {
-                    eprintln!("voice unavailable: {err}");
+                    failures += 1;
+                    let wait = retry_after(failures);
+                    retry_at = Some(Instant::now() + wait);
+                    eprintln!("voice unavailable (attempt {failures}, next in {}s): {err}", wait.as_secs());
                     emit(&Event::DownloadFailed { error: err.clone() });
                     if let Job::Speak { id, .. } = job {
                         emit(&Event::Failed { id, error: err });
@@ -220,4 +243,18 @@ fn speak(engine: &sherpa_onnx::OfflineTts, shared: &Arc<Shared>, id: &str, text:
         }
     }
     emit(&Event::Finished { id: id.into(), stopped: !still_current });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_downloads_back_off_to_an_hour() {
+        assert_eq!(retry_after(1), Duration::from_secs(60));
+        assert_eq!(retry_after(2), Duration::from_secs(120));
+        assert_eq!(retry_after(4), Duration::from_secs(480));
+        assert_eq!(retry_after(7), Duration::from_secs(3600));
+        assert_eq!(retry_after(30), Duration::from_secs(3600));
+    }
 }

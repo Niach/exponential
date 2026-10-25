@@ -18,6 +18,7 @@ object Voice {
         const val SPEAK_REPLIES = "Speak replies"
         const val DOWNLOADING = "Downloading voice…"
         const val DOWNLOAD_FAILED = "Couldn't download the voice"
+        const val UNAVAILABLE = "The voice stopped working"
         const val SPEAKING = "Speaking"
         const val STOP = "Stop"
         const val LINK = "link"

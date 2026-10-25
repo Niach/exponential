@@ -33,12 +33,13 @@ class VoiceTest {
         assertEquals(copy.str("speakReplies"), Voice.Copy.SPEAK_REPLIES)
         assertEquals(copy.str("downloading"), Voice.Copy.DOWNLOADING)
         assertEquals(copy.str("downloadFailed"), Voice.Copy.DOWNLOAD_FAILED)
+        assertEquals(copy.str("unavailable"), Voice.Copy.UNAVAILABLE)
         assertEquals(copy.str("speaking"), Voice.Copy.SPEAKING)
         assertEquals(copy.str("stop"), Voice.Copy.STOP)
         assertEquals(copy.str("link"), Voice.Copy.LINK)
         assertEquals(copy.str("ellipsis"), Voice.Copy.ELLIPSIS)
         // A key added to the fixture must land here too.
-        assertEquals(10, copy.size)
+        assertEquals(11, copy.size)
     }
 
     @Test

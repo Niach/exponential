@@ -885,6 +885,11 @@ impl DeviceSettingsView {
     /// replaces the object) with `voice` set. Own and remote device alike
     /// write the row directly; nothing of it lives in settings.json.
     fn save_voice(&mut self, cx: &mut gpui::Context<Self>) {
+        // voice.json: choosing None clears Speak replies, so a later pick
+        // never turns speaking on by itself.
+        if selected(&self.voice_assistant_select, cx).is_empty() {
+            self.voice_speak_replies = false;
+        }
         let drafted = self.drafted_voice(cx);
         if drafted == self.seeded_voice && !self.section_errors.contains_key("voice") {
             return;

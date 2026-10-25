@@ -125,6 +125,32 @@ describe(`Device settings: Voice (NEW-53)`, () => {
     expect(speakSwitch().disabled).toBe(true)
   })
 
+  it(`with no assistant the switch reads off even when the row says on`, () => {
+    deviceRow.launchDefaults = { voice: { speakReplies: true } }
+    renderDialog()
+    expect(speakSwitch().disabled).toBe(true)
+    expect(speakSwitch().getAttribute(`aria-checked`)).toBe(`false`)
+  })
+
+  it(`choosing None clears Speak replies`, async () => {
+    deviceRow.launchDefaults = {
+      voice: { assistantAgentId: AGENT_A, speakReplies: true },
+    }
+    renderDialog()
+    fireEvent.click(assistantTrigger())
+    const none = await screen.findByText(VOICE_COPY.assistantNone)
+    vi.useFakeTimers()
+    fireEvent.click(none)
+    expect(speakSwitch().getAttribute(`aria-checked`)).toBe(`false`)
+    await act(async () => {
+      vi.advanceTimersByTime(1_100)
+    })
+    const [payload] = setLaunchDefaults.mock.calls.at(-1) as [
+      { launchDefaults: { voice: unknown } },
+    ]
+    expect(payload.launchDefaults.voice).toEqual({ assistantAgentId: null, speakReplies: false })
+  })
+
   it(`seeds from the row's voice`, () => {
     deviceRow.launchDefaults = {
       voice: { assistantAgentId: AGENT_B, speakReplies: true },
