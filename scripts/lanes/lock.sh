@@ -36,7 +36,9 @@ take_lock() {
   [ -n "$1" ] && [ -n "$2" ] || { echo "take_lock: usage: take_lock <dir> <owner>" >&2; return 2; }
   while ! { mkdir "$1" 2>/dev/null && echo "$2 $(date +%s)" > "$1/owner"; }; do
     if [ -d "$1" ] && [ ! -e "$1/owner" ]; then
-      age=$(( $(date +%s) - $(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1") ))
+      # GNU stat first: its `-f` is filesystem mode, not BSD's format flag.
+      mtime=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null) || continue
+      age=$(( $(date +%s) - mtime ))
       [ "$age" -gt "$LANE_LOCK_STALE_SECONDS" ] && rmdir "$1" 2>/dev/null && continue
     fi
     echo "take_lock: $1 busy ($(lock_owner "$1")), waiting" >&2
