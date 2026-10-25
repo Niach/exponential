@@ -37,7 +37,7 @@
  * pills, dialogs, sheets, meters, rings, empty states, …) moved to
  * ui.exponential.at, where the Exponential UI SDK renders it live beside four
  * platform shots, and its per-platform table moved with it
- * (`apps/ui-site/src/data/app-parity.ts`). What stays here is the app
+ * (`apps/marketing/ui/src/data/app-parity.ts`). What stays here is the app
  * extension: the Exponential app's own specialised components.
  *
  * `components.test.tsx` gates the parts that rot: every named file exists,

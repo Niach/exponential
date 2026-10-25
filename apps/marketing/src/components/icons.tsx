@@ -230,5 +230,5 @@ export const IcX = (p: IconProps) => (
     <path d="M9 9 L15 15 M15 9 L9 15" />
   </Custom>
 )
-/* The brand mark lives in the shared site shell (ui.exponential.at wears it too). */
+/* The brand mark lives in the shared site shell (the /ui/ section wears it too). */
 export { ExpLogo } from "@exp/site-shell"

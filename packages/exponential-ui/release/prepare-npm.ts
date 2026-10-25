@@ -112,7 +112,7 @@ export async function prepareNpm(version: string, outDir: string): Promise<strin
       version,
       description: pkg.description,
       license: `Apache-2.0`,
-      homepage: `https://ui.exponential.at`,
+      homepage: `https://exponential.at/ui/`,
       repository: { type: `git`, url: `git+https://github.com/Niach/exponential.git`, directory: spec.dir },
       keywords: [`a2ui`, `generative-ui`, `exponential-ui`],
       type: `module`,

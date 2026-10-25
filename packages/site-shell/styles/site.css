@@ -58,11 +58,20 @@
 
 .nav {
   display: flex;
+  align-items: center;
   gap: 4px;
   margin-left: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.nav::-webkit-scrollbar {
+  display: none;
 }
 
 .nav a {
+  flex-shrink: 0;
+  white-space: nowrap;
   font-size: 13px;
   color: var(--fg-muted);
   padding: 6px 10px;
@@ -77,8 +86,27 @@
   background: var(--glass-fill-row);
 }
 
+.nav a[aria-current="page"] {
+  color: var(--fg);
+}
+
+/* A section level (/ui/): the back button to the main menu, then the
+   section's own name, then its links. */
+.nav-back {
+  display: inline-flex;
+  align-items: center;
+}
+.nav .nav-back-label {
+  display: none;
+}
+.nav .nav-section {
+  color: var(--fg);
+  font-weight: 600;
+}
+
 .topbar-right {
   margin-left: auto;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -386,16 +414,7 @@ h1.hero-title {
 /* Topbar Download — ghost-styled but its own class (survives the ≤420px
    .btn-ghost hide; instead it disappears at ≤720px, where the hero's
    download button takes over). */
-.topbar-dl {
-  border-color: var(--glass-stroke-strong);
-  background: var(--glass-fill-row);
-  color: var(--fg-muted);
-}
 
-.topbar-dl:hover {
-  background: var(--glass-fill-active);
-  color: var(--fg);
-}
 
 /* Agent strip between the CTAs and the movie (EXP-207) — the launcher is
    agent-agnostic, so the brands live here instead of in the copy. */
@@ -522,4 +541,61 @@ h2.section-title {
   .btn:hover {
     transform: none;
   }
+}
+
+/* An icon-only topbar button (the phone menu, the scheme switch). */
+.site-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
+/* The phone menu (the top nav hides at <= 720px): the same level as the bar. */
+.site-menu {
+  display: none;
+  position: relative;
+}
+.site-menu summary {
+  list-style: none;
+  cursor: pointer;
+}
+.site-menu summary::-webkit-details-marker {
+  display: none;
+}
+.site-menu nav {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border: 1px solid var(--glass-stroke-card);
+  border-radius: var(--radius-section);
+  background: var(--glass-panel-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--glass-shadow);
+  z-index: 60;
+}
+.site-menu nav a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  color: var(--fg-muted);
+}
+.site-menu nav a:hover,
+.site-menu nav a[aria-current="page"] {
+  color: var(--fg);
+  background: var(--glass-fill-active);
+}
+.site-menu nav .nav-section {
+  color: var(--fg);
+  font-weight: 600;
 }

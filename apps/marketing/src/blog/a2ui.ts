@@ -1,6 +1,6 @@
 /* The nested authoring form of an A2UI surface and its flattening into
-   A2UI v0.9 messages (the same two helpers ui.exponential.at uses,
-   apps/ui-site/src/sdk/a2ui.ts). Pure: a post's concept drafts are written
+   A2UI v0.9 messages (the same two helpers exponential.at/ui uses,
+   ui/src/sdk/a2ui.ts). Pure: a post's concept drafts are written
    as `Nested` trees and the live island feeds the messages to the renderer. */
 
 export const A2UI_VERSION = `v0.9`

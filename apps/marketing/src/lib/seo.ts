@@ -11,7 +11,7 @@ export const SITE_ORIGIN = `https://exponential.at`
 export const SITE_NAME = `Exponential`
 
 /* The manifest types + the breadcrumb helper are shared with
-   ui.exponential.at (@exp/site-shell/seo). */
+   the /ui/ section (@exp/site-shell/seo). */
 import { breadcrumb as sharedBreadcrumb, type JsonLd, type PageSeo } from "@exp/site-shell/seo"
 export type { JsonLd, PageSeo }
 

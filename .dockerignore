@@ -49,6 +49,6 @@ packages/licenses/texts
 packages/exponential-ui-swift
 packages/exponential-ui-compose
 packages/exponential-ui/conformance
-# ui.exponential.at imports the suite manifest at build time (Home, Conformance);
+# exponential.at/ui imports the suite manifest at build time (Home, Conformance);
 # the rest of the conformance suite stays out of every image.
 !packages/exponential-ui/conformance/manifest.json

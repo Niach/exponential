@@ -4,10 +4,11 @@
      tsc --noEmit && vite build && bun run scripts/prerender.tsx
 
    The engine (renderToString into the root marker, the canonical/OG/Twitter/
-   JSON-LD head block, sitemap.xml with git lastmod, llms.txt) is shared with
-   ui.exponential.at: @exp/site-shell/prerender. This file is the site's
-   config: the page components, the llms.txt sections, and the docs-nav
-   parity gate. The source HTML heads carry only charset/viewport/title/fonts/
+   JSON-LD head block, sitemap.xml with git lastmod, llms.txt) is
+   @exp/site-shell/prerender. This file is the site's config: the page
+   components, the llms.txt sections, and the docs-nav parity gate. The
+   Exponential UI section (/ui/, ui/src/lib/routes.ts) is one entry routing
+   by path: its built ui/index.html is copied to every route's file first. The source HTML heads carry only charset/viewport/title/fonts/
    icons; every SEO tag is owned by src/lib/seo.ts. */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
@@ -42,8 +43,26 @@ import { BlogPostPage } from "../src/BlogPostPage"
 import { BLOG_POSTS } from "../src/blog/posts"
 import { rssXml } from "../src/blog/rss"
 import { BLOG_PATH, postPath, readingMinutesOf } from "../src/blog/types"
+import { App as UiApp } from "../ui/src/app"
+import { COMPONENT_DOCS, componentPath } from "../ui/src/lib/catalog"
+import { GUIDES, guidePath } from "../ui/src/lib/guides"
+import { ROUTES as UI_ROUTES, type PageModule } from "../ui/src/lib/routes"
+import { UI_HOME } from "../ui/src/lib/site"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), `..`)
+const DIST = resolve(ROOT, `dist`)
+
+/* The /ui/ section: one built entry, written as every route's file with
+   the route's own <title>. */
+const uiTemplate = readFileSync(resolve(DIST, `ui/index.html`), `utf8`)
+const uiModules = new Map<string, PageModule>()
+for (const route of UI_ROUTES) {
+  uiModules.set(route.path, await route.load())
+  const file = resolve(DIST, route.htmlFile)
+  mkdirSync(dirname(file), { recursive: true })
+  const title = route.title.replaceAll(`&`, `&amp;`).replaceAll(`<`, `&lt;`)
+  writeFileSync(file, uiTemplate.replace(/<title>[\s\S]*?<\/title>/, () => `<title>${title}</title>`))
+}
 
 /* Path → page component, keyed by PageSeo.path. */
 const COMPONENTS: Record<string, ComponentType> = {
@@ -173,6 +192,13 @@ const SECTIONS = [
       heading: `Company & legal`,
       paths: [`/contact/`, `/privacy/`, `/terms/`, `/imprint/`],
     },
+    {
+      heading: `Exponential UI (the open generative-UI SDK)`,
+      paths: [UI_HOME, `/ui/concepts/`, `/ui/playground/`, `/ui/conformance/`, `/ui/eval/`, `/ui/numbers/`],
+    },
+    { heading: `Exponential UI guides`, paths: [`/ui/guides/`, ...GUIDES.map((g) => guidePath(g.slug))] },
+    { heading: `Exponential UI themes`, paths: [`/ui/themes/`, `/ui/themes/builder/`] },
+    { heading: `Exponential UI components`, paths: [`/ui/components/`, ...COMPONENT_DOCS.map(componentPath)] },
   ]
 
 assertDocsNavParity()
@@ -183,8 +209,10 @@ prerenderSite({
   root: ROOT,
   origin: SITE_ORIGIN,
   siteName: SITE_NAME,
-  pages: PAGES,
+  pages: [...PAGES, ...UI_ROUTES],
   render: (path) => {
+    const uiPage = uiModules.get(path)
+    if (uiPage) return <UiApp path={path} page={uiPage} />
     const Component = COMPONENTS[path]
     if (!Component) throw new Error(`prerender: no component for ${path}`)
     return <Component />
@@ -192,7 +220,7 @@ prerenderSite({
   llms: {
     summary: `An open-source (Apache-2.0) realtime tracker for issues, user feedback and coding agents. Hand issues to AI coding agents (Claude Code or Codex) that run on your own machine, in the desktop app or the CLI daemon, and open GitHub pull requests (unlimited sessions, flat price). Native apps for web, iOS, Android, macOS, Windows and Linux. Free cloud tier for teams of three, or self-host it for free at any company size.`,
     intro: [
-      `The app itself lives at https://app.exponential.at; the source code is at https://github.com/Niach/exponential. The open generative-UI SDK the apps are built on, Exponential UI, has its own site at https://ui.exponential.at.`,
+      `The app itself lives at https://app.exponential.at; the source code is at https://github.com/Niach/exponential. The open generative-UI SDK the apps are built on, Exponential UI (Apache-2.0), is documented under https://exponential.at/ui/: an agent sends an A2UI surface as JSON and native renderers paint it in React, Solid, web components, SwiftUI, Jetpack Compose and gpui, from one core catalog, with runtime themes, extensions and a shared host API.`,
     ],
     sections: SECTIONS,
     extras: [
@@ -201,6 +229,14 @@ prerenderSite({
         items: [
           { label: `SKILL.md`, url: `${SITE_ORIGIN}/SKILL.md`, description: `Agent-readable product brief: the MCP endpoint and auth, tool families, core concepts, the exponential CLI, and feedback-widget integration.` },
           { label: `install.sh`, url: `${SITE_ORIGIN}/install.sh`, description: `CLI installer for Linux and macOS. One script for cloud and self-host; the instance rides EXP_INSTANCE.` },
+        ],
+      },
+      {
+        heading: `Exponential UI, machine-readable`,
+        items: [
+          { label: `core.catalog.json`, url: `https://github.com/Niach/exponential/blob/master/packages/exponential-ui/catalog/core.catalog.json`, description: `The core catalog: every component, prop and model-facing description.` },
+          { label: `core.schema.json`, url: `https://github.com/Niach/exponential/blob/master/packages/exponential-ui/catalog/core.schema.json`, description: `The catalog as JSON Schema in A2UI's catalog shape.` },
+          { label: `theme.schema.json`, url: `https://github.com/Niach/exponential/blob/master/packages/exponential-ui/catalog/theme.schema.json`, description: `The runtime theme format as JSON Schema.` },
         ],
       },
     ],

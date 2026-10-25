@@ -11,7 +11,7 @@ TanStack Start (React 19, TanStack Router/React DB) · PostgreSQL 17 via Drizzle
 ```
 apps/web          TanStack Start app (src/lib/trpc = one file per router; routes/api/shapes = one proxy per synced table; lib/sessions = the session tree; lib/mcp = the MCP server)
 apps/push-relay   Hono/Bun            apps/steer-relay  steer WS hub (Bun)
-apps/marketing    Vite + React site   apps/styleguide   shot gallery + islands   apps/ui-site  ui.exponential.at
+apps/marketing    exponential.at (Vite + React; ui/ = the Exponential UI section at /ui/, ui.exponential.at 301s there)   apps/styleguide   shot gallery + islands
 apps/ios          SwiftUI (Tuist + GRDB; ExpCore/ExpUI)   apps/android  Jetpack Compose
 apps/desktop      gpui IDE; crates/cli = the `exponential` daemon; crates/coding = the launcher (runbook.md); crates/engine = ACP engine; crates/exponential-ui* = the SDK
 packages/db-schema        Drizzle schema + zod/domain types (authoritative; never mirrored here)

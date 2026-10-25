@@ -1,6 +1,6 @@
 /* ─── Exponential marketing styles — import hub ───
    Order matters: files concatenate in the original cascade order. The base
-   (fonts, tokens, site, footer, docs) is shared with ui.exponential.at
+   (fonts, tokens, site, footer, docs) is shared with the /ui/ section
    through @exp/site-shell. */
 @import "@exp/site-shell/styles/fonts.css";
 @import "@exp/site-shell/styles/tokens.css";

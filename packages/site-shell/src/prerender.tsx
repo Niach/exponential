@@ -1,6 +1,6 @@
-/* The postbuild prerender + SEO engine every public site runs under Bun after
-   `vite build` (apps/marketing scripts/prerender.tsx, apps/ui-site
-   scripts/prerender.tsx). For each page it (1) renderToString's the page into
+/* The postbuild prerender + SEO engine exponential.at runs under Bun after
+   `vite build` (apps/marketing scripts/prerender.tsx, the /ui/ section
+   included). For each page it (1) renderToString's the page into
    the `<div id="root"></div>` marker of the built HTML (crawlers and first
    paint get real markup, then the client hydrates), (2) strips any stray SEO
    tags from the head and injects the canonical/OG/Twitter/JSON-LD block from

@@ -1,0 +1,73 @@
+/* ─── Light scheme ───
+   exponential.at is dark-only; its /ui/ section also wears light. The
+   inline script in index.html sets <html data-scheme> before the first paint
+   (the stored choice, else the OS preference); no JS = dark. Only tokens
+   and the few literal colours of the shared sheets are overridden here. */
+:root[data-scheme="light"] {
+  --bg: #fafafa;
+  --bg-elev: #ffffff;
+  --bg-soft: #f4f4f5;
+  --fg: #0a0a0a;
+  --fg-muted: #52525b;
+  --fg-dim: #63636b;
+  --border: rgba(0, 0, 0, 0.1);
+  --input: rgba(0, 0, 0, 0.16);
+  --bg-card: #ffffff;
+  --border-strong: rgba(0, 0, 0, 0.16);
+  --accent: #18181b;
+  --accent-fg: #fafafa;
+  --glass-bg-top: #ffffff;
+  --glass-bg-bottom: #f4f4f5;
+  --glass-fill-section: oklch(0 0 0 / 2.5%);
+  --glass-fill-row: oklch(0 0 0 / 3%);
+  --glass-fill-card: oklch(1 0 0 / 70%);
+  --glass-fill-panel: oklch(0 0 0 / 2.5%);
+  --glass-fill-active: oklch(0 0 0 / 6%);
+  --glass-stroke-row: oklch(0 0 0 / 7%);
+  --glass-stroke-section: oklch(0 0 0 / 9%);
+  --glass-stroke-card: oklch(0 0 0 / 10%);
+  --glass-stroke-strong: oklch(0 0 0 / 14%);
+  --glass-stroke-active: oklch(0 0 0 / 22%);
+  --glass-panel-bg: color-mix(in oklab, #ffffff 94%, transparent);
+  --glass-shadow: 0 12px 32px -12px oklch(0 0 0 / 0.18), inset 0 1px 0 oklch(1 0 0 / 60%);
+  color-scheme: light;
+}
+:root[data-scheme="light"] ::selection {
+  background: oklch(0 0 0 / 14%);
+}
+:root[data-scheme="light"] .btn-primary,
+:root[data-scheme="light"] .btn-accent {
+  background: #18181b;
+  color: #fafafa;
+  border-color: #18181b;
+}
+:root[data-scheme="light"] .btn-primary:hover,
+:root[data-scheme="light"] .btn-accent:hover {
+  background: #3f3f46;
+  border-color: #3f3f46;
+}
+:root[data-scheme="light"] .glass-card {
+  --fg-dim: #63636b;
+}
+:root[data-scheme="light"] .sdk-req {
+  color: #92400e;
+}
+:root[data-scheme="light"] .sdk-bindable {
+  color: #1d4ed8;
+}
+:root[data-scheme="light"] .sdk-type {
+  color: #6d28d9;
+}
+:root[data-scheme="light"] .sdk-shot-frame,
+:root[data-scheme="light"] .sdk-card-thumb {
+  background: #f4f4f5;
+}
+
+/* The scheme switch in the top bar: the icon of the scheme it switches to. */
+.scheme-toggle .is-moon,
+:root[data-scheme="light"] .scheme-toggle .is-sun {
+  display: none;
+}
+:root[data-scheme="light"] .scheme-toggle .is-moon {
+  display: block;
+}

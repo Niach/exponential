@@ -141,7 +141,7 @@ export function Post() {
         </ul>
         <Callout kind="note" title="Sources">
           Each item is an issue on a public board, linked where it is named. The renderer's source and docs are at{` `}
-          <a href="https://ui.exponential.at/">ui.exponential.at</a>; the first layer needs none of the other three.
+          <a href="/ui/">exponential.at/ui</a>; the first layer needs none of the other three.
         </Callout>
       </Section>
     </>

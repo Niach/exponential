@@ -36,7 +36,9 @@ const OUT_FILE = resolve(DEMOS_DIR, `generated.ts`)
 const OPEN_TEMPLATE = `<template shadowrootmode="open">`
 
 const started = Date.now()
-const css = await compileUiCss({ base: DEMOS_DIR })
+/* The /ui/ home's phone chat lives with its page (ui/src/sdk/PhoneChat.tsx):
+   its wrapper classes are scanned from there. */
+const css = await compileUiCss({ base: DEMOS_DIR, sources: [`../../ui/src/sdk/PhoneChat.tsx`] })
 
 const ids = Object.keys(UI_DEMOS_SOURCE).sort()
 if (ids.length === 0) throw new Error(`ui-demos: demos.tsx exports no demos`)

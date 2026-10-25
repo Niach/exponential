@@ -121,7 +121,7 @@ export function Post() {
         <Callout kind="note" title="Try it">
           The MCP server, the session view and the renderer are open source under Apache-2.0: the{` `}
           <a href="/docs/mcp/">MCP docs</a>, the <a href="/docs/coding/">coding docs</a> and{` `}
-          <a href="https://ui.exponential.at/">ui.exponential.at</a>.
+          <a href="/ui/">exponential.at/ui</a>.
         </Callout>
       </Section>
     </>
