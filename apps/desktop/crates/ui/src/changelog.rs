@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-25-voice-settings",
+    date: "2026-10-25",
+    title: "Settings → Voice: one voice device, one agent, for you",
+    summary: "Voice moved out of Device settings into its own Settings → Voice page: pick the desktop that speaks and listens for you and the agent it talks to, once for all your devices.",
+    body: r#"- **One place**: Settings → Voice on web, the IDE, iPhone and Android holds your voice settings once for all your devices, instead of a Voice group per device.
+- **Voice device**: pick the desktop that speaks for you; only that one reads replies aloud.
+- **Agent**: pick the agent you talk to; with no device or no agent, every switch turns off.
+- **Coming next**: push to talk, the tray and the wake word get their switches here as they ship.
+- **Your old choice carries over**: if Speak replies was on for a desktop, that desktop and agent are already set."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_86: ChangelogEntry = ChangelogEntry {
     id: "2026-10-25-speak-replies",
     date: "2026-10-25",
     title: "Speak replies: your assistant answers out loud in the IDE",
