@@ -282,3 +282,7 @@ real time; the Zipformer is English-only and drops the identifiers); `Speaker`
 acceptable (1.8x faster than real time, not streaming, so 1–4 s per reply);
 German otherwise falls to the macOS compact voice, which the recognisers
 understand half as well as Qwen's German and which the owner still has to hear.
+
+Superseded on the voice side by "Decision after listening" above: the owner
+heard these clips, the macOS compact voices are dropped, and v1 is English
+only with Kokoro as the one voice.
