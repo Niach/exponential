@@ -305,6 +305,11 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
                     }
                 });
             }
+            if let Some(voice) = outcome.voice {
+                // NEW-67: the member's voice settings (Settings → Voice) —
+                // speak replies follows them on the foreground.
+                let _ = cx.update(|cx| crate::speak_replies::set_settings(voice, cx));
+            }
             if outcome.defaults_changed {
                 // The server copy landed in settings.json — reload the hub
                 // so the Agents pane, the doctor and the relay advertisement
@@ -527,6 +532,9 @@ struct BeatOutcome {
     /// EXP-792: a command produced state this beat's body predates (a
     /// forced usage refresh) — nudge the next beat.
     beat_again: bool,
+    /// NEW-67: the member's voice settings off this beat (every beat
+    /// carries them; `None` = an older server or a failed beat).
+    voice: Option<domain::voice::VoiceSettings>,
 }
 
 impl BeatOutcome {
@@ -540,6 +548,7 @@ impl BeatOutcome {
             agent_status: None,
             deferred: Vec::new(),
             beat_again: false,
+            voice: None,
         }
     }
 }
@@ -592,6 +601,7 @@ fn beat(
     let mut defaults_changed = false;
     let mut deferred = Vec::new();
     let mut beat_again = false;
+    let mut voice: Option<domain::voice::VoiceSettings> = None;
     let synced_at = coding::read_marker(&snapshot.settings_path, &snapshot.device_id).synced_at;
 
     // EXP-484: refresh whatever the poll policy says is due (keychain reads,
@@ -654,6 +664,7 @@ fn beat(
         },
     ) {
         Ok(result) => {
+            voice = result.voice.clone();
             lock_recover(health).on_ok("[device-sync]", carried_optional);
             // Accepted — remember what the row now carries, so the next
             // unchanged pass sends nothing.
@@ -717,6 +728,7 @@ fn beat(
         agent_status,
         deferred,
         beat_again,
+        voice,
     }
 }
 

@@ -13,9 +13,17 @@ const VOICE_JSON: &str = include_str!("../../../../../packages/domain-contract/f
 #[serde(rename_all = "camelCase")]
 pub struct VoiceCopy {
     pub group: String,
-    pub assistant: String,
-    pub assistant_none: String,
+    pub voice_device: String,
+    pub voice_device_none: String,
+    pub agent: String,
+    pub agent_none: String,
     pub speak_replies: String,
+    pub tray_header: String,
+    pub push_to_talk: String,
+    pub shortcut: String,
+    pub wake_word: String,
+    pub wake_phrase: String,
+    pub wake_phrase_placeholder: String,
     pub downloading: String,
     pub download_failed: String,
     pub unavailable: String,
@@ -28,9 +36,48 @@ pub struct VoiceCopy {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceTestIds {
-    pub group: String,
-    pub assistant: String,
+    pub page: String,
+    pub voice_device: String,
+    pub agent: String,
     pub speak_replies: String,
+    pub push_to_talk: String,
+    pub shortcut: String,
+    pub wake_word: String,
+    pub wake_phrase: String,
+}
+
+/// One push-to-talk shortcut (`shortcuts`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct VoiceShortcut {
+    pub value: String,
+    pub label: String,
+}
+
+/// The member's voice settings (`user_voice_settings`, the heartbeat's
+/// `voice`, `voice.get`); `defaults` when the member has no row.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VoiceSettings {
+    pub voice_device_id: Option<String>,
+    pub agent_id: Option<String>,
+    pub speak_replies: bool,
+    pub push_to_talk: bool,
+    pub ptt_shortcut: String,
+    pub wake_word: bool,
+    pub wake_phrase: String,
+}
+
+impl VoiceSettings {
+    /// voice.json `clearOnNone`: with no voice device or no agent nothing
+    /// listens and nothing speaks.
+    pub fn clear_on_none(mut self) -> Self {
+        if self.voice_device_id.is_none() || self.agent_id.is_none() {
+            self.speak_replies = false;
+            self.push_to_talk = false;
+            self.wake_word = false;
+        }
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -39,6 +86,18 @@ pub struct VoiceSpec {
     pub copy: VoiceCopy,
     pub max_chars: usize,
     pub test_ids: VoiceTestIds,
+    pub shortcuts: Vec<VoiceShortcut>,
+    pub defaults: VoiceSettings,
+}
+
+/// The tray group's header for the voice device.
+pub fn tray_header(device_name: &str) -> String {
+    VOICE.copy.tray_header.replace("{device}", device_name)
+}
+
+/// The wake phrase's placeholder (and its value when empty).
+pub fn wake_phrase_placeholder(agent_name: &str) -> String {
+    VOICE.copy.wake_phrase_placeholder.replace("{agent}", agent_name)
 }
 
 /// `fixtures/voice.json` minus its cases.
@@ -59,8 +118,10 @@ pub struct VoiceMessage<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VoiceContext<'a> {
-    /// The member's conversation session with the assistant agent.
-    pub assistant_session_id: Option<&'a str>,
+    /// The member's conversation session with the voice agent.
+    pub agent_session_id: Option<&'a str>,
+    /// THIS device is the member's voice device.
+    pub is_voice_device: bool,
     pub speak_replies: bool,
     /// When the watcher armed; older rows are a backfill.
     pub armed_at: &'a str,
@@ -68,7 +129,7 @@ pub struct VoiceContext<'a> {
 
 /// Whether a synced message row is read aloud.
 pub fn should_speak(message: &VoiceMessage<'_>, context: &VoiceContext<'_>) -> bool {
-    let Some(assistant) = context.assistant_session_id.filter(|_| context.speak_replies) else {
+    let Some(agent_session) = context.agent_session_id.filter(|_| context.speak_replies && context.is_voice_device) else {
         return false;
     };
     if message.author_kind != Some(crate::contract::MESSAGE_AUTHOR_KIND_AGENT) || message.has_card {
@@ -80,7 +141,7 @@ pub fn should_speak(message: &VoiceMessage<'_>, context: &VoiceContext<'_>) -> b
     if message.author_session_id.is_some_and(|id| !id.is_empty()) {
         return false;
     }
-    if message.session_id != Some(assistant) {
+    if message.session_id != Some(agent_session) {
         return false;
     }
     match (parse_instant(message.created_at.unwrap_or("")), parse_instant(context.armed_at)) {
@@ -329,28 +390,51 @@ pub struct VoiceAgent {
     pub team: String,
 }
 
-/// One Assistant picker option; `id: None` = no assistant.
+/// One picker option; `id: None` = None.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssistantOption {
+pub struct VoiceOption {
     pub id: Option<String>,
     pub label: String,
 }
 
 /// The Assistant picker's options: None first, then the agents by label
 /// (`{name} · {team}` when two agents share a name).
-pub fn assistant_options(agents: &[VoiceAgent]) -> Vec<AssistantOption> {
+pub fn agent_options(agents: &[VoiceAgent]) -> Vec<VoiceOption> {
     let mut options: Vec<AssistantOption> = agents
         .iter()
         .map(|agent| {
             let shared = agents.iter().filter(|other| other.name == agent.name).count() > 1;
-            AssistantOption {
+            VoiceOption {
                 id: Some(agent.id.clone()),
                 label: if shared { format!("{} · {}", agent.name, agent.team) } else { agent.name.clone() },
             }
         })
         .collect();
     options.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()).then(a.label.cmp(&b.label)));
-    let mut out = vec![AssistantOption { id: None, label: VOICE.copy.assistant_none.clone() }];
+    let mut out = vec![VoiceOption { id: None, label: VOICE.copy.agent_none.clone() }];
+    out.extend(options);
+    out
+}
+
+/// One device the Voice device picker may offer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VoiceDevice {
+    pub device_id: String,
+    pub name: String,
+    /// Contract `deviceKind`; only `desktop` runs the voice.
+    pub kind: String,
+}
+
+/// The Voice device picker's options: None first, then the member's
+/// desktops by name.
+pub fn voice_device_options(devices: &[VoiceDevice]) -> Vec<VoiceOption> {
+    let mut options: Vec<VoiceOption> = devices
+        .iter()
+        .filter(|device| device.kind == "desktop")
+        .map(|device| VoiceOption { id: Some(device.device_id.clone()), label: device.name.clone() })
+        .collect();
+    options.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()).then(a.label.cmp(&b.label)));
+    let mut out = vec![VoiceOption { id: None, label: VOICE.copy.voice_device_none.clone() }];
     out.extend(options);
     out
 }
@@ -368,7 +452,9 @@ mod tests {
     fn the_spec_parses() {
         assert_eq!(VOICE.copy.group, "Voice");
         assert_eq!(VOICE.copy.speak_replies, "Speak replies");
-        assert_eq!(VOICE.test_ids.speak_replies, "device-voice-speak-replies");
+        assert_eq!(VOICE.test_ids.page, "settings-voice");
+        assert_eq!(VOICE.defaults.ptt_shortcut, "ctrl+space");
+        assert!(VOICE.shortcuts.iter().any(|shortcut| shortcut.value == VOICE.defaults.ptt_shortcut));
     }
 
     #[test]
@@ -385,7 +471,8 @@ mod tests {
                 created_at: m["createdAt"].as_str(),
             };
             let context = VoiceContext {
-                assistant_session_id: c["assistantSessionId"].as_str(),
+                agent_session_id: c["agentSessionId"].as_str(),
+                is_voice_device: c["isVoiceDevice"].as_bool().unwrap(),
                 speak_replies: c["speakReplies"].as_bool().unwrap(),
                 armed_at: c["armedAt"].as_str().unwrap(),
             };
@@ -415,8 +502,8 @@ mod tests {
     }
 
     #[test]
-    fn assistant_options_match_the_fixture() {
-        for case in fixture()["assistantOptionsCases"].as_array().unwrap() {
+    fn agent_options_match_the_fixture() {
+        for case in fixture()["agentOptionsCases"].as_array().unwrap() {
             let agents: Vec<VoiceAgent> = case["agents"]
                 .as_array()
                 .unwrap()
@@ -431,9 +518,61 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|o| AssistantOption { id: o["id"].as_str().map(String::from), label: o["label"].as_str().unwrap().into() })
+                .map(|o| VoiceOption { id: o["id"].as_str().map(String::from), label: o["label"].as_str().unwrap().into() })
                 .collect();
-            assert_eq!(assistant_options(&agents), expected, "{}", case["name"]);
+            assert_eq!(agent_options(&agents), expected, "{}", case["name"]);
+        }
+    }
+
+    fn options(value: &Value) -> Vec<VoiceOption> {
+        value
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|o| VoiceOption { id: o["id"].as_str().map(String::from), label: o["label"].as_str().unwrap().into() })
+            .collect()
+    }
+
+    #[test]
+    fn voice_device_options_match_the_fixture() {
+        for case in fixture()["voiceDeviceOptionsCases"].as_array().unwrap() {
+            let devices: Vec<VoiceDevice> = case["devices"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|d| VoiceDevice {
+                    device_id: d["deviceId"].as_str().unwrap().into(),
+                    name: d["name"].as_str().unwrap().into(),
+                    kind: d["kind"].as_str().unwrap().into(),
+                })
+                .collect();
+            assert_eq!(voice_device_options(&devices), options(&case["options"]), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn clear_on_none_matches_the_fixture() {
+        for case in fixture()["clearOnNoneCases"].as_array().unwrap() {
+            let mut before = serde_json::to_value(VOICE.defaults.clone()).unwrap();
+            for (key, value) in case["before"].as_object().unwrap().iter().chain(case["change"].as_object().unwrap()) {
+                before[key] = value.clone();
+            }
+            let after: VoiceSettings = serde_json::from_value(before).unwrap();
+            let after = serde_json::to_value(after.clear_on_none()).unwrap();
+            for (key, value) in case["after"].as_object().unwrap() {
+                assert_eq!(&after[key], value, "{} {key}", case["name"]);
+            }
+        }
+    }
+
+    #[test]
+    fn headers_and_placeholders_match_the_fixture() {
+        let fixture = fixture();
+        for case in fixture["trayHeaderCases"].as_array().unwrap() {
+            assert_eq!(tray_header(case["device"].as_str().unwrap()), case["header"].as_str().unwrap());
+        }
+        for case in fixture["wakePhrasePlaceholderCases"].as_array().unwrap() {
+            assert_eq!(wake_phrase_placeholder(case["agent"].as_str().unwrap()), case["placeholder"].as_str().unwrap());
         }
     }
 

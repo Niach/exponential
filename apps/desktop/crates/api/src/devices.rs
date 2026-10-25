@@ -191,6 +191,9 @@ pub struct HeartbeatResult {
     pub launch_defaults: Option<serde_json::Value>,
     #[serde(default)]
     pub launch_defaults_updated_at: Option<String>,
+    /// NEW-67: the member's voice settings, on every beat.
+    #[serde(default)]
+    pub voice: Option<domain::voice::VoiceSettings>,
 }
 
 /// `devices.heartbeat` — bump `last_seen_at`, report the live-session count

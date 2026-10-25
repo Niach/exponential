@@ -1,8 +1,9 @@
 //! NEW-53: exponentialTalk "Speak replies" in the IDE (`fixtures/voice.json`).
 //!
 //! Watches the synced `messages`: a row [`domain::voice::should_speak`]
-//! accepts (the assistant's final reply in the member's conversation with
-//! the agent picked as Assistant on THIS device, `launch_defaults.voice`) is
+//! accepts (the agent's final reply in the member's conversation with the
+//! agent picked in Settings → Voice, spoken only on the member's voice
+//! device; `user_voice_settings`, delivered by every heartbeat) is
 //! reduced to [`domain::voice::spoken_text`] and handed to the speech worker
 //! (`talk::SpeechClient`, the IDE's own executable as `__speech-worker`).
 //! While it plays, the conversation's Dock shows the Speaking banner with
@@ -16,40 +17,31 @@ use std::time::Duration;
 use gpui::{App, AppContext as _, Context, Entity, Global};
 use sync::{Collection, Store};
 
-use domain::rows::{DeviceRow, MessageRow};
+use domain::rows::MessageRow;
 use domain::voice::{VoiceContext, VoiceMessage, VOICE};
 
-/// This device's voice settings, off `launch_defaults.voice` of its row.
+/// What THIS device speaks for: the member's voice settings
+/// (`user_voice_settings`, delivered by every heartbeat) seen from here.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct DeviceVoice {
-    pub assistant_agent_id: Option<String>,
+    pub agent_id: Option<String>,
     pub speak_replies: bool,
 }
 
 impl DeviceVoice {
-    /// Speaking is on: an assistant is picked and Speak replies is on.
+    /// Speaking is on here: an agent is picked and Speak replies is on.
     pub(crate) fn active(&self) -> bool {
-        self.speak_replies && self.assistant_agent_id.is_some()
+        self.speak_replies && self.agent_id.is_some()
     }
 }
 
-/// Read `voice` off a device row's `launch_defaults` (an object, or the
-/// JSON string some shapes deliver).
-pub(crate) fn device_voice(row: &DeviceRow) -> DeviceVoice {
-    let parsed = match row.launch_defaults.as_ref() {
-        Some(serde_json::Value::String(raw)) => serde_json::from_str::<serde_json::Value>(raw).ok(),
-        Some(value) => Some(value.clone()),
-        None => None,
-    };
-    let voice = parsed.as_ref().and_then(|value| value.get("voice"));
-    DeviceVoice {
-        assistant_agent_id: voice
-            .and_then(|voice| voice.get("assistantAgentId"))
-            .and_then(|id| id.as_str())
-            .filter(|id| !id.is_empty())
-            .map(str::to_string),
-        speak_replies: voice.and_then(|voice| voice.get("speakReplies")).and_then(|on| on.as_bool()).unwrap_or(false),
+/// voice.json: only the member's voice device speaks.
+pub(crate) fn voice_here(settings: &domain::voice::VoiceSettings, own_device_id: &str) -> DeviceVoice {
+    if settings.voice_device_id.as_deref() != Some(own_device_id) {
+        return DeviceVoice::default();
     }
+    let settings = settings.clone().clear_on_none();
+    DeviceVoice { agent_id: settings.agent_id, speak_replies: settings.speak_replies }
 }
 
 /// The reply being spoken (for the Dock banner).
@@ -128,6 +120,8 @@ pub(crate) struct SpeakReplies {
     client: Option<talk::SpeechClient>,
     /// The setting the worker was last prepared for (assistant + switch).
     prepared: DeviceVoice,
+    /// The member's voice settings as the last heartbeat delivered them.
+    settings: domain::voice::VoiceSettings,
     /// The signed-in account the worker serves (`None` = signed out).
     account: Option<String>,
     /// Worker crashes since the last utterance that played to its end.
@@ -145,7 +139,6 @@ pub fn install(cx: &mut App) {
     let Some(store) = Store::try_global(cx) else { return };
     let collections = store.collections();
     let messages = collections.messages.clone();
-    let devices = collections.devices.clone();
     let (tx, rx) = flume::unbounded::<talk::Event>();
     let client = std::env::current_exe().ok().map(|exe| {
         let data_dir = crate::session::AuthContext::global(cx).data_dir.clone();
@@ -157,13 +150,13 @@ pub fn install(cx: &mut App) {
     let entity = cx.new(|cx: &mut Context<SpeakReplies>| {
         cx.observe(&messages, |this: &mut SpeakReplies, collection, cx| this.on_messages(&collection, cx))
             .detach();
-        cx.observe(&devices, |this: &mut SpeakReplies, _, cx| this.on_settings(cx)).detach();
         // A sign-out or another account ends the voice (and the worker).
         cx.observe(&state, |this: &mut SpeakReplies, _, cx| this.on_session(cx)).detach();
         SpeakReplies {
             gate: Gate::default(),
             client,
             prepared: DeviceVoice::default(),
+            settings: domain::voice::VoiceSettings::default(),
             account: None,
             crashes: 0,
             speaking: None,
@@ -211,18 +204,30 @@ pub(crate) fn stop(cx: &mut App) {
     }
 }
 
-/// THIS device's voice settings (the GUI's own row).
+/// THIS device's share of the member's voice settings.
 pub(crate) fn own_voice(cx: &App) -> DeviceVoice {
-    let Some(store) = Store::try_global(cx) else { return DeviceVoice::default() };
+    let Some(entity) = global(cx) else { return DeviceVoice::default() };
     let device_id = steer::persistent_device_id(&crate::session::AuthContext::global(cx).data_dir);
-    store
-        .collections()
-        .devices
-        .read(cx)
-        .iter()
-        .find(|row| row.device_id.as_deref() == Some(device_id.as_str()))
-        .map(device_voice)
-        .unwrap_or_default()
+    voice_here(&entity.read(cx).settings, &device_id)
+}
+
+/// The member's voice settings, as the last heartbeat (or a save on this
+/// device) delivered them.
+pub(crate) fn settings(cx: &App) -> domain::voice::VoiceSettings {
+    global(cx).map(|entity| entity.read(cx).settings.clone()).unwrap_or_default()
+}
+
+/// NEW-67: new voice settings arrived (a heartbeat, or this device's own
+/// Settings → Voice save): adopt them and start or stop the voice here.
+pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App) {
+    let Some(entity) = global(cx) else { return };
+    entity.update(cx, |this, cx| {
+        if this.settings == settings {
+            return;
+        }
+        this.settings = settings;
+        this.on_settings(cx);
+    });
 }
 
 fn session_account(cx: &App) -> Option<String> {
@@ -246,6 +251,8 @@ impl SpeakReplies {
         }
         self.gate = Gate::default();
         self.prepared = DeviceVoice::default();
+        // The settings are the member's: the new account's beat brings its own.
+        self.settings = domain::voice::VoiceSettings::default();
         self.crashes = 0;
         self.speaking = None;
         self.download = Download::Idle;
@@ -295,14 +302,15 @@ impl SpeakReplies {
             return;
         }
         let voice = own_voice(cx);
-        let Some(agent_id) = voice.assistant_agent_id.as_deref().filter(|_| voice.speak_replies) else {
+        let Some(agent_id) = voice.agent_id.as_deref().filter(|_| voice.speak_replies) else {
             return;
         };
         let Some(conversation) = crate::session_data::my_conversation(agent_id, cx) else { return };
         let Some(store) = Store::try_global(cx) else { return };
         let sessions = domain::message_conversation::conversation_sessions(store.collections().conversations.read(cx).iter());
         let context = VoiceContext {
-            assistant_session_id: Some(conversation.id.as_str()),
+            agent_session_id: Some(conversation.id.as_str()),
+            is_voice_device: true,
             speak_replies: true,
             armed_at: self.gate.armed_at(),
         };
@@ -452,13 +460,17 @@ mod tests {
     }
 
     #[test]
-    fn device_voice_reads_objects_and_json_strings() {
-        let mut row: DeviceRow = serde_json::from_value(serde_json::json!({"id": "d1"})).unwrap();
-        assert_eq!(device_voice(&row), DeviceVoice::default());
-        row.launch_defaults = Some(serde_json::json!({"voice": {"assistantAgentId": "a1", "speakReplies": true}}));
-        assert!(device_voice(&row).active());
-        row.launch_defaults = Some(serde_json::Value::String(r#"{"voice":{"speakReplies":true}}"#.into()));
-        let voice = device_voice(&row);
-        assert!(voice.speak_replies && !voice.active(), "no assistant = not active");
+    fn only_the_voice_device_speaks() {
+        let settings = domain::voice::VoiceSettings {
+            voice_device_id: Some("d-mint".into()),
+            agent_id: Some("a1".into()),
+            speak_replies: true,
+            ..Default::default()
+        };
+        assert!(voice_here(&settings, "d-mint").active());
+        assert!(!voice_here(&settings, "d-mac").active(), "another device stays silent");
+        let no_agent = domain::voice::VoiceSettings { agent_id: None, ..settings };
+        assert!(!voice_here(&no_agent, "d-mint").active(), "no agent = nothing speaks");
     }
+
 }
