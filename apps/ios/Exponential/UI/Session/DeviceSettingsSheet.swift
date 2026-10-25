@@ -1,5 +1,6 @@
 import ExpUI
 import ExpCore
+import GRDB
 import SwiftUI
 
 // The device settings sheet (EXP-481) — the settings gear on a device row
@@ -115,6 +116,13 @@ struct DeviceSettingsSheet: View {
     /// seeded through `LaunchVocabulary.seedComputerUseModel` (contract
     /// default when the row has none).
     @State private var computerUseModel = DomainContract.deviceComputerUseDefaultsModel
+    /// NEW-53: the device-level `launchDefaults.voice` drafts (`voice.json`):
+    /// nil = no assistant. Sent on every defaults save so it is never cleared.
+    @State private var assistantAgentId: String?
+    @State private var speakReplies = false
+    /// The synced agents (every team the member is in), the Assistant
+    /// picker's vocabulary.
+    @State private var syncedAgents: [AgentDefinitionEntity] = []
     @State private var savingDefaults = false
     @State private var defaultsSaveTask: Task<Void, Never>?
     @State private var defaultsPending = false
@@ -169,6 +177,7 @@ struct DeviceSettingsSheet: View {
                     } else {
                         computerUseSection
                     }
+                    voiceSection
                     defaultsSection(device)
                     if device.isServer {
                         updateSection(device)
@@ -188,6 +197,7 @@ struct DeviceSettingsSheet: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("device-settings-sheet")
         .onAppear { seed(device) }
+        .task { await observeAgents() }
         // EXP-909: only a daemon server has an Update section to gate.
         .task {
             guard device.isServer, latestVersions == nil else { return }
@@ -269,6 +279,8 @@ struct DeviceSettingsSheet: View {
         drafts = next
         computerUse = device.launchDefaults?.computerUse ?? false
         computerUseModel = LaunchVocabulary.seedComputerUseModel(device.launchDefaults?.computerUseModel)
+        assistantAgentId = device.launchDefaults?.voice?.assistantAgentId
+        speakReplies = device.launchDefaults?.voice?.speakReplies ?? false
     }
 
     /// The advertised per-agent defaults as a draft, contract-validated with
@@ -577,6 +589,70 @@ struct DeviceSettingsSheet: View {
         .listRowBackground(glassFormRowFill)
     }
 
+    // MARK: - Voice (NEW-53)
+
+    /// The Voice group (`voice.json`): THE picker over the member's agents,
+    /// then Speak replies, disabled while no assistant. The phones only edit
+    /// the setting; the desktop speaks. Same debounced save as computer use.
+    private var voiceSection: some View {
+        Section {
+            GlassPickerRow(
+                Voice.Copy.assistant,
+                selection: Binding(
+                    get: { assistantAgentId },
+                    set: { newValue in
+                        assistantAgentId = newValue
+                        defaultsPending = true
+                        scheduleDefaultsAutosave()
+                    }
+                ),
+                options: assistantOptions.map(\.id),
+                label: { id in
+                    assistantOptions.first { $0.id == id }?.label ?? Voice.Copy.assistantNone
+                }
+            )
+            .accessibilityIdentifier(Voice.TestIds.assistant)
+            GlassToggleRow(
+                Voice.Copy.speakReplies,
+                isOn: Binding(
+                    get: { speakReplies },
+                    set: { newValue in
+                        speakReplies = newValue
+                        defaultsPending = true
+                        scheduleDefaultsAutosave()
+                    }
+                )
+            )
+            .disabled(assistantAgentId == nil)
+            .accessibilityIdentifier(Voice.TestIds.speakReplies)
+        } header: {
+            GlassSectionHeader(Voice.Copy.group)
+        }
+        .listRowBackground(glassFormRowFill)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(Voice.TestIds.group)
+    }
+
+    /// None first, then every synced agent by label (`assistantOptions`).
+    private var assistantOptions: [Voice.AssistantOption] {
+        let teamNames = Dictionary(teams.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        return Voice.assistantOptions(syncedAgents.map {
+            Voice.AgentLike(id: $0.id, name: $0.name, team: teamNames[$0.teamId] ?? "")
+        })
+    }
+
+    private func observeAgents() async {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking { db in
+            try AgentDefinitionEntity.fetchAll(db)
+        }
+        do {
+            for try await rows in observation.values(in: pool) {
+                syncedAgents = rows
+            }
+        } catch {}
+    }
+
     /// A phone only ever sees the REMOTE actions (`DeviceReadiness` drops the
     /// rest): Update = `agent_update {agent}`, Sign in = the remote
     /// `agent_login` flow.
@@ -710,7 +786,9 @@ struct DeviceSettingsSheet: View {
         let payload = DeviceLaunchDefaultsInput(
             agents: agents,
             computerUse: computerUse,
-            computerUseModel: computerUseModel
+            computerUseModel: computerUseModel,
+            // NEW-53: always sent, so this save never clears the voice.
+            voice: VoiceLaunchDefaults(assistantAgentId: assistantAgentId, speakReplies: speakReplies)
         )
         defaultsPending = false
         savingDefaults = true
