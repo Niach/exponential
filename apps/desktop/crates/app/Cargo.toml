@@ -33,6 +33,10 @@ steer = { path = "../steer" }
 coding = { path = "../coding" }
 # EXP-1196/1273: the device's computer-use endpoint (see crates/computer).
 computer = { path = "../computer" }
+# NEW-53: exponentialTalk. `talk` = the speech worker's wire, `voice` = the
+# worker itself (this binary re-run as `__speech-worker`).
+talk = { path = "../talk" }
+voice = { path = "../voice" }
 gpui.workspace = true
 gpui_platform.workspace = true
 gpui-component.workspace = true

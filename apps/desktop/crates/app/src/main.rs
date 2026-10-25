@@ -35,6 +35,11 @@ fn main() {
     if coding::codemode::worker::requested() {
         coding::codemode::worker::run_and_exit();
     }
+    // NEW-53: exponentialTalk's speech worker (`__speech-worker`, one child
+    // per app): the voice model and the audio device, killable by the host.
+    if talk::requested() {
+        voice::run_and_exit();
+    }
     // EXP-1099: THE logger, first — `{data_dir}/logs/exponential.log`
     // (rotated at 5 MB, 3 kept; level from `EXP_LOG`, default info). Before
     // this the app installed none, so every `log::` line (a failing
@@ -203,6 +208,9 @@ fn main() {
         // closed asks this hook for a fresh one to land in.
         ui::set_open_shell_window_hook(windows::open_shell_window, cx);
         ui::os_notifications::install(cx);
+        // NEW-53: Speak replies (after the store + AuthContext, like the
+        // notifier above).
+        ui::speak_replies::install(cx);
 
         // Session bootstrap: the EXP_DEV_SERVER/EXP_DEV_TOKEN dev override
         // (headless verification, dev-only) or a warm-start resume of the

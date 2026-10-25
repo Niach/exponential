@@ -170,4 +170,24 @@ final class LaunchDefaultsInputEncodingTests: XCTestCase {
         XCTAssertEqual(device.launchDefaults?.computerUseModel, "fable")
         XCTAssertEqual(device.launchDefaults?.defaultAgent, "claude")
     }
+
+    /// NEW-53: `voice` rides beside `computerUse`; nil writes no key (the
+    /// server carries the stored one forward), an assistant-less voice writes
+    /// only the switch.
+    func testVoiceRidesAsATopLevelObject() throws {
+        let object = try json(DeviceLaunchDefaultsInput(
+            agents: [:],
+            computerUse: false,
+            voice: VoiceLaunchDefaults(assistantAgentId: "a-1", speakReplies: true)
+        ))
+        let voice = try XCTUnwrap(object["voice"] as? [String: Any])
+        XCTAssertEqual(voice["assistantAgentId"] as? String, "a-1")
+        XCTAssertEqual(voice["speakReplies"] as? Bool, true)
+
+        let none = try json(DeviceLaunchDefaultsInput(voice: VoiceLaunchDefaults(speakReplies: false)))
+        let bare = try XCTUnwrap(none["voice"] as? [String: Any])
+        XCTAssertEqual(Set(bare.keys), ["speakReplies"])
+
+        XCTAssertNil(try json(DeviceLaunchDefaultsInput(agents: [:])).index(forKey: "voice"))
+    }
 }

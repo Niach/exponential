@@ -1,0 +1,16 @@
+[package]
+name = "talk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# NEW-53: exponentialTalk's public API and the speech worker's wire. The host
+# (the IDE) re-runs its own executable as `<exe> __speech-worker` and talks
+# JSON lines over the child's stdio (the `crates/codemode` worker pattern);
+# the engines (`crates/voice`) live only in that child, so an ONNX crash or
+# a stuck audio device never takes the IDE with it. gpui-free, engine-free.
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = "0.4"

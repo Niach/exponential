@@ -134,6 +134,8 @@ mod navigation;
 mod oauth;
 mod onboarding;
 pub mod os_notifications;
+/// NEW-53: exponentialTalk, Speak replies (the assistant's replies read aloud).
+pub mod speak_replies;
 mod pickers;
 // EXP-1029: the shared picker API (primitive + typed pickers, EXP-1021).
 mod picker;

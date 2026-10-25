@@ -1,0 +1,28 @@
+[package]
+name = "voice"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# NEW-53: exponentialTalk's engines, run ONLY inside the speech worker
+# (`<exe> __speech-worker`, see crates/talk). Slice (b) = the Kokoro voice:
+# a pinned + sha256-verified model download into `{data_dir}/talk/`,
+# synthesis through sherpa-onnx (Apache-2.0; its prebuilt library is pinned
+# and verified by the vendored `vendor/sherpa-onnx-sys`), and playback.
+talk = { path = "../talk" }
+serde_json = { workspace = true }
+log = "0.4"
+sherpa-onnx = { version = "=2.0.0", default-features = false, features = ["static"] }
+reqwest = { workspace = true }
+sha2 = { workspace = true }
+tar = { workspace = true }
+# Pure-Rust bzip2 (libbz2-rs-sys), already in the tree.
+bzip2 = "0.6"
+
+# Playback: Linux pipes PCM into the session's PipeWire/PulseAudio player
+# (`pw-play`, else `paplay`), so the build needs no ALSA headers; macOS and
+# Windows drive the default output device through cpal (CoreAudio, WASAPI).
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+cpal = "0.16"

@@ -19,6 +19,8 @@ api = { path = "../api" }
 terminal = { path = "../terminal" }
 coding = { path = "../coding" }
 steer = { path = "../steer" }
+# NEW-53: the speech worker's host side (Speak replies, crates/talk).
+talk = { path = "../talk" }
 # EXP-746: the ACP session engine — `Screen::Session` drives an `EngineSession`
 # instead of a PTY tab whenever the launch resolves to the Acp transport.
 engine = { path = "../engine" }

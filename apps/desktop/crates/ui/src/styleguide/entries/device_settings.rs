@@ -10,7 +10,8 @@
 //! EXP-1063: the demo is drawn by the dialog's OWN parts, in the dialog's
 //! order — the glass rows, the readiness block (EXP-1236: its Computer use
 //! band with the switch on and the Computer use model picker under it, off
-//! the contract fixture's "computer use on" case), `AgentDefaultsGroup` with
+//! the contract fixture's "computer use on" case), NEW-53's Voice group
+//! (`voice.json`: the Assistant picker, Speak replies), `AgentDefaultsGroup` with
 //! real selects (Model, then Thread model, then claude's Subagent model —
 //! every model row the ONE `coding_selects::model_select` over all the
 //! agent's models, no default row), then Update and the Remove row. The dialog view
@@ -90,6 +91,9 @@ struct DeviceSettingsDemo {
     doctor: Option<DeviceDoctor>,
     computer_use: bool,
     computer_use_model: ChoiceSelect,
+    /// NEW-53 (`voice.json`): the Assistant picker + Speak replies.
+    voice_assistant: ChoiceSelect,
+    speak_replies: bool,
 }
 
 impl DeviceSettingsDemo {
@@ -141,7 +145,38 @@ impl DeviceSettingsDemo {
                 window,
                 cx,
             ),
+            // The web specimen's two agents, Ops picked.
+            voice_assistant: choice_select(
+                &[(domain::voice::VOICE.copy.assistant_none.as_str(), ""), ("Ops", "ops"), ("Scout", "scout")],
+                "ops",
+                window,
+                cx,
+            ),
+            speak_replies: true,
         }
+    }
+
+    /// NEW-53: `device_settings::render_voice_section`'s twin.
+    fn voice_section(&self, cx: &mut Context<Self>) -> Div {
+        let copy = &domain::voice::VOICE.copy;
+        let assistant = surface::glass_picker_row(
+            copy.assistant.clone(),
+            None,
+            surface::glass_picker_select(Select::new(&self.voice_assistant), cx).into_any_element(),
+            cx,
+        );
+        let switch = crate::controls::web_switch("sg-device-voice-speak-replies")
+            .checked(self.speak_replies)
+            .on_click(cx.listener(|this, on: &bool, _, cx| {
+                this.speak_replies = *on;
+                cx.notify();
+            }));
+        let speak = surface::glass_toggle_row(copy.speak_replies.clone(), None, switch.into_any_element(), cx);
+        v_flex()
+            .w_full()
+            .gap_2()
+            .child(surface::glass_section_header(copy.group.clone(), None, cx))
+            .child(surface::glass_group_rows(vec![assistant, speak]))
     }
 
     /// The dialog's readiness block: the fixture's "computer use on" case,
@@ -303,6 +338,7 @@ impl Render for DeviceSettingsDemo {
             .child(surface::glass_group_rows(vec![identity_row]))
             .child(surface::glass_group_rows(vec![default_row]))
             .children(readiness)
+            .child(self.voice_section(cx))
             .child(self.defaults_group(cx))
             .child(self.update_section(cx))
             .child(self.remove_row());

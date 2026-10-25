@@ -101,6 +101,8 @@ export interface DeviceLaunchDefaults {
   /** EXP-1236: the screen-driving subagents' model alias (contract
    * `codingModel`, THE model vocabulary); absent = `deviceComputerUseDefaults.model`. */
   computerUseModel?: string | null
+  /** NEW-53 (`voice.json`): the member's assistant + speak-replies switch. */
+  voice?: { assistantAgentId?: string; speakReplies?: boolean } | null
   agents?: Record<string, AgentLaunchDefaults>
 }
 

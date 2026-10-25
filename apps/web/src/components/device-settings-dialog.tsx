@@ -21,12 +21,18 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { promptActions, removeDevicePrompt, WEB_PROMPTS } from "@/lib/prompts"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { contract } from "@exp/domain-contract"
+import {
+  assistantOptions,
+  VOICE_COPY,
+  VOICE_TEST_IDS,
+} from "@exp/domain-contract/voice"
 import type { DeviceIcon } from "@exp/db-schema/domain"
 import type { Device } from "@/db/schema"
 import {
   conceptIcon,
   Button,
   ModelPicker,
+  Picker,
   DeviceReadiness,
   Dialog,
   DialogContent,
@@ -50,7 +56,11 @@ import { actionErrorDescription, failedAction, SKIP_ERROR_TOAST } from "@/lib/ac
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorCode } from "@/lib/trpc-error"
 import { useNow } from "@/hooks/use-now"
-import { deviceCollection, teamCollection } from "@/lib/collections"
+import {
+  agentCollection,
+  deviceCollection,
+  teamCollection,
+} from "@/lib/collections"
 import {
   agentSeed,
   agentSupportsAccountRotation,
@@ -178,6 +188,27 @@ export function DeviceSettingsDialog({
     [teamRows]
   )
 
+  // NEW-53: the Voice group's Assistant picker = every agent in the member's
+  // teams (`assistantOptions`; None is the picker's own none row).
+  const { data: agentRows } = useLiveQuery(
+    (query) => (open ? query.from({ a: agentCollection }) : undefined),
+    [open]
+  )
+  const assistantItems = useMemo(() => {
+    const teamNames = new Map(
+      (teamRows ?? []).map((team) => [team.id, team.name] as const)
+    )
+    return assistantOptions(
+      (agentRows ?? []).map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+        team: teamNames.get(agent.teamId) ?? ``,
+      }))
+    ).flatMap((option) =>
+      option.id ? [{ value: option.id, label: option.label }] : []
+    )
+  }, [agentRows, teamRows])
+
   const now = useNow(30_000)
   const online = row ? deviceRowIsOnline(row.lastSeenAt, now) : false
   const kind = row?.kind ?? device?.kind
@@ -200,6 +231,10 @@ export function DeviceSettingsDialog({
   const [computerUseModel, setComputerUseModel] = useState<string>(
     contract.deviceComputerUseDefaults.model
   )
+  // NEW-53 (`voice.json`): the device's voice settings; absent = no
+  // assistant, speak replies off.
+  const [voiceAssistant, setVoiceAssistant] = useState<string | null>(null)
+  const [speakReplies, setSpeakReplies] = useState(false)
 
   // ── Autosave state (EXP-490 — no Save buttons) ───────────────────────────
   // `*Pending` = edited but not yet written; `saving*` = a write is in flight.
@@ -252,6 +287,8 @@ export function DeviceSettingsDialog({
     setComputerUseModel(
       clampComputerUseModel(source.launchDefaults?.computerUseModel)
     )
+    setVoiceAssistant(source.launchDefaults?.voice?.assistantAgentId ?? null)
+    setSpeakReplies(source.launchDefaults?.voice?.speakReplies ?? false)
     const stored = source.launchDefaults?.defaultAgent
     const agent =
       stored && agents.includes(stored)
@@ -391,6 +428,8 @@ export function DeviceSettingsDialog({
     drafts,
     computerUse,
     computerUseModel,
+    voiceAssistant,
+    speakReplies,
     namePending,
     defaultsPending,
   })
@@ -401,6 +440,8 @@ export function DeviceSettingsDialog({
     drafts,
     computerUse,
     computerUseModel,
+    voiceAssistant,
+    speakReplies,
     namePending,
     defaultsPending,
   }
@@ -491,6 +532,11 @@ export function DeviceSettingsDialog({
         launchDefaults: {
           computerUse: snapshot.computerUse,
           computerUseModel: snapshot.computerUseModel,
+          // NEW-53: sent on EVERY save, so this dialog never clears it.
+          voice: {
+            assistantAgentId: snapshot.voiceAssistant,
+            speakReplies: snapshot.speakReplies,
+          },
           agents,
         },
       }, SKIP_ERROR_TOAST)
@@ -651,6 +697,16 @@ export function DeviceSettingsDialog({
   // EXP-1236: same debounced launch-defaults save as the switch.
   const pickComputerUseModel = (value: string) => {
     setComputerUseModel(clampComputerUseModel(value))
+    scheduleDefaults()
+  }
+
+  // NEW-53: the Voice group rides the same debounced save.
+  const pickVoiceAssistant = (value: string | null) => {
+    setVoiceAssistant(value)
+    scheduleDefaults()
+  }
+  const toggleSpeakReplies = (checked: boolean) => {
+    setSpeakReplies(checked)
     scheduleDefaults()
   }
 
@@ -892,6 +948,30 @@ export function DeviceSettingsDialog({
                 />
               </GlassGroup>
             )}
+            {/* ── Voice (NEW-53, voice.json): the assistant whose replies
+                this device speaks, then the switch (off while no assistant). */}
+            <GlassSectionHeader label={VOICE_COPY.group} />
+            <GlassGroup data-testid={VOICE_TEST_IDS.group}>
+              <Picker
+                mode="single"
+                triggerVariant="row"
+                width="md"
+                mobileTitle={VOICE_COPY.assistant}
+                data-testid={VOICE_TEST_IDS.assistant}
+                value={voiceAssistant}
+                items={assistantItems}
+                noneLabel={VOICE_COPY.assistantNone}
+                onNone={() => pickVoiceAssistant(null)}
+                onChange={pickVoiceAssistant}
+              />
+              <GlassToggleRow
+                id={VOICE_TEST_IDS.speakReplies}
+                label={VOICE_COPY.speakReplies}
+                checked={speakReplies}
+                onCheckedChange={toggleSpeakReplies}
+                disabled={!voiceAssistant}
+              />
+            </GlassGroup>
             {agentUpdateRows.map(({ agent }) => {
               const key = agentUpdateKey(agent)
               const text = sectionNotes[key]

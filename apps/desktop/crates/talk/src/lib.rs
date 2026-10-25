@@ -1,0 +1,230 @@
+//! NEW-53: exponentialTalk, the host side.
+//!
+//! [`SpeechClient`] owns ONE speech worker: the host's own executable re-run
+//! as `<exe> __speech-worker --data-dir <dir>` ([`ARGV_MARKER`]), spawned on
+//! the first request and again after it dies. Requests go down as JSON
+//! lines ([`Request`]), events come back the same way ([`Event`]) and reach
+//! the host through the callback it registered. The worker (`crates/voice`)
+//! holds the model download, the synthesis and the audio device; nothing of
+//! that runs in the host process.
+//!
+//! Slice (b) speaks only: [`SpeechClient::prepare`] fetches the voice ahead
+//! of the first reply, [`SpeechClient::speak`] replaces whatever is being
+//! said, [`SpeechClient::stop`] ends it. Listening arrives with slice (c).
+
+use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::{Arc, Mutex};
+
+use serde::{Deserialize, Serialize};
+
+/// The argv marker a host checks FIRST in `main` (before its logger).
+pub const ARGV_MARKER: &str = "__speech-worker";
+/// The flag carrying the data dir the worker keeps its models under.
+pub const DATA_DIR_FLAG: &str = "--data-dir";
+/// The wire's version; a worker that answers another is replaced.
+pub const PROTOCOL: u32 = 1;
+
+/// Host → worker, one JSON object per line.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "t", rename_all = "camelCase")]
+pub enum Request {
+    /// Download and load the voice now (the switch just turned on).
+    Prepare,
+    /// Say `text` (already the spoken form); replaces anything playing.
+    Speak { id: String, text: String },
+    /// End whatever is being said.
+    Stop,
+}
+
+/// Worker → host, one JSON object per line.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "t", rename_all = "camelCase")]
+pub enum Event {
+    /// The worker is up and speaks this protocol.
+    Ready { protocol: u32 },
+    /// The voice model is downloading (`total` 0 = unknown).
+    Downloading { received: u64, total: u64 },
+    /// The download or its verification failed; the next request retries.
+    DownloadFailed { error: String },
+    /// The voice is on disk, verified and loaded.
+    ModelReady,
+    /// The first audio of `id` is playing.
+    Started { id: String },
+    /// `id` ended: played to the end, or `stopped`.
+    Finished { id: String, stopped: bool },
+    /// `id` could not be spoken.
+    Failed { id: String, error: String },
+    /// Host-side: the worker process ended (crash, kill, EOF). Never sent
+    /// by the worker itself.
+    Exited,
+}
+
+/// Whether THIS process was started as the speech worker.
+pub fn requested() -> bool {
+    std::env::args_os().nth(1).is_some_and(|arg| arg == ARGV_MARKER)
+}
+
+/// The worker's `--data-dir` (its own argv), if given.
+pub fn data_dir_arg() -> Option<PathBuf> {
+    let args: Vec<_> = std::env::args_os().collect();
+    args.iter()
+        .position(|arg| arg == DATA_DIR_FLAG)
+        .and_then(|index| args.get(index + 1))
+        .map(PathBuf::from)
+}
+
+type Callback = Arc<dyn Fn(Event) + Send + Sync>;
+
+struct Worker {
+    child: Child,
+    stdin: ChildStdin,
+}
+
+/// The host's handle on the speech worker. Cheap to clone; every clone
+/// drives the same worker.
+#[derive(Clone)]
+pub struct SpeechClient {
+    exe: PathBuf,
+    data_dir: PathBuf,
+    on_event: Callback,
+    worker: Arc<Mutex<Option<Worker>>>,
+}
+
+impl SpeechClient {
+    /// `exe` = the host's own executable, `data_dir` = where the voice
+    /// lives (`{data_dir}/talk/…`), `on_event` runs on the worker's reader
+    /// thread (keep it short; hand off to the UI thread).
+    pub fn new(exe: PathBuf, data_dir: PathBuf, on_event: impl Fn(Event) + Send + Sync + 'static) -> Self {
+        Self { exe, data_dir, on_event: Arc::new(on_event), worker: Arc::new(Mutex::new(None)) }
+    }
+
+    pub fn prepare(&self) {
+        self.send(&Request::Prepare);
+    }
+
+    pub fn speak(&self, id: impl Into<String>, text: impl Into<String>) {
+        self.send(&Request::Speak { id: id.into(), text: text.into() });
+    }
+
+    pub fn stop(&self) {
+        // Nothing to stop when no worker runs; never spawn one for it.
+        let Ok(mut guard) = self.worker.lock() else { return };
+        if let Some(worker) = guard.as_mut() {
+            if write_line(&mut worker.stdin, &Request::Stop).is_err() {
+                *guard = None;
+            }
+        }
+    }
+
+    /// Kill the worker (the switch turned off, the app quits).
+    pub fn shutdown(&self) {
+        if let Ok(mut guard) = self.worker.lock() {
+            if let Some(mut worker) = guard.take() {
+                let _ = worker.child.kill();
+                let _ = worker.child.wait();
+            }
+        }
+    }
+
+    fn send(&self, request: &Request) {
+        let Ok(mut guard) = self.worker.lock() else { return };
+        // One retry: a worker that died since the last request is replaced.
+        for _ in 0..2 {
+            if guard.as_ref().is_none() {
+                match self.spawn() {
+                    Ok(worker) => *guard = Some(worker),
+                    Err(err) => {
+                        log::warn!("talk: speech worker failed to start: {err}");
+                        return;
+                    }
+                }
+            }
+            let worker = guard.as_mut().expect("spawned above");
+            match write_line(&mut worker.stdin, request) {
+                Ok(()) => return,
+                Err(err) => {
+                    log::info!("talk: speech worker gone ({err}); restarting");
+                    if let Some(mut dead) = guard.take() {
+                        let _ = dead.child.kill();
+                        let _ = dead.child.wait();
+                    }
+                }
+            }
+        }
+    }
+
+    fn spawn(&self) -> std::io::Result<Worker> {
+        let mut child = Command::new(&self.exe)
+            .arg(ARGV_MARKER)
+            .arg(DATA_DIR_FLAG)
+            .arg(&self.data_dir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        let stdin = child.stdin.take().expect("piped");
+        let stdout = child.stdout.take().expect("piped");
+        let stderr = child.stderr.take().expect("piped");
+        let on_event = self.on_event.clone();
+        std::thread::Builder::new().name("talk-events".into()).spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                match serde_json::from_str::<Event>(&line) {
+                    Ok(Event::Exited) => {}
+                    Ok(event) => on_event(event),
+                    Err(err) => log::debug!("talk: unreadable worker line ({err}): {line}"),
+                }
+            }
+            on_event(Event::Exited);
+        })?;
+        std::thread::Builder::new().name("talk-stderr".into()).spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                log::info!("speech-worker: {line}");
+            }
+        })?;
+        log::info!("talk: speech worker started (pid {})", child.id());
+        Ok(Worker { child, stdin })
+    }
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+fn write_line(stdin: &mut ChildStdin, request: &Request) -> std::io::Result<()> {
+    let mut line = serde_json::to_string(request).map_err(std::io::Error::other)?;
+    line.push('\n');
+    stdin.write_all(line.as_bytes())?;
+    stdin.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_wire_is_tagged_camel_case() {
+        assert_eq!(
+            serde_json::to_string(&Request::Speak { id: "m1".into(), text: "Hi.".into() }).unwrap(),
+            r#"{"t":"speak","id":"m1","text":"Hi."}"#
+        );
+        assert_eq!(serde_json::to_string(&Request::Stop).unwrap(), r#"{"t":"stop"}"#);
+        let event: Event = serde_json::from_str(r#"{"t":"finished","id":"m1","stopped":true}"#).unwrap();
+        assert_eq!(event, Event::Finished { id: "m1".into(), stopped: true });
+        let event: Event = serde_json::from_str(r#"{"t":"downloading","received":5,"total":10}"#).unwrap();
+        assert_eq!(event, Event::Downloading { received: 5, total: 10 });
+    }
+
+    #[test]
+    fn a_missing_executable_fails_quietly() {
+        let client = SpeechClient::new(PathBuf::from("/nonexistent/exe"), std::env::temp_dir(), |_| {});
+        client.speak("m1", "Hello.");
+        client.stop();
+        client.shutdown();
+    }
+}
