@@ -278,11 +278,18 @@ struct IssuesHomeView: View {
         }
     }
 
-    /// Resolve the default team, then open the create sheet targeting it.
-    /// A team-less account never reaches this path (the empty state offers
-    /// create-or-join instead), so a nil resolution just no-ops.
+    /// Open the create sheet on the ACTIVE team (the same team the board
+    /// menu's New board row targets), so a board-less team switched to
+    /// gets its board there; the account's default team is only the
+    /// fallback while no team has synced yet. A team-less account never
+    /// reaches this path (the empty state offers create-or-join instead),
+    /// so a nil resolution just no-ops.
     private func beginCreateBoard() async {
         guard !preparingCreate, let accountId = deps.auth.activeAccountId else { return }
+        if let teamId = teamState.activeTeam?.id {
+            createTarget = CreateTarget(accountId: accountId, teamId: teamId)
+            return
+        }
         preparingCreate = true
         defer { preparingCreate = false }
         if let team = await resolveDefaultTeam(accountId: accountId) {

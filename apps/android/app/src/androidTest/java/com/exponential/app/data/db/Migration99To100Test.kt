@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -19,7 +20,7 @@ import org.junit.runner.RunWith
  * today's schema with the `apps` table minus `granted_tools`. Room opens it
  * with the migration and NO destructive fallback, so the column is validated
  * against [AppEntity]; the existing app reads "[]" (no grants), a grant
- * round-trips, and every offset survives untouched.
+ * round-trips, and only the `apps` offset resets to refetch.
  */
 @RunWith(AndroidJUnit4::class)
 class Migration99To100Test {
@@ -58,11 +59,15 @@ class Migration99To100Test {
                 runBlocking { apps.observeById("a1").first() }!!.grantedTools,
             )
 
-            for (kept in listOf("apps", "sessions")) {
-                val row = runBlocking { db.electricOffsetDao().get(kept) }!!
-                assertEquals("h", row.handle)
-                assertTrue(row.isLive)
-            }
+            // Only the apps shape refetches, so synced rows re-arrive with their grants.
+            val refetched = runBlocking { db.electricOffsetDao().get("apps") }!!
+            assertEquals("", refetched.handle)
+            assertEquals("-1", refetched.offset)
+            assertFalse(refetched.isLive)
+            assertTrue(refetched.needsRefetch)
+            val kept = runBlocking { db.electricOffsetDao().get("sessions") }!!
+            assertEquals("h", kept.handle)
+            assertTrue(kept.isLive)
         } finally {
             db.close()
         }

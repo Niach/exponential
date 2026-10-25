@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq } from "drizzle-orm"
+import { and, asc, eq, sql } from "drizzle-orm"
 import { composeBrief, type BriefInput } from "@exp/domain-contract/session-brief"
 import { db } from "@/db/connection"
 import { agents, issues, messages, sessionIssues, sessions, teams, type Session } from "@/db/schema"
@@ -101,7 +101,14 @@ export async function composeSessionBrief(sessionId: string): Promise<{
 /** #EXP-1383 (chats.json `agentHint`): the device fetched this session's
  *  brief now, so the agent instructions it launches on are the current ones.
  *  Clients compare it (on an agent chat's root) with
- *  `agents.instructions_updated_at`. `updated_at` stays: a launch is no edit. */
+ *  `agents.instructions_updated_at`. `updated_at` stays: a launch is no edit
+ *  (the chat list sorts by it, and old desktops/CLIs fetch the brief on every
+ *  launch and resume), so the write runs under the transaction-local
+ *  `exponential.preserve_timestamps` GUC the `update_updated_at` trigger
+ *  honours (0001_triggers.sql, EXP-630). */
 export async function stampAgentInstructionsAt(sessionId: string, at: Date = new Date()): Promise<void> {
-  await db.update(sessions).set({ agentInstructionsAt: at }).where(eq(sessions.id, sessionId))
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT set_config('exponential.preserve_timestamps', 'on', true)`)
+    await tx.update(sessions).set({ agentInstructionsAt: at }).where(eq(sessions.id, sessionId))
+  })
 }

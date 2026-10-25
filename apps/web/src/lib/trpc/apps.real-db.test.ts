@@ -186,6 +186,21 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     await expect(api.delete({ id: appId, recordId: first.id })).rejects.toMatchObject({ code: `NOT_FOUND` })
   })
 
+  // Release train 2026-10-25: a patch merges onto the row locked in its own
+  // transaction, so concurrent patches of different fields both land.
+  it(`records: concurrent patches of one record never lose a field`, async () => {
+    const w = await world()
+    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: RECORDS_PACKAGE })
+    const appId = created.app.id
+    const first = await caller(w.owner).records.upsert({ id: appId, kind: `entry`, data: { date: `2026-10-05`, hours: 3 } })
+    await Promise.all([
+      caller(w.owner).records.upsert({ id: appId, kind: `entry`, data: { hours: 4 }, recordId: first.id }),
+      caller(w.mate).records.upsert({ id: appId, kind: `entry`, data: { note: `meet` }, recordId: first.id }),
+    ])
+    const [row] = await db.select().from(appRecords).where(eq(appRecords.id, first.id))
+    expect(row!.data).toEqual({ date: `2026-10-05`, hours: 4, note: `meet` })
+  })
+
   it(`records: delete trashes one row and a second delete is NOT_FOUND`, async () => {
     const w = await world()
     const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: RECORDS_PACKAGE })
@@ -216,11 +231,33 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     await expect(caller(w.mate).update({ id: mine.app.id, grantedTools: [`exponential.comments.create`] })).rejects.toMatchObject({ code: `FORBIDDEN` })
     expect((await caller(w.mate).update({ id: mine.app.id, description: `still mine to edit` })).app.description).toBe(`still mine to edit`)
     expect((await caller(w.owner).update({ id: mine.app.id, grantedTools: [`exponential.comments.create`] })).app.grantedTools).toEqual([`exponential.comments.create`])
-    // A version that drops an action drops its grant; re-declaring it later starts ungranted.
+    // An owner's version that drops an action drops its grant; re-declaring it later starts ungranted.
+    await caller(w.owner).upsertPackage({ id: created.app.id, package: declaring([`exponential.comments.create`]) })
+    expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([`exponential.comments.create`])
+    await caller(w.owner).upsertPackage({ id: created.app.id, package: declaring([`exponential.comments.create`, `exponential.issues.update_status`]) })
+    expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([`exponential.comments.create`])
+    // Release train 2026-10-25: a member's code never runs on an owner's grant: their push clears every grant.
     await caller(w.mate).upsertPackage({ id: created.app.id, package: declaring([`exponential.comments.create`]) })
-    expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([`exponential.comments.create`])
-    await caller(w.mate).upsertPackage({ id: created.app.id, package: declaring([`exponential.comments.create`, `exponential.issues.update_status`]) })
-    expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([`exponential.comments.create`])
+    expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([])
+  })
+
+  it(`grants: an owner's new version keeps the still-declared grants; a member's upsert or restore clears them`, async () => {
+    const w = await world()
+    const pkg = { ...RECORDS_PACKAGE, functions: [`exponential.comments.create`, `exponential.issues.update_status`] }
+    const granted = [`exponential.comments.create`, `exponential.issues.update_status`]
+    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: pkg })
+    const grants = async () => (await caller(w.owner).get({ id: created.app.id })).app.grantedTools
+    await caller(w.owner).update({ id: created.app.id, grantedTools: granted })
+    await caller(w.owner).upsertPackage({ id: created.app.id, package: pkg })
+    expect(await grants()).toEqual(granted)
+    await caller(w.owner).restore({ id: created.app.id, number: 1 })
+    expect(await grants()).toEqual(granted)
+    // A member's restore of the very package the owner granted still clears them.
+    await caller(w.mate).restore({ id: created.app.id, number: 1 })
+    expect(await grants()).toEqual([])
+    await caller(w.owner).update({ id: created.app.id, grantedTools: granted })
+    await caller(w.mate).upsertPackage({ id: created.app.id, package: pkg })
+    expect(await grants()).toEqual([])
   })
   // VAPP-121: an app file round-trips: the import lists issues as rows, then
   // creates the app as v1 "Imported" with its records as the importer's and
@@ -246,6 +283,15 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     expect(broken.issues.length).toBeGreaterThan(0)
     expect(broken.issues.every((i: { path: string }) => i.path.startsWith(`/package`))).toBe(true)
     await expect(caller(w.mate).import({ teamId: w.teamId, text: JSON.stringify(bad) })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    // Release train 2026-10-25: a NUL (jsonb refuses it) is an issue row and a BAD_REQUEST, never a 500.
+    const nul = JSON.parse(text)
+    nul.app.name = `Hours\u0000`
+    nul.records[0].data.note = `x\u0000`
+    expect((await caller(w.mate).validateImport({ teamId: w.teamId, text: JSON.stringify(nul) })).issues).toEqual([
+      { path: `/app/name`, message: `must not contain NUL` },
+      { path: `/records/0/data/note`, message: `must not contain NUL` },
+    ])
+    await expect(caller(w.mate).import({ teamId: w.teamId, text: JSON.stringify(nul) })).rejects.toMatchObject({ code: `BAD_REQUEST` })
 
     // The round trip: a member imports; the name's slug is taken, so `-2`.
     expect(await caller(w.mate).validateImport({ teamId: w.teamId, text })).toEqual({ issues: [], name: `Hours`, records: 1 })

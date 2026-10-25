@@ -1,9 +1,10 @@
-- Chattar: trådar är nu chattar; bottenfältet visar Board, Devices, Chats och Team, och Chats-fliken listar ditt teams chattar som en messenger, med agenter som bubblor överst
-- Tryck länge på en chatt för att stoppa den eller stoppa och radera den; en avslutad chatt erbjuder Radera
-- Agenter: Komprimera konversation och Ny konversation i en agentchatts meny, eller skriv /compact och /new
-- Liveförhandsvisningar: agenter kan rita en interaktiv förhandsvisning direkt i chatten
-- Planer: en väntande plan visas alltid i chatten med sina knappar, och en nyare plan ersätter den väntande
-- Ett aktivt team i taget, byts på Team-fliken, som också rymmer inställningarna; My issues och Drafts är chippar på tavlan, och Inbox har en egen sida
-- Triggers: agenter kan vakna var 5:e, 10:e, 15:e, 20:e eller 30:e minut
-- Apps listar bara ditt teams appar; den inbyggda Devices-appen är borta
-- Meddelanden laddas via sin konversation, redo för direktmeddelanden och kanaler
+- Appar har egna poster och läser teamet: tavlor, medlemmar, chattar, kommentarer och filer
+- Appar agerar som du: varje åtgärd frågar först, om inte en teamägare har tillåtit den på appens inställningssida
+- Exportera en app som en fil och importera den i New app genom att klistra in den eller välja filen
+- Bottenfältet: Board, Chats, Apps och Team; dra ett finger över det för att välja en flik
+- Board-fliken öppnar en meny med teamets tavlor, med New board sist
+- Varje sida har samma stora rubrik med sök och Inbox; varje inställning öppnar en egen sida
+- Sök letar bara i det aktiva teamet och hänger med när du skriver
+- Långa chattar öppnas direkt
+- Agenter kan tilldelas issues och visas under sitt eget namn; omnämnanden visas som etiketter
+- New board på en tom tavla skapar tavlan i teamet du tittar på

@@ -1,9 +1,10 @@
-- Chats : les fils sont désormais des chats ; la barre du bas contient Board, Devices, Chats et Team, et l'onglet Chats liste les chats de votre équipe comme une messagerie, avec les agents en bulles en haut
-- Appuyez longuement sur un chat pour l'arrêter, ou l'arrêter et le supprimer ; un chat terminé propose Supprimer
-- Agents : Compacter la conversation et Nouvelle conversation dans le menu d'un chat d'agent, ou tapez /compact et /new
-- Aperçus en direct : les agents peuvent dessiner un aperçu interactif directement dans le chat
-- Plans : un plan en attente s'affiche toujours dans le chat avec ses boutons, et un plan plus récent remplace celui en attente
-- Une seule équipe active à la fois, changée dans l'onglet Team, qui contient aussi les réglages ; My issues et Drafts sont des puces sur le tableau, et l'Inbox a sa propre page
-- Déclencheurs : les agents peuvent se réveiller toutes les 5, 10, 15, 20 ou 30 minutes
-- Apps ne liste que les apps de votre équipe ; l'app Devices intégrée a disparu
-- Les messages se chargent via leur conversation, prêts pour les messages directs et les canaux
+- Les apps gardent leurs propres données et lisent l'équipe : tableaux, membres, chats, commentaires et fichiers
+- Les apps agissent en votre nom : chaque action demande d'abord, sauf si un propriétaire de l'équipe l'a autorisée sur la page de réglages de l'app
+- Exportez une app en un seul fichier et importez-la dans New app en la collant ou en choisissant le fichier
+- Barre du bas : Board, Chats, Apps et Team ; faites glisser un doigt dessus pour choisir un onglet
+- L'onglet Board ouvre un menu des tableaux de l'équipe, avec New board à la fin
+- Chaque page a le même grand titre avec la recherche et l'Inbox ; chaque réglage ouvre sa propre page
+- La recherche ne porte que sur l'équipe active et suit votre saisie
+- Les longs chats s'ouvrent instantanément
+- Les agents peuvent se voir assigner des issues et apparaissent sous leur propre nom ; les mentions s'affichent en pastilles
+- New board sur un tableau vide crée le tableau dans l'équipe que vous consultez

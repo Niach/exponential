@@ -82,18 +82,34 @@ export interface ParsedAppImport {
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === `object` && v !== null && !Array.isArray(v)
 
-/** Iteratively: does any value sit deeper than `max` levels? (The package and
- *  record validators and `JSON.stringify` recurse; a hostile file nested
- *  thousands deep would overflow the stack in them.) */
-function nestedDeeperThan(root: unknown, max: number): boolean {
-  const stack: [unknown, number][] = [[root, 1]]
+const NUL = `\u0000`
+const pointerToken = (key: string) => key.replace(/~/g, `~0`).replace(/\//g, `~1`).replace(/\u0000/g, `\\u0000`)
+
+/** Iteratively, in document order: does any value sit deeper than `max`
+ *  levels? (The package and record validators and `JSON.stringify` recurse;
+ *  a hostile file nested thousands deep would overflow the stack in them.)
+ *  And every string or key holding a NUL (Postgres jsonb refuses `\u0000`:
+ *  the import would 500, release train 2026-10-25), as issues at its pointer. */
+function walkImport(root: unknown, max: number): { tooDeep: boolean; nul: ImportIssue[] } {
+  const nul: ImportIssue[] = []
+  const stack: [unknown, number, string][] = [[root, 1, ``]]
   while (stack.length > 0) {
-    const [value, depth] = stack.pop()!
+    const [value, depth, path] = stack.pop()!
+    if (typeof value === `string`) {
+      if (value.includes(NUL)) nul.push({ path: path || `/`, message: `must not contain NUL` })
+      continue
+    }
     if (typeof value !== `object` || value === null) continue
-    if (depth > max) return true
-    for (const child of Object.values(value)) stack.push([child, depth + 1])
+    if (depth > max) return { tooDeep: true, nul }
+    const entries = Object.entries(value)
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const [key, child] = entries[i]!
+      const at = `${path}/${pointerToken(key)}`
+      if (key.includes(NUL)) nul.push({ path: at, message: `must not contain NUL` })
+      stack.push([child, depth + 1, at])
+    }
   }
-  return false
+  return { tooDeep: false, nul }
 }
 
 /** The structural half of an import: JSON, the format, the app identity,
@@ -120,9 +136,11 @@ export function parseAppImportShape(text: string): ParsedAppImport & { bare: boo
     return fail([{ path: `/`, message: `is not JSON` }])
   }
   if (!isObject(value)) return fail([{ path: `/`, message: `must be an app file {format, app, package} or a package` }])
-  if (nestedDeeperThan(value, APP_EXPORT_LIMITS.maxDepth)) {
+  const walked = walkImport(value, APP_EXPORT_LIMITS.maxDepth)
+  if (walked.tooDeep) {
     return fail([{ path: `/`, message: `is nested deeper than ${APP_EXPORT_LIMITS.maxDepth} levels` }])
   }
+  if (walked.nul.length > 0) return fail(walked.nul)
   if (value.format === undefined && `templates` in value) {
     const name = typeof value.name === `string` && value.name.trim() ? value.name.trim().slice(0, APP_NAME_MAX) : `Imported app`
     return { issues: [], file: { app: { name, icon: null, color: null, description: `` }, package: value, records: [] }, bare: true }

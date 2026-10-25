@@ -397,7 +397,8 @@ export function AppEditor({
           </Button>
         </div>
       )}
-      <AppPreview pkg={viewing !== null ? viewingPackage : headPackage} appId={app.id} teamId={teamId} me={me} grantedTools={app.row?.grantedTools ?? []} />
+      {/* A grant is about the HEAD package: an old version previews asking for everything. */}
+      <AppPreview pkg={viewing !== null ? viewingPackage : headPackage} appId={app.id} teamId={teamId} me={me} grantedTools={viewing !== null ? [] : (app.row?.grantedTools ?? [])} />
     </div>
   )
 

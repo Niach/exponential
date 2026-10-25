@@ -228,6 +228,19 @@ describe(`issueDrafts.upsert`, () => {
     expect(state.conflictSets[0]).not.toHaveProperty(`userId`)
   })
 
+  // #EXP-1383: an old client knows no agent assignees; its Unassigned is an
+  // explicit `assigneeId: null` and must clear the agent too.
+  it(`an explicit assigneeId null without assigneeAgentId clears the agent`, async () => {
+    await caller.upsert(input({ assigneeId: null }))
+    expect(state.conflictSets[0]).toMatchObject({ assigneeId: null, assigneeAgentId: null })
+  })
+
+  it(`keeps the row's agent when neither assignee key is sent`, async () => {
+    await caller.upsert(input())
+    expect(state.conflictSets[0]).toMatchObject({ assigneeId: null })
+    expect(state.conflictSets[0]).not.toHaveProperty(`assigneeAgentId`)
+  })
+
   it(`refuses a board that belongs to another team`, async () => {
     h.getBoardTeamId.mockResolvedValue({ id: BOARD, teamId: `other-team` })
     await expect(caller.upsert(input())).rejects.toThrow(

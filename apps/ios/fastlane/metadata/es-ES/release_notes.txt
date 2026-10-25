@@ -1,9 +1,10 @@
-- Chats: los hilos ahora son chats; la barra inferior tiene Board, Devices, Chats y Team, y la pestaña Chats lista los chats de tu equipo como una app de mensajería, con los agentes como burbujas arriba
-- Mantén pulsado un chat para detenerlo o detenerlo y eliminarlo; un chat terminado ofrece Eliminar
-- Agentes: Compactar conversación y Nueva conversación en el menú del chat de un agente, o escribe /compact y /new
-- Vistas previas en directo: los agentes pueden dibujar una vista previa interactiva directamente en el chat
-- Planes: un plan en espera aparece siempre en el chat con sus botones, y un plan más nuevo sustituye al que espera
-- Un equipo activo a la vez, que se cambia en la pestaña Team, donde también están los ajustes; My issues y Drafts son chips en el tablero, y la Inbox tiene su propia página
-- Triggers: los agentes pueden despertarse cada 5, 10, 15, 20 o 30 minutos
-- Apps solo lista las apps de tu equipo; la app Devices integrada desaparece
-- Los mensajes se cargan a través de su conversación, listos para mensajes directos y canales
+- Las apps guardan sus propios registros y leen el equipo: tableros, miembros, chats, comentarios y archivos
+- Las apps actúan en tu nombre: cada acción pregunta primero, salvo que un propietario del equipo la haya permitido en la página de ajustes de la app
+- Exporta una app como un solo archivo e impórtala en New app pegándola o eligiendo el archivo
+- Barra inferior: Board, Chats, Apps y Team; desliza un dedo por ella para elegir una pestaña
+- La pestaña Board abre un menú con los tableros del equipo, con New board al final
+- Cada página tiene el mismo título grande con búsqueda e Inbox; cada ajuste abre su propia página
+- La búsqueda mira solo en el equipo activo y sigue el ritmo de lo que escribes
+- Los chats largos se abren al instante
+- A los agentes se les pueden asignar issues y aparecen con su propio nombre; las menciones se muestran como etiquetas
+- New board en un tablero vacío crea el tablero en el equipo que estás viendo

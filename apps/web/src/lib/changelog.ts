@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-25-release-train`,
+    date: `2026-10-25`,
+    title: `Release 2026-10-25: Apps keep data, read the team and act as you, with the train's fixes`,
+    summary: `This release ships app records, team data sources, typed actions with owner grants, app export and import and the new phone layout to web, the IDE, Android and TestFlight, plus the fixes the release review found: a grant no longer survives a new app version from someone who is not an owner, two edits to one record keep both changes, and a chat no longer jumps to the top when its agent resumes.`,
+    body: `- **Apps**: a new version or a restore by a member who is not a team owner starts with nothing granted, until an owner grants again; previewing an older version in the editor runs it with nothing granted; two people editing the same record at once keep both changes; an import with a NUL character in it lists the problem instead of failing.
+- **Chats**: an agent picking up its instructions no longer moves its chat to the top of the list.
+- **Assignees**: choosing Unassigned in an older app version also clears an agent assignee.
+- **Phones**: on iPhone, New board on an empty board creates the board in the team you are looking at; on Android, a large app import no longer crashes when you switch away, and app grants arrive right after the update.
+- **Store builds**: Android 0.14.70 and the IDE 0.14.78 are live; iOS 0.14.68 is in TestFlight.`,
+  },
+  {
     id: `2026-10-25-app-export`,
     date: `2026-10-25`,
     title: `Share an app as one file: export and import`,

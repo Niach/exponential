@@ -402,6 +402,18 @@ describe(`issues.bulkUpdate`, () => {
 
     expect(h.assertAssigneeInTeam).not.toHaveBeenCalled()
     expect(updates[0]!.set.assigneeId).toBeNull()
+    // #EXP-1383: an old client's Unassigned (no assigneeAgentId key) clears
+    // an agent assignee too.
+    expect(updates[0]!.set.assigneeAgentId).toBeNull()
+  })
+
+  it(`assigneeAgentId alone leaves the person untouched unless it assigns`, async () => {
+    seedEligible([issueRow(ID_A, { assigneeAgentId: `agent-1` })])
+
+    await caller.bulkUpdate({ issueIds: [ID_A], assigneeAgentId: null })
+
+    expect(updates[0]!.set.assigneeAgentId).toBeNull()
+    expect(updates[0]!.set).not.toHaveProperty(`assigneeId`)
   })
 
   it(`caps the member fan-out past 25 updated issues but still resolves every widget reporter`, async () => {

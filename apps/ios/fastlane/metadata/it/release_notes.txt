@@ -1,9 +1,10 @@
-- Chat: i thread ora sono chat; la barra in basso contiene Board, Devices, Chats e Team, e la scheda Chats elenca le chat del tuo team come un messenger, con gli agenti come bolle in alto
-- Tieni premuta una chat per fermarla o fermarla ed eliminarla; una chat terminata offre Elimina
-- Agenti: Compatta conversazione e Nuova conversazione nel menu di una chat con un agente, oppure digita /compact e /new
-- Anteprime dal vivo: gli agenti possono disegnare un'anteprima interattiva direttamente nella chat
-- Piani: un piano in attesa compare sempre nella chat con i suoi pulsanti, e un piano più recente sostituisce quello in attesa
-- Un solo team attivo alla volta, da cambiare nella scheda Team, che contiene anche le impostazioni; My issues e Drafts sono chip sulla board, e l'Inbox ha una sua pagina
-- Trigger: gli agenti possono svegliarsi ogni 5, 10, 15, 20 o 30 minuti
-- Apps elenca solo le app del tuo team; l'app Devices integrata non c'è più
-- I messaggi si caricano tramite la loro conversazione, pronti per messaggi diretti e canali
+- Le app hanno i propri record e leggono il team: board, membri, chat, commenti e file
+- Le app agiscono per te: ogni azione chiede prima, a meno che un owner del team non l'abbia concessa nella pagina delle impostazioni dell'app
+- Esporta un'app come un unico file e importala in New app incollandola o scegliendo il file
+- Barra in basso: Board, Chats, Apps e Team; fai scorrere un dito sopra per scegliere una scheda
+- La scheda Board apre un menu con le board del team, con New board in fondo
+- Ogni pagina ha lo stesso titolo grande con ricerca e Inbox; ogni impostazione apre una sua pagina
+- La ricerca guarda solo nel team attivo e tiene il passo con la digitazione
+- Le chat lunghe si aprono all'istante
+- Agli agenti si possono assegnare issue e compaiono con il proprio nome; le menzioni appaiono come pillole
+- New board su una board vuota crea la board nel team che stai guardando

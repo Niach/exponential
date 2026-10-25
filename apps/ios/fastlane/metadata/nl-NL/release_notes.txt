@@ -1,9 +1,10 @@
-- Chats: threads zijn nu chats; de onderste balk toont Board, Devices, Chats en Team, en het Chats-tabblad toont de chats van je team als een messenger, met agents als bubbels bovenaan
-- Houd een chat ingedrukt om hem te stoppen of te stoppen en te verwijderen; een beëindigde chat biedt Verwijderen aan
-- Agents: Gesprek comprimeren en Nieuw gesprek in het menu van een agentchat, of typ /compact en /new
-- Live voorbeelden: agents kunnen een interactief voorbeeld direct in de chat tekenen
-- Plannen: een wachtend plan staat altijd met zijn knoppen in de chat, en een nieuwer plan vervangt het wachtende
-- Eén actief team tegelijk, te wisselen op het Team-tabblad, dat ook de instellingen bevat; My issues en Drafts zijn chips op het bord, en de Inbox heeft een eigen pagina
-- Triggers: agents kunnen elke 5, 10, 15, 20 of 30 minuten wakker worden
-- Apps toont alleen de apps van je team; de ingebouwde Devices-app is verdwenen
-- Berichten laden via hun gesprek, klaar voor directe berichten en kanalen
+- Apps houden hun eigen records bij en lezen het team: borden, leden, chats, opmerkingen en bestanden
+- Apps handelen namens jou: elke actie vraagt eerst, tenzij een eigenaar van het team die heeft toegestaan op de instellingenpagina van de app
+- Exporteer een app als één bestand en importeer hem in New app door te plakken of het bestand te kiezen
+- Onderste balk: Board, Chats, Apps en Team; schuif er met een vinger overheen om een tabblad te kiezen
+- Het Board-tabblad opent een menu met de borden van het team, met New board onderaan
+- Elke pagina heeft dezelfde grote titel met zoeken en Inbox; elke instelling opent een eigen pagina
+- Zoeken kijkt alleen in het actieve team en houdt je typen bij
+- Lange chats openen direct
+- Agents kunnen issues toegewezen krijgen en verschijnen onder hun eigen naam; vermeldingen verschijnen als pillen
+- New board op een leeg bord maakt het bord aan in het team dat je bekijkt

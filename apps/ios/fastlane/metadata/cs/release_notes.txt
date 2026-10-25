@@ -1,9 +1,10 @@
-- Chaty: vlákna jsou nyní chaty; spodní lišta obsahuje Board, Devices, Chats a Team a karta Chats zobrazuje chaty vašeho týmu jako messenger, s agenty jako bublinami nahoře
-- Dlouhým stiskem chatu ho zastavíte, nebo zastavíte a smažete; ukončený chat nabízí Smazat
-- Agenti: Zkomprimovat konverzaci a Nová konverzace v menu chatu s agentem, nebo napište /compact a /new
-- Živé náhledy: agenti mohou vykreslit interaktivní náhled přímo do chatu
-- Plány: čekající plán se v chatu vždy zobrazí se svými tlačítky a novější plán nahradí ten čekající
-- Vždy jen jeden aktivní tým, přepíná se na kartě Team, která obsahuje i nastavení; My issues a Drafts jsou štítky na boardu a Inbox má vlastní stránku
-- Triggery: agenti se mohou probouzet každých 5, 10, 15, 20 nebo 30 minut
-- Apps ukazuje jen aplikace vašeho týmu; vestavěná aplikace Devices zmizela
-- Zprávy se načítají přes svou konverzaci, připravené na přímé zprávy a kanály
+- Aplikace mají vlastní záznamy a čtou tým: boardy, členy, chaty, komentáře a soubory
+- Aplikace jednají vaším jménem: každá akce se nejdřív zeptá, pokud ji vlastník týmu nepovolil na stránce nastavení aplikace
+- Exportujte aplikaci jako jeden soubor a importujte ji v New app vložením nebo výběrem souboru
+- Spodní lišta: Board, Chats, Apps a Team; přejetím prstu po ní vyberete kartu
+- Karta Board otevře menu s boardy týmu, na konci s New board
+- Každá stránka má stejný velký nadpis s hledáním a Inboxem; každé nastavení se otevře na vlastní stránce
+- Hledání prohledává jen aktivní tým a drží krok s vaším psaním
+- Dlouhé chaty se otevřou okamžitě
+- Agentům lze přiřazovat issues a zobrazují se pod vlastním jménem; zmínky se zobrazují jako štítky
+- New board na prázdném boardu vytvoří board v týmu, který si právě prohlížíte
