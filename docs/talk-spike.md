@@ -190,6 +190,13 @@ voices) are not acceptable. So the `Speaker` plan changes:
   until a German neural CPU voice that passes the ear test turns up. Kokoro
   never reads German text with an English voice.
 
+**Scope after listening: English only first.** The first releases speak and
+listen in English. Kokoro is then the one voice on every platform, CPU only,
+and Qwen3-TTS is not needed for v1 (it returns with German). For listening, the
+English-only choice reopens the streaming Zipformer (first word after 0.8 s of
+audio, 27 ms tail, CPU, Apache-2.0) beside Nemotron (GPU) and Whistle (CPU);
+the human recording set decides between them in #NEW-54.
+
 ## What this changes in the slices
 
 - NEW-53 speak replies: the CPU voice is Kokoro (English) on all three
