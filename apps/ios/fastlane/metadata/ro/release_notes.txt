@@ -1,9 +1,10 @@
-- Chaturi: firele sunt acum chaturi; bara de jos conține Board, Devices, Chats și Team, iar fila Chats listează chaturile echipei tale ca un messenger, cu agenții ca bule sus
-- Ține apăsat pe un chat ca să-l oprești sau să-l oprești și să-l ștergi; un chat încheiat oferă Șterge
-- Agenți: Compactează conversația și Conversație nouă în meniul unui chat cu un agent, sau scrie /compact și /new
-- Previzualizări live: agenții pot desena o previzualizare interactivă direct în chat
-- Planuri: un plan în așteptare apare mereu în chat cu butoanele lui, iar un plan mai nou îl înlocuiește pe cel în așteptare
-- O singură echipă activă odată, schimbată din fila Team, care conține și setările; My issues și Drafts sunt chipuri pe board, iar Inbox are propria pagină
-- Triggere: agenții se pot trezi la fiecare 5, 10, 15, 20 sau 30 de minute
-- Apps listează doar aplicațiile echipei tale; aplicația Devices integrată a dispărut
-- Mesajele se încarcă prin conversația lor, pregătite pentru mesaje directe și canale
+- Aplicațiile își păstrează propriile înregistrări și citesc echipa: boarduri, membri, chaturi, comentarii și fișiere
+- Aplicațiile acționează în numele tău: fiecare acțiune întreabă mai întâi, dacă un proprietar al echipei nu a permis-o pe pagina de setări a aplicației
+- Exportă o aplicație ca un singur fișier și import-o în New app lipind-o sau alegând fișierul
+- Bara de jos: Board, Chats, Apps și Team; glisează un deget peste ea ca să alegi o filă
+- Fila Board deschide un meniu cu boardurile echipei, cu New board la final
+- Fiecare pagină are același titlu mare cu căutare și Inbox; fiecare setare se deschide pe propria pagină
+- Căutarea caută doar în echipa activă și ține pasul cu ce tastezi
+- Chaturile lungi se deschid instantaneu
+- Agenților li se pot atribui issues și apar sub propriul nume; mențiunile apar ca etichete
+- New board pe un board gol creează boardul în echipa pe care o vezi

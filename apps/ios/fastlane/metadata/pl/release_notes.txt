@@ -1,9 +1,10 @@
-- Czaty: wątki są teraz czatami; dolny pasek to Board, Devices, Chats i Team, a karta Chats pokazuje czaty Twojego zespołu jak komunikator, z agentami jako bąbelkami u góry
-- Przytrzymaj czat, aby go zatrzymać albo zatrzymać i usunąć; zakończony czat oferuje Usuń
-- Agenci: Kompaktuj rozmowę i Nowa rozmowa w menu czatu z agentem, albo wpisz /compact i /new
-- Podglądy na żywo: agenci mogą narysować interaktywny podgląd prosto w czacie
-- Plany: oczekujący plan zawsze widać w czacie wraz z jego przyciskami, a nowszy plan zastępuje oczekujący
-- Jeden aktywny zespół naraz, przełączany na karcie Team, która mieści też ustawienia; My issues i Drafts to chipy na tablicy, a Inbox ma własną stronę
-- Wyzwalacze: agenci mogą budzić się co 5, 10, 15, 20 lub 30 minut
-- Apps pokazuje tylko aplikacje Twojego zespołu; wbudowana aplikacja Devices zniknęła
-- Wiadomości ładują się przez swoją rozmowę, gotowe na wiadomości bezpośrednie i kanały
+- Aplikacje mają własne rekordy i czytają zespół: tablice, członków, czaty, komentarze i pliki
+- Aplikacje działają w Twoim imieniu: każda akcja najpierw pyta, chyba że właściciel zespołu zezwolił na nią na stronie ustawień aplikacji
+- Wyeksportuj aplikację jako jeden plik i zaimportuj ją w New app, wklejając ją lub wybierając plik
+- Dolny pasek: Board, Chats, Apps i Team; przesuń po nim palcem, aby wybrać kartę
+- Karta Board otwiera menu tablic zespołu, z New board na końcu
+- Każda strona ma ten sam duży tytuł z wyszukiwaniem i Inbox; każde ustawienie otwiera własną stronę
+- Wyszukiwanie przeszukuje tylko aktywny zespół i nadąża za pisaniem
+- Długie czaty otwierają się natychmiast
+- Agentom można przypisywać issues i są widoczni pod własną nazwą; wzmianki wyświetlają się jako etykiety
+- New board na pustej tablicy tworzy tablicę w zespole, który właśnie oglądasz

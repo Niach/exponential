@@ -137,7 +137,7 @@
       ],
       "unit": "package or flow",
       "cases": 20,
-      "check": "Validate each package; validate each record against its kind's schema (VAPP-122); for each flow build ONE router with `extensionIds`, install `packages` (issues = `installIssues`), route every step: the ops equal `expected`."
+      "check": "Validate each package; validate each record against its kind's schema; for each flow build ONE router with `extensionIds`, install `packages` (issues = `installIssues`), route every step: the ops equal `expected`."
     },
     {
       "id": "bind",

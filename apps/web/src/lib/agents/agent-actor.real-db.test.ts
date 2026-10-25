@@ -198,6 +198,13 @@ describe.skipIf(!ready.ok)(`assign issues to agents (#EXP-1383)`, () => {
     expect((await assigneeEvents(target.id)).map((e) => e.payload)).toEqual(
       expect.arrayContaining([{ from: null, to: w.owner, fromAgentId: sloppy.id, toAgentId: null }])
     )
+
+    // An old client (no agent assignees) picks Unassigned: `assigneeId: null`
+    // alone clears the agent too.
+    await issuesRouter.createCaller(person(w.owner) as never).update({ id: target.id, assigneeAgentId: sloppy.id })
+    await issuesRouter.createCaller(person(w.owner) as never).update({ id: target.id, assigneeId: null })
+    row = await issueRow(target.id)
+    expect(row).toMatchObject({ assigneeId: null, assigneeAgentId: null })
   })
 
   it(`refuses another team's agent and both assignees at once; the DB check holds`, async () => {
@@ -336,11 +343,14 @@ describe.skipIf(!ready.ok)(`instructions stamps (#EXP-1383 agentHint)`, () => {
     const row = (await db.select().from(agents).where(eq(agents.id, agent.id)))[0]!
     const convo = await w.conversation(row)
     expect(convo.agentInstructionsAt).toBeNull()
+    await new Promise((resolve) => setTimeout(resolve, 5))
     const brief = await sessionsRouter.createCaller(person(w.owner) as never).brief({ sessionId: convo.id })
     expect(brief.agentInstructions).toBe(`Be thorough.`)
     expect(brief.rootAgentId).toBe(agent.id)
     const stamped = (await db.select().from(sessions).where(eq(sessions.id, convo.id)))[0]!
     expect(stamped.agentInstructionsAt!.getTime()).toBeGreaterThanOrEqual(edited.instructionsUpdatedAt!.getTime())
+    // A launch is no edit: the chat list (sorted by updated_at) keeps its order.
+    expect(stamped.updatedAt.getTime()).toBe(convo.updatedAt.getTime())
   })
 })
 

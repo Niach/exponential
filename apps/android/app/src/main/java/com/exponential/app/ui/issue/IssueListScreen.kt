@@ -424,7 +424,7 @@ fun IssueListScreen(
                                         size = PillSize.Md,
                                         primary = true,
                                         onClick = {
-                                            createBoardTeamId = null
+                                            createBoardTeamId = selectedTeamId
                                             showCreateBoard = true
                                         },
                                     )
@@ -630,8 +630,8 @@ fun IssueListScreen(
 
     if (showCreateBoard) {
         // The new board's last-used pointer swaps the root list in place, so
-        // dismissing is all this needs to do on success. A null team is the
-        // selected one; the switcher names the block's team explicitly.
+        // dismissing is all this needs to do on success. The empty state names
+        // the selected team; a null team falls back to the default team.
         CreateBoardSheet(
             teamId = createBoardTeamId,
             onCreated = { showCreateBoard = false; createBoardTeamId = null },

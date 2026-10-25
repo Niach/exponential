@@ -1,9 +1,10 @@
-- Chatit: ketjut ovat nyt chatteja; alapalkissa ovat Board, Devices, Chats ja Team, ja Chats-välilehti listaa tiimisi chatit kuin viestisovellus, agentit kuplina ylhäällä
-- Paina chattia pitkään pysäyttääksesi sen tai pysäyttääksesi ja poistaaksesi sen; päättynyt chatti tarjoaa Poista-vaihtoehdon
-- Agentit: Tiivistä keskustelu ja Uusi keskustelu agenttichatin valikossa, tai kirjoita /compact ja /new
-- Live-esikatselut: agentit voivat piirtää interaktiivisen esikatselun suoraan chattiin
-- Suunnitelmat: odottava suunnitelma näkyy aina chatissa painikkeineen, ja uudempi suunnitelma korvaa odottavan
-- Yksi aktiivinen tiimi kerrallaan, vaihdetaan Team-välilehdellä, jossa ovat myös asetukset; My issues ja Drafts ovat siruja boardilla, ja Inboxilla on oma sivunsa
-- Triggerit: agentit voivat herätä 5, 10, 15, 20 tai 30 minuutin välein
-- Apps listaa vain tiimisi sovellukset; sisäänrakennettu Devices-sovellus on poistunut
-- Viestit latautuvat keskustelunsa kautta, valmiina yksityisviesteille ja kanaville
+- Sovelluksilla on omat tietueensa ja ne lukevat tiimiä: boardit, jäsenet, chatit, kommentit ja tiedostot
+- Sovellukset toimivat sinun nimissäsi: jokainen toiminto kysyy ensin, ellei tiimin omistaja ole sallinut sitä sovelluksen asetussivulla
+- Vie sovellus yhtenä tiedostona ja tuo se New app -näkymässä liittämällä tai valitsemalla tiedosto
+- Alapalkki: Board, Chats, Apps ja Team; liu'uta sormea sen yli valitaksesi välilehden
+- Board-välilehti avaa valikon tiimin boardeista, ja lopussa on New board
+- Jokaisella sivulla on sama iso otsikko haun ja Inboxin kanssa; jokainen asetus avautuu omalle sivulleen
+- Haku etsii vain aktiivisesta tiimistä ja pysyy kirjoituksesi tahdissa
+- Pitkät chatit avautuvat heti
+- Agenteille voi osoittaa issueita ja ne näkyvät omalla nimellään; maininnat näkyvät tunnisteina
+- New board tyhjällä boardilla luo boardin siihen tiimiin, jota katselet

@@ -464,8 +464,7 @@ import androidx.room.TypeConverters
     //      nullable column and refetches only the conversations shape.
     // v100 (VAPP-120): apps.granted_tools (the typed actions an app may run
     //      without asking, a JSON string[]). Explicit [MIGRATION_99_100] adds
-    //      the column with "[]"; no offset resets (the apps shape's next
-    //      change carries the real value).
+    //      the column with "[]" and refetches only the apps shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
     version = 100,
     exportSchema = false,

@@ -337,6 +337,8 @@ fun rememberAppHost(
     me: String? = null,
     /** The package's `theme` (a built-in id); null = [APP_THEME_ID]. */
     themeId: String? = null,
+    /** Release train 2026-10-25: the row's grants are about the HEAD package; false = an older version's preview, which runs with none. */
+    grants: Boolean = true,
 ): ExponentialHost {
     val context = LocalContext.current
     val toaster = LocalToaster.current
@@ -345,7 +347,7 @@ fun rememberAppHost(
     // instance link opens in-app, anything else in the Custom Tab; no
     // instance known = the SDK's system opener.
     val links = rememberAppLinkHandler()
-    val host = remember(packages, consent, themeId, links, appId, teamId, me) {
+    val host = remember(packages, consent, themeId, links, appId, teamId, me, grants) {
         val deps = EntryPointAccessors.fromApplication(context.applicationContext, AppHostEntryPoint::class.java)
         val auth = deps.authRepository()
         val db = accountDatabaseFlow(auth, deps.databaseHolder())
@@ -355,7 +357,7 @@ fun rememberAppHost(
         // VAPP-120: the hosting app's row, read at call time for its grants
         // (the web/desktop settings page may change them while the host lives).
         val hostingApp: Flow<AppEntity?> =
-            if (appId == null) flowOf(null) else db.scopedQuery(null) { it.appDao().observeById(appId) }
+            if (appId == null || !grants) flowOf(null) else db.scopedQuery(null) { it.appDao().observeById(appId) }
         val teamApps: Flow<List<AppEntity>> =
             if (teamId == null) flowOf(emptyList()) else db.scopedQuery(emptyList()) { it.appDao().observeByTeam(teamId) }
         fun recordsOf(app: String?): Flow<List<AppRecordEntity>> =

@@ -1,9 +1,10 @@
-- Chats: Threads sind jetzt Chats; die untere Leiste zeigt Board, Devices, Chats und Team, und der Chats-Tab listet die Chats deines Teams wie ein Messenger, mit Agents als Bubbles oben
-- Halte einen Chat gedrückt, um ihn zu stoppen oder zu stoppen und zu löschen; ein beendeter Chat bietet Löschen an
-- Agents: Unterhaltung komprimieren und Neue Unterhaltung stehen im Menü eines Agent-Chats, oder tippe /compact und /new
-- Live-Vorschauen: Agents können eine interaktive Vorschau direkt in den Chat zeichnen
-- Pläne: ein wartender Plan erscheint immer mit seinen Buttons im Chat, und ein neuerer Plan ersetzt den wartenden
-- Ein aktives Team zur Zeit, gewechselt im Team-Tab, der auch die Einstellungen enthält; My issues und Drafts sind Chips auf dem Board, und die Inbox hat ihre eigene Seite
-- Trigger: Agents können alle 5, 10, 15, 20 oder 30 Minuten aufwachen
-- Apps listet nur die Apps deines Teams; die eingebaute Devices-App ist weg
-- Nachrichten laden über ihre Unterhaltung, bereit für Direktnachrichten und Channels
+- Apps haben ihre eigenen Datensätze und lesen das Team: Boards, Mitglieder, Chats, Kommentare und Dateien
+- Apps handeln in deinem Namen: jede Aktion fragt zuerst, außer ein Team-Owner hat sie auf der Einstellungsseite der App erlaubt
+- Exportiere eine App als eine Datei und importiere sie unter New app, per Einfügen oder durch Auswahl der Datei
+- Untere Leiste: Board, Chats, Apps und Team; wische mit dem Finger darüber, um einen Tab zu wählen
+- Der Board-Tab öffnet ein Menü mit den Boards des Teams, mit New board am Ende
+- Jede Seite hat denselben großen Titel mit Suche und Inbox; jede Einstellung öffnet ihre eigene Seite
+- Die Suche durchsucht nur das aktive Team und hält mit deinem Tippen Schritt
+- Lange Chats öffnen sich sofort
+- Agents können Issues zugewiesen bekommen und erscheinen unter ihrem eigenen Namen; Erwähnungen erscheinen als Pills
+- New board auf einem leeren Board erstellt das Board in dem Team, das du gerade ansiehst

@@ -317,7 +317,8 @@ fun AppFormSheet(
     onImport: ((text: String) -> Unit)? = null,
 ) {
     var importing by rememberSaveable { mutableStateOf(false) }
-    var importText by rememberSaveable { mutableStateOf("") }
+    // Plain remember: an import may be up to 4 MB, far past the Binder limit for saved state.
+    var importText by remember { mutableStateOf("") }
     val importStep = importing && onImport != null
     val issues = rememberImportIssues(if (importStep) importText else "") { onValidateImport?.invoke(it) }
     var name by rememberSaveable { mutableStateOf(app?.name.orEmpty()) }

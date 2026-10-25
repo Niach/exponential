@@ -94,7 +94,8 @@ export const issueDraftsRouter = router({
         assigneeId: z.string().nullish(),
         // #EXP-1383: a team agent as the assignee (exclusive with
         // assigneeId). Absent keeps the row's (old clients) unless a person
-        // is picked; null clears it.
+        // is picked or assigneeId is an explicit null (an old client's
+        // Unassigned); null clears it.
         assigneeAgentId: z.string().uuid().nullish(),
         labelIds: z.array(z.string().uuid()).max(50).default([]),
         dueDate: dateOnlySchema.nullish(),
@@ -242,7 +243,7 @@ export const issueDraftsRouter = router({
               assigneeId: values.assigneeId,
               ...(input.assigneeAgentId !== undefined
                 ? { assigneeAgentId: values.assigneeAgentId }
-                : values.assigneeId
+                : values.assigneeId || input.assigneeId === null
                   ? { assigneeAgentId: null }
                   : {}),
               labelIds: values.labelIds,

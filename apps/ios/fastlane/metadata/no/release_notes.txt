@@ -1,9 +1,10 @@
-- Chatter: tråder er nå chatter; bunnlinjen viser Board, Devices, Chats og Team, og Chats-fanen viser teamets chatter som en messenger, med agenter som bobler øverst
-- Trykk lenge på en chat for å stoppe den eller stoppe og slette den; en avsluttet chat tilbyr Slett
-- Agenter: Komprimer samtale og Ny samtale i menyen til en agent-chat, eller skriv /compact og /new
-- Direkte forhåndsvisninger: agenter kan tegne en interaktiv forhåndsvisning rett inn i chatten
-- Planer: en ventende plan vises alltid i chatten med knappene sine, og en nyere plan erstatter den ventende
-- Ett aktivt team om gangen, byttet i Team-fanen, som også har innstillingene; My issues og Drafts er brikker på boardet, og Inbox har sin egen side
-- Triggere: agenter kan våkne hvert 5., 10., 15., 20. eller 30. minutt
-- Apps viser bare teamets apper; den innebygde Devices-appen er borte
-- Meldinger lastes gjennom samtalen sin, klare for direktemeldinger og kanaler
+- Apper har sine egne poster og leser teamet: boards, medlemmer, chatter, kommentarer og filer
+- Apper handler som deg: hver handling spør først, med mindre en teameier har tillatt den på appens innstillingsside
+- Eksporter en app som én fil, og importer den i New app ved å lime den inn eller velge filen
+- Bunnlinjen: Board, Chats, Apps og Team; dra en finger over den for å velge en fane
+- Board-fanen åpner en meny med teamets boards, med New board til slutt
+- Hver side har den samme store tittelen med søk og Inbox; hver innstilling åpner sin egen side
+- Søk ser bare i det aktive teamet og holder tritt med skrivingen din
+- Lange chatter åpnes umiddelbart
+- Agenter kan tildeles issues og vises under sitt eget navn; omtaler vises som brikker
+- New board på et tomt board oppretter boardet i teamet du ser på

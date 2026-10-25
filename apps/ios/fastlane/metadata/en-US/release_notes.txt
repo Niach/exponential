@@ -1,9 +1,10 @@
-- Chats: threads are now chats; the bottom bar is Board, Devices, Chats and Team, and the Chats tab lists your team's chats like a messenger, with agents as bubbles on top
-- Long-press a chat to stop it or stop and delete it; an ended chat offers Delete
-- Agents: Compact conversation and New conversation in an agent chat's menu, or type /compact and /new
-- Live previews: agents can draw an interactive preview straight into the chat
-- Plans: a waiting plan always shows in the chat with its buttons, and a newer plan replaces the waiting one
-- One active team at a time, switched on the Team tab, which also holds the settings; My issues and Drafts are chips on the board, and the inbox has its own page
-- Triggers: agents can wake every 5, 10, 15, 20 or 30 minutes
-- Apps lists only your team's apps; the built-in Devices app is gone
-- Messages load through their conversation, ready for direct messages and channels
+- Apps keep their own records and read the team: boards, members, chats, comments and files
+- Apps act as you: each action asks first, unless a team owner granted it on the app's settings page
+- Export an app as one file and import it in New app by pasting it or choosing the file
+- Bottom bar: Board, Chats, Apps and Team; slide a finger across it to pick a tab
+- The Board tab opens a menu of the team's boards, with New board at the end
+- Every page has the same big title with search and inbox; each setting opens its own page
+- Search looks in the active team only and keeps up with your typing
+- Long chats open instantly
+- Agents can be assigned issues and show under their own name; mentions show as pills
+- New board on an empty board creates the board in the team you are looking at

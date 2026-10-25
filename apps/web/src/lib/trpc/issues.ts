@@ -858,7 +858,15 @@ export const issuesRouter = router({
         delete setValues.status
         delete setValues.statusId
         // #EXP-1383: one assignee at a time (issues_single_assignee_check).
-        if (updates.assigneeId != null) setValues.assigneeAgentId = null
+        // An explicit `assigneeId: null` WITHOUT `assigneeAgentId` is an old
+        // client's Unassigned (it knows no agent assignees): it clears the
+        // agent too.
+        if (
+          updates.assigneeId != null ||
+          (updates.assigneeId === null && updates.assigneeAgentId === undefined)
+        ) {
+          setValues.assigneeAgentId = null
+        }
         if (updates.assigneeAgentId != null) setValues.assigneeId = null
         const statusWrite = await resolveStatusWrite(
           tx,
@@ -1381,8 +1389,13 @@ export const issuesRouter = router({
         ...(input.assigneeAgentId !== undefined
           ? { assigneeAgentId: input.assigneeAgentId }
           : {}),
-        // #EXP-1383: one assignee at a time.
-        ...(input.assigneeId != null ? { assigneeAgentId: null } : {}),
+        // #EXP-1383: one assignee at a time; an explicit `assigneeId: null`
+        // without `assigneeAgentId` (an old client's Unassigned) clears the
+        // agent too.
+        ...(input.assigneeId != null ||
+        (input.assigneeId === null && input.assigneeAgentId === undefined)
+          ? { assigneeAgentId: null }
+          : {}),
         ...(input.assigneeAgentId != null ? { assigneeId: null } : {}),
       }
 

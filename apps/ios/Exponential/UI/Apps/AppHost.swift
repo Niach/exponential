@@ -193,6 +193,7 @@ final class ExpAppHost {
         accountId: String,
         deps: AppDependencies,
         consent: AppConsentGate,
+        grants: Bool = true,
         onOpenIssue: @escaping (String) -> Void
     ) {
         self.consent = consent
@@ -316,7 +317,7 @@ final class ExpAppHost {
                     // at call time: a granted typed action runs without the
                     // card (`harness.mcp` always asks).
                     if AppActions.parseActionName(call.name) != nil,
-                       AppActions.grantAllows(AppHostStore.grantedTools(appId: scope.appId, pool: pool), call.name,
+                       AppActions.grantAllows(grants ? AppHostStore.grantedTools(appId: scope.appId, pool: pool) : [], call.name,
                                               args: call.args.compactMapValues { CardJSON(any: $0.any) }) {
                         return true
                     }

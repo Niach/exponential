@@ -1,0 +1,5 @@
+Apps keep their own records, read the team's boards, members, chats and comments, and act as you where a team owner grants it.
+Export an app as one file and import it in New app.
+Bottom bar: Board, Chats, Apps and Team; the Board tab opens a menu of the team's boards; one header and a page per setting.
+Search stays in your team; long chats open instantly.
+Agents take assigned issues; mentions show as pills.

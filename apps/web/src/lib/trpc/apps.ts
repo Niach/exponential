@@ -14,6 +14,7 @@ import {
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { appRecords, appVersions, apps, sessions, type App } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
+import { resolveTeamAccess } from "@/lib/auth/access"
 import { appPackageIssues, packageBytes, recordKindSchema, validateAppPackage } from "@/lib/apps/package"
 import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImportShape, type ImportIssue, type ParsedAppImport } from "@exp/domain-contract/app-export"
 import { validateRecord } from "@exponential_app/ui"
@@ -29,7 +30,8 @@ import type { Tx } from "@/lib/sessions/tx"
 // txId sync barrier. Reads and creates are member-gated; renaming and
 // deleting = the creator or a team owner; publishing a version
 // (`upsertPackage`, MCP `apps upsert` from the editor session) = any member;
-// `restore` writes a NEW head copying an older version (no git).
+// `restore` writes a NEW head copying an older version (no git). A version
+// written by a non-owner clears the grants (release train 2026-10-25).
 
 const noNul = { message: `Must not contain NUL bytes` }
 const hasNoNul = (value: string) => !value.includes(`\u0000`)
@@ -88,12 +90,15 @@ export function packageActions(pkg: unknown): string[] {
 /** A new version row + the app's head, in one transaction. VAPP-120: the
  *  grants follow the head: a name the new package no longer declares loses
  *  its grant, so a later version re-declaring it asks again (review of
- *  #1222: a grant is a person's choice about THIS package, never inherited). */
+ *  #1222: a grant is a person's choice about THIS package, never inherited).
+ *  Release train 2026-10-25: only an OWNER's version keeps the still-declared
+ *  grants; code written by anyone else (`byOwner: false`) starts with none,
+ *  so a member's code never runs on an owner's grant without asking. */
 export async function writeVersionInTx(
   tx: Tx,
   app: App,
   pkg: Record<string, unknown>,
-  args: { note: string | null; sessionId: string | null; createdBy: string | null }
+  args: { note: string | null; sessionId: string | null; createdBy: string | null; byOwner: boolean }
 ): Promise<{ number: number; versionId: string }> {
   const [locked] = await tx
     .select({ headVersion: apps.headVersion, grantedTools: apps.grantedTools })
@@ -102,7 +107,7 @@ export async function writeVersionInTx(
     .for(`update`)
   const number = (locked?.headVersion ?? app.headVersion) + 1
   const declared = packageActions(pkg)
-  const grantedTools = (locked?.grantedTools ?? app.grantedTools ?? []).filter((name) => declared.includes(name))
+  const grantedTools = args.byOwner ? (locked?.grantedTools ?? app.grantedTools ?? []).filter((name) => declared.includes(name)) : []
   const [version] = await tx
     .insert(appVersions)
     .values({
@@ -277,7 +282,7 @@ export const appsRouter = router({
             .returning()
           let headVersion = 0
           if (pkg) {
-            headVersion = (await writeVersionInTx(tx, app!, pkg as unknown as Record<string, unknown>, { note: input.note ?? null, sessionId: null, createdBy: userId })).number
+            headVersion = (await writeVersionInTx(tx, app!, pkg as unknown as Record<string, unknown>, { note: input.note ?? null, sessionId: null, createdBy: userId, byOwner: false })).number
           }
           return { txid: txId, app: { ...app!, headVersion, package: pkg ?? null } }
         })
@@ -330,7 +335,7 @@ export const appsRouter = router({
             createdBy: userId,
           })
           .returning()
-        const { number } = await writeVersionInTx(tx, app!, file.package, { note: APP_EXPORT_COPY.importNote, sessionId: null, createdBy: userId })
+        const { number } = await writeVersionInTx(tx, app!, file.package, { note: APP_EXPORT_COPY.importNote, sessionId: null, createdBy: userId, byOwner: false })
         if (file.records.length > 0) {
           await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`app_records:${input.teamId}`}))`)
           await assertCanCreateAppRecord(input.teamId, tx, file.records.length)
@@ -383,13 +388,14 @@ export const appsRouter = router({
       })
     }),
 
-  /** A NEW version of the package (the head follows). Any member. */
+  /** A NEW version of the package (the head follows). Any member; a
+   *  non-owner's version clears the grants (`writeVersionInTx`). */
   upsertPackage: authedProcedure
     .input(appRefSchema.and(z.object({ package: packageSchema, note: noteSchema.optional(), sessionId: uuid.optional() })))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       const app = await loadApp(ctx.db, input)
-      await assertTeamMember(userId, app.teamId)
+      const { member } = await resolveTeamAccess(userId, app.teamId)
       const pkg = validateAppPackage(input.package)
       // Release train 2026-10-23: the version always names its author; the
       // session is kept only when it is the caller's own editor session for
@@ -409,18 +415,20 @@ export const appsRouter = router({
           note: input.note?.trim() || null,
           sessionId,
           createdBy: userId,
+          byOwner: canGrantActions(member.role),
         })
         return { txid: txId, version: number }
       })
     }),
 
-  /** Restore = a new head copying version `number`. Any member. */
+  /** Restore = a new head copying version `number`. Any member; a
+   *  non-owner's restore clears the grants like a new version. */
   restore: authedProcedure
     .input(z.object({ id: uuid, number: z.number().int().min(1) }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       const app = await loadApp(ctx.db, { id: input.id })
-      await assertTeamMember(userId, app.teamId)
+      const { member } = await resolveTeamAccess(userId, app.teamId)
       const [row] = await ctx.db
         .select({ package: appVersions.package })
         .from(appVersions)
@@ -433,6 +441,7 @@ export const appsRouter = router({
           note: APPS_COPY.restoredNote.replace(`{n}`, String(input.number)),
           sessionId: null,
           createdBy: userId,
+          byOwner: canGrantActions(member.role),
         })
         return { txid: txId, version: number, restored: input.number }
       })
@@ -483,32 +492,36 @@ export const appsRouter = router({
         if (!schema) {
           throw new TRPCError({ code: `BAD_REQUEST`, message: `The app declares no record kind "${input.kind}": add it to the package's records first` })
         }
-        let existing: { id: string; data: Record<string, unknown> } | null = null
-        if (input.recordId) {
-          const [row] = await ctx.db
-            .select({ id: appRecords.id, data: appRecords.data })
-            .from(appRecords)
-            .where(and(eq(appRecords.id, input.recordId), eq(appRecords.appId, app.id), eq(appRecords.kind, input.kind), isNull(appRecords.deletedAt)))
-            .limit(1)
-          if (!row) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
-          existing = row
-        }
-        const data = existing ? { ...existing.data, ...input.data } : input.data
-        const issues = validateRecord(schema, data)
-        if (issues.length > 0) {
-          const listed = issues.slice(0, 10).map((issue) => `${issue.path || `/`}: ${issue.message}`)
-          throw new TRPCError({ code: `BAD_REQUEST`, message: `record is invalid: ${listed.join(`; `)}` })
-        }
-        const bytes = packageBytes(data)
-        if (bytes > APP_RECORD_MAX_BYTES) {
-          throw new TRPCError({ code: `BAD_REQUEST`, message: `record is ${bytes} bytes; the cap is ${APP_RECORD_MAX_BYTES}` })
+        const checked = (data: Record<string, unknown>) => {
+          const issues = validateRecord(schema, data)
+          if (issues.length > 0) {
+            const listed = issues.slice(0, 10).map((issue) => `${issue.path || `/`}: ${issue.message}`)
+            throw new TRPCError({ code: `BAD_REQUEST`, message: `record is invalid: ${listed.join(`; `)}` })
+          }
+          const bytes = packageBytes(data)
+          if (bytes > APP_RECORD_MAX_BYTES) {
+            throw new TRPCError({ code: `BAD_REQUEST`, message: `record is ${bytes} bytes; the cap is ${APP_RECORD_MAX_BYTES}` })
+          }
+          return data
         }
         return await ctx.db.transaction(async (tx) => {
           const txId = await generateTxId(tx)
-          if (existing) {
+          if (input.recordId) {
+            // Release train 2026-10-25: the patch merges onto the row as
+            // locked in THIS transaction, so two concurrent patches queue
+            // here and neither loses the other's fields.
+            const [existing] = await tx
+              .select({ id: appRecords.id, data: appRecords.data })
+              .from(appRecords)
+              .where(and(eq(appRecords.id, input.recordId), eq(appRecords.appId, app.id), eq(appRecords.kind, input.kind), isNull(appRecords.deletedAt)))
+              .limit(1)
+              .for(`update`)
+            if (!existing) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
+            const data = checked({ ...existing.data, ...input.data })
             await tx.update(appRecords).set({ data, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
             return { txid: txId, id: existing.id, created: false }
           }
+          const data = checked(input.data)
           // The team's quota, counted in THIS transaction behind the team's
           // lock: concurrent creates at the limit queue here and the second
           // one sees the first's row (no race past `appRecords`).

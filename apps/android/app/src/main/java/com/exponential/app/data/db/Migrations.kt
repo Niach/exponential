@@ -476,12 +476,16 @@ internal val AGENT_ACTOR_COLUMNS_V98: List<Pair<String, String>> = listOf(
 
 /**
  * v100 (VAPP-120): `apps.granted_tools`, the typed actions an app may run as
- * the viewer without asking (a JSON string[]), added as "[]"; every table
- * and offset is untouched.
+ * the viewer without asking (a JSON string[]), added as "[]". Only the apps
+ * shape refetches so already-synced rows re-arrive carrying their grants.
  */
 val MIGRATION_99_100: Migration = object : Migration(99, 100) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `apps` ADD COLUMN `granted_tools` TEXT DEFAULT '[]'")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'apps'",
+        )
     }
 }
 
