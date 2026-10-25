@@ -1572,6 +1572,32 @@
       }
     },
     {
+      "id": "settings-voice",
+      "group": "settings",
+      "title": "Settings · Voice",
+      "blurb": "The member's voice device, agent and Speak replies, then the tray group (push to talk, shortcut, wake word and phrase) while a voice device is picked (NEW-67, voice.json). Never gated.",
+      "order": 28,
+      "web": {
+        "route": "/t/$teamSlug/settings/voice",
+        "anchor": {
+          "text": "Voice device",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "voice"
+        }
+      },
+      "notes": {
+        "ios": "Folded into the native settings root: see settings-root.",
+        "android": "Folded into the native settings root: see settings-root."
+      }
+    },
+    {
       "id": "settings-api-keys",
       "group": "settings",
       "title": "Settings · Security",

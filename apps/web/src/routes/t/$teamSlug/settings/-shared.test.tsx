@@ -124,7 +124,7 @@ describe(`SETTINGS_NAV Personal group`, () => {
   const personal = SETTINGS_NAV.find((group) => group.group === `Personal`)!
 
   // EXP-862: "API keys" became "Security" (keys + passkeys).
-  it(`follows every team group with Account, Notifications, and Security`, () => {
+  it(`follows every team group with Account, Notifications, Voice, and Security`, () => {
     expect(SETTINGS_NAV[SETTINGS_NAV.length - 2]).toBe(personal)
     expect(
       SETTINGS_NAV.slice(0, SETTINGS_NAV.indexOf(personal)).map((g) => g.group)
@@ -132,11 +132,13 @@ describe(`SETTINGS_NAV Personal group`, () => {
     expect(personal.items.map((item) => item.label)).toEqual([
       `Account`,
       `Notifications`,
+      `Voice`,
       `Security`,
     ])
     expect(personal.items.map((item) => item.to)).toEqual([
       `/t/$teamSlug/settings/account`,
       `/t/$teamSlug/settings/notifications`,
+      `/t/$teamSlug/settings/voice`,
       `/t/$teamSlug/settings/security`,
     ])
   })
