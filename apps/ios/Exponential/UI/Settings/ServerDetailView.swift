@@ -67,6 +67,10 @@ struct ServerDetailView: View {
                     if account?.token != nil, timezoneLoaded {
                         timezoneSection
                     }
+                    // NEW-67: Settings → Personal → Voice (`voice.json`).
+                    if account?.token != nil {
+                        voiceSection
+                    }
                     // EXP-1126: how this account signs in — only while it
                     // holds a session (every call is bearer-authenticated).
                     if account?.token != nil {
@@ -244,6 +248,29 @@ struct ServerDetailView: View {
                 .padding(.vertical, 12)
         }
         .glassSection()
+    }
+
+    /// The Voice row (icon concept `settings-voice`): opens the page.
+    private var voiceSection: some View {
+        NavigationLink(value: AppRoute.voiceSettings(accountId: accountId)) {
+            HStack(spacing: 12) {
+                AppIcon(AppIcons.settingsVoice, size: AppIcon.Size.medium)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .frame(width: 22)
+                Text(Voice.Copy.group)
+                    .font(.body)
+                    .foregroundStyle(.white)
+                Spacer()
+                AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .glassSection()
+        .accessibilityIdentifier("\(Voice.TestIds.page)-row")
     }
 
     private func loadTimezone() async {

@@ -129,8 +129,7 @@ public extension SteerDevice {
             defaultAgent: defaultAgent,
             agents: decoded.agents?.filter { AgentUsagePresentation.isContractAgent($0.key) },
             computerUse: decoded.computerUse,
-            computerUseModel: decoded.computerUseModel,
-            voice: decoded.voice
+            computerUseModel: decoded.computerUseModel
         )
     }
 

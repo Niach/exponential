@@ -227,37 +227,6 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertNil(device.agentDefaults(for: "zed"))
     }
 
-    /// NEW-53: the voice settings decode off the row, field-wise lenient,
-    /// and survive the synced row's retired-agent rebuild.
-    func testDecodesVoiceLaunchDefaults() throws {
-        let result = try decode("""
-        {"devices":[{"deviceId":"d9","deviceLabel":"macbook","agents":["claude"],
-        "caps":["actions"],"online":true,
-        "launchDefaults":{"defaultAgent":"claude","voice":{"assistantAgentId":"a-1","speakReplies":true}}}]}
-        """)
-        let device = try XCTUnwrap(result.devices.first)
-        XCTAssertEqual(device.launchDefaults?.voice, VoiceLaunchDefaults(assistantAgentId: "a-1", speakReplies: true))
-
-        let odd = try JSONDecoder().decode(
-            DeviceLaunchDefaults.self,
-            from: Data(#"{"voice":{"assistantAgentId":7,"speakReplies":false}}"#.utf8)
-        )
-        XCTAssertEqual(odd.voice, VoiceLaunchDefaults(assistantAgentId: nil, speakReplies: false))
-        XCTAssertNil(try JSONDecoder().decode(DeviceLaunchDefaults.self, from: Data(#"{"voice":"x"}"#.utf8)).voice)
-
-        let row = DeviceEntity(
-            id: "row-1",
-            userId: "me",
-            deviceId: "box",
-            label: "Box",
-            launchDefaults: #"{"voice":{"assistantAgentId":"a-2"}}"#,
-            lastSeenAt: "2026-10-05T11:59:00.000Z"
-        )
-        let synced = SteerDevice(entity: row, currentUserId: "me")
-        XCTAssertEqual(synced.launchDefaults?.voice?.assistantAgentId, "a-2")
-        XCTAssertNil(synced.launchDefaults?.voice?.speakReplies)
-    }
-
     /// EXP-773 deleted the "Start in terminal" preference. A stored
     /// `launchDefaults` may still carry `startInTerminal`, and the decoder must
     /// keep ignoring it — the whole payload would otherwise fail to parse and
