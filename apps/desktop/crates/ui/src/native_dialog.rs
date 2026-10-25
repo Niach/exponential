@@ -108,6 +108,9 @@ struct DialogRegistry {
     /// double-trigger (double-clicked button, ⌘N twice) would race past the
     /// never-stack guard and open two windows.
     pending: HashSet<WindowId>,
+    /// VAPP-121: a dialog whose content changed step re-titles its strip
+    /// ([`set_dialog_title`]); absent = the spec's title.
+    titles: HashMap<WindowId, SharedString>,
 }
 
 struct DialogRegistryGlobal(Entity<DialogRegistry>);
@@ -270,6 +273,20 @@ pub(crate) fn close_then(
 // ---------------------------------------------------------------------------
 // Content dialogs
 // ---------------------------------------------------------------------------
+
+/// VAPP-121: re-title THIS dialog window (the strip label + the OS title),
+/// for a dialog whose content switches step (New app → Import an app).
+pub(crate) fn set_dialog_title(window: &mut Window, cx: &mut App, title: impl Into<SharedString>) {
+    let title = title.into();
+    let id = window.window_handle().window_id();
+    if let Some(registry) = registry(cx) {
+        registry.update(cx, |registry, _| {
+            registry.titles.insert(id, title.clone());
+        });
+    }
+    window.set_window_title(&title);
+    window.refresh();
+}
 
 /// Per-dialog window shape.
 pub(crate) struct DialogSpec {
@@ -731,6 +748,7 @@ impl DialogShell {
             if let Some(registry) = registry(cx) {
                 registry.update(cx, |registry, cx| {
                     registry.openers.remove(&id);
+                    registry.titles.remove(&id);
                     cx.notify();
                 });
             }
@@ -802,7 +820,10 @@ impl Render for DialogShell {
         // Chromeless dialogs (⌘K palette, image lightbox) keep the old
         // in-content header row: a titlebar would sit on the search input,
         // and the row's ✕ is the lightbox's only mouse dismissal.
-        let title_child: AnyElement = div().text_sm().child(self.title.clone()).into_any_element();
+        let title = registry(cx)
+            .and_then(|registry| registry.read(cx).titles.get(&window.window_handle().window_id()).cloned())
+            .unwrap_or_else(|| self.title.clone());
+        let title_child: AnyElement = div().text_sm().child(title).into_any_element();
         let chrome: Option<AnyElement> = self.native_chrome.then(|| {
             if crate::app_title_bar::client_chrome(window) {
                 crate::title_bar::TitleBar::new()

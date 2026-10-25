@@ -73,6 +73,8 @@ const PINNED_RECIPES = [
   `openOnboardingInvite`,
   `openOnboardingDevices`,
   `openAppPreviewTab`,
+  `openAppExport`,
+  `openAppImport`,
   `openBoardBulkEdit`,
   `openIssuePropertiesMobile`,
   `openMachineSettings`,

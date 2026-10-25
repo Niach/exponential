@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-25-app-export",
+    date: "2026-10-25",
+    title: "Share an app as one file: export and import",
+    summary: "Export any app as a .app.json file, with its records if you like, and import one in the New app dialog by pasting it or choosing the file; anything wrong with it is listed line by line before you import.",
+    body: r#"- **Export**: an app's … menu, its editor and its settings page export it as one file: its name, icon and colour, the current version and, with Include records switched on, its records.
+- **Import**: New app → Import… takes the file pasted or chosen; every problem shows under the field as the place in the file and what is wrong, and Import creates the app as version 1, noted Imported, with its records as yours.
+- **Grants stay home**: an imported app starts with nothing granted; a team owner decides on its settings page.
+- **Everywhere**: the web downloads the file, the IDE saves it, iPhone and Android share it."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_83: ChangelogEntry = ChangelogEntry {
     id: "2026-10-24-app-actions",
     date: "2026-10-24",
     title: "Apps act as you: every Exponential operation, granted per app",

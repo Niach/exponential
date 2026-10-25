@@ -253,6 +253,9 @@ struct ThreadScreen: View {
             // EXP-1316: the title, ONE line, not tappable, the lock beside it.
             if let editor {
                 ToolbarItem(placement: .principal) { editor.title }
+                if let trailing = editor.trailing {
+                    ToolbarItem(placement: .topBarTrailing) { trailing }
+                }
             }
             // EXP-1307/1316: ONE `…` rides the header's action slot on every
             // tab while it has an entry — Close PR (EXP-1338: no GitHub

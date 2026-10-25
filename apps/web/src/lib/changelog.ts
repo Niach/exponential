@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-25-app-export`,
+    date: `2026-10-25`,
+    title: `Share an app as one file: export and import`,
+    summary: `Export any app as a .app.json file, with its records if you like, and import one in the New app dialog by pasting it or choosing the file; anything wrong with it is listed line by line before you import.`,
+    body: `- **Export**: an app's … menu, its editor and its settings page export it as one file: its name, icon and colour, the current version and, with Include records switched on, its records.
+- **Import**: New app → Import… takes the file pasted or chosen; every problem shows under the field as the place in the file and what is wrong, and Import creates the app as version 1, noted Imported, with its records as yours.
+- **Grants stay home**: an imported app starts with nothing granted; a team owner decides on its settings page.
+- **Everywhere**: the web downloads the file, the IDE saves it, iPhone and Android share it.`,
+  },
+  {
     id: `2026-10-24-app-actions`,
     date: `2026-10-24`,
     title: `Apps act as you: every Exponential operation, granted per app`,

@@ -5758,6 +5758,90 @@
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:mention-pill`: the IDE styleguide entry drawn full-window.",
         "web-mobile": "See web: the styleguide entry is the phone-wide specimen."
       }
+    },
+    {
+      "id": "app-export",
+      "group": "coding",
+      "title": "App · export",
+      "blurb": "VAPP-121 (fixtures/app-export.json): the Export dialog over the app editor: the title `Export <name>`, the one Include records switch (switched on in the shot) and Export, which hands `<slug>.app.json` to the platform (web download, desktop save panel, iOS share sheet, Android share intent).",
+      "order": 41,
+      "web": {
+        "route": "/t/$teamSlug/apps/$appSlug",
+        "anchor": {
+          "testId": "app-export-dialog",
+          "timeoutMs": 30000
+        },
+        "recipe": "openAppExport",
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "app-export:working-hours"
+        },
+        "anchorDelayMs": 1500,
+        "env": {
+          "EXP_DEV_SCREEN": "app:working-hours"
+        }
+      },
+      "ios": {
+        "shot": "sg_app-export",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-export",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "`$appSlug` = the seeded Working hours app (DEMO_APP_SLUG).",
+        "ios": "The live walk: the Apps list → the Working hours row's … menu → Export, Include records switched on.",
+        "android": "See ios: the same walk in StyleguideScreenshotsTest.",
+        "desktop": "DEV-ONLY `EXP_DEV_DIALOG=app-export:working-hours` over the app screen.",
+        "web-mobile": "Inherits web at the phone's width."
+      }
+    },
+    {
+      "id": "app-import",
+      "group": "coding",
+      "title": "App · import",
+      "blurb": "VAPP-121 (fixtures/app-export.json): the New app dialog's import step: the paste field holding the capture text, Choose file, the server's issues as `path: message` rows (here `/package: is required`) and Import, disabled while there are issues.",
+      "order": 42,
+      "web": {
+        "route": "/t/$teamSlug/apps",
+        "anchor": {
+          "testId": "app-import-issues",
+          "timeoutMs": 30000
+        },
+        "recipe": "openAppImport",
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "app-import"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_SCREEN": "apps"
+        }
+      },
+      "ios": {
+        "shot": "sg_app-import",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-import",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The capture text comes from fixtures/app-export.json `capture.importText`.",
+        "ios": "The live walk: the Apps list → New app → Import…, the capture text typed into the field, the issue row from the server.",
+        "android": "See ios: the same walk in StyleguideScreenshotsTest.",
+        "desktop": "DEV-ONLY `EXP_DEV_DIALOG=app-import`: the New app dialog on its import step with the capture text.",
+        "web-mobile": "Inherits web at the phone's width."
+      }
     }
   ]
 }

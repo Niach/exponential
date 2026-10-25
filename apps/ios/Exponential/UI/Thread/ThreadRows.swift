@@ -19,11 +19,13 @@ enum ThreadPage: Hashable {
 /// VAPP-110: what an app EDITOR puts into the thread screen hosting its
 /// chat (`ThreadScreen.editor`): the header title (glyph + name + version
 /// pill), the band under it (the Chat | Preview | Versions control) and the
-/// pane covering the Conversation (nil = the Chat tab).
+/// pane covering the Conversation (nil = the Chat tab); VAPP-121: the
+/// header's trailing round button (Export; nil = none).
 struct ThreadEditorSlot {
     let title: AnyView
     let band: AnyView
     let pane: AnyView?
+    var trailing: AnyView? = nil
 }
 
 /// EXP-1295: everything ONE root's screen reads, in one snapshot — the root

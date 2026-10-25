@@ -33,6 +33,8 @@ struct AppEditorScreen: View {
     @State private var viewing: Int?
     @State private var viewingPackage: String?
     @State private var restoring = false
+    /// VAPP-121: the Export sheet (the header's trailing button).
+    @State private var exportOpen = false
 
     enum Tab: Hashable, CaseIterable {
         case chat, preview, versions
@@ -53,7 +55,7 @@ struct AppEditorScreen: View {
                     ThreadScreen(rootId: rootId, editor: slot(app))
                         .id(rootId)
                 } else {
-                    AppEditorShell(title: title(app), band: band(app), pane: pane(app)) {
+                    AppEditorShell(title: title(app), band: band(app), pane: pane(app), trailing: exportButton(app)) {
                         chatEmpty(app)
                     }
                 }
@@ -83,12 +85,34 @@ struct AppEditorScreen: View {
             model.stop()
         }
         .onChange(of: viewing) { _, number in loadViewing(number) }
+        .sheet(isPresented: $exportOpen) {
+            if let app = model.app {
+                AppExportSheet(app: app)
+            }
+        }
     }
 
     // MARK: - Chrome
 
     private func slot(_ app: AppListEntry) -> ThreadEditorSlot {
-        ThreadEditorSlot(title: AnyView(title(app)), band: AnyView(band(app)), pane: pane(app))
+        ThreadEditorSlot(title: AnyView(title(app)), band: AnyView(band(app)), pane: pane(app), trailing: exportButton(app))
+    }
+
+    /// VAPP-121: Export = the header's trailing round button (`ui-share`),
+    /// once the app has a version.
+    private func exportButton(_ app: AppListEntry) -> AnyView? {
+        guard app.headVersion > 0 else { return nil }
+        return AnyView(
+            Button {
+                UIApplication.endEditing()
+                exportOpen = true
+            } label: {
+                PageHeaderGlyph(icon: AppIcons.uiShare, dot: false)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(AppExport.Copy.export)
+            .accessibilityIdentifier(AppExport.TestIds.editorButton)
+        )
     }
 
     private func title(_ app: AppListEntry) -> some View {
@@ -300,6 +324,7 @@ private struct AppEditorShell<Title: View, Band: View, Chat: View>: View {
     let title: Title
     let band: Band
     let pane: AnyView?
+    let trailing: AnyView?
     @ViewBuilder let chat: () -> Chat
 
     var body: some View {
@@ -319,6 +344,9 @@ private struct AppEditorShell<Title: View, Band: View, Chat: View>: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) { title }
+            if let trailing {
+                ToolbarItem(placement: .topBarTrailing) { trailing }
+            }
         }
     }
 }

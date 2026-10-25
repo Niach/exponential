@@ -1,0 +1,655 @@
+{
+  "$comment": "VAPP-121 app EXPORT / IMPORT ×4: share an app as one JSON file. THE FILE = `<slug>` + `fileSuffix` (`working-hours.app.json`, `mime`), `{format, app: {name, icon, color, description}, package, records?}`: `format` = this fixture's `format`; `app` = the identity (icon / colour null when unset); `package` = the HEAD package as synced; `records` ONLY when the person switched `copy.includeRecords` on: every live record of the app as `{kind, data}`, oldest first (createdAt, then id), never ids, authors, times or GRANTS (a grant is the importing owner's choice: an import starts with none). `buildAppExport` is the pure reference every client replays (`exportCases`, compared as parsed JSON, key order free). EXPORT (`copy.export`) sits in the app row's … menu (web + desktop lists, phones' Apps list), the editor header's … menu and the app's settings page; it opens ONE dialog/sheet titled `copy.exportTitle` with a single Switch row `copy.includeRecords` (shown only when the app has records; off by default) and the `copy.export` button: web downloads the file, desktop saves it through the save panel, iOS opens the share sheet, Android the share intent (a FileProvider cache path). No app version yet = no Export. IMPORT lives in the New app dialog/sheet (no second pill): a `copy.import` ghost button switches it to the import step titled `copy.importTitle`: a monospace multi-line field (`copy.importPlaceholder`) plus `copy.chooseFile` (the platform's file picker, `.json`); as the text changes (debounced) the client asks the SERVER (tRPC `apps.validateImport {teamId, text}`, the one authority ×4) and lists its `issues` inline under the field as `path: message` rows (destructive tone, monospace, at most `limits.issuesShown`, then `copy.moreIssues`); `copy.importAction` is enabled only with no issues and calls `apps.import {teamId, text}`, which creates the app (name/icon/colour/description from the file, the slug derived like New app) with the package as v1 noted `copy.importNote`, its records (each validated against its kind's schema, the team's record quota for all of them) as the importer's, and opens the editor. A BARE package (an object with `templates` and no `format`) imports too, named by its `name`. `parseAppImport` (TS, `importCases`) is the structural half the server runs before the package and record validators; its issue paths are JSON pointers into the file. Caps: `limits.importMaxBytes` per file, `limits.recordsMax` records per import, `limits.maxDepth` levels of nesting anywhere in the file (deeper = `/: is nested deeper than` the cap, before any validator walks it). A failed import = toast (feedback-states.json). CAPTURE (the `app-export` + `app-import` views ×5): Export opens on the seeded Working hours app with `copy.includeRecords` switched on; the import step holds `capture.importText` and lists exactly `capture.issues`.",
+  "format": "exponential-app/1",
+  "fileSuffix": ".app.json",
+  "mime": "application/json",
+  "limits": {
+    "importMaxBytes": 4194304,
+    "recordsMax": 2000,
+    "maxDepth": 64,
+    "issuesShown": 8
+  },
+  "copy": {
+    "export": "Export",
+    "exportTitle": "Export {name}",
+    "includeRecords": "Include records",
+    "import": "Import…",
+    "importTitle": "Import an app",
+    "importPlaceholder": "Paste an app file or a package",
+    "chooseFile": "Choose file",
+    "importAction": "Import",
+    "importNote": "Imported",
+    "moreIssues": "and {n} more"
+  },
+  "capture": {
+    "importText": "{\"format\":\"exponential-app/1\",\"app\":{\"name\":\"Todos\"}}",
+    "issues": [
+      {
+        "path": "/package",
+        "message": "is required"
+      }
+    ]
+  },
+  "exportCases": [
+    {
+      "name": "package only",
+      "input": {
+        "app": {
+          "slug": "working-hours",
+          "name": "Working hours",
+          "icon": "clock",
+          "color": "#10b981",
+          "description": "Your hours per day."
+        },
+        "package": {
+          "id": "hours",
+          "name": "Working hours",
+          "version": "1.4.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v9",
+          "sources": [
+            "exp:records"
+          ],
+          "records": {
+            "entry": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "hours": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "date",
+                  "hours"
+                ]
+              }
+            }
+          },
+          "templates": {
+            "month": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hours"
+                }
+              ]
+            }
+          }
+        },
+        "records": [
+          {
+            "id": "r2",
+            "kind": "entry",
+            "data": {
+              "date": "2026-10-21",
+              "hours": 8
+            },
+            "createdAt": "2026-10-21T18:00:00Z",
+            "createdBy": "u1"
+          },
+          {
+            "id": "r1",
+            "kind": "entry",
+            "data": {
+              "date": "2026-10-05",
+              "hours": 3
+            },
+            "createdAt": "2026-10-05T18:00:00Z",
+            "createdBy": "u1"
+          },
+          {
+            "id": "r3",
+            "kind": "entry",
+            "data": {
+              "date": "2026-10-05",
+              "hours": 1
+            },
+            "createdAt": "2026-10-05T18:00:00Z",
+            "createdBy": "u2"
+          }
+        ],
+        "includeRecords": false
+      },
+      "expected": {
+        "fileName": "working-hours.app.json",
+        "file": {
+          "format": "exponential-app/1",
+          "app": {
+            "name": "Working hours",
+            "icon": "clock",
+            "color": "#10b981",
+            "description": "Your hours per day."
+          },
+          "package": {
+            "id": "hours",
+            "name": "Working hours",
+            "version": "1.4.0",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v9",
+            "sources": [
+              "exp:records"
+            ],
+            "records": {
+              "entry": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "hours": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "date",
+                    "hours"
+                  ]
+                }
+              }
+            },
+            "templates": {
+              "month": {
+                "components": [
+                  {
+                    "id": "root",
+                    "component": "Text",
+                    "text": "Hours"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "with records, oldest first, ties by id, no ids or authors",
+      "input": {
+        "app": {
+          "slug": "working-hours",
+          "name": "Working hours",
+          "icon": "clock",
+          "color": "#10b981",
+          "description": "Your hours per day."
+        },
+        "package": {
+          "id": "hours",
+          "name": "Working hours",
+          "version": "1.4.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v9",
+          "sources": [
+            "exp:records"
+          ],
+          "records": {
+            "entry": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "hours": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "date",
+                  "hours"
+                ]
+              }
+            }
+          },
+          "templates": {
+            "month": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hours"
+                }
+              ]
+            }
+          }
+        },
+        "records": [
+          {
+            "id": "r2",
+            "kind": "entry",
+            "data": {
+              "date": "2026-10-21",
+              "hours": 8
+            },
+            "createdAt": "2026-10-21T18:00:00Z",
+            "createdBy": "u1"
+          },
+          {
+            "id": "r1",
+            "kind": "entry",
+            "data": {
+              "date": "2026-10-05",
+              "hours": 3
+            },
+            "createdAt": "2026-10-05T18:00:00Z",
+            "createdBy": "u1"
+          },
+          {
+            "id": "r3",
+            "kind": "entry",
+            "data": {
+              "date": "2026-10-05",
+              "hours": 1
+            },
+            "createdAt": "2026-10-05T18:00:00Z",
+            "createdBy": "u2"
+          }
+        ],
+        "includeRecords": true
+      },
+      "expected": {
+        "fileName": "working-hours.app.json",
+        "file": {
+          "format": "exponential-app/1",
+          "app": {
+            "name": "Working hours",
+            "icon": "clock",
+            "color": "#10b981",
+            "description": "Your hours per day."
+          },
+          "package": {
+            "id": "hours",
+            "name": "Working hours",
+            "version": "1.4.0",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v9",
+            "sources": [
+              "exp:records"
+            ],
+            "records": {
+              "entry": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "hours": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "date",
+                    "hours"
+                  ]
+                }
+              }
+            },
+            "templates": {
+              "month": {
+                "components": [
+                  {
+                    "id": "root",
+                    "component": "Text",
+                    "text": "Hours"
+                  }
+                ]
+              }
+            }
+          },
+          "records": [
+            {
+              "kind": "entry",
+              "data": {
+                "date": "2026-10-05",
+                "hours": 3
+              }
+            },
+            {
+              "kind": "entry",
+              "data": {
+                "date": "2026-10-05",
+                "hours": 1
+              }
+            },
+            {
+              "kind": "entry",
+              "data": {
+                "date": "2026-10-21",
+                "hours": 8
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "unset icon and colour stay null; no records = no key even when switched on",
+      "input": {
+        "app": {
+          "slug": "todos",
+          "name": "Todos",
+          "icon": null,
+          "color": null,
+          "description": ""
+        },
+        "package": {
+          "id": "hours",
+          "name": "Working hours",
+          "version": "1.4.0",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v9",
+          "sources": [
+            "exp:records"
+          ],
+          "records": {
+            "entry": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "hours": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "date",
+                  "hours"
+                ]
+              }
+            }
+          },
+          "templates": {
+            "month": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hours"
+                }
+              ]
+            }
+          }
+        },
+        "records": [],
+        "includeRecords": true
+      },
+      "expected": {
+        "fileName": "todos.app.json",
+        "file": {
+          "format": "exponential-app/1",
+          "app": {
+            "name": "Todos",
+            "icon": null,
+            "color": null,
+            "description": ""
+          },
+          "package": {
+            "id": "hours",
+            "name": "Working hours",
+            "version": "1.4.0",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v9",
+            "sources": [
+              "exp:records"
+            ],
+            "records": {
+              "entry": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "hours": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "date",
+                    "hours"
+                  ]
+                }
+              }
+            },
+            "templates": {
+              "month": {
+                "components": [
+                  {
+                    "id": "root",
+                    "component": "Text",
+                    "text": "Hours"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "importCases": [
+    {"name": "nested deeper than the cap", "text": "{\"format\": \"exponential-app/1\", \"app\": {\"name\": \"Deep\"}, \"package\": {\"templates\": {}, \"x\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}}", "expected": {"issues": [{"path": "/", "message": "is nested deeper than 64 levels"}], "file": null}},
+    {
+      "name": "an exported file",
+      "text": "{\"format\": \"exponential-app/1\", \"app\": {\"name\": \"Working hours\", \"icon\": \"clock\", \"color\": \"#10b981\", \"description\": \"Your hours per day.\"}, \"package\": {\"id\": \"hours\", \"name\": \"Working hours\", \"version\": \"1.4.0\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v9\", \"sources\": [\"exp:records\"], \"records\": {\"entry\": {\"schema\": {\"type\": \"object\", \"properties\": {\"date\": {\"type\": \"string\", \"format\": \"date\"}, \"hours\": {\"type\": \"number\"}}, \"required\": [\"date\", \"hours\"]}}}, \"templates\": {\"month\": {\"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hours\"}]}}}, \"records\": [{\"kind\": \"entry\", \"data\": {\"date\": \"2026-10-05\", \"hours\": 3}}]}",
+      "expected": {
+        "issues": [],
+        "file": {
+          "app": {
+            "name": "Working hours",
+            "icon": "clock",
+            "color": "#10b981",
+            "description": "Your hours per day."
+          },
+          "package": {
+            "id": "hours",
+            "name": "Working hours",
+            "version": "1.4.0",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v9",
+            "sources": [
+              "exp:records"
+            ],
+            "records": {
+              "entry": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "hours": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "date",
+                    "hours"
+                  ]
+                }
+              }
+            },
+            "templates": {
+              "month": {
+                "components": [
+                  {
+                    "id": "root",
+                    "component": "Text",
+                    "text": "Hours"
+                  }
+                ]
+              }
+            }
+          },
+          "records": [
+            {
+              "kind": "entry",
+              "data": {
+                "date": "2026-10-05",
+                "hours": 3
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a bare package is named by its name",
+      "text": "{\"id\": \"hours\", \"name\": \"Working hours\", \"version\": \"1.4.0\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v9\", \"sources\": [\"exp:records\"], \"records\": {\"entry\": {\"schema\": {\"type\": \"object\", \"properties\": {\"date\": {\"type\": \"string\", \"format\": \"date\"}, \"hours\": {\"type\": \"number\"}}, \"required\": [\"date\", \"hours\"]}}}, \"templates\": {\"month\": {\"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hours\"}]}}}",
+      "expected": {
+        "issues": [],
+        "file": {
+          "app": {
+            "name": "Working hours",
+            "icon": null,
+            "color": null,
+            "description": ""
+          },
+          "package": {
+            "id": "hours",
+            "name": "Working hours",
+            "version": "1.4.0",
+            "catalogId": "https://ui.exponential.at/catalogs/core/v9",
+            "sources": [
+              "exp:records"
+            ],
+            "records": {
+              "entry": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "hours": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "date",
+                    "hours"
+                  ]
+                }
+              }
+            },
+            "templates": {
+              "month": {
+                "components": [
+                  {
+                    "id": "root",
+                    "component": "Text",
+                    "text": "Hours"
+                  }
+                ]
+              }
+            }
+          },
+          "records": []
+        }
+      }
+    },
+    {
+      "name": "not JSON",
+      "text": "{\"format\": ",
+      "expected": {
+        "issues": [
+          {
+            "path": "/",
+            "message": "is not JSON"
+          }
+        ],
+        "file": null
+      }
+    },
+    {
+      "name": "empty",
+      "text": "   ",
+      "expected": {
+        "issues": [
+          {
+            "path": "/",
+            "message": "paste an app file or a package"
+          }
+        ],
+        "file": null
+      }
+    },
+    {
+      "name": "not an object",
+      "text": "[1,2]",
+      "expected": {
+        "issues": [
+          {
+            "path": "/",
+            "message": "must be an app file {format, app, package} or a package"
+          }
+        ],
+        "file": null
+      }
+    },
+    {
+      "name": "another format",
+      "text": "{\"format\": \"exponential-app/9\", \"app\": {\"name\": \"X\"}, \"package\": {\"id\": \"hours\", \"name\": \"Working hours\", \"version\": \"1.4.0\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v9\", \"sources\": [\"exp:records\"], \"records\": {\"entry\": {\"schema\": {\"type\": \"object\", \"properties\": {\"date\": {\"type\": \"string\", \"format\": \"date\"}, \"hours\": {\"type\": \"number\"}}, \"required\": [\"date\", \"hours\"]}}}, \"templates\": {\"month\": {\"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hours\"}]}}}}",
+      "expected": {
+        "issues": [
+          {
+            "path": "/format",
+            "message": "must be \"exponential-app/1\""
+          }
+        ],
+        "file": null
+      }
+    },
+    {
+      "name": "missing package and a bad app",
+      "text": "{\"format\": \"exponential-app/1\", \"app\": {\"name\": \"\", \"icon\": 7}}",
+      "expected": {
+        "issues": [
+          {
+            "path": "/app/name",
+            "message": "must be a name"
+          },
+          {
+            "path": "/app/icon",
+            "message": "must be a string or null"
+          },
+          {
+            "path": "/package",
+            "message": "is required"
+          }
+        ],
+        "file": null
+      }
+    },
+    {
+      "name": "records must be {kind, data} objects",
+      "text": "{\"format\": \"exponential-app/1\", \"app\": {\"name\": \"X\"}, \"package\": {\"id\": \"hours\", \"name\": \"Working hours\", \"version\": \"1.4.0\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v9\", \"sources\": [\"exp:records\"], \"records\": {\"entry\": {\"schema\": {\"type\": \"object\", \"properties\": {\"date\": {\"type\": \"string\", \"format\": \"date\"}, \"hours\": {\"type\": \"number\"}}, \"required\": [\"date\", \"hours\"]}}}, \"templates\": {\"month\": {\"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hours\"}]}}}, \"records\": [{\"kind\": \"entry\", \"data\": {\"hours\": 1}}, {\"kind\": 3}, \"x\"]}",
+      "expected": {
+        "issues": [
+          {
+            "path": "/records/1/kind",
+            "message": "must be a kind"
+          },
+          {
+            "path": "/records/1/data",
+            "message": "must be an object"
+          },
+          {
+            "path": "/records/2",
+            "message": "must be {kind, data}"
+          }
+        ],
+        "file": null
+      }
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { APPS_COPY, APPS_TEST_IDS, versionLabel } from "@exp/domain-contract/apps"
+import { APP_EXPORT_COPY } from "@exp/domain-contract/app-export"
 import {
   BoardGlyph,
   Button,
@@ -13,6 +14,7 @@ import {
   Prompt,
   SETTINGS_LIST_CLASS,
 } from "@exp/ui"
+import { AppExportDialog } from "@/components/apps/app-export-dialog"
 import { AppFormDialog } from "@/components/apps/app-form-dialog"
 import type { AppListEntry } from "@/hooks/use-apps"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -27,6 +29,7 @@ const NavAppsIcon = conceptIcon(`nav-apps`)
 const UiAddIcon = conceptIcon(`ui-add`)
 const UiMoreIcon = conceptIcon(`ui-more`)
 const UiEditIcon = conceptIcon(`ui-edit`)
+const UiShareIcon = conceptIcon(`ui-share`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
 
 export function AppsList({
@@ -48,6 +51,7 @@ export function AppsList({
   const navigate = useNavigate()
   const [creating, setCreating] = useState(false)
   const [renaming, setRenaming] = useState<AppListEntry | null>(null)
+  const [exporting, setExporting] = useState<AppListEntry | null>(null)
   const [deleting, setDeleting] = useState<AppListEntry | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -100,22 +104,30 @@ export function AppsList({
               <Pill size="sm" className={app.headVersion > 0 ? `tabular-nums` : `text-muted-foreground`}>
                 {versionLabel(app.headVersion)}
               </Pill>
-              {canManage(app) && (
+              {(canManage(app) || app.headVersion > 0) && (
                 <div onClick={(event) => event.stopPropagation()}>
                   <Menu
                     align="end"
                     aria-label={`${app.name} actions`}
                     title={app.name}
                     entries={[
-                      { kind: `item`, id: `rename`, label: APPS_COPY.menu.rename, icon: UiEditIcon, onSelect: () => setRenaming(app) },
-                      {
-                        kind: `item`,
-                        id: `delete`,
-                        label: APPS_COPY.menu.delete,
-                        icon: UiDeleteIcon,
-                        destructive: true,
-                        onSelect: () => setDeleting(app),
-                      },
+                      // VAPP-121: any member exports an app that has a version.
+                      ...(app.headVersion > 0
+                        ? [{ kind: `item` as const, id: `export`, label: APP_EXPORT_COPY.export, icon: UiShareIcon, onSelect: () => setExporting(app) }]
+                        : []),
+                      ...(canManage(app)
+                        ? [
+                            { kind: `item` as const, id: `rename`, label: APPS_COPY.menu.rename, icon: UiEditIcon, onSelect: () => setRenaming(app) },
+                            {
+                              kind: `item` as const,
+                              id: `delete`,
+                              label: APPS_COPY.menu.delete,
+                              icon: UiDeleteIcon,
+                              destructive: true,
+                              onSelect: () => setDeleting(app),
+                            },
+                          ]
+                        : []),
                     ]}
                     trigger={
                       <Button variant="ghost" size="icon-sm" aria-label={`Menu for ${app.name}`}>
@@ -131,6 +143,7 @@ export function AppsList({
       )}
 
       <AppFormDialog open={creating} onOpenChange={setCreating} teamId={teamId} teamSlug={teamSlug} />
+      <AppExportDialog app={exporting} onOpenChange={(next) => !next && setExporting(null)} />
       {renaming && (
         <AppFormDialog
           key={renaming.id}

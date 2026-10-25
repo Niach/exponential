@@ -41,6 +41,7 @@
     "./app-records": "./src/app-records.ts",
     "./app-sources": "./src/app-sources.ts",
     "./app-actions": "./src/app-actions.ts",
+    "./app-export": "./src/app-export.ts",
     "./fixtures/*": "./fixtures/*"
   }
 }

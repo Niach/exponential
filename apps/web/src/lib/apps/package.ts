@@ -31,44 +31,66 @@ export function packageBytes(pkg: unknown): number {
   return new TextEncoder().encode(JSON.stringify(pkg)).byteLength
 }
 
-/** The package, validated: a JSON object within the caps the SDK's validator
- *  accepts against the app's catalogs. */
-export function validateAppPackage(pkg: unknown): AppPackage {
+type PackageIssue = { path: string; message: string }
+
+/** Every rule a stored package must pass, in order: the shape and bytes, the
+ *  SDK's validator (`sdk` = its issue list), then the app hosts' own rules
+ *  (the first one wins, like the throwing form always did). */
+function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[] } {
+  const none = { sdk: [], rules: [] }
   if (!pkg || typeof pkg !== `object` || Array.isArray(pkg)) {
-    throw bad(`package must be an object {id, name, version, catalogId, templates}`)
+    return { ...none, rules: [{ path: `/`, message: `package must be an object {id, name, version, catalogId, templates}` }] }
   }
   const bytes = packageBytes(pkg)
   if (bytes > APP_PACKAGE_MAX_BYTES) {
-    throw bad(`package is ${bytes} bytes; the cap is ${APP_PACKAGE_MAX_BYTES}: simplify it`)
+    return { ...none, rules: [{ path: `/`, message: `package is ${bytes} bytes; the cap is ${APP_PACKAGE_MAX_BYTES}: simplify it` }] }
   }
-  const issues = validatePackage(pkg, APP_CATALOG_IDS)
-  if (issues.length > 0) {
-    const listed = issues.slice(0, 10).map((issue) => `${issue.path || `/`}: ${issue.message}`)
-    const more = issues.length > 10 ? `; and ${issues.length - 10} more` : ``
-    throw bad(`package is invalid: ${listed.join(`; `)}${more}`)
-  }
+  const sdk = validatePackage(pkg, APP_CATALOG_IDS).map((issue) => ({ path: issue.path || `/`, message: issue.message }))
+  if (sdk.length > 0) return { ...none, sdk }
   const valid = pkg as AppPackage
+  const rules: PackageIssue[] = []
   // VAPP-107: an app's bindings follow only what it declares, and only the
   // sources every client's app host resolves (the SDK treats a missing list
   // as "anything"; a stored app may not).
   if (!Array.isArray(valid.sources)) {
-    throw bad(`package must declare sources: the exp: sources its bindings follow, e.g. ["exp:issues"] (or [] for none)`)
-  }
-  const unknown = valid.sources.filter((source) => !APP_SOURCE_NAMES.some((name) => source === name || source.startsWith(`${name}?`)))
-  if (unknown.length > 0) {
-    throw bad(`sources ${unknown.join(`, `)} are not resolved by Exponential's app hosts; use ${APP_SOURCE_NAMES.join(`, `)}`)
+    rules.push({ path: `/sources`, message: `package must declare sources: the exp: sources its bindings follow, e.g. ["exp:issues"] (or [] for none)` })
+  } else {
+    const unknown = valid.sources.filter((source) => !APP_SOURCE_NAMES.some((name) => source === name || source.startsWith(`${name}?`)))
+    if (unknown.length > 0) {
+      rules.push({ path: `/sources`, message: `sources ${unknown.join(`, `)} are not resolved by Exponential's app hosts; use ${APP_SOURCE_NAMES.join(`, `)}` })
+    }
   }
   for (const [id, template] of Object.entries(valid.templates)) {
     if (template.components.length > APP_TEMPLATE_MAX_COMPONENTS) {
-      throw bad(`template ${id} has ${template.components.length} components; the cap is ${APP_TEMPLATE_MAX_COMPONENTS}`)
+      rules.push({ path: `/templates/${id}/components`, message: `template ${id} has ${template.components.length} components; the cap is ${APP_TEMPLATE_MAX_COMPONENTS}` })
     }
   }
   // VAPP-122: the SDK checked every kind's schema; the contract caps how many.
   const kinds = Object.keys(valid.records ?? {})
   if (kinds.length > APP_RECORD_KINDS_MAX) {
-    throw bad(`records declares ${kinds.length} kinds; the cap is ${APP_RECORD_KINDS_MAX}`)
+    rules.push({ path: `/records`, message: `records declares ${kinds.length} kinds; the cap is ${APP_RECORD_KINDS_MAX}` })
   }
-  return valid
+  return { sdk: [], rules }
+}
+
+/** VAPP-121: everything wrong with a package as `{path, message}` rows (the
+ *  import step lists them inline); empty = valid. */
+export function appPackageIssues(pkg: unknown): PackageIssue[] {
+  const { sdk, rules } = checkPackage(pkg)
+  return [...sdk, ...rules]
+}
+
+/** The package, validated: a JSON object within the caps the SDK's validator
+ *  accepts against the app's catalogs. A refusal is BAD_REQUEST naming the fix. */
+export function validateAppPackage(pkg: unknown): AppPackage {
+  const { sdk, rules } = checkPackage(pkg)
+  if (sdk.length > 0) {
+    const listed = sdk.slice(0, 10).map((issue) => `${issue.path}: ${issue.message}`)
+    const more = sdk.length > 10 ? `; and ${sdk.length - 10} more` : ``
+    throw bad(`package is invalid: ${listed.join(`; `)}${more}`)
+  }
+  if (rules.length > 0) throw bad(rules[0]!.message)
+  return pkg as AppPackage
 }
 
 /** VAPP-122: a kind's schema out of a package (null = not declared). */

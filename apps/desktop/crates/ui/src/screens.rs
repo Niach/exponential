@@ -2895,8 +2895,11 @@ impl Focusable for ScreensPanel {
 /// field and previews the invite) | `add-server` | `device-settings:<uuid>` |
 /// `duplicate-picker:<issue-uuid>` | `getting-started` (EXP-1259: the rail
 /// entry's Getting started dialog on the active team) |
-/// `run:<issue-uuid>[,…]` (the composer dialog on those issues) (anything
-/// else = no dialog, logged once).
+/// `run:<issue-uuid>[,…]` (the composer dialog on those issues) |
+/// `app-export:<slug>` (VAPP-121: that app's Export dialog with Include
+/// records switched on) | `app-import` (New app on its import step holding
+/// the fixture's `capture.importText`, so the server's issue row shows)
+/// (anything else = no dialog, logged once).
 /// Each opens EXACTLY ONCE, 1500ms after the state it needs has resolved, so
 /// a capture run lands on the overlay without synthetic input. Never document
 /// for users.
@@ -2915,13 +2918,17 @@ enum DevDialog {
     Run(Vec<String>),
     /// EXP-1259: the Getting started dialog (the rail entry) on the active team.
     GettingStarted,
+    /// VAPP-121: the Export dialog of the app with this slug, records on.
+    AppExport(String),
+    /// VAPP-121: New app on its import step with the capture text.
+    AppImport,
 }
 
 /// The accepted [`DevDialog`] spellings, for the parse-failure log — a typo
 /// in a capture recipe must name its alternatives, not fail silently.
 const DEV_DIALOG_SPECS: &str = "search | create-board | create-team | join-team[:<invite-token>] | add-server | \
     device-settings:<uuid> | duplicate-picker:<issue-uuid> | \
-    run:<issue-uuid>[,<issue-uuid>…] | getting-started";
+    run:<issue-uuid>[,<issue-uuid>…] | getting-started | app-export:<slug> | app-import";
 
 fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
     match spec {
@@ -2931,7 +2938,12 @@ fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
         "join-team" => Some(DevDialog::JoinTeam(None)),
         "add-server" => Some(DevDialog::AddServer),
         "getting-started" => Some(DevDialog::GettingStarted),
+        "app-import" => Some(DevDialog::AppImport),
         _ => {
+            if let Some(slug) = spec.strip_prefix("app-export:") {
+                let slug = slug.trim();
+                return (!slug.is_empty()).then(|| DevDialog::AppExport(slug.to_string()));
+            }
             if let Some(ids) = spec.strip_prefix("run:") {
                 let ids: Vec<String> = ids
                     .split(',')
@@ -2968,6 +2980,8 @@ enum DevDialogTarget {
     DuplicatePicker { issue_id: String },
     Composer { seed: crate::navigation::ChatSeed },
     GettingStarted,
+    AppExport { app_id: String },
+    AppImport { team_id: String },
 }
 
 fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
@@ -2987,6 +3001,13 @@ fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
         }
         DevDialogTarget::Composer { seed } => crate::composer_dialog::open(window, cx, seed),
         DevDialogTarget::GettingStarted => crate::getting_started::open_dialog(window, cx),
+        DevDialogTarget::AppExport { app_id } => crate::app_export_dialog::open(window, cx, app_id, true),
+        DevDialogTarget::AppImport { team_id } => crate::app_form_dialog::open_import(
+            window,
+            cx,
+            team_id,
+            domain::app_export::APP_EXPORT_CAPTURE.import_text.clone(),
+        ),
     }
 }
 
@@ -3071,6 +3092,23 @@ impl ScreensPanel {
                 }
                 active_team_id(&self.nav, cx)?;
                 DevDialogTarget::GettingStarted
+            }
+            DevDialog::AppExport(slug) => {
+                // The switch row shows only with records: wait for both shapes.
+                if !store.collections().app_records.read(cx).is_ready() {
+                    return None;
+                }
+                let team_id = active_team_id(&self.nav, cx);
+                let entry = crate::apps_view::find_app(slug, team_id.as_deref(), cx)?;
+                DevDialogTarget::AppExport { app_id: entry.id }
+            }
+            DevDialog::AppImport => {
+                if !signed_in {
+                    return None;
+                }
+                DevDialogTarget::AppImport {
+                    team_id: active_team_id(&self.nav, cx)?,
+                }
             }
             DevDialog::Run(issue_ids) => {
                 let issues = store.collections().issues.read(cx);
@@ -3437,6 +3475,15 @@ mod tests {
     fn the_getting_started_dev_dialog_parses() {
         assert_eq!(parse_dev_dialog("getting-started"), Some(DevDialog::GettingStarted));
         assert!(DEV_DIALOG_SPECS.contains("getting-started"));
+    }
+
+    /// VAPP-121 (dev): the export + import captures.
+    #[test]
+    fn the_app_export_dev_dialogs_parse() {
+        assert_eq!(parse_dev_dialog("app-export:working-hours"), Some(DevDialog::AppExport("working-hours".into())));
+        assert_eq!(parse_dev_dialog("app-export:"), None);
+        assert_eq!(parse_dev_dialog("app-import"), Some(DevDialog::AppImport));
+        assert!(DEV_DIALOG_SPECS.contains("app-export:<slug>") && DEV_DIALOG_SPECS.contains("app-import"));
     }
 
     /// EXP-1294 (dev): the builtin and trigger dialogs are gone with their

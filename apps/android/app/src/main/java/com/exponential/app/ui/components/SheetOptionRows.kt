@@ -316,9 +316,10 @@ internal fun SwitchRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             // EXP-698: the ROW is the tap target, exactly like [PickerRow] —
             // which is what lets the Switch drop its own 48dp enforcement and

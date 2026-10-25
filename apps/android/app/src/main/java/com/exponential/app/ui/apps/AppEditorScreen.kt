@@ -50,12 +50,14 @@ import at.exponential.ui.json.JsonValue
 import at.exponential.ui.primitives.EmptyStateSize
 import com.exponential.app.data.db.AppVersionEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.AppExport
 import com.exponential.app.domain.Apps
 import com.exponential.app.domain.AskDock
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.domain.userMessageTime
+import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
@@ -123,6 +125,8 @@ fun AppEditorScreen(
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     val me by viewModel.me.collectAsStateWithLifecycle()
     val toastLine by viewModel.toast.collectAsStateWithLifecycle()
+    val records by viewModel.records.collectAsStateWithLifecycle()
+    var exportOpen by rememberSaveable { mutableStateOf(false) }
     FailedActionToast(failure, onShown = viewModel::clearFailure)
     val toaster = LocalToaster.current
     LaunchedEffect(toastLine) {
@@ -165,7 +169,21 @@ fun AppEditorScreen(
                     verb = null,
                     verbEnabled = false,
                     onVerb = {},
-                    menu = null,
+                    // VAPP-121: Export = the header's trailing round button
+                    // (web phones' `app-editor-export`), once there is a version.
+                    menu = if (entry != null && entry.headVersion > 0) {
+                        {
+                            CircleIconButton(
+                                ExpIcons.uiShare,
+                                contentDescription = AppExport.Copy.EXPORT,
+                                onClick = { exportOpen = true },
+                                glyphSize = 16.dp,
+                                modifier = Modifier.padding(end = 8.dp).testTag("app-editor-export"),
+                            )
+                        }
+                    } else {
+                        null
+                    },
                     tabs = {
                         GlassSegmentedControl(
                             options = EditorTab.entries,
@@ -225,6 +243,9 @@ fun AppEditorScreen(
                 )
             }
         }
+    }
+    if (exportOpen && entry != null) {
+        AppExportSheet(app = entry, records = records, onDismiss = { exportOpen = false })
     }
 }
 

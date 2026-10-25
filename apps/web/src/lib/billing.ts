@@ -469,8 +469,9 @@ export async function assertCanCreateWidget(
 
 // VAPP-122: app records per team (plan-limits `appRecords`; every record
 // syncs to every member's clients). Pure gate, exported for unit tests.
-export function assertAppRecordCreatable(limits: PlanLimits, currentCount: number): void {
-  if (currentCount >= limits.appRecords) {
+export function assertAppRecordCreatable(limits: PlanLimits, currentCount: number, adding = 1): void {
+  // VAPP-121: an import adds many at once; the quota holds for all of them.
+  if (currentCount + adding > limits.appRecords) {
     throw planLimitError(`up to ${limits.appRecords.toLocaleString(`en-US`)} app records in this team. Upgrade to add more.`)
   }
 }
@@ -488,10 +489,10 @@ export async function countTeamAppRecords(teamId: string, tx: Pick<typeof db, `s
 // Record-create gate (apps.records.upsert without an id). Self-hosted is
 // unlimited. Called INSIDE the insert's transaction behind the team's
 // advisory lock (`apps.ts`), so two creates at the limit cannot both pass.
-export async function assertCanCreateAppRecord(teamId: string, tx: Pick<typeof db, `select`> = db): Promise<void> {
+export async function assertCanCreateAppRecord(teamId: string, tx: Pick<typeof db, `select`> = db, adding = 1): Promise<void> {
   if (!isCloudInstance()) return
   const [{ limits }, count] = await Promise.all([getTeamPlan(teamId), countTeamAppRecords(teamId, tx)])
-  assertAppRecordCreatable(limits, count)
+  assertAppRecordCreatable(limits, count, adding)
 }
 
 export async function assertWithinStorageLimit(

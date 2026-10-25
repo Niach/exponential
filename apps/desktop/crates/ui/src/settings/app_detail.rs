@@ -2,7 +2,7 @@
 //! agent page's layout): the board form's identity row (icon + colour +
 //! name: icon and colour save at once, the name on blur / Enter), the
 //! description card (saved on blur), then Open in the editor, the version
-//! pill and "Delete app" (the creator or an owner). Everyone else reads the
+//! pill, Export (VAPP-121, once there is a version) and "Delete app" (the creator or an owner). Everyone else reads the
 //! page. VAPP-120: under the records line, the Tools group: one row per
 //! typed action the head package declares, its title, the function name
 //! muted and a switch = the app's grant (`apps.granted_tools`). [`SettingsSection::NewApp`] = the same page in CREATE mode: every
@@ -531,6 +531,7 @@ impl Render for AppDetailPane {
             Some(row) => {
                 let entry = AppEntry::from_row(row);
                 let open = row.id.clone();
+                let export_id = row.id.clone();
                 let (delete_id, delete_name) = (row.id.clone(), row.name.clone());
                 h_flex()
                     .pt_2()
@@ -547,6 +548,20 @@ impl Render for AppDetailPane {
                             .on_click(move |_, window, cx| navigate(window, cx, Screen::App { app: open.clone() })),
                     )
                     .child(crate::apps_view::version_pill("app-detail-version", &entry, cx))
+                    // VAPP-121: any member exports an app that has a version.
+                    .when(entry.head_version > 0, |actions| {
+                        actions.child(
+                            Button::new("app-export")
+                                .outline()
+                                .cursor_pointer()
+                                .web_sm()
+                                .icon(Icon::new(registry::UI_SHARE).small())
+                                .label(domain::app_export::APP_EXPORT_COPY.export.clone())
+                                .on_click(move |_, window, cx| {
+                                    crate::app_export_dialog::open(window, cx, export_id.clone(), false)
+                                }),
+                        )
+                    })
                     .child(div().flex_1())
                     .when(manage, |actions| {
                         actions.child(

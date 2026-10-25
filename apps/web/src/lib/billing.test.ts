@@ -398,6 +398,11 @@ describe(`assertAppRecordCreatable — the records quota (VAPP-122)`, () => {
     expect(() => assertAppRecordCreatable(free, 1000)).toThrow(/up to 1,000 app records/)
     expect(() => assertAppRecordCreatable(getPlanLimits(`unlimited`), 10_000_000)).not.toThrow()
   })
+  it(`an import's records count all at once (VAPP-121)`, () => {
+    const free = getPlanLimits(`free`)
+    expect(() => assertAppRecordCreatable(free, 990, 10)).not.toThrow()
+    expect(() => assertAppRecordCreatable(free, 990, 11)).toThrow(/up to 1,000 app records/)
+  })
 })
 
 describe(`assertCanInviteMember — seat gate wired to team usage`, () => {

@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import at.exponential.ui.primitives.EmptyStateSize
+import com.exponential.app.domain.AppExport
 import com.exponential.app.domain.Apps
 import com.exponential.app.domain.Chats
 import com.exponential.app.ui.components.BottomBarInset
@@ -113,6 +114,7 @@ fun AppsScreen(
     var creating by rememberSaveable { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<AppListEntry?>(null) }
     var deleting by remember { mutableStateOf<AppListEntry?>(null) }
+    var exporting by remember { mutableStateOf<AppListEntry?>(null) }
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(
@@ -133,6 +135,7 @@ fun AppsScreen(
                 onNew = { creating = true },
                 onRename = { renaming = it },
                 onDelete = { deleting = it },
+                onExport = { exporting = it },
             )
             Spacer(Modifier.height(24.dp))
         }
@@ -150,6 +153,13 @@ fun AppsScreen(
                     onOpenApp(id)
                 }
             },
+            onValidateImport = viewModel::validateImport,
+            onImport = { text ->
+                viewModel.importApp(text) { id ->
+                    creating = false
+                    onOpenApp(id)
+                }
+            },
         )
     }
     renaming?.let { app ->
@@ -161,6 +171,10 @@ fun AppsScreen(
                 viewModel.rename(app, name, icon, color, description) { renaming = null }
             },
         )
+    }
+    exporting?.let { app ->
+        val records by remember(app.id) { viewModel.records(app.id) }.collectAsStateWithLifecycle(emptyList())
+        AppExportSheet(app = app, records = records, onDismiss = { exporting = null })
     }
     deleting?.let { app ->
         GlassAlert(
@@ -191,6 +205,8 @@ fun AppsListContent(
     onNew: () -> Unit,
     onRename: (AppListEntry) -> Unit,
     onDelete: (AppListEntry) -> Unit,
+    /** VAPP-121: any member exports an app that has a version. */
+    onExport: (AppListEntry) -> Unit = {},
 ) {
     SectionHeader(Apps.Copy.TITLE) {
         GlassPill(
@@ -225,8 +241,15 @@ fun AppsListContent(
                     modifier = Modifier.weight(1f),
                 )
                 AppVersionPill(app)
-                if (canManage(app)) {
-                    AppRowMenu(app, onRename = { onRename(app) }, onDelete = { onDelete(app) })
+                val manage = canManage(app)
+                if (manage || app.headVersion > 0) {
+                    AppRowMenu(
+                        app,
+                        canManage = manage,
+                        onExport = { onExport(app) },
+                        onRename = { onRename(app) },
+                        onDelete = { onDelete(app) },
+                    )
                 } else {
                     // The menu's slot keeps every pill on one column.
                     Spacer(Modifier.size(32.dp))
@@ -237,7 +260,7 @@ fun AppsListContent(
 }
 
 @Composable
-private fun AppRowMenu(app: AppListEntry, onRename: () -> Unit, onDelete: () -> Unit) {
+private fun AppRowMenu(app: AppListEntry, canManage: Boolean, onExport: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         CircleIconButton(
@@ -249,6 +272,17 @@ private fun AppRowMenu(app: AppListEntry, onRename: () -> Unit, onDelete: () -> 
             size = 32.dp,
         )
         GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            if (app.headVersion > 0) {
+                GlassMenuItem(
+                    leadingIcon = { Icon(ExpIcons.uiShare, contentDescription = null) },
+                    text = { Text(AppExport.Copy.EXPORT) },
+                    onClick = {
+                        open = false
+                        onExport()
+                    },
+                )
+            }
+            if (canManage) {
             GlassMenuItem(
                 leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
                 text = { Text(Apps.Copy.MENU_RENAME) },
@@ -266,6 +300,7 @@ private fun AppRowMenu(app: AppListEntry, onRename: () -> Unit, onDelete: () -> 
                     onDelete()
                 },
             )
+            }
         }
     }
 }
@@ -277,23 +312,49 @@ fun AppFormSheet(
     busy: Boolean,
     onDismiss: () -> Unit,
     onSubmit: (name: String, icon: String, color: String, description: String) -> Unit,
+    /** VAPP-121: New app's import step (create mode only). */
+    onValidateImport: (suspend (String) -> List<AppExport.Issue>?)? = null,
+    onImport: ((text: String) -> Unit)? = null,
 ) {
+    var importing by rememberSaveable { mutableStateOf(false) }
+    var importText by rememberSaveable { mutableStateOf("") }
+    val importStep = importing && onImport != null
+    val issues = rememberImportIssues(if (importStep) importText else "") { onValidateImport?.invoke(it) }
     var name by rememberSaveable { mutableStateOf(app?.name.orEmpty()) }
     var icon by rememberSaveable { mutableStateOf(app?.icon ?: DEFAULT_ICON) }
     var color by rememberSaveable { mutableStateOf(app?.color ?: DEFAULT_COLOR) }
     var description by rememberSaveable { mutableStateOf(app?.description.orEmpty()) }
     GlassSheet(
-        title = if (app == null) Apps.Copy.NEW_APP else Apps.Copy.MENU_RENAME,
+        title = when {
+            importStep -> AppExport.Copy.IMPORT_TITLE
+            app == null -> Apps.Copy.NEW_APP
+            else -> Apps.Copy.MENU_RENAME
+        },
         onDismiss = onDismiss,
         modifier = Modifier.testTag("app-form-dialog"),
-        primaryAction = SheetPrimaryAction(
-            label = if (app == null) Apps.Copy.CREATE else Apps.Copy.RENAME,
-            onClick = { if (name.isNotBlank()) onSubmit(name, icon, color, description) },
-            enabled = name.isNotBlank() && !busy,
-            loading = busy,
-            testTag = "app-form-submit",
-        ),
+        primaryAction = if (importStep) {
+            SheetPrimaryAction(
+                label = AppExport.Copy.IMPORT_ACTION,
+                onClick = { if (issues?.isEmpty() == true) onImport(importText) },
+                enabled = issues?.isEmpty() == true && !busy,
+                loading = busy,
+                testTag = "app-import-confirm",
+            )
+        } else {
+            SheetPrimaryAction(
+                label = if (app == null) Apps.Copy.CREATE else Apps.Copy.RENAME,
+                onClick = { if (name.isNotBlank()) onSubmit(name, icon, color, description) },
+                enabled = name.isNotBlank() && !busy,
+                loading = busy,
+                testTag = "app-form-submit",
+            )
+        },
     ) {
+        if (importStep) {
+            AppImportStep(text = importText, onTextChange = { importText = it }, issues = issues)
+            Spacer(Modifier.height(8.dp))
+            return@GlassSheet
+        }
         OptionGroup {
             // N-14: THE row host: an open icon grid drops under the whole
             // identity row, so no sibling moves (picker-presentation.json).
@@ -324,6 +385,17 @@ fun AppFormSheet(
             minLines = 3,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("app-form-description"),
         )
+        if (app == null && onImport != null) {
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.padding(horizontal = 16.dp)) {
+                GlassPill(
+                    AppExport.Copy.IMPORT,
+                    size = PillSize.Sm,
+                    onClick = { importing = true },
+                    modifier = Modifier.testTag("app-import"),
+                )
+            }
+        }
         Spacer(Modifier.height(8.dp))
     }
 }

@@ -103,6 +103,57 @@ pub fn create(trpc: &TrpcClient, input: &AppInput) -> Result<AppOutput, ApiError
     trpc.mutation("apps.create", input)
 }
 
+/// VAPP-121 `apps.validateImport` / `apps.import` input: the file's text.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportInput<'a> {
+    team_id: &'a str,
+    text: &'a str,
+}
+
+/// One server issue of an import: a JSON pointer and its message.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct ImportIssue {
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub message: String,
+}
+
+/// `apps.validateImport` output: the issues (empty = importable), the app
+/// name and the record count the file carries.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct ValidateImportOutput {
+    #[serde(default)]
+    pub issues: Vec<ImportIssue>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub records: i64,
+}
+
+/// `apps.import` output: the new app and how many records it got.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportOutput {
+    #[serde(default, alias = "txid")]
+    pub tx_id: Option<i64>,
+    pub app: App,
+    #[serde(default)]
+    pub records: i64,
+}
+
+/// VAPP-121 `apps.validateImport`: the server's check of an app file (no
+/// write; the one authority ×4).
+pub fn validate_import(trpc: &TrpcClient, team_id: &str, text: &str) -> Result<ValidateImportOutput, ApiError> {
+    trpc.mutation("apps.validateImport", &ImportInput { team_id, text })
+}
+
+/// VAPP-121 `apps.import`: a new app out of an app file or a bare package.
+pub fn import(trpc: &TrpcClient, team_id: &str, text: &str) -> Result<ImportOutput, ApiError> {
+    trpc.mutation("apps.import", &ImportInput { team_id, text })
+}
+
 /// `apps.update`: rename / re-icon / re-describe / re-grant (VAPP-120).
 pub fn update(trpc: &TrpcClient, input: &AppInput) -> Result<AppOutput, ApiError> {
     trpc.mutation("apps.update", input)
@@ -194,6 +245,20 @@ mod tests {
             serde_json::to_value(&grant).unwrap(),
             serde_json::json!({"id": "a", "name": "Dash", "icon": "puzzle", "color": "#6366f1", "grantedTools": ["exponential.issues.update"]})
         );
+        assert_eq!(
+            serde_json::to_value(ImportInput { team_id: "t", text: "{}" }).unwrap(),
+            serde_json::json!({"teamId": "t", "text": "{}"})
+        );
+        let checked: ValidateImportOutput = serde_json::from_value(
+            serde_json::json!({"issues": [{"path": "/package", "message": "is required"}], "name": null, "records": 0}),
+        )
+        .unwrap();
+        assert_eq!(checked.issues, vec![ImportIssue { path: "/package".into(), message: "is required".into() }]);
+        let imported: ImportOutput = serde_json::from_value(
+            serde_json::json!({"txid": 3, "app": {"id": "a", "slug": "todos", "name": "Todos", "headVersion": 1}, "records": 2}),
+        )
+        .unwrap();
+        assert_eq!((imported.tx_id, imported.app.slug.as_str(), imported.records), (Some(3), "todos", 2));
         let restore: RestoreOutput = serde_json::from_value(serde_json::json!({"txid": 9, "version": 4, "restored": 1})).unwrap();
         assert_eq!((restore.tx_id, restore.version, restore.restored), (Some(9), 4, 1));
         let upsert = RecordUpsertInput {
