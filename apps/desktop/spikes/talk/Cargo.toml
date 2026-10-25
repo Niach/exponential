@@ -1,0 +1,30 @@
+# NEW-52: the exponentialTalk spike. A scratch crate OUTSIDE the desktop
+# workspace (the empty [workspace] below stops cargo from adopting it into
+# apps/desktop's members glob): it measures the engines behind the planned
+# traits and writes numbers.json; nothing here ships.
+[package]
+name = "talk-spike"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[workspace]
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hound = "3"
+# Apache-2.0; build.rs downloads the prebuilt static lib for this target.
+sherpa-onnx = "2.0.0"
+
+[features]
+default = []
+# cactus-rs needs LLVM libc++ at link time on Linux (not installed here by
+# default): opt in once the local libc++ is unpacked (see README).
+cactus = ["dep:cactus-rs"]
+
+[dependencies.cactus-rs]
+version = "0.2.1"
+optional = true
