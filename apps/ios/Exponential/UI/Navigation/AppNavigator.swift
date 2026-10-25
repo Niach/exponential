@@ -60,6 +60,8 @@ enum AppRoute: Hashable {
     case agent(accountId: String, seed: AgentComposerSeed)
     case settings
     case serverDetail(accountId: String)
+    /// NEW-67: the account's Settings → Voice page (`voice.json`).
+    case voiceSettings(accountId: String)
     /// #EXP-1381 (settings-nav.json): a Team page row → that category's
     /// OWN page (Devices included: it left the tab bar for the Team page).
     case teamSettingsSection(accountId: String, teamId: String, section: TeamSettingsSection)
@@ -1073,6 +1075,9 @@ extension MainNavigator {
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .serverDetail(accountId):
             ServerDetailView(accountId: accountId)
+        case let .voiceSettings(accountId):
+            VoiceSettingsPage(accountId: accountId)
+                .environment(\.accountId, accountId)
         case let .teamSettingsSection(accountId, teamId, section):
             TeamSettingsPage(teamId: teamId, section: section)
                 .environment(\.accountId, accountId)
