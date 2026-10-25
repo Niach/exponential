@@ -31,24 +31,37 @@ lock_owner() {
 
 # Blocks until <dir> is ours. A dir left without an owner file for longer
 # than LANE_LOCK_STALE_SECONDS (a holder killed between mkdir and the write)
-# is reclaimed; an owned lock is never taken over.
+# is reclaimed; an owned lock is never taken over. The owner file is written
+# with noclobber: if two waiters reclaim the same stale dir at once, only the
+# first write wins and the other keeps waiting.
 take_lock() {
-  [ -n "$1" ] && [ -n "$2" ] || { echo "take_lock: usage: take_lock <dir> <owner>" >&2; return 2; }
-  while ! { mkdir "$1" 2>/dev/null && echo "$2 $(date +%s)" > "$1/owner"; }; do
+  [ -n "${1:-}" ] && [ -n "${2:-}" ] || { echo "take_lock: usage: take_lock <dir> <owner>" >&2; return 2; }
+  lock_owner_ok "$2" || return 2
+  while ! { mkdir "$1" 2>/dev/null && (set -C; echo "$2 $(date +%s)" > "$1/owner") 2>/dev/null; }; do
     if [ -d "$1" ] && [ ! -e "$1/owner" ]; then
       # GNU stat first: its `-f` is filesystem mode, not BSD's format flag.
-      mtime=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null) || continue
-      age=$(( $(date +%s) - mtime ))
-      [ "$age" -gt "$LANE_LOCK_STALE_SECONDS" ] && rmdir "$1" 2>/dev/null && continue
+      # No mtime = not stale: a failed stat never reclaims.
+      mtime=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null) || mtime=
+      if [ -n "$mtime" ] && [ $(( $(date +%s) - mtime )) -gt "$LANE_LOCK_STALE_SECONDS" ]; then
+        rmdir "$1" 2>/dev/null && continue
+      fi
     fi
     echo "take_lock: $1 busy ($(lock_owner "$1")), waiting" >&2
     sleep "$LANE_LOCK_POLL_SECONDS"
   done
 }
 
+# An owner is one word: lock_owner reads the first word back.
+lock_owner_ok() {
+  case "$1" in
+    *" "* | *"	"*) echo "lane lock: owner '$1' must be one word" >&2; return 2 ;;
+  esac
+}
+
 # Removes <dir> only when its owner file names <owner>. Nothing there = done.
 release_lock() {
-  [ -n "$1" ] && [ -n "$2" ] || { echo "release_lock: usage: release_lock <dir> <owner>" >&2; return 2; }
+  [ -n "${1:-}" ] && [ -n "${2:-}" ] || { echo "release_lock: usage: release_lock <dir> <owner>" >&2; return 2; }
+  lock_owner_ok "$2" || return 2
   [ -e "$1" ] || return 0
   holder=$(lock_owner "$1")
   if [ "$holder" != "$2" ]; then

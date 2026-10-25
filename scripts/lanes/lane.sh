@@ -14,7 +14,11 @@ dir=$(lane_lock_dir "$1") || exit 2
 owner=$2
 shift 3
 
+# Traps first: release_lock only frees our own lock, so an interrupt while
+# waiting leaves the holder's lock alone, and none lands between the take
+# and the trap.
+trap 'release_lock "$dir" "$owner" 2>/dev/null' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 take_lock "$dir" "$owner" || exit $?
-trap 'release_lock "$dir" "$owner"' EXIT
-trap 'exit 130' INT TERM
 "$@"

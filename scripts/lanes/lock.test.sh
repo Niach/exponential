@@ -36,6 +36,19 @@ touch -t 202001010000 "$root/taking"
 take_lock "$root/taking" me && [ "$(lock_owner "$root/taking")" = me ] && ok "take_lock reclaims a stale ownerless dir" || no "take_lock reclaims a stale ownerless dir"
 LANE_LOCK_STALE_SECONDS=300 LANE_LOCK_POLL_SECONDS=30
 
+# The owner write never clobbers: a second writer into a taken dir loses.
+mkdir "$root/raced" && echo "first 1" > "$root/raced/owner"
+if (set -C; echo "second 2" > "$root/raced/owner") 2>/dev/null; then no "the owner write is noclobber"; else ok "the owner write is noclobber"; fi
+grep -q 'set -C; echo' "$here/lock.sh" && ok "take_lock writes the owner with noclobber" || no "take_lock writes the owner with noclobber"
+
+# An owner is one word (a spaced one could never release its own lock).
+if take_lock "$root/spaced" "my lane" 2>/dev/null; then no "take_lock refuses a spaced owner"; else ok "take_lock refuses a spaced owner"; fi
+[ ! -e "$root/spaced" ] && ok "a refused owner takes nothing" || no "a refused owner takes nothing"
+
+# A prefix-sharing owner is not the owner (review-12 vs review-1225).
+mkdir "$root/pr" && echo "review-1225 1" > "$root/pr/owner"
+if release_lock "$root/pr" review-12 2>/dev/null; then no "release_lock refuses a prefix-sharing owner"; else ok "release_lock refuses a prefix-sharing owner"; fi
+
 # lane.sh: runs inside the lock, releases after, keeps the command's exit.
 export EXP_LANE_LOCK_ROOT="$root"
 held=$("$here/lane.sh" heavy me -- sh -c 'cat "$EXP_LANE_LOCK_ROOT/exp-perf-heavy-1/owner"' | cut -d' ' -f1)
