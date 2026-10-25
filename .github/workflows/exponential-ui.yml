@@ -88,7 +88,7 @@ jobs:
 
   react:
     needs: pick
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -136,7 +136,7 @@ jobs:
 
   solid:
     needs: pick
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -184,7 +184,7 @@ jobs:
           include-hidden-files: true
 
   element:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
