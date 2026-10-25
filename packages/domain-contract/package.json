@@ -26,6 +26,7 @@
     "./message-conversation": "./src/message-conversation.ts",
     "./guide-viewer": "./src/guide-viewer.ts",
     "./agent-settings": "./src/agent-settings.ts",
+    "./voice": "./src/voice.ts",
     "./schedule-picker": "./src/schedule-picker.ts",
     "./chats": "./src/chats.ts",
     "./settings-nav": "./src/settings-nav.ts",

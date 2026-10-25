@@ -117,21 +117,26 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     /// nil = the key is absent (or not a string): every reader seeds
     /// `DomainContract.deviceComputerUseDefaultsModel`.
     public let computerUseModel: String?
+    /// NEW-53: the device-level voice settings (`voice.json`). nil = the key
+    /// is absent (or not an object) on the row: no assistant, not speaking.
+    public let voice: VoiceLaunchDefaults?
 
     public init(
         defaultAgent: String? = nil,
         agents: [String: AgentLaunchDefaults]? = nil,
         computerUse: Bool? = nil,
-        computerUseModel: String? = nil
+        computerUseModel: String? = nil,
+        voice: VoiceLaunchDefaults? = nil
     ) {
         self.defaultAgent = defaultAgent
         self.agents = agents
         self.computerUse = computerUse
         self.computerUseModel = computerUseModel
+        self.voice = voice
     }
 
     private enum CodingKeys: String, CodingKey {
-        case defaultAgent, agents, computerUse, computerUseModel
+        case defaultAgent, agents, computerUse, computerUseModel, voice
     }
 
     /// Lenient like the rest of the device payload: a field of a shape this
@@ -143,6 +148,30 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
         agents = try? c.decodeIfPresent([String: AgentLaunchDefaults].self, forKey: .agents)
         computerUse = (try? c.decodeIfPresent(Bool.self, forKey: .computerUse)) ?? nil
         computerUseModel = (try? c.decodeIfPresent(String.self, forKey: .computerUseModel)) ?? nil
+        voice = (try? c.decodeIfPresent(VoiceLaunchDefaults.self, forKey: .voice)) ?? nil
+    }
+}
+
+/// NEW-53: `launch_defaults.voice` = {assistantAgentId?, speakReplies?}.
+/// Lenient field-wise like the rest of the row.
+public struct VoiceLaunchDefaults: Codable, Equatable, Sendable {
+    /// The agent whose conversation is spoken; nil = no assistant.
+    public let assistantAgentId: String?
+    public let speakReplies: Bool?
+
+    public init(assistantAgentId: String? = nil, speakReplies: Bool? = nil) {
+        self.assistantAgentId = assistantAgentId
+        self.speakReplies = speakReplies
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case assistantAgentId, speakReplies
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        assistantAgentId = (try? c.decodeIfPresent(String.self, forKey: .assistantAgentId)) ?? nil
+        speakReplies = (try? c.decodeIfPresent(Bool.self, forKey: .speakReplies)) ?? nil
     }
 }
 

@@ -1,0 +1,27 @@
+Licences of the native code sherpa-onnx v2.0.0's static archive links into
+the desktop app, vendored verbatim, pinned to the upstream tag or commit
+sherpa-onnx's cmake files build:
+
+  sherpa-onnx-LICENSE.txt
+    https://github.com/k2-fsa/sherpa-onnx/blob/v2.0.0/LICENSE
+  onnxruntime-LICENSE.txt
+    https://github.com/microsoft/onnxruntime/blob/v1.28.2/LICENSE
+  onnxruntime-ThirdPartyNotices.txt
+    https://github.com/microsoft/onnxruntime/blob/v1.28.2/ThirdPartyNotices.txt
+  kissfft-COPYING.txt
+    https://github.com/mborgerding/kissfft/blob/febd4caeed32e33ad8b2e0bb5ea77542c40f18ec/COPYING
+  kissfft-BSD-3-Clause.txt
+    https://github.com/mborgerding/kissfft/blob/febd4caeed32e33ad8b2e0bb5ea77542c40f18ec/LICENSES/BSD-3-Clause
+  utf8proc-LICENSE.txt
+    https://github.com/JuliaStrings/utf8proc/blob/v2.12.0/LICENSE.md
+  openfst-COPYING.txt
+    https://github.com/csukuangfj/openfst/blob/v1.8.5-2026-07-09/COPYING
+  kaldi-native-fbank-LICENSE.txt
+    https://github.com/csukuangfj/kaldi-native-fbank/blob/v1.22.4/LICENSE
+  kaldi-decoder-LICENSE.txt
+    https://github.com/k2-fsa/kaldi-decoder/blob/v0.3.0/LICENSE
+  simple-sentencepiece-LICENSE.txt
+    https://github.com/pkufool/simple-sentencepiece/blob/v0.7/LICENSE
+
+Regenerate with: bun run --filter @exp/licenses fetch:texts
+Do not hand-edit these files.

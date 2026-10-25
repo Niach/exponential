@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-25-speak-replies`,
+    date: `2026-10-25`,
+    title: `Speak replies: your assistant answers out loud in the IDE`,
+    summary: `Pick one of your agents as your Assistant in Device settings and switch on Speak replies: the IDE reads its replies aloud with a natural English voice that runs on your machine.`,
+    body: `- **Voice in Device settings**: a new Voice group on web, the IDE, iPhone and Android picks your Assistant (one of your agents) and switches Speak replies on for that device.
+- **Spoken in the IDE**: each final reply of your Assistant conversation is read aloud on the desktop, with a Speaking banner and Stop above the composer; code blocks and links are skipped, issue numbers are said the way people say them.
+- **Local voice**: the voice (Kokoro, English) downloads once on first use, about 350 MB, and runs on your machine; nothing you hear leaves it.
+- **English first**: German and listening come later.`,
+  },
+  {
     id: `2026-10-25-release-train`,
     date: `2026-10-25`,
     title: `Release 2026-10-25: Apps keep data, read the team and act as you, with the train's fixes`,

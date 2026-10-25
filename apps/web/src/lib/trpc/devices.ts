@@ -54,6 +54,7 @@ import {
   type DeviceAgentUsage,
   type DeviceAgentUsageMap,
   type DeviceLaunchDefaults,
+  type DeviceVoice,
   type DeviceUsageWindow,
 } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/team-membership"
@@ -118,6 +119,19 @@ function clampLaunchDefaults(
     (contract.codingModel.values as readonly string[]).includes(input.computerUseModel)
   ) {
     out.computerUseModel = input.computerUseModel
+  }
+  // NEW-53: the voice settings; nulls are dropped, an empty object is no
+  // object. `setLaunchDefaults` carries the stored one forward when the
+  // save has no `voice` key at all.
+  if (input.voice) {
+    const voice: DeviceVoice = {}
+    if (typeof input.voice.assistantAgentId === `string`) {
+      voice.assistantAgentId = input.voice.assistantAgentId
+    }
+    if (typeof input.voice.speakReplies === `boolean`) {
+      voice.speakReplies = input.voice.speakReplies
+    }
+    if (Object.keys(voice).length > 0) out.voice = voice
   }
   if (input.agents) {
     const agents: Record<string, DeviceAgentLaunchDefaults> = {}
@@ -850,6 +864,12 @@ export const devicesRouter = router({
         (contract.codingAgent.values as readonly string[]).includes(storedAgent)
       ) {
         clamped.defaultAgent = storedAgent
+      }
+      // NEW-53: a save that never mentions `voice` (an older client, the
+      // device's own settings push) keeps the stored one; `voice: null`
+      // clears it.
+      if (input.launchDefaults.voice === undefined && row.launchDefaults?.voice) {
+        clamped.voice = row.launchDefaults.voice
       }
       const now = new Date()
       const txid = await ctx.db.transaction(async (tx) => {

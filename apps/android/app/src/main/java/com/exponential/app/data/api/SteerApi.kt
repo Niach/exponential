@@ -108,6 +108,23 @@ data class DeviceLaunchDefaults(
      * and the key stays ABSENT on the wire so the server keeps what is stored.
      */
     @SerialName("computerUseModel") val computerUseModel: String? = null,
+    /**
+     * NEW-53: the member's voice settings on this device (`voice.json`).
+     * Null = never set, ABSENT on the wire so the server carries the stored
+     * value forward; the device settings save always echoes what it holds,
+     * so an edit elsewhere in the sheet never clears it.
+     */
+    @SerialName("voice") val voice: DeviceVoice? = null,
+)
+
+/**
+ * NEW-53: `launch_defaults.voice`. [assistantAgentId] null = no assistant
+ * (absent on the wire); [speakReplies] null = never set (off).
+ */
+@Serializable
+data class DeviceVoice(
+    @SerialName("assistantAgentId") val assistantAgentId: String? = null,
+    @SerialName("speakReplies") val speakReplies: Boolean? = null,
 )
 
 /**

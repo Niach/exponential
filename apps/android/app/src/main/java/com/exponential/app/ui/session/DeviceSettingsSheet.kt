@@ -32,11 +32,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.AgentLaunchDefaults
 import com.exponential.app.data.api.DeviceLaunchDefaults
+import com.exponential.app.data.api.DeviceVoice
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.deviceUpdateAvailable
 import com.exponential.app.domain.DeviceReadiness
 import com.exponential.app.domain.DoctorRow
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.Voice
 import com.exponential.app.ui.components.ClaimedFailedActionToast
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.COMPUTER_USE_MODEL_LABEL
@@ -51,6 +53,9 @@ import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.LaunchOptionsSection
 import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
+import com.exponential.app.ui.components.PickerValueRow
+import com.exponential.app.ui.components.picker.ModelPicker
+import com.exponential.app.ui.components.picker.ModelPickerOption
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetHeight
@@ -114,6 +119,7 @@ fun DeviceSettingsSheet(
     LaunchedEffect(device.rowId) { viewModel.bind(device.rowId) }
 
     val teams by viewModel.teams.collectAsStateWithLifecycle()
+    val assistantOptions by viewModel.assistantOptions.collectAsStateWithLifecycle()
     val nameBusy by viewModel.nameBusy.collectAsStateWithLifecycle()
     val shareBusy by viewModel.shareBusy.collectAsStateWithLifecycle()
     val defaultBusy by viewModel.defaultBusy.collectAsStateWithLifecycle()
@@ -157,6 +163,9 @@ fun DeviceSettingsSheet(
     var computerUseModel by remember {
         mutableStateOf(seedComputerUseModel(device.launchDefaults?.computerUseModel))
     }
+    // NEW-53: the voice settings (`voice.json`). Null = never set; the save
+    // always echoes what is held here, so no other edit clears it.
+    var voice by remember { mutableStateOf(device.launchDefaults?.voice) }
     // "Remove device" waiting on its confirm. The sheet needs no dismiss of
     // its own afterwards: the caller re-resolves the live row, which is gone.
     var confirmRemove by remember { mutableStateOf(false) }
@@ -183,6 +192,7 @@ fun DeviceSettingsSheet(
             drafts = editableAgents.associateWith { agentDraft(device, it) }
             computerUse = device.launchDefaults?.computerUse
             computerUseModel = seedComputerUseModel(device.launchDefaults?.computerUseModel)
+            voice = device.launchDefaults?.voice
             if (agentTab !in editableAgents) agentTab = editableAgents.first()
         }
     }
@@ -198,6 +208,7 @@ fun DeviceSettingsSheet(
         next: Map<String, AgentDraft> = drafts,
         nextComputerUse: Boolean? = computerUse,
         nextComputerUseModel: String = computerUseModel,
+        nextVoice: DeviceVoice? = voice,
     ) {
         viewModel.queueDefaults(
             device.deviceId,
@@ -206,6 +217,7 @@ fun DeviceSettingsSheet(
                 next,
                 computerUse = nextComputerUse,
                 computerUseModel = nextComputerUseModel,
+                voice = nextVoice,
             ),
         )
     }
@@ -416,6 +428,56 @@ fun DeviceSettingsSheet(
                                 },
                             )
                         }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+
+                // ── Voice (NEW-53, voice.json) ──────────────────────────
+                // The Assistant picker over the member's agents, then Speak
+                // replies (disabled while no assistant). Same whole-object
+                // debounced save as Computer use. The phones never speak.
+                Column(modifier = Modifier.testTag(Voice.TestIds.GROUP)) {
+                    SectionHeader(Voice.Copy.GROUP, modifier = Modifier.padding(horizontal = 16.dp))
+                    OptionGroup {
+                        val assistantId = voice?.assistantAgentId
+                        val assistantLabel = assistantOptions.firstOrNull { it.id == assistantId && it.id != null }?.label
+                            ?: Voice.Copy.ASSISTANT_NONE
+                        ModelPicker(
+                            options = assistantOptions.map { ModelPickerOption(it.id.orEmpty(), it.label) },
+                            value = assistantId.orEmpty(),
+                            onChange = { picked ->
+                                // voice.json: choosing None clears Speak replies, so a
+                                // later pick never turns speaking on by itself.
+                                val assistant = picked.ifEmpty { null }
+                                val next = (voice ?: DeviceVoice()).copy(
+                                    assistantAgentId = assistant,
+                                    speakReplies = if (assistant == null) false else voice?.speakReplies,
+                                )
+                                voice = next
+                                queueDefaults(nextVoice = next)
+                            },
+                            title = Voice.Copy.ASSISTANT,
+                        ) { open ->
+                            PickerValueRow(
+                                label = Voice.Copy.ASSISTANT,
+                                value = assistantLabel,
+                                onClick = open,
+                                modifier = Modifier.testTag(Voice.TestIds.ASSISTANT),
+                            )
+                        }
+                        GroupDivider()
+                        SwitchRow(
+                            title = Voice.Copy.SPEAK_REPLIES,
+                            // Off while no assistant, like every client.
+                            checked = voice?.assistantAgentId != null && voice?.speakReplies == true,
+                            onCheckedChange = { checked ->
+                                val next = (voice ?: DeviceVoice()).copy(speakReplies = checked)
+                                voice = next
+                                queueDefaults(nextVoice = next)
+                            },
+                            enabled = assistantId != null,
+                            modifier = Modifier.testTag(Voice.TestIds.SPEAK_REPLIES),
+                        )
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -725,9 +787,12 @@ internal fun buildDefaults(
     computerUse: Boolean? = null,
     // EXP-1236: the switch's model alias; null stays absent the same way.
     computerUseModel: String? = null,
+    // NEW-53: the voice settings, echoed whole; null (never set) stays absent.
+    voice: DeviceVoice? = null,
 ): DeviceLaunchDefaults = DeviceLaunchDefaults(
     computerUse = computerUse,
     computerUseModel = computerUseModel,
+    voice = voice,
     // EXP-1158: no `defaultAgent` — the last used agent is the device's to
     // write, and the request never carries it (`setLaunchDefaultsInput`).
     agents = agents.associateWith { agent ->

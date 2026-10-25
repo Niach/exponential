@@ -116,11 +116,19 @@ private fun parseAgentList(raw: String?): List<String>? =
 /** The stored `launch_defaults` jsonb object → the shared DTO; null/bad = null.
  *  EXP-849: a retired agent's defaults (and a `defaultAgent` naming one) drop
  *  here, so no picker can seed itself off an agent this build cannot run. A
- *  pre-EXP-1158 row's stored account key is unknown here and simply skipped. */
+ *  pre-EXP-1158 row's stored account key is unknown here and simply skipped.
+ *  NEW-53: `voice {assistantAgentId, speakReplies}` decodes with the rest; a
+ *  malformed `voice` drops alone (retried without it), never the whole row. */
 fun parseLaunchDefaults(raw: String?): DeviceLaunchDefaults? =
     raw?.let {
         runCatching {
             deviceJson.decodeFromString(DeviceLaunchDefaults.serializer(), it)
+        }.recoverCatching { _ ->
+            val obj = deviceJson.parseToJsonElement(it) as kotlinx.serialization.json.JsonObject
+            deviceJson.decodeFromJsonElement(
+                DeviceLaunchDefaults.serializer(),
+                kotlinx.serialization.json.JsonObject(obj - "voice"),
+            )
         }.getOrNull()
     }?.let { defaults ->
         defaults.copy(
