@@ -112,6 +112,7 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON app_records FOR EAC
 -- #EXP-1380: a digest-only write (the trigger below) is no edit of the row.
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON conversations FOR EACH ROW WHEN (OLD.digest IS NOT DISTINCT FROM NEW.digest) EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON user_notification_prefs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON user_voice_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON email_deliveries FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON widget_configs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON widget_submissions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
