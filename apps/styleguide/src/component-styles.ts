@@ -606,6 +606,19 @@ export const componentStyles = `
   color: var(--fg);
 }
 .cmp-bulk-bar .glyph { width: 16px; height: 16px; }
+/* NEW-77: the voice overlay's bar: the value stays one line and the muted
+   line ellipsizes, as the IDE's \`item\` does (\`voice_overlay::capsule\`). */
+.cmp-bulk-bar[data-slot="voice-overlay"] { max-width: 100%; min-width: 0; }
+.cmp-bulk-bar .value { white-space: nowrap; flex: none; }
+.cmp-bulk-bar .item.cmp-line {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: var(--ctl-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* EXP-1273: the computer-use banner's key chip, inside the same capsule. */
 .cmp-bulk-bar .cmp-kbd {
   display: inline-flex;

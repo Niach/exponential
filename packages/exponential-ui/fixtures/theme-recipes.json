@@ -16217,6 +16217,840 @@
       }
     },
     {
+      "component": "VoiceWave",
+      "part": "root",
+      "props": {
+        "activity": "listening",
+        "size": "lg"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 1
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 1
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 1
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "VoiceWave",
+      "part": "root",
+      "props": {
+        "activity": "idle",
+        "size": "lg"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 0.35
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 0.35
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 0.35
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 0.35
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 0.35
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 0.35
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 0.35
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 160,
+              "height": 160,
+              "opacity": 0.35
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "VoiceWave",
+      "part": "root",
+      "props": {
+        "activity": "listening",
+        "size": "sm"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "width": 32,
+              "height": 32,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 32,
+              "height": 32,
+              "opacity": 1
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "width": 32,
+              "height": 32,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 32,
+              "height": 32,
+              "opacity": 1
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "width": 32,
+              "height": 32,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 32,
+              "height": 32,
+              "opacity": 1
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "width": 32,
+              "height": 32,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 32,
+              "height": 32,
+              "opacity": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "VoiceWave",
+      "part": "root",
+      "props": {
+        "activity": "listening",
+        "size": "md"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "width": 56,
+              "height": 56,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 56,
+              "height": 56,
+              "opacity": 1
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "width": 56,
+              "height": 56,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 56,
+              "height": 56,
+              "opacity": 1
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "width": 56,
+              "height": 56,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 56,
+              "height": 56,
+              "opacity": 1
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "width": 56,
+              "height": 56,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 56,
+              "height": 56,
+              "opacity": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "VoiceWave",
+      "part": "root",
+      "props": {
+        "activity": "listening",
+        "size": "xl"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "width": 200,
+              "height": 200,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 200,
+              "height": 200,
+              "opacity": 1
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "width": 200,
+              "height": 200,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 200,
+              "height": 200,
+              "opacity": 1
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "width": 200,
+              "height": 200,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 200,
+              "height": 200,
+              "opacity": 1
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "width": 200,
+              "height": 200,
+              "opacity": 1
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 200,
+              "height": 200,
+              "opacity": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "VoiceWave",
+      "part": "outer",
+      "props": {
+        "activity": "listening",
+        "size": "lg"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#2563eb"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#3b82f6"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#3b82f6"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#3b82f6"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#0284c7"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#38bdf8"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#3b82f6"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#3b82f6"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "VoiceWave",
+      "part": "outer",
+      "props": {
+        "activity": "idle",
+        "size": "lg"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "VoiceWave",
+      "part": "mid",
+      "props": {
+        "activity": "listening",
+        "size": "lg"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#171717"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#e5e5e5"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#171717"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#e5e5e5"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#7c3aed"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#ea580c"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fb923c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "VoiceWave",
+      "part": "mid",
+      "props": {
+        "activity": "idle",
+        "size": "lg"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "VoiceWave",
+      "part": "inner",
+      "props": {
+        "activity": "listening",
+        "size": "lg"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#171717"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#e5e5e5"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#171717"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#e5e5e5"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#7c3aed"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#ea580c"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fb923c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "VoiceWave",
+      "part": "inner",
+      "props": {
+        "activity": "idle",
+        "size": "lg"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "VoiceWave",
+      "part": "child",
+      "props": {
+        "activity": "listening",
+        "size": "lg"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#0a0a0a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fafafa"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#0a0a0a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fafafa"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#1f1235"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#f5f3ff"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#0a0a0a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#fafafa"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "VoiceWave",
+      "part": "child",
+      "props": {
+        "activity": "muted",
+        "size": "lg"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "Table",
       "part": "root",
       "props": {

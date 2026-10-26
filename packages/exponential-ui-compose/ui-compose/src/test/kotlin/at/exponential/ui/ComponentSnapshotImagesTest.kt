@@ -81,7 +81,7 @@ class ComponentSnapshotImagesTest {
          * image of exactly these components is skipped (never recorded on a
          * dev machine). Empty this set once the workflow committed them.
          */
-        val PENDING_IMAGES = emptySet<String>() // N-12: DockCard recorded on ubuntu 2026-10-23 (EXP-1324 Trace + TraceItem 2026-10-16)
+        val PENDING_IMAGES = emptySet<String>() // NEW-77: VoiceWave recorded 2026-10-26 (N-12 DockCard recorded 2026-10-23)
     }
 
     private fun model(id: String, theme: String, overlays: OverlayPresentation = OverlayPresentation.Native): SurfaceModel {

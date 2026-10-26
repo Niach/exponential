@@ -69,10 +69,9 @@ pub(crate) mod chat_menus;
 pub(crate) mod mention_pill;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
-/// than a demo. EXP-1268 landed its design draft on the web page first; its
-/// IDE entry says so until the surface is built.
-pub(crate) fn is_placeholder(id: &str) -> bool {
-    id == voice_call_overlay::ID
+/// than a demo. None is left since NEW-77 filled `voice-call-overlay`.
+pub(crate) fn is_placeholder(_id: &str) -> bool {
+    false
 }
 
 /// A demo: the entry's element, built with the window and the app so it

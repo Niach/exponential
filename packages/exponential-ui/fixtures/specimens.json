@@ -6148,6 +6148,196 @@
       }
     },
     {
+      "id": "exponential-ui-voice-wave",
+      "component": "VoiceWave",
+      "title": "VoiceWave",
+      "node": {
+        "id": "specimen-voice-wave",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-voice-wave-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-voice-wave-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-voice-wave",
+                "component": "VoiceWave",
+                "props": {
+                  "activity": "listening",
+                  "level": 0.6,
+                  "bands": [
+                    0.9,
+                    0.6,
+                    1,
+                    0.5
+                  ],
+                  "size": "lg"
+                },
+                "children": [
+                  {
+                    "id": "c0-voice-wave-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen-voice-wave-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-voice-wave-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "size · sm",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-voice-wave",
+                "component": "VoiceWave",
+                "props": {
+                  "activity": "listening",
+                  "level": 0.6,
+                  "bands": [
+                    0.9,
+                    0.6,
+                    1,
+                    0.5
+                  ],
+                  "size": "sm"
+                },
+                "children": [
+                  {
+                    "id": "c1-voice-wave-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen-voice-wave-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-voice-wave-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "size · md",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-voice-wave",
+                "component": "VoiceWave",
+                "props": {
+                  "activity": "listening",
+                  "level": 0.6,
+                  "bands": [
+                    0.9,
+                    0.6,
+                    1,
+                    0.5
+                  ],
+                  "size": "md"
+                },
+                "children": [
+                  {
+                    "id": "c2-voice-wave-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen-voice-wave-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-voice-wave-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "size · xl",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-voice-wave",
+                "component": "VoiceWave",
+                "props": {
+                  "activity": "listening",
+                  "level": 0.6,
+                  "bands": [
+                    0.9,
+                    0.6,
+                    1,
+                    0.5
+                  ],
+                  "size": "xl"
+                },
+                "children": [
+                  {
+                    "id": "c3-voice-wave-child",
+                    "component": "Text",
+                    "props": {
+                      "text": "Child"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-table",
       "component": "Table",
       "title": "Table",

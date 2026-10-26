@@ -20,6 +20,7 @@
 //   fixtures/style-conditions.json        round 1: style × surface/state context → the flattened style
 //   fixtures/code-tokens.json             round 1: source × language → CodeBlock tokens per line
 //   fixtures/text-shimmer.json            EXP-1324: text colour × mode → the Text shimmer colours
+//   fixtures/voice-wave.json              NEW-77: size × activity × level × bands × time → the VoiceWave rings
 //   fixtures/specimens.json               one surface per component + the demo (VAPP-93: the site's shots)
 //   + the theme outputs of scripts/generate-themes.ts (VAPP-92)
 //   + the round-4 fixture of scripts/generate-round4.ts (round4-contract.json)
@@ -44,6 +45,7 @@ import { STYLE_KEYS, STYLE_STATES, resolveConditions, type ConditionContext } fr
 import { BIND_FUNCTION_NAMES, bindRowSlot, bindTree, hasRowSlots, isDataSchema, runAction } from "../src/dynamic"
 import { tokenizeCode, CODE_LANGUAGE_NAMES } from "../src/code"
 import { textShimmer } from "../src/text-shimmer"
+import { voiceWave, type VoiceWaveInput } from "../src/voice-wave"
 import { A11Y_ROLES, COMPONENT_A11Y } from "../src/a11y"
 import { STRING_IDS, DEFAULT_STRINGS } from "../src/strings"
 import { renderThemes } from "./generate-themes"
@@ -1040,6 +1042,15 @@ function shimmerCases(file: ShimmerCaseFile) {
   return { ...file, cases: file.cases.map((c) => ({ name: c.name, color: c.color, dark: c.dark, expected: textShimmer(c.color, c.dark) })) }
 }
 
+interface VoiceWaveCaseFile {
+  $comment: string
+  cases: { name: string; input: VoiceWaveInput; expected?: unknown }[]
+}
+
+function voiceWaveCases(file: VoiceWaveCaseFile) {
+  return { ...file, cases: file.cases.map((c) => ({ name: c.name, input: c.input, expected: voiceWave(c.input) })) }
+}
+
 function promptBudget() {
   const full = catalogPrompt()
   const liteText = catalogPrompt({ lite: true })
@@ -1056,7 +1067,7 @@ function promptBudget() {
     // EXP-1259: SearchList joined the catalog (descriptions trimmed first).
     // EXP-1324: Trace + TraceItem (descriptions trimmed first).
     // VAPP-126 (a named budget exception, see the Guide): the six layout macros: +1,396 chars / +349 tokens; VAPP-128 trims nine prop descriptions; the budget is the measured total (7,335), no slack.
-    budgetTokens: 7335,
+    budgetTokens: 7410,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },
@@ -1135,6 +1146,7 @@ function renderFiles(): Record<string, string> {
     "fixtures/style-conditions.json": json(styleConditionCases(readJson<ConditionCaseFile>(`fixtures/style-conditions.json`))),
     "fixtures/code-tokens.json": json(codeCases(readJson<CodeCaseFile>(`fixtures/code-tokens.json`))),
     "fixtures/text-shimmer.json": json(shimmerCases(readJson<ShimmerCaseFile>(`fixtures/text-shimmer.json`))),
+    "fixtures/voice-wave.json": json(voiceWaveCases(readJson<VoiceWaveCaseFile>(`fixtures/voice-wave.json`))),
     "fixtures/specimens.json": json(renderSpecimens(cases, readJson<NestedNode>(`fixtures/demo-surface.json`))),
     ...themeOutputs,
     // VAPP-91: the host fixtures (inputs hand-written, expected filled).

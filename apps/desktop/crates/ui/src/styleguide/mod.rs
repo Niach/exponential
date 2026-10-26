@@ -93,7 +93,7 @@ mod tests {
     /// (`toast` was the last placeholder) and names a real owner.
     #[test]
     fn every_entry_is_filled() {
-        const PLACEHOLDERS: [&str; 1] = ["voice-call-overlay"];
+        const PLACEHOLDERS: [&str; 0] = [];
         // An owner is an issue identifier, `<BOARD>-<number>` (EXP-1031,
         // SLOP-7): uppercase letters, a dash, digits.
         let is_identifier = |owner: &str| {

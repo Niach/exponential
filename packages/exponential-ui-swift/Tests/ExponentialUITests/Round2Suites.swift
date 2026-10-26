@@ -129,6 +129,91 @@ enum Round2Suites {
         }
     }
 
+    /// NEW-77: `fixtures/voice-wave.json` through the facade
+    /// (`voiceWaveJson`) and the painter's own `VoiceWaveFrame` read of it:
+    /// every point within 0.5 px, the alphas, widths, child edge, phase and
+    /// (a case with `input.child`) the core's child box.
+    static func voiceWave() throws -> [Case] {
+        list(try json("voice-wave.json"), "cases").map { c in
+            run(s(c, "name")) {
+                let input = c["input"]!
+                let e = c["expected"]!
+                let viaFacade = VoiceWaveFrame.parse(voiceWaveJson(inputJson: input.json))
+                let viaPainter = VoiceWaveFrame.compute(
+                    size: CGFloat(num(input["size"]) ?? 0),
+                    activity: s(input, "activity"),
+                    level: num(input["level"]) ?? 0,
+                    bands: input["bands"]?.array?.map { num($0) ?? 0 },
+                    elapsed: num(input["elapsed"]) ?? 0,
+                    reducedMotion: input["reducedMotion"]?.bool ?? false,
+                    child: input["child"].map { CGSize(width: num($0["width"]) ?? 0, height: num($0["height"]) ?? 0) }
+                )
+                for (label, frame) in [("facade", viaFacade), ("painter", viaPainter)] {
+                    guard let f = frame else { return "\(label): no frame" }
+                    let rings = list(e, "rings")
+                    if f.rings.count != rings.count { return "\(label): \(f.rings.count) rings / expected \(rings.count)" }
+                    for (got, want) in zip(f.rings, rings) {
+                        if got.part != s(want, "part") { return "\(label): part \(got.part) / \(s(want, "part"))" }
+                        let pts = list(want, "points")
+                        if got.points.count != pts.count { return "\(label) \(got.part): \(got.points.count) points / \(pts.count)" }
+                        for (i, (p, w)) in zip(got.points, pts).enumerated() {
+                            let wx = num(w.array?.first) ?? .nan, wy = num(w.array?.last) ?? .nan
+                            if abs(Double(p.x) - wx) > 0.5 || abs(Double(p.y) - wy) > 0.5 { return "\(label) \(got.part) point \(i): \(p) / [\(wx), \(wy)]" }
+                        }
+                        if let d = near([got.fillAlpha, got.strokeAlpha, Double(got.strokeWidth)], [num(want["fillAlpha"]) ?? .nan, num(want["strokeAlpha"]) ?? .nan, num(want["strokeWidth"]) ?? .nan], 1e-9) { return "\(label) \(got.part) paint: \(d)" }
+                    }
+                    if let d = near([Double(f.childSize), f.phase], [num(e["childSize"]) ?? .nan, num(e["phase"]) ?? .nan], 1e-9) { return "\(label) childSize/phase: \(d)" }
+                    if (e["child"] == nil) != (f.child == nil) { return "\(label) child \(String(describing: f.child)) / \(e["child"]?.json ?? "none")" }
+                    if let wc = e["child"], let gc = f.child {
+                        let want = ["x", "y", "width", "height", "scale"].map { num(wc[$0]) ?? .nan }
+                        if let d = near([gc.rect.minX, gc.rect.minY, gc.rect.width, gc.rect.height, gc.scale].map(Double.init), want, 1e-3) { return "\(label) child: \(d)" }
+                    }
+                }
+                return nil
+            }
+        }
+    }
+
+    /// A `fixtures/voice-wave.json` case with a child: the wave's edge,
+    /// activity, the child's own size and the expected `child` box.
+    struct VoiceWaveChildCase {
+        let name: String
+        let size: CGFloat
+        let activity: String
+        let child: CGSize
+        let expected: JSONValue
+    }
+
+    static func voiceWaveChildCases() throws -> [VoiceWaveChildCase] {
+        list(try json("voice-wave.json"), "cases").compactMap { c in
+            guard let i = c["input"], let child = i["child"], let e = c["expected"]?["child"] else { return nil }
+            return VoiceWaveChildCase(
+                name: s(c, "name"),
+                size: CGFloat(num(i["size"]) ?? 0),
+                activity: s(i, "activity"),
+                child: CGSize(width: num(child["width"]) ?? 0, height: num(child["height"]) ?? 0),
+                expected: e
+            )
+        }
+    }
+
+    /// NEW-77 THE CHILD RULE, measured: every child case's DRAWN child
+    /// bounds (`drawn`: pt from the wave box's top-left, after the painter's
+    /// scale; nil = nothing drawn) within 0.5 px of the fixture's `child`
+    /// box; a child the rule does not paint (scale 0) draws nothing.
+    static func voiceWaveChild(drawn: (VoiceWaveChildCase) -> CGRect?) throws -> [Case] {
+        try voiceWaveChildCases().map { c in
+            run(c.name) {
+                let visible = (num(c.expected["scale"]) ?? 0) > 0
+                let r = drawn(c)
+                guard visible else { return r.map { "drawn \($0) / not painted" } }
+                guard let r else { return "no drawn child" }
+                let want = ["x", "y", "width", "height"].map { num(c.expected[$0]) ?? .nan }
+                return near([r.minX, r.minY, r.width, r.height].map(Double.init), want, 0.5).map { "drawn \($0)" }
+            }
+        }
+    }
+
     // MARK: round 2
 
     /// Every call through the PAINTER's formatter (Foundation, en-US / UTC:

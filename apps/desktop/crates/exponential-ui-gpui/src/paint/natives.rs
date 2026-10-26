@@ -58,6 +58,10 @@ pub struct LeafCx<'a> {
     pub radii: [f32; 4],
     /// The surface's number / date formatter (chart ticks and values).
     pub formatter: &'a dyn exponential_ui::format::Formatter,
+    /// The paint-only scale of the subtree the leaf sits in (1 = none;
+    /// NEW-77: a VoiceWave's child); `w`, `h`, the style and the text style
+    /// are already scaled, a recipe size read here is not.
+    pub scale: f32,
 }
 
 impl LeafCx<'_> {
@@ -538,7 +542,7 @@ pub fn icon(cx: &LeafCx) -> AnyElement {
     // `$control.iconSm` in the built-in themes; a remove button's box is 36,
     // its glyph 16), never larger than the box.
     let recipe = part_props(cx.theme, cx.mode, "Icon", "root", &cx.node.props, cx.states);
-    let size = px_prop(&recipe, "width").or_else(|| px_prop(&recipe, "height")).unwrap_or(f32::INFINITY).min(w.min(h)).max(1.0);
+    let size = (px_prop(&recipe, "width").or_else(|| px_prop(&recipe, "height")).unwrap_or(f32::INFINITY) * cx.scale).min(w.min(h)).max(1.0);
     let rotate = cx.style.transform.rotate;
     let glyph = if rotate.abs() > 0.01 { icons::concept_rotated(cx.host, name, size, cx.ink, rotate.to_radians()) } else { icons::concept_mirrored(cx.host, name, size, cx.ink, cx.rtl) };
     cx.content().flex().items_center().justify_center().child(glyph).into_any_element()
@@ -945,7 +949,133 @@ pub fn ring(cx: &LeafCx) -> AnyElement {
     out.into_any_element()
 }
 
-/// `TreeGuides` (round 3, `layout.json` `treeGuideColumn` / `treeGuideRadius`
+/// One VoiceWave ring as painted (a test aid: [`record_voice_wave`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PaintedRing {
+    /// The node id.
+    pub id: String,
+    pub part: String,
+    pub points: usize,
+    pub phase: f64,
+    pub fill: Hsla,
+    pub stroke: Hsla,
+}
+
+thread_local! {
+    static VOICE_RINGS: RefCell<Option<Vec<PaintedRing>>> = const { RefCell::new(None) };
+}
+
+/// Record every ring [`voice_wave`] paints on this thread (a test aid).
+pub fn record_voice_wave(on: bool) {
+    VOICE_RINGS.with(|t| *t.borrow_mut() = on.then(Vec::new));
+}
+
+/// The rings painted since the last call (recording stays on).
+pub fn take_voice_wave() -> Vec<PaintedRing> {
+    VOICE_RINGS.with(|t| t.borrow_mut().as_mut().map(std::mem::take).unwrap_or_default())
+}
+
+/// The core's `activity` of a VoiceWave node's props.
+pub fn voice_wave_activity(props: &Map<String, Value>) -> exponential_ui::voice_wave::Activity {
+    exponential_ui::voice_wave::Activity::parse(props.get("activity").and_then(Value::as_str).unwrap_or(""))
+}
+
+/// One VoiceWave ring ready to paint: its closed path (px from the wave's
+/// top-left), fill and stroke colours (alphas applied) and stroke width.
+#[derive(Debug, Clone)]
+pub struct RingPath {
+    pub part: String,
+    pub points: Vec<Point<Pixels>>,
+    pub fill: Hsla,
+    pub stroke: Hsla,
+    pub width: f32,
+}
+
+/// The core's rings of one frame, each in `color(part)` at its alphas.
+pub fn voice_wave_paths(wave: &exponential_ui::voice_wave::VoiceWave, color: impl Fn(&str) -> Hsla) -> Vec<RingPath> {
+    wave.rings
+        .iter()
+        .map(|r| {
+            let c = color(&r.part);
+            RingPath {
+                part: r.part.clone(),
+                points: r.points.iter().map(|[x, y]| point(px(*x as f32), px(*y as f32))).collect(),
+                fill: c.opacity(r.fill_alpha as f32),
+                stroke: c.opacity(r.stroke_alpha as f32),
+                width: r.stroke_width as f32,
+            }
+        })
+        .collect()
+}
+
+/// The rings as a canvas (each filled, then stroked, outermost first),
+/// drawn from the canvas's top-left; the caller sizes and places it.
+pub fn voice_wave_canvas(rings: Vec<RingPath>) -> gpui::Canvas<()> {
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let o = bounds.origin;
+            for r in &rings {
+                let Some((first, rest)) = r.points.split_first() else { continue };
+                let mut f = PathBuilder::fill();
+                f.move_to(o + *first);
+                for p in rest {
+                    f.line_to(o + *p);
+                }
+                f.close();
+                if let Ok(path) = f.build() {
+                    window.paint_path(path, r.fill);
+                }
+                let mut s = PathBuilder::stroke(px(r.width));
+                s.move_to(o + *first);
+                for p in rest {
+                    s.line_to(o + *p);
+                }
+                s.close();
+                if let Ok(path) = s.build() {
+                    window.paint_path(path, r.stroke);
+                }
+            }
+        },
+    )
+}
+
+/// NEW-77 `VoiceWave` (catalog/style.json `voiceWave`): the core's three
+/// rings for this frame (`exponential_ui::voice_wave`), each a closed path
+/// filled with its part colour at `fillAlpha` and stroked at `strokeAlpha`
+/// / `strokeWidth`. `elapsed` = seconds since the node started animating.
+/// The root opacity is the node's own box; the child is placed by the view.
+/// A box that is not square paints the wave of its shorter edge, centred.
+#[allow(clippy::too_many_arguments)]
+pub fn voice_wave(id: &str, props: &Map<String, Value>, theme: Option<&ResolvedTheme>, mode: Mode, w: f32, h: f32, elapsed: f64, reduced_motion: bool, ink: Hsla) -> AnyElement {
+    // A non-square box: the square wave of its shorter edge, centred.
+    let size = w.min(h).max(0.0);
+    use exponential_ui::voice_wave::{voice_wave as rings_of, VoiceWaveInput};
+    let num = |v: &Value| match v {
+        Value::Number(n) => n.as_f64(),
+        Value::String(s) => s.trim().parse().ok(),
+        _ => None,
+    };
+    let input = VoiceWaveInput {
+        size: size as f64,
+        activity: voice_wave_activity(props),
+        level: props.get("level").and_then(num),
+        bands: props.get("bands").and_then(Value::as_array).map(|b| b.iter().map(|v| num(v).unwrap_or(0.0)).collect()),
+        elapsed: Some(elapsed),
+        reduced_motion: Some(reduced_motion),
+        child: None,
+    };
+    let wave = rings_of(&input);
+    let rings = voice_wave_paths(&wave, |part| color_of(part_props(theme, mode, "VoiceWave", part, props, &[]).get("color").and_then(Value::as_str)).unwrap_or(ink));
+    VOICE_RINGS.with(|t| {
+        if let Some(v) = t.borrow_mut().as_mut() {
+            v.extend(rings.iter().map(|r| PaintedRing { id: id.to_string(), part: r.part.clone(), points: r.points.len(), phase: wave.phase, fill: r.fill, stroke: r.stroke }));
+        }
+    });
+    voice_wave_canvas(rings).absolute().left(px((w - size) / 2.0)).top(px((h - size) / 2.0)).size(px(size)).into_any_element()
+}
+
+/// `TreeGuides` (round 3,`layout.json` `treeGuideColumn` / `treeGuideRadius`
 /// / `treeGuideBridge`): 14 px columns, the 1 px line of column i at
 /// x = i·14 + 7. The elbow = a vertical from the row's top − bridge into a
 /// 3 px ROUNDED corner at the row's centre, then a stub to the column's right

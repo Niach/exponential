@@ -137,6 +137,8 @@ pub mod os_notifications;
 /// NEW-53: exponentialTalk, Speak replies (the assistant's replies read aloud).
 pub mod speak_replies;
 pub mod voice_tray;
+// NEW-77: the voice overlay capsule (push to talk #NEW-54 puts it in a window).
+mod voice_overlay;
 mod pickers;
 // EXP-1029: the shared picker API (primitive + typed pickers, EXP-1021).
 mod picker;

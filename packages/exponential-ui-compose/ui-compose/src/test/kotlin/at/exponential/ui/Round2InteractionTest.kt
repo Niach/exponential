@@ -177,6 +177,34 @@ class Round2InteractionTest {
     }
 
     @Test
+    fun theVoiceWaveFixtureReplaysThroughTheFacade() {
+        val cases = Round2Suites.voiceWave()
+        assertTrue(cases.size >= 7)
+        assertEquals(emptyList<String>(), cases.filter { it.second != null }.map { "${it.first}: ${it.second}" })
+    }
+
+    @Test
+    fun aVoiceWaveTakesItsRecipeBoxOpacityAndPartColours() {
+        val tree = """{"id":"root","component":"Box","children":[
+            {"id":"w","component":"VoiceWave","props":{"activity":"idle","size":"lg","label":"Voice"},"children":[{"id":"w.child","component":"Text","props":{"text":"Hi"}}]},
+            {"id":"s","component":"VoiceWave","props":{"activity":"listening","size":"sm"}}]}"""
+        val m = model(tree)
+        val w = m.idx("w")
+        assertEquals(160f, m.frame(w).width, 0.01f)
+        assertEquals(160f, m.frame(w).height, 0.01f)
+        assertEquals(0.35f, m.boxStyle(w).opacity ?: 1f, 0.001f)
+        assertEquals(32f, m.frame(m.idx("s")).width, 0.01f)
+        assertEquals(1f, m.boxStyle(m.idx("s")).opacity ?: 1f, 0.001f)
+        // idle / muted rings are muted; listening: info, primary, primary.
+        val idle = mapOf("activity" to JsonValue.Str("idle"), "size" to JsonValue.Str("lg"))
+        val live = mapOf("activity" to JsonValue.Str("listening"), "size" to JsonValue.Str("lg"))
+        assertEquals(m.color("mutedForeground"), m.part("VoiceWave", "outer", idle).color)
+        assertEquals(m.color("info"), m.part("VoiceWave", "outer", live).color)
+        assertEquals(m.color("primary"), m.part("VoiceWave", "inner", live).color)
+        assertEquals(m.color("foreground"), m.part("VoiceWave", "child", live).color)
+    }
+
+    @Test
     fun toastsDismissAfterTheirDurationUnlessHeld() {
         val scope = TestScope(StandardTestDispatcher())
         val tree = """{"id":"root","component":"Box","children":[{"id":"t","component":"Toast","props":{"title":"Saved","open":true,"duration":4000}}]}"""

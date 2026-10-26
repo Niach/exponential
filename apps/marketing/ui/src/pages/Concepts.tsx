@@ -194,7 +194,7 @@ export default function ConceptsPage({ path }: PageProps) {
           <ul>
             <li>
               <strong>{NATIVE_COUNT} natives</strong> each renderer paints itself, such as <C name="Box" />,{` `}
-              <C name="Text" />, <C name="Input" /> and <C name="Popover" />.
+              <C name="Text" />, <C name="Input" />, <C name="Popover" /> and <C name="VoiceWave" />.
             </li>
             <li>
               <strong>{MACRO_COUNT} macros</strong> expand into natives before painting, such as <C name="Card" />,{` `}

@@ -31,6 +31,8 @@ import kotlin.math.roundToInt
  */
 @Composable
 internal fun ContainerContent(index: Int, node: NodeInfo, model: SurfaceModel, style: PaintStyle, size: Size) {
+    // NEW-77: the VoiceWave native paints its waves and centres its one child.
+    if (node.component == "VoiceWave" && node.part == null) return VoiceWaveContent(index, node, model, size)
     val kids = (model.children.getOrNull(index) ?: emptyList()).filter { model.node(it)?.hidden == false }
     val origin = model.frame(index).topLeft
     val scroll = model.scrolls[index]

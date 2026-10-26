@@ -37,6 +37,9 @@ private struct SurfaceBody: View {
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.dynamicTypeSize) private var dynamicType
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// An enclosing surface's (or host's) reduced motion: kept, never
+    /// switched back on by this surface's own setting.
+    @Environment(\.xuiReducedMotion) private var enclosingReducedMotion
     @FocusState private var rootFocused: Bool
     @State private var safeArea = EdgeInsets()
 
@@ -50,9 +53,10 @@ private struct SurfaceBody: View {
             }
         }
         // The surface direction (text, mirrored glyphs) and reduced motion
-        // every painter under the tree and the layers reads.
+        // every painter under the tree and the layers reads (either the
+        // surface's or the enclosing one's stops motion).
         .environment(\.xuiRTL, model.isRTL)
-        .environment(\.xuiReducedMotion, model.reducedMotion)
+        .environment(\.xuiReducedMotion, model.reducedMotion || enclosingReducedMotion)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(height: size.height > 0 ? size.height : nil, alignment: .topLeading)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in

@@ -309,7 +309,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
         // trigger (a press Menu's default button): paint the children.
         CompositionLocalProvider(LocalInvisible provides invisible) {
             if (node.isLeaf && model.children.getOrNull(index).isNullOrEmpty()) {
-                LeafContent(LeafContext(model, node, size, style, model.ink(index), model.textStyle(index)))
+                LeafContent(LeafContext(model, node, size, style, inheritedInk(model.ink(index)), model.textStyle(index)))
             } else {
                 ContainerContent(index, node, model, style, size)
             }
@@ -319,6 +319,17 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
         if (invisible && !LocalInvisible.current) Box(Modifier.matchParentSize().pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } })
     }
 }
+
+/**
+ * NEW-77: an inherited ink swap (from → to): a VoiceWave paints its child
+ * in the `VoiceWave/child` recipe colour, so every leaf below whose ink is
+ * the wave's own (inherited, not set on the child) takes the recipe's.
+ */
+internal val LocalInkSwap = compositionLocalOf<Pair<Color, Color>?> { null }
+
+/** [ink] after the enclosing [LocalInkSwap]. */
+@Composable
+internal fun inheritedInk(ink: Color): Color = LocalInkSwap.current?.let { (from, to) -> if (ink == from) to else ink } ?: ink
 
 /** Inside a `visibility: hidden` box (CSS inherits it): nothing below takes input. */
 internal val LocalInvisible = compositionLocalOf { false }

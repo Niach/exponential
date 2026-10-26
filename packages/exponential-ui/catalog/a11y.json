@@ -350,6 +350,11 @@
       "notes": "progressbar (indeterminate) labelled `loading` by default",
       "keys": []
     },
+    "VoiceWave": {
+      "role": "img",
+      "notes": "img named by `label` (with the activity appended, e.g. `Voice, listening`); decorative (hidden) without a label; never focusable",
+      "keys": []
+    },
     "Skeleton": {
       "role": "hidden",
       "notes": "hidden (the parent announces busy)",

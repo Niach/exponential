@@ -272,6 +272,19 @@
     "traceSize": [
       "default",
       "sm"
+    ],
+    "voiceWaveActivity": [
+      "idle",
+      "listening",
+      "thinking",
+      "speaking",
+      "muted"
+    ],
+    "voiceWaveSize": [
+      "sm",
+      "md",
+      "lg",
+      "xl"
     ]
   },
   "defs": {
@@ -2393,6 +2406,40 @@
         "dot": {
           "type": "boolean",
           "default": true
+        }
+      }
+    },
+    "VoiceWave": {
+      "kind": "native",
+      "group": "feedback",
+      "lite": false,
+      "children": "one",
+      "props": {
+        "activity": {
+          "type": "enum",
+          "enum": "voiceWaveActivity",
+          "default": "idle",
+          "bindable": true
+        },
+        "level": {
+          "type": "number",
+          "default": 0,
+          "bindable": true
+        },
+        "bands": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "bindable": true
+        },
+        "size": {
+          "type": "enum",
+          "enum": "voiceWaveSize",
+          "default": "md"
+        },
+        "label": {
+          "type": "string"
         }
       }
     },

@@ -564,6 +564,146 @@ fn a_shimmering_text_is_plain_under_reduced_motion(cx: &mut TestAppContext) {
     assert!(lines.iter().all(|l| !l.text.contains("Running")), "plain text, no per-glyph paint");
 }
 
+fn voice_wave_tree(activity: &str, size: &str) -> Value {
+    json!({"id": "root", "component": "Box", "style": {"padding": 20, "width": 400}, "children": [
+        {"id": "wave", "component": "VoiceWave", "props": {"activity": activity, "level": 0.6, "bands": [0.9, 0.6, 1, 0.5], "size": size, "label": "Voice"}, "children": [
+            {"id": "mark", "component": "Icon", "props": {"name": "mic"}}
+        ]}
+    ]})
+}
+
+#[gpui::test]
+fn a_voice_wave_paints_three_rings_and_its_centred_child_and_moves(cx: &mut TestAppContext) {
+    use exponential_ui_gpui::paint::natives::{record_voice_wave, take_voice_wave};
+    record_voice_wave(true);
+    let (view, _log, cx) = surface(cx, voice_wave_tree("listening", "lg"));
+    let _ = take_voice_wave();
+    draw(cx);
+    let one = take_voice_wave();
+    let one = &one[one.len().saturating_sub(3)..];
+    assert_eq!(one.iter().map(|r| r.part.as_str()).collect::<Vec<_>>(), ["outer", "mid", "inner"], "three closed paths, outermost first");
+    assert!(one.iter().all(|r| r.id == "wave" && r.points == 121), "the core's 120 steps + the closing point");
+    assert!(one[0].fill.a > 0.0 && one[0].stroke.a > one[0].fill.a, "filled at fillAlpha, stroked at strokeAlpha");
+    let (wave, mark) = (painted(&view, cx, "wave"), painted(&view, cx, "mark"));
+    assert_eq!(wave.size.width, px(160.0), "the lg edge");
+    assert!((mark.center().x - wave.center().x).abs() < px(0.6) && (mark.center().y - wave.center().y).abs() < px(0.6), "the child is centred: {mark:?} in {wave:?}");
+    let info = view.read_with(cx, |v, _| v.accessible_info("wave")).expect("a11y");
+    assert_eq!(info.role, gpui::Role::Image);
+    assert_eq!(info.label.as_deref(), Some("Voice, listening"));
+    view.update(cx, |v, cx| v.advance_clock(Duration::from_millis(500), cx));
+    draw(cx);
+    let two = take_voice_wave();
+    record_voice_wave(false);
+    let last = two.last().expect("it keeps painting");
+    assert!(two.len() % 3 == 0 && last.phase > one[0].phase, "the phase runs while listening: {} then {}", one[0].phase, last.phase);
+}
+
+#[gpui::test]
+fn a_voice_wave_rests_under_reduced_motion_and_hides_the_child_at_sm(cx: &mut TestAppContext) {
+    use exponential_ui_gpui::paint::natives::{record_voice_wave, take_voice_wave};
+    record_voice_wave(true);
+    let reduced = SurfaceSettings { reduced_motion: true, ..SurfaceSettings::default() };
+    let (view, _log, cx) = surface_with(cx, voice_wave_tree("speaking", "sm"), Some(reduced));
+    view.update(cx, |v, cx| v.advance_clock(Duration::from_millis(1500), cx));
+    draw(cx);
+    let rings = take_voice_wave();
+    record_voice_wave(false);
+    assert!(!rings.is_empty() && rings.len() % 3 == 0, "three rings a frame");
+    assert!(rings.iter().all(|r| r.phase == 0.0), "reduced motion: phase 0");
+    assert!(view.read_with(cx, |v, _| v.painted_bounds("mark")).is_none(), "no child at sm");
+}
+
+/// The fixture's `child` cases (`fixtures/voice-wave.json`): THE CHILD RULE's
+/// conformance measurement.
+fn voice_wave_child_cases() -> Vec<(String, f64, Value, Value)> {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/voice-wave.json");
+    let doc: Value = serde_json::from_str(&std::fs::read_to_string(path).expect("voice-wave.json")).unwrap();
+    let cases: Vec<_> = doc["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["input"].get("child").is_some())
+        .map(|c| (c["name"].as_str().unwrap_or("").to_string(), c["input"]["size"].as_f64().unwrap(), c["input"]["child"].clone(), c["expected"]["child"].clone()))
+        .collect();
+    assert!(cases.len() >= 4, "the fixture's child cases");
+    cases
+}
+
+fn wave_size_name(edge: f64) -> &'static str {
+    match edge as u32 {
+        32 => "sm",
+        56 => "md",
+        160 => "lg",
+        200 => "xl",
+        e => panic!("no VoiceWave size of {e} px"),
+    }
+}
+
+#[gpui::test]
+fn a_voice_wave_draws_its_child_by_the_child_rule(cx: &mut TestAppContext) {
+    for (name, edge, child, want) in voice_wave_child_cases() {
+        let tree = json!({"id": "root", "component": "Box", "style": {"padding": 20, "width": 400}, "children": [
+            {"id": "wave", "component": "VoiceWave", "props": {"activity": "idle", "size": wave_size_name(edge), "label": "Voice"}, "children": [
+                {"id": "kid", "component": "Box", "style": {"width": child["width"], "height": child["height"]}}
+            ]}
+        ]});
+        let (view, _log, vcx) = surface(cx, tree);
+        let wave = painted(&view, vcx, "wave");
+        assert_eq!(wave.size.width, px(edge as f32), "{name}: the wave's edge");
+        let drawn = view.read_with(vcx, |v, _| v.painted_bounds("kid"));
+        if want["scale"].as_f64() == Some(0.0) {
+            assert!(drawn.is_none(), "{name}: kept in the tree, not painted: {drawn:?}");
+            assert!(view.read_with(vcx, |v, _| v.index_of("kid")).is_some(), "{name}: the child stays in the tree");
+            continue;
+        }
+        let kid = drawn.unwrap_or_else(|| panic!("{name}: the child is not painted"));
+        let got = [f32::from(kid.origin.x - wave.origin.x), f32::from(kid.origin.y - wave.origin.y), f32::from(kid.size.width), f32::from(kid.size.height)];
+        let want = [want["x"].as_f64().unwrap() as f32, want["y"].as_f64().unwrap() as f32, want["width"].as_f64().unwrap() as f32, want["height"].as_f64().unwrap() as f32];
+        assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() <= 0.5), "{name}: drawn {got:?}, the rule's box {want:?}");
+    }
+}
+
+/// The app-facing control paints the same rule box (its child records the
+/// bounds it is drawn at) and names the image with its activity.
+#[gpui::test]
+fn the_voice_wave_control_draws_its_child_by_the_child_rule(cx: &mut TestAppContext) {
+    use exponential_ui::voice_wave::Activity;
+    use exponential_ui_gpui::controls::{voice_wave, VoiceWaveChild, VoiceWaveColors};
+    struct Probe {
+        edge: f32,
+        child: (f32, f32),
+        seen: Rc<RefCell<Option<(gpui::Bounds<gpui::Pixels>, f32)>>>,
+    }
+    impl Render for Probe {
+        fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            let seen = self.seen.clone();
+            let (w, h) = self.child;
+            let child = VoiceWaveChild::new(w, h, move |scale| {
+                gpui::canvas(move |b, _, _| *seen.borrow_mut() = Some((b, scale)), |_, _, _, _| {}).size_full().into_any_element()
+            });
+            div().p(px(20.0)).child(voice_wave("wave", Activity::Listening, 0.5, &[0.9, 0.6], self.edge, Some(child), VoiceWaveColors::uniform(gpui::white()), Some("Voice".into()), cx))
+        }
+    }
+    for (name, edge, child, want) in voice_wave_child_cases() {
+        let seen = Rc::new(RefCell::new(None));
+        let probe = Probe { edge: edge as f32, child: (child["width"].as_f64().unwrap() as f32, child["height"].as_f64().unwrap() as f32), seen: seen.clone() };
+        let (_view, vcx) = cx.add_window_view(move |_, _| probe);
+        draw(vcx);
+        let drawn = *seen.borrow();
+        if want["scale"].as_f64() == Some(0.0) {
+            assert!(drawn.is_none(), "{name}: not painted at sm");
+            continue;
+        }
+        let (b, scale) = drawn.unwrap_or_else(|| panic!("{name}: the child is not drawn"));
+        let got = [f32::from(b.origin.x) - 20.0, f32::from(b.origin.y) - 20.0, f32::from(b.size.width), f32::from(b.size.height), scale];
+        let want = [want["x"].as_f64().unwrap() as f32, want["y"].as_f64().unwrap() as f32, want["width"].as_f64().unwrap() as f32, want["height"].as_f64().unwrap() as f32, want["scale"].as_f64().unwrap() as f32];
+        assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() <= 0.5), "{name}: drawn {got:?}, the rule's box {want:?}");
+        // It keeps moving (a stepped repaint is armed while listening).
+        vcx.executor().advance_clock(Duration::from_millis(100));
+        draw(vcx);
+    }
+}
+
 #[gpui::test]
 fn a_trace_item_paints_its_chevron_rail_and_pending_line(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "style": {"padding": 20, "width": 400}, "children": [

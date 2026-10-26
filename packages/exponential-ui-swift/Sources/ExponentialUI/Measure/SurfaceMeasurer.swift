@@ -326,6 +326,8 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             content = MeasuredContent(w, track + control("row", Self.audioControlsHeight))
         case ("Spinner", _): content = MeasuredContent(20, 20)
         case ("Ring", _): content = MeasuredContent(32, 32)
+        // NEW-77: the root recipe's edge (sm 32 · md 56 · lg 160 · xl 200) wins.
+        case ("VoiceWave", _): content = MeasuredContent(56, 56)
         case ("Skeleton", _): content = MeasuredContent(skeleton(props, wrap: inner))
         case ("Chart", _): content = MeasuredContent(chart(leaf, wrap: inner))
         case ("Composer", _): content = MeasuredContent(composer(leaf, wrap: inner))

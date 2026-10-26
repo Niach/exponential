@@ -638,8 +638,9 @@ mod tests {
     fn every_specimen_parses_as_a_nested_node() {
         // Every visible core component (74: round 3's 70 + EXP-1259's SearchList
         // + EXP-1324's Trace and TraceItem + EXP-1280's ChoiceTiles + N-12's
-        // DockCard) + the home demo.
-        assert_eq!(specimens().len(), 82);
+        // DockCard; then VAPP-126's layout macros; NEW-77's VoiceWave) + the
+        // home demo.
+        assert_eq!(specimens().len(), 83);
         for (id, node) in specimens() {
             let tree: Result<NestedNode, _> = serde_json::from_value(node.clone());
             assert!(tree.is_ok(), "{id}: {:?}", tree.err());

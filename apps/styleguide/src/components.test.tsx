@@ -93,7 +93,17 @@ const ENTRY_DEMOS = ENTRIES.filter(
 const ENTRY_ISLANDS = ENTRIES.filter(
   (entry) => entry.placeholder !== true && entry.island !== undefined
 )
-const PAGE_ISLANDS = ISLANDS.length + ENTRY_ISLANDS.length
+/** NEW-77: a hand-drawn entry may wear real components as islands INSIDE
+ *  its markup (the voice overlay's VoiceWave and Pill in the bulk bar's
+ *  capsule); each is one more shadow root, and its markup is the
+ *  component's own, exempt like every island. */
+const NESTED_ISLAND = /<div data-ui-island><template shadowrootmode="open">[\s\S]*?<\/template><\/div>/g
+const nestedIslands = (markup: string) => markup.match(NESTED_ISLAND)?.length ?? 0
+const PAGE_ISLANDS =
+  ISLANDS.length +
+  ENTRY_ISLANDS.length +
+  ENTRY_DEMOS.reduce((n, entry) => n + nestedIslands(entry.render!()), 0) +
+  HTML_DEMOS.reduce((n, spec) => n + nestedIslands(spec.render()), 0)
 
 /**
  * The words the summary line uses for the four sections — spelled out here
@@ -405,7 +415,8 @@ describe(`demo markup`, () => {
       ...HTML_DEMOS.map((spec) => ({ id: spec.id, markup: spec.render() })),
       ...ENTRY_DEMOS.map((entry) => ({ id: entry.id, markup: entry.render!() })),
     ]
-    for (const { id, markup } of drawn) {
+    for (const { id, markup: raw } of drawn) {
+      const markup = raw.replace(NESTED_ISLAND, ``)
       expect(markup).not.toContain(`style="`)
       for (const name of classNames(markup)) {
         const known =
