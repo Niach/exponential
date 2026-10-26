@@ -280,6 +280,18 @@ pub const REMOVE_DEVICE: Spec = Spec {
     focus: "cancel",
 };
 
+/// FEED-149: a team owner drops a teammate's share of a machine.
+pub const REMOVE_DEVICE_SHARE: Spec = Spec {
+    id: "remove-device-share",
+    copy: &[
+        ("title", "Remove \"{name}\" from this team?"),
+        ("body", "Sessions teammates started on it end."),
+    ],
+    params: &["name"],
+    actions: confirm!(destructive "remove", "Remove"),
+    focus: "cancel",
+};
+
 pub const DELETE_TEAM: Spec = Spec {
     id: "delete-team",
     copy: &[
@@ -473,6 +485,7 @@ pub const ALL: &[Spec] = &[
     DELETE_TRIGGER,
     DELETE_ACTION,
     REMOVE_DEVICE,
+    REMOVE_DEVICE_SHARE,
     DELETE_TEAM,
     TRASH_BOARD,
     DELETE_LABEL,
@@ -559,6 +572,10 @@ pub fn delete_action(name: &str) -> Prompt {
 
 pub fn remove_device(name: &str) -> Prompt {
     REMOVE_DEVICE.render("title", Some("body"), &[("name", name)])
+}
+
+pub fn remove_device_share(name: &str) -> Prompt {
+    REMOVE_DEVICE_SHARE.render("title", Some("body"), &[("name", name)])
 }
 
 pub fn delete_team(name: &str) -> Prompt {
@@ -779,6 +796,7 @@ mod tests {
             delete_trigger(),
             delete_action("Triage"),
             remove_device("Mac"),
+            remove_device_share("Mac"),
             delete_team("Acme"),
             trash_board("Web"),
             delete_label("bug"),

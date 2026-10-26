@@ -112,6 +112,16 @@ internal data class SetSharedInput(
     @SerialName("shared") val shared: Boolean,
 )
 
+/**
+ * `devices.dropShare` (FEED-149): [id] = the synced `devices` ROW id (not the
+ * machine's device id), [teamId] = the team the share is dropped from.
+ */
+@Serializable
+internal data class DropShareInput(
+    @SerialName("id") val id: String,
+    @SerialName("teamId") val teamId: String,
+)
+
 /** The shared Json's encode half (`HttpClientModule.provideJson`). */
 private val launchDefaultsJson = Json {
     explicitNulls = false
@@ -247,6 +257,20 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
             path = "devices.setShared",
             input = SetSharedInput(deviceId = deviceId, teamId = teamId, shared = shared),
             inputSerializer = SetSharedInput.serializer(),
+        )
+    }
+
+    /**
+     * `devices.dropShare` (FEED-149): a team OWNER drops a TEAMMATE's machine
+     * [rowId] from [teamId]'s share set (FORBIDDEN for anyone else). The
+     * synced `shared_team_ids` drops the row from the Team devices list.
+     */
+    suspend fun dropShare(accountId: String, rowId: String, teamId: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "devices.dropShare",
+            input = DropShareInput(id = rowId, teamId = teamId),
+            inputSerializer = DropShareInput.serializer(),
         )
     }
 

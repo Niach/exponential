@@ -1,5 +1,6 @@
 import ExpUI
 import ExpCore
+import GRDB
 import SwiftUI
 
 /// The Devices tab (EXP-686, formerly Agents — the type names stay):
@@ -16,6 +17,9 @@ import SwiftUI
 /// device picker, one launcher and one place to pick a machine) and so is the
 /// "…" menu: Update and Remove are the settings sheet's last two sections, so
 /// a row never has to explain which of three controls does what.
+/// FEED-149: a team OWNER's Team devices rows shared into the CURRENT team
+/// carry one control in the gear's slot — Remove, which drops that teammate's
+/// share of the machine from this team (`devices.dropShare`).
 ///
 /// EXP-825: machines ONLY (web parity, EXP-818) — sessions live in the
 /// Threads list. EXP-1295: a start is a `sessions` row the machine picks up
@@ -52,6 +56,12 @@ struct AgentsView: View {
     /// EXP-944: the clock the login rows' reset countdowns age on — the same
     /// 30s beat the "as of …" captions already use.
     @State private var now = Date()
+    /// FEED-149: the caller owns the current team — its Team devices rows
+    /// offer Remove. Resolved off the synced `team_members` row.
+    @State private var isTeamOwner = false
+    /// FEED-149: the teammate's shared row a team owner is removing.
+    @State private var dropShareTarget: DropShareTarget?
+    @Environment(\.toaster) private var toaster
 
     /// A pending "Remove account": the login the confirm names. Captured as a
     /// value so the sentence stays put even as the rows re-sync underneath.
@@ -67,6 +77,17 @@ struct AgentsView: View {
     /// machine's settings.
     private struct DeviceSettingsTarget: Identifiable {
         let id: String
+    }
+
+    /// FEED-149: a pending "Remove from this team": the synced devices ROW id
+    /// (a legacy duplicate shares the machine id), the team it leaves and the
+    /// name the confirm says — captured so the sentence stays put as the rows
+    /// re-sync.
+    private struct DropShareTarget: Identifiable {
+        let rowId: String
+        let teamId: String
+        let name: String
+        var id: String { rowId }
     }
 
     var body: some View {
@@ -112,6 +133,53 @@ struct AgentsView: View {
         }
         .onDisappear {
             viewModel?.stopObserving()
+        }
+        // FEED-149: re-resolved whenever the current team changes.
+        .task(id: teamState.activeTeamId) {
+            await resolveTeamOwner()
+        }
+    }
+
+    /// FEED-149: owners own the destructive surface (`resolveTeamAccess`) —
+    /// only they drop a teammate's share; the server refuses everyone else.
+    private func resolveTeamOwner() async {
+        guard let teamId = teamState.activeTeamId,
+              let userId = deps.auth.userId,
+              let pool = try? deps.db.pool(forAccountId: accountId) else {
+            isTeamOwner = false
+            return
+        }
+        isTeamOwner = (try? await pool.read { db in
+            try TeamMemberEntity
+                .filter(Column("team_id") == teamId && Column("user_id") == userId)
+                .fetchOne(db)?.role == DomainContract.teamRoleOwner
+        }) ?? false
+    }
+
+    /// FEED-149: the team a teammate's row can be removed from — the current
+    /// one, for its owner, when the row is shared into it and is a synced
+    /// registry row (`rowId`). nil = the row carries no control.
+    private func dropShareTeamId(_ device: SteerDevice) -> String? {
+        guard isTeamOwner, !device.isMine, device.rowId != nil,
+              let teamId = teamState.activeTeamId,
+              device.sharedTeamIds.contains(teamId) else { return nil }
+        return teamId
+    }
+
+    private func dropShare(_ target: DropShareTarget) {
+        let api = deps.devicesApi
+        let account = accountId
+        // The synced shape removes the row; a refusal is the failed-action
+        // toast, the same one the settings sheet's Remove device raises.
+        Task {
+            do {
+                try await api.dropShare(accountId: account, id: target.rowId, teamId: target.teamId)
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "remove", thing: "the device"),
+                    description: error.userFacingMessage
+                )
+            }
         }
     }
 
@@ -261,6 +329,18 @@ struct AgentsView: View {
                     )
                 }
         )
+        .background(
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                // FEED-149: the team owner's Remove, confirmed (prompts.json).
+                .glassAlert(item: $dropShareTarget) { target in
+                    GlassAlert(
+                        prompt: Prompts.RemoveDeviceShare.copy(name: target.name),
+                        handlers: ["remove": { dropShare(target) }]
+                    )
+                }
+        )
     }
 
     /// The machine a confirm names: its label, or its id for a row that has
@@ -355,7 +435,8 @@ struct AgentsView: View {
                 // so no play glyph; rename / defaults / update / remove all live
                 // one tap away in the sheet. EXP-432: own machines only — a
                 // teammate's shared server is startable from the composer but
-                // never manageable here, so its row carries no control at all.
+                // never manageable here, so its row carries no control at all
+                // (FEED-149: bar a team owner's Remove, below).
                 if device.isMine, device.isRegistered {
                     GhostIconButton(
                         AppIcons.navSettings,
@@ -364,6 +445,19 @@ struct AgentsView: View {
                         settingsTarget = DeviceSettingsTarget(id: device.deviceId)
                     }
                     .accessibilityIdentifier("machine-settings")
+                } else if let teamId = dropShareTeamId(device), let rowId = device.rowId {
+                    // FEED-149: a team owner's Remove on a teammate's row
+                    // shared into the current team — the gear's slot and
+                    // style, the device settings' Remove glyph.
+                    GhostIconButton(
+                        AppIcons.uiDelete,
+                        accessibilityLabel: "Remove \(deviceName(device)) from this team"
+                    ) {
+                        dropShareTarget = DropShareTarget(
+                            rowId: rowId, teamId: teamId, name: deviceName(device)
+                        )
+                    }
+                    .accessibilityIdentifier("device-drop-share")
                 }
             }
             // EXP-849/EXP-862/EXP-909: the machine's logins, with the repairs

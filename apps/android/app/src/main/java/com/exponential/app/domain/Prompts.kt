@@ -233,6 +233,21 @@ object Prompts {
         fun prompt(name: String) = spec.render("title", "body", "name" to name)
     }
 
+    /** FEED-149: a team OWNER drops a teammate's share of a machine from the team. */
+    object RemoveDeviceShare {
+        val spec = destructiveSpec(
+            "remove-device-share",
+            mapOf(
+                "title" to "Remove \"{name}\" from this team?",
+                "body" to "Sessions teammates started on it end.",
+            ),
+            listOf("name"),
+            "remove",
+            "Remove",
+        )
+        fun prompt(name: String) = spec.render("title", "body", "name" to name)
+    }
+
     object DeleteTeam {
         val spec = destructiveSpec(
             "delete-team",
@@ -457,6 +472,7 @@ object Prompts {
         listOf(
             DeleteIssue.spec, DeleteIssues.spec, DeleteFile.spec, MoveIssue.spec, MergeIssuePr.spec,
             MergeRunPr.spec, StopRun.spec, ResumeRun.spec, DeleteTrigger.spec, DeleteAction.spec, RemoveDevice.spec,
+            RemoveDeviceShare.spec,
             DeleteTeam.spec, TrashBoard.spec, DeleteLabel.spec, RemoveMember.spec, LeaveTeam.spec,
             MakeOwner.spec, MakeMember.spec, RemoveRepository.spec, UnlinkSignInMethod.spec,
             RemovePassword.spec, RemovePasskey.spec, DeleteAccount.spec, RemoveServer.spec,

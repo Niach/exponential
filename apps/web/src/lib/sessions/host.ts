@@ -16,6 +16,12 @@ type Reader = Pick<typeof db, `select`>
 // (`assertShareFree`); rows that predate the rule resolve to the EARLIEST
 // sharing row (`created_at`, then `id`), never the lowest user id (a new
 // account cannot make itself older than the box's own row).
+//
+// FEED-149: by design, two accounts signed in on ONE box (two daemons, or a
+// desktop and a daemon under different logins) cannot both share it into the
+// same team: the team would have two hosts for one machine. Each may share it
+// into a DIFFERENT team. The older row wins a contest (`otherShareRows`); a
+// team owner settles the rest with `devices.dropShare`.
 
 export type HostKey = Pick<Session, `deviceId` | `userId` | `teamId`>
 

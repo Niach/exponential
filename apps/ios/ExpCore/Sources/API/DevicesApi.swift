@@ -57,6 +57,14 @@ private struct SetSharedInput: Encodable {
     let shared: Bool
 }
 
+/// FEED-149: `devices.dropShare` — a team OWNER drops a teammate's share of
+/// a machine from that team. `id` is the devices ROW id (`SteerDevice.rowId`),
+/// not the machine id: a legacy duplicate shares the machine id.
+private struct DropShareInput: Encodable {
+    let id: String
+    let teamId: String
+}
+
 /// EXP-481: one agent's launch defaults in `devices.setLaunchDefaults` wire
 /// form. Only set fields ride (synthesized encodeIfPresent) — the server
 /// clamps vocabulary field-wise either way.
@@ -290,6 +298,18 @@ public final class DevicesApi: Sendable {
             accountId: accountId,
             path: "devices.setShared",
             input: SetSharedInput(deviceId: deviceId, teamId: teamId, shared: shared)
+        )
+    }
+
+    /// FEED-149: a team owner removes a TEAMMATE'S machine from one team —
+    /// drops that team from the row's shared set (non-owners are FORBIDDEN).
+    /// Sessions teammates started on it end server-side; the row leaves the
+    /// list through the devices shape.
+    public func dropShare(accountId: String, id: String, teamId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "devices.dropShare",
+            input: DropShareInput(id: id, teamId: teamId)
         )
     }
 

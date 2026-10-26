@@ -33,6 +33,10 @@
 //! Agent page composer, which preselects a device), no ⋯ row menu, and no
 //! inline update controls: Update and Remove are sections of that dialog.
 //!
+//! FEED-149: a teammate's shared row carries no control, except for an OWNER
+//! of the current team: the gear's slot then holds Remove, which drops that
+//! member's share of the machine from this team (`devices.dropShare`).
+//!
 //! EXP-909 folded the cross-device Accounts section (EXP-818) INTO these rows.
 //! One account held by three machines is three logins on three machines —
 //! which is what a person repairing one needs to see — so the email-merged
@@ -58,6 +62,7 @@ use crate::agent_account_actions::DEVICE_SETTINGS;
 use crate::controls::{WebControl as _, WebText as _};
 use crate::icons::registry;
 use crate::native_dialog::{self, AlertSpec};
+use crate::navigation::{nav_for_window, Navigation};
 use crate::queries;
 use crate::usage_bar::{chip_actions, AgentProfileUsageRow, ChipAction};
 
@@ -123,6 +128,10 @@ struct DeviceCard {
     mine: bool,
     /// EXP-525: a teammate's row keeps the attribution in its tooltip.
     owner_tooltip: Option<SharedString>,
+    /// FEED-149: the teams a TEAMMATE's row is shared into — what gates a
+    /// team owner's Remove. Empty on my own rows (their sharing lives in
+    /// Device settings).
+    shared_team_ids: Vec<String>,
     /// An OWN device shared with at least one team.
     shared: bool,
     is_default: bool,
@@ -177,17 +186,30 @@ pub(crate) struct MachinesSection {
     /// account" rows made that first question unreadable. View state, never a
     /// setting: a fold does not survive the screen.
     expanded: std::collections::HashSet<String>,
+    /// FEED-149: the window's navigation — the current team a team owner's
+    /// Remove drops a share from.
+    nav: Entity<Navigation>,
+    /// FEED-149: the `devices` row ids whose `dropShare` is in flight.
+    dropping: std::collections::HashSet<String>,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
 impl MachinesSection {
-    pub(crate) fn new(_window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+    pub(crate) fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let nav = nav_for_window(window, cx);
         // The rows stream over the devices shape — re-derive on every delta,
         // and notify only when the derivation actually moved.
         let devices_collection = sync::Store::global(cx).collections().devices.clone();
-        let subscriptions = vec![cx.observe(&devices_collection, |this: &mut Self, _, cx| {
-            this.refresh_cards(cx);
-        })];
+        // FEED-149: the owner's Remove reads the current team and my role in
+        // it at render time, so a team switch or a role change repaints.
+        let members_collection = sync::Store::global(cx).collections().team_members.clone();
+        let subscriptions = vec![
+            cx.observe(&devices_collection, |this: &mut Self, _, cx| {
+                this.refresh_cards(cx);
+            }),
+            cx.observe(&nav, |_, _, cx| cx.notify()),
+            cx.observe(&members_collection, |_, _, cx| cx.notify()),
+        ];
         // Online-ness ages out on a clock, not on a delta.
         cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(LIVENESS_TICK).await;
@@ -220,8 +242,70 @@ impl MachinesSection {
             refreshing: std::collections::HashMap::new(),
             auto_attempts: std::collections::HashMap::new(),
             expanded: std::collections::HashSet::new(),
+            nav,
+            dropping: std::collections::HashSet::new(),
             _subscriptions: subscriptions,
         }
+    }
+
+    /// FEED-149: the team a teammate's shared row can be removed from — the
+    /// current team, when I OWN it. `None` = no row carries the control.
+    fn owned_team_id(&self, cx: &App) -> Option<String> {
+        crate::navigation::active_team_id(&self.nav, cx)
+            .filter(|team_id| crate::settings::is_owner(cx, team_id))
+    }
+
+    /// FEED-149: Remove behind a confirm (the prompts fixture's
+    /// `remove-device-share`).
+    fn prompt_drop_share(
+        &mut self,
+        device: &DeviceCard,
+        team_id: String,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let view = cx.entity().downgrade();
+        let row_id = device.row_id.clone();
+        let spec = AlertSpec::from_prompt(
+            "Remove device",
+            &domain::prompts::remove_device_share(&device.label),
+        )
+        .on_ok(move |_, cx| {
+            if let Some(view) = view.upgrade() {
+                let (row_id, team_id) = (row_id.clone(), team_id.clone());
+                view.update(cx, |this, cx| this.drop_share(row_id, team_id, cx));
+            }
+            true
+        });
+        native_dialog::open_alert(window, cx, spec);
+    }
+
+    /// FEED-149: `devices.dropShare`. Success needs no handling of its own —
+    /// the row leaves the Team devices list through the synced shape; a
+    /// failure is the standard failed-action toast.
+    fn drop_share(&mut self, row_id: String, team_id: String, cx: &mut gpui::Context<Self>) {
+        if !self.dropping.insert(row_id.clone()) {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            self.dropping.remove(&row_id);
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let id = row_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::devices::drop_share(&trpc, &id, &team_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.dropping.remove(&row_id);
+                if let Err(err) = result {
+                    log::warn!("[ui] devices.dropShare failed: {err}");
+                    crate::action_error::failed_action_err("remove", "the device", &err, cx);
+                }
+            });
+        })
+        .detach();
     }
 
     /// EXP-909 — whether a login's device may run the refresh at all: one of
@@ -442,6 +526,11 @@ impl MachinesSection {
                 own: device_id == own_device_id,
                 mine: owned,
                 owner_tooltip,
+                shared_team_ids: if owned {
+                    Vec::new()
+                } else {
+                    row.shared_team_ids.clone()
+                },
                 server: row.is_server(),
                 icon: row.icon.clone(),
                 online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
@@ -508,6 +597,7 @@ impl MachinesSection {
         &self,
         index: usize,
         device: &DeviceCard,
+        owned_team_id: Option<&str>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let theme = cx.theme();
@@ -556,6 +646,30 @@ impl MachinesSection {
                     }),
                 )
         });
+        // FEED-149: a team OWNER's Remove on a teammate's row shared into the
+        // current team — the gear's slot, painted and revealed the same way.
+        let drop_share = owned_team_id
+            .filter(|team_id| !device.mine && device.shared_team_ids.iter().any(|id| id == team_id))
+            .map(|team_id| {
+                let team_id = team_id.to_string();
+                let target = device.clone();
+                div()
+                    .invisible()
+                    .group_hover(MACHINE_ROW_GROUP, |style| style.visible())
+                    .flex_shrink_0()
+                    .child(
+                        crate::controls::ghost_icon_button(
+                            ("machine-drop-share", index),
+                            Icon::new(registry::UI_DELETE),
+                            cx,
+                        )
+                        .tooltip("Remove from this team")
+                        .on_click(cx.listener(move |this, _: &gpui::ClickEvent, window, cx| {
+                            cx.stop_propagation();
+                            this.prompt_drop_share(&target, team_id.clone(), window, cx);
+                        })),
+                    )
+            });
         // EXP-944: the whole line folds, so the chevron is an AFFORDANCE, not
         // a second target — the same fold glyph the session tree wears.
         // Keyed on the devices ROW id (the gear's key too), never the machine
@@ -736,7 +850,9 @@ impl MachinesSection {
             // EXP-909: ONE trailing control — the gear, on my own rows only.
             // The ▶/⋯ pair and the 32px placeholder that kept them lined up
             // are gone with them, so a team row ends at its status line.
-            .children(gear);
+            // FEED-149: except for a team owner, whose slot holds Remove.
+            .children(gear)
+            .children(drop_share);
         // EXP-909: the device's own logins hang UNDER its line, so a login is
         // always read beside the machine that holds it. EXP-944: in the FOLD —
         // the collapsed row is the machine, its logins are the second question.
@@ -1129,6 +1245,7 @@ mod tests {
             own: false,
             mine: true,
             owner_tooltip: None,
+            shared_team_ids: Vec::new(),
             shared: false,
             is_default: false,
             version: None,
@@ -1250,16 +1367,19 @@ impl Render for MachinesSection {
             Some(derived) => (derived.mine.as_slice(), derived.team.as_slice()),
             None => (&[][..], &[][..]),
         };
+        let owned_team_id = self.owned_team_id(cx);
         let mine_rows: Vec<gpui::AnyElement> = mine
             .iter()
             .enumerate()
-            .map(|(index, device)| self.render_row(index, device, cx))
+            .map(|(index, device)| self.render_row(index, device, None, cx))
             .collect();
         let team_rows: Vec<gpui::AnyElement> = team
             .iter()
             .enumerate()
             // Offset the element ids so the two groups can never collide.
-            .map(|(index, device)| self.render_row(index + mine.len(), device, cx))
+            .map(|(index, device)| {
+                self.render_row(index + mine.len(), device, owned_team_id.as_deref(), cx)
+            })
             .collect();
 
         // EXP-642: the web `GlassSectionHeader` — a plain-text heading with
