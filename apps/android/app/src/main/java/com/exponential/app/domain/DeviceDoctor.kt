@@ -95,7 +95,7 @@ data class DoctorRow(
 data class DoctorGroup(
     val key: String,
     val label: String,
-    /** `optional` on the agent and computer-use groups; null on Required. */
+    /** `optional` on the agent, computer-use and voice groups; null on Required. */
     val tag: String?,
     val rows: List<DoctorRow>,
 )
@@ -105,6 +105,8 @@ object DeviceReadiness {
     const val GROUP_REQUIRED = "required"
     const val GROUP_AGENTS = "agents"
     const val GROUP_COMPUTER_USE = "computer_use"
+    /** NEW-78: the voice device's microphone row. */
+    const val GROUP_VOICE = "voice"
 
     const val KEY_GIT = "git"
     const val KEY_COMPUTER_USE = "computer_use"
@@ -126,6 +128,7 @@ object DeviceReadiness {
         Triple(GROUP_REQUIRED, "Required", null),
         Triple(GROUP_AGENTS, "Coding agents", "optional"),
         Triple(GROUP_COMPUTER_USE, "Computer use", "optional"),
+        Triple(GROUP_VOICE, "Voice", "optional"),
     )
 
     /** Fixture `labels`. */
@@ -136,6 +139,7 @@ object DeviceReadiness {
         "computer_use" to "Computer use",
         "screen_recording" to "Screen Recording",
         "accessibility" to "Accessibility",
+        "microphone" to "Microphone",
     )
 
     /** Fixture `actions`: label + whether ANOTHER device may run it. */

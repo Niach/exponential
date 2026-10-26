@@ -13,7 +13,16 @@
 //! voice file), [`SpeechClient::speak`] replaces whatever is being said,
 //! [`SpeechClient::stop`] ends it. The worker answers with
 //! [`Event::Voices`]: the languages it can speak on THIS machine (none
-//! without a usable GPU). Listening arrives with slice (c).
+//! without a usable GPU).
+//!
+//! NEW-78 (protocol 3) listens: [`SpeechClient::listen`] opens the
+//! microphone and stops any speech (barge-in), the worker streams
+//! [`Event::Level`] frames for the wave and, on a GPU, [`Event::Partial`]
+//! transcripts; [`SpeechClient::end_listen`] closes the microphone and the
+//! worker answers [`Event::Heard`] (or [`Event::Empty`] when nobody spoke);
+//! [`SpeechClient::cancel_listen`] drops the utterance without an answer.
+
+pub mod microphone;
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -27,7 +36,11 @@ pub const ARGV_MARKER: &str = "__speech-worker";
 /// The flag carrying the data dir the worker keeps its models under.
 pub const DATA_DIR_FLAG: &str = "--data-dir";
 /// The wire's version; a worker that answers another is replaced.
-pub const PROTOCOL: u32 = 2;
+/// NEW-78: 3 = listening.
+pub const PROTOCOL: u32 = 3;
+
+/// NEW-78: the bands of a [`Event::Level`] frame (low to high pitch).
+pub const LEVEL_BANDS: usize = 8;
 
 /// Host → worker, one JSON object per line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +53,14 @@ pub enum Request {
     Speak { id: String, text: String },
     /// End whatever is being said.
     Stop,
+    /// NEW-78: open the microphone and listen for one utterance `id`
+    /// spoken in `language` (`user_voice_settings.language`, en | de).
+    /// Stops any speech (barge-in) and replaces a running Listen.
+    Listen { id: String, language: String },
+    /// NEW-78: the key was released: close the microphone and transcribe.
+    EndListen { id: String },
+    /// NEW-78: drop utterance `id` (no Heard, no Empty).
+    CancelListen { id: String },
 }
 
 /// Worker → host, one JSON object per line.
@@ -63,9 +84,38 @@ pub enum Event {
     Finished { id: String, stopped: bool },
     /// `id` could not be spoken.
     Failed { id: String, error: String },
+    /// NEW-78: the microphone level while `id` listens, one frame per
+    /// 32 ms (~31 Hz): `level` and each of the [`LEVEL_BANDS`] `bands` in
+    /// 0..=1, already smoothed for drawing.
+    Level { id: String, level: f32, bands: [f32; LEVEL_BANDS] },
+    /// NEW-78: what `id` has heard so far (only where the transcriber runs
+    /// on the GPU); replaced by the next Partial and finally by Heard.
+    Partial { id: String, text: String },
+    /// NEW-78: `id`'s final transcript.
+    Heard { id: String, text: String },
+    /// NEW-78: `id` ended without speech (a tap, or only noise).
+    Empty { id: String },
+    /// NEW-78: `id` could not listen or transcribe.
+    ListenFailed { id: String, reason: ListenFailure, detail: String },
     /// Host-side: the worker process ended (crash, kill, EOF). Never sent
     /// by the worker itself.
     Exited,
+}
+
+/// NEW-78: why a Listen failed (`detail` carries the specifics for the log).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ListenFailure {
+    /// No input device, or the capture would not open.
+    NoMicrophone,
+    /// The OS refused the microphone (macOS privacy).
+    NotGranted,
+    /// The speech model is still downloading (progress = `Downloading`).
+    Downloading,
+    /// The model or its runtime failed to download, verify or load.
+    Unavailable,
+    /// Transcribing failed.
+    Failed,
 }
 
 /// NEW-74: the voice the member picked (`user_voice_settings`): the
@@ -229,11 +279,32 @@ impl SpeechClient {
         self.send(&Request::Speak { id: id.into(), text: text.into() });
     }
 
+    /// NEW-78: listen for utterance `id` in `language` (stops speech).
+    pub fn listen(&self, id: impl Into<String>, language: impl Into<String>) {
+        self.send(&Request::Listen { id: id.into(), language: language.into() });
+    }
+
+    /// NEW-78: the key was released; Heard or Empty follows.
+    pub fn end_listen(&self, id: impl Into<String>) {
+        self.send_if_running(&Request::EndListen { id: id.into() });
+    }
+
+    /// NEW-78: drop utterance `id`.
+    pub fn cancel_listen(&self, id: impl Into<String>) {
+        self.send_if_running(&Request::CancelListen { id: id.into() });
+    }
+
     pub fn stop(&self) {
-        // Nothing to stop when no worker runs; never spawn one for it.
+        self.send_if_running(&Request::Stop);
+    }
+
+    /// Requests that mean nothing to a worker that is not running never
+    /// spawn one.
+    fn send_if_running(&self, request: &Request) {
+        // Never spawn a worker for these: there is nothing to end.
         let Ok(mut guard) = self.worker.lock() else { return };
         if let Some(worker) = guard.as_mut() {
-            if write_line(&mut worker.stdin, &Request::Stop).is_err() {
+            if write_line(&mut worker.stdin, request).is_err() {
                 *guard = None;
             }
         }
@@ -372,6 +443,35 @@ mod tests {
     }
 
     #[test]
+    fn protocol_3_listens() {
+        assert_eq!(
+            serde_json::to_string(&Request::Listen { id: "u1".into(), language: "de".into() }).unwrap(),
+            r#"{"t":"listen","id":"u1","language":"de"}"#
+        );
+        assert_eq!(serde_json::to_string(&Request::EndListen { id: "u1".into() }).unwrap(), r#"{"t":"endListen","id":"u1"}"#);
+        assert_eq!(
+            serde_json::to_string(&Request::CancelListen { id: "u1".into() }).unwrap(),
+            r#"{"t":"cancelListen","id":"u1"}"#
+        );
+        let level = Event::Level { id: "u1".into(), level: 0.5, bands: [0.0, 0.25, 0.5, 0.75, 1.0, 0.5, 0.25, 0.0] };
+        assert_eq!(
+            serde_json::to_string(&level).unwrap(),
+            r#"{"t":"level","id":"u1","level":0.5,"bands":[0.0,0.25,0.5,0.75,1.0,0.5,0.25,0.0]}"#
+        );
+        let event: Event = serde_json::from_str(r#"{"t":"heard","id":"u1","text":"Move NEW-78 to done."}"#).unwrap();
+        assert_eq!(event, Event::Heard { id: "u1".into(), text: "Move NEW-78 to done.".into() });
+        let event: Event = serde_json::from_str(r#"{"t":"partial","id":"u1","text":"Move"}"#).unwrap();
+        assert_eq!(event, Event::Partial { id: "u1".into(), text: "Move".into() });
+        let event: Event = serde_json::from_str(r#"{"t":"empty","id":"u1"}"#).unwrap();
+        assert_eq!(event, Event::Empty { id: "u1".into() });
+        let failed = Event::ListenFailed { id: "u1".into(), reason: ListenFailure::NoMicrophone, detail: "pw-record: not found".into() };
+        assert_eq!(
+            serde_json::to_string(&failed).unwrap(),
+            r#"{"t":"listenFailed","id":"u1","reason":"no_microphone","detail":"pw-record: not found"}"#
+        );
+    }
+
+    #[test]
     fn only_a_local_absolute_wav_with_a_transcript_is_a_voice_file() {
         let dir = std::env::temp_dir().join(format!("talk-voice-file-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -407,6 +507,8 @@ mod tests {
         let client = SpeechClient::new(PathBuf::from("/nonexistent/exe"), std::env::temp_dir(), |_| {});
         client.speak("m1", "Hello.");
         client.stop();
+        client.end_listen("u1");
+        client.cancel_listen("u1");
         client.shutdown();
     }
 }

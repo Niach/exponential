@@ -56,6 +56,24 @@ pub(crate) fn voice_here(settings: &domain::voice::VoiceSettings, own_device_id:
     DeviceVoice { agent_id: settings.agent_id, speak_replies: settings.speak_replies, voice }
 }
 
+/// NEW-78: THIS device listens: it is the member's voice device and Push to
+/// talk is on (after voice.json `clearOnNone`). Only then does its doctor
+/// carry the `microphone` row.
+pub(crate) fn listens_here(settings: &domain::voice::VoiceSettings, own_device_id: &str) -> bool {
+    let settings = settings.clone().clear_on_none();
+    settings.push_to_talk && settings.voice_device_id.as_deref() == Some(own_device_id)
+}
+
+/// [`listens_here`] for the member's current settings (false before the
+/// first heartbeat delivered them).
+pub(crate) fn push_to_talk_here(cx: &App) -> bool {
+    let Some(entity) = global(cx) else { return false };
+    let Some(auth) = cx.try_global::<crate::session::AuthContext>() else {
+        return false;
+    };
+    listens_here(&entity.read(cx).settings, &steer::persistent_device_id(&auth.data_dir))
+}
+
 /// The reply being spoken (for the Dock banner).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Speaking {
@@ -261,6 +279,7 @@ pub(crate) fn stop(cx: &mut App) {
 /// Settings → Voice save): adopt them and start or stop the voice here.
 pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App) {
     let Some(entity) = global(cx) else { return };
+    let listened = push_to_talk_here(cx);
     entity.update(cx, |this, cx| {
         if this.settings == settings {
             return;
@@ -270,6 +289,13 @@ pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App)
         // The voice tray follows the settings.
         cx.notify();
     });
+    // NEW-78: Push to talk moved here or away — the doctor's microphone row
+    // follows now (the refresh nudges the beat), not a beat later.
+    if push_to_talk_here(cx) != listened {
+        if let Some(hub) = crate::coding_flow::CodingHub::global_ref(cx) {
+            crate::coding_flow::CodingHub::refresh_doctor(&hub, cx);
+        }
+    }
 }
 
 fn session_account(cx: &App) -> Option<String> {
@@ -444,6 +470,12 @@ impl SpeakReplies {
             }
             talk::Event::Exited => self.on_exited(cx),
             talk::Event::Ready { .. } | talk::Event::Started { .. } => {}
+            // NEW-78: listening has no host yet (push to talk = NEW-54 b2).
+            talk::Event::Level { .. }
+            | talk::Event::Partial { .. }
+            | talk::Event::Heard { .. }
+            | talk::Event::Empty { .. }
+            | talk::Event::ListenFailed { .. } => {}
         }
         // Settings → Voice draws the download as the Speak replies detail.
         if self.download != download_before {
@@ -496,6 +528,23 @@ impl SpeakReplies {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_voice_device_with_push_to_talk_listens() {
+        let settings = domain::voice::VoiceSettings {
+            voice_device_id: Some("mac".into()),
+            agent_id: Some("a1".into()),
+            push_to_talk: true,
+            ..Default::default()
+        };
+        assert!(listens_here(&settings, "mac"));
+        assert!(!listens_here(&settings, "pc"));
+        let off = domain::voice::VoiceSettings { push_to_talk: false, ..settings.clone() };
+        assert!(!listens_here(&off, "mac"));
+        // clearOnNone: no agent picked = nothing listens.
+        let no_agent = domain::voice::VoiceSettings { agent_id: None, ..settings };
+        assert!(!listens_here(&no_agent, "mac"));
+    }
 
     fn message(id: &str, created: &str) -> MessageRow {
         serde_json::from_value(serde_json::json!({

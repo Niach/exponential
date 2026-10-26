@@ -1215,8 +1215,10 @@ export const deviceDoctorKeys = [
   `computer_use`,
   `screen_recording`,
   `accessibility`,
+  // NEW-78: the voice device's microphone (IDE only, Push to talk on).
+  `microphone`,
 ] as const
-export const deviceDoctorGroups = [`required`, `agents`, `computer_use`] as const
+export const deviceDoctorGroups = [`required`, `agents`, `computer_use`, `voice`] as const
 export const deviceDoctorStates = [
   `ok`,
   `action`,

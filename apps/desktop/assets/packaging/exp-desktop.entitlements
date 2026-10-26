@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  NEW-78: the hardened runtime's entitlements for the release signature.
+  Push to talk records the microphone in the speech worker (this same
+  executable, `__speech-worker`); the hardened runtime refuses audio input
+  without device.audio-input (Info.plist carries the
+  NSMicrophoneUsageDescription the OS prompt shows). Library validation
+  stays on (NEW-74: the CrispASR dylibs are bundled and signed by us).
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

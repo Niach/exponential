@@ -32,7 +32,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, S
 
 use coding::device_doctor::{
     self, DeviceDoctor, DoctorAction, DoctorGroup, DoctorItem, DoctorState, KEY_COMPUTER_USE,
-    KEY_GIT,
+    KEY_GIT, KEY_MICROPHONE,
 };
 use coding::CodingAgent;
 
@@ -156,6 +156,22 @@ pub(crate) fn parse(value: Option<&serde_json::Value>) -> Option<DeviceDoctor> {
             .to_string(),
         items,
     })
+}
+
+/// NEW-78: the IDE's `microphone` row, appended only while THIS device
+/// listens (`speak_replies::listens_here`); the CLI daemon never adds it.
+/// Probes the OS (`talk::microphone`, a `pactl` run on Linux): background
+/// executor only. The mapping lives here because coding never depends on talk.
+pub(crate) fn add_microphone_row(doctor: &mut DeviceDoctor, listening: bool) {
+    if !listening {
+        return;
+    }
+    let state = match talk::microphone::probe() {
+        talk::microphone::Microphone::Granted => device_doctor::MicrophoneState::Granted,
+        talk::microphone::Microphone::NotGranted => device_doctor::MicrophoneState::NotGranted,
+        talk::microphone::Microphone::NoDevice => device_doctor::MicrophoneState::NoDevice,
+    };
+    device_doctor::add_microphone(doctor, state);
 }
 
 /// The first-run footer rule: `continue` (filled) instead of `skip` once Git
@@ -614,6 +630,9 @@ pub(crate) fn privacy_pane_url(key: &str) -> Option<&'static str> {
         "accessibility" => {
             Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
         }
+        KEY_MICROPHONE => {
+            Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+        }
         _ => None,
     }
 }
@@ -663,6 +682,7 @@ pub(crate) fn run_local_action(key: &str, action: DoctorAction, _window: &mut Wi
         // The Import pill runs through [`BlockProps::on_import`] (it confirms
         // first); it is never a row's action.
         DoctorAction::Import => {}
+        DoctorAction::Grant if key == KEY_MICROPHONE => grant_microphone(cx),
         DoctorAction::Grant => {
             if let Some(url) = privacy_pane_url(key) {
                 open_external(url, cx);
@@ -670,6 +690,33 @@ pub(crate) fn run_local_action(key: &str, action: DoctorAction, _window: &mut Wi
             coding::computer::prepare_in_background();
         }
     }
+}
+
+/// NEW-78: the microphone row's Grant on macOS: the OS prompt while it has
+/// not asked yet (the doctor re-runs on the answer), else System Settings →
+/// Privacy → Microphone.
+fn grant_microphone(cx: &mut App) {
+    let (answered, answer) = std::sync::mpsc::channel::<bool>();
+    let asked = talk::microphone::request_access(move |granted| {
+        let _ = answered.send(granted);
+    });
+    if !asked {
+        if let Some(url) = privacy_pane_url(KEY_MICROPHONE) {
+            open_external(url, cx);
+        }
+        return;
+    }
+    cx.spawn(async move |cx| {
+        let answer = cx.background_executor().spawn(async move { answer.recv() }).await;
+        if answer.is_ok() {
+            let _ = cx.update(|cx| {
+                if let Some(hub) = crate::coding_flow::CodingHub::global_ref(cx) {
+                    crate::coding_flow::CodingHub::refresh_doctor(&hub, cx);
+                }
+            });
+        }
+    })
+    .detach();
 }
 
 /// `claude update` / `codex update` right here (`coding::update_agent`, the

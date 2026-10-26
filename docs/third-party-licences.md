@@ -480,6 +480,9 @@ mismatch deletes the file and the voice backs off (1 min doubling to 1 h).
 | NVIDIA CUDA runtime (`libcudart.so.12`) and cuBLAS (`libcublas.so.12`, `libcublasLt.so.12`) | 12.9.79 / 12.9.2.10 | NVIDIA CUDA Toolkit EULA (proprietary, redistributable); its text is kept beside the files | NVIDIA's own wheels on PyPI (`nvidia-cuda-runtime-cu12`, `nvidia-cublas-cu12`) | Linux x86_64 only |
 | Qwen3-TTS 12 Hz 0.6B Base, F16 GGUF | cstr/qwen3-tts-0.6b-base-GGUF @ 94072f5 | Apache-2.0 | Hugging Face | all three |
 | Qwen3-TTS 12 Hz tokenizer (codec), F16 GGUF | cstr/qwen3-tts-tokenizer-12hz-GGUF @ 344e279 | Apache-2.0 | Hugging Face | all three |
+| NEW-78: CrispASR CPU-only runtime (`libcrispasr` + ggml; on Linux with OpenBLAS (BSD-3-Clause), libgfortran (GCC Runtime Library Exception) and libquadmath (LGPL-2.1)) | v0.8.45 release assets | MIT (+ the listed) | github.com/CrispStrobe/CrispASR releases | Linux x86_64 and Windows x86_64 without a GPU driver, for push to talk only |
+| NEW-78: Parakeet TDT 0.6B v3 (NVIDIA), Q8_0 GGUF | cstr/parakeet-tdt-0.6b-v3-GGUF @ dff69b0 | **CC BY 4.0** (attribution + "converted and quantised by cstr" in the notices) | Hugging Face | all three |
+| NEW-78: Silero VAD v6.2, ggml | ggml-org/whisper-vad @ 9ffd54a | MIT | Hugging Face | all three |
 
 Sizes of the first-use download: Linux ~2.97 GB (runtime 196 MB, cuBLAS
 581 MB, model 1.83 GB, codec 358 MB), macOS ~2.19 GB (the models only; the
@@ -494,7 +497,8 @@ bundle, Windows ~2.3 GB.
 | path | what | written by |
 |---|---|---|
 | `crispasr-0.8.45/` | the runtime libraries, their licences, one `.<artifact id>.sha256` manifest per artifact (Linux, Windows; macOS reads `Contents/Frameworks` of the bundle instead) | `crispasr::artifact::ensure` |
-| `models/` | `qwen3-tts-12hz-0.6b-base.gguf`, `qwen3-tts-tokenizer-12hz.gguf` and their manifests | same |
+| `crispasr-0.8.45-cpu/` | NEW-78: the CPU-only runtime, where no GPU driver exists (Linux, Windows) | same |
+| `models/` | `qwen3-tts-12hz-0.6b-base.gguf`, `qwen3-tts-tokenizer-12hz.gguf`, NEW-78's `parakeet-tdt-0.6b-v3-q8_0.gguf` (674 MB) and `ggml-silero-v6.2.0.bin` (0.9 MB), and their manifests | same |
 | `voices/` | `builtin-<language>.wav`, the built-in clips written out for CrispASR (rewritten when they differ) | `voice::builtin::materialize` |
 | `no-gpu.txt` | the "this GPU and driver were too slow" verdict (fingerprint + time, 30 days) | the speech worker |
 | `<artifact id>.part` | a download in progress (deleted on failure or after unpacking) | `crispasr::artifact::download` |
@@ -523,6 +527,12 @@ validation stays ON (review of #1237, 2026-10-26): no
 `disable-library-validation` entitlement; the bundled dylibs carry our
 signature and are loaded by absolute path from the running bundle only.
 CrispASR watermarks every synthesized clip (an inaudible AI-content mark, EU
-AI Act Art. 50(2)); it stays on. Re-check on every CrispASR or model bump:
+AI Act Art. 50(2)); it stays on. NEW-78 (2026-10-26): Parakeet is CC BY 4.0,
+which permits use with attribution and a note of changes: the notices name
+NVIDIA, the licence, cstr's GGUF conversion and Q8_0 quantisation; we change
+nothing and redistribute nothing (the voice device fetches it). Silero and its
+ggml conversion are MIT. The CPU-only runtime's GCC runtime libraries are
+fetched by the user's machine with CrispASR's notices, not shipped by us.
+Re-check on every CrispASR or model bump:
 the pins, the release's notices, and that no GPL component entered the
 prebuilt library.
