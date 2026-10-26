@@ -88,6 +88,8 @@ export const PAGES: PageSeo[] = [
       `src/components/HeroPhone.tsx`,
       `src/ui-demos/AgentChat.tsx`,
       `src/ui-demos/VoiceOverlay.tsx`,
+      `src/components/TalkOverlay.tsx`,
+      `src/components/IslandFilm.tsx`,
       `src/styles/home.css`,
     ],
     title: `Exponential · The next generation dev platform for teams and agents`,

@@ -7,7 +7,7 @@ import { shotSrc } from "./components/DocShot"
 import { HeroDownload } from "./components/HeroDownload"
 import { HeroPhone } from "./components/HeroPhone"
 import { IcArrow } from "./components/icons"
-import { UiDemo } from "./components/UiDemo"
+import { TalkOverlay } from "./components/TalkOverlay"
 import { heroChild, heroStagger, sectionReveal } from "./lib/animations"
 import { LINKS } from "./lib/links"
 
@@ -115,7 +115,7 @@ export function HomePage() {
               </a>
             </motion.div>
             <motion.figure className={`home-talk-stage`} {...sectionReveal}>
-              <UiDemo id={`voice-overlay`} />
+              <TalkOverlay />
             </motion.figure>
           </div>
         </section>

@@ -37,12 +37,18 @@ export function VoiceCapsule({ row }: { row: OverlayRow }) {
   )
 }
 
-export function VoiceOverlay() {
+export const LAST_STEP = OVERLAY_ROWS.length - 1
+
+/** Listening and Heard hold a beat; Speaking holds for the film's own hold. */
+export function frameMs(step: number): number {
+  return step === 0 ? 2600 : 1600
+}
+
+/** One capsule at `step` (0 = Listening, the prerendered resting frame). */
+export function VoiceOverlay({ step = 0 }: { step?: number }) {
   return (
-    <div className="flex min-w-0 flex-col items-start gap-3 bg-background p-4 sm:p-6">
-      {OVERLAY_ROWS.map((row) => (
-        <VoiceCapsule key={row.activity} row={row} />
-      ))}
+    <div className="flex min-w-0 justify-center bg-background p-4 sm:p-6">
+      <VoiceCapsule row={OVERLAY_ROWS[Math.min(step, LAST_STEP)]} />
     </div>
   )
 }
