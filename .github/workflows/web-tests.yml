@@ -1,9 +1,8 @@
 name: web-tests
 
-# EXP-1364: the web gate of test.yml (the pull request). Every piece runs in
-# parallel: the typecheck (+ the small bun suites), the package tests, and the
-# web vitest suite as four shards. The Exponential UI React + Solid suites are
-# NOT here: exponential-ui.yml runs them on every change to the SDK.
+# EXP-1364: the web part of the PR gate (test.yml): the typecheck and the web
+# vitest suite as four shards, all in parallel. The small bun suites and the
+# package tests run in release-suite.yml (`extras`).
 
 on:
   workflow_call: {}
@@ -17,33 +16,6 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Typecheck web
         run: bun run typecheck
-      # EXP-566: the view-catalog drift gates (catalog ↔ native shot names ↔
-      # recipe registry ↔ route coverage) and the store writer's tests — vitest
-      # doesn't run bun-test packages, so they need their own step.
-      - name: Screenshot store tests
-        run: bun run test:shots
-      - name: Widget unit tests
-        run: bun run test:widget
-      # EXP-1393: release_lock never frees a lock another lane owns.
-      - name: Lane lock tests
-        run: bun run test:lanes
-      - name: Steer relay + ticket tests
-        run: bun run test:steer-relay
-      # EXP-446: nothing ran the push relay's typecheck in CI before; EXP-1289
-      # added its bun-test suite (transport retry, deep health check, stats).
-      - name: Typecheck push relay
-        run: bun run --filter @exp/push-relay typecheck
-      - name: Push relay tests
-        run: bun run test:push-relay
-
-  packages:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - name: Package unit tests (contract, the Exponential UI catalog, @exp/ui, MCP apps)
-        run: bun --filter @exp/domain-contract test && bun --filter @exponential_app/ui test && bun --filter @exp/ui --filter @exp/mcp-apps test
 
   unit:
     name: unit (${{ matrix.shard }}/4)

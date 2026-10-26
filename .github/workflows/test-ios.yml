@@ -22,27 +22,12 @@ name: test-ios
 # tuist's selective testing can skip a suite whose inputs it does not track —
 # a fixture read through `#filePath` is exactly that — and report green.
 #
-# Path-filtered: every generated Swift file (contract, icons, design tokens) is
-# committed under apps/ios, so that filter covers a codegen change arriving
-# from packages/. The one exception is packages/domain-contract, whose JSON
-# fixtures and TS reference the ExpCore tests read straight off the checkout.
-
-# Once per change: the pull request only. The push the squash merge produces
-# carries the tree the PR just tested, so it does not run again
-# (`workflow_dispatch` for a direct push to master).
+# 2026-10-26: release-only. release-suite.yml calls this on the release tags;
+# workflow_dispatch runs it by hand. Never on pull requests.
 
 on:
-  pull_request:
-    branches: [master]
-    paths:
-      - 'apps/ios/**'
-      - 'packages/domain-contract/**'
-      - '.github/workflows/test-ios.yml'
+  workflow_call: {}
   workflow_dispatch: {}
-
-concurrency:
-  group: test-ios-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

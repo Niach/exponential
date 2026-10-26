@@ -1,13 +1,16 @@
 name: test
 
-# CI test gate: typecheck + unit tests for the bun workspaces, the desktop
-# Rust workspace, and the Android app, plus a from-scratch migration run
-# against a real Postgres. Runs ONCE per change: on the pull request. It does
-# NOT run again on the push to master that the squash merge produces (the same
-# tree was just tested on the PR, and the second run only made every merge and
-# every release wait twice). A direct push to master (the screenshot refresh,
-# a trunk-clone release) is therefore untested here: those runs verify
-# locally, and `workflow_dispatch` runs this suite on demand.
+# The ONE pull-request gate (2026-10-26: speed first, target < 5 min wall).
+# Only the cheap checks that catch real breakage run here: the typecheck, the
+# web unit tests (four shards), the migration chain against a real Postgres
+# (order, drift, custom triggers), and `cargo check` of the desktop workspace
+# when the PR touches it. Everything heavy (the Exponential UI renderers,
+# conformance + bench, iOS, Android, the full desktop cargo test, marketing,
+# shots:check, the package suites, the real-DB suites, image smoke builds)
+# runs in release-suite.yml: on release tags and on workflow_dispatch.
+#
+# Runs ONCE per change: on the pull request, never again on the squash push
+# to master. `workflow_dispatch` runs this gate on demand.
 
 on:
   pull_request:
@@ -20,21 +23,18 @@ concurrency:
 
 jobs:
   # EXP-1364: fork PRs never run here (pick skips, everything needs it); the
-  # desktop + android jobs run on the Mint when it is up.
+  # desktop check runs on the Mint (warm sccache) when it is up.
   pick:
     uses: ./.github/workflows/pick-runner.yml
     secrets: inherit
 
-  # EXP-1364: the desktop + android jobs (the slowest after the web gate) run
-  # only when the PR touches what they build or read; workflow_dispatch runs
-  # everything. Shared = the generated contract/tokens/icons/emoji, the
-  # Exponential UI fixtures, the licence notices.
+  # The desktop check runs only when the PR touches what it builds;
+  # workflow_dispatch runs it always.
   changes:
     needs: pick
     runs-on: ubuntu-latest
     outputs:
       desktop: ${{ steps.f.outputs.desktop }}
-      android: ${{ steps.f.outputs.android }}
     steps:
       - id: f
         env:
@@ -42,79 +42,21 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          if [ -z "$PR" ]; then
-            echo "desktop=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
+          if [ -z "$PR" ]; then echo "desktop=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" -q '.[].filename')"
-          shared='^(packages/(domain-contract|exponential-ui|icons|design-tokens|emoji|licenses)/|\.github/workflows/(test|pick-runner)\.yml$)'
-          desktop="$shared|^(apps/desktop/|packages/ui/exponential-ui/|packages/electric-protocol/)"
-          android="$shared|^(apps/android/|packages/exponential-ui-compose/)"
+          desktop='^(apps/desktop/|packages/(domain-contract|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
-          echo "android=$(grep -qE "$android" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
 
   web:
     needs: pick
     uses: ./.github/workflows/web-tests.yml
 
-  push-relay-image:
-    needs: pick
-    # EXP-446: Dockerfile.push-relay is built by no publish workflow — Coolify
-    # builds it from the repo at deploy time, so a broken edit's first
-    # validation used to be the deploy itself. Build-only (push: false —
-    # publishing would create a new public ghcr package, a product decision;
-    # see the EXP-376 note in the Dockerfile) and amd64-only (smoke gate, not
-    # an artifact).
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Build push-relay image (no push)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile.push-relay
-          platforms: linux/amd64
-          push: false
-          cache-from: type=gha,scope=push-relay
-          cache-to: type=gha,mode=max,scope=push-relay
-
-  marketing:
-    needs: pick
-    # REV2-62: nothing else in CI typechecks or builds apps/marketing — its
-    # breaks used to surface only at Coolify deploy time. `build` also runs
-    # scripts/prerender.tsx, the Bun SSR canary that hard-fails if remotion
-    # ever enters HomePage's static import graph (the movie must stay in the
-    # lazy LoopMoviePlayer chunk).
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - name: Build marketing site
-        run: bun run build:marketing
-      - name: Exponential UI section tests (/ui/, after the build so the built-CSP check runs)
-        run: bun --filter @exp/marketing test
-      - name: Build styleguide
-        # EXP-566: same rationale — the styleguide deploys straight from Coolify,
-        # so its only pre-deploy gate is here.
-        run: bun run build:styleguide
-      - name: Shots store vs catalog drift
-        # Fails on any declared-but-uncaptured pair or stray file in shots/
-        # (manual-lane desktop views are exempt until captured by hand).
-        run: bun run shots:check
-
   migrations:
     needs: pick
-    # EXP-112: drizzle-kit can generate SQL that fails on every real DB
-    # (e.g. DROP TABLE CASCADE before its referencing DROP CONSTRAINTs —
-    # EXP-111's migration 0023), and nothing else in CI ever executes the
-    # migrations. Run the full chain from scratch against a real Postgres,
-    # then the custom triggers that deploys apply on top.
-    # EXP-137: additionally detect SILENT drift — a migration that executes
-    # cleanly but no longer matches its snapshot (b934ab4d: 0026 lost its
-    # DROP statements), leaving every DB that applied it permanently
-    # diverged from the drizzle schema with no later error.
+    # EXP-112 / EXP-137: run the full chain from scratch against a real
+    # Postgres (catches SQL that fails on every real DB), assert `drizzle-kit
+    # push` is a no-op afterwards (catches silent drift between the SQL and
+    # packages/db-schema), then apply the custom triggers deploys apply.
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -139,20 +81,11 @@ jobs:
       - name: Apply migrations from scratch
         run: bun run migrate
       - name: Detect silent migration drift
-        # Assert `drizzle-kit push` is a NO-OP on the freshly-migrated DB:
-        # dump the schema, push, dump again — any delta means the migration
-        # chain did not faithfully produce packages/db-schema (a migration
-        # file drifted from its snapshot, or schema.ts changed without a
-        # generated migration), and the diff shows the drift as the DDL push
-        # had to apply. Same-DB before/after keeps the comparison
-        # byte-stable (no cross-DB pg_dump ordering to normalize). pg_dump
-        # runs in the service container (the runner's client is older than
-        # the server); the \restrict guard token pg_dump emits is a per-dump
-        # random nonce, hence stripped; -N drizzle excludes the migration
-        # ledger, which push never manages. Runs BEFORE the trigger step so
-        # trigger objects never enter the dumps. The step timeout guards
-        # against drizzle-kit's interactive rename prompt, reachable only
-        # when drift already exists (ambiguous add+drop column pair).
+        # Same-DB before/after dumps around `drizzle-kit push --force`; any
+        # delta = the chain does not produce packages/db-schema. pg_dump runs
+        # in the service container; the \restrict nonce is stripped; -N
+        # drizzle skips the ledger. The timeout guards drizzle-kit's rename
+        # prompt (reachable only when drift already exists).
         timeout-minutes: 10
         run: |
           dump_schema() {
@@ -167,18 +100,7 @@ jobs:
             exit 1
           fi
       - name: Apply custom triggers
-        # The app applies this file idempotently at every boot
-        # (bootstrap-cloud applyCustomSql); CI applies it manually because it
-        # never boots the app — ON_ERROR_STOP so SQL errors fail the job.
         run: docker exec -i ${{ job.services.postgres.id }} psql -U postgres -d exponential -v ON_ERROR_STOP=1 < apps/web/src/db/out/custom/0001_triggers.sql
-      - name: Real-DB tests (threads, Guide, triggers, backfills)
-        # EXP-1284: the suites that need the migrated DB + the custom
-        # triggers; the unit job runs them too but they skip without a DB.
-        # NEW-6: the plan-card suite mints Guide upload URLs, which need a
-        # secret; any value does for a throwaway CI database.
-        env:
-          BETTER_AUTH_SECRET: ci-only-real-db-secret
-        run: cd apps/web && bunx vitest run src/lib/**/*.real-db.test.ts
 
   desktop:
     needs: [pick, changes]
@@ -198,73 +120,17 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
-      - name: Cargo tests
+      - name: Cargo check
         working-directory: apps/desktop
-        # EXP-519: --locked is load-bearing — the workspace manifest FLOATS the zed
-        # git deps (upstream gpui-component's discipline) and Cargo.lock is the one
-        # true pin; an accidental re-resolve must fail loudly, never build zed HEAD.
-        run: cargo test --no-fail-fast --locked
-      # EXP-375 — the Rust licence inventory can only be collected where cargo
-      # is. The pure-bun `web` job re-runs the merge and byte-compares the
-      # notices; this proves the inventory it merges is still current.
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - name: Re-collect the Rust licence inventory
-        run: bun run --filter @exp/licenses collect:rust
-      - name: Fail if the committed inventory drifted
-        run: git diff --exit-code -- packages/licenses/inventory/rust.json packages/licenses/inventory/rust-excluded.json
+        # EXP-519: --locked is load-bearing (Cargo.lock is the one pin of the
+        # floating zed git deps).
+        run: cargo check --workspace --locked
 
-  android:
-    needs: [pick, changes]
-    if: needs.changes.outputs.android == 'true'
-    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'platforms;android-36 build-tools;35.0.0'
-      - name: Cache Gradle packages
-        if: runner.environment == 'github-hosted'
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('apps/android/**/*.gradle*', 'apps/android/gradle/wrapper/gradle-wrapper.properties', 'apps/android/gradle/libs.versions.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-      - name: Android unit tests
-        working-directory: apps/android
-        run: ./gradlew :app:testProductionDebugUnitTest --no-daemon
-      # EXP-1009 — lint aborts on error-level findings (media3's
-      # UnsafeOptInUsageError slipped through while only unit tests ran).
-      - name: Android lint
-        working-directory: apps/android
-        run: ./gradlew :app:lintProductionDebug --no-daemon
-      # EXP-375 — the Android inventory is the TRANSITIVELY RESOLVED runtime
-      # graph (compose-bom and firebase-bom expand to artifacts
-      # libs.versions.toml never names), so it needs a real gradle resolve.
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - name: Generate the Android licence report
-        working-directory: apps/android
-        run: ./gradlew licenseProductionReleaseReport --no-daemon
-      - name: Re-collect the Android licence inventory
-        run: bun run --filter @exp/licenses collect:android
-      - name: Fail if the committed inventory drifted
-        run: git diff --exit-code -- packages/licenses/inventory/android.json
-
-  # EXP-1364: the ONE required status check on master (branch protection).
-  # Green = every job passed or was path-skipped; a fork PR (pick skipped,
-  # nothing ran) stays red.
+  # EXP-1364: the ONE required status check on master (the "master: test
+  # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
+  # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, push-relay-image, marketing, migrations, desktop, android]
+    needs: [pick, changes, web, migrations, desktop]
     if: always()
     runs-on: ubuntu-latest
     steps:

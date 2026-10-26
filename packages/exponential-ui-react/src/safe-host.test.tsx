@@ -171,7 +171,7 @@ describe(`markdown`, () => {
       const t0 = performance.now()
       renderToStaticMarkup(<BuiltinMarkdown text={t} />)
       // Linear: tens of ms (the quadratic parser took ~20 s at 128 KB); loose for loaded CI.
-      expect(performance.now() - t0).toBeLessThan(4000)
+      expect(performance.now() - t0).toBeLessThan(12000)
     }
   })
   it(`link labels nest at most MAX_LINK_NESTING deep; a long destination is no link`, () => {

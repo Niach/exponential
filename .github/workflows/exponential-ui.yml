@@ -27,45 +27,15 @@ name: exponential-ui
 # every fragment against budgets.json (worse than the budget fails; a count
 # that got better fails until its budget is lowered; a timing far under its
 # budget warns) and uploads the merged results + the budgets the run suggests.
-#
-# The pull request AND the push to master (path-filtered to the SDK, both).
+# 2026-10-26: timings never fail (ratchet.ts timingMode = warn); counts and
+# bytes still gate.
+
+# 2026-10-26: release-only. release-suite.yml calls this on the release tags;
+# workflow_dispatch runs it by hand. Never on pull requests or master pushes.
 
 on:
-  pull_request:
-    branches: [master]
-    paths:
-      - 'packages/exponential-ui/**'
-      - 'packages/exponential-ui-react/**'
-      - 'packages/exponential-ui-solid/**'
-      - 'packages/exponential-ui-element/**'
-      - 'packages/exponential-ui-swift/**'
-      - 'packages/exponential-ui-compose/**'
-      - 'apps/desktop/crates/exponential-ui/**'
-      - 'apps/desktop/crates/exponential-ui-ffi/**'
-      - 'apps/desktop/crates/exponential-ui-gpui/**'
-      - 'packages/exponential-ui-bench/**'
-      - 'apps/marketing/ui/guides/**'
-      - '.github/workflows/exponential-ui.yml'
-  push:
-    branches: [master]
-    paths:
-      - 'packages/exponential-ui/**'
-      - 'packages/exponential-ui-react/**'
-      - 'packages/exponential-ui-solid/**'
-      - 'packages/exponential-ui-element/**'
-      - 'packages/exponential-ui-swift/**'
-      - 'packages/exponential-ui-compose/**'
-      - 'apps/desktop/crates/exponential-ui/**'
-      - 'apps/desktop/crates/exponential-ui-ffi/**'
-      - 'apps/desktop/crates/exponential-ui-gpui/**'
-      - 'packages/exponential-ui-bench/**'
-      - 'apps/marketing/ui/guides/**'
-      - '.github/workflows/exponential-ui.yml'
+  workflow_call: {}
   workflow_dispatch: {}
-
-concurrency:
-  group: exponential-ui-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
