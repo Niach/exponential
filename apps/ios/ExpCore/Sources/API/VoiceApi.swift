@@ -14,7 +14,8 @@ public final class VoiceApi: Sendable {
         try await trpc.query(accountId: accountId, path: "voice.get")
     }
 
-    /// A partial write; the server applies `clearOnNone` and returns the row.
+    /// A partial write (`Voice.Change`, incl. #NEW-73 language, voiceFile and
+    /// voiceTranscript); the server applies `clearOnNone` and returns the row.
     public func update(accountId: String, change: Voice.Change) async throws -> Voice.Settings {
         try await trpc.mutation(accountId: accountId, path: "voice.update", input: change)
     }

@@ -25,7 +25,7 @@ use gpui_component::{
 
 use api::voice::VoiceUpdate;
 use domain::voice::{
-    agent_options, tray_header, voice_device_options, wake_phrase_placeholder, VoiceAgent, VoiceDevice,
+    agent_options, language_label, tray_header, voice_device_options, wake_phrase_placeholder, VoiceAgent, VoiceDevice,
     VoiceOption, VoiceSettings, VOICE,
 };
 
@@ -90,6 +90,7 @@ fn label_of(options: &[VoiceOption], id: Option<&str>) -> SharedString {
 fn picker_row(
     id: &'static str,
     label: &str,
+    detail: Option<SharedString>,
     value: SharedString,
     entries: Vec<(Option<String>, String)>,
     current: Option<String>,
@@ -123,7 +124,7 @@ fn picker_row(
             }
             menu
         });
-    glass_picker_row(label.to_string(), None, button.into_any_element(), cx)
+    glass_picker_row(label.to_string(), detail, button.into_any_element(), cx)
 }
 
 fn switch_row(
@@ -143,6 +144,14 @@ fn switch_row(
     glass_toggle_row(label.to_string(), detail, switch.into_any_element(), cx)
 }
 
+/// The page's three one-line inputs (the pane's live fields, or the twin's
+/// static ones), already wrapped in `glass_row_input`.
+pub(crate) struct VoiceInputs {
+    pub wake_phrase: AnyElement,
+    pub voice_file: AnyElement,
+    pub voice_transcript: AnyElement,
+}
+
 /// THE Voice rows (`voice.json`): group 1, then the tray group while a voice
 /// device is picked. `wake_input` = the wake phrase's input element (the
 /// pane's live field, or the twin's static one); `on_change` = None draws
@@ -151,10 +160,11 @@ pub(crate) fn voice_rows(
     settings: &VoiceSettings,
     devices: &[VoiceOption],
     agents: &[VoiceOption],
-    wake_input: AnyElement,
+    inputs: VoiceInputs,
     on_change: Option<OnVoiceChange>,
     cx: &App,
 ) -> Vec<AnyElement> {
+    let VoiceInputs { wake_phrase: wake_input, voice_file, voice_transcript } = inputs;
     let copy = &VOICE.copy;
     let ready = settings.voice_device_id.is_some() && settings.agent_id.is_some();
     // voice.json: while the voice downloads (only ever on the voice device,
@@ -178,12 +188,20 @@ pub(crate) fn voice_rows(
         .find(|option| option.id.is_some() && option.id == settings.voice_device_id)
         .map(|option| option.label.clone());
 
+    let language = settings.language().to_string();
+    // German carries its GPU note, in the row and in the menu.
+    let languages = VOICE
+        .languages
+        .iter()
+        .map(|entry| (Some(entry.value.clone()), language_label(&entry.value, device_name.as_deref())))
+        .collect();
+
     let mut out: Vec<AnyElement> = Vec::new();
-    out.push(
-        glass_group_rows(vec![
+    let mut first: Vec<gpui::Div> = vec![
             picker_row(
                 "settings-voice-device",
                 &copy.voice_device,
+                None,
                 label_of(devices, settings.voice_device_id.as_deref()),
                 options(devices),
                 settings.voice_device_id.clone(),
@@ -193,6 +211,7 @@ pub(crate) fn voice_rows(
             picker_row(
                 "settings-voice-agent",
                 &copy.agent,
+                None,
                 label_of(agents, settings.agent_id.as_deref()),
                 options(agents),
                 settings.agent_id.clone(),
@@ -208,9 +227,23 @@ pub(crate) fn voice_rows(
                 toggle(Rc::new(|on| VoiceUpdate { speak_replies: Some(on), ..Default::default() })),
                 cx,
             ),
-        ])
-        .into_any_element(),
-    );
+            // #NEW-73: the spoken-reply language, then the custom voice.
+            picker_row(
+                "settings-voice-language",
+                &copy.language,
+                None,
+                SharedString::from(language_label(&language, device_name.as_deref())),
+                languages,
+                Some(language),
+                send(Rc::new(|value| VoiceUpdate { language: value, ..Default::default() })),
+                cx,
+            ),
+    ];
+    if device_name.is_some() {
+        first.push(glass_input_row(copy.voice_file.clone(), voice_file, cx));
+        first.push(glass_input_row(copy.voice_transcript.clone(), voice_transcript, cx));
+    }
+    out.push(glass_group_rows(first).into_any_element());
     if let Some(device_name) = device_name {
         let shortcut_label = VOICE
             .shortcuts
@@ -234,6 +267,7 @@ pub(crate) fn voice_rows(
                 picker_row(
                     "settings-voice-shortcut",
                     &copy.shortcut,
+                    None,
                     SharedString::from(shortcut_label),
                     shortcuts,
                     Some(settings.ptt_shortcut.clone()),
@@ -278,13 +312,40 @@ pub struct VoicePrefsPane {
     load: Load,
     generation: u64,
     account_id: Option<String>,
-    wake_input: Option<Entity<InputState>>,
-    _wake_subscription: Option<gpui::Subscription>,
+    /// The one-line inputs, built lazily from the loaded value.
+    inputs: [Option<Entity<InputState>>; 3],
+    _subscriptions: Vec<gpui::Subscription>,
+}
+
+/// Which one-line input (`VoicePrefsPane::inputs` index).
+#[derive(Clone, Copy)]
+enum Field {
+    WakePhrase,
+    VoiceFile,
+    VoiceTranscript,
+}
+
+impl Field {
+    fn value(self, settings: &VoiceSettings) -> String {
+        match self {
+            Field::WakePhrase => settings.wake_phrase.clone(),
+            Field::VoiceFile => settings.voice_file.clone(),
+            Field::VoiceTranscript => settings.voice_transcript.clone(),
+        }
+    }
+
+    fn update(self, value: String) -> VoiceUpdate {
+        match self {
+            Field::WakePhrase => VoiceUpdate { wake_phrase: Some(value), ..Default::default() },
+            Field::VoiceFile => VoiceUpdate { voice_file: Some(value), ..Default::default() },
+            Field::VoiceTranscript => VoiceUpdate { voice_transcript: Some(value), ..Default::default() },
+        }
+    }
 }
 
 impl VoicePrefsPane {
     pub fn new(_cx: &mut gpui::Context<Self>) -> Self {
-        Self { load: Load::Idle, generation: 0, account_id: None, wake_input: None, _wake_subscription: None }
+        Self { load: Load::Idle, generation: 0, account_id: None, inputs: [None, None, None], _subscriptions: Vec::new() }
     }
 
     /// Drop the cached settings so the next render refetches (a change made
@@ -307,9 +368,9 @@ impl VoicePrefsPane {
         }
         let Some(trpc) = queries::trpc_client(cx) else { return };
         self.load = Load::Loading;
-        // The wake phrase field is rebuilt from the fresh value.
-        self.wake_input = None;
-        self._wake_subscription = None;
+        // The input fields are rebuilt from the fresh values.
+        self.inputs = [None, None, None];
+        self._subscriptions.clear();
         self.generation += 1;
         let generation = self.generation;
         cx.spawn(async move |this, cx| {
@@ -363,6 +424,15 @@ impl VoicePrefsPane {
         if let Some(value) = update.wake_phrase.clone() {
             next.wake_phrase = value.trim().to_string();
         }
+        if let Some(value) = update.language.clone() {
+            next.language = value;
+        }
+        if let Some(value) = update.voice_file.clone() {
+            next.voice_file = value.trim().to_string();
+        }
+        if let Some(value) = update.voice_transcript.clone() {
+            next.voice_transcript = value.trim().to_string();
+        }
         let next = next.clear_on_none();
         if next == previous {
             return;
@@ -389,25 +459,28 @@ impl VoicePrefsPane {
         .detach();
     }
 
-    fn wake_input(&mut self, settings: &VoiceSettings, placeholder: &str, window: &mut Window, cx: &mut gpui::Context<Self>) -> Entity<InputState> {
-        if let Some(input) = self.wake_input.clone() {
-            return input;
-        }
-        let value = settings.wake_phrase.clone();
-        let placeholder = placeholder.to_string();
-        let input = cx.new(|cx| {
-            let mut state = InputState::new(window, cx).placeholder(placeholder);
-            state.set_value(value, window, cx);
-            state
-        });
-        self._wake_subscription = Some(cx.subscribe(&input, |this, input, event: &InputEvent, cx| {
-            if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
-                let phrase = input.read(cx).value().to_string();
-                this.apply(VoiceUpdate { wake_phrase: Some(phrase), ..Default::default() }, cx);
+    fn input(&mut self, field: Field, settings: &VoiceSettings, placeholder: &str, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let input = match self.inputs[field as usize].clone() {
+            Some(input) => input,
+            None => {
+                let value = field.value(settings);
+                let placeholder = placeholder.to_string();
+                let input = cx.new(|cx| {
+                    let mut state = InputState::new(window, cx).placeholder(placeholder);
+                    state.set_value(value, window, cx);
+                    state
+                });
+                self._subscriptions.push(cx.subscribe(&input, move |this, input, event: &InputEvent, cx| {
+                    if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                        let value = input.read(cx).value().to_string();
+                        this.apply(field.update(value), cx);
+                    }
+                }));
+                self.inputs[field as usize] = Some(input.clone());
+                input
             }
-        }));
-        self.wake_input = Some(input.clone());
-        input
+        };
+        crate::surface::glass_row_input(glass_input(&input, window, cx)).into_any_element()
     }
 }
 
@@ -426,13 +499,16 @@ impl Render for VoicePrefsPane {
                 let settings = settings.clone();
                 let (devices, agents) = voice_choices(cx);
                 let placeholder = wake_placeholder(&settings, &agents);
-                let input = self.wake_input(&settings, &placeholder, window, cx);
-                let wake = crate::surface::glass_row_input(glass_input(&input, window, cx)).into_any_element();
+                let inputs = VoiceInputs {
+                    wake_phrase: self.input(Field::WakePhrase, &settings, &placeholder, window, cx),
+                    voice_file: self.input(Field::VoiceFile, &settings, &VOICE.copy.voice_file_placeholder, window, cx),
+                    voice_transcript: self.input(Field::VoiceTranscript, &settings, &VOICE.copy.voice_transcript_placeholder, window, cx),
+                };
                 let entity = cx.entity();
                 let on_change: OnVoiceChange = Rc::new(move |update, cx: &mut App| {
                     entity.update(cx, |this, cx| this.apply(update, cx));
                 });
-                for row in voice_rows(&settings, &devices, &agents, wake, Some(on_change), cx) {
+                for row in voice_rows(&settings, &devices, &agents, inputs, Some(on_change), cx) {
                     body = body.child(row);
                 }
             }

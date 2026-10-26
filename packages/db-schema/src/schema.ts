@@ -2861,8 +2861,16 @@ export const userVoiceSettings = pgTable(`user_voice_settings`, {
   wakeWord: boolean(`wake_word`).notNull().default(false),
   // Empty = `Hey {agent}`.
   wakePhrase: varchar(`wake_phrase`, { length: 64 }).notNull().default(``),
+  // #NEW-73: one of `voice.json` `languages` values (the spoken replies).
+  language: varchar(`language`, { length: 8 }).notNull().default(`en`),
+  // A reference WAV's path ON the voice device (never uploaded) and what the
+  // clip says; empty = the built-in voice.
+  voiceFile: varchar(`voice_file`, { length: 512 }).notNull().default(``),
+  voiceTranscript: varchar(`voice_transcript`, { length: 500 }).notNull().default(``),
   ...timestamps,
-})
+}, (table) => [
+  check(`user_voice_settings_language_check`, sql`${table.language} IN ('en', 'de')`),
+])
 
 // Email audit ledger (SERVER-ONLY). One row per outbound app email — hourly
 // digests and external widget-reporter mail (null userId). Per-notification email idempotency does NOT live here: it is the

@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-26-voice-language`,
+    date: `2026-10-26`,
+    title: `Settings → Voice: German and your own voice`,
+    summary: `Settings → Voice gains a Language row (English or Deutsch) and a Voice file with its transcript, so a reply can soon be spoken in German or in a voice cloned from your own clip.`,
+    body: `- **Language**: pick English or Deutsch for spoken replies. German is spoken on a desktop with a GPU; without one, German replies are shown, not spoken.
+- **Your own voice**: enter the path of a short reference clip on your voice device and what it says. Nothing is uploaded, and there is no training: the German voice will clone it from that one clip.
+- **How to make a good clip**: the new guide at exponential.at/skills/voice-reference-clip/SKILL.md walks through picking, cutting and transcribing it, and the consent rule.
+- **Coming next**: the German voice and cloning arrive in the IDE in the next update; until then English keeps speaking as before.`,
+  },
+  {
     id: `2026-10-25-voice-settings`,
     date: `2026-10-25`,
     title: `Settings → Voice: one voice device, one agent, for you`,

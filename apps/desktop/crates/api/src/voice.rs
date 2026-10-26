@@ -35,6 +35,13 @@ pub struct VoiceUpdate {
     pub wake_word: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wake_phrase: Option<String>,
+    /// #NEW-73.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice_file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice_transcript: Option<String>,
 }
 
 /// `voice.get` — query.

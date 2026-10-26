@@ -16,7 +16,7 @@ import org.junit.Test
 /**
  * NEW-67: Settings → Voice, locked ×4 (TS `voice.ts`, desktop
  * `domain::voice`, iOS `VoiceTests`) against `fixtures/voice.json`: every
- * `copy` key, the `testIds`, `shortcuts`, `defaults` and every case list but
+ * `copy` key, the `testIds`, `shortcuts`, `languages`, `limits`, `defaults` and every case list but
  * the speech ones (shouldSpeak / spokenText / numbers are desktop-only).
  */
 class VoiceTest {
@@ -44,6 +44,12 @@ class VoiceTest {
             "agent" to Voice.Copy.AGENT,
             "agentNone" to Voice.Copy.AGENT_NONE,
             "speakReplies" to Voice.Copy.SPEAK_REPLIES,
+            "language" to Voice.Copy.LANGUAGE,
+            "languageNote" to Voice.Copy.LANGUAGE_NOTE,
+            "voiceFile" to Voice.Copy.VOICE_FILE,
+            "voiceFilePlaceholder" to Voice.Copy.VOICE_FILE_PLACEHOLDER,
+            "voiceTranscript" to Voice.Copy.VOICE_TRANSCRIPT,
+            "voiceTranscriptPlaceholder" to Voice.Copy.VOICE_TRANSCRIPT_PLACEHOLDER,
             "trayHeader" to Voice.Copy.TRAY_HEADER,
             "pushToTalk" to Voice.Copy.PUSH_TO_TALK,
             "shortcut" to Voice.Copy.SHORTCUT,
@@ -70,6 +76,9 @@ class VoiceTest {
             "voiceDevice" to Voice.TestIds.VOICE_DEVICE,
             "agent" to Voice.TestIds.AGENT,
             "speakReplies" to Voice.TestIds.SPEAK_REPLIES,
+            "language" to Voice.TestIds.LANGUAGE,
+            "voiceFile" to Voice.TestIds.VOICE_FILE,
+            "voiceTranscript" to Voice.TestIds.VOICE_TRANSCRIPT,
             "pushToTalk" to Voice.TestIds.PUSH_TO_TALK,
             "shortcut" to Voice.TestIds.SHORTCUT,
             "wakeWord" to Voice.TestIds.WAKE_WORD,
@@ -83,12 +92,42 @@ class VoiceTest {
         assertEquals(fixture.getValue("maxChars").jsonPrimitive.int, Voice.MAX_CHARS)
     }
 
+    @Test
+    fun `languages and limits match the fixture`() {
+        val languages = fixture.getValue("languages").jsonArray.map { it.jsonObject }.map {
+            Voice.Language(value = it.str("value")!!, label = it.str("label")!!)
+        }
+        assertEquals(languages, Voice.languages)
+        val limits = fixture.getValue("limits").jsonObject
+        assertEquals(setOf("voiceFile", "voiceTranscript"), limits.keys)
+        assertEquals(limits.getValue("voiceFile").jsonPrimitive.int, Voice.Limits.VOICE_FILE)
+        assertEquals(limits.getValue("voiceTranscript").jsonPrimitive.int, Voice.Limits.VOICE_TRANSCRIPT)
+    }
+
+    @Test
+    fun `every languageNote case matches the fixture`() {
+        for (case in cases("languageNoteCases")) {
+            assertEquals(case.str("name"), case.str("note"), Voice.languageNote(case.str("language")!!, case.str("device")))
+        }
+    }
+
+    @Test
+    fun `every languageLabel case matches the fixture`() {
+        for (case in cases("languageLabelCases")) {
+            assertEquals(case.str("name"), case.str("label"), Voice.languageLabel(case.str("language")!!, case.str("device")))
+        }
+    }
+
     /** `defaults` decodes into the mirrored row (and `voice.get`'s shape). */
     @Test
     fun `defaults match the fixture`() {
         val decoded = Json.decodeFromJsonElement(Voice.Settings.serializer(), fixture.getValue("defaults"))
         assertEquals(Voice.defaults, decoded)
         assertTrue(Voice.shortcuts.any { it.value == Voice.defaults.pttShortcut })
+        assertTrue(Voice.languages.any { it.value == Voice.defaults.language })
+        // A row from an older server without the #NEW-73 keys reads the defaults.
+        val legacy = Json.decodeFromString(Voice.Settings.serializer(), """{"wakePhrase":"Hi"}""")
+        assertEquals(Voice.defaults.copy(wakePhrase = "Hi"), legacy)
     }
 
     @Test
@@ -149,6 +188,9 @@ class VoiceTest {
         assertEquals(JsonNull, json["agentId"])
         assertEquals(JsonPrimitive(true), json["speakReplies"])
         assertEquals(JsonObject(emptyMap()), Voice.Change().toJson())
+        val typed = Voice.Change(language = "de", voiceFile = "/v.wav", voiceTranscript = "Hallo").toJson()
+        assertEquals(setOf("language", "voiceFile", "voiceTranscript"), typed.keys)
+        assertEquals(JsonPrimitive("de"), typed["language"])
     }
 
     private fun options(case: JsonObject): List<Voice.Option> =

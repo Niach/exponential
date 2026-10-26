@@ -2,7 +2,9 @@
 // settings row (`fixtures/voice.json`). One group: the voice device (THE
 // device picker's rows over `voiceDeviceOptions`, None first), the agent
 // (`agentOptions`, None first) and Speak replies; while a voice device is
-// picked the tray group follows under `trayHeader`. Every switch reads off
+// picked the tray group follows under `trayHeader`. #NEW-73: Language
+// (`languages`, each read through `languageLabel`) follows Speak replies,
+// and while a voice device is picked the voice file + its transcript. Every switch reads off
 // and is disabled while the device or the agent is None, and choosing None
 // clears them (`clearOnNone`). Each change is an optimistic `voice.update`
 // that reverts with the failed-action toast (feedback-states.json).
@@ -11,8 +13,11 @@ import { useLiveQuery } from "@tanstack/react-db"
 import {
   agentOptions,
   clearOnNone,
+  languageLabel,
   trayHeader,
   VOICE_COPY,
+  VOICE_LANGUAGES,
+  VOICE_LIMITS,
   VOICE_SHORTCUTS,
   VOICE_TEST_IDS,
   voiceDeviceOptions,
@@ -49,6 +54,20 @@ export type VoiceAgentRow = VoiceAgentLike
 
 const WAKE_PHRASE_DEBOUNCE_MS = 800
 
+/** The one-line text rows: typed locally, saved debounced or on blur. */
+type TextField = `wakePhrase` | `voiceFile` | `voiceTranscript`
+const TEXT_FIELDS: readonly TextField[] = [`wakePhrase`, `voiceFile`, `voiceTranscript`]
+const TEXT_FIELD_NAMES: Record<TextField, string> = {
+  wakePhrase: `the wake phrase`,
+  voiceFile: `the voice file`,
+  voiceTranscript: `the transcript`,
+}
+const textOf = (settings: VoiceSettings): Record<TextField, string> => ({
+  wakePhrase: settings.wakePhrase,
+  voiceFile: settings.voiceFile,
+  voiceTranscript: settings.voiceTranscript,
+})
+
 export function VoiceSettingsCard({
   settings: initial,
   devices,
@@ -59,11 +78,11 @@ export function VoiceSettingsCard({
   agents: readonly VoiceAgentRow[]
 }) {
   const [settings, setSettings] = useState<VoiceSettings>(initial)
-  const [wakePhrase, setWakePhrase] = useState(initial.wakePhrase)
+  const [text, setText] = useState<Record<TextField, string>>(() => textOf(initial))
   // Last write wins: only the newest request may settle or revert the state.
   const seqRef = useRef(0)
-  const wakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const sentWakePhraseRef = useRef(initial.wakePhrase)
+  const textTimersRef = useRef<Partial<Record<TextField, ReturnType<typeof setTimeout>>>>({})
+  const sentTextRef = useRef<Record<TextField, string>>(textOf(initial))
 
   const deviceItems = useMemo(() => {
     const byId = new Map(devices.map((device) => [device.deviceId, device] as const))
@@ -91,6 +110,17 @@ export function VoiceSettingsCard({
     ``
   const agentName = agents.find((agent) => agent.id === settings.agentId)?.name ?? VOICE_COPY.agent
   const switchesLive = settings.voiceDeviceId !== null && settings.agentId !== null
+  // #NEW-73: German carries its GPU note, in the row and in the menu.
+  const languageItems = VOICE_LANGUAGES.map((language) => ({
+    value: language.value,
+    label: languageLabel(language.value, settings.voiceDeviceId === null ? null : deviceName),
+  }))
+
+  // The text rows settle through their own saves, never through `apply`.
+  const keepText = (next: VoiceSettings, current: VoiceSettings): VoiceSettings => ({
+    ...next,
+    ...textOf(current),
+  })
 
   const apply = (change: VoiceChange) => {
     const before = settings
@@ -100,39 +130,44 @@ export function VoiceSettingsCard({
     void trpc.voice.update
       .mutate(change, SKIP_ERROR_TOAST)
       .then((stored) => {
-        if (seq === seqRef.current) setSettings((current) => ({ ...stored, wakePhrase: current.wakePhrase }))
+        if (seq === seqRef.current) setSettings((current) => keepText(stored, current))
       })
       .catch((error: unknown) => {
-        if (seq === seqRef.current) setSettings((current) => ({ ...before, wakePhrase: current.wakePhrase }))
+        if (seq === seqRef.current) setSettings((current) => keepText(before, current))
         failedAction(`save`, `the voice settings`, error)
       })
   }
 
-  const saveWakePhrase = (value: string) => {
-    if (wakeTimerRef.current) clearTimeout(wakeTimerRef.current)
-    wakeTimerRef.current = null
+  const saveText = (field: TextField, value: string) => {
+    const timer = textTimersRef.current[field]
+    if (timer) clearTimeout(timer)
+    delete textTimersRef.current[field]
     const trimmed = value.trim()
-    if (trimmed === sentWakePhraseRef.current) return
-    const previous = sentWakePhraseRef.current
-    sentWakePhraseRef.current = trimmed
-    setSettings((current) => ({ ...current, wakePhrase: trimmed }))
-    void trpc.voice.update.mutate({ wakePhrase: trimmed }, SKIP_ERROR_TOAST).catch((error: unknown) => {
-      sentWakePhraseRef.current = previous
-      setSettings((current) => ({ ...current, wakePhrase: previous }))
-      setWakePhrase(previous)
-      failedAction(`save`, `the wake phrase`, error)
+    if (trimmed === sentTextRef.current[field]) return
+    const previous = sentTextRef.current[field]
+    sentTextRef.current[field] = trimmed
+    setSettings((current) => ({ ...current, [field]: trimmed }))
+    void trpc.voice.update.mutate({ [field]: trimmed } as Partial<Record<TextField, string>>, SKIP_ERROR_TOAST).catch((error: unknown) => {
+      sentTextRef.current[field] = previous
+      setSettings((current) => ({ ...current, [field]: previous }))
+      setText((current) => ({ ...current, [field]: previous }))
+      failedAction(`save`, TEXT_FIELD_NAMES[field], error)
     })
   }
 
-  const editWakePhrase = (value: string) => {
-    setWakePhrase(value)
-    if (wakeTimerRef.current) clearTimeout(wakeTimerRef.current)
-    wakeTimerRef.current = setTimeout(() => saveWakePhrase(value), WAKE_PHRASE_DEBOUNCE_MS)
+  const editText = (field: TextField, value: string) => {
+    setText((current) => ({ ...current, [field]: value }))
+    const timer = textTimersRef.current[field]
+    if (timer) clearTimeout(timer)
+    textTimersRef.current[field] = setTimeout(() => saveText(field, value), WAKE_PHRASE_DEBOUNCE_MS)
   }
 
   useEffect(
     () => () => {
-      if (wakeTimerRef.current) clearTimeout(wakeTimerRef.current)
+      for (const field of TEXT_FIELDS) {
+        const timer = textTimersRef.current[field]
+        if (timer) clearTimeout(timer)
+      }
     },
     []
   )
@@ -171,6 +206,40 @@ export function VoiceSettingsCard({
           onCheckedChange={(speakReplies) => apply({ speakReplies })}
           disabled={!switchesLive}
         />
+        <Picker
+          mode="single"
+          triggerVariant="row"
+          width="md"
+          mobileTitle={VOICE_COPY.language}
+          data-testid={VOICE_TEST_IDS.language}
+          value={settings.language}
+          items={languageItems}
+          onChange={(language) => apply({ language })}
+        />
+        {settings.voiceDeviceId !== null && (
+          <>
+            <GlassInputRow
+              id={VOICE_TEST_IDS.voiceFile}
+              data-testid={VOICE_TEST_IDS.voiceFile}
+              label={VOICE_COPY.voiceFile}
+              placeholder={VOICE_COPY.voiceFilePlaceholder}
+              maxLength={VOICE_LIMITS.voiceFile}
+              value={text.voiceFile}
+              onChange={(event) => editText(`voiceFile`, event.target.value)}
+              onBlur={() => saveText(`voiceFile`, text.voiceFile)}
+            />
+            <GlassInputRow
+              id={VOICE_TEST_IDS.voiceTranscript}
+              data-testid={VOICE_TEST_IDS.voiceTranscript}
+              label={VOICE_COPY.voiceTranscript}
+              placeholder={VOICE_COPY.voiceTranscriptPlaceholder}
+              maxLength={VOICE_LIMITS.voiceTranscript}
+              value={text.voiceTranscript}
+              onChange={(event) => editText(`voiceTranscript`, event.target.value)}
+              onBlur={() => saveText(`voiceTranscript`, text.voiceTranscript)}
+            />
+          </>
+        )}
       </GlassGroup>
       {settings.voiceDeviceId !== null && (
         <>
@@ -206,9 +275,9 @@ export function VoiceSettingsCard({
               label={VOICE_COPY.wakePhrase}
               placeholder={wakePhrasePlaceholder(agentName)}
               maxLength={64}
-              value={wakePhrase}
-              onChange={(event) => editWakePhrase(event.target.value)}
-              onBlur={() => saveWakePhrase(wakePhrase)}
+              value={text.wakePhrase}
+              onChange={(event) => editText(`wakePhrase`, event.target.value)}
+              onBlur={() => saveText(`wakePhrase`, text.wakePhrase)}
             />
           </GlassGroup>
         </>

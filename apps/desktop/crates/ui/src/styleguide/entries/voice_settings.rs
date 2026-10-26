@@ -9,10 +9,10 @@
 use gpui::{div, px, App, IntoElement, ParentElement as _, Styled as _, Window};
 use gpui_component::{input::InputState, v_flex};
 
-use domain::voice::{agent_options, voice_device_options, VoiceAgent, VoiceDevice, VoiceSettings};
+use domain::voice::{agent_options, voice_device_options, VoiceAgent, VoiceDevice, VoiceSettings, VOICE};
 
 use crate::controls::glass_input;
-use crate::settings::voice_prefs::voice_rows;
+use crate::settings::voice_prefs::{voice_rows, VoiceInputs};
 use crate::surface;
 
 pub(crate) const ID: &str = "voice-settings";
@@ -36,15 +36,25 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> gpui::Div {
         ptt_shortcut: "ctrl+space".into(),
         wake_word: false,
         wake_phrase: "Hey Ops".into(),
+        language: "en".into(),
+        voice_file: String::new(),
+        voice_transcript: String::new(),
     };
-    let input = window.use_keyed_state("sg-voice-settings-wake", cx, |window, cx| {
-        let mut state = InputState::new(window, cx).placeholder(domain::voice::wake_phrase_placeholder("Ops"));
-        state.set_value("Hey Ops", window, cx);
-        state
-    });
-    let wake = surface::glass_row_input(glass_input(&input, window, cx)).into_any_element();
+    let mut field = |key: &'static str, placeholder: String, value: &'static str| {
+        let input = window.use_keyed_state(key, cx, |window, cx| {
+            let mut state = InputState::new(window, cx).placeholder(placeholder);
+            state.set_value(value, window, cx);
+            state
+        });
+        surface::glass_row_input(glass_input(&input, window, cx)).into_any_element()
+    };
+    let inputs = VoiceInputs {
+        wake_phrase: field("sg-voice-settings-wake", domain::voice::wake_phrase_placeholder("Ops"), "Hey Ops"),
+        voice_file: field("sg-voice-settings-file", VOICE.copy.voice_file_placeholder.clone(), ""),
+        voice_transcript: field("sg-voice-settings-transcript", VOICE.copy.voice_transcript_placeholder.clone(), ""),
+    };
     let mut body = v_flex().w_full().gap_2();
-    for row in voice_rows(&settings, &devices, &agents, wake, None, cx) {
+    for row in voice_rows(&settings, &devices, &agents, inputs, None, cx) {
         body = body.child(row);
     }
     div().w_full().max_w(px(560.)).child(body)

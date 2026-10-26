@@ -3,6 +3,8 @@ import { act, fireEvent, render as rtlRender, screen } from "@testing-library/re
 import { TooltipProvider } from "@exp/ui"
 import {
   clearOnNone,
+  languageLabel,
+  languageNote,
   trayHeader,
   VOICE_COPY,
   VOICE_DEFAULTS,
@@ -167,5 +169,61 @@ describe(`Settings → Voice (NEW-67)`, () => {
     await flush()
     expect(update).toHaveBeenCalledTimes(1)
     expect(update).toHaveBeenCalledWith({ wakePhrase: `Hey Studio` }, expect.anything())
+  })
+
+  it(`#NEW-73: Language follows Speak replies; the voice file + transcript wait for a voice device`, () => {
+    renderCard()
+    expect(trigger(VOICE_COPY.language).textContent).toContain(`English`)
+    expect(screen.queryByTestId(VOICE_TEST_IDS.voiceFile)).toBeNull()
+    expect(screen.queryByTestId(VOICE_TEST_IDS.voiceTranscript)).toBeNull()
+  })
+
+  it(`#NEW-73: with a voice device the file + transcript rows show their placeholders`, () => {
+    renderCard({ voiceDeviceId: `d-mint`, agentId: AGENT })
+    const file = screen.getByTestId(VOICE_TEST_IDS.voiceFile) as HTMLInputElement
+    const transcript = screen.getByTestId(VOICE_TEST_IDS.voiceTranscript) as HTMLInputElement
+    expect(file.placeholder).toBe(VOICE_COPY.voiceFilePlaceholder)
+    expect(transcript.placeholder).toBe(VOICE_COPY.voiceTranscriptPlaceholder)
+  })
+
+  it(`#NEW-73: a language pick sends {language}; German shows the device's note`, async () => {
+    renderCard({ voiceDeviceId: `d-mint`, agentId: AGENT })
+    fireEvent.click(trigger(VOICE_COPY.language))
+    expect(await screen.findByTestId(VOICE_TEST_IDS.language)).toBeTruthy()
+    fireEvent.click(await screen.findByText(languageLabel(`de`, `mint`)))
+    await flush()
+    expect(update).toHaveBeenCalledWith({ language: `de` }, expect.anything())
+    expect(trigger(VOICE_COPY.language).textContent).toContain(languageLabel(`de`, `mint`))
+  })
+
+  it(`#NEW-73: German without a voice device has no note`, () => {
+    renderCard({ language: `de` })
+    expect(trigger(VOICE_COPY.language).textContent).toContain(`Deutsch`)
+    expect(screen.queryByText(languageNote(`de`, `mint`)!, { exact: false })).toBeNull()
+  })
+
+  it(`#NEW-73: the voice file and transcript save on blur, trimmed`, async () => {
+    renderCard({ voiceDeviceId: `d-mint`, agentId: AGENT })
+    const file = screen.getByTestId(VOICE_TEST_IDS.voiceFile)
+    fireEvent.change(file, { target: { value: ` /home/me/voice.wav ` } })
+    fireEvent.blur(file)
+    const transcript = screen.getByTestId(VOICE_TEST_IDS.voiceTranscript)
+    fireEvent.change(transcript, { target: { value: ` Hello there. ` } })
+    fireEvent.blur(transcript)
+    await flush()
+    expect(update).toHaveBeenCalledTimes(2)
+    expect(update).toHaveBeenCalledWith({ voiceFile: `/home/me/voice.wav` }, expect.anything())
+    expect(update).toHaveBeenCalledWith({ voiceTranscript: `Hello there.` }, expect.anything())
+  })
+
+  it(`#NEW-73: a refused voice file reverts and raises the failed-action toast`, async () => {
+    update.mockRejectedValueOnce(new Error(`nope`))
+    renderCard({ voiceDeviceId: `d-mint`, agentId: AGENT })
+    const file = screen.getByTestId(VOICE_TEST_IDS.voiceFile) as HTMLInputElement
+    fireEvent.change(file, { target: { value: `/x.wav` } })
+    fireEvent.blur(file)
+    await flush()
+    expect(file.value).toBe(``)
+    expect(toastActionError).toHaveBeenCalledWith(`save`, `the voice file`, expect.any(Error))
   })
 })

@@ -40,9 +40,16 @@ pub(crate) fn voice_here(settings: &domain::voice::VoiceSettings, own_device_id:
     if settings.voice_device_id.as_deref() != Some(own_device_id) {
         return DeviceVoice::default();
     }
+    let language_voiced = VOICES.contains(&settings.language());
     let settings = settings.clone().clear_on_none();
-    DeviceVoice { agent_id: settings.agent_id, speak_replies: settings.speak_replies }
+    // #NEW-73: a language this IDE has no voice for is shown, never spoken,
+    // so the worker is not even prepared (no Kokoro download for German).
+    DeviceVoice { agent_id: settings.agent_id, speak_replies: settings.speak_replies && language_voiced }
 }
+
+/// The languages this IDE has a voice for (voice.json `voices`): Kokoro's
+/// English until the German speaker lands.
+pub(crate) const VOICES: &[&str] = &["en"];
 
 /// The reply being spoken (for the Dock banner).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -307,6 +314,8 @@ impl SpeakReplies {
             agent_session_id: Some(conversation.id.as_str()),
             is_voice_device: true,
             speak_replies: true,
+            language: self.settings.language(),
+            voices: VOICES,
             armed_at: self.gate.armed_at(),
         };
         // A burst (a reconnect) speaks only its newest reply.
@@ -469,6 +478,8 @@ mod tests {
         };
         assert!(voice_here(&settings, "d-mint").active());
         assert!(!voice_here(&settings, "d-mac").active(), "another device stays silent");
+        let german = domain::voice::VoiceSettings { language: "de".into(), ..settings.clone() };
+        assert!(!voice_here(&german, "d-mint").active(), "no German voice yet = shown, never spoken");
         let no_agent = domain::voice::VoiceSettings { agent_id: None, ..settings };
         assert!(!voice_here(&no_agent, "d-mint").active(), "no agent = nothing speaks");
     }
