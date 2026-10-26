@@ -24,6 +24,8 @@
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Exponential listens while you hold the push-to-talk key.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

@@ -174,9 +174,13 @@ if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
     [ -e "$dylib" ] || continue
     codesign --force --options runtime --timestamp --sign "$MACOS_SIGN_IDENTITY" "$dylib"
   done
+  # NEW-78: entitlements = device.audio-input (push to talk's microphone).
   codesign --force --options runtime --timestamp \
+    --entitlements "${DESKTOP_DIR}/assets/packaging/exp-desktop.entitlements" \
     --sign "$MACOS_SIGN_IDENTITY" "$APP_DIR/Contents/MacOS/exp-desktop"
+  # The bundle's signature re-signs its main executable: same entitlements.
   codesign --force --options runtime --timestamp \
+    --entitlements "${DESKTOP_DIR}/assets/packaging/exp-desktop.entitlements" \
     --sign "$MACOS_SIGN_IDENTITY" "$APP_DIR"
   codesign --verify --strict --verbose=2 "$APP_DIR"
 else

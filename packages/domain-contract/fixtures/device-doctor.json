@@ -3,7 +3,8 @@
   "groups": [
     { "key": "required", "label": "Required", "tag": null },
     { "key": "agents", "label": "Coding agents", "tag": "optional" },
-    { "key": "computer_use", "label": "Computer use", "tag": "optional" }
+    { "key": "computer_use", "label": "Computer use", "tag": "optional" },
+    { "key": "voice", "label": "Voice", "tag": "optional" }
   ],
   "labels": {
     "git": "Git",
@@ -11,7 +12,8 @@
     "codex": "Codex",
     "computer_use": "Computer use",
     "screen_recording": "Screen Recording",
-    "accessibility": "Accessibility"
+    "accessibility": "Accessibility",
+    "microphone": "Microphone"
   },
   "states": {
     "ok": { "glyph": "check", "tone": "success" },
@@ -39,6 +41,7 @@
     "notGranted": "Not granted",
     "unavailable": "Not available here",
     "notResponding": "Not responding",
+    "noInputDevice": "No input device",
     "downloading": "Downloading…",
     "downloadFailed": "Download failed",
     "needsVersion": "{version} · needs {min}",
@@ -61,7 +64,8 @@
     "EXP-1232: Codex is a MANAGED download — the device fetches the pinned build on the first sign-in, so its row never reads Not installed and never offers install. No login and no binary = missing · Signed out · sign_in (grey, never a problem; the sign-in fetches). A stored login with the fetch running = action · Downloading… with no pill. A failed fetch = action · Download failed · update (re-fetches; agent_update codex on another device).",
     "No ambient logins: runs only ever use the device's account profiles (one per email). An agent row whose CLI has an AMBIENT login (~/.claude, ~/.codex) carries `import` = that login's email: it renders an `import` pill BEFORE its action pill (same offer rules; on another device -> agent_login {agent, import: true}, cap agent-import). The pill confirms first: title importTitle, body importBody, buttons Cancel / Import. Import MOVES the login (the ambient one is signed out).",
     "Every sign-in lands on the profile whose email it signed in as: an email already on the device refreshes THAT profile (and only it) and shows the alreadyAdded warning toast; a new email adds a profile.",
-    "EXP-1273: computer use is foreground only on X11, macOS and Windows. A session the device cannot drive (a Wayland session, no display) renders the computer_use row as `missing` with the DEVICE's reason as its detail (e.g. 'Wayland session: computer use needs an X11 session for now.'); `unavailable` is the detail only when the device gives no reason."
+    "EXP-1273: computer use is foreground only on X11, macOS and Windows. A session the device cannot drive (a Wayland session, no display) renders the computer_use row as `missing` with the DEVICE's reason as its detail (e.g. 'Wayland session: computer use needs an X11 session for now.'); `unavailable` is the detail only when the device gives no reason.",
+    "NEW-78: the voice group's ONE row is `microphone`, and only the IDE adds it: on the member's voice device (user_voice_settings.voice_device_id) with Push to talk on; everywhere else (and the CLI daemon always) there is no voice band. States: ok · Granted; action · Not granted · grant; missing · No input device (grey, no pill). On macOS `grant` asks for access while the OS has not asked yet, else opens System Settings → Privacy → Microphone; Linux and Windows have no microphone permission, so an input device there = ok · Granted. `grant` is local-only, and the row never touches `runnable`."
   ],
   "cases": [
     {
@@ -156,6 +160,54 @@
       "localPrimary": "claude",
       "remotePills": { "claude": "sign_in", "codex": "sign_in" },
       "importPills": { "claude": "dev@acme.test" }
+    },
+    {
+      "name": "NEW-78: the voice device with Push to talk on, microphone granted",
+      "doctor": {
+        "checkedAt": "2026-10-26T09:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
+          { "key": "computer_use", "group": "computer_use", "state": "off" },
+          { "key": "microphone", "group": "voice", "state": "ok", "detail": "Granted" }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": null,
+      "remotePills": { "codex": "sign_in" }
+    },
+    {
+      "name": "NEW-78: microphone not granted (macOS): grant is local-only",
+      "doctor": {
+        "checkedAt": "2026-10-26T09:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
+          { "key": "computer_use", "group": "computer_use", "state": "off" },
+          { "key": "microphone", "group": "voice", "state": "action", "detail": "Not granted", "action": "grant" }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": "microphone",
+      "remotePills": { "codex": "sign_in" }
+    },
+    {
+      "name": "NEW-78: no input device",
+      "doctor": {
+        "checkedAt": "2026-10-26T09:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
+          { "key": "computer_use", "group": "computer_use", "state": "off" },
+          { "key": "microphone", "group": "voice", "state": "missing", "detail": "No input device" }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": null,
+      "remotePills": { "codex": "sign_in" }
     }
   ]
 }

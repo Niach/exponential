@@ -38,6 +38,7 @@ fn main() -> Result<()> {
     };
     match cmd.as_str() {
         "zipformer" => zipformer(rest),
+        "parakeet" => parakeet(rest),
         "vad" => vad(rest),
         "kws" => kws(rest),
         "kokoro" => kokoro(rest),
@@ -182,6 +183,72 @@ fn zipformer(args: &[String]) -> Result<()> {
             tail_ms,
             compute_ms: compute as u64,
             rtf: compute as f64 / audio_ms.max(1) as f64,
+            text: text.trim().to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// NEW-54: Parakeet TDT (NeMo transducer) as an OFFLINE recognizer, the way
+/// push to talk uses it: the whole held clip is decoded after release ("tail"
+/// = what the person waits for), and the overlay's partials re-decode the
+/// growing buffer every 300 ms ("partial_ms" = the cost of the longest such
+/// re-decode, the prefix one step short of the end).
+fn parakeet(args: &[String]) -> Result<()> {
+    use sherpa_onnx::{OfflineRecognizer, OfflineRecognizerConfig};
+    let [dir, wavs @ ..] = args else { bail!("parakeet <model-dir> <wav>...") };
+    let dir = Path::new(dir);
+    let t0 = Instant::now();
+    let mut config = OfflineRecognizerConfig::default();
+    config.model_config.transducer.encoder = Some(pick_int8(dir, "encoder")?);
+    config.model_config.transducer.decoder = Some(pick_int8(dir, "decoder")?);
+    config.model_config.transducer.joiner = Some(pick_int8(dir, "joiner")?);
+    config.model_config.tokens = Some(dir.join("tokens.txt").to_string_lossy().into_owned());
+    config.model_config.model_type = Some("nemo_transducer".into());
+    config.model_config.num_threads = threads();
+    config.model_config.provider = Some(env::var("TALK_PROVIDER").unwrap_or_else(|_| "cpu".into()));
+    config.decoding_method = Some("greedy_search".into());
+    let recognizer = OfflineRecognizer::create(&config).ok_or_else(|| anyhow!("recognizer"))?;
+    let load_ms = t0.elapsed().as_millis() as u64;
+    let decode = |samples: &[f32]| {
+        let stream = recognizer.create_stream();
+        stream.accept_waveform(16000, samples);
+        recognizer.decode(&stream);
+        stream.get_result().map(|r| r.text).unwrap_or_default()
+    };
+    // warm-up, so the first clip does not pay the graph's first run
+    decode(&vec![0f32; 16000]);
+    for wav in wavs {
+        let wave = read_wave(wav)?;
+        let samples = wave.samples();
+        let step = 16000 * 300 / 1000;
+        let mut partial_ms = 0u64;
+        let mut first: Option<(u64, String)> = None;
+        let mut fed = step;
+        while fed < samples.len() {
+            let t = Instant::now();
+            let text = decode(&samples[..fed]);
+            partial_ms = t.elapsed().as_millis() as u64;
+            if first.is_none() && !text.trim().is_empty() {
+                first = Some(((fed * 1000 / 16000) as u64, text.trim().to_string()));
+            }
+            fed += step;
+        }
+        let t = Instant::now();
+        let text = decode(samples);
+        let tail_ms = t.elapsed().as_millis() as u64;
+        let audio_ms = (samples.len() * 1000 / 16000) as u64;
+        emit(&AsrRow {
+            engine: "parakeet-tdt-int8",
+            wav,
+            audio_ms,
+            load_ms,
+            first_partial_audio_ms: first.as_ref().map(|f| f.0),
+            first_partial_wall_ms: Some(partial_ms),
+            first_partial: first.as_ref().map(|f| f.1.clone()),
+            tail_ms,
+            compute_ms: tail_ms,
+            rtf: tail_ms as f64 / audio_ms.max(1) as f64,
             text: text.trim().to_string(),
         });
     }

@@ -113,6 +113,7 @@ public enum DeviceReadiness {
         ("required", "Required", nil),
         ("agents", "Coding agents", "optional"),
         ("computer_use", "Computer use", "optional"),
+        ("voice", "Voice", "optional"),
     ]
 
     /// Fixture `labels`; an unknown key renders verbatim.
@@ -123,6 +124,7 @@ public enum DeviceReadiness {
         "computer_use": "Computer use",
         "screen_recording": "Screen Recording",
         "accessibility": "Accessibility",
+        "microphone": "Microphone",
     ]
 
     /// Fixture `states`; an unknown state is a muted dash.

@@ -57,7 +57,12 @@ mod platform {
         ];
         let mut errors = Vec::new();
         for (program, args) in candidates {
-            match Command::new(program)
+            // Absolute, from the system dirs: never a binary the PATH plants.
+            let Some(path) = talk::system_binary(program) else {
+                errors.push(format!("{program}: not in {}", talk::SYSTEM_BIN_DIRS.join(", ")));
+                continue;
+            };
+            match Command::new(path)
                 .args(&args)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::null())

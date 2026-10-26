@@ -14,6 +14,13 @@
 //!   `cargo run` binary has no bundle and so no GPU voice.
 //! - Windows x86_64: the Vulkan build, downloaded. Needs a Vulkan driver.
 //! - Anything else: no GPU runtime.
+//!
+//! NEW-78: the transcriber also runs WITHOUT a GPU driver, so Linux and
+//! Windows pin the same release's CPU-only build too ([`CPU_ARTIFACTS`],
+//! OpenBLAS on Linux). The two builds share their library names, so a
+//! process loads ONE of them: the GPU build where the driver exists (its
+//! sessions run on the CPU just as well), else the CPU build. On macOS the
+//! bundled Metal build is the CPU build too.
 
 // `Pack` is only used where the runtime is downloaded (Linux, Windows).
 #[allow(unused_imports)]
@@ -74,6 +81,31 @@ mod imp {
         },
     ];
 
+
+    pub const CPU_RUNTIME_DIR: &str = "crispasr-0.8.45-cpu";
+    pub const CPU_LIBRARY: &str = LIBRARY;
+    pub const CPU_GGML: &str = GGML;
+
+    pub const CPU_ARTIFACTS: &[Artifact] = &[Artifact {
+        id: "libcrispasr-linux-x86_64",
+        url: "https://github.com/CrispStrobe/CrispASR/releases/download/v0.8.45/libcrispasr-linux-x86_64.tar.gz",
+        sha256: "b4e0b8bbb6ab5a433f62ad9537c695c02b8a31234b3d9ba68dac840fa697cab9",
+        size: 22_663_252,
+        pack: Pack::TarGz,
+        keep: &[
+            ("libcrispasr-linux-x86_64/lib/libcrispasr.so.0.8.45", "libcrispasr.so.1"),
+            ("libcrispasr-linux-x86_64/lib/libggml.so.0.26.0", "libggml.so.0"),
+            ("libcrispasr-linux-x86_64/lib/libggml-base.so.0.26.0", "libggml-base.so.0"),
+            ("libcrispasr-linux-x86_64/lib/libggml-cpu.so.0.26.0", "libggml-cpu.so.0"),
+            ("libcrispasr-linux-x86_64/lib/libgomp.so.1", "libgomp.so.1"),
+            ("libcrispasr-linux-x86_64/lib/libopenblas.so.0", "libopenblas.so.0"),
+            ("libcrispasr-linux-x86_64/lib/libgfortran.so.5", "libgfortran.so.5"),
+            ("libcrispasr-linux-x86_64/lib/libquadmath.so.0", "libquadmath.so.0"),
+            ("libcrispasr-linux-x86_64/LICENSE", "LICENSE"),
+            ("libcrispasr-linux-x86_64/THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_NOTICES.txt"),
+        ],
+    }];
+
     /// The NVIDIA driver is installed (its user-space library loads).
     pub fn gpu_driver_present() -> bool {
         // SAFETY: loading the driver's library runs its initialisers only.
@@ -107,6 +139,13 @@ mod imp {
 
     /// Nothing is downloaded: the runtime ships in the bundle.
     pub const ARTIFACTS: &[Artifact] = &[];
+
+
+    /// The Metal build runs CPU sessions too.
+    pub const CPU_RUNTIME_DIR: &str = super::RUNTIME_DIR;
+    pub const CPU_LIBRARY: &str = LIBRARY;
+    pub const CPU_GGML: &str = GGML;
+    pub const CPU_ARTIFACTS: &[Artifact] = ARTIFACTS;
 
     /// Every Apple Silicon Mac has a Metal GPU.
     pub fn gpu_driver_present() -> bool {
@@ -159,6 +198,27 @@ mod imp {
         ],
     }];
 
+
+    pub const CPU_RUNTIME_DIR: &str = "crispasr-0.8.45-cpu";
+    pub const CPU_LIBRARY: &str = LIBRARY;
+    pub const CPU_GGML: &str = GGML;
+
+    pub const CPU_ARTIFACTS: &[Artifact] = &[Artifact {
+        id: "libcrispasr-windows-x86_64",
+        url: "https://github.com/CrispStrobe/CrispASR/releases/download/v0.8.45/libcrispasr-windows-x86_64.tar.gz",
+        sha256: "855fbca5ea21c31c6459f312477239c98a95f6be2eee228bdf34e7522ca2bee4",
+        size: 58_413_600,
+        pack: Pack::TarGz,
+        keep: &[
+            ("libcrispasr-windows-x86_64/bin/crispasr.dll", "crispasr.dll"),
+            ("libcrispasr-windows-x86_64/bin/ggml.dll", "ggml.dll"),
+            ("libcrispasr-windows-x86_64/bin/ggml-base.dll", "ggml-base.dll"),
+            ("libcrispasr-windows-x86_64/bin/ggml-cpu.dll", "ggml-cpu.dll"),
+            ("libcrispasr-windows-x86_64/LICENSE", "LICENSE"),
+            ("libcrispasr-windows-x86_64/THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_NOTICES.txt"),
+        ],
+    }];
+
     /// A Vulkan driver is installed (the loader library loads).
     pub fn gpu_driver_present() -> bool {
         // System32 only, never the DLL search path (a planted vulkan-1.dll
@@ -194,6 +254,10 @@ mod imp {
     pub const LIBRARY: &str = "";
     pub const GGML: &str = "";
     pub const ARTIFACTS: &[Artifact] = &[];
+    pub const CPU_RUNTIME_DIR: &str = "";
+    pub const CPU_LIBRARY: &str = "";
+    pub const CPU_GGML: &str = "";
+    pub const CPU_ARTIFACTS: &[Artifact] = &[];
 
     pub fn gpu_driver_present() -> bool {
         false
@@ -219,6 +283,9 @@ pub use imp::bundled_dir;
 pub use imp::LIBRARY;
 /// ggml's library (already loaded as a dependency; device enumeration).
 pub use imp::GGML;
+/// NEW-78: the CPU-only runtime: its directory under `{data_dir}/talk/`,
+/// its files (every one pinned) and the libraries opened.
+pub use imp::{CPU_ARTIFACTS, CPU_GGML, CPU_LIBRARY, CPU_RUNTIME_DIR};
 /// The cheap check BEFORE any download: the platform's GPU driver exists.
 pub use imp::gpu_driver_present;
 /// The GPU driver's version where the platform tells it (a cache key).
@@ -227,4 +294,9 @@ pub use imp::driver_version;
 /// Whether this platform has a pinned GPU runtime at all.
 pub fn supported() -> bool {
     !ARTIFACTS.is_empty() || bundled_dir().is_some()
+}
+
+/// NEW-78: whether this platform has a pinned runtime that runs on the CPU.
+pub fn cpu_supported() -> bool {
+    !CPU_ARTIFACTS.is_empty()
 }

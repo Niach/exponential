@@ -137,12 +137,15 @@ impl CodingHub {
         let data_dir = coding_data_dir(cx);
         let fetch_settings = settings.clone();
         let fetch_dir = data_dir.clone();
+        // NEW-78: the microphone row rides only while this device listens.
+        let listening = crate::speak_replies::push_to_talk_here(cx);
         cx.spawn(async move |cx| {
             let (report, device) = cx
                 .background_executor()
                 .spawn(async move {
                     let report = run_doctor(&settings, &data_dir);
-                    let device = coding::device_doctor::current(&settings, &data_dir, &report);
+                    let mut device = coding::device_doctor::current(&settings, &data_dir, &report);
+                    crate::device_readiness::add_microphone_row(&mut device, listening);
                     (report, device)
                 })
                 .await;

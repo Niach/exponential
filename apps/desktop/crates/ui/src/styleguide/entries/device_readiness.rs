@@ -1,6 +1,6 @@
 //! EXP-1196/1218/1219: `device-readiness` (3 Special components): THE device
-//! readiness block, the REAL `device_readiness` model + renderer over the
-//! three cases of the contract fixture `device-doctor.json` (read here with
+//! readiness block, the REAL `device_readiness` model + renderer over
+//! every case of the contract fixture `device-doctor.json` (read here with
 //! `include_str!`, nothing retyped), each on the device itself (every action
 //! offered) and from another device (only Update / Sign in). Inert: a
 //! gallery has nowhere to send a pill or a switch.
@@ -99,6 +99,6 @@ mod tests {
 
     #[test]
     fn every_fixture_case_draws() {
-        assert_eq!(cases().len(), 6);
+        assert_eq!(cases().len(), 9);
     }
 }

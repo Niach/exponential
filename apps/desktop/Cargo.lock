@@ -8201,7 +8201,11 @@ checksum = "c0e973b34477b7823833469eb0f5a3a60370fef7a453e02d751b59180d0a5a05"
 name = "talk"
 version = "0.14.78"
 dependencies = [
+ "block2 0.6.2",
+ "cpal",
  "log",
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
  "serde",
  "serde_json",
 ]

@@ -23,6 +23,8 @@ cargo run --release -- kokoro models/kokoro-multi-lang-v1_0 data/phrases.json en
 mkdir -p out/kokoro-en-16k && for f in out/kokoro-en/*.wav; do ffmpeg -loglevel error -y -i $f -ar 16000 -ac 1 -sample_fmt s16 out/kokoro-en-16k/$(basename $f); done
 
 cargo run --release -- zipformer models/sherpa-onnx-streaming-zipformer-en-2023-06-26 out/kokoro-en-16k/*.wav > out/zipformer-en-kokoro.jsonl
+# NEW-54: Parakeet TDT 0.6B v3 int8 (sherpa-onnx export) as push to talk uses it: tail after release + the 300 ms partials
+cargo run --release -- parakeet models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8 out/kokoro-en-16k/*.wav > out/parakeet-en-kokoro.jsonl
 cargo run --release -- vad models/silero_vad.onnx out/kokoro-en-16k/*.wav > out/vad-kokoro.jsonl
 cargo run --release -- kws models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20 data/keywords-probe.txt out/kokoro-en-16k/*.wav > out/kws-kokoro.jsonl
 python3 scripts/wer.py data/phrases.json out/zipformer-en-kokoro.jsonl zipformer

@@ -20446,6 +20446,28 @@ governed by the NVIDIA CUDA Toolkit End User License Agreement
 not redistributed by Exponential. The CrispASR licence and notices are
 reproduced below; the Apache License 2.0 is reproduced above.
 
+NEW-78: when a member turns on Push to talk, the worker downloads, on first
+use, the transcriber: Parakeet TDT 0.6B v3 by NVIDIA
+(https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3, licensed under CC BY 4.0,
+https://creativecommons.org/licenses/by/4.0/; converted to GGUF and quantised
+to Q8_0 by cstr for CrispASR,
+https://huggingface.co/cstr/parakeet-tdt-0.6b-v3-GGUF; not modified by
+Exponential) and the Silero VAD v6.2 (https://github.com/snakers4/silero-vad,
+MIT, Silero Team; ggml conversion by ggml-org,
+https://huggingface.co/ggml-org/whisper-vad, MIT). On a Linux or Windows
+machine without a GPU driver it downloads CrispASR v0.8.45's CPU-only runtime
+instead of the GPU one; on Linux that archive carries OpenBLAS (BSD-3-Clause)
+with libgfortran and libquadmath (GCC Runtime Library Exception / LGPL-2.1),
+listed in the CrispASR notices below and not redistributed by Exponential. On
+Linux both CrispASR archives (CUDA and CPU-only) carry libgomp.so.1, the GNU
+OpenMP runtime (https://gcc.gnu.org/, GPL-3.0-or-later WITH GCC-exception-3.1,
+the GCC Runtime Library Exception: https://www.gnu.org/licenses/gpl-3.0.html,
+https://www.gnu.org/licenses/gcc-exception-3.1.html), unmodified from Ubuntu
+22.04's gcc-12, whose corresponding source is available from Ubuntu's source
+archive (apt-get source gcc-12), from https://gcc.gnu.org/ and from the
+CrispASR maintainers as their notices below state; it is fetched by the
+member's machine, not redistributed by Exponential.
+
 ..............................................................................
 MIT License — CrispASR (incl. ggml)
 ..............................................................................

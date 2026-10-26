@@ -14,3 +14,17 @@ publish = false
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = "0.4"
+
+# NEW-78: the microphone doctor probe (`src/microphone.rs`): AVCaptureDevice's
+# audio authorization + default input device through raw objc2 messages (the
+# AVFoundation framework is linked in the module), the async access request
+# through a block.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString"] }
+block2 = "0.6"
+
+# NEW-78: Windows has no microphone permission to ask for; cpal's default
+# input device is the probe (cpal is already in the tree via crates/voice).
+[target.'cfg(target_os = "windows")'.dependencies]
+cpal = "0.16"

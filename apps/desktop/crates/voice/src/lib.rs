@@ -18,8 +18,18 @@
 //! synthesized sentence by sentence and played as it arrives ([`sink`]); a
 //! new `Speak` replaces the one playing, `Stop` ends it (each request
 //! carries a generation number; older work stops at its next sentence).
+//!
+//! NEW-78: the worker also listens ([`listener`], its own thread): `Listen`
+//! silences any speech first (barge-in), then opens the microphone; the
+//! speaker and the transcriber share ONE CrispASR runtime ([`runtime`]).
+//! A `Speak` that arrives while a Listen runs is answered `Finished {
+//! stopped: true }` unplayed: never a reply into the open microphone.
 
 pub mod builtin;
+pub mod capture;
+pub mod listen;
+pub mod listener;
+pub mod runtime;
 pub mod sink;
 
 use std::io::{BufRead, Write};
@@ -29,7 +39,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crispasr::{artifact, models, Device, Runtime, TtsSession};
+use crispasr::{artifact, models, Build, Device, TtsSession};
 use talk::{Event, Request, VoiceChoice};
 
 /// The CrispASR backend of the model.
@@ -51,7 +61,7 @@ pub fn run_and_exit() -> ! {
     std::process::exit(0)
 }
 
-fn emit(event: &Event) {
+pub(crate) fn emit(event: &Event) {
     let Ok(line) = serde_json::to_string(event) else { return };
     let mut stdout = std::io::stdout().lock();
     let _ = writeln!(stdout, "{line}");
@@ -73,6 +83,13 @@ struct Shared {
 fn run(data_dir: PathBuf) {
     emit(&Event::Ready { protocol: talk::PROTOCOL });
     remove_retired_voices(&data_dir);
+    let ears = data_dir.clone();
+    serve(std::io::stdin().lock(), data_dir, move || listener::Ears::new(ears));
+}
+
+/// Answer `input`'s requests until EOF, then wind the engines down and
+/// return (the listener on `hearing`, which `make` builds on its thread).
+fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: impl FnOnce() -> H + Send + 'static) {
     let shared = Arc::new(Shared { generation: AtomicU64::new(0), current: Mutex::new(None) });
     let (tx, rx) = mpsc::channel::<Job>();
     let engine_shared = shared.clone();
@@ -80,8 +97,10 @@ fn run(data_dir: PathBuf) {
         .name("voice-engine".into())
         .spawn(move || engine_loop(&data_dir, rx, &engine_shared))
         .expect("spawn the voice engine");
+    let listening = Arc::new(listener::Listening::default());
+    let (listen, listener) = listener::spawn(hearing, listening.clone());
 
-    for line in std::io::stdin().lock().lines() {
+    for line in input.lines() {
         let Ok(line) = line else { break };
         let request = match serde_json::from_str::<Request>(&line) {
             Ok(request) => request,
@@ -95,6 +114,11 @@ fn run(data_dir: PathBuf) {
             Request::Prepare { voice } => {
                 let _ = tx.send(Job::Prepare(voice));
             }
+            Request::Speak { id, .. } if listening.active() => {
+                // Never into the open microphone: a reply that arrives
+                // mid-Listen is dropped, as barge-in would have stopped it.
+                emit(&Event::Finished { id, stopped: true });
+            }
             Request::Speak { id, text } => {
                 let generation = shared.generation.fetch_add(1, Ordering::SeqCst) + 1;
                 silence(&shared);
@@ -104,13 +128,29 @@ fn run(data_dir: PathBuf) {
                 shared.generation.fetch_add(1, Ordering::SeqCst);
                 silence(&shared);
             }
+            Request::Listen { id, language } => {
+                // Barge-in: the person talks over the reply.
+                listening.begin(&id);
+                shared.generation.fetch_add(1, Ordering::SeqCst);
+                silence(&shared);
+                let _ = listen.send(listener::Job::Start { id, language });
+            }
+            Request::EndListen { id } => {
+                let _ = listen.send(listener::Job::End { id });
+            }
+            Request::CancelListen { id } => {
+                let _ = listen.send(listener::Job::Cancel { id });
+            }
         }
     }
-    // EOF: the host is gone. Silence and let the engine wind down.
+    // EOF: the host is gone. Silence and let the engines wind down; the
+    // listener closes any open microphone.
     shared.generation.fetch_add(1, Ordering::SeqCst);
     silence(&shared);
     drop(tx);
+    drop(listen);
     let _ = engine.join();
+    let _ = listener.join();
 }
 
 /// NEW-74: the Kokoro voice of NEW-53 is retired; free its ~340 MB.
@@ -131,7 +171,7 @@ fn silence(shared: &Shared) {
 /// The wait after the `failures`-th failed download or load: 1 min,
 /// doubling, at most 1 h. A changed or broken upstream asset is fetched
 /// again on that schedule, never on every reply.
-fn retry_after(failures: u32) -> Duration {
+pub(crate) fn retry_after(failures: u32) -> Duration {
     Duration::from_secs(60u64.saturating_mul(1u64 << failures.saturating_sub(1).min(6))).min(Duration::from_secs(3600))
 }
 
@@ -224,9 +264,9 @@ fn bring_up(data_dir: &Path) -> Result<Option<Loaded>, String> {
         eprintln!("no usable GPU: no GPU driver for the voice on this machine");
         return Ok(None);
     }
-    let runtime_dir = crispasr::runtime_dir(data_dir);
     let models_dir = data_dir.join("talk").join(models::MODELS_DIR);
-    let runtime = crispasr::platform::ARTIFACTS;
+    // NEW-78: no runtime bytes to fetch when the transcriber loaded it.
+    let runtime: &[artifact::Artifact] = if runtime::loaded().is_some() { &[] } else { crispasr::platform::ARTIFACTS };
     let model_files = [models::QWEN3_TTS_0_6B_BASE, models::QWEN3_TTS_CODEC];
     let total: u64 = runtime.iter().chain(model_files.iter()).map(|artifact| artifact.size).sum();
     let runtime_total: u64 = runtime.iter().map(|artifact| artifact.size).sum();
@@ -240,9 +280,9 @@ fn bring_up(data_dir: &Path) -> Result<Option<Loaded>, String> {
     };
     // The runtime first: whether there is a usable GPU at all is known
     // before the 2.2 GB of models are fetched.
-    artifact::ensure_all(&runtime_dir, runtime, |received, _| report(received)).map_err(|err| err.to_string())?;
-    // Every library re-hashed inside `load` before dlopen.
-    let runtime = Runtime::load(&runtime_dir)?;
+    // Every library re-hashed inside `load_build` before dlopen; NEW-78: the
+    // ONE runtime of the worker, shared with the transcriber.
+    let runtime = runtime::get(data_dir, Build::Gpu, |received, _| report(received))?;
     let gpus = runtime.gpus();
     let Some(gpu) = gpus.iter().filter(|gpu| gpu.total_bytes >= MIN_GPU_BYTES).max_by_key(|gpu| gpu.free_bytes) else {
         let seen: Vec<String> = gpus.iter().map(|gpu| format!("{} ({} MB)", gpu.description, gpu.total_bytes / 1_000_000)).collect();
@@ -264,8 +304,6 @@ fn bring_up(data_dir: &Path) -> Result<Option<Loaded>, String> {
         artifact::verify(&models_dir, model).map_err(|err| err.to_string())?;
     }
     eprintln!("voice models verified in {} ms", hashing.elapsed().as_millis());
-    // The worker keeps the runtime until it exits; sessions borrow it.
-    let runtime: &'static Runtime = Box::leak(Box::new(runtime));
     let started = Instant::now();
     let session = runtime.open_tts(
         BACKEND,
@@ -459,6 +497,31 @@ fn clear_current(shared: &Shared, sink: &Arc<dyn sink::Sink>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1238 review: the worker exits on EOF while a Listen holds the
+    /// microphone, and the microphone closes.
+    #[test]
+    fn serve_returns_on_eof_while_a_listen_is_active() {
+        use std::io::Write as _;
+        use std::sync::atomic::Ordering;
+
+        let (probe, opened, _) = listener::fake::Probe::new(false);
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        let dir = std::env::temp_dir().join(format!("voice-eof-{}", std::process::id()));
+        let hearing = probe.hearing();
+        let (done, served) = mpsc::channel();
+        std::thread::spawn(move || {
+            serve(std::io::BufReader::new(reader), dir, move || hearing);
+            let _ = done.send(());
+        });
+        writeln!(writer, r#"{{"t":"listen","id":"u1","language":"en"}}"#).unwrap();
+        opened.recv_timeout(Duration::from_secs(10)).expect("the Listen opened the microphone");
+        drop(writer);
+        served.recv_timeout(Duration::from_secs(10)).expect("serve returned after EOF");
+        let mics = probe.opened.lock().unwrap();
+        assert_eq!(mics.len(), 1);
+        assert!(mics[0].load(Ordering::SeqCst), "the microphone closed");
+    }
 
     #[test]
     fn failed_downloads_back_off_to_an_hour() {
