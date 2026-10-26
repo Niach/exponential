@@ -1,5 +1,5 @@
 {
-  "id": "5b53e38f-1944-4039-b53e-478a90c93d0f",
+  "id": "cbcc59e6-8d7c-4310-a854-9a3bdf48daa6",
   "prevId": "207cc42b-c4b4-4edb-9ab7-8628159a3af2",
   "version": "7",
   "dialect": "postgresql",
@@ -9595,7 +9595,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "user_voice_settings_language_check": {
+          "name": "user_voice_settings_language_check",
+          "value": "\"user_voice_settings\".\"language\" IN ('en', 'de')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.widget_configs": {
