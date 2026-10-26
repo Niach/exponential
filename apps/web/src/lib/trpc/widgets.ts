@@ -18,6 +18,7 @@ import {
 } from "@/lib/team-membership"
 import { PICKABLE_ICONS } from "@exp/icons"
 import { generateWidgetKey } from "@/lib/widget/key"
+import { loadWidgetSubmissions } from "@/lib/widget/submission"
 import {
   maxWidgetCustomFields,
   maxWidgetLabels,
@@ -154,11 +155,8 @@ export const widgetsRouter = router({
     .query(async ({ ctx, input }) => {
       const issueContext = await getIssueTeamContext(input.issueId)
       await assertTeamMember(ctx.session.user.id, issueContext.teamId)
-      const [submission] = await ctx.db
-        .select()
-        .from(widgetSubmissions)
-        .where(eq(widgetSubmissions.issueId, input.issueId))
-        .limit(1)
+      // NEW-19: the same read the MCP `issues get`/`list` widget field uses.
+      const [submission] = await loadWidgetSubmissions([input.issueId], ctx.db)
       return submission ?? null
     }),
 

@@ -27,6 +27,7 @@ import {
   resolveLauncher,
   watchMobileViewport,
 } from "../launcher"
+import { messagesFor } from "../i18n"
 import { Annotator } from "./Annotator"
 import { ownCustomValue } from "./custom-values"
 import { Panel, captureDelayCycle, type CaptureDelay } from "./Panel"
@@ -78,15 +79,18 @@ function isEmailFailure(result: {
   status: number | null
   code: string | null
   message: string
+  serverMessage?: string | null
 }): boolean {
   if (result.code === `invalid_email` || result.code === `email_required`) {
     return true
   }
+  // The server's untranslated text (the shown message is localized);
+  // `message` covers results built without it.
+  const text = result.serverMessage ?? result.message
   return (
     result.code === null &&
     result.status === 400 &&
-    (result.message === `Invalid submission fields` ||
-      result.message === `Email is required`)
+    (text === `Invalid submission fields` || text === `Email is required`)
   )
 }
 
@@ -163,8 +167,14 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     state.options.color ??
     state.config?.form?.accentColor ??
     palette.defaultAccent
+  // Locale (FEED-113): runtime setLocale > init option > auto, re-resolved
+  // per render so a stateChanged() after setLocale switches in place. The
+  // ref feeds the stable callbacks below.
+  const t = messagesFor(state)
+  const messagesRef = useRef(t)
+  messagesRef.current = t
   const label =
-    state.options.label ?? state.config?.form?.buttonLabel ?? `Feedback`
+    state.options.label ?? state.config?.form?.buttonLabel ?? t.launcherLabel
 
   // Per-device launcher appearance (EXP-569), re-resolved when the viewport
   // crosses the desktop/mobile breakpoint. Must agree with the loader's
@@ -261,15 +271,15 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     const accepted: UploadedImage[] = []
     for (const file of files) {
       if (!isAcceptedUploadImageType(file.type)) {
-        error = `Only image files can be attached.`
+        error = messagesRef.current.imageWrongType
         continue
       }
       if (file.size > maxUploadedImageBytes) {
-        error = `Images must be 10 MB or smaller.`
+        error = messagesRef.current.imageTooLarge
         continue
       }
       if (uploadsRef.current.length + accepted.length >= maxUploadedImages) {
-        error = `You can attach up to ${maxUploadedImages} images.`
+        error = messagesRef.current.imageTooMany(maxUploadedImages)
         break
       }
       accepted.push({
@@ -547,7 +557,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       // before the network round-trip.
       const mergedCustomData = mergeCustomValues(form.customValues)
       if (JSON.stringify(mergedCustomData).length > 8 * 1024) {
-        return `Your responses are too long to submit. Please shorten them.`
+        return t.responsesTooLong
       }
       setPhase({ kind: `submitting` })
       // A flatten can still be encoding here (the disabled Send button can
@@ -612,13 +622,16 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       if (usedIdentityEmail && isEmailFailure(result)) {
         setFailedIdentityEmail(identityEmail)
       }
+      // Back to the form with everything the reporter entered intact
+      // (FEED-117/143): the Panel keeps its typed fields, and the screenshot
+      // and attached pictures stay — only a success clears them.
       setPhase({ kind: `open` })
       return result.code === `invalid_email`
-        ? `Please enter a valid email address.`
+        ? t.invalidEmail
         : result.code === `email_required`
-          ? `Your email is required.`
+          ? t.emailRequired
           : result.code === `name_required`
-            ? `Your name is required.`
+            ? t.nameRequired
             : result.message
     },
     [
@@ -630,6 +643,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       identityEmail,
       identityName,
       mergeCustomValues,
+      t,
     ]
   )
 
@@ -727,7 +741,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
                 ? { transformOrigin: launcherOrigin(launcher.position) }
                 : undefined
             }
-            aria-label="Send feedback"
+            aria-label={t.launcherAriaLabel}
             aria-haspopup="dialog"
             aria-expanded={panelVisible}
             onClick={() => (panelVisible ? close() : open())}
@@ -783,6 +797,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           nameRequired={nameRequired}
           customFields={customFields}
           labels={labels}
+          messages={t}
           onClose={close}
           onCapture={takeScreenshot}
           onRetake={retake}
@@ -799,6 +814,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           imageUrl={base.objectUrl}
           initialShapes={shapes}
           initialCrop={crop}
+          messages={t}
           onCancel={cancelAnnotate}
           onSave={(next, nextCrop) => void saveAnnotations(next, nextCrop)}
         />

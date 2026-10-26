@@ -854,12 +854,12 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
               <EnvVar name="WIDGET_RATE_LIMIT_PER_IP_HOURLY">
                 Token buckets on the public widget endpoints, all optional. The
                 {` `}
-                <code>PER_IP</code>/<code>IP_BURST</code> pair (60/5) bounds
-                submissions per address; <code>PER_KEY</code>/
-                <code>KEY_BURST</code> (60/10) bounds them per widget, and is
+                <code>PER_IP</code>/<code>IP_BURST</code> pair (120/20) bounds
+                every submission per client address; <code>PER_KEY</code>/
+                <code>KEY_BURST</code> (60/20) bounds them per widget, and is
                 self-host-only; <code>PER_RECIPIENT</code>/
                 <code>RECIPIENT_BURST</code> (6/3) bounds the confirmation mail
-                a widget submission sends to a typed-in address. The anonymous
+                a widget submission sends to a reporter address. The anonymous
                 config read has its own far more generous{` `}
                 <code>WIDGET_CONFIG_RATE_LIMIT_PER_IP_HOURLY</code>/
                 <code>…_IP_BURST</code> (600/60).

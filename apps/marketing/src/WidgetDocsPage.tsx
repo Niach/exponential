@@ -20,13 +20,13 @@ const SECTIONS: DocsSectionType[] = [
 const WIDGET_SNIPPET =
   `<script>
   // Exponential feedback widget. Full docs — init options, identify,
-  // setCustomData, setTheme (dark/light/auto), setLauncherHidden, labels,
+  // setCustomData, setTheme (dark/light/auto), setLocale (en/de/auto), setLauncherHidden, labels,
   // headless submit:
   // https://exponential.at/docs/widget/
   (function (w, d, u) {
     if (w.ExponentialWidget) return;
     var q = [], api = { q: q };
-    ["init","identify","setCustomData","setTheme","setLauncherHidden","open","close","submit"].forEach(function (m) {
+    ["init","identify","setCustomData","setTheme","setLocale","setLauncherHidden","open","close","submit"].forEach(function (m) {
       api[m] = function () { q.push([m, [].slice.call(arguments)]); };
     });
     w.ExponentialWidget = api;
@@ -91,8 +91,15 @@ export function WidgetDocsPage() {
               hour</strong> across all its widgets (settings shows the{` `}
               <strong>Widget submissions (last hour)</strong> bar and the
               upgrade link); the Team plan is unlimited. Self-hosted
-              has no plan ceiling at all — only the per-IP abuse buckets,
-              which apply everywhere.
+              has no plan ceiling at all — only the per-IP bucket, which
+              applies everywhere.
+            </p>
+            <p>
+              Every report counts per IP:{` `}
+              <strong>20 at once, then 2 a minute</strong>; reporters behind
+              one office IP share it. A refused report keeps everything typed,
+              and the widget names the real wait from{` `}
+              <code>Retry-After</code>.
             </p>
           </DocsSection>
 
@@ -149,6 +156,10 @@ ExponentialWidget.setCustomData({
 // Hook the widget to your site's dark/light toggle — launcher
 // and panel restyle live. "auto" follows the visitor's system.
 ExponentialWidget.setTheme("light");
+
+// Widget language: "en", "de", or "auto" (the default: the
+// page's <html lang>, then the browser language).
+ExponentialWidget.setLocale("de");
 
 // Hide the launcher while your own UI covers its corner (a bottom
 // sheet, a mobile action bar). Only the button goes away: an open

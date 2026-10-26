@@ -84,14 +84,19 @@ test(`widget endpoints enforce origin rules and create issues with screenshots`,
   const configBody = (await allowedConfig.json()) as { enabled: boolean }
   expect(configBody.enabled).toBe(true)
 
-  // Disallowed origin → 403 without ACAO.
+  // Disallowed origin → 403, readable by the widget (NEW-19): the requesting
+  // origin is echoed and the body names the rejected origin.
   const deniedConfig = await page.request.get(`/api/widget/config?key=${key}`, {
     headers: { Origin: `https://evil.test` },
   })
   expect(deniedConfig.status()).toBe(403)
-  expect(
-    deniedConfig.headers()[`access-control-allow-origin`]
-  ).toBeUndefined()
+  expect(deniedConfig.headers()[`access-control-allow-origin`]).toBe(
+    `https://evil.test`
+  )
+  expect(await deniedConfig.json()).toMatchObject({
+    code: `origin_not_allowed`,
+    origin: `https://evil.test`,
+  })
 
   // Unknown key → 404.
   const unknownConfig = await page.request.get(

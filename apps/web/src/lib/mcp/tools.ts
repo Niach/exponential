@@ -130,6 +130,19 @@ import {
 } from "@/lib/issue-search-sql"
 import { buildRuntimeConfig } from "@/lib/runtime-config"
 import { createAgentBugReport } from "@/lib/widget/agent-report"
+import {
+  loadWidgetSubmissions,
+  widgetSubmissionSummary,
+  widgetSubmissionWire,
+} from "@/lib/widget/submission"
+import {
+  findIssueForReporter,
+  type ResolvedReporterIssue,
+} from "@/lib/reporter/service"
+import {
+  postReporterReply,
+  validateReporterReplyText,
+} from "@/lib/reporter/reply"
 import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
 import { MAX_PROMPT_BODY, MAX_PROMPT_NAME } from "@/lib/trpc/prompts"
@@ -178,6 +191,10 @@ import {
 } from "./handlers/attachments-upload"
 import { requestSessionCompaction } from "./handlers/sessions-compact"
 import { deviceAccountLogin } from "./handlers/device-account-login"
+import {
+  listReporterComments,
+  reporterIssueView,
+} from "./handlers/reporter-view"
 import { ALWAYS_LOAD_META } from "./always-load"
 import { mcpAppToolMeta, type McpAppView } from "./apps"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
@@ -600,6 +617,36 @@ export function registerExponentialTools(
       unattended: row.parentId !== null || row.watched === true,
       planMode: row.planMode === true,
     }
+  }
+
+  // NEW-19 (FEED-144): the member gate of an issue read or comment, with the
+  // REPORTER fallback. A member (grant + team access) gets the issue as
+  // always. Only when that gate fails does the caller's own report count:
+  // an issue whose widget_submissions reporter email is their VERIFIED
+  // account email (lib/reporter/service.ts) opens in the reporter view.
+  // Anyone else gets the member gate's own error ("Issue not found", "Not a
+  // member of this team"), so a report's existence never leaks.
+  type IssueTarget =
+    | {
+        kind: `member`
+        issueId: string
+        ctxIssue: Awaited<ReturnType<typeof getIssueTeamContext>>
+      }
+    | { kind: `reporter`; reporter: ResolvedReporterIssue }
+  async function resolveIssueTarget(idInput: string): Promise<IssueTarget> {
+    let memberError: unknown
+    try {
+      const issueId = await resolveIssueId(idInput, user.id, access)
+      const ctxIssue = await getIssueTeamContext(issueId)
+      assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
+      await resolveTeamAccess(user.id, ctxIssue.teamId)
+      return { kind: `member`, issueId, ctxIssue }
+    } catch (e) {
+      memberError = e
+    }
+    const reporter = await findIssueForReporter(user, idInput)
+    if (!reporter) throw memberError
+    return { kind: `reporter`, reporter }
   }
 
 
@@ -1066,8 +1113,20 @@ export function registerExponentialTools(
         .limit(limit)
         .offset(offset)
 
+      // NEW-19 (FEED-116): widget/agent-filed rows carry who reported them
+      // and their custom data, ONE query for the page (issues_get has the
+      // whole submission).
+      const submissions = await loadWidgetSubmissions(rows.map((r) => r.id))
+      const byIssue = new Map(submissions.map((s) => [s.issueId, s]))
       // EXP-847: list rows carry a description HEAD, never whole bodies.
-      return ok(withTruncatedDescriptions(rows))
+      return ok(
+        withTruncatedDescriptions(rows).map((row) => {
+          const submission = byIssue.get(row.id)
+          return submission
+            ? { ...row, widget: widgetSubmissionSummary(submission) }
+            : row
+        })
+      )
     } catch (e) {
       return err(e)
     }
@@ -1130,10 +1189,13 @@ export function registerExponentialTools(
     },
     async ({ id: idInput, commentsLimit }) => {
       try {
-        const id = await resolveIssueId(idInput, user.id, access)
-        const ctxIssue = await getIssueTeamContext(id)
-        assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
-        await resolveTeamAccess(user.id, ctxIssue.teamId)
+        const target = await resolveIssueTarget(idInput)
+        if (target.kind === `reporter`) {
+          return ok(
+            await reporterIssueView(target.reporter, commentsLimit ?? 50)
+          )
+        }
+        const { issueId: id, ctxIssue } = target
         const [issue] = await db
           .select(issueWireColumns)
           .from(issues)
@@ -1177,6 +1239,7 @@ export function registerExponentialTools(
         const origin = process.env.BETTER_AUTH_URL
           ? appBaseUrl()
           : new URL(request.url).origin
+        const [submission] = await loadWidgetSubmissions([id])
         return ok({
           ...issue,
           url: slugs
@@ -1188,6 +1251,9 @@ export function registerExponentialTools(
           // EXP-988/EXP-979: how many files the issue carries, so an agent
           // knows whether exponential_attachments_list is worth a call.
           attachmentCount: await countIssueAttachments(id),
+          // NEW-19 (FEED-116): the "Reported via widget" card's data, on
+          // widget- and agent-filed issues only.
+          ...(submission ? { widget: widgetSubmissionWire(submission) } : {}),
         })
       } catch (e) {
         return err(e)
@@ -1805,10 +1871,14 @@ export function registerExponentialTools(
     },
     async ({ issueId: issueIdInput, limit, offset }) => {
       try {
-        const issueId = await resolveIssueId(issueIdInput, user.id, access)
-        const ctxIssue = await getIssueTeamContext(issueId)
-        assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
-        await resolveTeamAccess(user.id, ctxIssue.teamId)
+        const target = await resolveIssueTarget(issueIdInput)
+        if (target.kind === `reporter`) {
+          // NEW-19: the reporter reads their conversation only.
+          return ok(
+            await listReporterComments(target.reporter, { limit, offset })
+          )
+        }
+        const { issueId } = target
         const rows = await db
           .select(commentWireColumns)
           .from(comments)
@@ -1916,6 +1986,34 @@ export function registerExponentialTools(
     },
     async ({ issueId: issueIdInput, body, attachmentIds, parentId, audience }) => {
       try {
+        const target = await resolveIssueTarget(issueIdInput)
+        if (target.kind === `reporter`) {
+          // NEW-19: the reporter answers through the SAME write as the
+          // magic-link page (lib/reporter/reply.ts): a top-level reporter
+          // comment, no attachments, the per-issue reply bucket.
+          if (parentId || attachmentIds?.length || audience === `team`) {
+            throw new Error(
+              `As the reporter you reply top-level to the team: no parentId, attachmentIds or audience "team".`
+            )
+          }
+          const validated = validateReporterReplyText(body)
+          if (!validated.ok) throw new Error(validated.error)
+          const { issue } = target.reporter
+          const reply = await postReporterReply(target.reporter, validated.text)
+          if (!reply.ok) {
+            throw new Error(
+              `Too many replies — retry in ${reply.retryAfterSeconds}s`
+            )
+          }
+          return ok({
+            id: reply.message.id,
+            issueId: issue.id,
+            issueIdentifier: issue.identifier,
+            source: `reporter`,
+            audience: `reporter`,
+            createdAt: reply.message.createdAt,
+          })
+        }
         // SLOP-4: a reporter reply EMAILS an outside address with text the
         // reporter chose, so it needs a person behind it: never a
         // board-confined OAuth grant or scoped key, never an unattended run.
@@ -1932,11 +2030,8 @@ export function registerExponentialTools(
             )
           }
         }
-        const issueId = await resolveIssueId(issueIdInput, user.id, access)
-        if (!access.full) {
-          const ctxIssue = await getIssueTeamContext(issueId)
-          assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
-        }
+        // The member gate above already checked the grant and the team.
+        const { issueId } = target
         const result = await caller(user, request).comments.create({
           issueId,
           body,
@@ -4319,7 +4414,13 @@ export function registerExponentialTools(
             description,
             userAgent: request.headers.get(`user-agent`),
           })
-          return ok(result)
+          // NEW-19 (FEED-144): the reporter's way back = the MCP reads that
+          // open the issue to its reporter (resolveIssueTarget). The magic
+          // link stays out: it is a credential and transcripts persist.
+          return ok({
+            ...result,
+            next: `Follow up on ${result.identifier}: exponential_issues {op: "get"} and exponential_comments {op: "list" | "create"} show you its reporter conversation and reply to the team.`,
+          })
         } catch (e) {
           return err(e)
         }

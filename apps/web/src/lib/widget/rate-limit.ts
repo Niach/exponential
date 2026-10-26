@@ -79,30 +79,95 @@ export function envInt(name: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
-// Module singletons used by the submit endpoint. Env-tunable so e2e tests can
-// lower them; defaults: 60 submissions/hour per key (burst 10), 60/hour per
-// IP (burst 5), and 6/hour per reporter address (burst 3). The recipient
-// bucket exists because a submit with an email mails a confirmation to the
-// typed-in reporter address while the per-key/per-team bucket is unlimited on
-// paid plans — without it one address can be mail-bombed via IP rotation.
-let perKeyLimiter: TokenBucketLimiter | null = null
-let perIpLimiter: TokenBucketLimiter | null = null
-let perRecipientLimiter: TokenBucketLimiter | null = null
+// THE widget submit rate-limit policy (NEW-19). Every number lives in
+// WIDGET_SUBMIT_LIMITS below, each env-tunable; this comment is the
+// documentation of the limit.
+//
+// - EVERY submit (identified or anonymous) counts per client IP: burst 20,
+//   refill 120/hour (= 2 a minute). Reporters behind one office IP share it.
+// - The plan/per-key bucket (submit-limit.ts) applies on top: self-hosted
+//   per key (burst 20, 60/hour), cloud per team by plan (free: burst 20,
+//   60/hour). Its burst matches the per-IP one so a single reporter's run of
+//   20 is never cut short by the shared bucket first.
+// - The confirmation MAIL to a reporter address: 6/hour, burst 3 per
+//   address. It never rejects a report — past it the issue is still created
+//   and only the mail is skipped (`emailDelivered: false`). It exists because
+//   the per-team bucket is unlimited on paid plans, so without it one address
+//   could be mail-bombed via IP/key rotation.
+//
+// Order (handleWidgetSubmit): the per-IP bucket first, then the shared
+// per-key/per-team one, short-circuiting — a request already rejected by its
+// own IP must never drain the shared bucket, or one hostile client 429s every
+// legit reporter of that widget.
+export const WIDGET_SUBMIT_LIMITS = {
+  ip: {
+    burstEnv: `WIDGET_RATE_LIMIT_IP_BURST`,
+    burst: 20,
+    hourlyEnv: `WIDGET_RATE_LIMIT_PER_IP_HOURLY`,
+    hourly: 120,
+  },
+  key: {
+    burstEnv: `WIDGET_RATE_LIMIT_KEY_BURST`,
+    burst: 20,
+    hourlyEnv: `WIDGET_RATE_LIMIT_PER_KEY_HOURLY`,
+    hourly: 60,
+  },
+  confirmationMail: {
+    burstEnv: `WIDGET_RATE_LIMIT_RECIPIENT_BURST`,
+    burst: 3,
+    hourlyEnv: `WIDGET_RATE_LIMIT_PER_RECIPIENT_HOURLY`,
+    hourly: 6,
+  },
+} as const
 
-export function getWidgetRateLimiters() {
-  perKeyLimiter ??= new TokenBucketLimiter({
-    capacity: envInt(`WIDGET_RATE_LIMIT_KEY_BURST`, 10),
-    refillPerHour: envInt(`WIDGET_RATE_LIMIT_PER_KEY_HOURLY`, 60),
+function limiterFor(
+  limit: (typeof WIDGET_SUBMIT_LIMITS)[keyof typeof WIDGET_SUBMIT_LIMITS]
+): TokenBucketLimiter {
+  return new TokenBucketLimiter({
+    capacity: envInt(limit.burstEnv, limit.burst),
+    refillPerHour: envInt(limit.hourlyEnv, limit.hourly),
   })
-  perIpLimiter ??= new TokenBucketLimiter({
-    capacity: envInt(`WIDGET_RATE_LIMIT_IP_BURST`, 5),
-    refillPerHour: envInt(`WIDGET_RATE_LIMIT_PER_IP_HOURLY`, 60),
-  })
-  perRecipientLimiter ??= new TokenBucketLimiter({
-    capacity: envInt(`WIDGET_RATE_LIMIT_RECIPIENT_BURST`, 3),
-    refillPerHour: envInt(`WIDGET_RATE_LIMIT_PER_RECIPIENT_HOURLY`, 6),
-  })
-  return { perKeyLimiter, perIpLimiter, perRecipientLimiter }
+}
+
+interface WidgetRateLimiters {
+  perKeyLimiter: TokenBucketLimiter
+  perIpLimiter: TokenBucketLimiter
+  perRecipientLimiter: TokenBucketLimiter
+}
+
+let widgetLimiters: WidgetRateLimiters | null = null
+
+export function getWidgetRateLimiters(): WidgetRateLimiters {
+  widgetLimiters ??= {
+    perKeyLimiter: limiterFor(WIDGET_SUBMIT_LIMITS.key),
+    perIpLimiter: limiterFor(WIDGET_SUBMIT_LIMITS.ip),
+    perRecipientLimiter: limiterFor(WIDGET_SUBMIT_LIMITS.confirmationMail),
+  }
+  return widgetLimiters
+}
+
+export function resetWidgetRateLimitersForTest(): void {
+  widgetLimiters = null
+}
+
+// The submit's per-IP token (the per-key/per-team one is taken AFTER it).
+export function takeWidgetIpToken(
+  ip: string,
+  nowMs = Date.now()
+): RateLimitResult {
+  return getWidgetRateLimiters().perIpLimiter.tryTake(`ip:${ip}`, nowMs)
+}
+
+// The confirmation-mail gate, keyed on the lowercased address: false = skip
+// the mail, never the report.
+export function takeWidgetConfirmationMailToken(
+  email: string,
+  nowMs = Date.now()
+): boolean {
+  return getWidgetRateLimiters().perRecipientLimiter.tryTake(
+    `reporter-email:${email.trim().toLowerCase()}`,
+    nowMs
+  ).ok
 }
 
 // Per-IP bucket for the anonymous GET /api/widget/config (REV-25). Separate

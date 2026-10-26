@@ -1,6 +1,13 @@
-import { and, eq } from "drizzle-orm"
+import { and, desc, eq, sql, type SQL } from "drizzle-orm"
+import { UUID_RE } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
-import { boards, issues, teams, widgetSubmissions } from "@/db/schema"
+import {
+  boards,
+  issues,
+  issueStatuses,
+  teams,
+  widgetSubmissions,
+} from "@/db/schema"
 import type { Issue, WidgetSubmission } from "@/db/schema"
 import { verifyReporterToken } from "@/lib/reporter/token"
 import { appBaseUrl } from "@/lib/notification-email-policy"
@@ -28,6 +35,8 @@ export interface ResolvedReporterIssue {
   issue: Issue
   submission: WidgetSubmission
   teamName: string | null
+  /** The issue's status row category (NEW-19: the MCP reporter view). */
+  statusCategory: string | null
 }
 
 // Resolve a magic-link token to its issue: verify the HMAC by recompute
@@ -42,20 +51,58 @@ export async function findIssueByReporterToken(
 ): Promise<ResolvedReporterIssue | null> {
   const issueId = verifyReporterToken(token)
   if (!issueId) return null
+  return loadReporterIssue(eq(widgetSubmissions.issueId, issueId))
+}
+
+// NEW-19: the signed-in twin of the magic link. A user of THIS instance who
+// filed a report (widget or MCP `report_bug`) reaches its conversation over
+// MCP by its UUID or identifier — only when the submission's reporter email
+// IS their VERIFIED account email (case-insensitive). Same visibility rule as
+// the token (hidden boards resolve nothing); the newest match wins, like the
+// member resolver. Null for anything else, so callers keep their own
+// "Issue not found" and existence never leaks to a non-reporter.
+export async function findIssueForReporter(
+  user: { email: string | null; emailVerified: boolean | null },
+  ref: string
+): Promise<ResolvedReporterIssue | null> {
+  const email = user.email?.trim()
+  if (!user.emailVerified || !email) return null
+  const match = UUID_RE.test(ref)
+    ? eq(issues.id, ref)
+    : eq(issues.identifier, ref.trim().toUpperCase())
+  return loadReporterIssue(
+    and(
+      match,
+      sql`lower(${widgetSubmissions.reporterEmail}) = ${email.toLowerCase()}`
+    )!
+  )
+}
+
+async function loadReporterIssue(
+  where: SQL
+): Promise<ResolvedReporterIssue | null> {
   const [row] = await db
     .select({
       issue: issues,
       submission: widgetSubmissions,
       teamName: teams.name,
+      statusCategory: issueStatuses.category,
     })
     .from(widgetSubmissions)
     .innerJoin(issues, eq(issues.id, widgetSubmissions.issueId))
     .innerJoin(boards, eq(boards.id, issues.boardId))
     .leftJoin(teams, eq(teams.id, issues.teamId))
-    .where(and(eq(widgetSubmissions.issueId, issueId), boardVisible()))
+    .leftJoin(issueStatuses, eq(issueStatuses.id, issues.statusId))
+    .where(and(where, boardVisible()))
+    .orderBy(desc(issues.createdAt))
     .limit(1)
   if (!row) return null
-  return { issue: row.issue, submission: row.submission, teamName: row.teamName }
+  return {
+    issue: row.issue,
+    submission: row.submission,
+    teamName: row.teamName,
+    statusCategory: row.statusCategory ?? null,
+  }
 }
 
 // ---------------------------------------------------------------------------

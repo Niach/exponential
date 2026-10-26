@@ -49,15 +49,15 @@ describe(`self-hosted`, () => {
   it(`uses the env per-key bucket and never resolves a plan`, async () => {
     cloud.value = false
     // The per-key limiter is a module singleton without a reset, so this test
-    // owns a unique publicKey; defaults are burst 10, refill 60/h.
+    // owns a unique publicKey; defaults are burst 20, refill 60/h.
     const config = { publicKey: `expw_selfhost`, teamId: TEAM_A }
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 20; i++) {
       await expect(takeWidgetSubmitToken(config, 0)).resolves.toEqual({
         ok: true,
       })
     }
-    const eleventh = await takeWidgetSubmitToken(config, 0)
-    expect(eleventh.ok).toBe(false)
+    const twentyFirst = await takeWidgetSubmitToken(config, 0)
+    expect(twentyFirst.ok).toBe(false)
     expect(teamPlanMock).not.toHaveBeenCalled()
   })
 
@@ -81,7 +81,7 @@ describe(`cloud, free plan`, () => {
   it(`allows the burst then 429s with a retry hint`, async () => {
     teamPlanMock.mockResolvedValue(freePlan())
     const config = { publicKey: `expw_a`, teamId: TEAM_A }
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 20; i++) {
       await expect(takeWidgetSubmitToken(config, 0)).resolves.toEqual({
         ok: true,
       })
@@ -94,7 +94,7 @@ describe(`cloud, free plan`, () => {
   it(`refills at the plan rate (60/h = one token a minute)`, async () => {
     teamPlanMock.mockResolvedValue(freePlan())
     const config = { publicKey: `expw_a`, teamId: TEAM_A }
-    for (let i = 0; i < 10; i++) await takeWidgetSubmitToken(config, 0)
+    for (let i = 0; i < 20; i++) await takeWidgetSubmitToken(config, 0)
     await expect(takeWidgetSubmitToken(config, 60_000)).resolves.toEqual({
       ok: true,
     })
@@ -103,7 +103,7 @@ describe(`cloud, free plan`, () => {
   it(`aggregates per TEAM across widgets, isolated between teams`, async () => {
     teamPlanMock.mockResolvedValue(freePlan())
     // Two widgets of team A drain ONE shared bucket…
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 10; i++) {
       await takeWidgetSubmitToken({ publicKey: `expw_a1`, teamId: TEAM_A }, 0)
       await takeWidgetSubmitToken({ publicKey: `expw_a2`, teamId: TEAM_A }, 0)
     }

@@ -1,6 +1,130 @@
-import type { WidgetRuntimeState } from "./types"
+import type { WidgetConfigFailureCode, WidgetRuntimeState } from "./types"
 import type { EnvMeta } from "./env-meta"
 import { screenshotFilename } from "./capture/image"
+import {
+  formatWait,
+  messagesFor,
+  widgetMessages,
+  type WidgetMessages,
+} from "./i18n"
+
+const messagesForEnglish = widgetMessages.en
+
+export interface WidgetErrorBody {
+  error?: string
+  code?: string
+  retryAfterSeconds?: number
+}
+
+// What an error response means for the widget (NEW-19). Current servers send
+// a structured `code`; older ones only a status + frozen English text, so
+// both are matched.
+export type WidgetFailureKind =
+  | WidgetConfigFailureCode
+  | `rate_limited`
+  | `too_large`
+  | null
+
+export function classifyFailure(
+  status: number,
+  body: WidgetErrorBody | null
+): WidgetFailureKind {
+  const code = body?.code
+  if (
+    code === `origin_not_allowed` ||
+    code === `unknown_key` ||
+    code === `widget_disabled` ||
+    code === `rate_limited` ||
+    code === `too_large`
+  ) {
+    return code
+  }
+  if (code) return null
+  const error = body?.error ?? ``
+  if (status === 429) return `rate_limited`
+  if (status === 413) return `too_large`
+  if (status === 403 && error === `Origin not allowed`) {
+    return `origin_not_allowed`
+  }
+  if (
+    status === 403 &&
+    (error === `Widget is disabled` ||
+      error === `This feedback board is unavailable`)
+  ) {
+    return `widget_disabled`
+  }
+  if (status === 404 && (error === `Unknown widget key` || !error)) {
+    return `unknown_key`
+  }
+  return null
+}
+
+function pageOrigin(): string {
+  try {
+    return window.location.origin
+  } catch {
+    return `this page`
+  }
+}
+
+// The integrator-facing explanation, logged to the console (the reporter
+// only sees the localized message).
+export function warnMisconfiguration(code: WidgetConfigFailureCode): void {
+  const origin = pageOrigin()
+  console.warn(
+    code === `origin_not_allowed`
+      ? `[ExponentialWidget] ${origin} is not allowed to use this widget key. Add ${origin} to the widget key's allowed domains in the widget settings in Exponential.`
+      : code === `unknown_key`
+        ? `[ExponentialWidget] unknown widget key: check the key passed to init() against the widget settings in Exponential.`
+        : `[ExponentialWidget] this widget is disabled (or its board is unavailable); enable it in Exponential to show the launcher on ${origin}.`
+  )
+}
+
+// Seconds to wait, from the Retry-After header (delta-seconds or an HTTP
+// date) or the body's retryAfterSeconds; null = unknown.
+export function retryAfterSeconds(
+  headers: { get(name: string): string | null } | null | undefined,
+  body: WidgetErrorBody | null
+): number | null {
+  const raw = headers?.get?.(`Retry-After`)?.trim()
+  if (raw) {
+    if (/^\d+(\.\d+)?$/.test(raw)) return Number(raw)
+    const at = Date.parse(raw)
+    if (!Number.isNaN(at)) return Math.max(0, (at - Date.now()) / 1000)
+  }
+  const fromBody = body?.retryAfterSeconds
+  return typeof fromBody === `number` && Number.isFinite(fromBody) && fromBody >= 0
+    ? fromBody
+    : null
+}
+
+export function failureMessage(
+  kind: WidgetFailureKind,
+  body: WidgetErrorBody | null,
+  wait: number | null,
+  messages: WidgetMessages
+): string {
+  switch (kind) {
+    case `origin_not_allowed`:
+      return messages.originNotAllowed
+    case `unknown_key`:
+      return messages.unknownKey
+    case `widget_disabled`:
+      return messages.widgetDisabled
+    case `rate_limited`:
+      return messages.rateLimited(
+        wait === null ? null : formatWait(wait, messages)
+      )
+    case `too_large`:
+      return messages.requestTooLarge
+    default:
+      // The server's own (English) text is the most specific thing we have;
+      // a non-English widget falls back to its generic line instead.
+      return messages === messagesForEnglish && body?.error
+        ? body.error
+        : messages.genericError
+  }
+}
 
 export type SubmitResult =
   | {
@@ -22,6 +146,9 @@ export type SubmitResult =
       // reveal.
       status: number | null
       code: string | null
+      // The server's own `error` text, untranslated (null on a network
+      // error) — App matches old code-less servers' frozen copy on it.
+      serverMessage?: string | null
     }
 
 // SLOP-4: the ONE submit — every submission becomes an issue on the
@@ -50,6 +177,7 @@ export async function submitFeedback(args: {
   meta: EnvMeta
 }): Promise<SubmitResult> {
   const { state } = args
+  const messages = messagesFor(state)
   const formData = new FormData()
   formData.set(`key`, state.options.key)
   formData.set(`message`, args.message)
@@ -88,24 +216,35 @@ export async function submitFeedback(args: {
       body: formData,
       credentials: `omit`,
     })
-    if (response.status === 429) {
-      return {
-        ok: false,
-        message: `Too many reports right now. Try again in a minute.`,
-        status: 429,
-        code: null,
-      }
-    }
     if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as {
-        error?: string
-        code?: string
-      } | null
+      const body = (await response
+        .json()
+        .catch(() => null)) as WidgetErrorBody | null
+      const kind = classifyFailure(response.status, body)
+      if (
+        kind === `origin_not_allowed` ||
+        kind === `unknown_key` ||
+        kind === `widget_disabled`
+      ) {
+        warnMisconfiguration(kind)
+      }
       return {
         ok: false,
-        message: body?.error ?? `Something went wrong. Please try again.`,
+        message: failureMessage(
+          kind,
+          body,
+          kind === `rate_limited`
+            ? retryAfterSeconds(response.headers, body)
+            : null,
+          messages
+        ),
         status: response.status,
-        code: body?.code ?? null,
+        serverMessage: typeof body?.error === `string` ? body.error : null,
+        code:
+          body?.code ??
+          (kind === `rate_limited` || kind === null || kind === `too_large`
+            ? null
+            : kind),
       }
     }
     const body = (await response.json().catch(() => null)) as {
@@ -125,7 +264,7 @@ export async function submitFeedback(args: {
   } catch {
     return {
       ok: false,
-      message: `Network error. Please try again.`,
+      message: messages.networkError,
       status: null,
       code: null,
     }

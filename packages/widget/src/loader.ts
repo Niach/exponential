@@ -30,7 +30,13 @@ import {
   resolveLauncher,
   watchMobileViewport,
 } from "./launcher"
-import { submitFeedback } from "./api-client"
+import {
+  classifyFailure,
+  submitFeedback,
+  warnMisconfiguration,
+  type WidgetErrorBody,
+} from "./api-client"
+import { isLocalePreference, messagesFor } from "./i18n"
 import { collectEnvMeta } from "./env-meta"
 import { maxUploadedImages } from "./uploads"
 
@@ -129,7 +135,7 @@ function start(): void {
     if (launcher.mode === `fab`) {
       button.style.transformOrigin = launcherOrigin(launcher.position)
     }
-    button.setAttribute(`aria-label`, `Send feedback`)
+    button.setAttribute(`aria-label`, messagesFor(state).launcherAriaLabel)
     button.setAttribute(`aria-haspopup`, `dialog`)
     button.innerHTML = `${launcher.iconSvg ?? megaphoneIconSvg}${
       launcher.mode === `fab` && resolvedLabel()
@@ -165,9 +171,12 @@ function start(): void {
   }
 
   function resolvedLabel(): string {
-    const label =
-      state?.options.label ?? state?.config?.form?.buttonLabel ?? `Feedback`
-    return label
+    if (!state) return ``
+    return (
+      state.options.label ??
+      state.config?.form?.buttonLabel ??
+      messagesFor(state).launcherLabel
+    )
   }
 
   function restyleButton(): void {
@@ -217,13 +226,39 @@ function start(): void {
         bundle: null,
         themeOverride: null,
         launcherHidden: false,
+        localeOverride: null,
+        configFailure: null,
         configPromise: fetch(
           `${apiOrigin}/api/widget/config?key=${encodeURIComponent(options.key)}`,
           { credentials: `omit` }
         )
-          .then((response) =>
-            response.ok ? (response.json() as Promise<WidgetRemoteConfig>) : null
-          )
+          .then(async (response) => {
+            if (response.ok) return response.json() as Promise<WidgetRemoteConfig>
+            // NEW-19: a 403/404 means this page can never submit (origin not
+            // allowed, unknown key, disabled) — no launcher, and the
+            // integrator learns why from the console. Settled before the
+            // promise resolves so every consumer sees `disabled`. Network
+            // errors, 429 and 5xx stay transient: the launcher renders from
+            // defaults and the server re-checks on submit.
+            if (response.status === 403 || response.status === 404) {
+              const body = (await response
+                .json()
+                .catch(() => null)) as WidgetErrorBody | null
+              const kind = classifyFailure(response.status, body)
+              const code =
+                kind === `origin_not_allowed` ||
+                kind === `unknown_key` ||
+                kind === `widget_disabled`
+                  ? kind
+                  : response.status === 404
+                    ? `unknown_key`
+                    : `origin_not_allowed`
+              runtime.configFailure = { code, status: response.status }
+              runtime.disabled = true
+              warnMisconfiguration(code)
+            }
+            return null
+          })
           .catch(() => null),
       }
       state = runtime
@@ -231,7 +266,7 @@ function start(): void {
 
       void runtime.configPromise.then((config) => {
         runtime.config = config
-        if (config && !config.enabled) {
+        if (runtime.disabled || (config && !config.enabled)) {
           runtime.disabled = true
           runtime.loaderButtonHost?.remove()
           runtime.loaderButtonHost = null
@@ -311,6 +346,20 @@ function start(): void {
       state.bundle?.stateChanged()
     },
 
+    // Runtime language override (FEED-113), the setTheme twin: re-render the
+    // standalone launcher and nudge the mounted bundle (its render resolves
+    // the message table from state.localeOverride).
+    setLocale(locale) {
+      if (!state) return
+      if (!isLocalePreference(locale)) {
+        warn(`setLocale: expected "en", "de" or "auto"`)
+        return
+      }
+      state.localeOverride = locale
+      restyleButton()
+      state.bundle?.stateChanged()
+    },
+
     // Runtime launcher visibility (EXP-642): the host hides the button while
     // its own UI owns that corner. Only the launcher is affected — an open
     // panel stays open. While the bundle owns the button a stateChanged()
@@ -368,10 +417,17 @@ function start(): void {
         // fails open like the panel does — the server re-enforces everything.
         await runtime.configPromise
         if (runtime.disabled) {
+          const failure = runtime.configFailure?.code ?? `widget_disabled`
+          const messages = messagesFor(runtime)
           return {
             ok: false,
-            error: `This widget is currently disabled.`,
-            code: `widget_disabled`,
+            error:
+              failure === `origin_not_allowed`
+                ? messages.originNotAllowed
+                : failure === `unknown_key`
+                  ? messages.unknownKey
+                  : messages.widgetDisabled,
+            code: failure,
           }
         }
         const request = payload ?? {}
@@ -435,7 +491,7 @@ function start(): void {
         }
         return { ok: false, error: result.message, code: result.code }
       } catch {
-        return { ok: false, error: `Something went wrong. Please try again.` }
+        return { ok: false, error: messagesFor(runtime).genericError }
       }
     },
   }
