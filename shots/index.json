@@ -768,8 +768,8 @@
         "file": "shots/dock-card/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 64248,
-        "sha256": "7060075f430094f2c3c9467adb4bf8723c7d5083196c9cc4cfd66cb4fe4439a0"
+        "bytes": 63012,
+        "sha256": "6a8fa0b65e944dd942705a43b516a7dfd9c90776836fee5f9af64a54eb6e797d"
       },
       "desktop": {
         "file": "shots/dock-card/desktop.webp",
