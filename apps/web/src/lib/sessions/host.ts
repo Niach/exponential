@@ -62,19 +62,13 @@ export async function isSessionPrincipal(userId: string, session: HostKey): Prom
 /** SQL: the `devices` row named `alias` is THE host row
  *  `resolveSessionHost` picks for the `sessions` row it is joined to: the
  *  starter's own row, else the first sharing row (FEED-148: never just "a
- *  row naming the machine", which anyone can register). `revoking` = that
- *  row shared the session's team until the caller's write just now
- *  (unshare, leave): the rule as of before the write. */
-export function hostRowCondition(
-  alias: string,
-  s: typeof sessions = sessions,
-  opts: { revoking?: boolean } = {}
-): SQL {
+ *  row naming the machine", which anyone can register). A share write reads
+ *  it BEFORE it writes, under `lockDeviceShares` (FEED-149). */
+export function hostRowCondition(alias: string, s: typeof sessions = sessions): SQL {
   const h = sql.raw(alias)
-  const shares = opts.revoking ? sql`TRUE` : sql`${s.teamId} = ANY(${h}.shared_team_ids)`
   return sql`(${h}.device_id = ${s.deviceId} AND (
     ${h}.user_id = ${s.userId}
-    OR (${shares}
+    OR (${s.teamId} = ANY(${h}.shared_team_ids)
       AND NOT EXISTS (SELECT 1 FROM ${devices} o WHERE o.device_id = ${s.deviceId} AND o.user_id = ${s.userId})
       AND NOT EXISTS (SELECT 1 FROM ${devices} o WHERE o.device_id = ${s.deviceId} AND o.id <> ${h}.id AND ${s.teamId} = ANY(o.shared_team_ids) AND (o.created_at, o.id) < (${h}.created_at, ${h}.id)))))`
 }
@@ -85,31 +79,44 @@ export function hostRowCondition(
  *  register a box's id, so a heartbeat, an unshare, a leave or an account
  *  deletion speaks for a session only when the same rule the device
  *  procedures use (`assertDeviceHost`) names its sender. */
-export function hostedByCondition(
-  userId: string,
-  s: typeof sessions = sessions,
-  opts: { revoking?: boolean } = {}
-): SQL {
-  return sql`EXISTS (SELECT 1 FROM ${devices} h WHERE h.user_id = ${userId} AND ${hostRowCondition(`h`, s, opts)})`
+export function hostedByCondition(userId: string, s: typeof sessions = sessions): SQL {
+  return sql`EXISTS (SELECT 1 FROM ${devices} h WHERE h.user_id = ${userId} AND ${hostRowCondition(`h`, s)})`
 }
 
-/** FEED-148: another account already shares `deviceId` into one of
- *  `teamIds`. Call it after `lockDeviceShares`, in the transaction that
- *  writes the caller's share. */
-export async function shareContested(
+/** FEED-148: the other accounts' rows sharing the caller's machine into
+ *  one of `teamIds`, first sharer first. Call it after `lockDeviceShares`,
+ *  in the transaction that writes the caller's share.
+ *
+ *  FEED-149 (squatting): a machine's id shows in team-visible sessions, so a
+ *  teammate can register it and share it first. The box's own row predates
+ *  anyone who learned its id there, so `older` (that row sorts before the
+ *  caller's in `SHARING_ORDER`) decides: an older share holds and the
+ *  caller's is refused (CONFLICT); a younger one is displaced by it. */
+export async function otherShareRows(
   tx: Reader,
-  userId: string,
-  deviceId: string,
+  row: { id: string; userId: string; deviceId: string },
   teamIds: readonly string[]
-): Promise<boolean> {
-  if (teamIds.length === 0) return false
-  const [row] = await tx
-    .select({ id: devices.id })
+): Promise<ShareRow[]> {
+  if (teamIds.length === 0) return []
+  return tx
+    .select({
+      id: devices.id,
+      userId: devices.userId,
+      sharedTeamIds: devices.sharedTeamIds,
+      older: sql<boolean>`(${devices.createdAt}, ${devices.id}) < (SELECT o.created_at, o.id FROM ${devices} o WHERE o.id = ${row.id})`,
+    })
     .from(devices)
-    .where(and(eq(devices.deviceId, deviceId), ne(devices.userId, userId), arrayOverlaps(devices.sharedTeamIds, [...teamIds])))
-    .limit(1)
-  return !!row
+    .where(
+      and(
+        eq(devices.deviceId, row.deviceId),
+        ne(devices.userId, row.userId),
+        arrayOverlaps(devices.sharedTeamIds, [...teamIds])
+      )
+    )
+    .orderBy(...SHARING_ORDER)
 }
+
+export type ShareRow = { id: string; userId: string; sharedTeamIds: string[] | null; older: boolean }
 
 /** FEED-148: `teamIds` where the caller's row `rowId` is the FIRST sharing
  *  row of its machine (the host of teammates' starts there). */

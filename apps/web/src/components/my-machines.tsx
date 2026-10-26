@@ -21,7 +21,10 @@
 // caller's own REGISTERED devices, hidden until the row is hovered (always on
 // phones). No play button (the Agent page composer's device picker is the one
 // way to start a run), no ⋯ menu, no inline update controls, and no spacers
-// standing in for them. A team device row has no control at all.
+// standing in for them. A team device row has no control at all, except for
+// a team OWNER (FEED-149): the same ghost control slot carries Remove, which
+// drops that member's share of the machine from this team (a leftover
+// duplicate, a squat, a box the team should not run on).
 import { useCallback, useMemo, useState } from "react"
 import {
   conceptIcon,
@@ -30,8 +33,12 @@ import {
   Pill,
   GlassSectionHeader,
   ListRow,
+  Prompt,
   SkeletonRows,
 } from "@exp/ui"
+import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { promptActions, removeDeviceSharePrompt } from "@/lib/prompts"
 import { cn } from "@/lib/utils"
 import {
   deviceReadyForRuns,
@@ -65,6 +72,9 @@ const DefaultIcon = conceptIcon(`ui-device-default`)
 const AddIcon = conceptIcon(`ui-add`)
 // EXP-909 follow-up: the row's ONE control is the settings gear, ×4.
 const SettingsIcon = conceptIcon(`nav-settings`)
+// FEED-149: a team owner's Remove on a teammate's shared row (the device
+// settings' Remove glyph).
+const RemoveIcon = conceptIcon(`ui-delete`)
 // EXP-944: the fold chevron — the same affordance the session tree uses.
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
@@ -79,15 +89,34 @@ export function MyMachines({
   onChanged,
   latestVersions,
   teamId,
+  isTeamOwner = false,
 }: {
   devices: SteerDevice[] | null
   onChanged: () => void
   latestVersions: { desktop: string | null; cli: string | null } | null
   /** EXP-432: the current team — the share toggle's target. */
   teamId?: string
+  /** FEED-149: the caller owns `teamId` — its Team devices rows offer Remove. */
+  isTeamOwner?: boolean
 }) {
   const [addServerOpen, setAddServerOpen] = useState(false)
   const [settingsTargetId, setSettingsTargetId] = useState<string | null>(null)
+  // FEED-149: the teammate's shared row a team owner is removing.
+  const [dropTarget, setDropTarget] = useState<SteerDevice | null>(null)
+  const [dropping, setDropping] = useState(false)
+  const dropShare = async () => {
+    if (!dropTarget?.rowId || !teamId || dropping) return
+    setDropping(true)
+    try {
+      await trpc.devices.dropShare.mutate({ id: dropTarget.rowId, teamId }, SKIP_ERROR_TOAST)
+      setDropTarget(null)
+      onChanged()
+    } catch (error) {
+      failedAction(`remove`, `the device`, error)
+    } finally {
+      setDropping(false)
+    }
+  }
   // EXP-944: devices COLLAPSE. The list answers "which machines do I have and
   // are they up" first; a machine's logins, their usage bars and its "Add
   // account" are the second question, and three machines' worth of them made
@@ -146,6 +175,10 @@ export function MyMachines({
   // Re-resolved each render so the dialog always edits the LIVE synced row.
   const settingsTarget =
     mine?.find((device) => device.deviceId === settingsTargetId) ?? null
+
+  const dropCopy = removeDeviceSharePrompt(
+    dropTarget?.deviceLabel || dropTarget?.deviceId || `this device`
+  )
 
   const origin = useMemo(
     () =>
@@ -341,10 +374,14 @@ export function MyMachines({
               const online = deviceIsOnline(device)
               const runnable = deviceReadyForRuns(device)
               const KindIcon = getDeviceIcon(device)
+              const removable = Boolean(
+                isTeamOwner && teamId && device.rowId && device.sharedTeamIds?.includes(teamId)
+              )
               return (
                 <ListRow
-                  key={device.deviceId}
-                  className={online && !runnable ? `opacity-60` : undefined}
+                  // A legacy duplicate shares the same machine id (FEED-149).
+                  key={device.rowId ?? device.deviceId}
+                  className={cn(`group`, online && !runnable && `opacity-60`)}
                 >
                   <KindIcon className="size-4 shrink-0 text-foreground/70" />
                   <div className="min-w-0 flex-1">
@@ -366,9 +403,23 @@ export function MyMachines({
                         read-only: its credentials are theirs to repair. */}
                     <DeviceLogins device={device} now={now} readOnly />
                   </div>
-                  {/* EXP-909 follow-up: no trailing control at all — a
-                      teammate's machine is not ours to settle, and starting a
-                      run on it goes through the Agent page composer. */}
+                  {/* EXP-909 follow-up: no trailing control — a teammate's
+                      machine is not ours to settle, and starting a run on it
+                      goes through the Agent page composer. FEED-149: a team
+                      owner gets Remove in the gear's slot, painted the same
+                      way (hover/focus ≥md, always on phones). */}
+                  {removable && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
+                      aria-label={`Remove ${device.deviceLabel || device.deviceId} from this team`}
+                      title="Remove from this team"
+                      onClick={() => setDropTarget(device)}
+                    >
+                      <RemoveIcon />
+                    </Button>
+                  )}
                 </ListRow>
               )
             })}
@@ -383,6 +434,20 @@ export function MyMachines({
         open={addServerOpen}
         onOpenChange={setAddServerOpen}
         origin={origin}
+      />
+
+      {/* FEED-149: the team owner's Remove, confirmed (prompts.json). */}
+      <Prompt
+        open={dropTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDropTarget(null)
+        }}
+        busy={dropping}
+        title={dropCopy.title}
+        body={dropCopy.body}
+        actions={promptActions(dropCopy, {
+          remove: { busy: dropping, onSelect: () => dropShare() },
+        })}
       />
 
       {/* EXP-909 follow-up: Update and Remove live in here now, as the

@@ -49,6 +49,7 @@ type UpdateChain = {
 
 type FakeDb = {
   select: () => ReturnType<typeof selectChain>
+  selectDistinct: () => ReturnType<typeof selectChain>
   delete: (table: unknown) => { where: () => Promise<void> }
   update: (table: unknown) => UpdateChain
   execute: (query: unknown) => Promise<{ rows: { txid: string }[] }>
@@ -57,6 +58,7 @@ type FakeDb = {
 
 const fakeDb: FakeDb = {
   select: () => selectChain(),
+  selectDistinct: () => selectChain(),
   delete: (table: unknown) => ({
     where: () => {
       deletes.push({ table, inTx })
@@ -110,9 +112,14 @@ vi.mock(`@/lib/auth/membership-cache`, () => ({
 }))
 
 // EXP-481: membership end clears device shares; a cleared share ends the
-// foreign-hosted sessions it was the consent for.
+// foreign-hosted sessions it was the consent for. FEED-149: read in the
+// transaction under each machine's share lock, ended after commit.
 vi.mock(`@/lib/sessions/lifecycle`, () => ({
-  endForeignHostedSessions: vi.fn(async () => [] as string[]),
+  foreignHostedSessionIds: vi.fn(async (..._args: unknown[]) => [] as string[]),
+  endHostedSessions: vi.fn(async (..._args: unknown[]) => [] as string[]),
+}))
+vi.mock(`@/lib/sessions/host`, () => ({
+  lockDeviceShares: vi.fn(async () => {}),
 }))
 
 // FEED-108: the roster resolver is a unit of its own (placeholder-members.test.ts);
@@ -128,7 +135,8 @@ import {
 } from "@/lib/trpc/team-members"
 import { addPlaceholderToRoster } from "@/lib/placeholder-members"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
-import { endForeignHostedSessions } from "@/lib/sessions/lifecycle"
+import { endHostedSessions, foreignHostedSessionIds } from "@/lib/sessions/lifecycle"
+import { lockDeviceShares } from "@/lib/sessions/host"
 import {
   devices,
   issues,
@@ -164,7 +172,9 @@ beforeEach(() => {
   inTx = false
   assertTeamMember.mockClear()
   vi.mocked(invalidateMembershipCaches).mockClear()
-  vi.mocked(endForeignHostedSessions).mockClear()
+  vi.mocked(endHostedSessions).mockClear()
+  vi.mocked(foreignHostedSessionIds).mockClear()
+  vi.mocked(lockDeviceShares).mockClear()
 })
 
 const targetRow = (role: `owner` | `member`) => ({
@@ -204,21 +214,31 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
         values: { sharedTeamIds: expect.anything(), updatedAt: expect.any(Date) },
       },
     ])
-    // No share was actually cleared (returning was empty) — no kill fan-out.
-    expect(endForeignHostedSessions).not.toHaveBeenCalled()
+    // No machine shared into the team: nothing locked, nothing to end.
+    expect(lockDeviceShares).not.toHaveBeenCalled()
+    expect(endHostedSessions).toHaveBeenCalledWith([])
     // REV2-7: membership caches cleared post-commit.
     expect(invalidateMembershipCaches).toHaveBeenCalledTimes(1)
   })
 
   it(`ends the ex-member's foreign-hosted sessions when a share was cleared (EXP-481)`, async () => {
-    selectQueue.push([targetRow(`member`)], [targetRow(`member`)])
-    // The devices share-clear update reports one cleared row.
-    updateReturningQueue.push([{ deviceId: `box-1` }])
+    // Pre-lock target read, the in-tx re-read, then the machines the
+    // ex-member shares into the team.
+    selectQueue.push([targetRow(`member`)], [targetRow(`member`)], [{ deviceId: `box-2` }, { deviceId: `box-1` }])
+    vi.mocked(foreignHostedSessionIds).mockImplementationOnce(async () => {
+      // FEED-149: read before the share write, under every machine's lock.
+      expect(updates.some((u) => u.table === devices)).toBe(false)
+      expect(inTx).toBe(true)
+      return [`s-1`]
+    })
 
     await callerFor(`user-a`).remove({ memberId: MEMBER_ID })
 
-    // FEED-148: scoped to the machines whose share was cleared.
-    expect(endForeignHostedSessions).toHaveBeenCalledWith(`user-b`, WS, [`box-1`])
+    // FEED-149: each machine locked, in sorted order (no deadlock between
+    // two leaves); FEED-148: scoped to the machines shared into the team.
+    expect(vi.mocked(lockDeviceShares).mock.calls.map((call) => call[1])).toEqual([`box-1`, `box-2`])
+    expect(foreignHostedSessionIds).toHaveBeenCalledWith(expect.anything(), `user-b`, WS, [`box-1`, `box-2`])
+    expect(endHostedSessions).toHaveBeenCalledWith([`s-1`])
   })
 
   it(`self-leave: same cleanup, without requiring owner rights`, async () => {
@@ -300,7 +320,8 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     expect(lockKeyOf(executes[0]!.query)).toContain(`team_members:${WS}`)
     // Target re-read + owner count both ran under the lock (in-tx), not on
     // the pre-lock snapshot; only the initial target fetch runs outside.
-    expect(selectInTx).toEqual([false, true, true])
+    // The fourth is the FEED-149 read of the machines shared into the team.
+    expect(selectInTx).toEqual([false, true, true, true])
     expect(deletes[0]!.table).toBe(teamMembers)
   })
 
