@@ -625,6 +625,9 @@ fn spawn_tickers(
             // EXP-848: the turn mirror — same forwarder, same retry, same
             // clear-on-teardown as `needs_input`.
             let mut agent_busy = steer::AgentBusyForwarder::new();
+            // EXP-1374: busy ONLY on background tasks — same forwarder,
+            // same retry, same clear-on-teardown.
+            let mut background = steer::AgentBusyForwarder::new();
             let mut blocked = steer::BlockedForwarder::new();
             // EXP-905: the agent's conversation name — on change only, never
             // cleared (the name outlives the run, so no teardown write).
@@ -654,13 +657,22 @@ fn spawn_tickers(
             // signal is most of this bool (set false at `start_turn`, true at
             // `on_stop` and at the session's first moment), so the mirror
             // reads it rather than tracking the edges twice. FEED-44: it also
-            // holds while backgrounded subagents run past their turn's end
+            // holds while background tasks run past their turn's end
             // (`SessionCtx::agent_busy`).
             let busy_hook: Option<steer::AgentBusyHook> = {
                 let report = report.clone();
                 Some(Arc::new(move |busy| {
                     report(api::session_device::SessionReport {
                         busy: Some(busy),
+                        ..Default::default()
+                    })
+                }))
+            };
+            let background_hook: Option<steer::AgentBusyHook> = {
+                let report = report.clone();
+                Some(Arc::new(move |background| {
+                    report(api::session_device::SessionReport {
+                        background: Some(background),
                         ..Default::default()
                     })
                 }))
@@ -728,6 +740,7 @@ fn spawn_tickers(
                 }
                 needs_input.tick(ctx.needs_input.load(Ordering::SeqCst), &hook);
                 agent_busy.tick(ctx.agent_busy(), &busy_hook);
+                background.tick(ctx.background(), &background_hook);
                 // EXP-1292: only once the session is live — the handshake's
                 // "between turns" is no idle the row should flap through.
                 if ctx.feed.phase() == Some(EnginePhase::Live) {
@@ -777,9 +790,11 @@ fn spawn_tickers(
             // on a session whose engine is gone.
             needs_input.clear_on_teardown(&hook);
             // EXP-848: a run whose engine is gone is never working — nor
-            // are its backgrounded subagents (FEED-44), which died with it.
-            ctx.background_agents.store(false, Ordering::SeqCst);
+            // are its background tasks (FEED-44, EXP-1374), which died with
+            // it.
+            ctx.background_tasks_live.store(false, Ordering::SeqCst);
             agent_busy.clear_on_teardown(&busy_hook);
+            background.clear_on_teardown(&background_hook);
             blocked.clear_on_teardown(&blocked_hook);
             // EXP-905: NOT cleared — but a name learned in the run's last
             // second still lands (the row is live until the end path runs).

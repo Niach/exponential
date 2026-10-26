@@ -736,6 +736,10 @@ pub struct SessionRow {
     /// The agent is executing a turn RIGHT NOW (the spinner's one input).
     #[serde(default, deserialize_with = "tolerant_bool_or_false")]
     pub busy: bool,
+    /// EXP-1374: busy only because background tasks (shell, workflow,
+    /// subagent) still run after the turn (absent = false).
+    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
+    pub background: bool,
     /// Parked on a question/plan for a person.
     #[serde(default, deserialize_with = "tolerant_bool_or_false")]
     pub needs_input: bool,
@@ -817,6 +821,16 @@ impl SessionRow {
     /// `status` equals the contract `sessionStatus` value.
     pub fn status_is(&self, status: &str) -> bool {
         self.status.as_deref() == Some(status)
+    }
+
+    /// EXP-1374: an INTERRUPTION its device continues by itself — `blocked`
+    /// names `device_offline` | `restarted` with `resume: true` (the run
+    /// was mid-turn). The kind, else `None`.
+    pub fn continue_interruption(&self) -> Option<&str> {
+        let blocked = self.blocked.as_ref()?;
+        let kind = blocked.get("kind")?.as_str()?;
+        let resume = blocked.get("resume").and_then(serde_json::Value::as_bool) == Some(true);
+        (resume && matches!(kind, "device_offline" | "restarted")).then_some(kind)
     }
 
     /// Hosted by this steer device.

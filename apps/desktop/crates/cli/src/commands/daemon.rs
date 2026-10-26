@@ -706,6 +706,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
             // NEW-5: the sessions this process runs — a busy row on this
             // device missing from it is a dead process to the server.
             let live_session_ids = pickup.heartbeat_live_ids();
+            // EXP-1374: each engine's last activity (skipped when empty).
+            let session_activity = pickup.heartbeat_activity();
             match api::devices::heartbeat(
                 &ctx.trpc,
                 &api::devices::HeartbeatInput {
@@ -716,6 +718,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     agent_usage: send_usage.then_some(usage_json.as_ref()).flatten(),
                     doctor: doctor_json.as_ref(),
                     live_session_ids: live_session_ids.as_deref(),
+                    session_activity: Some(&session_activity),
                 },
             ) {
                 Ok(result) => {
@@ -2632,6 +2635,18 @@ impl DaemonPickup {
         ])
     }
 
+    /// EXP-1374: the heartbeat's `sessionActivity` — every engine this
+    /// daemon hosts, with the wall-clock time of its last activity.
+    fn heartbeat_activity(&self) -> Vec<api::devices::SessionActivity> {
+        lock_sessions(&self.sessions)
+            .iter()
+            .map(|live| api::devices::SessionActivity {
+                session_id: live.session.session_id.clone(),
+                at: coding::agent_accounts::iso_from_system_time(live.session.last_activity_at()),
+            })
+            .collect()
+    }
+
     /// The pass's `in_flight` set: attempts running and attempts backing off.
     fn excluded(&self) -> HashSet<String> {
         let now = Instant::now();
@@ -2845,6 +2860,8 @@ impl DaemonHost {
                 | PickupAction::Resume { .. }
                 // EXP-1341: a revive resumes/launches (network + git).
                 | PickupAction::Revive { .. }
+                // EXP-1374: an interrupted run's continuation resumes.
+                | PickupAction::Continue { .. }
                 // EXP-849: a switch suspends + relaunches (network + git).
                 | PickupAction::Switch { .. } => true,
                 // A delivery to an engine that just finished wakes it.
@@ -2912,6 +2929,13 @@ impl DaemonHost {
                     coding::pickup::PickupAction::Revive { session } => {
                         if let Err(err) = coding::pickup::revive_session(session, &deps) {
                             log::warn!("pickup: revive of {session_id}: {err}");
+                        }
+                        true
+                    }
+                    // EXP-1374: same for an interrupted run's continuation.
+                    coding::pickup::PickupAction::Continue { session } => {
+                        if let Err(err) = coding::pickup::continue_interrupted(session, &deps) {
+                            log::warn!("pickup: continuation of {session_id}: {err}");
                         }
                         true
                     }

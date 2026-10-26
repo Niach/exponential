@@ -303,6 +303,12 @@ pub fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
+/// EXP-1374: a wall-clock instant → the same ISO shape (the heartbeat's
+/// `sessionActivity` stamps).
+pub fn iso_from_system_time(at: std::time::SystemTime) -> String {
+    chrono::DateTime::<chrono::Utc>::from(at).to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
 /// Unix seconds → the same ISO shape (codex reports resets as unix stamps).
 pub fn iso_from_unix_secs(secs: i64) -> Option<String> {
     chrono::DateTime::from_timestamp(secs, 0)

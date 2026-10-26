@@ -131,6 +131,12 @@ impl RunningSession {
         self.session.turn_signal().is_idle()
     }
 
+    /// EXP-1374: the engine's last activity, wall clock (the heartbeat's
+    /// `sessionActivity`).
+    pub fn last_activity_at(&self) -> std::time::SystemTime {
+        self.session.last_activity_at()
+    }
+
     pub fn kill(&self) {
         self.session.kill("ended");
     }

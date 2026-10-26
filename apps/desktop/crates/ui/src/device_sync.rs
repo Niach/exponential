@@ -417,6 +417,9 @@ struct BeatSnapshot {
     /// this machine runs (this app's, the pickup's in flight, the ones
     /// awaiting the startup re-claim, a live sibling's); `None` past the cap.
     heartbeat_live_ids: Option<Vec<String>>,
+    /// EXP-1374: the heartbeat's `sessionActivity` — each engine this app
+    /// hosts, with the wall-clock time of its last activity.
+    session_activity: Vec<api::devices::SessionActivity>,
     report_requested: bool,
     /// EXP-484: the live settings + doctor report the agent-status collector
     /// runs against. `None` doctor = the first probe has not landed yet;
@@ -493,6 +496,14 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Result<BeatSnapshot, Snapshot
         ids.extend(crate::session_registry::live_ids(&data_dir));
         (ids.len() <= api::devices::LIVE_SESSION_IDS_CAP).then(|| ids.into_iter().collect::<Vec<_>>())
     };
+    let session_activity: Vec<api::devices::SessionActivity> = sessions
+        .acp_hosts()
+        .iter()
+        .map(|engine| api::devices::SessionActivity {
+            session_id: engine.session_id().to_string(),
+            at: coding::agent_accounts::iso_from_system_time(engine.last_activity_at()),
+        })
+        .collect();
     let hub = CodingHub::global(cx);
     let (settings, doctor) = {
         let hub = hub.read(cx);
@@ -510,6 +521,7 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Result<BeatSnapshot, Snapshot
         active_sessions,
         live_session_ids,
         heartbeat_live_ids,
+        session_activity,
         report_requested: false,
         settings,
         doctor,
@@ -667,6 +679,8 @@ fn beat(
             // NEW-5: a busy row on this device missing from it is a dead
             // process to the server.
             live_session_ids: snapshot.heartbeat_live_ids.as_deref(),
+            // EXP-1374: skipped when empty.
+            session_activity: Some(&snapshot.session_activity),
         },
     ) {
         Ok(result) => {
@@ -938,6 +952,7 @@ pub(crate) fn push_local_defaults_if_changed(
         active_sessions: 0,
         live_session_ids: Vec::new(),
         heartbeat_live_ids: None,
+        session_activity: Vec::new(),
         report_requested: false,
         // Defaults-push only — this snapshot never beats, collects or runs
         // a command.
