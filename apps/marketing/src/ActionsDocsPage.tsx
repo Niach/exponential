@@ -163,11 +163,12 @@ export function ActionsDocsPage() {
               every event that fired, where it came from and when.
             </p>
             <p>
-              Agents read prompts over MCP too: see{` `}
+              Agents read and edit prompts over MCP too: see{` `}
               <a href="/docs/mcp/#tools">
                 <code>exponential_team_config</code>
               </a>
-              {` `}(<code>prompts_list</code>, <code>prompts_get</code>).
+              {` `}(<code>prompts_list</code>, <code>prompts_get</code>, and for owners{` `}
+              <code>prompts_create</code>, <code>prompts_update</code>, <code>prompts_delete</code>).
             </p>
           </DocsSection>
         </DocsLayout>

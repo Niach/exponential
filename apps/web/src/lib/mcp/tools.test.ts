@@ -17,7 +17,7 @@ const h = vi.hoisted(() => {
     subscriptions: { subscribe: vi.fn(), unsubscribe: vi.fn() },
     notifications: { markRead: vi.fn(), markAllRead: vi.fn() },
     repositories: { list: vi.fn(), add: vi.fn() },
-    prompts: { list: vi.fn(), get: vi.fn() },
+    prompts: { list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     agents: { list: vi.fn() },
     issues: {
       // EXP-684: statusId passthrough on create.
@@ -699,6 +699,30 @@ const descriptors: Array<Descriptor> = [
     calledWith: { id: UUID },
   },
   {
+    tool: `exponential_prompts_create`,
+    pick: () => caller.prompts.create,
+    args: { teamId: WS, name: `Release all`, body: `# Release`, icon: `rocket` },
+    resolved: { txId: 1, prompt: { id: UUID, name: `Release all`, body: `# Release` } },
+    expected: { id: UUID, name: `Release all`, body: `# Release` },
+    calledWith: { teamId: WS, name: `Release all`, body: `# Release`, icon: `rocket` },
+  },
+  {
+    tool: `exponential_prompts_update`,
+    pick: () => caller.prompts.update,
+    args: { id: UUID, body: `# Release v2` },
+    resolved: { txId: 1, prompt: { id: UUID, name: `Release all`, body: `# Release v2` } },
+    expected: { id: UUID, name: `Release all`, body: `# Release v2` },
+    calledWith: { id: UUID, body: `# Release v2` },
+  },
+  {
+    tool: `exponential_prompts_delete`,
+    pick: () => caller.prompts.delete,
+    args: { id: UUID },
+    resolved: { txId: 1, ok: true, id: UUID },
+    expected: { ok: true, id: UUID },
+    calledWith: { id: UUID },
+  },
+  {
     tool: `exponential_agents_list`,
     pick: () => caller.agents.list,
     args: { teamId: WS },
@@ -730,6 +754,58 @@ describe.each(descriptors)(
     })
   }
 )
+
+// ── prompts writes: the app's owner rule + validation, a confined grant ─────
+
+describe(`exponential_prompts_create / update / delete`, () => {
+  const OTHER_TEAM = `88888888-8888-8888-8888-888888888888`
+
+  it(`validates name and body lengths like the router (255 / 64KB, not blank)`, () => {
+    const defs = collectToolDefs()
+    const create = defs.get(`exponential_prompts_create`)!.inputSchema!
+    const update = defs.get(`exponential_prompts_update`)!.inputSchema!
+    expect(create.safeParse({ teamId: WS, name: `Release all`, body: `# Release`, icon: `rocket` }).success).toBe(true)
+    for (const args of [
+      { teamId: WS, name: ``, body: `x` },
+      { teamId: WS, name: `n`.repeat(256), body: `x` },
+      { teamId: WS, name: `n`, body: `` },
+      { teamId: WS, name: `n`, body: `b`.repeat(64 * 1024 + 1) },
+      { teamId: WS, name: `n`, body: `x`, icon: `not-an-icon` },
+      { teamId: WS, name: `n`, body: `x`, inputs: [] },
+    ]) {
+      expect(create.safeParse(args).success, JSON.stringify(args).slice(0, 80)).toBe(false)
+    }
+    expect(update.safeParse({ id: UUID, icon: null }).success).toBe(true)
+    expect(update.safeParse({ id: UUID, name: `n`.repeat(256) }).success).toBe(false)
+    expect(update.safeParse({ id: UUID, sortOrder: 1 }).success).toBe(false)
+  })
+
+  it(`refuses a grant confined to another team before any write`, async () => {
+    const scoped = collectTools(USER, null, ALL_MCP_TOOL_GATES, SCOPED_TO_WS)
+    const create = await scoped.get(`exponential_prompts_create`)!({ teamId: OTHER_TEAM, name: `n`, body: `b` })
+    expect(create.isError).toBe(true)
+    expect(create.content[0].text).toContain(`not granted access`)
+
+    // A prompt id that resolves to another team is refused the same way.
+    dbRows.current = [{ teamId: OTHER_TEAM }]
+    for (const [name, args] of [
+      [`exponential_prompts_update`, { id: UUID, name: `n` }],
+      [`exponential_prompts_delete`, { id: UUID }],
+    ] as const) {
+      const result = await scoped.get(name)!(args)
+      expect(result.isError, name).toBe(true)
+      expect(result.content[0].text, name).toContain(`not granted access`)
+    }
+    expect(caller.prompts.create).not.toHaveBeenCalled()
+    expect(caller.prompts.update).not.toHaveBeenCalled()
+    expect(caller.prompts.delete).not.toHaveBeenCalled()
+
+    // Its own team passes the grant and reaches the owner-gated router.
+    dbRows.current = [{ teamId: WS }]
+    caller.prompts.delete.mockResolvedValue({ txId: 1, ok: true, id: UUID })
+    expect(parseOk(await scoped.get(`exponential_prompts_delete`)!({ id: UUID }))).toEqual({ ok: true, id: UUID })
+  })
+})
 
 // ── notifications_mark_read: all + validation modes ──────────────────────────
 

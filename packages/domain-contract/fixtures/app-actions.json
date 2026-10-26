@@ -89,8 +89,11 @@
     "exponential.team_config.mcp_servers_add",
     "exponential.team_config.mcp_servers_list",
     "exponential.team_config.mcp_servers_remove",
+    "exponential.team_config.prompts_create",
+    "exponential.team_config.prompts_delete",
     "exponential.team_config.prompts_get",
     "exponential.team_config.prompts_list",
+    "exponential.team_config.prompts_update",
     "exponential.team_config.repositories_add",
     "exponential.team_config.repositories_list",
     "exponential.team_config.statuses_create",
@@ -294,6 +297,18 @@
     "exponential.team_config.prompts_get": {
       "tool": "exponential_team_config",
       "op": "prompts_get"
+    },
+    "exponential.team_config.prompts_create": {
+      "tool": "exponential_team_config",
+      "op": "prompts_create"
+    },
+    "exponential.team_config.prompts_update": {
+      "tool": "exponential_team_config",
+      "op": "prompts_update"
+    },
+    "exponential.team_config.prompts_delete": {
+      "tool": "exponential_team_config",
+      "op": "prompts_delete"
     },
     "exponential.team_config.agents_list": {
       "tool": "exponential_team_config",
@@ -715,8 +730,11 @@
         "exponential.team_config.mcp_servers_add",
         "exponential.team_config.mcp_servers_list",
         "exponential.team_config.mcp_servers_remove",
+        "exponential.team_config.prompts_create",
+        "exponential.team_config.prompts_delete",
         "exponential.team_config.prompts_get",
         "exponential.team_config.prompts_list",
+        "exponential.team_config.prompts_update",
         "exponential.team_config.repositories_add",
         "exponential.team_config.repositories_list",
         "exponential.team_config.statuses_create",

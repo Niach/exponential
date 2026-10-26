@@ -81,6 +81,8 @@ function duplicateNameError(name: string): TRPCError {
 
 export const promptsRouter = router({
   // Any team member (MCP `prompts_list`; clients read the synced shape).
+  // The writes below back Settings → Prompts AND MCP `prompts_create` /
+  // `prompts_update` / `prompts_delete`: one owner rule, one validation.
   list: authedProcedure
     .input(z.object({ teamId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {

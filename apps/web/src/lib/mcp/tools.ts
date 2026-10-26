@@ -132,6 +132,7 @@ import { buildRuntimeConfig } from "@/lib/runtime-config"
 import { createAgentBugReport } from "@/lib/widget/agent-report"
 import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
+import { MAX_PROMPT_BODY, MAX_PROMPT_NAME } from "@/lib/trpc/prompts"
 import { visibleDeviceRows } from "@/lib/trpc/devices"
 // EXP-1291: the session tree's core (lib/sessions/**) and the PR model
 // (lib/pull-requests.ts). These tools only add grants and resolve the caller.
@@ -3371,7 +3372,9 @@ export function registerExponentialTools(
   // exponential_sessions_send {promptId, text})
   // -----------------------------------------------------------------------
   // FULL team grant even for reads: prompt bodies are executed prompts, not
-  // board-workflow aux data. Owner writes stay in Settings → Prompts.
+  // board-workflow aux data. Writes go through the same router as Settings →
+  // Prompts: team-owner-only, names unique per team, the router's zod (trim,
+  // NUL, blank body) re-validates what these schemas let through.
 
   server.registerTool(
     `exponential_prompts_list`,
@@ -3405,6 +3408,71 @@ export function registerExponentialTools(
         }
         const result = await caller(user, request).prompts.get({ id })
         return ok(result.prompt)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_prompts_create`,
+    {
+      description: `Create a saved prompt in a team (owners only): a name, a markdown body, an optional icon.`,
+      inputSchema: strictInput({
+        teamId: uuidString,
+        name: z.string().min(1).max(MAX_PROMPT_NAME),
+        body: z.string().min(1).max(MAX_PROMPT_BODY),
+        icon: boardIconEnumSchema.optional(),
+      }),
+    },
+    async (input) => {
+      try {
+        assertTeamFullyGranted(access, input.teamId)
+        const result = await caller(user, request).prompts.create(input)
+        return ok(result.prompt)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_prompts_update`,
+    {
+      description: `Update a saved prompt's name, body or icon (by its UUID; owners only). Returns the updated prompt.`,
+      inputSchema: strictInput({
+        id: uuidString,
+        name: z.string().min(1).max(MAX_PROMPT_NAME).optional(),
+        body: z.string().min(1).max(MAX_PROMPT_BODY).optional(),
+        icon: boardIconEnumSchema.nullable().optional(),
+      }),
+    },
+    async (input) => {
+      try {
+        if (!access.full) {
+          assertTeamFullyGranted(access, (await getPromptContext(input.id)).teamId)
+        }
+        const result = await caller(user, request).prompts.update(input)
+        return ok(result.prompt)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_prompts_delete`,
+    {
+      description: `Delete a saved prompt (by its UUID; owners only).`,
+      inputSchema: strictInput({ id: uuidString }),
+    },
+    async ({ id }) => {
+      try {
+        if (!access.full) {
+          assertTeamFullyGranted(access, (await getPromptContext(id)).teamId)
+        }
+        await caller(user, request).prompts.delete({ id })
+        return ok({ ok: true, id })
       } catch (e) {
         return err(e)
       }
