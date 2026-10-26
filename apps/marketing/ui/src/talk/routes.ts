@@ -28,14 +28,14 @@ export const TALK_ROUTES: readonly Route[] = [
     TALK_HOME,
     () => import("./TalkHome"),
     `${NAME} · speech in and out for your agents`,
-    `Talk to your Exponential agents: push to talk and spoken replies on your own GPU, in English and German, with Silero VAD, Parakeet and Qwen3-TTS. Open source.`,
+    `Talk to your Exponential agents: push to talk and spoken replies (beta) on your own GPU, in English and German, with Silero VAD, Parakeet and Qwen3-TTS. Open source.`,
     [`ui/src/talk`, `../desktop/crates/talk`, `../desktop/crates/voice`],
     [
       {
         "@context": `https://schema.org`,
         "@type": `SoftwareSourceCode`,
         name: NAME,
-        description: `Speech in and out for Exponential's agents: Silero VAD and Parakeet for speech recognition, Qwen3-TTS for spoken replies, through CrispASR, on the user's own GPU.`,
+        description: `Speech in and out (beta) for Exponential's agents: Silero VAD and Parakeet for speech recognition, Qwen3-TTS for spoken replies, through CrispASR, on the user's own GPU.`,
         codeRepository: `https://github.com/Niach/exponential`,
         programmingLanguage: [`Rust`],
         license: `https://www.apache.org/licenses/LICENSE-2.0`,

@@ -223,10 +223,10 @@ prerenderSite({
     return <Component />
   },
   llms: {
-    summary: `The next generation dev platform for teams and agents, open source (Apache-2.0). Team agents plan the work, start coding sessions (Claude Code or Codex on your own machine, in the desktop app or the CLI daemon) that open GitHub pull requests, build team apps, and answer by voice (Talk: push to talk and spoken replies on your desktop). Boards, a feedback widget, native apps for web, iOS, Android, macOS, Windows and Linux. Free cloud tier for teams of three, or self-host it for free.`,
+    summary: `The next generation dev platform for teams and agents, open source (Apache-2.0). Team agents plan the work, start coding sessions (Claude Code or Codex on your own machine, in the desktop app or the CLI daemon) that open GitHub pull requests, build team apps, and answer by voice (Talk, beta: push to talk and spoken replies on your desktop). Boards, a feedback widget, native apps for web, iOS, Android, macOS, Windows and Linux. Free cloud tier for teams of three, or self-host it for free.`,
     intro: [
       `The app itself lives at https://app.exponential.at; the source code is at https://github.com/Niach/exponential. The open generative-UI SDK the apps are built on, Exponential UI (Apache-2.0), is documented under https://exponential.at/ui/: an agent sends an A2UI surface as JSON and native renderers paint it in React, Solid, web components, SwiftUI, Jetpack Compose and gpui, from one core catalog, with runtime themes, extensions and a shared host API.`,
-      `Talk, the voice layer, is documented under https://exponential.at/talk/: speech in (Silero VAD and Parakeet) and spoken replies (Qwen3-TTS) through CrispASR on the member's own desktop GPU, in English and German.`,
+      `Talk, the voice layer (beta), is documented under https://exponential.at/talk/: speech in (Silero VAD and Parakeet) and spoken replies (Qwen3-TTS) through CrispASR on the member's own desktop GPU, in English and German.`,
     ],
     sections: SECTIONS,
     extras: [

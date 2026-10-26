@@ -26,9 +26,13 @@ import androidx.compose.material3.SwitchColors
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -134,7 +138,10 @@ internal fun TextFieldRow(
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     textStyle: TextStyle = LocalTextStyle.current,
     trailing: (@Composable () -> Unit)? = null,
+    /** Fires when the field loses focus (a blur-saved row); null = nothing. */
+    onFocusLost: (() -> Unit)? = null,
 ) {
+    var focused by remember { mutableStateOf(false) }
     Row(
         modifier = modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -157,7 +164,10 @@ internal fun TextFieldRow(
             keyboardActions = keyboardActions,
             textStyle = textStyle,
             containerColor = Color.Transparent,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).onFocusChanged { state ->
+                if (focused && !state.isFocused) onFocusLost?.invoke()
+                focused = state.isFocused
+            },
         )
         trailing?.invoke()
     }

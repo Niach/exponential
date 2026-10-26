@@ -1,10 +1,6 @@
-- Apps houden hun eigen records bij en lezen het team: borden, leden, chats, opmerkingen en bestanden
-- Apps handelen namens jou: elke actie vraagt eerst, tenzij een eigenaar van het team die heeft toegestaan op de instellingenpagina van de app
-- Exporteer een app als één bestand en importeer hem in New app door te plakken of het bestand te kiezen
-- Onderste balk: Board, Chats, Apps en Team; schuif er met een vinger overheen om een tabblad te kiezen
-- Het Board-tabblad opent een menu met de borden van het team, met New board onderaan
-- Elke pagina heeft dezelfde grote titel met zoeken en Inbox; elke instelling opent een eigen pagina
-- Zoeken kijkt alleen in het actieve team en houdt je typen bij
-- Lange chats openen direct
-- Agents kunnen issues toegewezen krijgen en verschijnen onder hun eigen naam; vermeldingen verschijnen als pillen
-- New board op een leeg bord maakt het bord aan in het team dat je bekijkt
+- Push to talk (bèta): houd de sneltoets op je spraakapparaat ingedrukt, spreek en laat los; wat je zei gaat naar je agent en het antwoord wordt voorgelezen
+- Antwoorden voorlezen (bèta, Engels en Duits): kies je spraakapparaat in "Settings > Voice" en laat de IDE de antwoorden van je agent voorlezen, met een ingebouwde stem of een stem gekloond van je eigen clip
+- "Settings > Voice" is van jou op al je apparaten: spraakapparaat, agent, antwoorden voorlezen, push to talk en zijn sneltoets, de wekzin, taal (English of Deutsch), een stembestand en zijn transcript; dezelfde schakelaars zitten in het systeemvak van je spraakapparaat
+- Binnenkort: je agent bellen vanaf de telefoon, en het wekwoord
+- Spraakschakelaars blijven uit nadat hun agent is verwijderd
+- Een lange beurt toont niet langer ten onrechte "needs input", en sessies op een gedeelde machine staan onder de juiste host

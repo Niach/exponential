@@ -121,7 +121,7 @@ struct A11yInfo: Equatable {
                 info.hidden = true
                 return info
             }
-            let activity = n.props.str("activity").isEmpty ? "idle" : n.props.str("activity")
+            let activity = VoiceWaveFrame.activity(n.props.str("activity"))
             info.label = "\(name), \(activity)"
             info.traits = .isImage
             return info

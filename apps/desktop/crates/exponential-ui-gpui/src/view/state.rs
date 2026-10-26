@@ -325,8 +325,12 @@ pub fn a11y_label(n: &PlacedNode, strings: &StringTable) -> Option<SharedString>
         "Link" => str_of(n, "label").or_else(|| str_of(n, "href")),
         "Chart" => str_of(n, "title").or_else(|| str_of(n, "kind")),
         "Icon" => str_of(n, "label"),
-        // NEW-77: the label with the activity appended (`Voice, listening`).
-        "VoiceWave" => return str_of(n, "label").map(|l| format!("{l}, {}", str_of(n, "activity").unwrap_or("idle")).into()),
+        // NEW-77: the label with the activity appended (`Voice, listening`);
+        // an activity the catalog does not name reads `idle`, as on web.
+        "VoiceWave" => {
+            let activity = exponential_ui::voice_wave::Activity::parse(str_of(n, "activity").unwrap_or(""));
+            return str_of(n, "label").map(|l| format!("{l}, {}", activity.as_str()).into());
+        }
         _ => str_of(n, "text").or_else(|| str_of(n, "label")).or_else(|| str_of(n, "title")).or_else(|| str_of(n, "placeholder")).or_else(|| str_of(n, "alt")),
     };
     s.map(|s| s.to_string().into())

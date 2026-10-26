@@ -40,6 +40,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # Keyed on head_sha, so the release tags must be LIGHTWEIGHT: an annotated tag's push carries the tag object's sha and would run the suite once per tag.
           earlier="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-suite.yml/runs?head_sha=$GITHUB_SHA&event=push&per_page=100" \
             --jq "[.workflow_runs[] | select(.id < $GITHUB_RUN_ID and .conclusion != \"cancelled\")] | length")"
           echo "earlier runs on $GITHUB_SHA: $earlier"

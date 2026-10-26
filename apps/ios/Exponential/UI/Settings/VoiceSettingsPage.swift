@@ -26,6 +26,8 @@ struct VoiceSettingsPage: View {
     @State private var voiceTranscript = ""
     /// The pending debounced save per input row.
     @State private var textSaves: [TextInput: Task<Void, Never>] = [:]
+    /// Last write wins: only the newest `voice.update` may settle or revert.
+    @State private var saveSeq = 0
     @State private var devices: [DeviceEntity] = []
     @State private var agents: [AgentDefinitionEntity] = []
     @State private var teams: [TeamEntity] = []
@@ -82,7 +84,15 @@ struct VoiceSettingsPage: View {
                         set: { save(Voice.Change(voiceDeviceId: .some($0))) }
                     ),
                     options: deviceOptions.map(\.id),
-                    label: { id in deviceOptions.first { $0.id == id }?.label ?? Voice.Copy.voiceDeviceNone }
+                    label: { id in
+                        guard let id else { return Voice.Copy.voiceDeviceNone }
+                        return deviceOptions.first { $0.id == id }?.label ?? deviceName(id)
+                    },
+                    // THE device picker: each desktop wears its glyph, None none.
+                    icon: { id in
+                        guard let id, let device = devices.first(where: { $0.deviceId == id }) else { return nil }
+                        return DeviceIconDisplay.iconName(icon: device.icon, kind: device.kind)
+                    }
                 )
                 .accessibilityIdentifier(Voice.TestIds.voiceDevice)
                 GlassPickerRow(
@@ -195,12 +205,21 @@ struct VoiceSettingsPage: View {
             }
         }
 
-        /// voice.json `limits`; the wake phrase has none on the page.
-        var limit: Int? {
+        /// voice.json `limits`; the wake phrase takes the server's 64.
+        var limit: Int {
             switch self {
-            case .wakePhrase: nil
+            case .wakePhrase: 64
             case .voiceFile: Voice.Limits.voiceFile
             case .voiceTranscript: Voice.Limits.voiceTranscript
+            }
+        }
+
+        /// What the failed-action toast names.
+        var thing: String {
+            switch self {
+            case .wakePhrase: "the wake phrase"
+            case .voiceFile: "the voice file"
+            case .voiceTranscript: "the transcript"
             }
         }
 
@@ -264,11 +283,18 @@ struct VoiceSettingsPage: View {
                 text: Binding(
                     get: { draft(input) },
                     set: { next in
-                        // One line, no control characters, at most `limits`.
-                        var clean = String(String.UnicodeScalarView(
-                            next.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }
-                        ))
-                        if let limit = input.limit, clean.count > limit { clean = String(clean.prefix(limit)) }
+                        // One line (a pasted line break or tab reads as a
+                        // space), no control characters (Cc only: a format
+                        // character such as an emoji's ZWJ stays), at most
+                        // `limits` UTF-16 units, the server's count.
+                        let oneLine = next.replacingOccurrences(of: "\r\n", with: " ")
+                        let clean = Self.clipped(
+                            String(String.UnicodeScalarView(oneLine.unicodeScalars.compactMap { scalar in
+                                if scalar == "\n" || scalar == "\r" || scalar == "\t" { return " " }
+                                return scalar.properties.generalCategory == .control ? nil : scalar
+                            })),
+                            utf16Limit: input.limit
+                        )
                         setDraft(input, clean)
                         scheduleTextSave(input)
                     }
@@ -281,6 +307,21 @@ struct VoiceSettingsPage: View {
             .submitLabel(.done)
             .onSubmit { saveText(input) }
         }
+    }
+
+    /// `text` cut to at most `limit` UTF-16 units (zod's `.max` counts those),
+    /// never inside a character.
+    private static func clipped(_ text: String, utf16Limit limit: Int) -> String {
+        guard text.utf16.count > limit else { return text }
+        var end = text.startIndex
+        var used = 0
+        for index in text.indices {
+            let next = used + text[index].utf16.count
+            if next > limit { break }
+            used = next
+            end = text.index(after: index)
+        }
+        return String(text[..<end])
     }
 
     // MARK: - Vocabulary
@@ -304,7 +345,7 @@ struct VoiceSettingsPage: View {
     }
 
     private var agentName: String {
-        agents.first { $0.id == settings?.agentId }?.name ?? ""
+        agents.first { $0.id == settings?.agentId }?.name ?? Voice.Copy.agent
     }
 
     // MARK: - Load / save
@@ -339,21 +380,27 @@ struct VoiceSettingsPage: View {
     }
 
     /// Optimistic: the page reads `clearOnNone(change)` at once, takes the
-    /// server's row on success and reverts + toasts on a refusal.
-    private func save(_ change: Voice.Change) {
+    /// server's row on success and reverts + toasts on a refusal. Last write
+    /// wins: only the newest request settles or reverts, so an older refusal
+    /// never undoes a newer change. A text row's refusal resets ITS draft only.
+    private func save(_ change: Voice.Change, input: TextInput? = nil) {
         guard let previous = settings else { return }
         let next = Voice.clearOnNone(previous, change)
         guard next != previous else { return }
         settings = next
+        saveSeq += 1
+        let seq = saveSeq
         Task {
             do {
                 let stored = try await deps.voiceApi.update(accountId: accountId, change: change)
-                if settings == next { settings = stored }
+                if seq == saveSeq { settings = stored }
             } catch {
-                settings = previous
-                resetDrafts(previous)
+                if seq == saveSeq {
+                    settings = previous
+                    if let input { setDraft(input, input.stored(previous)) }
+                }
                 toaster.error(
-                    FeedbackStates.Errors.title(verb: "save", thing: "the voice settings"),
+                    FeedbackStates.Errors.title(verb: "save", thing: input?.thing ?? "the voice settings"),
                     description: error.trpcUserMessage
                 )
             }
@@ -374,6 +421,6 @@ struct VoiceSettingsPage: View {
         guard let settings else { return }
         let trimmed = draft(input).trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed != input.stored(settings) else { return }
-        save(input.change(trimmed))
+        save(input.change(trimmed), input: input)
     }
 }

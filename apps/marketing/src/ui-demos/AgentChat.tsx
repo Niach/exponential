@@ -144,7 +144,7 @@ export function AgentChat({ step = LAST_STEP }: { step?: number }) {
             </Button>
           }
         />
-        <div className="flex min-h-0 flex-1 flex-col justify-end overflow-hidden px-3 pb-20" aria-live="polite">
+        <div className="flex min-h-0 flex-1 flex-col justify-end overflow-hidden px-3 pb-20">
           <ThreadConversation
             rows={rows}
             layout="bubbles"

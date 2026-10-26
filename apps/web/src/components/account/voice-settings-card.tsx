@@ -155,7 +155,9 @@ export function VoiceSettingsCard({
     })
   }
 
-  const editText = (field: TextField, value: string) => {
+  const editText = (field: TextField, raw: string) => {
+    // Control characters never reach the server (iPhone and Android strip them the same way).
+    const value = raw.replace(/\p{Cc}/gu, ``)
     setText((current) => ({ ...current, [field]: value }))
     const timer = textTimersRef.current[field]
     if (timer) clearTimeout(timer)

@@ -1,0 +1,5 @@
+Voice (beta): pick your voice device in Settings > Voice; the IDE speaks replies in English or German, even in your own cloned voice.
+Push to talk (beta): hold the shortcut, speak, let go; the reply is read aloud.
+Settings > Voice is yours on every device: speak replies, push to talk, wake phrase, language, voice file.
+Coming: calling from the phone and the wake word.
+Voice switches stay off after a deleted agent; a long turn no longer shows needs input; shared sessions show the right host.

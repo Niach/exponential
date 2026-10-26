@@ -217,11 +217,11 @@ pub fn open_ide(cx: &mut App) {
     crate::window_hooks::request_shell_window(cx);
 }
 
-/// The voice agent's label as Settings → Voice shows it.
+/// The voice agent's bare name (`Studio`, never the picker's `Studio ·
+/// Acme`): the tray's Call item and wake phrase, the overlay's pill.
 pub(crate) fn agent_label(settings: &VoiceSettings, cx: &App) -> Option<String> {
     let agent_id = settings.agent_id.as_deref()?;
-    let (_, agents) = crate::settings::voice_prefs::voice_choices(cx);
-    agents.into_iter().find(|option| option.id.as_deref() == Some(agent_id)).map(|option| option.label)
+    crate::settings::voice_prefs::voice_agents(cx).into_iter().find(|agent| agent.id == agent_id).map(|agent| agent.name)
 }
 
 impl VoiceTray {

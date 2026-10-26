@@ -13,3 +13,10 @@ test(`the old site's root files keep their root path`, () => {
     expect(redirectTarget(`https://ui.exponential.at${path}`)).toBe(`https://exponential.at${path}`)
   }
 })
+
+test(`/ui without the slash lands on /ui/ in one hop; a malformed URL still answers the /ui/ home`, () => {
+  expect(redirectTarget(`https://ui.exponential.at/ui`)).toBe(`https://exponential.at/ui/`)
+  expect(redirectTarget(`https://ui.exponential.at/ui?q=date`)).toBe(`https://exponential.at/ui/?q=date`)
+  expect(redirectTarget(`http://[bad host/`)).toBe(`https://exponential.at/ui/`)
+  expect(redirectTarget(``)).toBe(`https://exponential.at/ui/`)
+})

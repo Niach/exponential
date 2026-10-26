@@ -1,10 +1,6 @@
-- Apps har deres egne poster og læser teamet: boards, medlemmer, chats, kommentarer og filer
-- Apps handler som dig: hver handling spørger først, medmindre en teamejer har tilladt den på appens indstillingsside
-- Eksportér en app som én fil, og importér den i New app ved at indsætte den eller vælge filen
-- Bundbjælken: Board, Chats, Apps og Team; stryg en finger hen over den for at vælge en fane
-- Board-fanen åbner en menu med teamets boards, med New board til sidst
-- Hver side har den samme store titel med søgning og Inbox; hver indstilling åbner sin egen side
-- Søgning kigger kun i det aktive team og følger med, mens du skriver
-- Lange chats åbner med det samme
-- Agenter kan tildeles issues og vises under deres eget navn; omtaler vises som mærker
-- New board på et tomt board opretter boardet i det team, du kigger på
+- Push to talk (beta): hold genvejen nede på din stemmeenhed, tal og slip; det du sagde går til din agent, og svaret læses højt
+- Oplæsning af svar (beta, engelsk og tysk): vælg din stemmeenhed i "Settings > Voice" og lad IDE'et læse agentens svar højt, med en indbygget stemme eller en klonet fra dit eget klip
+- "Settings > Voice" gælder for dig på alle enheder: stemmeenhed, agent, oplæsning af svar, push to talk og dens genvej, vækkefrasen, sprog (English eller Deutsch), en stemmefil og dens udskrift; de samme kontakter sidder i stemmeenhedens systembakke
+- På vej: ring til din agent fra telefonen, og vækkeordet
+- Stemmekontakter forbliver slukkede, efter at deres agent er slettet
+- En lang tur viser ikke længere "needs input" ved en fejl, og sessioner på en delt maskine vises under den rigtige vært

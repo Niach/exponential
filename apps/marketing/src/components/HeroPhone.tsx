@@ -11,7 +11,7 @@ const loadChat = async (): Promise<Film> => {
 
 export function HeroPhone() {
   return (
-    <div className={`home-phone`} aria-label={`An agent's chat on iPhone`}>
+    <div className={`home-phone`} role="img" aria-label={`An agent's chat on iPhone`}>
       <span className={`home-phone-island`} aria-hidden />
       <div className={`home-phone-status`} aria-hidden>
         <span>9:41</span>

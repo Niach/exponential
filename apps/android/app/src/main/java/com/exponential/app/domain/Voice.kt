@@ -95,6 +95,8 @@ object Voice {
     object Limits {
         const val VOICE_FILE = 512
         const val VOICE_TRANSCRIPT = 500
+        /** The wake phrase's cap (`voice.update` takes `oneLine(64)`; not in the fixture's `limits`). */
+        const val WAKE_PHRASE = 64
     }
 
     /** The member's ONE settings row (`voice.get`, `voice.update`'s result). */

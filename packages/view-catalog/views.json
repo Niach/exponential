@@ -1117,7 +1117,7 @@
       "id": "machine-settings",
       "group": "coding",
       "title": "Device settings",
-      "blurb": "One device up close, opened by the gear on its row: name, whether it is your default, what it shares with the team, the Computer use card, Voice (NEW-53: the Assistant picker and Speak replies), its per-agent defaults, then Update and Remove device as a plain row. EXP-1020 took the worktrees out — a machine's worktrees are local, so the IDE's Settings → Worktrees owns them. EXP-862 renamed the dialog from Machine settings; the view id and the native shot names keep the old spelling so the store keeps its history.",
+      "blurb": "One device up close, opened by the gear on its row: name, whether it is your default, what it shares with the team, the Computer use card, its per-agent defaults, then Update and Remove device as a plain row. EXP-1020 took the worktrees out — a machine's worktrees are local, so the IDE's Settings → Worktrees owns them. EXP-862 renamed the dialog from Machine settings; the view id and the native shot names keep the old spelling so the store keeps its history.",
       "order": 9,
       "web": {
         "route": "/t/$teamSlug/devices",
@@ -1593,8 +1593,8 @@
         }
       },
       "notes": {
-        "ios": "Folded into the native settings root: see settings-root.",
-        "android": "Folded into the native settings root: see settings-root."
+        "ios": "Its own screen, opened from the Voice row on the Account screen: see settings-account.",
+        "android": "Its own screen, opened from the Voice row on the Account screen: see settings-account."
       }
     },
     {

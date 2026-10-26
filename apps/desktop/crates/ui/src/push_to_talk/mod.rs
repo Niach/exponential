@@ -138,6 +138,20 @@ pub fn install(cx: &mut App) {
         entity.update(cx, |this, cx| this.dev_overlay(&spec, cx));
     }
     cx.set_global(PushToTalkGlobal(entity.clone()));
+    // #1244 review: the focused-window fallback gets no key-up once the
+    // window the key is held in closes (gpui delivers none); the hold ends
+    // here, or the worker's MAX_HOLD would send two minutes of the room.
+    let closing = entity.downgrade();
+    cx.on_window_closed(move |cx, window_id| {
+        if let Some(entity) = closing.upgrade() {
+            entity.update(cx, |this, cx| {
+                if !this.overlay.owns(window_id) {
+                    this.focus_lost(cx);
+                }
+            });
+        }
+    })
+    .detach();
     let weak = entity.downgrade();
     cx.spawn(async move |cx| {
         while let Ok(event) = rx.recv_async().await {
@@ -217,6 +231,16 @@ pub(crate) fn on_focused_key(down: bool, keystroke: &gpui::Keystroke, cx: &mut A
         entity.update(cx, |this, cx| this.on_hotkey(if down { hotkey::HotkeyEvent::Down } else { hotkey::HotkeyEvent::Up }, cx));
     }
     true
+}
+
+/// #1244 review: an IDE window lost focus (the shell's activation observer).
+/// In the focused-window fallback that is the key-up gpui never delivers:
+/// the hold ends and the Listen with it. The global backends see the real
+/// release and are untouched.
+pub(crate) fn on_window_deactivated(cx: &mut App) {
+    if let Some(entity) = global(cx) {
+        entity.update(cx, |this, cx| this.focus_lost(cx));
+    }
 }
 
 /// A failed send's text for the chat of session `session_id` (the member's
@@ -350,6 +374,14 @@ impl PushToTalk {
             client.end_listen(id.clone());
         }
         self.step(PttEvent::KeyUp, cx);
+    }
+
+    /// The window the key is held in deactivated or closed: a key-up while
+    /// the shortcut is held only through a focused window.
+    fn focus_lost(&mut self, cx: &mut Context<Self>) {
+        if self.held && matches!(self.status, hotkey::Status::FocusedOnly(_)) {
+            self.key_up(cx);
+        }
     }
 
     fn on_worker(&mut self, event: talk::Event, cx: &mut Context<Self>) {

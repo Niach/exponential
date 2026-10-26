@@ -70,6 +70,17 @@ impl Activity {
         }
     }
 
+    /// The catalog's name of the activity (what [`Activity::parse`] reads).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Listening => "listening",
+            Self::Thinking => "thinking",
+            Self::Speaking => "speaking",
+            Self::Muted => "muted",
+        }
+    }
+
     /// Whether the wave moves (a painter keeps requesting frames).
     pub fn animates(self) -> bool {
         matches!(self, Self::Listening | Self::Thinking | Self::Speaking)

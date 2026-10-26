@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-26-release-train`,
+    date: `2026-10-26`,
+    title: `Release 2026-10-26: Talk to your agents (beta), with the train's fixes`,
+    summary: `This release ships voice to the IDE as a beta: push to talk and spoken replies in English and German, set up in Settings → Voice on every device. Calling your agent from the phone and the wake word are coming. The release review also fixed how Settings → Voice saves, and push to talk now stops listening when the IDE window loses focus.`,
+    body: `- **Talk (beta)**: on the desktop you pick as your voice device, hold the push to talk shortcut, speak and let go; with Speak replies on, the answer is read aloud in English or German. Calling your agent from the phone and the wake word are coming.
+- **Settings → Voice**: on web, the IDE, iPhone and Android, quick changes no longer undo each other, a failed save only resets the field it was about, and typed text is kept when you leave the page.
+- **Push to talk**: when the shortcut only works inside an Exponential window, switching away now ends the hold instead of listening on.
+- **Speak replies**: a failed first download is retried on its own, and Linux finds the audio player on more setups.
+- **Sessions**: a long turn no longer shows needs input by mistake, and a machine shared into a team is listed under the right host.
+- **Store builds**: Android 0.14.71 and the IDE 0.14.79 are live; iOS 0.14.69 is in TestFlight.`,
+  },
+  {
     id: `2026-10-26-push-to-talk`,
     date: `2026-10-26`,
     title: `Push to talk on your voice device`,
@@ -84,11 +96,10 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-10-25-speak-replies`,
     date: `2026-10-25`,
     title: `Speak replies: your assistant answers out loud in the IDE`,
-    summary: `Pick one of your agents as your Assistant in Device settings and switch on Speak replies: the IDE reads its replies aloud with a natural English voice that runs on your machine.`,
-    body: `- **Voice in Device settings**: a new Voice group on web, the IDE, iPhone and Android picks your Assistant (one of your agents) and switches Speak replies on for that device.
-- **Spoken in the IDE**: each final reply of your Assistant conversation is read aloud on the desktop, with a Speaking banner and Stop above the composer; code blocks and links are skipped, issue numbers are said the way people say them.
-- **Local voice**: the voice (Kokoro, English) downloads once on first use, about 350 MB, and runs on your machine; nothing you hear leaves it.
-- **English first**: German and listening come later.`,
+    summary: `Pick the agent that speaks for you and switch on Speak replies in Settings → Voice: the IDE reads its replies aloud with a voice that runs on your machine.`,
+    body: `- **Settings → Voice**: pick your voice device (the desktop that speaks) and the agent you talk to, then switch on Speak replies; the same page on web, the IDE, iPhone and Android.
+- **Spoken in the IDE**: each final reply of that agent is read aloud on your voice device, with a Speaking banner and Stop above the composer; code blocks and links are skipped, issue numbers are said the way people say them.
+- **Local voice**: the voice (English or German) downloads once on first use, about 2.2 to 3 GB, and runs on your desktop's GPU; nothing you hear leaves your machine.`,
   },
   {
     id: `2026-10-25-release-train`,

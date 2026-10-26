@@ -816,6 +816,7 @@ impl SettingsView {
     pub fn mark_personal_stale(&mut self, cx: &mut gpui::Context<Self>) {
         self.account.update(cx, |pane, cx| pane.mark_stale(cx));
         self.notifications.update(cx, |pane, cx| pane.mark_stale(cx));
+        self.voice.update(cx, |pane, cx| pane.mark_stale(cx));
         self.api_keys.update(cx, |pane, cx| pane.mark_stale(cx));
     }
 }

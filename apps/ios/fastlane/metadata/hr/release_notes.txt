@@ -1,10 +1,6 @@
-- Aplikacije imaju vlastite zapise i čitaju tim: boardove, članove, chatove, komentare i datoteke
-- Aplikacije djeluju u vaše ime: svaka radnja najprije pita, osim ako ju je vlasnik tima dopustio na stranici postavki aplikacije
-- Izvezite aplikaciju kao jednu datoteku i uvezite je u New app lijepljenjem ili odabirom datoteke
-- Donja traka: Board, Chats, Apps i Team; prijeđite prstom preko nje da odaberete karticu
-- Kartica Board otvara izbornik s boardovima tima, s New board na kraju
-- Svaka stranica ima isti veliki naslov s pretraživanjem i Inboxom; svaka postavka otvara vlastitu stranicu
-- Pretraživanje traži samo u aktivnom timu i prati vaše tipkanje
-- Dugi chatovi otvaraju se trenutačno
-- Agentima se mogu dodijeliti issues i prikazuju se pod vlastitim imenom; spominjanja se prikazuju kao oznake
-- New board na praznom boardu stvara board u timu koji upravo gledate
+- Push to talk (beta): držite prečac na svom glasovnom uređaju, govorite i pustite; ono što ste rekli ide vašem agentu, a odgovor se čita naglas
+- Čitanje odgovora (beta, engleski i njemački): odaberite svoj glasovni uređaj u "Settings > Voice" i pustite da IDE naglas čita odgovore vašeg agenta, ugrađenim glasom ili glasom kloniranim iz vašeg vlastitog isječka
+- "Settings > Voice" vrijedi za vas na svim uređajima: glasovni uređaj, agent, čitanje odgovora, push to talk i njegov prečac, fraza za buđenje, jezik (English ili Deutsch), glasovna datoteka i njezin transkript; isti prekidači nalaze se u programskoj traci vašeg glasovnog uređaja
+- Uskoro: poziv agentu s telefona, i riječ za buđenje
+- Glasovni prekidači ostaju isključeni nakon brisanja njihovog agenta
+- Dugi potez više pogrešno ne prikazuje "needs input", a sesije na dijeljenom računalu prikazuju se pod ispravnim domaćinom

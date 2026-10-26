@@ -1,10 +1,6 @@
-- Les apps gardent leurs propres données et lisent l'équipe : tableaux, membres, chats, commentaires et fichiers
-- Les apps agissent en votre nom : chaque action demande d'abord, sauf si un propriétaire de l'équipe l'a autorisée sur la page de réglages de l'app
-- Exportez une app en un seul fichier et importez-la dans New app en la collant ou en choisissant le fichier
-- Barre du bas : Board, Chats, Apps et Team ; faites glisser un doigt dessus pour choisir un onglet
-- L'onglet Board ouvre un menu des tableaux de l'équipe, avec New board à la fin
-- Chaque page a le même grand titre avec la recherche et l'Inbox ; chaque réglage ouvre sa propre page
-- La recherche ne porte que sur l'équipe active et suit votre saisie
-- Les longs chats s'ouvrent instantanément
-- Les agents peuvent se voir assigner des issues et apparaissent sous leur propre nom ; les mentions s'affichent en pastilles
-- New board sur un tableau vide crée le tableau dans l'équipe que vous consultez
+- Push to talk (bêta) : maintenez le raccourci sur votre appareil vocal, parlez et relâchez ; ce que vous avez dit part à votre agent et la réponse est lue à voix haute
+- Lecture des réponses (bêta, anglais et allemand) : choisissez votre appareil vocal dans "Settings > Voice" et laissez l'IDE lire à voix haute les réponses de votre agent, avec une voix intégrée ou une voix clonée à partir de votre propre extrait
+- "Settings > Voice" vous suit sur tous vos appareils : appareil vocal, agent, lecture des réponses, push to talk et son raccourci, la phrase de réveil, la langue (English ou Deutsch), un fichier de voix et sa transcription ; les mêmes interrupteurs se trouvent dans la barre système de votre appareil vocal
+- Bientôt : appeler votre agent depuis le téléphone, et le mot de réveil
+- Les interrupteurs vocaux restent éteints après la suppression de leur agent
+- Un long tour n'affiche plus "needs input" par erreur, et les sessions sur une machine partagée apparaissent sous le bon hôte

@@ -1,10 +1,6 @@
-- Apps haben ihre eigenen Datensätze und lesen das Team: Boards, Mitglieder, Chats, Kommentare und Dateien
-- Apps handeln in deinem Namen: jede Aktion fragt zuerst, außer ein Team-Owner hat sie auf der Einstellungsseite der App erlaubt
-- Exportiere eine App als eine Datei und importiere sie unter New app, per Einfügen oder durch Auswahl der Datei
-- Untere Leiste: Board, Chats, Apps und Team; wische mit dem Finger darüber, um einen Tab zu wählen
-- Der Board-Tab öffnet ein Menü mit den Boards des Teams, mit New board am Ende
-- Jede Seite hat denselben großen Titel mit Suche und Inbox; jede Einstellung öffnet ihre eigene Seite
-- Die Suche durchsucht nur das aktive Team und hält mit deinem Tippen Schritt
-- Lange Chats öffnen sich sofort
-- Agents können Issues zugewiesen bekommen und erscheinen unter ihrem eigenen Namen; Erwähnungen erscheinen als Pills
-- New board auf einem leeren Board erstellt das Board in dem Team, das du gerade ansiehst
+- Push to talk (Beta): Kürzel auf dem Sprachgerät gedrückt halten, sprechen, loslassen; das Gesagte geht an deinen Agenten und die Antwort wird vorgelesen
+- Antworten vorlesen (Beta, Englisch und Deutsch): wähle in "Settings > Voice" dein Sprachgerät und lass die IDE die Antworten deines Agenten vorlesen, mit einer eingebauten Stimme oder einer aus deinem eigenen Clip geklonten
+- "Settings > Voice" gilt für dich auf allen Geräten: Sprachgerät, Agent, Antworten vorlesen, Push to talk samt Kürzel, die Weckphrase, Sprache (English oder Deutsch), eine Stimmdatei und ihr Transkript; dieselben Schalter sitzen in der Taskleiste deines Sprachgeräts
+- Demnächst: deinen Agenten vom Telefon aus anrufen, und das Weckwort
+- Sprachschalter bleiben aus, nachdem ihr Agent gelöscht wurde
+- Ein langer Zug zeigt nicht mehr fälschlich "needs input", und Sitzungen auf einem geteilten Rechner stehen unter dem richtigen Host

@@ -1,10 +1,6 @@
-- Le app hanno i propri record e leggono il team: board, membri, chat, commenti e file
-- Le app agiscono per te: ogni azione chiede prima, a meno che un owner del team non l'abbia concessa nella pagina delle impostazioni dell'app
-- Esporta un'app come un unico file e importala in New app incollandola o scegliendo il file
-- Barra in basso: Board, Chats, Apps e Team; fai scorrere un dito sopra per scegliere una scheda
-- La scheda Board apre un menu con le board del team, con New board in fondo
-- Ogni pagina ha lo stesso titolo grande con ricerca e Inbox; ogni impostazione apre una sua pagina
-- La ricerca guarda solo nel team attivo e tiene il passo con la digitazione
-- Le chat lunghe si aprono all'istante
-- Agli agenti si possono assegnare issue e compaiono con il proprio nome; le menzioni appaiono come pillole
-- New board su una board vuota crea la board nel team che stai guardando
+- Push to talk (beta): tieni premuta la scorciatoia sul tuo dispositivo vocale, parla e rilascia; quello che hai detto va al tuo agente e la risposta viene letta ad alta voce
+- Lettura delle risposte (beta, inglese e tedesco): scegli il tuo dispositivo vocale in "Settings > Voice" e lascia che l'IDE legga ad alta voce le risposte del tuo agente, con una voce integrata o una clonata dal tuo clip
+- "Settings > Voice" è tuo su tutti i dispositivi: dispositivo vocale, agente, lettura delle risposte, push to talk e la sua scorciatoia, la frase di attivazione, lingua (English o Deutsch), un file voce e la sua trascrizione; gli stessi interruttori stanno nella barra di sistema del tuo dispositivo vocale
+- In arrivo: chiamare il tuo agente dal telefono, e la parola di attivazione
+- Gli interruttori vocali restano spenti dopo l'eliminazione del loro agente
+- Un turno lungo non mostra più "needs input" per errore, e le sessioni su una macchina condivisa compaiono sotto l'host giusto
