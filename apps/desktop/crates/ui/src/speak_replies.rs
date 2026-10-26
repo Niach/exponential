@@ -211,8 +211,24 @@ pub(crate) fn settings(cx: &App) -> domain::voice::VoiceSettings {
 
 /// The reply being spoken, if any.
 pub(crate) fn speaking(cx: &App) -> Option<Speaking> {
-    global(cx).and_then(|entity| entity.read(cx).speaking.clone())
+    global(cx).and_then(|entity| entity.read(cx).speaking.clone()).or_else(|| DEV_SPEAKING.clone())
 }
+
+/// DEV-ONLY (packages/shots/src/desktop-env.md): `EXP_DEV_SPEAKING=<session
+/// uuid>|<language>|<reply body>` draws that session's Speaking banner as if
+/// the reply were being read aloud, title = the spoken text's first sentence
+/// (`spokenText` in that language), so a capture needs no GPU voice.
+static DEV_SPEAKING: std::sync::LazyLock<Option<Speaking>> = std::sync::LazyLock::new(|| {
+    let spec = std::env::var("EXP_DEV_SPEAKING").ok()?;
+    let mut parts = spec.splitn(3, '|');
+    let (session_id, language, body) = (parts.next()?, parts.next()?, parts.next()?);
+    let spoken = domain::voice::spoken_text(body, VOICE.max_chars, language);
+    Some(Speaking {
+        message_id: "dev-speaking".into(),
+        session_id: session_id.to_string(),
+        title: domain::voice::first_sentence(&spoken).to_string(),
+    })
+});
 
 /// The voice download state (the Speak replies row's detail).
 pub(crate) fn download(cx: &App) -> Download {
