@@ -2,7 +2,7 @@
 //! (`fixtures/dock.json` ×4), the IDE half of the web entry
 //! (`apps/styleguide/src/entries/dock-card.tsx`), drawn from the REAL
 //! [`crate::dock`] parts: one card, a banner (its action trails, it never
-//! opens), five cards piled (the front one whole, the rest peeking out
+//! opens), the session's own state cards (EXP-1374), five cards piled (the front one whole, the rest peeking out
 //! above it), the pile fanned, and the sheet's face at rest
 //! ([`crate::dock::sheet_frame`]: the pinned header, the scrolling body,
 //! the pinned footer).
@@ -65,6 +65,25 @@ pub(super) fn sources() -> Vec<DockSource> {
     ]
 }
 
+/// EXP-1374: the session's own state cards (`session-card.json` `banner`,
+/// the web entry's `STATE_ROWS`): interrupted (its device went offline) and
+/// background tasks.
+pub(super) fn state_rows() -> Vec<DockRow> {
+    use domain::session_tree::{SessionState, SESSION_CARD};
+    let banner = |state: SessionState, text: &str| DockSource::Banner {
+        id: state.as_str().into(),
+        icon: state.icon().into(),
+        label: state.word().into(),
+        text: text.into(),
+        tone: DockTint::Muted,
+        action: None,
+    };
+    dock_rows(&[
+        banner(SessionState::Interrupted, &SESSION_CARD.banner.interrupted["device_offline"]),
+        banner(SessionState::Background, &SESSION_CARD.banner.background),
+    ])
+}
+
 fn switch_button(key: &str) -> AnyElement {
     Button::new(SharedString::from(format!("{key}-switch"))).outline().small().label("Switch account").into_any_element()
 }
@@ -118,6 +137,8 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .child(crate::dock::dock_card(&question, 0., None, cx))
         .child(caption("A banner: never opens; its action word trails", cx))
         .child(crate::dock::dock_card(&banner, 0., Some(switch_button("sg-dock-card-banner")), cx))
+        .child(caption("The session's own state: interrupted, background tasks", cx))
+        .children(state_rows().iter().map(|row| crate::dock::dock_card(row, 0., None, cx)))
         .child(caption("Five cards piled: the front one whole, the rest peeking out above it", cx))
         .child(pile_specimen("sg-dock-card-pile", &rows, false, window, cx))
         .child(caption("The pile fanned (hover or a tap): every card, 6px apart", cx))

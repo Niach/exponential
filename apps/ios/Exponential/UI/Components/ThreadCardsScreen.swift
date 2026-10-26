@@ -541,8 +541,23 @@ private struct DockCardSpecimens: View {
         .question(id: "q1", text: "Ship both fixes in one PR, or split them?", sessionName: "Dock polish", createdAt: 30),
     ]
 
+    /// EXP-1374: the session's own state cards (session-card.json `banner`,
+    /// web `STATE_ROWS`): interrupted (its device went offline) and
+    /// background tasks.
+    private static let stateRows: [Dock.Row] = Dock.rows([
+        .banner(
+            id: SessionState.interrupted.rawValue, icon: SessionState.interrupted.icon,
+            label: SessionState.interrupted.word,
+            text: SessionTree.CardCopy.bannerInterrupted["device_offline"] ?? "", tone: .muted, action: nil
+        ),
+        .banner(
+            id: SessionState.background.rawValue, icon: SessionState.background.icon,
+            label: SessionState.background.word, text: SessionTree.CardCopy.bannerBackground, tone: .muted, action: nil
+        ),
+    ])
+
     private static func action(_ row: Dock.Row) -> AnyView? {
-        guard row.kind == .banner else { return nil }
+        guard row.kind == .banner, row.id == "banner:wall" else { return nil }
         return AnyView(GlassPill("Switch account", mode: .action {}))
     }
 
@@ -555,6 +570,10 @@ private struct DockCardSpecimens: View {
             DockCard(row: question, onOpen: {})
             caption("A banner: never opens; its action word trails")
             DockCard(row: banner, action: Self.action(banner))
+            caption("The session's own state: interrupted, background tasks")
+            ForEach(Self.stateRows, id: \.id) { row in
+                DockCard(row: row)
+            }
             caption("Five cards piled: the front one whole, the rest peeking out above it")
             DockPile(rows: rows, expanded: .constant(false), onOpen: { _ in }, renderAction: Self.action)
             caption("The pile fanned (hover or a tap): every card, 6px apart")
