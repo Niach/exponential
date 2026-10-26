@@ -80,6 +80,18 @@ mod imp {
         unsafe { libloading::Library::new("libcuda.so.1") }.is_ok()
     }
 
+    /// The CUDA driver's version (`cuDriverGetVersion`, e.g. 12080).
+    pub fn driver_version() -> Option<String> {
+        // SAFETY: cuDriverGetVersion(int*) needs no cuInit and only writes the int.
+        unsafe {
+            let cuda = libloading::Library::new("libcuda.so.1").ok()?;
+            let get: libloading::Symbol<unsafe extern "C" fn(*mut std::ffi::c_int) -> std::ffi::c_int> =
+                cuda.get(b"cuDriverGetVersion\0").ok()?;
+            let mut version: std::ffi::c_int = 0;
+            (get(&mut version) == 0).then(|| format!("cuda {version}"))
+        }
+    }
+
     pub fn bundled_dir() -> Option<std::path::PathBuf> {
         None
     }
@@ -99,6 +111,14 @@ mod imp {
     /// Every Apple Silicon Mac has a Metal GPU.
     pub fn gpu_driver_present() -> bool {
         true
+    }
+
+    /// Metal ships with the OS: its version (`ProductBuildVersion`).
+    pub fn driver_version() -> Option<String> {
+        let plist = std::fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist").ok()?;
+        let after = plist.split("<key>ProductBuildVersion</key>").nth(1)?;
+        let value = after.split("<string>").nth(1)?.split("</string>").next()?;
+        Some(format!("macos {value}"))
     }
 
     /// `<bundle>.app/Contents/Frameworks` of the RUNNING executable
@@ -148,6 +168,15 @@ mod imp {
         unsafe { Library::load_with_flags("vulkan-1.dll", LOAD_LIBRARY_SEARCH_SYSTEM32) }.is_ok()
     }
 
+    /// A proxy for the Vulkan driver's version: the size and modification
+    /// time of System32's `vulkan-1.dll`, which every driver install updates.
+    pub fn driver_version() -> Option<String> {
+        let root = std::env::var_os("SystemRoot")?;
+        let meta = std::fs::metadata(std::path::Path::new(&root).join("System32").join("vulkan-1.dll")).ok()?;
+        let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+        Some(format!("vulkan-1.dll {} {modified}", meta.len()))
+    }
+
     pub fn bundled_dir() -> Option<std::path::PathBuf> {
         None
     }
@@ -170,6 +199,10 @@ mod imp {
         false
     }
 
+    pub fn driver_version() -> Option<String> {
+        None
+    }
+
     pub fn bundled_dir() -> Option<std::path::PathBuf> {
         None
     }
@@ -188,6 +221,8 @@ pub use imp::LIBRARY;
 pub use imp::GGML;
 /// The cheap check BEFORE any download: the platform's GPU driver exists.
 pub use imp::gpu_driver_present;
+/// The GPU driver's version where the platform tells it (a cache key).
+pub use imp::driver_version;
 
 /// Whether this platform has a pinned GPU runtime at all.
 pub fn supported() -> bool {

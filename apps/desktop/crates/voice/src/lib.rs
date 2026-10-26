@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crispasr::{artifact, models, Device, Runtime, TtsSession};
 use talk::{Event, Request, VoiceChoice};
@@ -238,10 +238,10 @@ fn bring_up(data_dir: &Path) -> Result<Option<Loaded>, String> {
             emit(&Event::Downloading { received, total });
         }
     };
+    // The runtime first: whether there is a usable GPU at all is known
+    // before the 2.2 GB of models are fetched.
     artifact::ensure_all(&runtime_dir, runtime, |received, _| report(received)).map_err(|err| err.to_string())?;
-    artifact::ensure_all(&models_dir, &model_files, |received, _| report(runtime_total + received))
-        .map_err(|err| err.to_string())?;
-    // Verified again inside `load` (every file re-hashed before dlopen).
+    // Every library re-hashed inside `load` before dlopen.
     let runtime = Runtime::load(&runtime_dir)?;
     let gpus = runtime.gpus();
     let Some(gpu) = gpus.iter().filter(|gpu| gpu.total_bytes >= MIN_GPU_BYTES).max_by_key(|gpu| gpu.free_bytes) else {
@@ -250,6 +250,20 @@ fn bring_up(data_dir: &Path) -> Result<Option<Loaded>, String> {
         return Ok(None);
     };
     eprintln!("voice GPU: {} ({} MB, {} MB free)", gpu.description, gpu.total_bytes / 1_000_000, gpu.free_bytes / 1_000_000);
+    let fingerprint = gpu_fingerprint(gpu, crispasr::platform::driver_version().as_deref());
+    let cache = no_gpu_cache_path(data_dir);
+    if no_gpu_cached(&cache, &fingerprint, SystemTime::now()) {
+        eprintln!("no usable GPU: this GPU and driver were too slow before (cached; a driver change or 30 days re-test)");
+        return Ok(None);
+    }
+    artifact::ensure_all(&models_dir, &model_files, |received, _| report(runtime_total + received))
+        .map_err(|err| err.to_string())?;
+    // The GGUFs are re-hashed before ggml parses them (~1-2 s for 2.2 GB).
+    let hashing = Instant::now();
+    for model in &model_files {
+        artifact::verify(&models_dir, model).map_err(|err| err.to_string())?;
+    }
+    eprintln!("voice models verified in {} ms", hashing.elapsed().as_millis());
     // The worker keeps the runtime until it exits; sessions borrow it.
     let runtime: &'static Runtime = Box::leak(Box::new(runtime));
     let started = Instant::now();
@@ -279,9 +293,59 @@ fn bring_up(data_dir: &Path) -> Result<Option<Loaded>, String> {
     eprintln!("voice warm-up: real-time factor {best:.2}");
     if best > MAX_WARMUP_RTF {
         eprintln!("no usable GPU: the voice runs slower than {MAX_WARMUP_RTF} of real time");
+        remember_no_gpu(&cache, &fingerprint, SystemTime::now());
         return Ok(None);
     }
     Ok(Some(loaded))
+}
+
+/// How long a "too slow" verdict stands before the GPU is tried again.
+const NO_GPU_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
+
+/// The GPU and driver a "too slow" verdict is about.
+fn gpu_fingerprint(gpu: &crispasr::Gpu, driver: Option<&str>) -> String {
+    format!(
+        "{} | {} | {} MB | {} | max rtf {MAX_WARMUP_RTF}",
+        crispasr::platform::RUNTIME_DIR,
+        gpu.description,
+        gpu.total_bytes / 1_000_000,
+        driver.unwrap_or("driver unknown")
+    )
+}
+
+fn no_gpu_cache_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("talk").join("no-gpu.txt")
+}
+
+/// The cache: the fingerprint on line one, the unix time on line two.
+fn no_gpu_cached(path: &Path, fingerprint: &str, now: SystemTime) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else { return false };
+    let mut lines = text.lines();
+    let (Some(cached), Some(at)) = (lines.next(), lines.next().and_then(|at| at.trim().parse::<u64>().ok())) else {
+        return false;
+    };
+    let age = now.duration_since(UNIX_EPOCH).map(|now| now.as_secs().saturating_sub(at)).unwrap_or(u64::MAX);
+    cached == fingerprint && age < NO_GPU_TTL.as_secs()
+}
+
+fn remember_no_gpu(path: &Path, fingerprint: &str, now: SystemTime) {
+    let at = now.duration_since(UNIX_EPOCH).map(|now| now.as_secs()).unwrap_or(0);
+    if let Err(err) = std::fs::write(path, format!("{fingerprint}\n{at}\n")) {
+        eprintln!("could not remember the slow GPU: {err}");
+    }
+}
+
+/// A synthesis error as logged and reported: never the reply's text (a
+/// backend that echoed its input would otherwise put it in the log).
+fn scrub(error: &str, text: &str) -> String {
+    let mut error = error.to_string();
+    if !text.trim().is_empty() {
+        error = error.replace(text, "<reply>");
+    }
+    for sentence in sentences(text).into_iter().filter(|sentence| sentence.len() >= 8) {
+        error = error.replace(sentence, "<reply>");
+    }
+    error.chars().take(200).collect()
 }
 
 /// Install the member's clip (validated) or the language's built-in clip.
@@ -362,6 +426,7 @@ fn speak(loaded: &mut Loaded, shared: &Arc<Shared>, id: &str, text: &str, genera
                 sink.push(&pcm);
             }
             Err(err) => {
+                let err = scrub(&err, text);
                 eprintln!("synthesis failed: {err}");
                 if !started {
                     sink.stop();
@@ -402,6 +467,34 @@ mod tests {
         assert_eq!(retry_after(4), Duration::from_secs(480));
         assert_eq!(retry_after(7), Duration::from_secs(3600));
         assert_eq!(retry_after(30), Duration::from_secs(3600));
+    }
+
+    #[test]
+    fn a_slow_gpu_is_remembered_per_gpu_and_driver_for_30_days() {
+        let dir = std::env::temp_dir().join(format!("voice-no-gpu-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("no-gpu.txt");
+        let gpu = crispasr::Gpu { description: "GT 1030".into(), integrated: false, total_bytes: 4_294_967_296, free_bytes: 0 };
+        let print = gpu_fingerprint(&gpu, Some("cuda 12080"));
+        let now = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+        assert!(!no_gpu_cached(&path, &print, now));
+        remember_no_gpu(&path, &print, now);
+        assert!(no_gpu_cached(&path, &print, now + Duration::from_secs(3600)));
+        assert!(!no_gpu_cached(&path, &gpu_fingerprint(&gpu, Some("cuda 12090")), now), "a new driver re-tests");
+        let other = crispasr::Gpu { description: "RTX 4090".into(), ..gpu.clone() };
+        assert!(!no_gpu_cached(&path, &gpu_fingerprint(&other, Some("cuda 12080")), now), "another GPU re-tests");
+        assert!(!no_gpu_cached(&path, &print, now + NO_GPU_TTL), "after 30 days it re-tests");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_synthesis_error_never_carries_the_reply() {
+        let text = "Der Build ist grün. EXP-1390 ist erledigt.";
+        assert_eq!(scrub("failed on: Der Build ist grün. EXP-1390 ist erledigt.", text), "failed on: <reply>");
+        assert_eq!(scrub("failed at Der Build ist grün.", text), "failed at <reply>");
+        assert_eq!(scrub("qwen3-tts synthesis failed", text), "qwen3-tts synthesis failed");
+        assert_eq!(scrub(&"x".repeat(500), text).len(), 200);
     }
 
     #[test]
