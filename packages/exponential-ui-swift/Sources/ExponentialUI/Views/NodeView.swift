@@ -163,6 +163,12 @@ private struct NodeBody: View {
                         ContainerContent(index: index, node: node, model: model, style: style, size: size)
                     }
                 }
+            } else if node.component == "VoiceWave", node.part == nil {
+                // NEW-77: the rings behind the one child, centred.
+                ZStack(alignment: .topLeading) {
+                    VoiceWaveLeaf(cx: LeafContext(model: model, node: node, size: size, style: style, ink: model.ink(index), textStyle: model.textStyle(index)))
+                    VoiceWaveChild(index: index, model: model, size: size)
+                }
             } else {
                 ContainerContent(index: index, node: node, model: model, style: style, size: size)
             }
@@ -246,6 +252,32 @@ struct ChildrenLayout: View {
                     .layoutValue(key: NodeIndexKey.self, value: k)
                     // VoiceOver reads in PAINT order (slots are not pre-order).
                     .accessibilitySortPriority(model.accessibilityPriority(k))
+            }
+        }
+    }
+}
+
+/// NEW-77: a VoiceWave's one child at the frame the core centres it at;
+/// invisible when the core's `childSize` is 0 (`sm`).
+struct VoiceWaveChild: View {
+    let index: Int
+    let model: SurfaceModel
+    let size: CGSize
+
+    var body: some View {
+        let edge = min(size.width, size.height)
+        let childSize = VoiceWaveFrame.compute(size: edge, activity: "idle", level: 0, bands: nil, elapsed: 0, reducedMotion: true)?.childSize ?? 0
+        let kids = Array((model.children[safe: index] ?? []).filter { model.node($0)?.hidden == false }.prefix(1))
+        let origin = model.frame(index).origin
+        var rel: [Int: CGRect] = [:]
+        for k in kids { rel[k] = model.frame(k).offsetBy(dx: -origin.x, dy: -origin.y) }
+        return FrameLayout(size: size, frames: rel) {
+            ForEach(kids, id: \.self) { k in
+                NodeView(index: k)
+                    .opacity(childSize > 0 ? 1 : 0)
+                    .allowsHitTesting(childSize > 0)
+                    .accessibilityHidden(childSize <= 0)
+                    .layoutValue(key: NodeIndexKey.self, value: k)
             }
         }
     }

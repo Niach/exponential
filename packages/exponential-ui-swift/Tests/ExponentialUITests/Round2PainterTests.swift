@@ -100,6 +100,56 @@ final class Round2PainterTests: XCTestCase {
         XCTAssertEqual(cases.compactMap { c in c.error.map { "\(c.name): \($0)" } }, [])
     }
 
+    // MARK: - NEW-77: VoiceWave
+
+    /// `fixtures/voice-wave.json` through the facade and `VoiceWaveFrame`.
+    func testVoiceWaveReplaysTheFixture() throws {
+        try XCTSkipUnless(Fixtures.available(), "fixtures not in this checkout")
+        let cases = try Round2Suites.voiceWave()
+        XCTAssertGreaterThan(cases.count, 3)
+        XCTAssertEqual(cases.compactMap { c in c.error.map { "\(c.name): \($0)" } }, [])
+    }
+
+    /// The root recipe's edge, the idle opacity, the ring colours, the
+    /// centred child (none at `sm`) and the img name with the activity.
+    func testVoiceWaveMeasuresPaintsAndReads() throws {
+        let m = try makeModel(fixed: true)
+        try m.setNested(json: #"{"id":"col","component":"Stack","props":{"direction":"vertical","align":"start"},"children":[{"id":"vw","component":"VoiceWave","props":{"activity":"listening","level":0.6,"bands":[0.9,0.6,1,0.5],"size":"lg","label":"Voice"},"children":[{"id":"mark","component":"Icon","props":{"name":"mic"}}]},{"id":"quiet","component":"VoiceWave","props":{"activity":"idle","size":"sm"}}]}"#)
+        let vw = try XCTUnwrap(m.index(of: "vw"))
+        // The core centres the one child at its own size (no stretch).
+        let probe = try makeModel(fixed: true)
+        try probe.setNested(json: #"{"id":"v","component":"VoiceWave","props":{"activity":"listening","size":"lg"},"children":[{"id":"c","component":"Text","props":{"text":"Child"}}]}"#)
+        let child = probe.frame(try XCTUnwrap(probe.index(of: "c")))
+        XCTAssertEqual(child.midX, 80, accuracy: 0.5)
+        XCTAssertEqual(child.midY, 80, accuracy: 0.5)
+        XCTAssertLessThan(child.height, 40)
+        let quiet = try XCTUnwrap(m.index(of: "quiet"))
+        XCTAssertEqual(m.frame(vw).size, CGSize(width: 160, height: 160))
+        XCTAssertEqual(m.frame(quiet).size, CGSize(width: 32, height: 32))
+        XCTAssertEqual(m.style(quiet).opacity ?? 1, 0.35, accuracy: 1e-6)
+        XCTAssertNotEqual(m.style(vw).opacity ?? 1, 0.35)
+        let cx = LeafContext(model: m, node: m.node(vw)!, size: m.frame(vw).size, style: m.style(vw), ink: m.ink(vw), textStyle: m.textStyle(vw))
+        XCTAssertNotNil(cx.part("VoiceWave", "outer").color)
+        XCTAssertNotNil(cx.part("VoiceWave", "inner").color)
+        let lg = try XCTUnwrap(VoiceWaveFrame.compute(size: 160, activity: "listening", level: 0.6, bands: nil, elapsed: 1, reducedMotion: false))
+        XCTAssertEqual(lg.childSize, 35.2, accuracy: 0.01)
+        XCTAssertEqual(lg.phase, 0.9, accuracy: 0.01)
+        XCTAssertEqual(VoiceWaveFrame.compute(size: 160, activity: "listening", level: 0.6, bands: nil, elapsed: 1, reducedMotion: true)?.phase, 0)
+        XCTAssertEqual(VoiceWaveFrame.compute(size: 32, activity: "idle", level: 0, bands: nil, elapsed: 0, reducedMotion: false)?.childSize, 0)
+        let a = A11yInfo.of(m.node(vw)!, model: m, style: m.style(vw))
+        XCTAssertEqual(a.label, "Voice, listening")
+        XCTAssertTrue(a.traits.contains(.isImage))
+        XCTAssertFalse(a.hidden)
+        XCTAssertFalse(a.container)
+        XCTAssertTrue(A11yInfo.of(m.node(quiet)!, model: m, style: m.style(quiet)).hidden)
+        #if canImport(AppKit)
+        let host = NSHostingView(rootView: ExponentialSurface(model: m).frame(width: 390, height: 300))
+        host.frame = CGRect(x: 0, y: 0, width: 390, height: 300)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertNotNil(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        #endif
+    }
+
     /// The gradient: 200% + 2 × spread wide, sliding background-position
     /// 100% → 0% (rtl reversed); five stops centred on the highlight at
     /// CSS 90° + angle.

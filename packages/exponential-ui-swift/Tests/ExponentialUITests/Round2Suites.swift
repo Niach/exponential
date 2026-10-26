@@ -129,6 +129,44 @@ enum Round2Suites {
         }
     }
 
+    /// NEW-77: `fixtures/voice-wave.json` through the facade
+    /// (`voiceWaveJson`) and the painter's own `VoiceWaveFrame` read of it:
+    /// every point within 0.5 px, the alphas, widths, child edge and phase.
+    static func voiceWave() throws -> [Case] {
+        list(try json("voice-wave.json"), "cases").map { c in
+            run(s(c, "name")) {
+                let input = c["input"]!
+                let e = c["expected"]!
+                let viaFacade = VoiceWaveFrame.parse(voiceWaveJson(inputJson: input.json))
+                let viaPainter = VoiceWaveFrame.compute(
+                    size: CGFloat(num(input["size"]) ?? 0),
+                    activity: s(input, "activity"),
+                    level: num(input["level"]) ?? 0,
+                    bands: input["bands"]?.array?.map { num($0) ?? 0 },
+                    elapsed: num(input["elapsed"]) ?? 0,
+                    reducedMotion: input["reducedMotion"]?.bool ?? false
+                )
+                for (label, frame) in [("facade", viaFacade), ("painter", viaPainter)] {
+                    guard let f = frame else { return "\(label): no frame" }
+                    let rings = list(e, "rings")
+                    if f.rings.count != rings.count { return "\(label): \(f.rings.count) rings / expected \(rings.count)" }
+                    for (got, want) in zip(f.rings, rings) {
+                        if got.part != s(want, "part") { return "\(label): part \(got.part) / \(s(want, "part"))" }
+                        let pts = list(want, "points")
+                        if got.points.count != pts.count { return "\(label) \(got.part): \(got.points.count) points / \(pts.count)" }
+                        for (i, (p, w)) in zip(got.points, pts).enumerated() {
+                            let wx = num(w.array?.first) ?? .nan, wy = num(w.array?.last) ?? .nan
+                            if abs(Double(p.x) - wx) > 0.5 || abs(Double(p.y) - wy) > 0.5 { return "\(label) \(got.part) point \(i): \(p) / [\(wx), \(wy)]" }
+                        }
+                        if let d = near([got.fillAlpha, got.strokeAlpha, Double(got.strokeWidth)], [num(want["fillAlpha"]) ?? .nan, num(want["strokeAlpha"]) ?? .nan, num(want["strokeWidth"]) ?? .nan], 1e-9) { return "\(label) \(got.part) paint: \(d)" }
+                    }
+                    if let d = near([Double(f.childSize), f.phase], [num(e["childSize"]) ?? .nan, num(e["phase"]) ?? .nan], 1e-9) { return "\(label) childSize/phase: \(d)" }
+                }
+                return nil
+            }
+        }
+    }
+
     // MARK: round 2
 
     /// Every call through the PAINTER's formatter (Foundation, en-US / UTC:
