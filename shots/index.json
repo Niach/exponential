@@ -3265,8 +3265,8 @@
         "file": "shots/exponential-ui-voice-wave/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 20066,
-        "sha256": "91d5f6cdb5209e99b37c1908799958995646ed0d4086f6ff101136c38efd2ed3"
+        "bytes": 19962,
+        "sha256": "ab17b5834be100725397a865a7d9cd0fbc56611f651295fdb45c417f582d822b"
       },
       "web": {
         "file": "shots/exponential-ui-voice-wave/web.webp",

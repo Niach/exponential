@@ -257,8 +257,11 @@ struct ChildrenLayout: View {
     }
 }
 
-/// NEW-77: a VoiceWave's one child at the frame the core centres it at;
-/// invisible when the core's `childSize` is 0 (`sm`).
+/// NEW-77 THE CHILD RULE: a VoiceWave's one child at the frame the core
+/// centres it at (its own size), drawn scaled about the wave box's centre
+/// by the core's `child.scale` (min(1, childSize / its longer edge), never
+/// up); at `sm` (scale 0) kept in the tree but not painted, no hit target,
+/// hidden from VoiceOver.
 struct VoiceWaveChild: View {
     let index: Int
     let model: SurfaceModel
@@ -266,17 +269,16 @@ struct VoiceWaveChild: View {
 
     var body: some View {
         let edge = min(size.width, size.height)
-        let childSize = VoiceWaveFrame.compute(size: edge, activity: "idle", level: 0, bands: nil, elapsed: 0, reducedMotion: true)?.childSize ?? 0
         let kids = Array((model.children[safe: index] ?? []).filter { model.node($0)?.hidden == false }.prefix(1))
         let origin = model.frame(index).origin
         var rel: [Int: CGRect] = [:]
         for k in kids { rel[k] = model.frame(k).offsetBy(dx: -origin.x, dy: -origin.y) }
         return FrameLayout(size: size, frames: rel) {
             ForEach(kids, id: \.self) { k in
+                let f = rel[k] ?? .zero
+                let scale = VoiceWaveFrame.childBox(size: edge, child: f.size)?.scale ?? 0
                 NodeView(index: k)
-                    .opacity(childSize > 0 ? 1 : 0)
-                    .allowsHitTesting(childSize > 0)
-                    .accessibilityHidden(childSize <= 0)
+                    .voiceWaveChild(scale: scale, frame: f, centre: CGPoint(x: size.width / 2, y: size.height / 2))
                     .layoutValue(key: NodeIndexKey.self, value: k)
             }
         }

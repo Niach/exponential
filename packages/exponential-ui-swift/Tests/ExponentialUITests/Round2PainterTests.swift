@@ -110,6 +110,67 @@ final class Round2PainterTests: XCTestCase {
         XCTAssertEqual(cases.compactMap { c in c.error.map { "\(c.name): \($0)" } }, [])
     }
 
+    /// NEW-77 THE CHILD RULE, measured (`Round2Suites.voiceWaveChild`):
+    /// each fixture child case as a VoiceWave of the case's edge around a
+    /// solid child of the case's own size, rendered twice (the child filled,
+    /// then transparent); the child's coverage is the difference, so its
+    /// DRAWN bounds (after the painter's scale about the centre) come out
+    /// to the sub-pixel and must sit within 0.5 px of the fixture's `child`
+    /// box; at `sm` nothing is drawn.
+    func testVoiceWaveChildrenAreDrawnAtTheFixturesChildBox() throws {
+        try XCTSkipUnless(Fixtures.available(), "fixtures not in this checkout")
+        #if canImport(AppKit)
+        let sizes: [CGFloat: String] = [32: "sm", 56: "md", 160: "lg", 200: "xl"]
+        func render(_ c: Round2Suites.VoiceWaveChildCase, filled: Bool) throws -> (NSBitmapImageRep, CGFloat) {
+            let m = try makeModel(fixed: true)
+            let fill = filled ? #","backgroundColor":"$color.destructive""# : ""
+            try m.setNested(json: #"{"id":"w","component":"VoiceWave","props":{"activity":"\#(c.activity)","size":"\#(sizes[c.size] ?? "md")"},"children":[{"id":"c","component":"Box","style":{"width":\#(c.child.width),"height":\#(c.child.height)\#(fill)}}]}"#)
+            XCTAssertEqual(m.frame(try XCTUnwrap(m.index(of: "w"))).origin, .zero)
+            let host = NSHostingView(rootView: ExponentialSurface(model: m).frame(width: c.size, height: c.size, alignment: .topLeading).environment(\.xuiReducedMotion, true))
+            host.frame = CGRect(x: 0, y: 0, width: c.size, height: c.size)
+            host.layoutSubtreeIfNeeded()
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            return (rep, CGFloat(rep.pixelsWide) / c.size)
+        }
+        func rgb(_ rep: NSBitmapImageRep, _ x: Int, _ y: Int) -> [Double] {
+            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return [0, 0, 0] }
+            return [c.redComponent * c.alphaComponent, c.greenComponent * c.alphaComponent, c.blueComponent * c.alphaComponent]
+        }
+        let cases = try Round2Suites.voiceWaveChildCases()
+        XCTAssertGreaterThanOrEqual(cases.count, 4)
+        func measure(_ c: Round2Suites.VoiceWaveChildCase) throws -> CGRect? {
+            let (filled, k) = try render(c, filled: true)
+            let (empty, _) = try render(c, filled: false)
+            let n = Int((c.size * k).rounded())
+            let mid = n / 2
+            // The child's colour where it surely covers: the box centre.
+            let full = rgb(filled, mid, mid)
+            // Coverage of one device pixel: how far the filled render moved
+            // from the empty one, against the full colour.
+            func coverage(_ x: Int, _ y: Int) -> Double {
+                let a = rgb(filled, x, y), b = rgb(empty, x, y)
+                let span = zip(full, b).map { abs($0 - $1) }.max() ?? 0
+                guard span > 0.05 else { return 0 }
+                return min(1, (zip(a, b).map { abs($0 - $1) }.max() ?? 0) / span)
+            }
+            // A box rasterized by area coverage: its length is the sum, its
+            // start the first covered pixel plus what that pixel lacks.
+            func extent(_ cov: [Double]) -> (start: Double, length: Double)? {
+                let length = cov.reduce(0, +)
+                guard length > 0.02, let first = cov.firstIndex(where: { $0 > 0.02 }) else { return nil }
+                return (Double(first) + 1 - cov[first], length)
+            }
+            guard let h = extent((0..<n).map { coverage($0, mid) }), let v = extent((0..<n).map { coverage(mid, $0) }) else { return nil }
+            return CGRect(x: h.start / k, y: v.start / k, width: h.length / k, height: v.length / k)
+        }
+        var drawn: [String: CGRect] = [:]
+        for c in cases { drawn[c.name] = try measure(c) }
+        let failed = try Round2Suites.voiceWaveChild { drawn[$0.name] }
+        XCTAssertEqual(failed.compactMap { c in c.error.map { "\(c.name): \($0)" } }, [])
+        #endif
+    }
+
     /// The root recipe's edge, the idle opacity, the ring colours, the
     /// centred child (none at `sm`) and the img name with the activity.
     func testVoiceWaveMeasuresPaintsAndReads() throws {
