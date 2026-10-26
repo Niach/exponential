@@ -1,6 +1,9 @@
-// VAPP-87: Ring, Spinner, Skeleton, TreeGuides (Chart: chart.tsx).
+// VAPP-87: Ring, Spinner, Skeleton, TreeGuides, VoiceWave (Chart: chart.tsx).
 
-import { resolveRecipe, nativeRecipeProps, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS } from "@exponential_app/ui"
+import { useEffect, useLayoutEffect, useRef } from "react"
+import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveChildBox, voiceWavePath, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/ui"
+import type { VoiceWaveActivity } from "@exponential_app/ui"
+import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/ui/web"
 import { useSurfaceContext } from "../context"
 import { CHROME } from "../icons"
 import type { NativeProps } from "../node-view"
@@ -136,6 +139,73 @@ export function TreeGuidesNative({ node, props, rootProps }: NativeProps) {
   return (
     <span {...(rootProps as Record<string, unknown>)} aria-hidden="true" data-tee={tee ? `true` : undefined}>
       {cols}
+    </span>
+  )
+}
+
+/** NEW-77: VoiceWave (catalog/style.json `voiceWave`): one SVG of three
+ *  closed waves, the core's `voiceWave` per frame, each ring filled and
+ *  stroked in its part's recipe colour at the ring's alphas; the root
+ *  recipe sizes the box and sets the opacity (CSS); the ONE child sits
+ *  centred at its own size, drawn scaled about the centre by
+ *  `voiceWaveChildBox` (never up; at `sm` kept but unpainted). While
+ *  listening, thinking or speaking (and not under reduced motion) the
+ *  frames write the paths' `d` directly, never a re-render; the elapsed
+ *  seconds count from the moment the wave started moving. */
+export function VoiceWaveNative({ node, props, rootProps, children }: NativeProps) {
+  const ctx = useSurfaceContext()
+  const part = useParts(node, props)
+  const size = sizeOf(ctx, `VoiceWave`, `root`, props, 56)
+  const activity: VoiceWaveActivity = (VOICE_WAVE_ACTIVITIES as readonly string[]).includes(str(props.activity)) ? (str(props.activity) as VoiceWaveActivity) : `idle`
+  const input = { size, activity, level: num(props.level, 0), bands: arr<unknown>(props.bands).map((b) => num(b, 0)), reducedMotion: ctx.reducedMotion }
+  const latest = useRef(input)
+  latest.current = input
+  const elapsed = useRef(0)
+  const paths = useRef<(SVGPathElement | null)[]>([])
+  const animates = voiceWaveAnimates(activity) && !ctx.reducedMotion
+  useEffect(() => {
+    if (!animates) {
+      elapsed.current = 0
+      return
+    }
+    return voiceWaveClock((t) => {
+      elapsed.current = t
+      voiceWave({ ...latest.current, elapsed: t }).rings.forEach((ring, k) => paths.current[k]?.setAttribute(`d`, voiceWavePath(ring)))
+    })
+  }, [animates])
+  const childEl = useRef<HTMLSpanElement | null>(null)
+  const hasChild = node.children.length > 0
+  useLayoutEffect(() => (hasChild && childEl.current ? voiceWaveFitChild(childEl.current, (c) => voiceWaveChildBox(size, c).scale) : undefined), [hasChild, size])
+  const wave = voiceWave({ ...input, elapsed: elapsed.current })
+  const recipeProps = nativeRecipeProps(`VoiceWave`, props)
+  const colour = (name: string) => String(resolveRecipe(ctx.theme, { component: `VoiceWave`, part: name, props: recipeProps }, ctx.mode).color ?? `currentColor`)
+  const name = voiceWaveName(str(props.label) || undefined, activity)
+  return (
+    <span {...(rootProps as Record<string, unknown>)} role={name ? `img` : undefined} aria-label={name} aria-hidden={name ? undefined : `true`} style={mergeStyle(rootProps, { width: size, height: size })}>
+      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} aria-hidden="true">
+        {wave.rings.map((ring, k) => (
+          <path
+            key={ring.part}
+            ref={(el) => {
+              paths.current[k] = el
+            }}
+            {...(part(ring.part) as Record<string, string>)}
+            d={voiceWavePath(ring)}
+            fill="currentColor"
+            fillOpacity={ring.fillAlpha}
+            stroke="currentColor"
+            strokeOpacity={ring.strokeAlpha}
+            strokeWidth={ring.strokeWidth}
+            strokeLinejoin="round"
+            style={{ color: colour(ring.part) }}
+          />
+        ))}
+      </svg>
+      {hasChild ? (
+        <span ref={childEl} {...(part(`child`) as Record<string, string>)} data-hidden={wave.childSize > 0 ? undefined : `true`} aria-hidden={wave.childSize > 0 ? undefined : `true`} style={{ color: colour(`child`) }}>
+          {children}
+        </span>
+      ) : null}
     </span>
   )
 }

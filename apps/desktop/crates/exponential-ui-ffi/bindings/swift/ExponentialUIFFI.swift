@@ -7422,6 +7422,18 @@ public func version() -> String  {
 })
 }
 /**
+ * NEW-77: the VoiceWave rings for one frame. `input_json` =
+ * `{size, activity, level?, bands?, elapsed?, reducedMotion?}`; the result
+ * is `{rings: [{part, points, fillAlpha, strokeAlpha, strokeWidth}], childSize, phase}`.
+ */
+public func voiceWaveJson(inputJson: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_voice_wave_json(
+        FfiConverterString.lower(inputJson),$0
+    )
+})
+}
+/**
  * 0 = Sunday … 6 = Saturday.
  */
 public func weekStart(locale: String) -> UInt8  {
@@ -7625,6 +7637,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_version() != 37022) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_voice_wave_json() != 6478) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_week_start() != 43637) {

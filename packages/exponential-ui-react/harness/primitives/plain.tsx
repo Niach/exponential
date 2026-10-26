@@ -60,6 +60,7 @@ import {
   TableHeader,
   TableRow,
   Textarea,
+  VoiceWave,
 } from "../../src/primitives"
 
 const ROW: CSSProperties = { display: `flex`, flexWrap: `wrap`, alignItems: `center`, gap: 8 }
@@ -70,6 +71,7 @@ const ICON_SIZES = [`icon`, `icon-sm`, `icon-xs`] as const
 const PICTURE = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 10'%3E%3Crect width='16' height='10' fill='%2360a5fa'/%3E%3C/svg%3E`
 const SOURCE = `import { tokenizeCode } from "@exponential_app/ui"\n\nconst lines = tokenizeCode(source, \`ts\`)\nexport default lines.length\n`
 const noop = () => {}
+const DOT: CSSProperties = { display: `block`, borderRadius: 9999, background: `#2563eb` }
 
 export const SPECIMENS: Record<string, () => ReactElement> = {
   "plain/button": () => (
@@ -238,6 +240,41 @@ export const SPECIMENS: Record<string, () => ReactElement> = {
       <ContextRing percent={80} tone="warning" />
       <ContextRing percent={98} tone="danger" />
       <ContextRing percent={null} />
+    </div>
+  ),
+  // The first five = fixtures/voice-wave.json's `child` cases (in order;
+  // browser/voice-wave-child.test.ts measures their drawn child).
+  "plain/voice-wave": () => (
+    <div style={ROW}>
+      <span data-voice-case="0">
+        <VoiceWave activity="listening" level={0.5} size="md" label="Voice">
+          <span data-voice-child="" style={{ ...DOT, width: 24, height: 24 }} />
+        </VoiceWave>
+      </span>
+      <span data-voice-case="1">
+        <VoiceWave activity="speaking" level={0.3} size="lg">
+          <span data-voice-child="" style={{ ...DOT, width: 24, height: 24 }} />
+        </VoiceWave>
+      </span>
+      <span data-voice-case="2">
+        <VoiceWave activity="thinking" size="xl">
+          <span data-voice-child="" style={{ ...DOT, width: 120, height: 20 }} />
+        </VoiceWave>
+      </span>
+      <span data-voice-case="3">
+        <VoiceWave activity="idle" size="sm">
+          <span data-voice-child="" style={{ ...DOT, width: 24, height: 24 }} />
+        </VoiceWave>
+      </span>
+      <span data-voice-case="4">
+        <VoiceWave activity={`shouting` as never} level={0.9} bands={[1, 1]} size="md">
+          <span data-voice-child="" style={{ ...DOT, width: 24, height: 24 }} />
+        </VoiceWave>
+      </span>
+      <VoiceWave activity="speaking" level={0.4} bands={[0.7, 1, 0.5, 0.8]} size="lg" label="Voice" />
+      <VoiceWave activity="muted" size="md">
+        <span style={{ ...DOT, width: 24, height: 24 }} />
+      </VoiceWave>
     </div>
   ),
   "plain/disclosure-header": () => (

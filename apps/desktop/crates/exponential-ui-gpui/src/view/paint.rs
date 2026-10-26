@@ -56,12 +56,24 @@ pub fn inherit_radii(own: [f32; 4], (x, y, w, h): (f32, f32, f32, f32), clip: &C
 
 /// Where a node's parent puts it: the parent's content origin (its frame
 /// plus its scroll offset, surface coordinates), where that origin is
-/// painted, and the rounded clip in force.
+/// painted, and the rounded clip in force. `scale` (1 = none) is a
+/// paint-only uniform scale of the whole subtree (NEW-77: a VoiceWave's
+/// child): a node's local box is multiplied by it, then moved by `shift`
+/// (the pivot's `c × (1 − scale)`; only the scaled subtree's root carries
+/// one, its descendants sit relative to their scaled parent).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Place {
     pub origin: (f32, f32),
     pub abs: (f32, f32),
     pub clip: Option<Clip>,
+    pub scale: f32,
+    pub shift: (f32, f32),
+}
+
+impl Place {
+    pub(crate) fn at(origin: (f32, f32), abs: (f32, f32), clip: Option<Clip>) -> Place {
+        Place { origin, abs, clip, scale: 1.0, shift: (0.0, 0.0) }
+    }
 }
 
 fn rounded<E: Styled>(e: E, r: [f32; 4]) -> E {
@@ -173,6 +185,20 @@ impl SurfaceView {
             w = nw;
             h = nh;
         }
+        // NEW-77: inside a scaled subtree (a VoiceWave's child) the box and
+        // its insets, corners and type scale with it (paint only).
+        let ps = place.scale;
+        if (ps - 1.0).abs() > 1e-4 {
+            x = x * ps + place.shift.0;
+            y = y * ps + place.shift.1;
+            w *= ps;
+            h *= ps;
+            style.radii = style.radii.map(|r| r * ps);
+            style.border = style.border.map(|b| b * ps);
+            style.padding = style.padding.map(|p| p * ps);
+            style.gap *= ps;
+            style.letter_spacing *= ps;
+        }
         let abs = (place.abs.0 + x, place.abs.1 + y);
         let mut radii = style.radii.map(|r| r.min(w.min(h) / 2.0).max(0.0));
         if let Some(clip) = &place.clip {
@@ -245,7 +271,7 @@ impl SurfaceView {
         if leaf && !self.paint_blocked(n, cx) {
             // A painter that panics (a prop it cannot paint) leaves an empty
             // box and reaches the host (`onPaintError`); the surface stays.
-            let painted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.paint_leaf(index, n, &style, ink, w, h, radii, window, cx)));
+            let painted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.paint_leaf(index, n, &style, ink, w, h, radii, place.scale, window, cx)));
             match painted {
                 Ok(Some(content)) => el = el.child(content),
                 Ok(None) => {}
@@ -255,8 +281,27 @@ impl SurfaceView {
         // Children: the content origin shifts by the scroll offset.
         let (sx, sy) = self.scrolls.get(&index).map(|s| (s.offset_x, s.offset_y)).unwrap_or((0.0, 0.0));
         let clip = if style.clips() && radii.iter().any(|r| *r > 0.0) && sx == 0.0 && sy == 0.0 { Some(Clip { x: abs.0, y: abs.1, w, h, radii }) } else if style.clips() { None } else { place.clip };
-        let child_place = Place { origin: (f.x + sx, f.y + sy), abs, clip };
+        let mut child_place = Place { origin: (f.x + sx, f.y + sy), abs, clip, scale: ps, shift: (0.0, 0.0) };
+        let mut kids_shown = true;
+        if n.component == "VoiceWave" && !leaf {
+            el = el.child(self.voice_wave(index, n, w, h, ink, window));
+            // NEW-77 THE CHILD RULE: the core centres the one child at its
+            // own size; it paints scaled about the wave's centre by
+            // min(1, childSize / its longer edge), never up
+            // (`voice_wave::child_box`); at `sm` it is built but dropped.
+            use exponential_ui::voice_wave::{child_box, child_size, ChildSize};
+            let edge = f.w.min(f.h).max(0.0) as f64;
+            kids_shown = child_size(edge) > 0.0;
+            if let Some(cf) = n.children.first().and_then(|c| self.frames.get(*c as usize)) {
+                let s = child_box(edge, ChildSize { width: cf.w as f64, height: cf.h as f64 }).scale as f32;
+                child_place.scale = ps * s;
+                child_place.shift = (ps * f.w / 2.0 * (1.0 - s), ps * f.h / 2.0 * (1.0 - s));
+            }
+        }
+        // The child is still built at `sm` (it is laid out and visible to the
+        // core; the native suppresses it), its element dropped.
         let kids = self.children_elements(index, child_place, window, cx);
+        let kids = if kids_shown { kids } else { Vec::new() };
         el = el.children(kids);
         // The shimmer band sweeps OVER the content (the web's `::after`),
         // clipped to its own box; the node's children stay unclipped.
@@ -595,7 +640,7 @@ impl SurfaceView {
     #[allow(clippy::too_many_arguments)]
     fn paint_extension(&self, el: Stateful<Div>, index: u32, n: &PlacedNode, w: f32, h: f32, place: Place, abs: (f32, f32), window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let f = self.frames.get(index as usize).copied().unwrap_or_default();
-        let children = self.children_elements(index, Place { origin: (f.x, f.y), abs, clip: place.clip }, window, cx);
+        let children = self.children_elements(index, Place { origin: (f.x, f.y), abs, clip: place.clip, scale: place.scale, shift: (0.0, 0.0) }, window, cx);
         let kind = n.extension_kind.clone().unwrap_or_default();
         let Some(painter) = self.painters.get(&kind).cloned() else {
             // No painter registered: the placeholder note, children kept.
@@ -667,12 +712,17 @@ impl SurfaceView {
 
     /// The content of a measured leaf.
     #[allow(clippy::too_many_arguments)]
-    fn paint_leaf(&self, index: u32, n: &PlacedNode, style: &PaintStyle, ink: Hsla, w: f32, h: f32, radii: [f32; 4], window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn paint_leaf(&self, index: u32, n: &PlacedNode, style: &PaintStyle, ink: Hsla, w: f32, h: f32, radii: [f32; 4], scale: f32, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let i = index as usize;
         let theme = self.surface.theme().cloned();
         let owner_props = self.owner_props(index);
         let states = self.states_of(n);
-        let text_style = self.texts.get(i).cloned().unwrap_or_default();
+        let mut text_style = self.texts.get(i).cloned().unwrap_or_default();
+        if (scale - 1.0).abs() > 1e-4 {
+            text_style.font_size *= scale;
+            text_style.line_height *= scale;
+            text_style.letter_spacing = text_style.letter_spacing.map(|l| l * scale);
+        }
         let lcx = LeafCx {
             node: n,
             w,
@@ -691,6 +741,7 @@ impl SurfaceView {
             shimmer: self.text_shimmer(index, n, style, ink, window),
             radii,
             formatter: self.surface.formatter().as_ref(),
+            scale,
         };
         let part = n.part.as_deref();
         Some(match (n.component.as_str(), part) {
@@ -780,6 +831,28 @@ impl SurfaceView {
         let elapsed = now.saturating_duration_since(start).as_secs_f64() * 1000.0;
         window.request_animation_frame();
         Some(natives::ShimmerPaint::new(ink, self.surface.mode() == exponential_ui::theme::Mode::Dark, natives::ShimmerPaint::progress_at(elapsed), style.rtl.unwrap_or(self.rtl)))
+    }
+
+    /// NEW-77: a VoiceWave's rings now. While its activity animates (and
+    /// motion is not reduced) the phase runs off the seconds since the node
+    /// started animating, asking for the next frame; otherwise the clock
+    /// resets so the next animating activity starts at phase 0.
+    fn voice_wave(&self, index: u32, n: &PlacedNode, w: f32, h: f32, ink: Hsla, window: &mut Window) -> AnyElement {
+        let reduced = self.surface.settings().reduced_motion;
+        let moving = natives::voice_wave_activity(&n.props).animates() && !reduced && !self.ghosting.get();
+        let mut elapsed = 0.0;
+        if let Some(id) = self.cache.ids.get(index as usize).cloned() {
+            if moving {
+                let now = self.now();
+                let start = *self.anim_start.borrow_mut().entry(id).or_insert(now);
+                elapsed = now.saturating_duration_since(start).as_secs_f64();
+                window.request_animation_frame();
+            } else if !self.ghosting.get() {
+                self.anim_start.borrow_mut().remove(id.as_ref());
+            }
+        }
+        let theme = self.surface.theme().cloned();
+        natives::voice_wave(&n.id, &n.props, theme.as_deref(), self.surface.mode(), w, h, elapsed, reduced, ink)
     }
 
     /// The checked dot of a Radio, centred in its circle.
@@ -1248,7 +1321,7 @@ impl SurfaceView {
         }
         if self.cache.node(root).is_some_and(|n| !n.hidden) {
             let f = self.frames.get(root as usize).copied().unwrap_or_default();
-            let place = Place { origin: (f.x, f.y), abs: (f.x, f.y + shift), clip: None };
+            let place = Place::at((f.x, f.y), (f.x, f.y + shift), None);
             let inner = self.paint_node(root, Place { origin: (f.x, f.y), ..place }, window, cx);
             // The root div sits at its own frame inside a wrapper at (0,0);
             // the wrapper owns the occlusion and the outside press.

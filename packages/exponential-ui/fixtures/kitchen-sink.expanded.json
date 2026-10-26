@@ -4233,6 +4233,31 @@
                 }
               },
               {
+                "id": "voice-wave",
+                "component": "VoiceWave",
+                "props": {
+                  "activity": "listening",
+                  "level": 0.6,
+                  "bands": [
+                    0.9,
+                    0.6,
+                    1,
+                    0.5
+                  ],
+                  "label": "Voice"
+                },
+                "children": [
+                  {
+                    "id": "voice-wave-mark",
+                    "component": "Icon",
+                    "props": {
+                      "name": "mic"
+                    },
+                    "children": []
+                  }
+                ]
+              },
+              {
                 "id": "empty",
                 "component": "Box",
                 "props": {},

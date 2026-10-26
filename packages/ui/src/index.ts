@@ -161,6 +161,8 @@ export * from "./use-mobile"
 export * from "./usage-windows"
 export * from "./user-avatar"
 export * from "./user-message-bubble"
+// NEW-77: the voice level (the Exponential UI VoiceWave native as a primitive).
+export * from "./voice-wave"
 export * from "./wave-graph"
 export * from "./work-header"
 // EXP-1275: THE feedback states (Spinner, InlineStatus, useDelayedFlag,

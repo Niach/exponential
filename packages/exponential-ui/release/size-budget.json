@@ -1,104 +1,104 @@
 {
-  "$comment": "VAPP-106: the size budgets release/size.ts --check gates (bytes; gzip where a browser downloads it). Every entry of sizes.json has one, a little above the number on record, so a pull request that grows the SDK past it fails exponential-ui.yml; a change that shrinks something lowers its budget in the same commit (the ratchet). Keys: npm = <package>/<entry> (minified, the entry plus the chunks it imports; <package>/styles.css = a web renderer's stylesheet as built, <package>/standalone.js = the element's self-contained file), xcframework/<slice>, android/<abi>, crate/<host>/<artifact>.",
+  "$comment": "VAPP-106: the size budgets release/size.ts --check gates (bytes; gzip where a browser downloads it). Every entry of sizes.json has one, a little above the number on record, so a pull request that grows the SDK past it fails exponential-ui.yml; a change that shrinks something lowers its budget in the same commit (the ratchet). Keys: npm = <package>/<entry> (minified, the entry plus the chunks it imports; <package>/styles.css = a web renderer's stylesheet as built, <package>/standalone.js = the element's self-contained file), xcframework/<slice>, android/<abi>, crate/<host>/<artifact>. Doubled per Danny 2026-10-26: budgets were tripping CI on every small change; every budget = 2× its measured size (CI where measured, else sizes.json; the per-machine overrides 2× their measure = budget / 1.025), so the check still fails a real blow-up past 2×.",
   "@exponential_app/ui/index": {
-    "bytes": 403631,
-    "gzip": 112772
+    "bytes": 818892,
+    "gzip": 232178
   },
   "@exponential_app/ui-react/index": {
-    "bytes": 141312,
-    "gzip": 49152
+    "bytes": 283892,
+    "gzip": 99066
   },
   "@exponential_app/ui-react/primitives": {
-    "bytes": 56320,
-    "gzip": 16384
+    "bytes": 113336,
+    "gzip": 32436
   },
   "@exponential_app/ui-react/styles.css": {
-    "bytes": 88064,
-    "gzip": 14336
+    "bytes": 174408,
+    "gzip": 27768
   },
   "@exponential_app/ui/prompt": {
-    "bytes": 135823,
-    "gzip": 33792
+    "bytes": 269718,
+    "gzip": 68064
   },
   "@exponential_app/ui/schema": {
-    "bytes": 176665,
-    "gzip": 43008
+    "bytes": 347568,
+    "gzip": 85570
   },
   "@exponential_app/ui/conformance": {
-    "bytes": 2037777,
-    "gzip": 180384
+    "bytes": 4113102,
+    "gzip": 365402
   },
   "@exponential_app/ui/host": {
-    "bytes": 329373,
-    "gzip": 85892
+    "bytes": 666474,
+    "gzip": 176738
   },
   "@exponential_app/ui/web": {
-    "bytes": 84992,
-    "gzip": 23552
+    "bytes": 166584,
+    "gzip": 47288
   },
   "@exponential_app/ui/web/primitives": {
-    "bytes": 55296,
-    "gzip": 15360
+    "bytes": 111440,
+    "gzip": 30910
   },
   "@exponential_app/ui-solid/index": {
-    "bytes": 373760,
-    "gzip": 92160
+    "bytes": 722628,
+    "gzip": 179296
   },
   "@exponential_app/ui-solid/primitives": {
-    "bytes": 261120,
-    "gzip": 64512
+    "bytes": 516650,
+    "gzip": 127636
   },
   "@exponential_app/ui-solid/styles.css": {
-    "bytes": 88064,
-    "gzip": 14336
+    "bytes": 174408,
+    "gzip": 27768
   },
   "@exponential_app/ui-element/index": {
-    "bytes": 16384,
-    "gzip": 6144
+    "bytes": 30566,
+    "gzip": 11504
   },
   "@exponential_app/ui-element/define": {
-    "bytes": 16384,
-    "gzip": 6144
+    "bytes": 30744,
+    "gzip": 11576
   },
   "@exponential_app/ui-element/standalone.js": {
-    "bytes": 675840,
-    "gzip": 189440
+    "bytes": 1346010,
+    "gzip": 374384
   },
   "android/arm64-v8a": {
-    "bytes": 4864000
+    "bytes": 9263696
   },
   "android/armeabi-v7a": {
-    "bytes": 3597312
+    "bytes": 6851728
   },
   "android/x86_64": {
-    "bytes": 5918720
+    "bytes": 11271920
   },
   "xcframework/ios-arm64": {
-    "bytes": 6324224
+    "bytes": 12045504
   },
   "xcframework/ios-arm64_x86_64-simulator": {
-    "bytes": 13156352
+    "bytes": 25059264
   },
   "xcframework/macos-arm64_x86_64": {
-    "bytes": 13302784
+    "bytes": 25337040
   },
   "crate/darwin/bench-example": {
-    "bytes": 4323328
+    "bytes": 8233648
   },
   "crate/darwin/exponential-ui-ffi": {
-    "bytes": 6562816
+    "bytes": 12500256
   },
   "$machines": {
     "$comment": "EXP-1371: per build machine overrides (EXPONENTIAL_UI_SIZE_MACHINE). github-macos-26 = GitHub's macos-26 image (the exponential-ui.yml fallback and release-ui.yml), measured on PR #1155 run 39900265032 (+2.5 % like the base budgets).",
     "github-macos-26": {
       "xcframework/ios-arm64": {
-        "bytes": 8103936
+        "bytes": 15812558
       },
       "xcframework/ios-arm64_x86_64-simulator": {
-        "bytes": 16539648
+        "bytes": 32272484
       },
       "xcframework/macos-arm64_x86_64": {
-        "bytes": 16776192
+        "bytes": 32734034
       }
     }
   }

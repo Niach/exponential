@@ -3253,6 +3253,36 @@
         "sha256": "b523a131a9b0928d6d654065cb35c44473d0804c525a76a1559a52b60f947c52"
       }
     },
+    "exponential-ui-voice-wave": {
+      "android": {
+        "file": "shots/exponential-ui-voice-wave/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 19824,
+        "sha256": "c58329c252028b0a9fc3d570b3f1258abfcf34d448c6d559c56227e5eca2fe7c"
+      },
+      "desktop": {
+        "file": "shots/exponential-ui-voice-wave/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 34496,
+        "sha256": "8de1dd4891381692718372f2c4627511c4f6d3ea63315477b70c4a190074f9e6"
+      },
+      "ios": {
+        "file": "shots/exponential-ui-voice-wave/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 19962,
+        "sha256": "ab17b5834be100725397a865a7d9cd0fbc56611f651295fdb45c417f582d822b"
+      },
+      "web": {
+        "file": "shots/exponential-ui-voice-wave/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 14126,
+        "sha256": "85e84c81599c1323d5359d3cdbf8ad27db83840974a7c48ac3ed17ab9e02a085"
+      }
+    },
     "feedback-states": {
       "android": {
         "file": "shots/feedback-states/android.webp",

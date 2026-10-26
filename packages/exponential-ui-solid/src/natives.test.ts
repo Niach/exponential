@@ -22,17 +22,17 @@ describe(`natives × catalog`, () => {
   it(`every painter is a catalog native`, () => {
     for (const name of Object.keys(NATIVES)) expect(natives, name).toContain(name)
   })
-  it(`the same 48 keys as the React renderer's map`, () => {
+  it(`the same 49 keys as the React renderer's map`, () => {
     const react = readFileSync(join(import.meta.dirname, `../../exponential-ui-react/src/natives/index.ts`), `utf8`)
     const block = react.slice(react.indexOf(`export const NATIVES`), react.indexOf(`export const NATIVE_NAMES`))
     const keys = [...block.matchAll(/^\s+([A-Za-z]+):/gm)].map((m) => m[1])
     expect(Object.keys(NATIVES)).toEqual(keys)
-    expect(keys.length).toBe(48)
+    expect(keys.length).toBe(49)
   })
   it(`PENDING_NATIVES lists exactly the entries still painted by Pending`, () => {
     expect(Object.entries(NATIVES).filter(([, p]) => p === Pending).map(([n]) => n).sort()).toEqual([...PENDING_NATIVES].sort())
   })
-  it(`the owners table covers the 48 natives once, in React's order`, () => {
+  it(`the owners table covers the 49 natives once, in React's order`, () => {
     const owned = Object.values(OWNERS).flat()
     expect([...owned].sort()).toEqual([...NATIVE_ORDER].sort())
     expect(Object.keys(NATIVES)).toEqual([...NATIVE_ORDER])

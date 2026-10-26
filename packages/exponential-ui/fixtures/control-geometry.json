@@ -16,6 +16,7 @@
     "Icon": "root",
     "Spinner": "root",
     "Ring": "root",
+    "VoiceWave": "root",
     "Tabs": "tab",
     "NumberField": "field",
     "ChipInput": "field",
@@ -944,6 +945,111 @@
             "geometry": {
               "width": 32,
               "height": 32
+            }
+          }
+        }
+      },
+      "VoiceWave": {
+        "part": "root",
+        "cases": {
+          "default": {
+            "props": {
+              "activity": "listening",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=idle": {
+            "props": {
+              "activity": "idle",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=listening": {
+            "props": {
+              "activity": "listening",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=thinking": {
+            "props": {
+              "activity": "thinking",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=speaking": {
+            "props": {
+              "activity": "speaking",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=muted": {
+            "props": {
+              "activity": "muted",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "size=sm": {
+            "props": {
+              "activity": "listening",
+              "size": "sm"
+            },
+            "geometry": {
+              "width": 32,
+              "height": 32
+            }
+          },
+          "size=md": {
+            "props": {
+              "activity": "listening",
+              "size": "md"
+            },
+            "geometry": {
+              "width": 56,
+              "height": 56
+            }
+          },
+          "size=lg": {
+            "props": {
+              "activity": "listening",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "size=xl": {
+            "props": {
+              "activity": "listening",
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 200,
+              "height": 200
             }
           }
         }
@@ -1987,6 +2093,111 @@
             "geometry": {
               "width": 32,
               "height": 32
+            }
+          }
+        }
+      },
+      "VoiceWave": {
+        "part": "root",
+        "cases": {
+          "default": {
+            "props": {
+              "activity": "listening",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=idle": {
+            "props": {
+              "activity": "idle",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=listening": {
+            "props": {
+              "activity": "listening",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=thinking": {
+            "props": {
+              "activity": "thinking",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=speaking": {
+            "props": {
+              "activity": "speaking",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=muted": {
+            "props": {
+              "activity": "muted",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "size=sm": {
+            "props": {
+              "activity": "listening",
+              "size": "sm"
+            },
+            "geometry": {
+              "width": 32,
+              "height": 32
+            }
+          },
+          "size=md": {
+            "props": {
+              "activity": "listening",
+              "size": "md"
+            },
+            "geometry": {
+              "width": 56,
+              "height": 56
+            }
+          },
+          "size=lg": {
+            "props": {
+              "activity": "listening",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "size=xl": {
+            "props": {
+              "activity": "listening",
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 200,
+              "height": 200
             }
           }
         }
@@ -3035,6 +3246,111 @@
           }
         }
       },
+      "VoiceWave": {
+        "part": "root",
+        "cases": {
+          "default": {
+            "props": {
+              "activity": "listening",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=idle": {
+            "props": {
+              "activity": "idle",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=listening": {
+            "props": {
+              "activity": "listening",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=thinking": {
+            "props": {
+              "activity": "thinking",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=speaking": {
+            "props": {
+              "activity": "speaking",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=muted": {
+            "props": {
+              "activity": "muted",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "size=sm": {
+            "props": {
+              "activity": "listening",
+              "size": "sm"
+            },
+            "geometry": {
+              "width": 32,
+              "height": 32
+            }
+          },
+          "size=md": {
+            "props": {
+              "activity": "listening",
+              "size": "md"
+            },
+            "geometry": {
+              "width": 56,
+              "height": 56
+            }
+          },
+          "size=lg": {
+            "props": {
+              "activity": "listening",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "size=xl": {
+            "props": {
+              "activity": "listening",
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 200,
+              "height": 200
+            }
+          }
+        }
+      },
       "Tabs": {
         "part": "tab",
         "cases": {
@@ -4074,6 +4390,111 @@
             "geometry": {
               "width": 32,
               "height": 32
+            }
+          }
+        }
+      },
+      "VoiceWave": {
+        "part": "root",
+        "cases": {
+          "default": {
+            "props": {
+              "activity": "listening",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=idle": {
+            "props": {
+              "activity": "idle",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=listening": {
+            "props": {
+              "activity": "listening",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=thinking": {
+            "props": {
+              "activity": "thinking",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=speaking": {
+            "props": {
+              "activity": "speaking",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "activity=muted": {
+            "props": {
+              "activity": "muted",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "size=sm": {
+            "props": {
+              "activity": "listening",
+              "size": "sm"
+            },
+            "geometry": {
+              "width": 32,
+              "height": 32
+            }
+          },
+          "size=md": {
+            "props": {
+              "activity": "listening",
+              "size": "md"
+            },
+            "geometry": {
+              "width": 56,
+              "height": 56
+            }
+          },
+          "size=lg": {
+            "props": {
+              "activity": "listening",
+              "size": "lg"
+            },
+            "geometry": {
+              "width": 160,
+              "height": 160
+            }
+          },
+          "size=xl": {
+            "props": {
+              "activity": "listening",
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 200,
+              "height": 200
             }
           }
         }

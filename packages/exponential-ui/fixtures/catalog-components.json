@@ -6053,6 +6053,276 @@
       }
     },
     {
+      "name": "VoiceWave/example",
+      "node": {
+        "id": "voice-wave",
+        "component": "VoiceWave",
+        "props": {
+          "activity": "listening",
+          "level": 0.6,
+          "bands": [
+            0.9,
+            0.6,
+            1,
+            0.5
+          ],
+          "size": "lg"
+        },
+        "children": [
+          {
+            "id": "voice-wave-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoiceWave/activity=idle",
+      "node": {
+        "id": "voice-wave",
+        "component": "VoiceWave",
+        "props": {
+          "activity": "idle",
+          "level": 0.6,
+          "bands": [
+            0.9,
+            0.6,
+            1,
+            0.5
+          ],
+          "size": "lg"
+        },
+        "children": [
+          {
+            "id": "voice-wave-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoiceWave/activity=listening",
+      "node": {
+        "id": "voice-wave",
+        "component": "VoiceWave",
+        "props": {
+          "activity": "listening",
+          "level": 0.6,
+          "bands": [
+            0.9,
+            0.6,
+            1,
+            0.5
+          ],
+          "size": "lg"
+        },
+        "children": [
+          {
+            "id": "voice-wave-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoiceWave/activity=thinking",
+      "node": {
+        "id": "voice-wave",
+        "component": "VoiceWave",
+        "props": {
+          "activity": "thinking",
+          "level": 0.6,
+          "bands": [
+            0.9,
+            0.6,
+            1,
+            0.5
+          ],
+          "size": "lg"
+        },
+        "children": [
+          {
+            "id": "voice-wave-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoiceWave/activity=speaking",
+      "node": {
+        "id": "voice-wave",
+        "component": "VoiceWave",
+        "props": {
+          "activity": "speaking",
+          "level": 0.6,
+          "bands": [
+            0.9,
+            0.6,
+            1,
+            0.5
+          ],
+          "size": "lg"
+        },
+        "children": [
+          {
+            "id": "voice-wave-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoiceWave/activity=muted",
+      "node": {
+        "id": "voice-wave",
+        "component": "VoiceWave",
+        "props": {
+          "activity": "muted",
+          "level": 0.6,
+          "bands": [
+            0.9,
+            0.6,
+            1,
+            0.5
+          ],
+          "size": "lg"
+        },
+        "children": [
+          {
+            "id": "voice-wave-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoiceWave/size=sm",
+      "node": {
+        "id": "voice-wave",
+        "component": "VoiceWave",
+        "props": {
+          "activity": "listening",
+          "level": 0.6,
+          "bands": [
+            0.9,
+            0.6,
+            1,
+            0.5
+          ],
+          "size": "sm"
+        },
+        "children": [
+          {
+            "id": "voice-wave-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoiceWave/size=md",
+      "node": {
+        "id": "voice-wave",
+        "component": "VoiceWave",
+        "props": {
+          "activity": "listening",
+          "level": 0.6,
+          "bands": [
+            0.9,
+            0.6,
+            1,
+            0.5
+          ],
+          "size": "md"
+        },
+        "children": [
+          {
+            "id": "voice-wave-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoiceWave/size=lg",
+      "node": {
+        "id": "voice-wave",
+        "component": "VoiceWave",
+        "props": {
+          "activity": "listening",
+          "level": 0.6,
+          "bands": [
+            0.9,
+            0.6,
+            1,
+            0.5
+          ],
+          "size": "lg"
+        },
+        "children": [
+          {
+            "id": "voice-wave-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoiceWave/size=xl",
+      "node": {
+        "id": "voice-wave",
+        "component": "VoiceWave",
+        "props": {
+          "activity": "listening",
+          "level": 0.6,
+          "bands": [
+            0.9,
+            0.6,
+            1,
+            0.5
+          ],
+          "size": "xl"
+        },
+        "children": [
+          {
+            "id": "voice-wave-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Table/example",
       "node": {
         "id": "table",

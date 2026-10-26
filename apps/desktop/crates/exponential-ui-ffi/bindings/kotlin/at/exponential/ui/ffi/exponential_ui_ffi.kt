@@ -875,6 +875,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_validate_style_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_version(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_voice_wave_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_week_start(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale(
@@ -1479,6 +1481,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_validate_record_json(`schemaJson`
 external fun uniffi_exponential_ui_ffi_fn_func_validate_style_json(`styleJson`: RustBuffer.ByValue,`root`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_version(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_voice_wave_json(`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_week_start(`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
@@ -10139,6 +10143,21 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_version(
     
         _status)
+}
+    )
+    }
+    
+
+        /**
+         * NEW-77: the VoiceWave rings for one frame. `input_json` =
+         * `{size, activity, level?, bands?, elapsed?, reducedMotion?}`; the result
+         * is `{rings: [{part, points, fillAlpha, strokeAlpha, strokeWidth}], childSize, phase}`.
+         */ fun `voiceWaveJson`(`inputJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_voice_wave_json(
+    
+        FfiConverterString.lower(`inputJson`),_status)
 }
     )
     }

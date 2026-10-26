@@ -32,6 +32,7 @@
     "Ring": { "parts": ["root", "track", "fill", "label"], "props": ["size", "tone"] },
     "Spinner": { "parts": ["root"], "props": ["size"] },
     "Skeleton": { "parts": ["root", "row", "dot", "bar"], "props": ["rounded", "dot"] },
+    "VoiceWave": { "parts": ["root", "outer", "mid", "inner", "child"], "props": ["activity", "size"] },
     "Chart": { "parts": ["root", "title", "axis", "grid", "legend", "tooltip", "valueLabel"], "props": ["kind"] },
     "Table": { "parts": ["root", "caption", "header", "headerCell", "sortIcon", "row", "cell", "checkbox", "empty", "body"], "props": ["selectable", "striped", "density", "stickyHeader", "align"] },
     "Button": { "parts": ["root", "icon", "label", "spinner"], "props": ["variant", "size", "disabled", "loading"] },

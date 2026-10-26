@@ -1296,6 +1296,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_version(RustCallStatus *_Nonnull ou
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_VOICE_WAVE_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_VOICE_WAVE_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_voice_wave_json(RustBuffer input_json, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_WEEK_START
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_WEEK_START
 uint8_t uniffi_exponential_ui_ffi_fn_func_week_start(RustBuffer locale, RustCallStatus *_Nonnull out_status
@@ -1918,6 +1923,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_validate_style_json(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_VERSION
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_VERSION
 uint16_t uniffi_exponential_ui_ffi_checksum_func_version(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_VOICE_WAVE_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_VOICE_WAVE_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_voice_wave_json(void
     
 );
 #endif

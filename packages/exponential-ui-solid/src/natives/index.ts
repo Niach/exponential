@@ -1,5 +1,5 @@
 // FEED-128: the native component map (React's natives/index.ts): every
-// `kind: native` of the core catalog, the SAME 48 keys in React's order
+// `kind: native` of the core catalog, the SAME 49 keys in React's order
 // (`owners.ts` NATIVE_ORDER). Each natives file exports its own record;
 // a native no file paints yet is painted by `Pending` (natives.test.ts
 // gates the map against the catalog and the owners table).

@@ -5,6 +5,7 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 ## Unreleased
 
+- NEW-77: `VoiceWave` paints (a Canvas of three rings from `voiceWaveJson` on a TimelineView, the recipe colours, root opacity, reduced motion rests) with the child rule; the `VoiceWaveView` primitive and `View.voiceWaveChild(scale:anchor:)` in `ExponentialUIPrimitives`.
 - VAPP-122: `bind` is an action the host runs like `openUrl`: `{path, source, params?}` re-follows a path (`BindingSource.sourceWithParams` over the core's `sourceWithParamsJson`), subscriptions are keyed by path so the earlier one at that path is cancelled; the conformance suite replays the new `sourceParams` and `records` cases over `validateRecordJson`.
 
 ## 0.1.1 (2026-10-23)

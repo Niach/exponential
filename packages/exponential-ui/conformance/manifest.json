@@ -9,7 +9,7 @@
         "fixtures/catalog-components.json"
       ],
       "unit": "case",
-      "cases": 528,
+      "cases": 538,
       "check": "Reduce the case's nested node with the core catalog: no issues. Paint it under the default theme: no crash, no Unknown placeholder, every visible node painted."
     },
     {
@@ -54,7 +54,7 @@
         "fixtures/theme-recipes.json"
       ],
       "unit": "case",
-      "cases": 409,
+      "cases": 422,
       "check": "Resolve the part's recipe for the case's theme, props, mode and states: the visual equals the fixture."
     },
     {
@@ -81,7 +81,7 @@
         "fixtures/control-geometry.json"
       ],
       "unit": "theme × control × case",
-      "cases": 324,
+      "cases": 364,
       "check": "Measure the control under the theme: the box (height, padding, gap, border, radius) equals the fixture."
     },
     {

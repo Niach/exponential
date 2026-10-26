@@ -3587,6 +3587,82 @@
       "macro": null
     },
     {
+      "name": "VoiceWave",
+      "kind": "native",
+      "group": "feedback",
+      "lite": false,
+      "specimenId": "exponential-ui-voice-wave",
+      "description": "A live voice level: three waves around an optional centre child.",
+      "children": "one",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "activity",
+          "type": "idle | listening | thinking | speaking | muted",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": "idle",
+          "description": "What the voice is doing."
+        },
+        {
+          "name": "level",
+          "type": "number",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": 0,
+          "description": "Loudness 0 to 1."
+        },
+        {
+          "name": "bands",
+          "type": "[number]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Up to 8 band levels 0 to 1."
+        },
+        {
+          "name": "size",
+          "type": "sm | md | lg | xl",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "md",
+          "description": "Edge class; sm hides the child."
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "An accessibility label."
+        }
+      ],
+      "accessibility": {
+        "role": "img",
+        "notes": "img named by `label` (with the activity appended, e.g. `Voice, listening`); decorative (hidden) without a label; never focusable",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "VoiceWave",
+        "activity": "listening",
+        "level": 0.6,
+        "bands": [
+          0.9,
+          0.6,
+          1,
+          0.5
+        ],
+        "size": "lg"
+      },
+      "macro": null
+    },
+    {
       "name": "Table",
       "kind": "native",
       "group": "data",

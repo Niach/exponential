@@ -29,6 +29,7 @@ mod meter;
 mod pills;
 mod rows;
 mod sizing;
+mod voice_wave;
 
 pub use animation::{until_next_step, SteppedAnimationElement, SteppedAnimationExt, SMOOTH_STEP};
 pub use buttons::{
@@ -63,3 +64,4 @@ pub use rows::{
     ROW_DESCRIPTION_MAX_W,
 };
 pub use sizing::{WebControl, WebText, CTL_LG_H, CTL_MD_H, CTL_SM_H};
+pub use voice_wave::{voice_wave, VoiceWaveChild, VoiceWaveColors};

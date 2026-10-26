@@ -163,6 +163,12 @@ private struct NodeBody: View {
                         ContainerContent(index: index, node: node, model: model, style: style, size: size)
                     }
                 }
+            } else if node.component == "VoiceWave", node.part == nil {
+                // NEW-77: the rings behind the one child, centred.
+                ZStack(alignment: .topLeading) {
+                    VoiceWaveLeaf(cx: LeafContext(model: model, node: node, size: size, style: style, ink: model.ink(index), textStyle: model.textStyle(index)))
+                    VoiceWaveChild(index: index, model: model, size: size)
+                }
             } else {
                 ContainerContent(index: index, node: node, model: model, style: style, size: size)
             }
@@ -246,6 +252,34 @@ struct ChildrenLayout: View {
                     .layoutValue(key: NodeIndexKey.self, value: k)
                     // VoiceOver reads in PAINT order (slots are not pre-order).
                     .accessibilitySortPriority(model.accessibilityPriority(k))
+            }
+        }
+    }
+}
+
+/// NEW-77 THE CHILD RULE: a VoiceWave's one child at the frame the core
+/// centres it at (its own size), drawn scaled about the wave box's centre
+/// by the core's `child.scale` (min(1, childSize / its longer edge), never
+/// up); at `sm` (scale 0) kept in the tree but not painted, no hit target,
+/// hidden from VoiceOver.
+struct VoiceWaveChild: View {
+    let index: Int
+    let model: SurfaceModel
+    let size: CGSize
+
+    var body: some View {
+        let edge = min(size.width, size.height)
+        let kids = Array((model.children[safe: index] ?? []).filter { model.node($0)?.hidden == false }.prefix(1))
+        let origin = model.frame(index).origin
+        var rel: [Int: CGRect] = [:]
+        for k in kids { rel[k] = model.frame(k).offsetBy(dx: -origin.x, dy: -origin.y) }
+        return FrameLayout(size: size, frames: rel) {
+            ForEach(kids, id: \.self) { k in
+                let f = rel[k] ?? .zero
+                let scale = VoiceWaveFrame.childBox(size: edge, child: f.size)?.scale ?? 0
+                NodeView(index: k)
+                    .voiceWaveChild(scale: scale, frame: f, centre: CGPoint(x: size.width / 2, y: size.height / 2))
+                    .layoutValue(key: NodeIndexKey.self, value: k)
             }
         }
     }

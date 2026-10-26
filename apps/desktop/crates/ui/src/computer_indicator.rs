@@ -150,8 +150,24 @@ fn copy() -> &'static Copy {
 
 /// One `item` of the bar (the bulk bar's: 32 tall, 8 px sides, a glyph
 /// and words in the muted foreground).
-fn item(cx: &App) -> Div {
+/// One item of THE bar (the glyph and the words, muted): also the voice
+/// overlay's line (`voice_overlay::capsule`, NEW-77).
+pub(crate) fn item(cx: &App) -> Div {
     div().flex().flex_shrink_0().items_center().gap(px(6.)).h(px(32.)).px(px(8.)).text_sm().text_color(cx.theme().muted_foreground)
+}
+
+/// THE bar's bold value (the session's label; the voice overlay's state).
+pub(crate) fn value(text: impl Into<SharedString>, cx: &App) -> Div {
+    div()
+        .min_w_0()
+        .px(px(LABEL_SIDE))
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .text_ellipsis()
+        .text_sm()
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(cx.theme().foreground)
+        .child(text.into())
 }
 
 /// THE bar (the bulk bar's capsule): the glyph and the title as one item,
@@ -166,18 +182,7 @@ pub(crate) fn banner_bar(label: Option<SharedString>, cx: &App) -> Stateful<Div>
             .child(SharedString::from(words.title.clone())),
     );
     if let Some(label) = label {
-        bar = bar.child(
-            div()
-                .min_w_0()
-                .px(px(LABEL_SIDE))
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(foreground)
-                .child(label),
-        );
+        bar = bar.child(value(label, cx));
     }
     bar.child(
         item(cx)

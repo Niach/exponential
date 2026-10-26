@@ -44,8 +44,9 @@ function ownTexts(el: HTMLElement): Text[] {
 }
 
 /** The rule that turns paint-only transforms and animations off while the
- *  dump measures. */
-export const LAYOUT_ONLY_CSS = `[data-xui-id]{transform:none!important;translate:none!important;rotate:none!important;scale:none!important;animation:none!important;transition:none!important}`
+ *  dump measures. NEW-77: the VoiceWave child's wrapper carries the child
+ *  rule's paint-only scale, so the dump sees the core's frame. */
+export const LAYOUT_ONLY_CSS = `[data-xui-id],.xui-VoiceWave-child{transform:none!important;translate:none!important;rotate:none!important;scale:none!important;animation:none!important;transition:none!important}`
 
 export function domDump(surface: Element, textComponents: readonly string[]): CaseDump {
   const style = document.createElement(`style`)
