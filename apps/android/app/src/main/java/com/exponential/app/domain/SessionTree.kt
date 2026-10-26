@@ -188,6 +188,8 @@ object SessionTree {
             "trigger_fired" to "Trigger fired: {name}",
             // EXP-1374: a child's run stopped mid-turn (runner restart).
             "session_interrupted" to "{session} interrupted: runner restarted",
+            // EXP-1391: a refused merge the server posted into the root.
+            "pr_merge_refused" to "Merge of PR {pr} refused",
         )
         const val TEST_ID_TABS = "thread-tabs"
         const val TEST_ID_CONVERSATION = "thread-conversation"

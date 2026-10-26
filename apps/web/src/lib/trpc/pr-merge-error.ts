@@ -25,6 +25,8 @@ export const MERGE_REFUSAL_COPY = feedbackStates.errors.mergeRefusal
 
 export class MergeRefusal extends TRPCError {
   readonly kind: MergeRefusalKind
+  /** The refused PR (stamped by the merge path). */
+  prNumber: number | null = null
 
   constructor(opts: {
     kind: MergeRefusalKind

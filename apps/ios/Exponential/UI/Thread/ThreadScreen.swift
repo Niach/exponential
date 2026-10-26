@@ -917,25 +917,31 @@ struct ThreadScreen: View {
 
     /// Merge through a rail member: `pullRequests.merge({stack: true})` on
     /// it. Shares the capsule's in-flight state, so both spin together.
-    private func merge(through confirm: PullRequestStack.Confirm) {
+    /// EXP-1378: the check gate's refusal offers `Merge anyway` (`force`),
+    /// every other one Retry.
+    private func merge(through confirm: PullRequestStack.Confirm, force: Bool = false) {
         mergeState.merging = true
         let api = deps.pullRequestsApi
         let accountId = accountId
+        let title = FeedbackStates.Errors.title(verb: "merge", thing: "the stack")
         Task {
             do {
                 let result = try await api.merge(
-                    accountId: accountId, pullRequestId: confirm.throughId, stack: true
+                    accountId: accountId, pullRequestId: confirm.throughId, stack: true, force: force ? true : nil
                 )
                 if !result.merged, result.queued != true {
-                    toaster.error(
-                        FeedbackStates.Errors.title(verb: "merge", thing: "the stack"),
-                        description: result.error
-                    )
+                    toaster.error(title, description: result.error)
                 }
             } catch {
+                let forces = FeedbackStates.Errors.MergeRefusal.offersForce(code: error.trpcErrorCode)
                 toaster.error(
-                    FeedbackStates.Errors.title(verb: "merge", thing: "the stack"),
-                    description: error.userFacingMessage
+                    title,
+                    description: error.userFacingMessage,
+                    action: ToastAction(
+                        label: forces ? FeedbackStates.Errors.MergeRefusal.force : FeedbackStates.Errors.retry
+                    ) {
+                        Task { @MainActor in merge(through: confirm, force: forces || force) }
+                    }
                 )
             }
             mergeState.merging = false

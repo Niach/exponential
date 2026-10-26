@@ -151,19 +151,6 @@ fun IssueScreen(
             )
         }
     }
-    // EXP-1233: a REAL conflict opens the composer seeded to fix it.
-    LaunchedEffect(issueVm) {
-        issueVm.mergeConflicts.collect { pr ->
-            onOpenAgent(
-                AgentComposerSeed(
-                    issueIds = listOf(issueId),
-                    prIssueId = issueId,
-                    conflict = true,
-                    text = fixConflictsPrompt(pr),
-                ),
-            )
-        }
-    }
     // EXP-1154: Close PR (the `…` menu) acts on the newest OPEN pull request.
     val closablePr = issuePullRequests.firstOrNull { it.state == DomainContract.prStateOpen }
         ?.takeIf { permissions.isMember }
@@ -282,15 +269,4 @@ fun IssueScreen(
             onDismiss = { readinessSheetOpen = false },
         )
     }
-}
-
-/**
- * EXP-1233/EXP-1291: the composer text a conflict-refused merge seeds — the
- * agent rebases the PR's branch onto its base, resolves, force-pushes and
- * merges (the retired Fix merge conflicts builtin's job, now plain words).
- */
-internal fun fixConflictsPrompt(pr: PullRequestEntity): String {
-    val name = pr.number?.let { "PR #$it" } ?: "the pull request"
-    return "Fix the merge conflicts on $name (`${pr.head}` into `${pr.base}`): rebase onto its base, " +
-        "resolve the conflicts, force-push, then merge it."
 }

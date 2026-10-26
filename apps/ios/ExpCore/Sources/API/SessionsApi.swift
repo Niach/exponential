@@ -542,6 +542,8 @@ struct MergePullRequestInput: Encodable {
     let pullRequestId: String
     /// Merge THROUGH this member of a native stack; nil = the single merge.
     let stack: Bool?
+    /// EXP-1378: past the check gate (`Merge anyway`); nil = gated.
+    var force: Bool? = nil
 }
 
 private struct PullRequestIdInput: Encodable {
@@ -557,14 +559,15 @@ public final class PullRequestsApi: Sendable {
 
     /// Squash-merge via the GitHub App; `stack` merges the open stack below
     /// it bottom-up, then this one. The state flips land over the shapes.
+    /// `force` overrides the check gate's PRECONDITION_REQUIRED refusal.
     @discardableResult
     public func merge(
-        accountId: String, pullRequestId: String, stack: Bool? = nil
+        accountId: String, pullRequestId: String, stack: Bool? = nil, force: Bool? = nil
     ) async throws -> PullRequestMergeResult {
         try await trpc.mutation(
             accountId: accountId,
             path: "pullRequests.merge",
-            input: MergePullRequestInput(pullRequestId: pullRequestId, stack: stack)
+            input: MergePullRequestInput(pullRequestId: pullRequestId, stack: stack, force: force)
         )
     }
 

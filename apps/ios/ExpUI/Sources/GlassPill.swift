@@ -16,8 +16,8 @@ internal import ExponentialUIPrimitives
 //                         second button.
 //           .md (32pt) — reserved for a pill that is one of SEVERAL PEER
 //                        ACTIONS in a bar of its own (the steer screen's
-//                        Merge / Fix conflicts beside the Latest-changes
-//                        chip, an empty state's primary action), where a
+//                        Merge beside the Latest-changes chip, an empty
+//                        state's primary action), where a
 //                        24pt capsule reads as a caption instead of a
 //                        button.
 //   mode    .action    — a plain tap

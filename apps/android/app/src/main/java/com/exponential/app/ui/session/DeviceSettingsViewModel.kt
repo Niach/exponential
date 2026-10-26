@@ -158,7 +158,7 @@ class DeviceSettingsViewModel @Inject constructor(
     fun claimFailure(failure: FailedAction): Boolean = _failure.compareAndSet(failure, null)
 
     private fun fail(verb: String, thing: String, t: Throwable, retry: (() -> Unit)? = null) {
-        _failure.value = FailedAction(verb, thing, trpcErrorMessage(t, ""), retry)
+        _failure.value = FailedAction(verb, thing, trpcErrorMessage(t, ""), retry = retry)
     }
 
     // Command progress, keyed by the issuing slot ([agentLoginCommandKey]);
@@ -391,7 +391,7 @@ class DeviceSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             runDeviceCommand(devicesApi, accountId, command, deviceOnline) { state ->
-                if (state is DeviceCommandUiState.Failed) _failure.value = FailedAction(verb, thing, state.message, retry)
+                if (state is DeviceCommandUiState.Failed) _failure.value = FailedAction(verb, thing, state.message, retry = retry)
                 if (state is DeviceCommandUiState.Done) {
                     markDone(key, state.message)
                 } else {

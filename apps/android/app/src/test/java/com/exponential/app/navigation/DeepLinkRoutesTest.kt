@@ -75,10 +75,10 @@ class DeepLinkRoutesTest {
     @Test
     fun `fills query placeholders`() {
         assertEquals(
-            "agent?issues=a,b&action=builtin:fix-conflicts",
+            "agent?issues=a,b&action=p-1",
             DeepLinkRoutes.concreteRoute(
                 "agent?issues={issues}&action={action}",
-                args("issues" to "a,b", "action" to "builtin:fix-conflicts"),
+                args("issues" to "a,b", "action" to "p-1"),
             ),
         )
         // A nullable query arg the entry does not carry is an INCOMPLETE fill:
@@ -91,21 +91,20 @@ class DeepLinkRoutesTest {
         )
     }
 
-    /** EXP-1233: the full Agent pattern, the conflict flag included. */
+    /** EXP-825: the full Agent pattern, every arg filled. */
     @Test
-    fun `fills the agent pattern with the conflict flag`() {
+    fun `fills the full agent pattern`() {
         assertEquals(
-            "agent?issues=&action=builtin:fix-conflicts&device=&pr=p-1&text=&icon=&conflict=1&thread=",
+            "agent?issues=&action=p-1&device=&pr=i-1&text=&icon=&thread=",
             DeepLinkRoutes.concreteRoute(
                 AGENT_ROUTE_PATTERN,
                 args(
                     "issues" to "",
-                    "action" to "builtin:fix-conflicts",
+                    "action" to "p-1",
                     "device" to "",
-                    "pr" to "p-1",
+                    "pr" to "i-1",
                     "text" to "",
                     "icon" to "",
-                    "conflict" to "1",
                     "thread" to "",
                 ),
             ),

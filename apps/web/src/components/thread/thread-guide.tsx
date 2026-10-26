@@ -95,9 +95,8 @@ function MergeThroughConfirm({
       // EXP-1378: the check gate's refusal offers `Merge anyway`.
       const failure = mergeFailure(error, `The pull request could not be merged`)
       failedAction(`merge`, `the stack`, failure.message, {
-        ...(failure.checks
-          ? { retry: () => void merge(pullRequestId, true), retryLabel: MERGE_ANYWAY_LABEL }
-          : {}),
+        retry: () => void merge(pullRequestId, failure.checks || force),
+        ...(failure.checks ? { retryLabel: MERGE_ANYWAY_LABEL } : {}),
       })
     } finally {
       setMerging(false)

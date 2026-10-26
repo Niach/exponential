@@ -80,7 +80,20 @@ pub(crate) fn failed_action_with_retry(
     retry: impl Fn(&mut Window, &mut App) + 'static,
     cx: &mut App,
 ) {
-    let toast = failed_toast(verb, thing, description).action(crate::feedback::RETRY, retry);
+    failed_action_with(verb, thing, description, crate::feedback::RETRY, retry, cx);
+}
+
+/// [`failed_action_with_retry`] under another action label (the check
+/// gate's `Merge anyway`, `errors.mergeRefusal.force`).
+pub(crate) fn failed_action_with(
+    verb: &str,
+    thing: &str,
+    description: Option<String>,
+    label: &'static str,
+    action: impl Fn(&mut Window, &mut App) + 'static,
+    cx: &mut App,
+) {
+    let toast = failed_toast(verb, thing, description).action(label, action);
     toast::show_in_active_window(toast, cx);
 }
 

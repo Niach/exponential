@@ -39,6 +39,7 @@ import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.domain.MARKDOWN_PREVIEW_MAX_BYTES
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueRelationType
 import com.exponential.app.domain.IssueRelationsView
@@ -540,37 +541,45 @@ class IssueDetailViewModel @AssistedInject constructor(
     private val _prBusyId = MutableStateFlow<String?>(null)
     val prBusyId: StateFlow<String?> = _prBusyId
 
-    /** EXP-1233: a plain merge refused by a REAL conflict — the screen opens
-     *  the composer seeded to fix it, once per refusal. */
-    private val _mergeConflicts = kotlinx.coroutines.flow.MutableSharedFlow<PullRequestEntity>(extraBufferCapacity = 1)
-    val mergeConflicts: kotlinx.coroutines.flow.SharedFlow<PullRequestEntity> = _mergeConflicts
-
     /**
      * EXP-1291: `pullRequests.merge` — [stack] = merge THROUGH [pr] (a native
-     * stack lands every open PR beneath it). A refusal toasts `Couldn't merge
-     * the pull request` (or the stack); a plain merge's REAL conflict goes to
-     * [mergeConflicts] instead. Success needs nothing: the PR row's synced
-     * state flips.
+     * stack lands every open PR beneath it); [force] = past the check gate
+     * (EXP-1378). A refusal toasts `Couldn't merge the pull request` (or the
+     * stack) and the server posts it into the thread (EXP-1391): the check
+     * gate's refusal offers `Merge anyway`, any other Retry. Success needs
+     * nothing: the PR row's synced state flips.
      */
-    fun mergePullRequest(pr: PullRequestEntity, stack: Boolean = false) {
+    fun mergePullRequest(pr: PullRequestEntity, stack: Boolean = false, force: Boolean = false) {
         if (_prBusyId.value != null) return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _prBusyId.value = pr.id
             val thing = if (stack) "the stack" else "the pull request"
+            val retry = { mergePullRequest(pr, stack) }
             try {
-                val result = pullRequestsApi.merge(accountId, pr.id, stack = if (stack) true else null)
+                val result = pullRequestsApi.merge(
+                    accountId,
+                    pr.id,
+                    stack = if (stack) true else null,
+                    force = if (force) true else null,
+                )
                 val refusal = result.error
                 if (!result.merged && result.queued != true && !refusal.isNullOrBlank()) {
-                    _mutationError.value = FailedAction("merge", thing, refusal)
+                    _mutationError.value = FailedAction("merge", thing, refusal, retry = retry)
                 }
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 val failure = if (stack) MergeFailure.fromStack(t) else MergeFailure.from(t, "")
-                if (failure.isConflict && _steerEnabled.value == true) {
-                    _mergeConflicts.tryEmit(pr)
+                _mutationError.value = if (failure.isChecks) {
+                    FailedAction(
+                        "merge",
+                        thing,
+                        failure.message.ifBlank { null },
+                        retry = { mergePullRequest(pr, stack, force = true) },
+                        retryLabel = FeedbackStates.MERGE_ANYWAY,
+                    )
                 } else {
-                    _mutationError.value = FailedAction("merge", thing, failure.message.ifBlank { null })
+                    FailedAction("merge", thing, failure.message.ifBlank { null }, retry = retry)
                 }
             } finally {
                 _prBusyId.value = null
@@ -739,7 +748,7 @@ class IssueDetailViewModel @AssistedInject constructor(
     /** FEED-79: `Couldn't <verb> <thing>` + the server's message, Retry when [retry] is safe. */
     private fun reportMutationFailure(t: Throwable, verb: String, thing: String, retry: (() -> Unit)? = null) {
         if (t is CancellationException) throw t
-        _mutationError.value = FailedAction(verb, thing, trpcErrorMessage(t, ""), retry)
+        _mutationError.value = FailedAction(verb, thing, trpcErrorMessage(t, ""), retry = retry)
     }
 
     /**

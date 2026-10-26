@@ -83,12 +83,19 @@ impl ApiError {
         matches!(self, ApiError::Transport { offline: true, .. })
     }
 
-    /// EXP-533: a REAL content conflict — the only failure a "Fix merge
-    /// conflicts" recovery run can do anything about. The server answers a
-    /// genuine unmergeable PR with tRPC `CONFLICT` (HTTP 409); everything
-    /// else (stale base, branch protection, no GitHub App) is 412.
+    /// tRPC `CONFLICT` (HTTP 409): the server's copy moved under a write
+    /// (a draft's stale stamp, a name already taken). No merge reads it any
+    /// more (EXP-1391: a refused merge goes into the thread).
     pub fn is_conflict(&self) -> bool {
         matches!(self, ApiError::Http { status: 409, .. })
+    }
+
+    /// EXP-1378: tRPC `PRECONDITION_REQUIRED` (HTTP 428) = the check gate
+    /// refused a merge (required checks still running or red). Its toast
+    /// offers `Merge anyway` (`force: true`) instead of Retry; every other
+    /// refusal (412 stale base, branch protection, 409) keeps Retry.
+    pub fn is_precondition_required(&self) -> bool {
+        matches!(self, ApiError::Http { status: 428, .. })
     }
 
     /// What a USER should read. Server messages are already user-facing and
@@ -352,14 +359,14 @@ mod tests {
     }
 
     #[test]
-    fn only_a_real_conflict_is_a_conflict() {
+    fn only_a_409_is_a_conflict() {
         assert!(ApiError::Http {
             status: 409,
             message: "Pull request is not mergeable".to_string(),
         }
         .is_conflict());
-        // A 412 is the server saying "not a conflict" (stale base, branch
-        // protection, no GitHub App) — no recovery run may be offered.
+        // A 412 is not a conflict (stale base, branch protection, no GitHub
+        // App).
         assert!(!ApiError::Http {
             status: 412,
             message: "Head branch changed on GitHub. Refresh and try again.".to_string(),
@@ -373,5 +380,24 @@ mod tests {
         .is_conflict());
         assert!(!ApiError::transport("refused").is_conflict());
         assert!(!ApiError::Unauthorized.is_conflict());
+    }
+
+    #[test]
+    fn only_a_428_is_the_check_gate() {
+        assert!(ApiError::Http {
+            status: 428,
+            message: "Required checks are still running".to_string(),
+        }
+        .is_precondition_required());
+        // 412 (PRECONDITION_FAILED) and 409 are other refusals: Retry.
+        for status in [409, 412] {
+            assert!(!ApiError::Http {
+                status,
+                message: "Required checks are still running".to_string(),
+            }
+            .is_precondition_required());
+        }
+        assert!(!ApiError::transport("refused").is_precondition_required());
+        assert!(!ApiError::Unauthorized.is_precondition_required());
     }
 }

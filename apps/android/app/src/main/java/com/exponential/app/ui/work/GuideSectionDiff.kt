@@ -94,7 +94,7 @@ fun GuideSectionDiff(
     LaunchedEffect(load) {
         if (load is ChangesLoadState.Failed && files.isEmpty() && retried) {
             retried = false
-            toaster.failedAction("load", "the changes", load.message, retry)
+            toaster.failedAction("load", "the changes", load.message, retry = retry)
         }
     }
     var sheetOpen by remember { mutableStateOf(false) }

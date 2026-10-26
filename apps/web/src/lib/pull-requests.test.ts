@@ -59,6 +59,10 @@ vi.mock(`@/lib/integrations/github-pr`, () => ({
   setPullRequestDraft: vi.fn(async () => {}),
   UNMERGEABLE_405: /not mergeable|merge conflicts?/i,
 }))
+vi.mock(`@/lib/integrations/github-checks`, () => ({
+  pullRequestChecks: vi.fn(async () => null),
+  isRequiredCheckRefusal: (message: string) => /required status checks?\b/i.test(message),
+}))
 vi.mock(`@/lib/integrations/github-app`, () => ({
   resolveRepoDefaultBranchCached: vi.fn(async () => `master`),
 }))
@@ -129,6 +133,7 @@ import * as gh from "@/lib/integrations/github-pr"
 import * as sync from "@/lib/integrations/pr-sync"
 import * as guard from "@/lib/pr-merge-guard"
 import * as stacks from "@/lib/pr-stacks"
+import * as checks from "@/lib/integrations/github-checks"
 import { patchPullDescription } from "@/lib/trpc/pr-update"
 import { compareChangedPaths } from "@/lib/pr-ui-guard"
 import { writeGuide } from "@/lib/sessions/guide"
@@ -512,16 +517,18 @@ describe(`mergePullRequest`, () => {
     )
   })
 
-  it(`a diagnosed conflict throws CONFLICT on the tRPC path and is an 'error' on the MCP path`, async () => {
+  it(`a diagnosed conflict is a conflict refusal on the tRPC path and the steps on the MCP path`, async () => {
     const GitHubMergeError = gh.GitHubMergeError as unknown as new (s: number, m: string) => Error
     const refusal = new GitHubMergeError(405, `Pull Request is not mergeable`)
     vi.mocked(gh.mergePullRequestSmart).mockRejectedValueOnce(refusal).mockRejectedValueOnce(refusal)
     await expect(mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1` })).rejects.toMatchObject({
-      code: `CONFLICT`,
+      code: `PRECONDITION_FAILED`,
+      kind: `conflict`,
+      prNumber: 7,
     })
     await expect(mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })).resolves.toEqual({
       merged: false,
-      error: `Conflicts in a.ts`,
+      error: `The merge of PR #7 was refused: Conflicts in a.ts\n\nRebase onto the base branch, resolve the conflicts, push with --force-with-lease, then merge again.`,
     })
     // A failed merge leaves no claim behind.
     expect(takePrMergeClaim(`o/r`, 7)).toBeNull()
@@ -535,6 +542,27 @@ describe(`mergePullRequest`, () => {
       queued: true,
     })
     expect(sync.applyPullRequestMerged).not.toHaveBeenCalled()
+  })
+
+  it(`EXP-1378: running checks refuse with PRECONDITION_REQUIRED; force skips the gate`, async () => {
+    vi.mocked(checks.pullRequestChecks).mockResolvedValueOnce({ state: `pending`, names: [`gate`] })
+    await expect(mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1` })).rejects.toMatchObject({
+      code: `PRECONDITION_REQUIRED`,
+      kind: `checks_pending`,
+    })
+    expect(gh.mergePullRequestSmart).not.toHaveBeenCalled()
+    vi.mocked(checks.pullRequestChecks).mockResolvedValueOnce({ state: `red`, names: [`gate`] })
+    await expect(mergePullRequestOrThrow({ userId: `u-1`, pullRequestId: `pr-1`, force: true })).resolves.toMatchObject({
+      merged: true,
+    })
+  })
+
+  it(`EXP-1378: red checks are the agent's steps on the MCP path`, async () => {
+    vi.mocked(checks.pullRequestChecks).mockResolvedValueOnce({ state: `red`, names: [`gate`] })
+    await expect(mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })).resolves.toEqual({
+      merged: false,
+      error: `The merge of PR #7 was refused: Checks failed on PR #7: "gate".\n\nRead the failing check, fix it, push, then merge again.`,
+    })
   })
 
   it(`a draft is refused`, async () => {

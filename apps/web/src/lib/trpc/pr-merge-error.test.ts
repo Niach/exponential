@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest"
 import { GitHubMergeError } from "@/lib/integrations/github-pr"
-import { isNotMergeable, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
+import {
+  checksRefusal,
+  isNotMergeable,
+  MergeRefusal,
+  prMergeFailureError,
+} from "@/lib/trpc/pr-merge-error"
 
-// EXP-533: the whole mapping table. The error CODE is the contract every
-// client gates its "Fix conflicts" recovery run on, so each row is pinned.
+// The whole mapping table. EXP-1391: no client reads CONFLICT any more (the
+// Fix conflicts run is gone); a refusal's KIND picks the steps the thread's
+// root reads, and only the check gate answers PRECONDITION_REQUIRED.
+
+const kindOf = (error: unknown) => (error instanceof MergeRefusal ? error.kind : null)
 
 describe(`isNotMergeable`, () => {
   it(`matches only GitHub's 405 "not mergeable"`, () => {
@@ -43,12 +51,13 @@ describe(`isNotMergeable`, () => {
 describe(`prMergeFailureError`, () => {
   const notMergeable = new GitHubMergeError(405, `Pull Request is not mergeable`)
 
-  it(`answers CONFLICT with the diagnosis message for a real content conflict`, () => {
+  it(`a diagnosed content conflict is a conflict refusal with the diagnosis message`, () => {
     const error = prMergeFailureError(notMergeable, {
       conflict: true,
       message: `Pull Request has merge conflicts with 'master': rebase onto origin/master, resolve the conflicts, push with --force-with-lease, then retry the merge.`,
     })
-    expect(error.code).toBe(`CONFLICT`)
+    expect(error.code).toBe(`PRECONDITION_FAILED`)
+    expect(kindOf(error)).toBe(`conflict`)
     expect(error.message).toContain(`has merge conflicts with`)
   })
 
@@ -61,12 +70,10 @@ describe(`prMergeFailureError`, () => {
     expect(error.message).toContain(`no longer exists`)
   })
 
-  it(`answers PRECONDITION_FAILED, never CONFLICT, when the diagnosis could not run`, () => {
-    // An undiagnosed 405 is an unknown state: the clients auto-open the
-    // Fix-conflicts run on CONFLICT alone, so that code needs a diagnosed
-    // content conflict. GitHub's message stands in for the diagnosis.
+  it(`an undiagnosed 405 is kind other with GitHub's message`, () => {
     const error = prMergeFailureError(notMergeable, null)
     expect(error.code).toBe(`PRECONDITION_FAILED`)
+    expect(kindOf(error)).toBe(`other`)
     expect(error.message).toBe(`Pull Request is not mergeable`)
   })
 
@@ -78,7 +85,7 @@ describe(`prMergeFailureError`, () => {
     expect(error.code).toBe(`PRECONDITION_FAILED`)
   })
 
-  it(`answers CONFLICT for GitHub's "has merge conflicts" wording too (EXP-737)`, () => {
+  it(`GitHub's "has merge conflicts" wording follows the diagnosis too (EXP-737)`, () => {
     const hasConflicts = new GitHubMergeError(405, `Pull Request has merge conflicts`)
     // Undiagnosed: GitHub's text verbatim, but no recovery-run offer (the
     // wording alone never proves a content conflict).
@@ -100,6 +107,18 @@ describe(`prMergeFailureError`, () => {
     )
     expect(error.code).toBe(`PRECONDITION_FAILED`)
     expect(error.message).toBe(`Squash merges are not allowed on this repository`)
+  })
+
+  it(`GitHub's required-check refusal is checks_pending, not force-able`, () => {
+    const error = prMergeFailureError(
+      new GitHubMergeError(
+        405,
+        `Repository rule violations found\n\nRequired status check "gate" is expected.`
+      ),
+      null
+    )
+    expect(error.code).toBe(`PRECONDITION_FAILED`)
+    expect(kindOf(error)).toBe(`checks_pending`)
   })
 
   it(`inverts GitHub's 409: a moved head branch is not a content conflict`, () => {
@@ -128,5 +147,21 @@ describe(`prMergeFailureError`, () => {
     expect(error.message).toBe(
       `GitHub merge failed (HTTP 500): Server Error (request 1234:ABCD)`
     )
+  })
+})
+
+describe(`checksRefusal`, () => {
+  it(`running checks: PRECONDITION_REQUIRED, checks_pending, names quoted`, () => {
+    const error = checksRefusal({ state: `pending`, names: [`gate`, `lint`] }, 12)
+    expect(error.code).toBe(`PRECONDITION_REQUIRED`)
+    expect(error.kind).toBe(`checks_pending`)
+    expect(error.message).toBe(`Checks are still running on PR #12: "gate", "lint".`)
+  })
+
+  it(`red checks: checks_failed`, () => {
+    const error = checksRefusal({ state: `red`, names: [`gate`] }, 12)
+    expect(error.code).toBe(`PRECONDITION_REQUIRED`)
+    expect(error.kind).toBe(`checks_failed`)
+    expect(error.message).toBe(`Checks failed on PR #12: "gate".`)
   })
 })

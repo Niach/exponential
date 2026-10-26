@@ -614,6 +614,18 @@ export async function mergePullRequestOrThrow(args: {
   waitForChecksMs?: number
 }): Promise<{ merged: boolean; queued?: boolean; note?: string; mergedIds?: string[]; txid?: number }> {
   const pr = await resolvePullRequest({ userId: args.userId, pullRequestId: args.pullRequestId })
+  try {
+    return await mergeResolved(pr, args)
+  } catch (err) {
+    if (err instanceof MergeRefusal) err.prNumber ??= pr.number
+    throw err
+  }
+}
+
+async function mergeResolved(
+  pr: PullRequest,
+  args: Parameters<typeof mergePullRequestOrThrow>[0]
+): Promise<Awaited<ReturnType<typeof mergePullRequestOrThrow>>> {
   if (pr.state === `merged`) return { merged: true, mergedIds: [pr.id] }
   if (pr.state === `draft`) {
     throw new MergeRefusal({
@@ -780,9 +792,8 @@ export async function mergePullRequest(args: {
     return result
   } catch (err) {
     // EXP-1391: a refusal reads as the steps the agent takes next.
-    if (err instanceof MergeRefusal) {
-      const { number } = await resolvePullRequest({ userId: args.userId, pullRequestId: args.pullRequestId })
-      return { merged: false, error: mergeRefusalText(number, err.message, err.kind) }
+    if (err instanceof MergeRefusal && err.prNumber != null) {
+      return { merged: false, error: mergeRefusalText(err.prNumber, err.message, err.kind) }
     }
     if (err instanceof TRPCError && err.code !== `NOT_FOUND`) {
       return { merged: false, error: err.message }

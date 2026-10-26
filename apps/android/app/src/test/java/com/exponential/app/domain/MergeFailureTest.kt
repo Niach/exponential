@@ -9,92 +9,85 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * EXP-533: the "Fix merge conflicts" offer. The bug this locks is the one the
- * issue reported — a merge attempted with no connection at all still showed
- * the recovery button, sending the user to start an agent run against a
- * problem that isn't a conflict. EXP-1233: the same gate now decides whether
- * a refused merge OPENS the Fix merge conflicts composer at once.
+ * EXP-1391 + EXP-1378: a refused merge toasts the server's message; ONLY the
+ * check gate's PRECONDITION_REQUIRED (HTTP 428) swaps Retry for `Merge
+ * anyway`. A content conflict is no longer special (the Fix conflicts run is
+ * gone; the server hands the refusal to the thread).
  */
 class MergeFailureTest {
 
     private val fallback = "The pull request could not be merged"
 
     @Test
-    fun realConflictCarriesTheServerMessageAndOffersTheRun() {
+    fun theCheckGateOffersMergeAnyway() {
         val failure = MergeFailure.from(
-            TrpcException("This branch has conflicts that must be resolved", HttpStatusCode.Conflict),
+            TrpcException(
+                "Checks are still running on PR #45: \"gate\".",
+                HttpStatusCode(428, "Precondition Required"),
+                code = "PRECONDITION_REQUIRED",
+            ),
+            fallback,
+        )
+        assertEquals("Checks are still running on PR #45: \"gate\".", failure.message)
+        assertTrue(failure.isChecks)
+        // The code alone decides, and so does the status alone.
+        assertTrue(MergeFailure.from(TrpcException("x", code = "PRECONDITION_REQUIRED"), fallback).isChecks)
+        assertTrue(MergeFailure.from(TrpcException("x", HttpStatusCode(428, "")), fallback).isChecks)
+    }
+
+    // A conflict is an ordinary refusal now: Retry, no recovery run.
+    @Test
+    fun aConflictIsAnOrdinaryRefusal() {
+        val failure = MergeFailure.from(
+            TrpcException("This branch has conflicts that must be resolved", HttpStatusCode.Conflict, code = "CONFLICT"),
             fallback,
         )
         assertEquals("This branch has conflicts that must be resolved", failure.message)
-        assertTrue(failure.isConflict)
-        assertTrue(canOfferFixConflicts(failure, "exp/EXP-533"))
+        assertFalse(failure.isChecks)
     }
 
     @Test
-    fun offlineMergeReadsAsOfflineAndOffersNothing() {
-        val failure = MergeFailure.from(java.net.UnknownHostException("no dns"), fallback)
-        assertEquals(OFFLINE_MESSAGE, failure.message)
-        assertFalse(failure.isConflict)
-        assertFalse(canOfferFixConflicts(failure, "exp/EXP-533"))
-    }
-
-    // Branch protection, a stale base, an unconfigured GitHub App: all real
-    // server answers, none of them fixable by a rebase.
-    @Test
-    fun otherServerRefusalsShowTheReasonWithoutTheRun() {
+    fun otherServerRefusalsAreNotTheCheckGate() {
         val failure = MergeFailure.from(
-            TrpcException("Squash merging is not allowed on this repository", HttpStatusCode.PreconditionFailed),
+            TrpcException(
+                "Squash merging is not allowed on this repository",
+                HttpStatusCode.PreconditionFailed,
+                code = "PRECONDITION_FAILED",
+            ),
             fallback,
         )
         assertEquals("Squash merging is not allowed on this repository", failure.message)
-        assertFalse(failure.isConflict)
-        assertFalse(canOfferFixConflicts(failure, "exp/EXP-533"))
+        assertFalse(failure.isChecks)
+    }
+
+    @Test
+    fun offlineMergeReadsAsOffline() {
+        val failure = MergeFailure.from(java.net.UnknownHostException("no dns"), fallback)
+        assertEquals(OFFLINE_MESSAGE, failure.message)
+        assertFalse(failure.isChecks)
     }
 
     @Test
     fun unrecognizedFailureFallsBackToTheCaptionCopy() {
         val failure = MergeFailure.from(IllegalStateException("boom"), fallback)
         assertEquals(fallback, failure.message)
-        assertFalse(failure.isConflict)
+        assertFalse(failure.isChecks)
     }
 
-    // The run rebases the PR's branch and force-pushes it, so a row with no
-    // recorded branch has nothing for it to act on.
+    // EXP-1145: a stack merge shows the server's message; the check gate
+    // still offers Merge anyway (web `MergeThroughConfirm` parity).
     @Test
-    fun aConflictWithoutABranchOffersNothing() {
-        val failure = MergeFailure("conflicts", isConflict = true)
-        assertFalse(canOfferFixConflicts(failure, null))
-        assertFalse(canOfferFixConflicts(failure, ""))
-        assertFalse(canOfferFixConflicts(failure, "   "))
-    }
-
-    // Surfaces with their own remote-start gate (the issue Changes bar, the
-    // Agents rows) pass it in; nothing to run on means nothing to offer.
-    @Test
-    fun steerMustBeAvailable() {
-        val failure = MergeFailure("conflicts", isConflict = true)
-        assertFalse(canOfferFixConflicts(failure, "exp/EXP-533", steerEnabled = false))
-        assertTrue(canOfferFixConflicts(failure, "exp/EXP-533", steerEnabled = true))
-    }
-
-    // EXP-1145: a stack merge lands several pull requests, and the conflict
-    // may sit in another member: the message shows, the run is never offered.
-    @Test
-    fun aFailedStackMergeShowsTheMessageAndNeverOffersTheRun() {
+    fun aFailedStackMergeShowsTheMessage() {
         val failure = MergeFailure.fromStack(
             TrpcException("EXP-2 has conflicts that must be resolved", HttpStatusCode.Conflict),
         )
         assertEquals("EXP-2 has conflicts that must be resolved", failure.message)
-        assertFalse(failure.isConflict)
-        assertFalse(canOfferFixConflicts(failure, "exp/EXP-1"))
+        assertFalse(failure.isChecks)
+        assertTrue(MergeFailure.fromStack(TrpcException("red", code = "PRECONDITION_REQUIRED")).isChecks)
         assertEquals(
             "The stack could not be merged",
             MergeFailure.fromStack(IllegalStateException("boom")).message,
         )
     }
 
-    @Test
-    fun noFailureOffersNothing() {
-        assertFalse(canOfferFixConflicts(null, "exp/EXP-533"))
-    }
 }

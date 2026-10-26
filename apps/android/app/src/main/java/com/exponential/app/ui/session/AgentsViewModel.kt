@@ -402,7 +402,7 @@ class AgentsViewModel @Inject constructor(
             runCatching { block(accountId) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
-                    _failure.value = FailedAction(verb, thing, trpcErrorMessage(t, ""), retry)
+                    _failure.value = FailedAction(verb, thing, trpcErrorMessage(t, ""), retry = retry)
                 }
             _deviceBusy.value = _deviceBusy.value - deviceId
         }

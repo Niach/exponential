@@ -157,7 +157,7 @@ import kotlinx.coroutines.launch
  * null) and a PUSHED detail (no tab bar, native back) reached from every play
  * button with a preselection ([AgentComposerSeed] on the `agent?…` route): the issue
  * detail's Start coding, the bulk bar, an action's Run, New action / a
- * suggestion, a machine's play glyph, the Fix conflicts pills. A start is
+ * suggestion, a machine's play glyph. A start is
  * only a COMMAND — the shared delegate waits for the desktop's synced row and
  * this page opens the live session once (EXP-536).
  */

@@ -41,7 +41,7 @@ class CrossTeamTest {
         // A builtin has no team row: its pr pick decides.
         assertEquals(
             RouteSubject.Issue("i-pr"),
-            routeSubject(mapOf("action" to "builtin:fix-conflicts", "pr" to "i-pr")::get),
+            routeSubject(mapOf("action" to "builtin:create-action", "pr" to "i-pr")::get),
         )
         assertEquals(RouteSubject.Issue("i-1"), routeSubject(mapOf("issues" to "i-1,i-2")::get))
         // The Chat FAB names nothing: the selected team stands.
