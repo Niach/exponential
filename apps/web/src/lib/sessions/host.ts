@@ -68,3 +68,17 @@ export function hostDeviceCondition(
     or(eq(d.userId, s.userId), sql`${s.teamId} = ANY(${d.sharedTeamIds})`)
   )!
 }
+
+/** SQL: `userId` is the host `resolveSessionHost` picks for the `sessions`
+ *  row it is joined to, through its OWN devices row for that machine
+ *  (FEED-147). `devices.device_id` is unique per user only: anyone can
+ *  register a box's id, so a heartbeat speaks for a session only when the
+ *  same rule the device procedures use (`assertDeviceHost`) names its
+ *  sender: the starter's own row, else the lowest sharing row. */
+export function hostedByCondition(userId: string, s: typeof sessions = sessions): SQL {
+  return sql`EXISTS (SELECT 1 FROM ${devices} h WHERE h.device_id = ${s.deviceId} AND h.user_id = ${userId} AND (
+    h.user_id = ${s.userId}
+    OR (${s.teamId} = ANY(h.shared_team_ids)
+      AND NOT EXISTS (SELECT 1 FROM ${devices} o WHERE o.device_id = ${s.deviceId} AND o.user_id = ${s.userId})
+      AND NOT EXISTS (SELECT 1 FROM ${devices} o WHERE o.device_id = ${s.deviceId} AND ${s.teamId} = ANY(o.shared_team_ids) AND o.user_id COLLATE "C" < h.user_id COLLATE "C"))))`
+}
