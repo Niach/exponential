@@ -31,12 +31,12 @@ export const entry: StyleguideEntry = {
     },
     ios: {
       state: `ok`,
-      symbol: `PhoneTabBar`,
+      symbol: `MobileTabBar`,
       file: `apps/ios/Exponential/UI/Navigation/MobileTabBar.swift`,
     },
     android: {
       state: `ok`,
-      symbol: `PhoneTabBar`,
+      symbol: `BottomNavBar`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/components/BottomNavBar.kt`,
     },
   },

@@ -68,9 +68,10 @@ export const entry: StyleguideEntry = {
       note: `rules: lib/work-tabs.ts (upsertFromRoute + landing, openNewRunTab); the chord: work-tabs-sync.tsx`,
     },
     desktop: {
-      state: `ok`,
-      symbol: `render_tab_strip / open_new_run_tab`,
+      state: `leftover`,
+      symbol: `render_tab_strip / home_button`,
       file: `apps/desktop/crates/ui/src/screens.rs`,
+      note: `EXP-1294: the "+" opens Home (open_home), no New session tab`,
     },
     ios: { state: `n/a`, note: `phones have no tabs: one Work screen` },
     android: { state: `n/a`, note: `phones have no tabs: one Work screen` },

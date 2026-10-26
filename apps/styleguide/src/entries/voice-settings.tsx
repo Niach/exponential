@@ -1,5 +1,6 @@
 import {
   agentOptions,
+  languageLabel,
   trayHeader,
   VOICE_COPY,
   VOICE_LANGUAGES,
@@ -39,12 +40,19 @@ const AGENTS = agentOptions([
   { id: `a2`, name: `Helper`, team: `Acme` },
 ]).flatMap((option) => (option.id === null ? [] : [{ value: option.id, label: option.label }]))
 
+// The card reads every language through `languageLabel` while a voice device
+// is picked (#NEW-73 / #NEW-74): "English · Needs a GPU on mint".
+const LANGUAGES = VOICE_LANGUAGES.map((language) => ({
+  value: language.value,
+  label: languageLabel(language.value, `mint`),
+}))
+
 export const entry: StyleguideEntry = {
   id: `voice-settings`,
   section: `special`,
   owner: `NEW-67`,
   title: `Voice settings`,
-  blurb: `Settings → Personal → ${VOICE_COPY.group}, after Notifications, on all four clients (NEW-67, voice.json). ONE group: ${VOICE_COPY.voiceDevice} (THE device picker's rows, None first, the member's desktops by name; phones and servers are never a voice device), ${VOICE_COPY.agent} (None first, the member's agents by label, "{name} · {team}" on a shared name) and ${VOICE_COPY.speakReplies}. While a voice device is picked the tray group follows under "${VOICE_COPY.trayHeader}": ${VOICE_COPY.pushToTalk}, ${VOICE_COPY.shortcut}, ${VOICE_COPY.wakeWord} and ${VOICE_COPY.wakePhrase} (placeholder "${VOICE_COPY.wakePhrasePlaceholder}"). Every switch reads off and is disabled while the device or the agent is None, and choosing None clears them (clearOnNone). Device settings no longer has a Voice group. #NEW-73: ${VOICE_COPY.language} (English / Deutsch, its trailing detail "${VOICE_COPY.languageNote}" for every language on a voice device: #NEW-74 speaks both on its GPU only) follows ${VOICE_COPY.speakReplies}, and while a voice device is picked ${VOICE_COPY.voiceFile} (empty = "${VOICE_COPY.voiceFilePlaceholder}") and ${VOICE_COPY.voiceTranscript} follow in the same group. #NEW-68: the voice device's IDE also shows a system-tray item whose menu is OS-native (no styleguide component): ${VOICE_COPY.trayOpen} first (${VOICE_COPY.trayCall} after it once calls land, V4), then ${VOICE_COPY.speakReplies}, ${VOICE_COPY.pushToTalk} · {shortcut} and ${VOICE_COPY.wakeWord} · {phrase} as check items (disabled while the device or the agent is None, as on this page; ${VOICE_COPY.trayMute} joins once the IDE listens, V3), then ${VOICE_COPY.traySettings} (opens this page) and ${VOICE_COPY.trayQuit}.`,
+  blurb: `Settings → Personal → ${VOICE_COPY.group}, after Notifications, on all four clients (NEW-67, voice.json). ONE group: ${VOICE_COPY.voiceDevice} (THE device picker's rows, None first, the member's desktops by name; phones and servers are never a voice device), ${VOICE_COPY.agent} (None first, the member's agents by label, "{name} · {team}" on a shared name) and ${VOICE_COPY.speakReplies}. While a voice device is picked the tray group follows under "${VOICE_COPY.trayHeader}": ${VOICE_COPY.pushToTalk}, ${VOICE_COPY.shortcut}, ${VOICE_COPY.wakeWord} and ${VOICE_COPY.wakePhrase} (placeholder "${VOICE_COPY.wakePhrasePlaceholder}"). Every switch reads off and is disabled while the device or the agent is None, and choosing None clears them (clearOnNone). Device settings no longer has a Voice group. #NEW-73: ${VOICE_COPY.language} (English / Deutsch, its trailing detail "${VOICE_COPY.languageNote}" for every language on a voice device: #NEW-74 speaks both on its GPU only) follows ${VOICE_COPY.speakReplies}, and while a voice device is picked ${VOICE_COPY.voiceFile} (empty = "${VOICE_COPY.voiceFilePlaceholder}") and ${VOICE_COPY.voiceTranscript} follow in the same group. #NEW-68: the voice device's IDE also shows a system-tray item whose menu is OS-native (no styleguide component): ${VOICE_COPY.trayOpen} first (${VOICE_COPY.trayCall} after it once calls land, V4), then ${VOICE_COPY.speakReplies}, ${VOICE_COPY.pushToTalk} · {shortcut} and ${VOICE_COPY.wakeWord} · {phrase} as check items (disabled while the device or the agent is None, as on this page; ${VOICE_COPY.trayMute} follows them while the microphone listens: Push to talk on and its worker up), then ${VOICE_COPY.traySettings} (opens this page) and ${VOICE_COPY.trayQuit}.`,
   status: {
     web: {
       state: `ok`,
@@ -103,8 +111,8 @@ export const entry: StyleguideEntry = {
           triggerVariant="row"
           width="md"
           mobileTitle={VOICE_COPY.language}
-          value={VOICE_LANGUAGES[0].value}
-          items={VOICE_LANGUAGES}
+          value={LANGUAGES[0].value}
+          items={LANGUAGES}
           onChange={noop}
         />
         <GlassInputRow
@@ -151,6 +159,7 @@ export const entry: StyleguideEntry = {
           id={`demo-${VOICE_TEST_IDS.wakePhrase}`}
           label={VOICE_COPY.wakePhrase}
           placeholder={wakePhrasePlaceholder(`Studio`)}
+          maxLength={64}
           value=""
           onChange={noop}
         />

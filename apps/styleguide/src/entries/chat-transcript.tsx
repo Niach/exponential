@@ -20,13 +20,13 @@ export const entry: StyleguideEntry = {
   status: {
     web: {
       state: `ok`,
-      symbol: `ThreadConversation layout="bubbles" / SurfaceCard / TranscriptDivider / ChatBubble`,
+      symbol: `SurfaceCard / TranscriptDivider / ChatBubble`,
       file: `packages/ui/src/surface-card.tsx`,
-      note: `session-thread-view.tsx paints the rows; the raw session view (agent-session.tsx) the same divider, surface and phone bubble`,
+      note: `session-thread-view.tsx ThreadConversation layout="bubbles" paints the rows; agent-session.tsx the same parts`,
     },
     desktop: { state: `ok`, symbol: `surface_card`, file: `apps/desktop/crates/ui/src/surface_card.rs`, note: `twin: styleguide/entries/chat_transcript.rs` },
-    ios: { state: `ok`, symbol: `SurfaceCard / TranscriptDivider / ChatBubble`, file: `apps/ios/ExpUI/Sources` },
-    android: { state: `ok`, symbol: `SurfaceCard / TranscriptDivider / ChatBubble`, file: `apps/android/app/src/main/java/com/exponential/app/ui/thread` },
+    ios: { state: `ok`, symbol: `SurfaceCardFrame / TranscriptDividerPill / AgentChatBubble`, file: `apps/ios/ExpUI/Sources/ChatTranscript.swift` },
+    android: { state: `ok`, symbol: `ChatBubble`, file: `apps/android/app/src/main/java/com/exponential/app/ui/thread/ThreadParts.kt`, note: `TranscriptDivider: ui/components/ChatComponents.kt; SurfaceCard: ui/thread/SurfaceCard.kt` },
   },
   island: () => <ChatTranscriptSpecimen />,
 }

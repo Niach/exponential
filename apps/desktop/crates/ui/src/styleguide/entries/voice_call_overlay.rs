@@ -2,8 +2,8 @@
 //! the four states of THE capsule (`voice_overlay::capsule`) the push-to-talk
 //! window draws, the same rows as the web entry
 //! (`apps/styleguide/src/entries/voice-call-overlay.tsx`), both read from
-//! `fixtures/voice.json` `overlaySpecimens` (#NEW-54). The call card there
-//! stays the EXP-1268 draft for caller mode (V4).
+//! `fixtures/voice.json` `overlaySpecimens` (#NEW-54). Caller mode (V4)
+//! brings its call card here.
 
 use domain::voice::VOICE;
 use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};

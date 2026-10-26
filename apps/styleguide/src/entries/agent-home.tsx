@@ -16,21 +16,22 @@ import type { StyleguideEntry } from "./types.ts"
 // EXP-1253 / EXP-1293: the Agent page is HOME (composer-home.json). The page
 // itself lives in apps/web (`routes/t/$teamSlug/agent.tsx`) and cannot be
 // imported here, so the specimen composes the same `@exp/ui` parts the route
-// does: the DAWN (FEED-100: the big mark's top half rising over the card,
-// 24px off it), the composer card asking "What do you want to build?" and a
-// muted options line. No greeting, nothing beneath it.
+// does: the DAWN (FEED-100: the big mark's top half standing on the card and
+// fading toward it, the route's `HomeDawn`), the composer card asking "What
+// do you want to build?" and a muted options line. No greeting, nothing
+// beneath it.
 
 const UiAddIcon = conceptIcon(`ui-add`)
 
+// The route's `HomeDawn`: 440px at most, ~69% of the column, phones the
+// natives' 240pt mark; 2.5% ink, solid for its top third, no gap to the card.
 function Dawn({ phone }: { phone?: boolean }) {
-  const size = phone ? 160 : 520
   return (
     <div
       aria-hidden
-      className="pointer-events-none mx-auto mb-6 shrink-0 overflow-hidden text-foreground opacity-[0.05] select-none"
-      style={{ width: size, height: size / 2 }}
+      className={`pointer-events-none mx-auto aspect-[2/1] ${phone ? `w-[240px]` : `w-[min(440px,69%)]`} shrink-0 overflow-hidden text-foreground opacity-[0.025] [mask-image:linear-gradient(black_33%,transparent)] select-none`}
     >
-      <ExponentialLogo variant="light" size={size} />
+      <ExponentialLogo variant="light" size={440} className="h-auto w-full" />
     </div>
   )
 }
@@ -67,7 +68,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1293`,
   title: `Agent home`,
-  blurb: `Home on every client (fixture \`composer-home.json\`). The dawn (FEED-100: the big brand mark's top half, faint, 24px over the card; phones 160px), then the composer ("${HOME_PLACEHOLDER}") and its options line. No greeting, no history button, nothing beneath it; a start opens its thread; a team with no board gets Getting started ${HOME_GEOMETRY.composerToGettingStarted}px below; phones keep a Running list of live threads under it.`,
+  blurb: `Home on every client (fixture \`composer-home.json\`). The dawn (FEED-100: the big brand mark's top half at 2.5% ink, standing on the card and fading toward it, no gap; 440px at most, ~69% of the column, phones 240px), then the composer ("${HOME_PLACEHOLDER}") and its options line. No greeting, no history button, nothing beneath it; a start opens its thread; a team with no board gets Getting started ${HOME_GEOMETRY.composerToGettingStarted}px below. Phones pin the composer to the bottom with the dawn on it, Getting started above the dawn, and no Running list.`,
   status: {
     web: {
       state: `ok`,
@@ -77,21 +78,21 @@ export const entry: StyleguideEntry = {
     },
     desktop: {
       state: `ok`,
-      symbol: `home_greeting::home_greeting`,
-      file: `apps/desktop/crates/ui/src/home_greeting.rs`,
-      note: `the column = the chat screen's home state`,
+      symbol: `chat_screen::dawn`,
+      file: `apps/desktop/crates/ui/src/chat_screen.rs`,
+      note: `the column = the chat screen's home state; copy + gaps: home_greeting.rs`,
     },
     ios: {
       state: `ok`,
       symbol: `AgentPageView`,
       file: `apps/ios/Exponential/UI/Agent/AgentPageView.swift`,
-      note: `greeting = ExpCore HomeGreeting.swift`,
+      note: `the dawn = HomeDawn (UI/Components/ExpLogoMark.swift)`,
     },
     android: {
       state: `ok`,
       symbol: `AgentScreen`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/agent/AgentScreen.kt`,
-      note: `greeting = domain/HomeGreeting.kt`,
+      note: `the dawn = DAWN_MARK in the same file`,
     },
   },
   island: () => (

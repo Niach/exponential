@@ -22,9 +22,9 @@ export const entry: StyleguideEntry = {
       file: `packages/ui/src/threads-list.tsx`,
       note: `apps/web/src/components/thread/chat-menu.tsx: kinds \`thread\` + \`agent\` in the team layout's MenuGestureHost, the header \`…\` menus, the Prompt confirm`,
     },
-    desktop: { state: `ok`, symbol: `chat_menus`, file: `apps/desktop/crates/ui/src/styleguide/entries/chat_menus.rs`, note: `PointerContextMenu` },
-    ios: { state: `ok`, symbol: `GlassLongPressMenu`, file: `apps/ios/ExpUI/Sources` },
-    android: { state: `ok`, symbol: `combinedClickable + the glass menu sheet`, file: `apps/android/app/src/main/java/com/exponential/app/ui/thread` },
+    desktop: { state: `ok`, symbol: `chat_actions::chat_menu_items`, file: `apps/desktop/crates/ui/src/chat_actions.rs`, note: `PointerContextMenu; twin: styleguide/entries/chat_menus.rs` },
+    ios: { state: `ok`, symbol: `ChatMenuSheet`, file: `apps/ios/Exponential/UI/Chats/ChatMenuSheet.swift`, note: `on ExpUI GlassLongPressMenu` },
+    android: { state: `ok`, symbol: `ChatMenuSheet / ChatDeleteConfirm`, file: `apps/android/app/src/main/java/com/exponential/app/ui/components/ChatComponents.kt`, note: `combinedClickable long-press` },
   },
   island: () => <ChatMenusSpecimen />,
 }

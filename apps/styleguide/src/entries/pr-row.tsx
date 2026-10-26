@@ -78,7 +78,7 @@ export const entry: StyleguideEntry = {
     },
     ios: {
       state: `ok`,
-      symbol: `PrRow / PrList / StackRail`,
+      symbol: `PrRow / StackRail`,
       file: `apps/ios/ExpUI/Sources/PrRow.swift`,
       note: `the Guide stack card`,
     },
