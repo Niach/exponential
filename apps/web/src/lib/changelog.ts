@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-26-release-train`,
+    date: `2026-10-26`,
+    title: `Release 2026-10-26: Talk to your agents (beta), with the train's fixes`,
+    summary: `This release ships voice to the IDE as a beta: push to talk and spoken replies in English and German, set up in Settings → Voice on every device. Calling your agent from the phone and the wake word are coming. The release review also fixed how Settings → Voice saves, and push to talk now stops listening when the IDE window loses focus.`,
+    body: `- **Talk (beta)**: on the desktop you pick as your voice device, hold the push to talk shortcut, speak and let go; with Speak replies on, the answer is read aloud in English or German. Calling your agent from the phone and the wake word are coming.
+- **Settings → Voice**: on web, the IDE, iPhone and Android, quick changes no longer undo each other, a failed save only resets the field it was about, and typed text is kept when you leave the page.
+- **Push to talk**: when the shortcut only works inside an Exponential window, switching away now ends the hold instead of listening on.
+- **Speak replies**: a failed first download is retried on its own, and Linux finds the audio player on more setups.
+- **Sessions**: a long turn no longer shows needs input by mistake, and a machine shared into a team is listed under the right host.
+- **Store builds**: Android 0.14.71 and the IDE 0.14.79 are live; iOS 0.14.69 is in TestFlight.`,
+  },
+  {
     id: `2026-10-26-push-to-talk`,
     date: `2026-10-26`,
     title: `Push to talk on your voice device`,

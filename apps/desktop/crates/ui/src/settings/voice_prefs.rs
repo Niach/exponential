@@ -38,6 +38,29 @@ use super::{section, settings_skeleton};
 /// A change from one row: the partial update to send.
 pub(crate) type OnVoiceChange = Rc<dyn Fn(VoiceUpdate, &mut App)>;
 
+/// The member's agents (every team's), by id: the pickers' options and the
+/// bare names the wake phrase and the tray use.
+pub(crate) fn voice_agents(cx: &App) -> Vec<VoiceAgent> {
+    let Some(store) = sync::Store::try_global(cx) else { return Vec::new() };
+    let collections = store.collections();
+    let teams = collections.teams.read(cx);
+    collections
+        .agents
+        .read(cx)
+        .iter()
+        .map(|agent| VoiceAgent {
+            id: agent.id.clone(),
+            name: agent.name.clone().unwrap_or_default(),
+            team: agent
+                .team_id
+                .as_deref()
+                .and_then(|team_id| teams.get(team_id))
+                .map(|team| team.name.clone())
+                .unwrap_or_default(),
+        })
+        .collect()
+}
+
 /// The member's devices and agents as the pickers offer them.
 pub(crate) fn voice_choices(cx: &App) -> (Vec<VoiceOption>, Vec<VoiceOption>) {
     let Some(store) = sync::Store::try_global(cx) else {
@@ -58,32 +81,20 @@ pub(crate) fn voice_choices(cx: &App) -> (Vec<VoiceOption>, Vec<VoiceOption>) {
             })
         })
         .collect();
-    let teams = collections.teams.read(cx);
-    let agents: Vec<VoiceAgent> = collections
-        .agents
-        .read(cx)
-        .iter()
-        .map(|agent| VoiceAgent {
-            id: agent.id.clone(),
-            name: agent.name.clone().unwrap_or_default(),
-            team: agent
-                .team_id
-                .as_deref()
-                .and_then(|team_id| teams.get(team_id))
-                .map(|team| team.name.clone())
-                .unwrap_or_default(),
-        })
-        .collect();
-    (voice_device_options(&devices), agent_options(&agents))
+    (voice_device_options(&devices), agent_options(&voice_agents(cx)))
 }
 
+/// A picker's value: the option's label; a stored id whose row is not
+/// synced here (the shape not ready, the row gone) reads as the id itself,
+/// never as None (web `voice-settings-card`).
 fn label_of(options: &[VoiceOption], id: Option<&str>) -> SharedString {
     options
         .iter()
         .find(|option| option.id.as_deref() == id)
-        .or_else(|| options.first())
-        .map(|option| SharedString::from(option.label.clone()))
+        .map(|option| option.label.clone())
+        .or_else(|| id.map(str::to_string))
         .unwrap_or_default()
+        .into()
 }
 
 /// One picker row: the label, the current value, a single-select menu.
@@ -182,10 +193,9 @@ pub(crate) fn voice_rows(
     };
     let options = |list: &[VoiceOption]| list.iter().map(|option| (option.id.clone(), option.label.clone())).collect::<Vec<_>>();
 
-    let device_name = devices
-        .iter()
-        .find(|option| option.id.is_some() && option.id == settings.voice_device_id)
-        .map(|option| option.label.clone());
+    // The stored device names the tray group even while its row is not
+    // synced here (its label, else the id), as on web.
+    let device_name = settings.voice_device_id.as_deref().map(|id| label_of(devices, Some(id)).to_string());
 
     let language = settings.language().to_string();
     // Every language carries its GPU note (#NEW-74), in the row and in the menu.
@@ -300,15 +310,24 @@ pub(crate) fn voice_rows(
     out
 }
 
-/// The wake phrase's placeholder for the picked agent.
-pub(crate) fn wake_placeholder(settings: &VoiceSettings, agents: &[VoiceOption]) -> String {
-    let agent = agents
-        .iter()
-        .find(|option| option.id.is_some() && option.id == settings.agent_id)
-        .map(|option| option.label.as_str())
-        .unwrap_or("…");
-    wake_phrase_placeholder(agent)
+/// The picked agent's bare name (`Hey Studio`, never `Hey Studio · Acme`);
+/// the fixture's agent label while none is picked, as on web.
+pub(crate) fn agent_name(settings: &VoiceSettings, agents: &[VoiceAgent]) -> String {
+    settings
+        .agent_id
+        .as_deref()
+        .and_then(|id| agents.iter().find(|agent| agent.id == id))
+        .map(|agent| agent.name.clone())
+        .unwrap_or_else(|| VOICE.copy.agent.clone())
 }
+
+/// The wake phrase's placeholder for the picked agent.
+pub(crate) fn wake_placeholder(settings: &VoiceSettings, agents: &[VoiceAgent]) -> String {
+    wake_phrase_placeholder(&agent_name(settings, agents))
+}
+
+/// The wake phrase's length limit (web `maxLength={64}`).
+const WAKE_PHRASE_LIMIT: usize = 64;
 
 enum Load {
     Idle,
@@ -324,6 +343,13 @@ pub struct VoicePrefsPane {
     /// The one-line inputs, built lazily from the loaded value.
     inputs: [Option<Entity<InputState>>; 3],
     _subscriptions: Vec<gpui::Subscription>,
+    /// Last write wins: only the newest write may adopt or revert.
+    write: u64,
+    /// Writes not answered yet (a stale page is not refetched over them).
+    in_flight: u32,
+    /// The speaker's settings as last seen: a change there (a heartbeat, a
+    /// tray toggle) drops the cache.
+    seen: VoiceSettings,
 }
 
 /// Which one-line input (`VoicePrefsPane::inputs` index).
@@ -350,11 +376,51 @@ impl Field {
             Field::VoiceTranscript => VoiceUpdate { voice_transcript: Some(value), ..Default::default() },
         }
     }
+
+    fn limit(self) -> usize {
+        match self {
+            Field::WakePhrase => WAKE_PHRASE_LIMIT,
+            Field::VoiceFile => VOICE.limits.voice_file,
+            Field::VoiceTranscript => VOICE.limits.voice_transcript,
+        }
+    }
+
+    /// The value as sent and shown: no control characters, trimmed, within
+    /// the limit (the server checks the limit BEFORE trimming).
+    fn normalized(self, raw: &str) -> String {
+        let clean: String = raw.chars().filter(|ch| !ch.is_control()).collect();
+        clean.trim().chars().take(self.limit()).collect::<String>().trim_end().to_string()
+    }
 }
 
 impl VoicePrefsPane {
-    pub fn new(_cx: &mut gpui::Context<Self>) -> Self {
-        Self { load: Load::Idle, generation: 0, account_id: None, inputs: [None, None, None], _subscriptions: Vec::new() }
+    pub fn new(cx: &mut gpui::Context<Self>) -> Self {
+        // A change another client made (a tray toggle, a heartbeat) reaches
+        // the speaker first; the open pane follows it.
+        if let Some(speaker) = crate::speak_replies::entity(cx) {
+            cx.observe(&speaker, |this: &mut Self, _, cx| this.on_speaker(cx)).detach();
+        }
+        Self {
+            load: Load::Idle,
+            generation: 0,
+            account_id: None,
+            inputs: [None, None, None],
+            _subscriptions: Vec::new(),
+            write: 0,
+            in_flight: 0,
+            seen: crate::speak_replies::settings(cx),
+        }
+    }
+
+    fn on_speaker(&mut self, cx: &mut gpui::Context<Self>) {
+        let now = crate::speak_replies::settings(cx);
+        if now == self.seen {
+            return;
+        }
+        self.seen = now;
+        if self.in_flight == 0 {
+            self.mark_stale(cx);
+        }
     }
 
     /// Drop the cached settings so the next render refetches (a change made
@@ -449,16 +515,32 @@ impl VoicePrefsPane {
         self.load = Load::Ready(next);
         cx.notify();
         let Some(trpc) = queries::trpc_client(cx) else { return };
+        // Last write wins (the tray's pattern): overlapping saves never
+        // clobber each other, only the newest adopts the stored row or reverts.
+        self.write += 1;
+        let write = self.write;
+        self.in_flight += 1;
         cx.spawn(async move |this, cx| {
             let result = cx.background_executor().spawn(async move { api::voice::voice_update(&trpc, &update) }).await;
             let _ = this.update(cx, |this, cx| {
+                this.in_flight = this.in_flight.saturating_sub(1);
+                let newest = this.write == write;
                 match result {
                     Ok(stored) => {
-                        crate::speak_replies::set_settings(stored.clone(), cx);
-                        this.load = Load::Ready(stored);
+                        if newest {
+                            this.seen = stored.clone();
+                            crate::speak_replies::set_settings(stored.clone(), cx);
+                            this.load = Load::Ready(stored);
+                        }
                     }
                     Err(err) => {
-                        this.load = Load::Ready(previous);
+                        if newest {
+                            this.load = Load::Ready(previous);
+                            // A refused text shows the stored value again
+                            // (else every blur would send it again).
+                            this.inputs = [None, None, None];
+                            this._subscriptions.clear();
+                        }
                         crate::action_error::failed_action_err("save", "the voice settings", &err, cx);
                     }
                 }
@@ -479,9 +561,14 @@ impl VoicePrefsPane {
                     state.set_value(value, window, cx);
                     state
                 });
-                self._subscriptions.push(cx.subscribe(&input, move |this, input, event: &InputEvent, cx| {
+                self._subscriptions.push(cx.subscribe_in(&input, window, move |this, input, event: &InputEvent, window, cx| {
                     if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
-                        let value = input.read(cx).value().to_string();
+                        let raw = input.read(cx).value().to_string();
+                        let value = field.normalized(&raw);
+                        if value != raw {
+                            // What is sent is what shows.
+                            input.update(cx, |state, cx| state.set_value(value.clone(), window, cx));
+                        }
                         this.apply(field.update(value), cx);
                     }
                 }));
@@ -507,7 +594,7 @@ impl Render for VoicePrefsPane {
             Load::Ready(settings) => {
                 let settings = settings.clone();
                 let (devices, agents) = voice_choices(cx);
-                let placeholder = wake_placeholder(&settings, &agents);
+                let placeholder = wake_placeholder(&settings, &voice_agents(cx));
                 let inputs = VoiceInputs {
                     wake_phrase: self.input(Field::WakePhrase, &settings, &placeholder, window, cx),
                     voice_file: self.input(Field::VoiceFile, &settings, &VOICE.copy.voice_file_placeholder, window, cx),

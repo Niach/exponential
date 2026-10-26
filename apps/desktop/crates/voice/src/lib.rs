@@ -35,7 +35,7 @@ pub mod sink;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -211,7 +211,26 @@ enum State {
 fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
     let mut state = State::Idle { failures: 0, retry_at: None };
     let mut choice = VoiceChoice { language: "en".into(), ..Default::default() };
-    while let Ok(first) = rx.recv() {
+    // The host asked for the voice: a failed bring-up is retried unasked.
+    let mut wanted = false;
+    loop {
+        // voice.json (#1237 review): a failed download or load is retried by
+        // the worker itself with backoff (1 min doubling to 1 h), never on
+        // every reply: the wait ends in a Prepare of the current choice.
+        let first = match state {
+            State::Idle { retry_at: Some(at), .. } if wanted => {
+                match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
+                    Ok(job) => job,
+                    Err(RecvTimeoutError::Timeout) => Job::Prepare(choice.clone()),
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
+            }
+            _ => match rx.recv() {
+                Ok(job) => job,
+                Err(_) => break,
+            },
+        };
+        wanted = true;
         // Only the newest Speak matters; the newest Prepare is the choice.
         let mut job = first;
         while let Ok(next) = rx.try_recv() {
@@ -456,6 +475,7 @@ fn speak(loaded: &mut Loaded, shared: &Arc<Shared>, id: &str, text: &str, genera
     let sink = match sink::open(loaded.sample_rate) {
         Ok(sink) => sink,
         Err(err) => {
+            eprintln!("audio output failed: {err}");
             emit(&Event::Failed { id: id.into(), error: err });
             return;
         }
@@ -473,11 +493,23 @@ fn speak(loaded: &mut Loaded, shared: &Arc<Shared>, id: &str, text: &str, genera
                 if !current(shared) {
                     break;
                 }
+                // #1231 review: a player that takes no audio (pw-play
+                // without a PipeWire session) fails the reply, never
+                // reports it played.
+                if let Err(err) = sink.push(&pcm) {
+                    eprintln!("audio output failed: {err}");
+                    if !started {
+                        sink.stop();
+                        clear_current(shared, &sink);
+                        emit(&Event::Failed { id: id.into(), error: err });
+                        return;
+                    }
+                    break;
+                }
                 if !started && !pcm.is_empty() {
                     started = true;
                     emit(&Event::Started { id: id.into() });
                 }
-                sink.push(&pcm);
             }
             Err(err) => {
                 let err = scrub(&err, text);

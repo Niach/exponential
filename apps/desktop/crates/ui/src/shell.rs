@@ -458,6 +458,10 @@ impl Shell {
             if window.is_window_active() {
                 let store = Store::global(cx).clone();
                 store.kick_if_stale(cx);
+            } else {
+                // #NEW-54 (#1244 review): a push-to-talk key held only while
+                // this window is focused is released with the focus.
+                crate::push_to_talk::on_window_deactivated(cx);
             }
         })
         .detach();

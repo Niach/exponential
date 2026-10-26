@@ -9,8 +9,9 @@ use std::sync::Arc;
 
 /// One utterance's audio path.
 pub trait Sink: Send + Sync {
-    /// Queue samples (mono, at the rate the sink was opened with).
-    fn push(&self, samples: &[f32]);
+    /// Queue samples (mono, at the rate the sink was opened with). `Err` =
+    /// the output takes no audio (a stopped sink answers `Ok`).
+    fn push(&self, samples: &[f32]) -> Result<(), String>;
     /// Let what is queued play out, then close.
     fn finish(&self);
     /// Silence now and close.
@@ -28,6 +29,7 @@ mod platform {
     use std::process::{Child, ChildStdin, Command, Stdio};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     use super::Sink;
 
@@ -35,17 +37,29 @@ mod platform {
     /// a write blocked on a full pipe holds only `stdin`, so `stop` can
     /// still take `child` and kill it at once (the blocked write then fails
     /// with a broken pipe and returns).
+    ///
+    /// #1231 review: `pw-play` exists on a desktop without a PipeWire audio
+    /// session too, and exits at once there; the first write then fails
+    /// with a broken pipe and the NEXT player takes the audio.
     pub struct PipeSink {
         stdin: Mutex<Option<ChildStdin>>,
         child: Mutex<Option<Child>>,
         stopped: AtomicBool,
+        rate: u32,
+        /// The next player to try (an index into [`candidates`]).
+        next: Mutex<usize>,
+        /// A write went through: the player plays, a later failure is final.
+        written: AtomicBool,
     }
 
     /// Samples per write: ~85 ms at 24 kHz, so a stop lands between chunks.
     const CHUNK: usize = 2048;
+    /// How long a player that refused the first write gets to exit.
+    const EXIT_GRACE: Duration = Duration::from_millis(250);
 
-    pub fn open(rate: u32) -> Result<Arc<dyn Sink>, String> {
-        let candidates: [(&str, Vec<String>); 2] = [
+    /// The players, in order: PipeWire's, then PulseAudio's.
+    fn candidates(rate: u32) -> [(&'static str, Vec<String>); 2] {
+        [
             (
                 "pw-play",
                 vec!["--format".into(), "f32".into(), "--rate".into(), rate.to_string(), "--channels".into(), "1".into(), "-".into()],
@@ -54,30 +68,37 @@ mod platform {
                 "paplay",
                 vec!["--raw".into(), "--format=float32le".into(), format!("--rate={rate}"), "--channels=1".into()],
             ),
-        ];
+        ]
+    }
+
+    fn spawn(program: &str, args: &[String]) -> Result<Child, String> {
+        // Absolute, from the system dirs: never a binary the PATH plants.
+        let path = talk::system_binary(program).ok_or_else(|| format!("{program}: not in {}", talk::SYSTEM_BIN_DIRS.join(", ")))?;
+        Command::new(path)
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|err| format!("{program}: {err}"))
+    }
+
+    pub fn open(rate: u32) -> Result<Arc<dyn Sink>, String> {
         let mut errors = Vec::new();
-        for (program, args) in candidates {
-            // Absolute, from the system dirs: never a binary the PATH plants.
-            let Some(path) = talk::system_binary(program) else {
-                errors.push(format!("{program}: not in {}", talk::SYSTEM_BIN_DIRS.join(", ")));
-                continue;
-            };
-            match Command::new(path)
-                .args(&args)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-            {
+        for (index, (program, args)) in candidates(rate).iter().enumerate() {
+            match spawn(program, args) {
                 Ok(mut child) => {
                     let stdin = child.stdin.take();
                     return Ok(Arc::new(PipeSink {
                         stdin: Mutex::new(stdin),
                         child: Mutex::new(Some(child)),
                         stopped: AtomicBool::new(false),
+                        rate,
+                        next: Mutex::new(index + 1),
+                        written: AtomicBool::new(false),
                     }));
                 }
-                Err(err) => errors.push(format!("{program}: {err}")),
+                Err(err) => errors.push(err),
             }
         }
         Err(format!("no audio player (needs PipeWire or PulseAudio): {}", errors.join("; ")))
@@ -91,24 +112,83 @@ mod platform {
                 let _ = child.wait();
             }
         }
+
+        /// Whether the player has exited (given [`EXIT_GRACE`] to do so).
+        fn exited(&self) -> bool {
+            let deadline = std::time::Instant::now() + EXIT_GRACE;
+            loop {
+                let Ok(mut guard) = self.child.lock() else { return false };
+                let Some(child) = guard.as_mut() else { return false };
+                match child.try_wait() {
+                    Ok(Some(_)) => return true,
+                    Ok(None) if std::time::Instant::now() < deadline => {}
+                    _ => return false,
+                }
+                drop(guard);
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        /// Start the next player, if there is one.
+        fn next_player(&self) -> Result<(), String> {
+            let candidates = candidates(self.rate);
+            let mut next = self.next.lock().map_err(|_| "the audio player lock is poisoned".to_string())?;
+            let mut errors = vec!["the player exited before taking audio".to_string()];
+            while let Some((program, args)) = candidates.get(*next) {
+                *next += 1;
+                match spawn(program, args) {
+                    Ok(mut child) => {
+                        let stdin = child.stdin.take();
+                        if let Ok(mut guard) = self.stdin.lock() {
+                            *guard = stdin;
+                        }
+                        if let Ok(mut guard) = self.child.lock() {
+                            *guard = Some(child);
+                        }
+                        eprintln!("audio output: {program} takes over");
+                        if self.stopped.load(Ordering::SeqCst) {
+                            // A Stop landed meanwhile: nothing outlives it.
+                            self.kill();
+                        }
+                        return Ok(());
+                    }
+                    Err(err) => errors.push(err),
+                }
+            }
+            Err(format!("no audio player took the audio (needs PipeWire or PulseAudio): {}", errors.join("; ")))
+        }
     }
 
     impl Sink for PipeSink {
-        fn push(&self, samples: &[f32]) {
+        fn push(&self, samples: &[f32]) -> Result<(), String> {
             for chunk in samples.chunks(CHUNK) {
-                if self.stopped.load(Ordering::SeqCst) {
-                    return;
-                }
                 let bytes: Vec<u8> = chunk.iter().flat_map(|sample| sample.to_le_bytes()).collect();
-                let Ok(mut guard) = self.stdin.lock() else { return };
-                let failed = guard.as_mut().is_none_or(|stdin| stdin.write_all(&bytes).is_err());
-                if failed {
+                loop {
+                    if self.stopped.load(Ordering::SeqCst) {
+                        return Ok(());
+                    }
+                    let Ok(mut guard) = self.stdin.lock() else { return Err("the audio pipe lock is poisoned".into()) };
+                    let written = guard.as_mut().is_some_and(|stdin| stdin.write_all(&bytes).is_ok());
+                    if written {
+                        self.written.store(true, Ordering::SeqCst);
+                        break;
+                    }
                     guard.take();
                     drop(guard);
+                    if self.stopped.load(Ordering::SeqCst) {
+                        // The kill broke the pipe: not a failure.
+                        return Ok(());
+                    }
+                    let refused = !self.written.load(Ordering::SeqCst) && self.exited();
                     self.kill();
-                    return;
+                    if !refused {
+                        return Err("the audio player stopped taking audio".into());
+                    }
+                    // The same chunk again, through the next player.
+                    self.next_player()?;
                 }
             }
+            Ok(())
         }
 
         fn finish(&self) {
@@ -247,9 +327,9 @@ mod platform {
     }
 
     impl Sink for DeviceSink {
-        fn push(&self, samples: &[f32]) {
+        fn push(&self, samples: &[f32]) -> Result<(), String> {
             if samples.is_empty() {
-                return;
+                return Ok(());
             }
             let step = self.source_rate as f64 / self.device_rate as f64;
             let mut state = self.resampler.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -271,13 +351,24 @@ mod platform {
             if let Ok(mut queue) = self.shared.queue.lock() {
                 queue.extend(out);
             }
+            Ok(())
         }
 
         fn finish(&self) {
+            // #1231 review: the drain is bounded by what is queued (at the
+            // device's rate) plus a second; a stalled device is closed.
+            let queued = self.shared.queue.lock().map(|queue| queue.len()).unwrap_or(0);
+            let budget = Duration::from_secs_f64(queued as f64 / f64::from(self.device_rate.max(1))) + Duration::from_secs(1);
+            let started = std::time::Instant::now();
             loop {
                 let empty = self.shared.queue.lock().map(|queue| queue.is_empty()).unwrap_or(true);
                 if empty || self.shared.stopped.load(Ordering::Relaxed) {
                     break;
+                }
+                if started.elapsed() >= budget {
+                    eprintln!("voice: the audio device did not drain in time; closing");
+                    self.close();
+                    return;
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }

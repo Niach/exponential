@@ -212,7 +212,9 @@ enum Fetch {
     Idle { failures: u32, retry_at: Option<Instant> },
     /// The download thread answers on its OWN channel, so the listening
     /// thread holds no sender to its request channel and sees EOF.
-    Running(Receiver<Result<(), String>>),
+    /// `failures` carries the count across the run (#1238 review: the
+    /// backoff grows with every failed attempt).
+    Running { result: Receiver<Result<(), String>>, failures: u32 },
 }
 
 /// The worker's [`Hearing`]: CrispASR's engines, the real microphone.
@@ -243,8 +245,20 @@ impl Ears {
                 let _ = done.send(downloaded);
             })
             .map_err(|err| err.to_string())?;
-        self.fetch = Fetch::Running(result);
+        self.running(result);
         Ok(())
+    }
+
+    /// A download runs; the failures so far ride along.
+    fn running(&mut self, result: Receiver<Result<(), String>>) {
+        self.fetch = Fetch::Running { result, failures: self.failures() };
+    }
+
+    /// Failed downloads in a row (through a running one too).
+    fn failures(&self) -> u32 {
+        match &self.fetch {
+            Fetch::Idle { failures, .. } | Fetch::Running { failures, .. } => *failures,
+        }
     }
 
     fn downloaded(&mut self, result: Result<(), String>) {
@@ -254,10 +268,7 @@ impl Ears {
                 emit(&Event::ModelReady);
             }
             Err(err) => {
-                let failures = match self.fetch {
-                    Fetch::Idle { failures, .. } => failures + 1,
-                    Fetch::Running(_) => 1,
-                };
+                let failures = self.failures() + 1;
                 let wait = retry_after(failures);
                 eprintln!("speech model unavailable (attempt {failures}, next in {}s): {err}", wait.as_secs());
                 emit(&Event::DownloadFailed { error: err });
@@ -278,7 +289,7 @@ impl Hearing for Ears {
         }
         if !Engines::files_ready(&self.data_dir) {
             match self.fetch {
-                Fetch::Running(_) => {}
+                Fetch::Running { .. } => {}
                 Fetch::Idle { retry_at: Some(at), .. } if Instant::now() < at => {
                     return Err((ListenFailure::Unavailable, "the speech model failed to download; retrying later".into()));
                 }
@@ -306,11 +317,11 @@ impl Hearing for Ears {
     }
 
     fn downloading(&self) -> bool {
-        matches!(self.fetch, Fetch::Running(_))
+        matches!(self.fetch, Fetch::Running { .. })
     }
 
     fn poll(&mut self) {
-        let Fetch::Running(result) = &self.fetch else { return };
+        let Fetch::Running { result, .. } = &self.fetch else { return };
         match result.try_recv() {
             Ok(downloaded) => self.downloaded(downloaded),
             Err(TryRecvError::Empty) => {}
@@ -622,6 +633,26 @@ mod tests {
 
     use super::fake::Probe;
     use super::*;
+
+    /// #1238 review: the download backoff grows with every failed attempt.
+    #[test]
+    fn a_failed_model_download_backs_off_further_each_time() {
+        let mut ears = Ears::new(std::env::temp_dir().join("voice-listen-backoff"));
+        for attempt in 1..=3u32 {
+            let (_keep, result) = mpsc::channel();
+            ears.running(result);
+            assert_eq!(ears.failures(), attempt - 1, "the count rides along the run");
+            let before = Instant::now();
+            ears.downloaded(Err("offline".into()));
+            let Fetch::Idle { failures, retry_at: Some(at) } = &ears.fetch else { panic!("idle with a retry time") };
+            assert_eq!(*failures, attempt);
+            assert!(*at >= before + retry_after(attempt), "attempt {attempt} waits {:?}", retry_after(attempt));
+        }
+        let (_keep, result) = mpsc::channel();
+        ears.running(result);
+        ears.downloaded(Ok(()));
+        assert_eq!(ears.failures(), 0, "a success resets the count");
+    }
 
     #[test]
     fn the_listening_gate_ends_only_its_own_listen() {

@@ -67,6 +67,12 @@ impl Overlay {
         }
     }
 
+    /// Whether `id` is the overlay's own window (it opens again, wider, for
+    /// a longer line mid-hold: never the IDE window the key is held in).
+    pub(super) fn owns(&self, id: gpui::WindowId) -> bool {
+        self.window.as_ref().is_some_and(|window| window.window_id() == id)
+    }
+
     /// A new level frame: redraw the wave.
     pub(super) fn refresh(&self, cx: &mut App) {
         if let Some(window) = self.window.as_ref() {
