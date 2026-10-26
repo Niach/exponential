@@ -96,6 +96,11 @@ pub fn custom_voice_file(file: &str, transcript: &str) -> Result<Option<PathBuf>
     if lower.contains("://") || lower.starts_with("file:") || lower.starts_with("http:") || lower.starts_with("https:") {
         return Err("the voice file must be a local path, not a URL".into());
     }
+    // Windows: a UNC or device path would open SMB (and hand the share the
+    // member's NTLM hash) the moment it is stat'ed; checked on the string
+    // BEFORE anything touches the file system.
+    #[cfg(windows)]
+    windows_local_disk_path(file)?;
     let path = PathBuf::from(file);
     if !path.is_absolute() {
         return Err("the voice file must be an absolute path".into());
@@ -117,6 +122,64 @@ pub fn custom_voice_file(file: &str, transcript: &str) -> Result<Option<PathBuf>
         return Err(format!("the voice file is larger than {} MB", MAX_VOICE_FILE_BYTES / (1024 * 1024)));
     }
     Ok(Some(path))
+}
+
+/// How Windows reads a path's prefix (`std::path::Prefix`), decided on the
+/// string so it is testable on every platform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowsPrefix {
+    /// `C:\…` / `C:/…`
+    Disk,
+    /// `\\?\C:\…`
+    VerbatimDisk,
+    /// `\\server\share\…` (also with forward slashes)
+    Unc,
+    /// `\\?\UNC\server\share\…`
+    VerbatimUnc,
+    /// `\\.\…` (a device namespace path, `\\.\pipe\…`, `\\.\UNC\…`)
+    DeviceNs,
+    /// `\\?\anything-else`
+    Verbatim,
+    /// No prefix: relative, or rooted on the current drive (`\foo`).
+    None,
+}
+
+pub fn windows_prefix(path: &str) -> WindowsPrefix {
+    let bytes = path.as_bytes();
+    let sep = |byte: u8| byte == b'\\' || byte == b'/';
+    if bytes.len() >= 2 && sep(bytes[0]) && sep(bytes[1]) {
+        let rest = &path[2..];
+        if let Some(verbatim) = rest.strip_prefix("?\\").or_else(|| rest.strip_prefix("?/")) {
+            let upper = verbatim.to_ascii_uppercase();
+            if upper.starts_with("UNC\\") || upper.starts_with("UNC/") {
+                return WindowsPrefix::VerbatimUnc;
+            }
+            let v = verbatim.as_bytes();
+            if v.len() >= 2 && v[0].is_ascii_alphabetic() && v[1] == b':' {
+                return WindowsPrefix::VerbatimDisk;
+            }
+            return WindowsPrefix::Verbatim;
+        }
+        if rest.starts_with(".\\") || rest.starts_with("./") || rest == "." {
+            return WindowsPrefix::DeviceNs;
+        }
+        return WindowsPrefix::Unc;
+    }
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return WindowsPrefix::Disk;
+    }
+    WindowsPrefix::None
+}
+
+/// Windows: only a path on a local drive letter (`C:\…`, `\\?\C:\…`),
+/// never UNC, verbatim UNC or a device namespace.
+pub fn windows_local_disk_path(path: &str) -> Result<(), String> {
+    match windows_prefix(path) {
+        WindowsPrefix::Disk | WindowsPrefix::VerbatimDisk => Ok(()),
+        WindowsPrefix::Unc | WindowsPrefix::VerbatimUnc => Err("the voice file must be on this computer, not a network share".into()),
+        WindowsPrefix::DeviceNs | WindowsPrefix::Verbatim => Err("the voice file must be a file on a local drive".into()),
+        WindowsPrefix::None => Err("the voice file must be an absolute path".into()),
+    }
 }
 
 /// Whether THIS process was started as the speech worker.
@@ -283,6 +346,29 @@ mod tests {
         );
         let event: Event = serde_json::from_str(r#"{"t":"voices","voices":["en","de"]}"#).unwrap();
         assert_eq!(event, Event::Voices { voices: vec!["en".into(), "de".into()] });
+    }
+
+    #[test]
+    fn windows_voice_files_must_sit_on_a_local_drive() {
+        for (path, prefix) in [
+            (r"C:\Users\me\clip.wav", WindowsPrefix::Disk),
+            ("c:/Users/me/clip.wav", WindowsPrefix::Disk),
+            (r"\\?\C:\Users\me\clip.wav", WindowsPrefix::VerbatimDisk),
+            (r"\\host\share\v.wav", WindowsPrefix::Unc),
+            ("//host/share/v.wav", WindowsPrefix::Unc),
+            (r"\/host\share\v.wav", WindowsPrefix::Unc),
+            (r"\\?\UNC\host\share\v.wav", WindowsPrefix::VerbatimUnc),
+            (r"\\?\unc\host\share\v.wav", WindowsPrefix::VerbatimUnc),
+            (r"\\.\pipe\x.wav", WindowsPrefix::DeviceNs),
+            (r"\\.\UNC\host\share\v.wav", WindowsPrefix::DeviceNs),
+            (r"\\?\Volume{1234}\v.wav", WindowsPrefix::Verbatim),
+            (r"\Users\me\clip.wav", WindowsPrefix::None),
+            ("clip.wav", WindowsPrefix::None),
+        ] {
+            assert_eq!(windows_prefix(path), prefix, "{path}");
+            let accepted = matches!(prefix, WindowsPrefix::Disk | WindowsPrefix::VerbatimDisk);
+            assert_eq!(windows_local_disk_path(path).is_ok(), accepted, "{path}");
+        }
     }
 
     #[test]
