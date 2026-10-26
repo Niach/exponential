@@ -1,15 +1,22 @@
 //! The pinned CrispASR runtime per platform: CrispASR v0.8.45's own release
 //! assets (sha256 = GitHub's published asset digest), loaded at runtime.
 //!
-//! - Linux x86_64: the CUDA build. It links `libcudart.so.12` and
+//! - Linux x86_64: the CUDA build, downloaded. It links `libcudart.so.12` and
 //!   `libcublas.so.12`, which only a CUDA toolkit install has, so NVIDIA's
 //!   own redistributable wheels (PyPI, NVIDIA's EULA; fetched by this
 //!   machine, never shipped by us) land in the same directory, where the
 //!   library's `$ORIGIN` runpath finds them first. Needs the NVIDIA driver.
-//! - macOS arm64: the Metal build.
-//! - Windows x86_64: the Vulkan build. Needs a Vulkan driver.
-//! - Anything else: no GPU runtime ([`ARTIFACTS`] is empty).
+//! - macOS arm64: the Metal build, SHIPPED INSIDE the signed bundle
+//!   (`Contents/Frameworks`, put there and signed with the app's identity by
+//!   `scripts/build-macos-app.sh`, which pins it), so library validation
+//!   stays on and notarization covers it. Loaded by absolute path from the
+//!   bundle of the running executable only ([`bundled_dir`]); a bare
+//!   `cargo run` binary has no bundle and so no GPU voice.
+//! - Windows x86_64: the Vulkan build, downloaded. Needs a Vulkan driver.
+//! - Anything else: no GPU runtime.
 
+// `Pack` is only used where the runtime is downloaded (Linux, Windows).
+#[allow(unused_imports)]
 use crate::artifact::{Artifact, Pack};
 
 /// The directory under `{data_dir}/talk/` the runtime unpacks into.
@@ -72,37 +79,38 @@ mod imp {
         // SAFETY: loading the driver's library runs its initialisers only.
         unsafe { libloading::Library::new("libcuda.so.1") }.is_ok()
     }
+
+    pub fn bundled_dir() -> Option<std::path::PathBuf> {
+        None
+    }
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod imp {
-    use super::*;
+    use super::Artifact;
 
     pub const GPU_BACKEND: &str = "metal";
     pub const LIBRARY: &str = "libcrispasr.1.dylib";
     pub const GGML: &str = "libggml.0.dylib";
 
-    pub const ARTIFACTS: &[Artifact] = &[Artifact {
-        id: "libcrispasr-macos-arm64",
-        url: "https://github.com/CrispStrobe/CrispASR/releases/download/v0.8.45/libcrispasr-macos-arm64.tar.gz",
-        sha256: "fe39ad4cd5cd96afcba2bf0dc4614897a70a2bc028cd83d99cd748124db5002f",
-        size: 9_247_572,
-        pack: Pack::TarGz,
-        keep: &[
-            ("libcrispasr-macos-arm64/lib/libcrispasr.0.8.45.dylib", "libcrispasr.1.dylib"),
-            ("libcrispasr-macos-arm64/lib/libggml.0.26.0.dylib", "libggml.0.dylib"),
-            ("libcrispasr-macos-arm64/lib/libggml-base.0.26.0.dylib", "libggml-base.0.dylib"),
-            ("libcrispasr-macos-arm64/lib/libggml-blas.0.26.0.dylib", "libggml-blas.0.dylib"),
-            ("libcrispasr-macos-arm64/lib/libggml-cpu.0.26.0.dylib", "libggml-cpu.0.dylib"),
-            ("libcrispasr-macos-arm64/lib/libggml-metal.0.26.0.dylib", "libggml-metal.0.dylib"),
-            ("libcrispasr-macos-arm64/LICENSE", "LICENSE"),
-            ("libcrispasr-macos-arm64/THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_NOTICES.txt"),
-        ],
-    }];
+    /// Nothing is downloaded: the runtime ships in the bundle.
+    pub const ARTIFACTS: &[Artifact] = &[];
 
     /// Every Apple Silicon Mac has a Metal GPU.
     pub fn gpu_driver_present() -> bool {
         true
+    }
+
+    /// `<bundle>.app/Contents/Frameworks` of the RUNNING executable
+    /// (`Contents/MacOS/exp-desktop`), when it holds the runtime.
+    pub fn bundled_dir() -> Option<std::path::PathBuf> {
+        let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
+        let macos = exe.parent()?;
+        if macos.file_name()? != "MacOS" {
+            return None;
+        }
+        let frameworks = macos.parent()?.join("Frameworks");
+        frameworks.join(LIBRARY).is_file().then_some(frameworks)
     }
 }
 
@@ -136,6 +144,10 @@ mod imp {
         // SAFETY: loading the Vulkan loader runs its initialisers only.
         unsafe { libloading::Library::new("vulkan-1.dll") }.is_ok()
     }
+
+    pub fn bundled_dir() -> Option<std::path::PathBuf> {
+        None
+    }
 }
 
 #[cfg(not(any(
@@ -144,7 +156,7 @@ mod imp {
     all(target_os = "windows", target_arch = "x86_64"),
 )))]
 mod imp {
-    use super::*;
+    use super::Artifact;
 
     pub const GPU_BACKEND: &str = "cpu";
     pub const LIBRARY: &str = "";
@@ -154,12 +166,19 @@ mod imp {
     pub fn gpu_driver_present() -> bool {
         false
     }
+
+    pub fn bundled_dir() -> Option<std::path::PathBuf> {
+        None
+    }
 }
 
 /// The GPU backend CrispASR is asked for (`crispasr_set_gpu_backend`).
 pub use imp::GPU_BACKEND;
-/// The runtime's library files, every one pinned.
+/// The runtime's downloaded library files, every one pinned (empty where
+/// the runtime ships in the app bundle).
 pub use imp::ARTIFACTS;
+/// The runtime inside the running app's bundle (macOS), if any.
+pub use imp::bundled_dir;
 /// The library opened (by absolute path, inside the runtime dir).
 pub use imp::LIBRARY;
 /// ggml's library (already loaded as a dependency; device enumeration).
@@ -169,5 +188,5 @@ pub use imp::gpu_driver_present;
 
 /// Whether this platform has a pinned GPU runtime at all.
 pub fn supported() -> bool {
-    !ARTIFACTS.is_empty()
+    !ARTIFACTS.is_empty() || bundled_dir().is_some()
 }

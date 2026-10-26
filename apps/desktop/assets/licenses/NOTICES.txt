@@ -20426,19 +20426,22 @@ of this directory for the precise diffs.)
 
 
 ------------------------------------------------------------------------------
-Downloaded at first use by exponentialTalk (not in the binary)
+exponentialTalk's voice runtime (downloaded at first use; bundled on macOS)
 ------------------------------------------------------------------------------
 
-When a member turns on Speak replies, the desktop application's speech worker
+The macOS application bundle contains the CrispASR v0.8.45 Metal runtime
+(libcrispasr and ggml dylibs, unmodified, re-signed). On Linux and Windows,
+when a member turns on Speak replies, the desktop application's speech worker
 downloads, from the publishers' own servers, the CrispASR v0.8.45 runtime for
 the platform (https://github.com/CrispStrobe/CrispASR, MIT; the prebuilt
 libcrispasr with ggml, MIT, and the bundled components its third-party notices
-list; built without espeak-ng) and the Qwen3-TTS 12 Hz 0.6B Base model with
-its 12 Hz tokenizer (https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-Base,
-Apache-2.0; GGUF conversions by cstr for CrispASR, Apache-2.0). On Linux it
-also fetches NVIDIA's CUDA runtime (nvidia-cuda-runtime-cu12 12.9.79) and
-cuBLAS (nvidia-cublas-cu12 12.9.2.10) from NVIDIA's own wheels on PyPI; they
-are governed by the NVIDIA CUDA Toolkit End User License Agreement
+list; built without espeak-ng) ; on every platform it downloads the Qwen3-TTS
+12 Hz 0.6B Base model with its 12 Hz tokenizer
+(https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-Base, Apache-2.0; GGUF
+conversions by cstr for CrispASR, Apache-2.0). On Linux it also fetches
+NVIDIA's CUDA runtime (nvidia-cuda-runtime-cu12 12.9.79) and cuBLAS
+(nvidia-cublas-cu12 12.9.2.10) from NVIDIA's own wheels on PyPI; they are
+governed by the NVIDIA CUDA Toolkit End User License Agreement
 (https://docs.nvidia.com/cuda/eula/), whose text is kept beside them, and are
 not redistributed by Exponential. The CrispASR licence and notices are
 reproduced below; the Apache License 2.0 is reproduced above.

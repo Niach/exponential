@@ -18,9 +18,10 @@ pub mod platform;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::path::{Path, PathBuf};
 
-/// Where the runtime lives: `{data_dir}/talk/crispasr-<version>/`.
+/// Where the runtime lives: inside the app bundle where it ships there
+/// (macOS), else the download dir `{data_dir}/talk/crispasr-<version>/`.
 pub fn runtime_dir(data_dir: &Path) -> PathBuf {
-    data_dir.join("talk").join(platform::RUNTIME_DIR)
+    platform::bundled_dir().unwrap_or_else(|| data_dir.join("talk").join(platform::RUNTIME_DIR))
 }
 
 /// Where a session runs.
@@ -97,8 +98,10 @@ macro_rules! symbol {
 }
 
 impl Runtime {
-    /// Load the runtime from `dir`. Every pinned file is re-hashed first;
-    /// a mismatch deletes it and fails (the next download replaces it).
+    /// Load the runtime from `dir` ([`runtime_dir`]), by absolute path. Every
+    /// downloaded file is re-hashed first; a mismatch deletes it and fails
+    /// (the next download replaces it). A bundled runtime is the signed
+    /// bundle's (the OS checks its signature on load).
     pub fn load(dir: &Path) -> Result<Runtime, String> {
         if !platform::supported() {
             return Err("no GPU runtime for this platform".into());

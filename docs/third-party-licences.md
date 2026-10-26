@@ -463,23 +463,27 @@ licence texts are deleted, and the worker removes the old Kokoro download.
 
 ## exponentialTalk: one voice engine on the GPU (NEW-74)
 
-### What we download (nothing of it is in the binary)
+### What we download, and the one piece we ship (macOS)
 
-The speech worker fetches these on first use from the publishers' own
-servers, checks each download against a pinned sha256 BEFORE it unpacks or
+On Linux and Windows the speech worker fetches all of these on first use
+from the publishers' own servers; on macOS the CrispASR runtime instead ships
+INSIDE the signed, notarized app bundle (`Contents/Frameworks`, put there by
+`apps/desktop/scripts/build-macos-app.sh` from the same pinned release asset,
+re-signed with our identity) and only the models are fetched. The worker checks each download against a pinned sha256 BEFORE it unpacks or
 loads it (`apps/desktop/crates/crispasr`: `platform.rs`, `models.rs`), keeps
 only the named files, and re-hashes every library before `dlopen`. A
 mismatch deletes the file and the voice backs off (1 min doubling to 1 h).
 
 | what | version | licence | where from | platforms |
 |---|---|---|---|---|
-| CrispASR runtime: `libcrispasr` + ggml (`libggml*`), plus libgomp (GCC Runtime Library Exception) and the reference BLAS on Linux | v0.8.45 release assets | MIT (its `THIRD_PARTY_NOTICES.txt` lists the rest; built without espeak-ng, the only GPL component it knows) | github.com/CrispStrobe/CrispASR releases | Linux x86_64 (CUDA), macOS arm64 (Metal), Windows x86_64 (Vulkan) |
+| CrispASR runtime: `libcrispasr` + ggml (`libggml*`), plus libgomp (GCC Runtime Library Exception) and the reference BLAS on Linux | v0.8.45 release assets | MIT (its `THIRD_PARTY_NOTICES.txt` lists the rest; built without espeak-ng, the only GPL component it knows) | github.com/CrispStrobe/CrispASR releases | Linux x86_64 (CUDA) and Windows x86_64 (Vulkan): downloaded; macOS arm64 (Metal): shipped in the bundle |
 | NVIDIA CUDA runtime (`libcudart.so.12`) and cuBLAS (`libcublas.so.12`, `libcublasLt.so.12`) | 12.9.79 / 12.9.2.10 | NVIDIA CUDA Toolkit EULA (proprietary, redistributable); its text is kept beside the files | NVIDIA's own wheels on PyPI (`nvidia-cuda-runtime-cu12`, `nvidia-cublas-cu12`) | Linux x86_64 only |
 | Qwen3-TTS 12 Hz 0.6B Base, F16 GGUF | cstr/qwen3-tts-0.6b-base-GGUF @ 94072f5 | Apache-2.0 | Hugging Face | all three |
 | Qwen3-TTS 12 Hz tokenizer (codec), F16 GGUF | cstr/qwen3-tts-tokenizer-12hz-GGUF @ 344e279 | Apache-2.0 | Hugging Face | all three |
 
 Sizes of the first-use download: Linux ~2.97 GB (runtime 196 MB, cuBLAS
-581 MB, model 1.83 GB, codec 358 MB), macOS ~2.20 GB, Windows ~2.28 GB.
+581 MB, model 1.83 GB, codec 358 MB), macOS ~2.19 GB (the models only; the
+bundle grows by ~25 MB), Windows ~2.28 GB.
 
 The built-in reference clips (`apps/desktop/crates/voice/assets/`, in the
 binary, ~0.9 MB) are our own output of Qwen3-TTS 0.6B CustomVoice
@@ -489,15 +493,16 @@ README there). A member's own reference clip never leaves the voice device.
 ### Determination (2026-10-26)
 
 Permitted, with attribution. MIT and Apache-2.0 allow use and
-redistribution; we do not redistribute any of it (the user's machine fetches
-it), and the desktop notices reproduce CrispASR's licence and third-party
-notices ("Downloaded at first use by exponentialTalk"). The NVIDIA libraries
+redistribution; on Linux and Windows we redistribute none of it (the user's
+machine fetches it), on macOS we redistribute the MIT CrispASR runtime inside
+the bundle, and the desktop notices reproduce CrispASR's licence and
+third-party notices either way ("exponentialTalk's voice runtime"). The NVIDIA libraries
 are fetched by the user's machine from NVIDIA's distribution under NVIDIA's
 EULA, not shipped by Exponential. No GPL: CrispASR's espeak-ng path is off in
-these builds and its phonemizer is not used by Qwen3-TTS. On macOS the
-hardened runtime would refuse a library signed by another team, so the app
-is signed with `com.apple.security.cs.disable-library-validation`; the sha256
-pins (checked before every load) are what stands in for the signature check.
+these builds and its phonemizer is not used by Qwen3-TTS. On macOS library
+validation stays ON (review of #1237, 2026-10-26): no
+`disable-library-validation` entitlement; the bundled dylibs carry our
+signature and are loaded by absolute path from the running bundle only.
 CrispASR watermarks every synthesized clip (an inaudible AI-content mark, EU
 AI Act Art. 50(2)); it stays on. Re-check on every CrispASR or model bump:
 the pins, the release's notices, and that no GPL component entered the

@@ -170,15 +170,16 @@ export const VENDORED: CuratedEntry[] = [
       },
     ],
   },
-  // NEW-74: exponentialTalk's voice. Nothing below is in the binary: the
-  // speech worker downloads it on first use from the publishers, verifies
-  // every file against a pinned sha256 and loads it at runtime
-  // (apps/desktop/crates/crispasr; docs/third-party-licences.md, NEW-74).
+  // NEW-74: exponentialTalk's voice. Not in the binary: the speech worker
+  // downloads it on first use from the publishers, verifies every file
+  // against a pinned sha256 and loads it at runtime; the macOS bundle ships
+  // the CrispASR runtime itself (apps/desktop/scripts/build-macos-app.sh;
+  // docs/third-party-licences.md, NEW-74).
   {
-    title: `Downloaded at first use by exponentialTalk (not in the binary)`,
+    title: `exponentialTalk's voice runtime (downloaded at first use; bundled on macOS)`,
     clients: [`desktop`],
     body: [
-      `When a member turns on Speak replies, the desktop application's speech worker downloads, from the publishers' own servers, the CrispASR v0.8.45 runtime for the platform (https://github.com/CrispStrobe/CrispASR, MIT; the prebuilt libcrispasr with ggml, MIT, and the bundled components its third-party notices list; built without espeak-ng) and the Qwen3-TTS 12 Hz 0.6B Base model with its 12 Hz tokenizer (https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-Base, Apache-2.0; GGUF conversions by cstr for CrispASR, Apache-2.0). On Linux it also fetches NVIDIA's CUDA runtime (nvidia-cuda-runtime-cu12 12.9.79) and cuBLAS (nvidia-cublas-cu12 12.9.2.10) from NVIDIA's own wheels on PyPI; they are governed by the NVIDIA CUDA Toolkit End User License Agreement (https://docs.nvidia.com/cuda/eula/), whose text is kept beside them, and are not redistributed by Exponential. The CrispASR licence and notices are reproduced below; the Apache License 2.0 is reproduced above.`,
+      `The macOS application bundle contains the CrispASR v0.8.45 Metal runtime (libcrispasr and ggml dylibs, unmodified, re-signed). On Linux and Windows, when a member turns on Speak replies, the desktop application's speech worker downloads, from the publishers' own servers, the CrispASR v0.8.45 runtime for the platform (https://github.com/CrispStrobe/CrispASR, MIT; the prebuilt libcrispasr with ggml, MIT, and the bundled components its third-party notices list; built without espeak-ng) ; on every platform it downloads the Qwen3-TTS 12 Hz 0.6B Base model with its 12 Hz tokenizer (https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-Base, Apache-2.0; GGUF conversions by cstr for CrispASR, Apache-2.0). On Linux it also fetches NVIDIA's CUDA runtime (nvidia-cuda-runtime-cu12 12.9.79) and cuBLAS (nvidia-cublas-cu12 12.9.2.10) from NVIDIA's own wheels on PyPI; they are governed by the NVIDIA CUDA Toolkit End User License Agreement (https://docs.nvidia.com/cuda/eula/), whose text is kept beside them, and are not redistributed by Exponential. The CrispASR licence and notices are reproduced below; the Apache License 2.0 is reproduced above.`,
     ],
     reproduce: [
       { label: `MIT License — CrispASR (incl. ggml)`, path: `packages/licenses/texts/crispasr/LICENSE.txt` },
