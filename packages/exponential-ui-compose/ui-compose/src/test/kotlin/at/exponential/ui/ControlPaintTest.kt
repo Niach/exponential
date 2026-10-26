@@ -82,4 +82,29 @@ class ControlPaintTest {
         assertTrue("the active range reaches 15% of the track (${hex(at(0.15f))}, primary ${hex(primary)})", near(at(0.15f), primary))
         assertTrue("the active range stops at the value (85% of the track is ${hex(at(0.85f))})", !near(at(0.85f), primary))
     }
+    /**
+     * NEW-77: a listening VoiceWave paints its waves around the ring's
+     * radius on the right, nothing in the corner; TalkBack reads one image
+     * named by the label with the activity.
+     */
+    @Test
+    fun voiceWavePaintsItsRingsAndReadsAsOneImage() {
+        val m = render("""{"id": "w", "component": "VoiceWave", "props": {"activity": "listening", "size": "lg", "label": "Voice"}, "children": [{"id": "w.icon", "component": "Icon", "props": {"name": "mic"}}]}""")
+        val box = m.frame(m.indexOf("w")!!)
+        val d = RuntimeEnvironment.getApplication().resources.displayMetrics.density
+        val pixels = capture("voice-wave")
+        val bg = m.color("background")!!.toArgb()
+        fun near(a: Int, b: Int, tol: Int = 10) = listOf(16, 8, 0).all { kotlin.math.abs((a shr it and 255) - (b shr it and 255)) <= tol }
+        fun px(x: Float, y: Float) = pixels.getPixel((x * d).roundToInt().coerceIn(0, pixels.width - 1), (y * d).roundToInt().coerceIn(0, pixels.height - 1))
+        // The outer ring sits at r = 0.33 × 160 (± its amplitude) right of the centre.
+        val cy = box.top + box.height / 2f
+        val hit = (44..60).any { r -> !near(px(box.left + 80f + r, cy), bg) }
+        assertTrue("a wave crosses the right radius", hit)
+        assertTrue("the corner stays the background", near(px(box.left + 4f, box.top + 4f), bg, 2))
+        val semantics = compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Voice, listening")).fetchSemanticsNodes()
+        assertTrue("one image named `Voice, listening`", semantics.size == 1)
+        val image = semantics.first().boundsInRoot
+        assertTrue("the image is the wave's 160 dp box", kotlin.math.abs(image.width / d - 160f) < 1f)
+    }
 }
+

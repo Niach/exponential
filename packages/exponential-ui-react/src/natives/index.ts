@@ -14,7 +14,7 @@ import { ChoiceTilesNative } from "./choice-tiles"
 import { CodeBlockNative } from "./code"
 import { DatePickerNative, DateRangePickerNative, TimePickerNative } from "./dates"
 import { ResizableNative } from "./resizable"
-import { RingNative, SkeletonNative, SpinnerNative, TreeGuidesNative } from "./feedback"
+import { RingNative, SkeletonNative, SpinnerNative, TreeGuidesNative, VoiceWaveNative } from "./feedback"
 import { CheckboxNative, ComposerNative, InputNative, NumberFieldNative, RadioNative, SliderNative, SwitchNative, TextareaNative } from "./inputs"
 import { BoxNative, ListNative, UnknownNative } from "./layout"
 import { AudioPlayerNative, AvatarNative, CarouselNative, ImageNative, VideoNative } from "./media"
@@ -51,6 +51,7 @@ export const NATIVES: Record<string, ComponentType<NativeProps>> = {
   Ring: RingNative,
   Spinner: SpinnerNative,
   Skeleton: SkeletonNative,
+  VoiceWave: VoiceWaveNative,
   Table: TableNative,
   Chart: ChartNative,
   Button: ButtonNative,

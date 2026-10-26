@@ -945,7 +945,112 @@ pub fn ring(cx: &LeafCx) -> AnyElement {
     out.into_any_element()
 }
 
-/// `TreeGuides` (round 3, `layout.json` `treeGuideColumn` / `treeGuideRadius`
+/// One VoiceWave ring as painted (a test aid: [`record_voice_wave`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PaintedRing {
+    /// The node id.
+    pub id: String,
+    pub part: String,
+    pub points: usize,
+    pub phase: f64,
+    pub fill: Hsla,
+    pub stroke: Hsla,
+}
+
+thread_local! {
+    static VOICE_RINGS: RefCell<Option<Vec<PaintedRing>>> = const { RefCell::new(None) };
+}
+
+/// Record every ring [`voice_wave`] paints on this thread (a test aid).
+pub fn record_voice_wave(on: bool) {
+    VOICE_RINGS.with(|t| *t.borrow_mut() = on.then(Vec::new));
+}
+
+/// The rings painted since the last call (recording stays on).
+pub fn take_voice_wave() -> Vec<PaintedRing> {
+    VOICE_RINGS.with(|t| t.borrow_mut().as_mut().map(std::mem::take).unwrap_or_default())
+}
+
+/// The core's `activity` of a VoiceWave node's props.
+pub fn voice_wave_activity(props: &Map<String, Value>) -> exponential_ui::voice_wave::Activity {
+    exponential_ui::voice_wave::Activity::parse(props.get("activity").and_then(Value::as_str).unwrap_or(""))
+}
+
+/// NEW-77 `VoiceWave` (catalog/style.json `voiceWave`): the core's three
+/// rings for this frame (`exponential_ui::voice_wave`), each a closed path
+/// filled with its part colour at `fillAlpha` and stroked at `strokeAlpha`
+/// / `strokeWidth`. `elapsed` = seconds since the node started animating.
+/// The root opacity is the node's own box; the child is placed by the view.
+/// A box that is not square paints the wave of its shorter edge, centred.
+#[allow(clippy::too_many_arguments)]
+pub fn voice_wave(id: &str, props: &Map<String, Value>, theme: Option<&ResolvedTheme>, mode: Mode, w: f32, h: f32, elapsed: f64, reduced_motion: bool, ink: Hsla) -> AnyElement {
+    // A non-square box: the square wave of its shorter edge, centred.
+    let size = w.min(h).max(0.0);
+    use exponential_ui::voice_wave::{voice_wave as rings_of, VoiceWaveInput};
+    let num = |v: &Value| match v {
+        Value::Number(n) => n.as_f64(),
+        Value::String(s) => s.trim().parse().ok(),
+        _ => None,
+    };
+    let input = VoiceWaveInput {
+        size: size as f64,
+        activity: voice_wave_activity(props),
+        level: props.get("level").and_then(num),
+        bands: props.get("bands").and_then(Value::as_array).map(|b| b.iter().map(|v| num(v).unwrap_or(0.0)).collect()),
+        elapsed: Some(elapsed),
+        reduced_motion: Some(reduced_motion),
+    };
+    let wave = rings_of(&input);
+    let rings: Vec<(Vec<Point<Pixels>>, Hsla, Hsla, f32)> = wave
+        .rings
+        .iter()
+        .map(|r| {
+            let color = color_of(part_props(theme, mode, "VoiceWave", &r.part, props, &[]).get("color").and_then(Value::as_str)).unwrap_or(ink);
+            let fill = color.opacity(r.fill_alpha as f32);
+            let stroke = color.opacity(r.stroke_alpha as f32);
+            VOICE_RINGS.with(|t| {
+                if let Some(v) = t.borrow_mut().as_mut() {
+                    v.push(PaintedRing { id: id.to_string(), part: r.part.clone(), points: r.points.len(), phase: wave.phase, fill, stroke });
+                }
+            });
+            (r.points.iter().map(|[x, y]| point(px(*x as f32), px(*y as f32))).collect(), fill, stroke, r.stroke_width as f32)
+        })
+        .collect();
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let o = bounds.origin;
+            for (pts, fill, stroke, width) in &rings {
+                let Some((first, rest)) = pts.split_first() else { continue };
+                let mut f = PathBuilder::fill();
+                f.move_to(o + *first);
+                for p in rest {
+                    f.line_to(o + *p);
+                }
+                f.close();
+                if let Ok(path) = f.build() {
+                    window.paint_path(path, *fill);
+                }
+                let mut s = PathBuilder::stroke(px(*width));
+                s.move_to(o + *first);
+                for p in rest {
+                    s.line_to(o + *p);
+                }
+                s.close();
+                if let Ok(path) = s.build() {
+                    window.paint_path(path, *stroke);
+                }
+            }
+        },
+    )
+    .absolute()
+    .left(px((w - size) / 2.0))
+    .top(px((h - size) / 2.0))
+    .size(px(size))
+    .into_any_element()
+}
+
+/// `TreeGuides` (round 3,`layout.json` `treeGuideColumn` / `treeGuideRadius`
 /// / `treeGuideBridge`): 14 px columns, the 1 px line of column i at
 /// x = i·14 + 7. The elbow = a vertical from the row's top − bridge into a
 /// 3 px ROUNDED corner at the row's centre, then a stub to the column's right

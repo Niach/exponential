@@ -564,6 +564,55 @@ fn a_shimmering_text_is_plain_under_reduced_motion(cx: &mut TestAppContext) {
     assert!(lines.iter().all(|l| !l.text.contains("Running")), "plain text, no per-glyph paint");
 }
 
+fn voice_wave_tree(activity: &str, size: &str) -> Value {
+    json!({"id": "root", "component": "Box", "style": {"padding": 20, "width": 400}, "children": [
+        {"id": "wave", "component": "VoiceWave", "props": {"activity": activity, "level": 0.6, "bands": [0.9, 0.6, 1, 0.5], "size": size, "label": "Voice"}, "children": [
+            {"id": "mark", "component": "Icon", "props": {"name": "mic"}}
+        ]}
+    ]})
+}
+
+#[gpui::test]
+fn a_voice_wave_paints_three_rings_and_its_centred_child_and_moves(cx: &mut TestAppContext) {
+    use exponential_ui_gpui::paint::natives::{record_voice_wave, take_voice_wave};
+    record_voice_wave(true);
+    let (view, _log, cx) = surface(cx, voice_wave_tree("listening", "lg"));
+    let _ = take_voice_wave();
+    draw(cx);
+    let one = take_voice_wave();
+    let one = &one[one.len().saturating_sub(3)..];
+    assert_eq!(one.iter().map(|r| r.part.as_str()).collect::<Vec<_>>(), ["outer", "mid", "inner"], "three closed paths, outermost first");
+    assert!(one.iter().all(|r| r.id == "wave" && r.points == 121), "the core's 120 steps + the closing point");
+    assert!(one[0].fill.a > 0.0 && one[0].stroke.a > one[0].fill.a, "filled at fillAlpha, stroked at strokeAlpha");
+    let (wave, mark) = (painted(&view, cx, "wave"), painted(&view, cx, "mark"));
+    assert_eq!(wave.size.width, px(160.0), "the lg edge");
+    assert!((mark.center().x - wave.center().x).abs() < px(0.6) && (mark.center().y - wave.center().y).abs() < px(0.6), "the child is centred: {mark:?} in {wave:?}");
+    let info = view.read_with(cx, |v, _| v.accessible_info("wave")).expect("a11y");
+    assert_eq!(info.role, gpui::Role::Image);
+    assert_eq!(info.label.as_deref(), Some("Voice, listening"));
+    view.update(cx, |v, cx| v.advance_clock(Duration::from_millis(500), cx));
+    draw(cx);
+    let two = take_voice_wave();
+    record_voice_wave(false);
+    let last = two.last().expect("it keeps painting");
+    assert!(two.len() % 3 == 0 && last.phase > one[0].phase, "the phase runs while listening: {} then {}", one[0].phase, last.phase);
+}
+
+#[gpui::test]
+fn a_voice_wave_rests_under_reduced_motion_and_hides_the_child_at_sm(cx: &mut TestAppContext) {
+    use exponential_ui_gpui::paint::natives::{record_voice_wave, take_voice_wave};
+    record_voice_wave(true);
+    let reduced = SurfaceSettings { reduced_motion: true, ..SurfaceSettings::default() };
+    let (view, _log, cx) = surface_with(cx, voice_wave_tree("speaking", "sm"), Some(reduced));
+    view.update(cx, |v, cx| v.advance_clock(Duration::from_millis(1500), cx));
+    draw(cx);
+    let rings = take_voice_wave();
+    record_voice_wave(false);
+    assert!(!rings.is_empty() && rings.len() % 3 == 0, "three rings a frame");
+    assert!(rings.iter().all(|r| r.phase == 0.0), "reduced motion: phase 0");
+    assert!(view.read_with(cx, |v, _| v.painted_bounds("mark")).is_none(), "no child at sm");
+}
+
 #[gpui::test]
 fn a_trace_item_paints_its_chevron_rail_and_pending_line(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "style": {"padding": 20, "width": 400}, "children": [

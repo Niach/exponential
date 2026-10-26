@@ -60,6 +60,7 @@ import {
   TableHeader,
   TableRow,
   Textarea,
+  VoiceWave,
 } from "../../src/primitives"
 
 const ROW: CSSProperties = { display: `flex`, flexWrap: `wrap`, alignItems: `center`, gap: 8 }
@@ -70,6 +71,7 @@ const ICON_SIZES = [`icon`, `icon-sm`, `icon-xs`] as const
 const PICTURE = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 10'%3E%3Crect width='16' height='10' fill='%2360a5fa'/%3E%3C/svg%3E`
 const SOURCE = `import { tokenizeCode } from "@exponential_app/ui"\n\nconst lines = tokenizeCode(source, \`ts\`)\nexport default lines.length\n`
 const noop = () => {}
+const DOT: CSSProperties = { display: `block`, width: `100%`, height: `100%`, borderRadius: 9999, background: `#2563eb` }
 
 export const SPECIMENS: Record<string, () => ReactElement> = {
   "plain/button": () => (
@@ -238,6 +240,21 @@ export const SPECIMENS: Record<string, () => ReactElement> = {
       <ContextRing percent={80} tone="warning" />
       <ContextRing percent={98} tone="danger" />
       <ContextRing percent={null} />
+    </div>
+  ),
+  "plain/voice-wave": () => (
+    <div style={ROW}>
+      <VoiceWave activity="idle" size="sm" />
+      <VoiceWave activity="listening" level={0.6} bands={[0.9, 0.6, 1, 0.5]} label="Voice">
+        <span style={DOT} />
+      </VoiceWave>
+      <VoiceWave activity="thinking" size="lg">
+        <span style={DOT} />
+      </VoiceWave>
+      <VoiceWave activity="speaking" level={0.4} bands={[0.7, 1, 0.5, 0.8]} size="lg" label="Voice" />
+      <VoiceWave activity="muted" size="xl">
+        <span style={DOT} />
+      </VoiceWave>
     </div>
   ),
   "plain/disclosure-header": () => (

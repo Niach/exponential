@@ -126,6 +126,46 @@ object Round2Suites {
         case(s(c, "name")) { same(textShimmerJson(s(c, "color"), c["dark"]?.bool ?: false), c["expected"]!!) }
     }
 
+    /**
+     * NEW-77: every `fixtures/voice-wave.json` case through the painter's
+     * input builder, the facade's `voiceWaveJson` and its parse: the parts in
+     * order, every point within 0.5 px, the alphas, stroke widths, child edge
+     * and phase.
+     */
+    fun voiceWave(): List<Pair<String, String?>> = list(json("voice-wave.json"), "cases").map { c ->
+        case(s(c, "name")) {
+            val i = c["input"]!!
+            val input = at.exponential.ui.compose.VoiceWaveSpec.input(
+                size = (i["size"]?.number ?: 0.0).toFloat(),
+                activity = s(i, "activity"),
+                level = i["level"]?.number ?: 0.0,
+                bands = list(i, "bands").mapNotNull { it.number },
+                elapsed = i["elapsed"]?.number ?: 0.0,
+                reducedMotion = i["reducedMotion"]?.bool ?: false,
+            )
+            val got = at.exponential.ui.compose.VoiceWaveSpec.of(input) ?: return@case "the core refused $input"
+            val want = c["expected"]!!
+            val rings = list(want, "rings")
+            if (got.rings.size != rings.size) return@case "rings ${got.rings.size} / ${rings.size}"
+            for ((g, w) in got.rings.zip(rings)) {
+                if (g.part != s(w, "part")) return@case "part ${g.part} / ${s(w, "part")}"
+                for ((k, v) in listOf("fillAlpha" to g.fillAlpha, "strokeAlpha" to g.strokeAlpha, "strokeWidth" to g.strokeWidth)) {
+                    if (abs(v - (w[k]?.number ?: Double.NaN)) > 1e-6) return@case "${g.part} $k $v / ${w[k]?.json}"
+                }
+                val pts = list(w, "points")
+                if (g.points.size != pts.size * 2) return@case "${g.part} points ${g.points.size / 2} / ${pts.size}"
+                pts.forEachIndexed { n, p ->
+                    val x = p.array!![0].number!!
+                    val y = p.array!![1].number!!
+                    if (abs(g.points[2 * n] - x) > 0.5 || abs(g.points[2 * n + 1] - y) > 0.5) return@case "${g.part} point $n (${g.points[2 * n]}, ${g.points[2 * n + 1]}) / ($x, $y)"
+                }
+            }
+            if (abs(got.childSize - (want["childSize"]?.number ?: Double.NaN)) > 1e-3) return@case "childSize ${got.childSize} / ${want["childSize"]?.json}"
+            if (abs(got.phase - (want["phase"]?.number ?: Double.NaN)) > 1e-3) return@case "phase ${got.phase} / ${want["phase"]?.json}"
+            null
+        }
+    }
+
     // Round 2
 
     /** Every call through the PAINTER's formatter (ICU, en-US / UTC: the fixture's), every display value. */

@@ -255,8 +255,22 @@ impl SurfaceView {
         // Children: the content origin shifts by the scroll offset.
         let (sx, sy) = self.scrolls.get(&index).map(|s| (s.offset_x, s.offset_y)).unwrap_or((0.0, 0.0));
         let clip = if style.clips() && radii.iter().any(|r| *r > 0.0) && sx == 0.0 && sy == 0.0 { Some(Clip { x: abs.0, y: abs.1, w, h, radii }) } else if style.clips() { None } else { place.clip };
-        let child_place = Place { origin: (f.x + sx, f.y + sy), abs, clip };
+        let mut child_place = Place { origin: (f.x + sx, f.y + sy), abs, clip };
+        let mut kids_shown = true;
+        if n.component == "VoiceWave" && !leaf {
+            el = el.child(self.voice_wave(index, n, w, h, ink, window));
+            // NEW-77: the one child sits centred in the wave (its box at
+            // `child_size`, none at `sm`).
+            let edge = exponential_ui::voice_wave::child_size(w.min(h).max(0.0) as f64) as f32;
+            kids_shown = edge > 0.0;
+            if let Some(cf) = n.children.first().and_then(|c| self.frames.get(*c as usize)) {
+                child_place.origin = (cf.x - (w - cf.w) / 2.0, cf.y - (h - cf.h) / 2.0);
+            }
+        }
+        // The child is still built at `sm` (it is laid out and visible to the
+        // core; the native suppresses it), its element dropped.
         let kids = self.children_elements(index, child_place, window, cx);
+        let kids = if kids_shown { kids } else { Vec::new() };
         el = el.children(kids);
         // The shimmer band sweeps OVER the content (the web's `::after`),
         // clipped to its own box; the node's children stay unclipped.
@@ -780,6 +794,28 @@ impl SurfaceView {
         let elapsed = now.saturating_duration_since(start).as_secs_f64() * 1000.0;
         window.request_animation_frame();
         Some(natives::ShimmerPaint::new(ink, self.surface.mode() == exponential_ui::theme::Mode::Dark, natives::ShimmerPaint::progress_at(elapsed), style.rtl.unwrap_or(self.rtl)))
+    }
+
+    /// NEW-77: a VoiceWave's rings now. While its activity animates (and
+    /// motion is not reduced) the phase runs off the seconds since the node
+    /// started animating, asking for the next frame; otherwise the clock
+    /// resets so the next animating activity starts at phase 0.
+    fn voice_wave(&self, index: u32, n: &PlacedNode, w: f32, h: f32, ink: Hsla, window: &mut Window) -> AnyElement {
+        let reduced = self.surface.settings().reduced_motion;
+        let moving = natives::voice_wave_activity(&n.props).animates() && !reduced && !self.ghosting.get();
+        let mut elapsed = 0.0;
+        if let Some(id) = self.cache.ids.get(index as usize).cloned() {
+            if moving {
+                let now = self.now();
+                let start = *self.anim_start.borrow_mut().entry(id).or_insert(now);
+                elapsed = now.saturating_duration_since(start).as_secs_f64();
+                window.request_animation_frame();
+            } else if !self.ghosting.get() {
+                self.anim_start.borrow_mut().remove(id.as_ref());
+            }
+        }
+        let theme = self.surface.theme().cloned();
+        natives::voice_wave(&n.id, &n.props, theme.as_deref(), self.surface.mode(), w, h, elapsed, reduced, ink)
     }
 
     /// The checked dot of a Radio, centred in its circle.

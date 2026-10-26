@@ -1,5 +1,5 @@
 // FEED-128: DOM parity with React for the feedback natives (Ring, Spinner,
-// Skeleton, TreeGuides): every example of catalog-components.json (its
+// Skeleton, TreeGuides, VoiceWave): every example of catalog-components.json (its
 // example × every enum value × both booleans, as React's fixtures.test.tsx
 // iterates them), forced states, and dark + rtl.
 
@@ -8,7 +8,7 @@ import type { NestedNode } from "@exponential_app/ui"
 import componentsFixture from "@exponential_app/ui/fixtures/catalog-components.json"
 import { expectDomParity } from "../test/parity"
 
-const MINE = new Set([`Ring`, `Spinner`, `Skeleton`, `TreeGuides`])
+const MINE = new Set([`Ring`, `Spinner`, `Skeleton`, `TreeGuides`, `VoiceWave`])
 const cases = (componentsFixture as { cases: { name: string; node: NestedNode }[] }).cases.filter((c) => MINE.has(c.node.component))
 
 const guides: NestedNode = {
@@ -36,6 +36,7 @@ const mixed: NestedNode = {
     { id: `r`, component: `Ring`, props: { value: 0.3, tone: `success`, size: `lg`, label: `30%` } },
     { id: `sp`, component: `Spinner`, props: { size: `sm`, label: `Saving` } },
     { id: `sk`, component: `Skeleton`, props: { width: `40%`, height: `12px`, rounded: true } },
+    { id: `vw`, component: `VoiceWave`, props: { activity: `speaking`, level: 0.4, bands: [0.7, 1, 0.5, 0.8], size: `md`, label: `Voice` }, children: [{ id: `vw-mark`, component: `Icon`, props: { name: `mic` } }] },
     ...(guides.children ?? []),
     ...(skeletonRows.children ?? []),
   ],
@@ -45,6 +46,11 @@ describe(`feedback natives: DOM parity with React`, () => {
   for (const c of cases) it(c.name, async () => expectDomParity({ tree: c.node }))
   it(`TreeGuides: elbow, tee, pass-through, empty`, async () => expectDomParity({ tree: guides }))
   it(`Skeleton rows (dot, no dot, row height)`, async () => expectDomParity({ tree: skeletonRows }))
+  it(`VoiceWave bound to the data model (activity, level, bands)`, async () =>
+    expectDomParity({
+      tree: { id: `root`, component: `Box`, children: [{ id: `vw`, component: `VoiceWave`, props: { activity: { path: `/voice/activity` }, level: { path: `/voice/level` }, bands: { path: `/voice/bands` }, size: `xl`, label: `Voice` }, children: [{ id: `vw-t`, component: `Text`, props: { text: `V` } }] }] } as NestedNode,
+      data: { voice: { activity: `listening`, level: 0.8, bands: [1, 0.2, 0.6] } },
+    }))
   for (const state of [`hover`, `focus`, `pressed`, `disabled`]) it(`forced state ${state}`, async () => expectDomParity({ tree: mixed, states: [state] }))
   it(`exponential theme, dark, rtl`, async () => expectDomParity({ tree: mixed, theme: `exponential`, mode: `dark`, direction: `rtl` }))
 })

@@ -5,6 +5,7 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 ## Unreleased
 
+- NEW-77: the `VoiceWave` native paints: three closed waves from the core's `voiceWaveJson` (filled / stroked in the `VoiceWave/outer|mid|inner` recipe colours, the root recipe's box and opacity), animated per display frame while listening, thinking or speaking (still under reduced motion), its one child centred at `childSize` in the `VoiceWave/child` colour; TalkBack reads one image `<label>, <activity>` (hidden without a label). `ui-compose-primitives` gains `VoiceWaveView` / `DrawScope.drawVoiceWave`; `fixtures/voice-wave.json` replays in `Round2InteractionTest` within 0.5 px.
 - VAPP-122: `bind` is an action the host runs like `openUrl`: `{path, source, params?}` re-follows a path (`sourceWithParams` over the core's `sourceWithParamsJson`), subscriptions are keyed by path so the earlier one at that path is cancelled; the conformance suite replays the new `sourceParams` and `records` cases over `validateRecordJson`.
 
 ## 0.1.1 (2026-10-23)

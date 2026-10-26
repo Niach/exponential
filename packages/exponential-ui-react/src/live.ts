@@ -31,7 +31,7 @@ export interface NodeDeps {
 /** The natives that read `ctx.mode` while painting (a recipe size or
  *  colour resolved in JS); every other node's look follows the root's
  *  `data-xui-mode` in CSS. */
-const MODE_READERS = new Set([`Ring`, `Spinner`, `TreeGuides`, `Avatar`])
+const MODE_READERS = new Set([`Ring`, `Spinner`, `TreeGuides`, `Avatar`, `VoiceWave`])
 
 /** The client functions that read nothing but their arguments. */
 const PURE = new Set(Object.keys(CLIENT_FUNCTIONS).filter((name) => name !== `formatString`))

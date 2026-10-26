@@ -25273,5 +25273,265 @@
         "id" : "video"
       }
     ]
+  },
+  "VoiceWave\/activity=idle" : {
+    "height" : 160,
+    "nodes" : [
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          0,
+          0,
+          160,
+          160
+        ],
+        "id" : "voice-wave",
+        "opacity" : 0.3499999940395355
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          160
+        ],
+        "id" : "voice-wave-child"
+      }
+    ]
+  },
+  "VoiceWave\/activity=listening" : {
+    "height" : 160,
+    "nodes" : [
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          0,
+          0,
+          160,
+          160
+        ],
+        "id" : "voice-wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          160
+        ],
+        "id" : "voice-wave-child"
+      }
+    ]
+  },
+  "VoiceWave\/activity=muted" : {
+    "height" : 160,
+    "nodes" : [
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          0,
+          0,
+          160,
+          160
+        ],
+        "id" : "voice-wave",
+        "opacity" : 0.3499999940395355
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          160
+        ],
+        "id" : "voice-wave-child"
+      }
+    ]
+  },
+  "VoiceWave\/activity=speaking" : {
+    "height" : 160,
+    "nodes" : [
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          0,
+          0,
+          160,
+          160
+        ],
+        "id" : "voice-wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          160
+        ],
+        "id" : "voice-wave-child"
+      }
+    ]
+  },
+  "VoiceWave\/activity=thinking" : {
+    "height" : 160,
+    "nodes" : [
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          0,
+          0,
+          160,
+          160
+        ],
+        "id" : "voice-wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          160
+        ],
+        "id" : "voice-wave-child"
+      }
+    ]
+  },
+  "VoiceWave\/example" : {
+    "height" : 160,
+    "nodes" : [
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          0,
+          0,
+          160,
+          160
+        ],
+        "id" : "voice-wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          160
+        ],
+        "id" : "voice-wave-child"
+      }
+    ]
+  },
+  "VoiceWave\/size=lg" : {
+    "height" : 160,
+    "nodes" : [
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          0,
+          0,
+          160,
+          160
+        ],
+        "id" : "voice-wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          160
+        ],
+        "id" : "voice-wave-child"
+      }
+    ]
+  },
+  "VoiceWave\/size=md" : {
+    "height" : 56,
+    "nodes" : [
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          0,
+          0,
+          56,
+          56
+        ],
+        "id" : "voice-wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          56
+        ],
+        "id" : "voice-wave-child"
+      }
+    ]
+  },
+  "VoiceWave\/size=sm" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "voice-wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          32
+        ],
+        "id" : "voice-wave-child"
+      }
+    ]
+  },
+  "VoiceWave\/size=xl" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "VoiceWave",
+        "frame" : [
+          0,
+          0,
+          200,
+          200
+        ],
+        "id" : "voice-wave",
+        "opacity" : 1
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          200
+        ],
+        "id" : "voice-wave-child"
+      }
+    ]
   }
 }

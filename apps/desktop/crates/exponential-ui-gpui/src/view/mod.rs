@@ -1073,8 +1073,15 @@ impl SurfaceView {
             let Some(node) = self.cache.nodes.get(i as usize) else { continue };
             let own = self.styles.get(i as usize).and_then(|s| s.color).unwrap_or(inherited);
             self.inks[i as usize] = own;
+            // NEW-77: a VoiceWave's child inks with the `child` part.
+            let kids = if node.component == "VoiceWave" {
+                let child = crate::paint::parts::part_props(self.surface.theme().map(|t| t.as_ref()), self.surface.mode(), "VoiceWave", "child", &node.props, &[]);
+                crate::paint::color::color_of(child.get("color").and_then(serde_json::Value::as_str)).unwrap_or(own)
+            } else {
+                own
+            };
             for c in &node.children {
-                stack.push((*c, own));
+                stack.push((*c, kids));
             }
         }
     }

@@ -126,6 +126,16 @@ internal fun Modifier.nodeSemantics(node: NodeInfo, model: SurfaceModel): Modifi
     val a = A11y(node.accessibility)
     if (a.hidden || model.style(node.index).visibilityHidden) return hiddenFromAccessibility()
     val live = node.live?.takeIf { it != "off" }
+    // NEW-77 (a11y.json `VoiceWave`): an image named by its label with the
+    // activity appended (`Voice, listening`); decorative without a label.
+    if (node.component == "VoiceWave" && node.part == null) {
+        val name = a.label ?: node.props.str("label").ifEmpty { null } ?: return hiddenFromAccessibility()
+        val activity = VoiceWaveProps.of(node.props).activity
+        return clearAndSetSemantics {
+            contentDescription = "$name, $activity"
+            role = Role.Image
+        }
+    }
     if (!node.isLeaf) {
         if (node.pressable) {
             val label = named(a.label ?: model.combinedLabel(node.index), a.description)

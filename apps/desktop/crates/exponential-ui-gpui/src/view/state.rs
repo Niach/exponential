@@ -325,6 +325,8 @@ pub fn a11y_label(n: &PlacedNode, strings: &StringTable) -> Option<SharedString>
         "Link" => str_of(n, "label").or_else(|| str_of(n, "href")),
         "Chart" => str_of(n, "title").or_else(|| str_of(n, "kind")),
         "Icon" => str_of(n, "label"),
+        // NEW-77: the label with the activity appended (`Voice, listening`).
+        "VoiceWave" => return str_of(n, "label").map(|l| format!("{l}, {}", str_of(n, "activity").unwrap_or("idle")).into()),
         _ => str_of(n, "text").or_else(|| str_of(n, "label")).or_else(|| str_of(n, "title")).or_else(|| str_of(n, "placeholder")).or_else(|| str_of(n, "alt")),
     };
     s.map(|s| s.to_string().into())
@@ -422,6 +424,9 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         ("Image" | "Avatar" | "Video" | "Chart", _) => Role::Image,
         ("Icon", _) if str_of(n, "label").is_some() => Role::Image,
         ("Ring" | "Spinner", _) => Role::ProgressIndicator,
+        // NEW-77: an img named by its label; decorative without one.
+        ("VoiceWave", None) if str_of(n, "label").is_some() => Role::Image,
+        ("VoiceWave", None) => return None,
         ("Unknown", _) => Role::Note,
         ("Box", Some("indicator")) => Role::TabList,
         ("Form", _) => Role::Form,

@@ -19,6 +19,7 @@
     { "id": "plain/icon-disc-meter", "primitive": "plain", "viewport": { "width": 900, "height": 300 }, "open": false, "interact": null },
     { "id": "plain/progress", "primitive": "plain", "viewport": { "width": 900, "height": 200 }, "open": false, "interact": null },
     { "id": "plain/rings", "primitive": "plain", "viewport": { "width": 900, "height": 200 }, "open": false, "interact": null },
+    { "id": "plain/voice-wave", "primitive": "plain", "viewport": { "width": 900, "height": 300 }, "open": false, "interact": null },
     { "id": "plain/disclosure-header", "primitive": "plain", "viewport": { "width": 900, "height": 300 }, "open": false, "interact": "hover" },
     { "id": "plain/choice-tiles", "primitive": "plain", "viewport": { "width": 900, "height": 500 }, "open": false, "interact": null },
     { "id": "plain/code-block", "primitive": "plain", "viewport": { "width": 900, "height": 700 }, "open": false, "interact": null },

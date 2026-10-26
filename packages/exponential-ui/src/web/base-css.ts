@@ -224,6 +224,12 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 [data-xui-c="Ring"].xui-el,[data-xui-c="Spinner"].xui-el{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 [data-xui-c="Ring"].xui-el>svg,[data-xui-c="Spinner"].xui-el>svg{width:100%;height:100%;display:block}
 .xui-Ring-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+[data-xui-c="VoiceWave"].xui-el{position:relative;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+[data-xui-c="VoiceWave"].xui-el>svg{position:absolute;inset:0;width:100%;height:100%;display:block;overflow:visible;pointer-events:none}
+.xui-VoiceWave-child{position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.xui-VoiceWave-child>*{max-width:100%;max-height:100%}
+.xui-VoiceWave-child>[data-xui-c="Text"]{max-width:none;white-space:nowrap;overflow-wrap:normal}
+.xui-VoiceWave-child>svg{width:100%;height:100%}
 [data-xui-c="Spinner"].xui-el>svg,.xui-Button-spinner>svg{animation:xui-spin 0.8s linear infinite}
 [data-xui-c="Skeleton"].xui-el:not([data-rows]),.xui-Skeleton-dot,.xui-Skeleton-bar{animation:xui-skeleton ${SKELETON_PULSE_MS}ms ease-in-out infinite;opacity:${SKELETON_OPACITY_LOW};flex-shrink:0}
 [data-xui-c="Skeleton"][data-rows].xui-el{display:flex;flex-direction:column;align-self:stretch;flex-shrink:0;background:none;border-radius:0}

@@ -1,9 +1,11 @@
 // FEED-128 (React's natives/feedback.tsx): Ring, Spinner, Skeleton,
-// TreeGuides (Chart: chart.tsx). Sizes and strokes come from the theme's
+// TreeGuides, VoiceWave (Chart: chart.tsx). Sizes and strokes come from the theme's
 // recipes (`resolveRecipe`), exactly as React reads them.
 
-import { For, Show, createMemo, type JSX } from "solid-js"
-import { resolveRecipe, nativeRecipeProps, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS } from "@exponential_app/ui"
+import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
+import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWavePath, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/ui"
+import type { VoiceWaveActivity } from "@exponential_app/ui"
+import { voiceWaveAnimates, voiceWaveClock, voiceWaveName } from "@exponential_app/ui/web/primitives/voice-wave"
 import type { Component } from "solid-js"
 import { useSurfaceContext, type SurfaceContextValue } from "../context"
 import { CHROME, PaintIcon } from "../icons"
@@ -162,9 +164,74 @@ export function TreeGuidesNative(props: NativeProps): JSX.Element {
   )
 }
 
+/** NEW-77: VoiceWave (React's `VoiceWaveNative`): one SVG of three closed
+ *  waves, the core's `voiceWave` per frame, each ring in its part's recipe
+ *  colour at the ring's alphas; the root recipe sizes the box and sets the
+ *  opacity (CSS); the ONE child sits centred in a `child` box of
+ *  `childSize` px (none at `sm`). While listening, thinking or speaking (and
+ *  not under reduced motion) a frame clock drives the phase; the elapsed
+ *  seconds count from the moment the wave started moving. */
+export function VoiceWaveNative(props: NativeProps): JSX.Element {
+  const ctx = useSurfaceContext()
+  const part = parts(props)
+  const activity = createMemo((): VoiceWaveActivity => {
+    const a = str(props.props.activity)
+    return (VOICE_WAVE_ACTIVITIES as readonly string[]).includes(a) ? (a as VoiceWaveActivity) : `idle`
+  })
+  const size = () => sizeOf(ctx, `VoiceWave`, `root`, props.props, 56)
+  const [elapsed, setElapsed] = createSignal(0)
+  const animates = createMemo(() => voiceWaveAnimates(activity()) && !ctx.reducedMotion)
+  createEffect(() => {
+    if (!animates()) {
+      setElapsed(0)
+      return
+    }
+    onCleanup(voiceWaveClock(setElapsed))
+  })
+  const wave = createMemo(() =>
+    voiceWave({
+      size: size(),
+      activity: activity(),
+      level: num(props.props.level, 0),
+      bands: arr<unknown>(props.props.bands).map((b) => num(b, 0)),
+      reducedMotion: ctx.reducedMotion,
+      elapsed: elapsed(),
+    })
+  )
+  const colour = (name: string) => String(resolveRecipe(ctx.theme, { component: `VoiceWave`, part: name, props: nativeRecipeProps(`VoiceWave`, props.props) }, ctx.mode).color ?? `currentColor`)
+  const name = () => voiceWaveName(str(props.props.label) || undefined, activity())
+  return (
+    <span {...props.rootProps} role={name() ? `img` : undefined} aria-label={name()} aria-hidden={name() ? undefined : `true`} style={mergeStyle(props.rootProps, { width: size(), height: size() })}>
+      <svg viewBox={`0 0 ${size()} ${size()}`} width={size()} height={size()} aria-hidden="true">
+        <Index each={wave().rings}>
+          {(ring) => (
+            <path
+              {...part(ring().part)}
+              d={voiceWavePath(ring())}
+              fill="currentColor"
+              fill-opacity={ring().fillAlpha}
+              stroke="currentColor"
+              stroke-opacity={ring().strokeAlpha}
+              stroke-width={ring().strokeWidth}
+              stroke-linejoin="round"
+              style={css({ color: colour(ring().part) })}
+            />
+          )}
+        </Index>
+      </svg>
+      <Show when={props.node.children.length > 0 && wave().childSize > 0}>
+        <span {...part(`child`)} style={css({ width: wave().childSize, height: wave().childSize, color: colour(`child`) })}>
+          {props.children}
+        </span>
+      </Show>
+    </span>
+  )
+}
+
 export const NATIVES_FEEDBACK: Record<string, Component<NativeProps>> = {
   Ring: RingNative,
   Spinner: SpinnerNative,
   Skeleton: SkeletonNative,
+  VoiceWave: VoiceWaveNative,
   TreeGuides: TreeGuidesNative,
 }
