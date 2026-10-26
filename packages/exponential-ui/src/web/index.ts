@@ -37,3 +37,5 @@ export { nextEnabledIndex, typeaheadStep, TYPEAHEAD_RESET_MS } from "./listbox"
 export type { TypeaheadBuffer } from "./listbox"
 export { PLACED, placedPartId } from "./parts"
 export { share } from "./share"
+// NEW-77: the VoiceWave natives' runtime helpers (the published web entry; the primitives barrel would pull every recipe into the standalone bundle).
+export { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "./primitives/voice-wave"

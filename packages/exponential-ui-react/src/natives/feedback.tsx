@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react"
 import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveChildBox, voiceWavePath, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/ui"
 import type { VoiceWaveActivity } from "@exponential_app/ui"
-import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/ui/web/primitives"
+import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/ui/web"
 import { useSurfaceContext } from "../context"
 import { CHROME } from "../icons"
 import type { NativeProps } from "../node-view"
