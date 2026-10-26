@@ -717,6 +717,45 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     })
     expect(cont.sessionId).not.toBe(child.sessionId)
     expect(await row(cont.sessionId)).toMatchObject({ model: `haiku`, effort: `max` })
+
+    // Review: text with the model it already runs on queues behind a login
+    // wall (no pick, no refusal).
+    const queuedBehind = await sendSession({
+      userId: w.owner,
+      input: { sessionId: login.sessionId, model: `fable`, text: `when it resets` },
+    })
+    expect(queuedBehind.messageId).not.toBeNull()
+    expect((await row(login.sessionId)).blocked).toEqual(wall(`weekly`))
+
+    // Review: the clear lifts only a MODEL wall (a session/weekly wall the
+    // device reported in between is never wiped).
+    const { clearBlockedInTx } = await import(`@/lib/sessions/watchdog`)
+    await db.transaction((tx) => clearBlockedInTx(tx, [login.sessionId], `rate_limit`, `model`))
+    expect((await row(login.sessionId)).blocked).toEqual(wall(`weekly`))
+
+    // Review: a switch names a login signed in for the agent on the device.
+    await db
+      .update(devices)
+      .set({
+        agentAccounts: {
+          claude: {
+            signedIn: true,
+            email: `a@x.test`,
+            health: `ok`,
+            profiles: [
+              { id: `aaaa1111`, signedIn: true, active: true, email: `a@x.test`, health: `ok` },
+              { id: `cccc3333`, signedIn: true, email: `c@x.test`, health: `ok` },
+            ],
+          },
+        },
+      })
+      .where(eq(devices.deviceId, w.deviceId))
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: live.sessionId, account: `zzzz9999`, model: `opus` } })
+    ).rejects.toThrow(/Account "zzzz9999" is not signed in for claude on this session's device/)
+    expect((await row(live.sessionId)).account).toBe(`aaaa1111`)
+    await sendSession({ userId: w.owner, input: { sessionId: live.sessionId, account: `cccc3333` } })
+    expect((await row(live.sessionId)).account).toBe(`cccc3333`)
   })
 
   it(`ending a root ends its whole tree; an agent refuses End`, async () => {

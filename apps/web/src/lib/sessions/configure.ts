@@ -5,8 +5,7 @@ import { db } from "@/db/connection"
 import { mcpServers, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { assertCanSteer, loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
-import { assertRunnerVocabulary, effectiveCli, modelLiftsWall, runnerPicks } from "@/lib/sessions/send"
-import { clearBlockedInTx } from "@/lib/sessions/watchdog"
+import { assertRunnerVocabulary, effectiveCli, liftWallInTx, runnerPicks } from "@/lib/sessions/send"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 
 // EXP-1334 — `sessions.configure`: a live session's launch options change
@@ -43,18 +42,18 @@ export async function configureSession(
     input.mcpServerIds === undefined ? undefined : await assertMcpServers(target.teamId, input.mcpServerIds)
 
   const picks = runnerPicks(input)
-  // EXP-1376: a model pick on a walled session lifts a model wall at once
-  // (the queued messages run on it) or refuses, never a silent success.
-  const clearWall = modelLiftsWall(target, { switching: false, model: picks.model })
   const result = await db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
+    // EXP-1376: a model pick on a walled session lifts a model wall at once
+    // (the queued messages run on it) or refuses, never a silent success;
+    // read under the row lock.
+    await liftWallInTx(tx, target.id, { switching: false, model: picks.model })
     const set: Partial<typeof sessions.$inferInsert> = picks
     if (mcpServerIds !== undefined) set.mcpServerIds = mcpServerIds
     await tx
       .update(sessions)
       .set({ ...set, updatedAt: new Date() })
       .where(eq(sessions.id, target.id))
-    if (clearWall) await clearBlockedInTx(tx, [target.id], `rate_limit`)
     return { txid }
   })
   // The host device acts on the row at its next pass; a relay nudge kills

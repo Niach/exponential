@@ -32,6 +32,7 @@ import {
   findEditorSession,
   loadAppForUser,
 } from "@/lib/apps/editor-session"
+import { flattenAccounts } from "@/lib/accounts/account-option"
 import { answerSessionCardInTx } from "@/lib/sessions/answer"
 import {
   assertCanSteer,
@@ -366,8 +367,8 @@ function runnerFields(input: Partial<SessionsSendInput>, from?: RunnerSource | n
   return {
     cli: input.cli ?? from?.cli ?? null,
     account: input.account ?? from?.account ?? null,
-    model: (input.model || from?.model) || null,
-    effort: (input.effort || from?.effort) || null,
+    model: input.model?.trim() || from?.model || null,
+    effort: input.effort?.trim() || from?.effort || null,
     planMode: input.planMode ?? from?.planMode ?? false,
     computerUse: input.computerUse ?? from?.computerUse ?? false,
     ultracode: input.ultracode ?? from?.ultracode ?? false,
@@ -411,11 +412,14 @@ export function runnerPicks(input: {
  *  Anything else naming a model refuses, saying what would lift it. */
 export function modelLiftsWall(
   target: Pick<Session, `blocked` | `model`>,
-  change: { switching: boolean; model?: string }
+  change: { switching: boolean; model?: string; hasMessage?: boolean }
 ): boolean {
   const wall = target.blocked
   if (wall?.kind !== `rate_limit` || change.switching || change.model === undefined) return false
   if (wall.window === `model` && change.model !== target.model) return true
+  // A message naming the model it already runs on is no pick: it queues
+  // behind the wall like any message.
+  if (change.hasMessage && change.model === target.model) return false
   const until = wall.resetsAt ? ` until ${wall.resetsAt}` : ``
   throw new TRPCError({
     code: `BAD_REQUEST`,
@@ -424,6 +428,40 @@ export function modelLiftsWall(
         ? `This session is blocked by the ${change.model} usage limit${until}: pick another model, or pass account to switch logins.`
         : `This session is blocked by its login's ${wall.window ?? `usage`} limit${until}, which a model change does not lift: pass account to switch logins.`,
   })
+}
+
+/** EXP-1376 (review): the row's wall and model under its lock, then the
+ *  verdict on them; a lifted MODEL wall is cleared only while it is still a
+ *  model wall (a session/weekly wall the device reported in between stays). */
+export async function liftWallInTx(
+  tx: Tx,
+  sessionId: string,
+  change: { switching: boolean; model?: string; hasMessage?: boolean }
+): Promise<void> {
+  if (change.model === undefined || change.switching) return
+  const [fresh] = await tx
+    .select({ blocked: sessions.blocked, model: sessions.model })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .for(`update`)
+  if (fresh && modelLiftsWall(fresh, change)) {
+    await clearBlockedInTx(tx, [sessionId], `rate_limit`, `model`)
+  }
+}
+
+/** EXP-1376 (review): an account switch names a login signed in for the
+ *  session's agent on its device. A device that reported no logins at all
+ *  is unknowable here: its own switch check decides (and replies). */
+async function assertSessionAccount(target: Session, account: string, cli: string | null) {
+  const row = await loadDeviceRow(target.deviceId, await sessionDeviceOwner(target))
+  if (!row?.agentAccounts || Object.keys(row.agentAccounts).length === 0) return
+  const agent = cli ?? `claude`
+  if (!flattenAccounts(row).some((option) => option.agent === agent && option.id === account)) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `Account "${account}" is not signed in for ${agent} on this session's device`,
+    })
+  }
 }
 
 /** EXP-1376: an agent's composer `/model <alias>` over MCP is the model
@@ -707,11 +745,14 @@ async function messageSession(
         message: `Only claude can switch accounts during a session.`,
       })
     }
+    if (switching) await assertSessionAccount(target, input.account!, cli)
     // EXP-1376: the pickers move WITH the login in one write (the host
     // resumes on both), a blocked session included.
-    const clearWall = modelLiftsWall(target, { switching, model: picks.model })
+    const wallChange = { switching, model: picks.model, hasMessage }
     return db.transaction(async (tx) => {
       const txid = await generateTxId(tx)
+      // Under the row lock: the verdict reads the wall as it is now.
+      await liftWallInTx(tx, target.id, wallChange)
       const mcpServerIds =
         input.mcpServerIds === undefined
           ? undefined
@@ -727,7 +768,6 @@ async function messageSession(
           })
           .where(eq(sessions.id, target.id))
       }
-      if (clearWall) await clearBlockedInTx(tx, [target.id], `rate_limit`)
       let queued: SendOutcome[`queued`] = null
       if (move.kind === `direct`) {
         await applyDirectMove(tx, target, move.target)
@@ -777,6 +817,9 @@ async function messageSession(
           })
         : null
     const deviceId = moveTarget?.deviceId ?? target.deviceId
+    if (!moveTarget && input.account !== undefined && input.account !== target.account) {
+      await assertSessionAccount(target, input.account, cli)
+    }
     const device = await resolveSessionDevice(userId, target.teamId, deviceId)
     return db.transaction(async (tx) => {
       const txid = await generateTxId(tx)
@@ -799,6 +842,9 @@ async function messageSession(
   // An ended CHILD continues: a new session on its device (or the named
   // one), same pickers and branch, its first message = this one.
   const deviceId = input.deviceId ?? target.deviceId
+  if (deviceId === target.deviceId && input.account !== undefined && input.account !== target.account) {
+    await assertSessionAccount(target, input.account, cli)
+  }
   const device = await resolveSessionDevice(userId, target.teamId, deviceId)
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
