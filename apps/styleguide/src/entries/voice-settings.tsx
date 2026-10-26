@@ -2,6 +2,8 @@ import {
   agentOptions,
   trayHeader,
   VOICE_COPY,
+  VOICE_LANGUAGES,
+  VOICE_LIMITS,
   VOICE_SHORTCUTS,
   VOICE_TEST_IDS,
   voiceDeviceOptions,
@@ -42,7 +44,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `NEW-67`,
   title: `Voice settings`,
-  blurb: `Settings → Personal → ${VOICE_COPY.group}, after Notifications, on all four clients (NEW-67, voice.json). ONE group: ${VOICE_COPY.voiceDevice} (THE device picker's rows, None first, the member's desktops by name; phones and servers are never a voice device), ${VOICE_COPY.agent} (None first, the member's agents by label, "{name} · {team}" on a shared name) and ${VOICE_COPY.speakReplies}. While a voice device is picked the tray group follows under "${VOICE_COPY.trayHeader}": ${VOICE_COPY.pushToTalk}, ${VOICE_COPY.shortcut}, ${VOICE_COPY.wakeWord} and ${VOICE_COPY.wakePhrase} (placeholder "${VOICE_COPY.wakePhrasePlaceholder}"). Every switch reads off and is disabled while the device or the agent is None, and choosing None clears them (clearOnNone). Device settings no longer has a Voice group.`,
+  blurb: `Settings → Personal → ${VOICE_COPY.group}, after Notifications, on all four clients (NEW-67, voice.json). ONE group: ${VOICE_COPY.voiceDevice} (THE device picker's rows, None first, the member's desktops by name; phones and servers are never a voice device), ${VOICE_COPY.agent} (None first, the member's agents by label, "{name} · {team}" on a shared name) and ${VOICE_COPY.speakReplies}. While a voice device is picked the tray group follows under "${VOICE_COPY.trayHeader}": ${VOICE_COPY.pushToTalk}, ${VOICE_COPY.shortcut}, ${VOICE_COPY.wakeWord} and ${VOICE_COPY.wakePhrase} (placeholder "${VOICE_COPY.wakePhrasePlaceholder}"). Every switch reads off and is disabled while the device or the agent is None, and choosing None clears them (clearOnNone). Device settings no longer has a Voice group. #NEW-73: ${VOICE_COPY.language} (English / Deutsch, its trailing detail "${VOICE_COPY.languageNote}" for German on a voice device) follows ${VOICE_COPY.speakReplies}, and while a voice device is picked ${VOICE_COPY.voiceFile} (empty = "${VOICE_COPY.voiceFilePlaceholder}") and ${VOICE_COPY.voiceTranscript} follow in the same group.`,
   status: {
     web: {
       state: `ok`,
@@ -95,6 +97,31 @@ export const entry: StyleguideEntry = {
           label={VOICE_COPY.speakReplies}
           checked
           onCheckedChange={noop}
+        />
+        <Picker
+          mode="single"
+          triggerVariant="row"
+          width="md"
+          mobileTitle={VOICE_COPY.language}
+          value={VOICE_LANGUAGES[0].value}
+          items={VOICE_LANGUAGES}
+          onChange={noop}
+        />
+        <GlassInputRow
+          id={`demo-${VOICE_TEST_IDS.voiceFile}`}
+          label={VOICE_COPY.voiceFile}
+          placeholder={VOICE_COPY.voiceFilePlaceholder}
+          maxLength={VOICE_LIMITS.voiceFile}
+          value=""
+          onChange={noop}
+        />
+        <GlassInputRow
+          id={`demo-${VOICE_TEST_IDS.voiceTranscript}`}
+          label={VOICE_COPY.voiceTranscript}
+          placeholder={VOICE_COPY.voiceTranscriptPlaceholder}
+          maxLength={VOICE_LIMITS.voiceTranscript}
+          value=""
+          onChange={noop}
         />
       </GlassGroup>
       <GlassSectionHeader label={trayHeader(`mint`)} />

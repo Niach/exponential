@@ -3,7 +3,7 @@ import Foundation
 // NEW-67 (voice plan v3, V1): THE Settings → Voice section. A port of the TS
 // reference `packages/domain-contract/src/voice.ts` (desktop `domain::voice`,
 // Android `domain/Voice.kt`), byte-locked by `fixtures/voice.json` (`copy`,
-// `testIds`, `shortcuts`, `defaults` and the option builders, replayed by
+// `testIds`, `shortcuts`, `languages`, `limits`, `defaults` and the option builders, replayed by
 // `VoiceTests`). The phones only show and edit the member's setting: speaking
 // is desktop-only. The fixture's `$comment` holds the rules.
 
@@ -15,6 +15,12 @@ public enum Voice {
         public static let agent = "Agent"
         public static let agentNone = "None"
         public static let speakReplies = "Speak replies"
+        public static let language = "Language"
+        public static let languageNote = "Needs a GPU on {device}"
+        public static let voiceFile = "Voice file"
+        public static let voiceFilePlaceholder = "Built-in"
+        public static let voiceTranscript = "Transcript"
+        public static let voiceTranscriptPlaceholder = "What the clip says"
         public static let trayHeader = "On {device} (tray)"
         public static let pushToTalk = "Push to talk"
         public static let shortcut = "Shortcut"
@@ -35,6 +41,9 @@ public enum Voice {
         public static let voiceDevice = "settings-voice-device"
         public static let agent = "settings-voice-agent"
         public static let speakReplies = "settings-voice-speak-replies"
+        public static let language = "settings-voice-language"
+        public static let voiceFile = "settings-voice-file"
+        public static let voiceTranscript = "settings-voice-transcript"
         public static let pushToTalk = "settings-voice-push-to-talk"
         public static let shortcut = "settings-voice-shortcut"
         public static let wakeWord = "settings-voice-wake-word"
@@ -63,6 +72,28 @@ public enum Voice {
         Shortcut(value: "mouse5", label: "Mouse button 5"),
     ]
 
+    /// One language replies are spoken in (#NEW-73; `value` is what is stored).
+    public struct Language: Equatable, Hashable, Sendable {
+        public let value: String
+        public let label: String
+
+        public init(value: String, label: String) {
+            self.value = value
+            self.label = label
+        }
+    }
+
+    public static let languages: [Language] = [
+        Language(value: "en", label: "English"),
+        Language(value: "de", label: "Deutsch"),
+    ]
+
+    /// The most characters the two voice-clip inputs store (`limits`).
+    public enum Limits {
+        public static let voiceFile = 512
+        public static let voiceTranscript = 500
+    }
+
     /// The member's ONE settings row (`voice.get`, `voice.update`'s result).
     public struct Settings: Codable, Equatable, Sendable {
         public var voiceDeviceId: String?
@@ -72,6 +103,12 @@ public enum Voice {
         public var pttShortcut: String
         public var wakeWord: Bool
         public var wakePhrase: String
+        /// #NEW-73: one of `languages`.
+        public var language: String
+        /// A reference WAV's path ON the voice device; empty = the built-in voice.
+        public var voiceFile: String
+        /// What that clip says.
+        public var voiceTranscript: String
 
         public init(
             voiceDeviceId: String? = nil,
@@ -80,7 +117,10 @@ public enum Voice {
             pushToTalk: Bool = false,
             pttShortcut: String = "ctrl+space",
             wakeWord: Bool = false,
-            wakePhrase: String = ""
+            wakePhrase: String = "",
+            language: String = "en",
+            voiceFile: String = "",
+            voiceTranscript: String = ""
         ) {
             self.voiceDeviceId = voiceDeviceId
             self.agentId = agentId
@@ -89,6 +129,30 @@ public enum Voice {
             self.pttShortcut = pttShortcut
             self.wakeWord = wakeWord
             self.wakePhrase = wakePhrase
+            self.language = language
+            self.voiceFile = voiceFile
+            self.voiceTranscript = voiceTranscript
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case voiceDeviceId, agentId, speakReplies, pushToTalk, pttShortcut, wakeWord, wakePhrase
+            case language, voiceFile, voiceTranscript
+        }
+
+        /// A key the server does not send yet (an older server) reads its default.
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let d = Settings()
+            voiceDeviceId = try c.decodeIfPresent(String.self, forKey: .voiceDeviceId)
+            agentId = try c.decodeIfPresent(String.self, forKey: .agentId)
+            speakReplies = try c.decodeIfPresent(Bool.self, forKey: .speakReplies) ?? d.speakReplies
+            pushToTalk = try c.decodeIfPresent(Bool.self, forKey: .pushToTalk) ?? d.pushToTalk
+            pttShortcut = try c.decodeIfPresent(String.self, forKey: .pttShortcut) ?? d.pttShortcut
+            wakeWord = try c.decodeIfPresent(Bool.self, forKey: .wakeWord) ?? d.wakeWord
+            wakePhrase = try c.decodeIfPresent(String.self, forKey: .wakePhrase) ?? d.wakePhrase
+            language = try c.decodeIfPresent(String.self, forKey: .language) ?? d.language
+            voiceFile = try c.decodeIfPresent(String.self, forKey: .voiceFile) ?? d.voiceFile
+            voiceTranscript = try c.decodeIfPresent(String.self, forKey: .voiceTranscript) ?? d.voiceTranscript
         }
     }
 
@@ -105,6 +169,9 @@ public enum Voice {
         public var pttShortcut: String?
         public var wakeWord: Bool?
         public var wakePhrase: String?
+        public var language: String?
+        public var voiceFile: String?
+        public var voiceTranscript: String?
 
         public init(
             voiceDeviceId: String?? = nil,
@@ -113,7 +180,10 @@ public enum Voice {
             pushToTalk: Bool? = nil,
             pttShortcut: String? = nil,
             wakeWord: Bool? = nil,
-            wakePhrase: String? = nil
+            wakePhrase: String? = nil,
+            language: String? = nil,
+            voiceFile: String? = nil,
+            voiceTranscript: String? = nil
         ) {
             self.voiceDeviceId = voiceDeviceId
             self.agentId = agentId
@@ -122,10 +192,14 @@ public enum Voice {
             self.pttShortcut = pttShortcut
             self.wakeWord = wakeWord
             self.wakePhrase = wakePhrase
+            self.language = language
+            self.voiceFile = voiceFile
+            self.voiceTranscript = voiceTranscript
         }
 
         private enum CodingKeys: String, CodingKey {
             case voiceDeviceId, agentId, speakReplies, pushToTalk, pttShortcut, wakeWord, wakePhrase
+            case language, voiceFile, voiceTranscript
         }
 
         /// None travels as an explicit `null`; an untouched field writes no key.
@@ -142,6 +216,9 @@ public enum Voice {
             try c.encodeIfPresent(pttShortcut, forKey: .pttShortcut)
             try c.encodeIfPresent(wakeWord, forKey: .wakeWord)
             try c.encodeIfPresent(wakePhrase, forKey: .wakePhrase)
+            try c.encodeIfPresent(language, forKey: .language)
+            try c.encodeIfPresent(voiceFile, forKey: .voiceFile)
+            try c.encodeIfPresent(voiceTranscript, forKey: .voiceTranscript)
         }
     }
 
@@ -156,6 +233,9 @@ public enum Voice {
         if let pttShortcut = change.pttShortcut { after.pttShortcut = pttShortcut }
         if let wakeWord = change.wakeWord { after.wakeWord = wakeWord }
         if let wakePhrase = change.wakePhrase { after.wakePhrase = wakePhrase }
+        if let language = change.language { after.language = language }
+        if let voiceFile = change.voiceFile { after.voiceFile = voiceFile }
+        if let voiceTranscript = change.voiceTranscript { after.voiceTranscript = voiceTranscript }
         if after.voiceDeviceId == nil || after.agentId == nil {
             after.speakReplies = false
             after.pushToTalk = false
@@ -241,5 +321,19 @@ public enum Voice {
     /// The wake phrase's placeholder (and its value when empty).
     public static func wakePhrasePlaceholder(_ agentName: String) -> String {
         Copy.wakePhrasePlaceholder.replacingOccurrences(of: "{agent}", with: agentName)
+    }
+
+    /// #NEW-73: the Language row's trailing detail; German speaks on the voice
+    /// device's GPU only. Nil without a voice device or for English.
+    public static func languageNote(language: String, deviceName: String?) -> String? {
+        guard language == "de", let deviceName else { return nil }
+        return Copy.languageNote.replacingOccurrences(of: "{device}", with: deviceName)
+    }
+
+    /// #NEW-73: what the Language row and its menu show for a language.
+    public static func languageLabel(language: String, deviceName: String?) -> String {
+        let label = languages.first { $0.value == language }?.label ?? language
+        guard let note = languageNote(language: language, deviceName: deviceName) else { return label }
+        return "\(label) · \(note)"
     }
 }

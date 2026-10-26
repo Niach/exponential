@@ -4,7 +4,7 @@ import XCTest
 
 // NEW-67: Settings → Voice, locked ×4 (TS `voice.ts`, desktop
 // `domain::voice`, Android `VoiceTest`) against fixtures/voice.json: every
-// `copy` key, the `testIds`, `shortcuts`, `defaults` and every case list but
+// `copy` key, the `testIds`, `shortcuts`, `languages`, `limits`, `defaults` and every case list but
 // the speech ones (shouldSpeak / spokenText / numbers are desktop-only).
 final class VoiceTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
@@ -34,6 +34,12 @@ final class VoiceTests: XCTestCase {
             "agent": Voice.Copy.agent,
             "agentNone": Voice.Copy.agentNone,
             "speakReplies": Voice.Copy.speakReplies,
+            "language": Voice.Copy.language,
+            "languageNote": Voice.Copy.languageNote,
+            "voiceFile": Voice.Copy.voiceFile,
+            "voiceFilePlaceholder": Voice.Copy.voiceFilePlaceholder,
+            "voiceTranscript": Voice.Copy.voiceTranscript,
+            "voiceTranscriptPlaceholder": Voice.Copy.voiceTranscriptPlaceholder,
             "trayHeader": Voice.Copy.trayHeader,
             "pushToTalk": Voice.Copy.pushToTalk,
             "shortcut": Voice.Copy.shortcut,
@@ -59,6 +65,9 @@ final class VoiceTests: XCTestCase {
             "voiceDevice": Voice.TestIds.voiceDevice,
             "agent": Voice.TestIds.agent,
             "speakReplies": Voice.TestIds.speakReplies,
+            "language": Voice.TestIds.language,
+            "voiceFile": Voice.TestIds.voiceFile,
+            "voiceTranscript": Voice.TestIds.voiceTranscript,
             "pushToTalk": Voice.TestIds.pushToTalk,
             "shortcut": Voice.TestIds.shortcut,
             "wakeWord": Voice.TestIds.wakeWord,
@@ -71,12 +80,35 @@ final class VoiceTests: XCTestCase {
         XCTAssertEqual(fixture["maxChars"] as? Int, Voice.maxChars)
     }
 
+    /// #NEW-73: `languages` and `limits`.
+    func testLanguagesAndLimitsMatchTheFixture() throws {
+        let fixture = try fixture()
+        let languages = try XCTUnwrap(fixture["languages"] as? [[String: String]]).map {
+            Voice.Language(value: $0["value"] ?? "", label: $0["label"] ?? "")
+        }
+        XCTAssertEqual(languages, Voice.languages)
+        let limits = try XCTUnwrap(fixture["limits"] as? [String: Int])
+        XCTAssertEqual(limits, [
+            "voiceFile": Voice.Limits.voiceFile,
+            "voiceTranscript": Voice.Limits.voiceTranscript,
+        ])
+    }
+
     /// `defaults` decodes into the mirrored row (and `voice.get`'s shape).
     func testDefaultsMatchTheFixture() throws {
         let defaults = try XCTUnwrap(try fixture()["defaults"])
         let data = try JSONSerialization.data(withJSONObject: defaults)
         XCTAssertEqual(try JSONDecoder().decode(Voice.Settings.self, from: data), Voice.defaults)
         XCTAssertTrue(Voice.shortcuts.contains { $0.value == Voice.defaults.pttShortcut })
+        XCTAssertTrue(Voice.languages.contains { $0.value == Voice.defaults.language })
+        XCTAssertEqual(Voice.defaults.voiceFile, "")
+        XCTAssertEqual(Voice.defaults.voiceTranscript, "")
+    }
+
+    /// A row from a server without the #NEW-73 keys reads their defaults.
+    func testSettingsDecodeWithoutTheNewKeys() throws {
+        let data = Data(#"{"voiceDeviceId":null,"agentId":null,"speakReplies":false,"pushToTalk":false,"pttShortcut":"ctrl+space","wakeWord":false,"wakePhrase":""}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(Voice.Settings.self, from: data), Voice.defaults)
     }
 
     func testVoiceDeviceOptionsCases() throws {
@@ -121,6 +153,28 @@ final class VoiceTests: XCTestCase {
     func testWakePhrasePlaceholderCases() throws {
         for testCase in try cases("wakePhrasePlaceholderCases") {
             XCTAssertEqual(Voice.wakePhrasePlaceholder(testCase["agent"] as? String ?? ""), testCase["placeholder"] as? String)
+        }
+    }
+
+    func testLanguageNoteCases() throws {
+        for testCase in try cases("languageNoteCases") {
+            let name = testCase["name"] as? String ?? "?"
+            XCTAssertEqual(
+                Voice.languageNote(language: testCase["language"] as? String ?? "", deviceName: testCase["device"] as? String),
+                testCase["note"] as? String,
+                name
+            )
+        }
+    }
+
+    func testLanguageLabelCases() throws {
+        for testCase in try cases("languageLabelCases") {
+            let name = testCase["name"] as? String ?? "?"
+            XCTAssertEqual(
+                Voice.languageLabel(language: testCase["language"] as? String ?? "", deviceName: testCase["device"] as? String),
+                testCase["label"] as? String,
+                name
+            )
         }
     }
 

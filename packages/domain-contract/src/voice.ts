@@ -254,3 +254,10 @@ export function languageNote(language: string, deviceName: string | null): strin
   if (language !== `de` || deviceName === null) return null
   return fixture.copy.languageNote.replace(`{device}`, deviceName)
 }
+
+/** #NEW-73: what the Language row and its menu show for a language. */
+export function languageLabel(language: string, deviceName: string | null): string {
+  const label = fixture.languages.find((entry) => entry.value === language)?.label ?? language
+  const note = languageNote(language, deviceName)
+  return note === null ? label : `${label} · ${note}`
+}

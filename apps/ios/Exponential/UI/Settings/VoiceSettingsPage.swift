@@ -5,7 +5,9 @@ import SwiftUI
 
 // NEW-67 (voice plan v3, V1): Settings → Personal → Voice (`voice.json`, the
 // same page on web, the IDE and Android; on iOS it hangs off the account
-// page, the phone's Personal settings). ONE group (Voice device, Agent, Speak replies), then while a voice device is
+// page, the phone's Personal settings). ONE group (Voice device, Agent, Speak
+// replies, Language read through `languageLabel`, and while a voice device is
+// picked Voice file + Transcript, #NEW-73), then while a voice device is
 // picked the tray group under `trayHeader` (Push to talk, Shortcut, Wake
 // word, Wake phrase). Every switch reads off and is disabled while the device
 // or the agent is None. Each change saves at once with `voice.update`
@@ -20,7 +22,10 @@ struct VoiceSettingsPage: View {
     @State private var settings: Voice.Settings?
     @State private var loadFailed = false
     @State private var wakePhrase = ""
-    @State private var wakePhraseSave: Task<Void, Never>?
+    @State private var voiceFile = ""
+    @State private var voiceTranscript = ""
+    /// The pending debounced save per input row.
+    @State private var textSaves: [TextInput: Task<Void, Never>] = [:]
     @State private var devices: [DeviceEntity] = []
     @State private var agents: [AgentDefinitionEntity] = []
     @State private var teams: [TeamEntity] = []
@@ -92,6 +97,11 @@ struct VoiceSettingsPage: View {
                 .accessibilityIdentifier(Voice.TestIds.agent)
                 toggle(.speakReplies, on: armed && settings.speakReplies, enabled: armed)
                 .accessibilityIdentifier(Voice.TestIds.speakReplies)
+                languageRow(settings)
+                if settings.voiceDeviceId != nil {
+                    textRow(.voiceFile)
+                    textRow(.voiceTranscript)
+                }
             }
             .listRowBackground(glassFormRowFill)
 
@@ -111,7 +121,7 @@ struct VoiceSettingsPage: View {
                     .accessibilityIdentifier(Voice.TestIds.shortcut)
                     toggle(.wakeWord, on: armed && settings.wakeWord, enabled: armed)
                     .accessibilityIdentifier(Voice.TestIds.wakeWord)
-                    wakePhraseRow
+                    textRow(.wakePhrase)
                 } header: {
                     GlassSectionHeader(Voice.trayHeader(deviceName(deviceId)))
                 }
@@ -149,29 +159,127 @@ struct VoiceSettingsPage: View {
             .disabled(!enabled)
     }
 
+    /// #NEW-73: picker over `languages`; German carries its GPU note
+    /// (`languageLabel`), in the row and in the menu.
+    private func languageRow(_ settings: Voice.Settings) -> some View {
+        let device = settings.voiceDeviceId.map(deviceName)
+        return GlassPickerRow(
+            Voice.Copy.language,
+            selection: Binding(
+                get: { settings.language },
+                set: { save(Voice.Change(language: $0)) }
+            ),
+            options: Voice.languages.map(\.value),
+            label: { value in Voice.languageLabel(language: value, deviceName: device) }
+        )
+        .accessibilityIdentifier(Voice.TestIds.language)
+    }
+
+    /// The page's one-line inputs: Wake phrase, Voice file, Transcript.
+    private enum TextInput: Hashable {
+        case wakePhrase, voiceFile, voiceTranscript
+
+        var title: String {
+            switch self {
+            case .wakePhrase: Voice.Copy.wakePhrase
+            case .voiceFile: Voice.Copy.voiceFile
+            case .voiceTranscript: Voice.Copy.voiceTranscript
+            }
+        }
+
+        var testId: String {
+            switch self {
+            case .wakePhrase: Voice.TestIds.wakePhrase
+            case .voiceFile: Voice.TestIds.voiceFile
+            case .voiceTranscript: Voice.TestIds.voiceTranscript
+            }
+        }
+
+        /// voice.json `limits`; the wake phrase has none on the page.
+        var limit: Int? {
+            switch self {
+            case .wakePhrase: nil
+            case .voiceFile: Voice.Limits.voiceFile
+            case .voiceTranscript: Voice.Limits.voiceTranscript
+            }
+        }
+
+        func stored(_ settings: Voice.Settings) -> String {
+            switch self {
+            case .wakePhrase: settings.wakePhrase
+            case .voiceFile: settings.voiceFile
+            case .voiceTranscript: settings.voiceTranscript
+            }
+        }
+
+        func change(_ value: String) -> Voice.Change {
+            switch self {
+            case .wakePhrase: Voice.Change(wakePhrase: value)
+            case .voiceFile: Voice.Change(voiceFile: value)
+            case .voiceTranscript: Voice.Change(voiceTranscript: value)
+            }
+        }
+    }
+
+    private func placeholder(_ input: TextInput) -> String {
+        switch input {
+        case .wakePhrase: Voice.wakePhrasePlaceholder(agentName)
+        case .voiceFile: Voice.Copy.voiceFilePlaceholder
+        case .voiceTranscript: Voice.Copy.voiceTranscriptPlaceholder
+        }
+    }
+
+    private func draft(_ input: TextInput) -> String {
+        switch input {
+        case .wakePhrase: wakePhrase
+        case .voiceFile: voiceFile
+        case .voiceTranscript: voiceTranscript
+        }
+    }
+
+    private func setDraft(_ input: TextInput, _ value: String) {
+        switch input {
+        case .wakePhrase: wakePhrase = value
+        case .voiceFile: voiceFile = value
+        case .voiceTranscript: voiceTranscript = value
+        }
+    }
+
+    /// Every draft back to a stored row (load, revert).
+    private func resetDrafts(_ settings: Voice.Settings) {
+        wakePhrase = settings.wakePhrase
+        voiceFile = settings.voiceFile
+        voiceTranscript = settings.voiceTranscript
+    }
+
     /// The input row (label + trailing field, the board form's Prefix row):
     /// saved a beat after typing stops, and at once on submit.
-    private var wakePhraseRow: some View {
+    private func textRow(_ input: TextInput) -> some View {
         HStack(spacing: 8) {
-            Text(Voice.Copy.wakePhrase)
+            Text(input.title)
                 .foregroundStyle(.white.opacity(TextOpacity.primary))
             Spacer(minLength: 8)
             GlassTextField(
-                Voice.wakePhrasePlaceholder(agentName),
+                placeholder(input),
                 text: Binding(
-                    get: { wakePhrase },
+                    get: { draft(input) },
                     set: { next in
-                        wakePhrase = next
-                        scheduleWakePhraseSave()
+                        // One line, no control characters, at most `limits`.
+                        var clean = String(String.UnicodeScalarView(
+                            next.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }
+                        ))
+                        if let limit = input.limit, clean.count > limit { clean = String(clean.prefix(limit)) }
+                        setDraft(input, clean)
+                        scheduleTextSave(input)
                     }
                 ),
                 bordered: false,
-                accessibilityIdentifier: Voice.TestIds.wakePhrase
+                accessibilityIdentifier: input.testId
             )
             .multilineTextAlignment(.trailing)
             .autocorrectionDisabled()
             .submitLabel(.done)
-            .onSubmit { saveWakePhrase() }
+            .onSubmit { saveText(input) }
         }
     }
 
@@ -206,7 +314,7 @@ struct VoiceSettingsPage: View {
         do {
             let loaded = try await deps.voiceApi.get(accountId: accountId)
             settings = loaded
-            wakePhrase = loaded.wakePhrase
+            resetDrafts(loaded)
         } catch {
             if settings == nil { loadFailed = true }
         }
@@ -243,7 +351,7 @@ struct VoiceSettingsPage: View {
                 if settings == next { settings = stored }
             } catch {
                 settings = previous
-                wakePhrase = previous.wakePhrase
+                resetDrafts(previous)
                 toaster.error(
                     FeedbackStates.Errors.title(verb: "save", thing: "the voice settings"),
                     description: error.trpcUserMessage
@@ -252,19 +360,20 @@ struct VoiceSettingsPage: View {
         }
     }
 
-    private func scheduleWakePhraseSave() {
-        wakePhraseSave?.cancel()
-        wakePhraseSave = Task {
+    private func scheduleTextSave(_ input: TextInput) {
+        textSaves[input]?.cancel()
+        textSaves[input] = Task {
             try? await Task.sleep(for: .milliseconds(600))
             guard !Task.isCancelled else { return }
-            saveWakePhrase()
+            saveText(input)
         }
     }
 
-    private func saveWakePhrase() {
-        wakePhraseSave?.cancel()
-        let trimmed = wakePhrase.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed != settings?.wakePhrase else { return }
-        save(Voice.Change(wakePhrase: trimmed))
+    private func saveText(_ input: TextInput) {
+        textSaves[input]?.cancel()
+        guard let settings else { return }
+        let trimmed = draft(input).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != input.stored(settings) else { return }
+        save(input.change(trimmed))
     }
 }

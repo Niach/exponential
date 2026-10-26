@@ -18,6 +18,12 @@ pub struct VoiceCopy {
     pub agent: String,
     pub agent_none: String,
     pub speak_replies: String,
+    pub language: String,
+    pub language_note: String,
+    pub voice_file: String,
+    pub voice_file_placeholder: String,
+    pub voice_transcript: String,
+    pub voice_transcript_placeholder: String,
     pub tray_header: String,
     pub push_to_talk: String,
     pub shortcut: String,
@@ -40,6 +46,9 @@ pub struct VoiceTestIds {
     pub voice_device: String,
     pub agent: String,
     pub speak_replies: String,
+    pub language: String,
+    pub voice_file: String,
+    pub voice_transcript: String,
     pub push_to_talk: String,
     pub shortcut: String,
     pub wake_word: String,
@@ -51,6 +60,21 @@ pub struct VoiceTestIds {
 pub struct VoiceShortcut {
     pub value: String,
     pub label: String,
+}
+
+/// #NEW-73: one spoken-reply language (`languages`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct VoiceLanguage {
+    pub value: String,
+    pub label: String,
+}
+
+/// The input rows' length caps (`limits`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceLimits {
+    pub voice_file: usize,
+    pub voice_transcript: usize,
 }
 
 /// The member's voice settings (`user_voice_settings`, the heartbeat's
@@ -65,9 +89,19 @@ pub struct VoiceSettings {
     pub ptt_shortcut: String,
     pub wake_word: bool,
     pub wake_phrase: String,
+    /// #NEW-73: a `languages` value; empty reads as English.
+    pub language: String,
+    /// A reference WAV's path on the voice device; empty = the built-in voice.
+    pub voice_file: String,
+    pub voice_transcript: String,
 }
 
 impl VoiceSettings {
+    /// The spoken-reply language (`en` while unset).
+    pub fn language(&self) -> &str {
+        if self.language.is_empty() { "en" } else { &self.language }
+    }
+
     /// voice.json `clearOnNone`: with no voice device or no agent nothing
     /// listens and nothing speaks.
     pub fn clear_on_none(mut self) -> Self {
@@ -87,7 +121,30 @@ pub struct VoiceSpec {
     pub max_chars: usize,
     pub test_ids: VoiceTestIds,
     pub shortcuts: Vec<VoiceShortcut>,
+    pub languages: Vec<VoiceLanguage>,
     pub defaults: VoiceSettings,
+    pub limits: VoiceLimits,
+}
+
+/// #NEW-73: what the Language row and its menu show for a language.
+pub fn language_label(language: &str, device_name: Option<&str>) -> String {
+    let label = VOICE
+        .languages
+        .iter()
+        .find(|entry| entry.value == language)
+        .map(|entry| entry.label.clone())
+        .unwrap_or_else(|| language.to_string());
+    match language_note(language, device_name) {
+        Some(note) => format!("{label} · {note}"),
+        None => label,
+    }
+}
+
+/// #NEW-73: the Language row's trailing detail; German speaks on the voice
+/// device's GPU only. None without a voice device or for English.
+pub fn language_note(language: &str, device_name: Option<&str>) -> Option<String> {
+    let device_name = device_name.filter(|_| language == "de")?;
+    Some(VOICE.copy.language_note.replace("{device}", device_name))
 }
 
 /// The tray group's header for the voice device.
@@ -123,6 +180,10 @@ pub struct VoiceContext<'a> {
     /// THIS device is the member's voice device.
     pub is_voice_device: bool,
     pub speak_replies: bool,
+    /// #NEW-73: the language replies are spoken in.
+    pub language: &'a str,
+    /// The languages THIS device has a voice for.
+    pub voices: &'a [&'a str],
     /// When the watcher armed; older rows are a backfill.
     pub armed_at: &'a str,
 }
@@ -132,6 +193,9 @@ pub fn should_speak(message: &VoiceMessage<'_>, context: &VoiceContext<'_>) -> b
     let Some(agent_session) = context.agent_session_id.filter(|_| context.speak_replies && context.is_voice_device) else {
         return false;
     };
+    if !context.voices.contains(&context.language) {
+        return false;
+    }
     if message.author_kind != Some(crate::contract::MESSAGE_AUTHOR_KIND_AGENT) || message.has_card {
         return false;
     }
@@ -470,10 +534,13 @@ mod tests {
                 session_id: m["sessionId"].as_str(),
                 created_at: m["createdAt"].as_str(),
             };
+            let voices: Vec<&str> = c["voices"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
             let context = VoiceContext {
                 agent_session_id: c["agentSessionId"].as_str(),
                 is_voice_device: c["isVoiceDevice"].as_bool().unwrap(),
                 speak_replies: c["speakReplies"].as_bool().unwrap(),
+                language: c["language"].as_str().unwrap(),
+                voices: &voices,
                 armed_at: c["armedAt"].as_str().unwrap(),
             };
             assert_eq!(should_speak(&message, &context), case["speak"].as_bool().unwrap(), "{}", case["name"]);
@@ -574,6 +641,29 @@ mod tests {
         for case in fixture["wakePhrasePlaceholderCases"].as_array().unwrap() {
             assert_eq!(wake_phrase_placeholder(case["agent"].as_str().unwrap()), case["placeholder"].as_str().unwrap());
         }
+    }
+
+    #[test]
+    fn language_note_matches_the_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(VOICE_JSON).unwrap();
+        for case in fixture["languageNoteCases"].as_array().unwrap() {
+            assert_eq!(
+                language_note(case["language"].as_str().unwrap(), case["device"].as_str()),
+                case["note"].as_str().map(str::to_string),
+                "{}",
+                case["name"]
+            );
+        }
+        for case in fixture["languageLabelCases"].as_array().unwrap() {
+            assert_eq!(
+                language_label(case["language"].as_str().unwrap(), case["device"].as_str()),
+                case["label"].as_str().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
+        assert_eq!(VOICE.languages.iter().map(|l| l.value.as_str()).collect::<Vec<_>>(), ["en", "de"]);
+        assert_eq!(VOICE.defaults.language(), "en");
     }
 
     #[test]

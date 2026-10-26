@@ -5,6 +5,7 @@ import {
   agentOptions,
   clearOnNone,
   identifierNumberWords,
+  languageLabel,
   languageNote,
   numberWords,
   shouldSpeak,
@@ -55,6 +56,9 @@ describe(`voice.json`, () => {
   }
   for (const c of fixture.languageNoteCases) {
     it(`languageNote: ${c.name}`, () => expect(languageNote(c.language, c.device)).toBe(c.note))
+  }
+  for (const c of fixture.languageLabelCases) {
+    it(`languageLabel: ${c.name}`, () => expect(languageLabel(c.language, c.device)).toBe(c.label))
   }
   for (const c of fixture.wakePhrasePlaceholderCases) {
     it(`wakePhrasePlaceholder ${c.agent}`, () => expect(wakePhrasePlaceholder(c.agent)).toBe(c.placeholder))

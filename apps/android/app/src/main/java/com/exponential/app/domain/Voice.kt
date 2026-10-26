@@ -13,7 +13,8 @@ import kotlinx.serialization.json.buildJsonObject
  * NEW-67 (voice plan v3, V1): THE Settings → Voice section. A port of the TS
  * reference `packages/domain-contract/src/voice.ts` (desktop `domain::voice`,
  * iOS `Voice.swift`), byte-locked by `fixtures/voice.json` (`copy`,
- * `testIds`, `shortcuts`, `defaults` and the option builders, replayed by
+ * `testIds`, `shortcuts`, `languages`, `limits`, `defaults`, `languageNote` and
+ * the option builders, replayed by
  * `VoiceTest`). The phones only show and edit the member's setting: speaking
  * is desktop-only, so `shouldSpeak` / `spokenText` are not mirrored here. The
  * fixture's `$comment` holds the rules.
@@ -27,6 +28,12 @@ object Voice {
         const val AGENT = "Agent"
         const val AGENT_NONE = "None"
         const val SPEAK_REPLIES = "Speak replies"
+        const val LANGUAGE = "Language"
+        const val LANGUAGE_NOTE = "Needs a GPU on {device}"
+        const val VOICE_FILE = "Voice file"
+        const val VOICE_FILE_PLACEHOLDER = "Built-in"
+        const val VOICE_TRANSCRIPT = "Transcript"
+        const val VOICE_TRANSCRIPT_PLACEHOLDER = "What the clip says"
         const val TRAY_HEADER = "On {device} (tray)"
         const val PUSH_TO_TALK = "Push to talk"
         const val SHORTCUT = "Shortcut"
@@ -47,6 +54,9 @@ object Voice {
         const val VOICE_DEVICE = "settings-voice-device"
         const val AGENT = "settings-voice-agent"
         const val SPEAK_REPLIES = "settings-voice-speak-replies"
+        const val LANGUAGE = "settings-voice-language"
+        const val VOICE_FILE = "settings-voice-file"
+        const val VOICE_TRANSCRIPT = "settings-voice-transcript"
         const val PUSH_TO_TALK = "settings-voice-push-to-talk"
         const val SHORTCUT = "settings-voice-shortcut"
         const val WAKE_WORD = "settings-voice-wake-word"
@@ -67,6 +77,20 @@ object Voice {
         Shortcut(value = "mouse5", label = "Mouse button 5"),
     )
 
+    /** #NEW-73: one language replies can be spoken in ([value] is stored). */
+    data class Language(val value: String, val label: String)
+
+    val languages: List<Language> = listOf(
+        Language(value = "en", label = "English"),
+        Language(value = "de", label = "Deutsch"),
+    )
+
+    /** #NEW-73: the input rows' character limits (`limits`). */
+    object Limits {
+        const val VOICE_FILE = 512
+        const val VOICE_TRANSCRIPT = 500
+    }
+
     /** The member's ONE settings row (`voice.get`, `voice.update`'s result). */
     @Serializable
     data class Settings(
@@ -77,6 +101,9 @@ object Voice {
         @SerialName("pttShortcut") val pttShortcut: String = "ctrl+space",
         @SerialName("wakeWord") val wakeWord: Boolean = false,
         @SerialName("wakePhrase") val wakePhrase: String = "",
+        @SerialName("language") val language: String = "en",
+        @SerialName("voiceFile") val voiceFile: String = "",
+        @SerialName("voiceTranscript") val voiceTranscript: String = "",
     )
 
     /** The row a member without one reads (`defaults`). */
@@ -97,6 +124,9 @@ object Voice {
         val pttShortcut: String? = null,
         val wakeWord: Boolean? = null,
         val wakePhrase: String? = null,
+        val language: String? = null,
+        val voiceFile: String? = null,
+        val voiceTranscript: String? = null,
     ) {
         /** The wire input: None travels as an explicit `null`; an untouched
          *  field writes no key. */
@@ -108,6 +138,9 @@ object Voice {
             pttShortcut?.let { put("pttShortcut", JsonPrimitive(it)) }
             wakeWord?.let { put("wakeWord", JsonPrimitive(it)) }
             wakePhrase?.let { put("wakePhrase", JsonPrimitive(it)) }
+            language?.let { put("language", JsonPrimitive(it)) }
+            voiceFile?.let { put("voiceFile", JsonPrimitive(it)) }
+            voiceTranscript?.let { put("voiceTranscript", JsonPrimitive(it)) }
         }
     }
 
@@ -124,6 +157,9 @@ object Voice {
             pttShortcut = change.pttShortcut ?: before.pttShortcut,
             wakeWord = change.wakeWord ?: before.wakeWord,
             wakePhrase = change.wakePhrase ?: before.wakePhrase,
+            language = change.language ?: before.language,
+            voiceFile = change.voiceFile ?: before.voiceFile,
+            voiceTranscript = change.voiceTranscript ?: before.voiceTranscript,
         )
         if (after.voiceDeviceId == null || after.agentId == null) {
             after = after.copy(speakReplies = false, pushToTalk = false, wakeWord = false)
@@ -178,4 +214,20 @@ object Voice {
     /** The wake phrase's placeholder (and its value when empty). */
     fun wakePhrasePlaceholder(agentName: String): String =
         Copy.WAKE_PHRASE_PLACEHOLDER.replace("{agent}", agentName)
+
+    /**
+     * #NEW-73: the Language row's trailing detail; German speaks on the voice
+     * device's GPU only. Null without a voice device or for English.
+     */
+    fun languageNote(language: String, deviceName: String?): String? {
+        if (language != "de" || deviceName == null) return null
+        return Copy.LANGUAGE_NOTE.replace("{device}", deviceName)
+    }
+
+    /** #NEW-73: what the Language row and its menu show for a language. */
+    fun languageLabel(language: String, deviceName: String?): String {
+        val label = languages.firstOrNull { it.value == language }?.label ?: language
+        val note = languageNote(language, deviceName) ?: return label
+        return "$label · $note"
+    }
 }

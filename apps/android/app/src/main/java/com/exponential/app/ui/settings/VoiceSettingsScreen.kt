@@ -72,7 +72,8 @@ import kotlinx.coroutines.launch
  * NEW-67 (voice plan v3, V1): Settings → Personal → Voice (`voice.json`, the
  * same page on web, the IDE and iOS; on the phones it hangs off the account
  * page, the phone's Personal settings). ONE group (Voice device, Agent, Speak
- * replies), then while a voice device is picked the tray group under
+ * replies, Language; Voice file + Transcript while a voice device is picked,
+ * #NEW-73), then while a voice device is picked the tray group under
  * `trayHeader` (Push to talk, Shortcut, Wake word, Wake phrase). Every switch
  * reads off and is disabled while the device or the agent is None. Each
  * change saves at once with `voice.update` (optimistic; a refusal reverts and
@@ -101,6 +102,14 @@ class VoiceSettingsViewModel @Inject constructor(
     var wakePhrase by mutableStateOf("")
         private set
     private var wakePhraseSave: Job? = null
+
+    /** #NEW-73: the voice file and its transcript as typed, saved the same way. */
+    var voiceFile by mutableStateOf("")
+        private set
+    private var voiceFileSave: Job? = null
+    var voiceTranscript by mutableStateOf("")
+        private set
+    private var voiceTranscriptSave: Job? = null
 
     /** FEED-79: a refused save, raised once as a toast. */
     var failure by mutableStateOf<FailedAction?>(null)
@@ -148,6 +157,8 @@ class VoiceSettingsViewModel @Inject constructor(
                 val loaded = voiceApi.get(accountId)
                 settings = loaded
                 wakePhrase = loaded.wakePhrase
+                voiceFile = loaded.voiceFile
+                voiceTranscript = loaded.voiceTranscript
             } catch (e: Exception) {
                 if (settings == null) loadFailed = true
             }
@@ -170,6 +181,8 @@ class VoiceSettingsViewModel @Inject constructor(
             } catch (e: Exception) {
                 settings = previous
                 wakePhrase = previous.wakePhrase
+                voiceFile = previous.voiceFile
+                voiceTranscript = previous.voiceTranscript
                 failure = FailedAction("save", "the voice settings", trpcErrorMessage(e, ""))
             }
         }
@@ -190,6 +203,40 @@ class VoiceSettingsViewModel @Inject constructor(
         val trimmed = wakePhrase.trim()
         if (trimmed == settings?.wakePhrase) return
         save(Voice.Change(wakePhrase = trimmed))
+    }
+
+    /** One line, no control characters, at most `limits.voiceFile`. */
+    fun onVoiceFileChange(text: String) {
+        voiceFile = text.filterNot { it.isISOControl() }.take(Voice.Limits.VOICE_FILE)
+        voiceFileSave?.cancel()
+        voiceFileSave = viewModelScope.launch {
+            delay(WAKE_PHRASE_DEBOUNCE_MS)
+            saveVoiceFile()
+        }
+    }
+
+    fun saveVoiceFile() {
+        voiceFileSave?.cancel()
+        val trimmed = voiceFile.trim()
+        if (trimmed == settings?.voiceFile) return
+        save(Voice.Change(voiceFile = trimmed))
+    }
+
+    /** One line, no control characters, at most `limits.voiceTranscript`. */
+    fun onVoiceTranscriptChange(text: String) {
+        voiceTranscript = text.filterNot { it.isISOControl() }.take(Voice.Limits.VOICE_TRANSCRIPT)
+        voiceTranscriptSave?.cancel()
+        voiceTranscriptSave = viewModelScope.launch {
+            delay(WAKE_PHRASE_DEBOUNCE_MS)
+            saveVoiceTranscript()
+        }
+    }
+
+    fun saveVoiceTranscript() {
+        voiceTranscriptSave?.cancel()
+        val trimmed = voiceTranscript.trim()
+        if (trimmed == settings?.voiceTranscript) return
+        save(Voice.Change(voiceTranscript = trimmed))
     }
 
     private companion object {
@@ -228,6 +275,12 @@ fun VoiceSettingsScreen(
                 onChange = viewModel::save,
                 onWakePhraseChange = viewModel::onWakePhraseChange,
                 onWakePhraseDone = viewModel::saveWakePhrase,
+                voiceFile = viewModel.voiceFile,
+                onVoiceFileChange = viewModel::onVoiceFileChange,
+                onVoiceFileDone = viewModel::saveVoiceFile,
+                voiceTranscript = viewModel.voiceTranscript,
+                onVoiceTranscriptChange = viewModel::onVoiceTranscriptChange,
+                onVoiceTranscriptDone = viewModel::saveVoiceTranscript,
                 modifier = Modifier.padding(padding),
             )
             viewModel.loadFailed -> Box(
@@ -264,6 +317,12 @@ private fun VoiceSettingsForm(
     onChange: (Voice.Change) -> Unit,
     onWakePhraseChange: (String) -> Unit,
     onWakePhraseDone: () -> Unit,
+    voiceFile: String,
+    onVoiceFileChange: (String) -> Unit,
+    onVoiceFileDone: () -> Unit,
+    voiceTranscript: String,
+    onVoiceTranscriptChange: (String) -> Unit,
+    onVoiceTranscriptDone: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // voice.json: every switch is off and disabled while either is None.
@@ -301,6 +360,39 @@ private fun VoiceSettingsForm(
                 enabled = armed,
                 modifier = Modifier.testTag(Voice.TestIds.SPEAK_REPLIES),
             )
+            GroupDivider()
+            // German carries its GPU note, in the row and in the menu.
+            val languageDevice = settings.voiceDeviceId?.let { vocabulary.deviceNames[it] ?: it }
+            OptionPickerRow(
+                label = Voice.Copy.LANGUAGE,
+                options = Voice.languages.map { Voice.Option(id = it.value, label = Voice.languageLabel(it.value, languageDevice)) },
+                selected = settings.language,
+                noneLabel = settings.language,
+                onSelect = { picked -> picked?.let { onChange(Voice.Change(language = it)) } },
+                testTag = Voice.TestIds.LANGUAGE,
+            )
+            if (settings.voiceDeviceId != null) {
+                GroupDivider()
+                TextFieldRow(
+                    label = Voice.Copy.VOICE_FILE,
+                    value = voiceFile,
+                    onValueChange = onVoiceFileChange,
+                    placeholder = Voice.Copy.VOICE_FILE_PLACEHOLDER,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onVoiceFileDone() }),
+                    modifier = Modifier.testTag(Voice.TestIds.VOICE_FILE),
+                )
+                GroupDivider()
+                TextFieldRow(
+                    label = Voice.Copy.VOICE_TRANSCRIPT,
+                    value = voiceTranscript,
+                    onValueChange = onVoiceTranscriptChange,
+                    placeholder = Voice.Copy.VOICE_TRANSCRIPT_PLACEHOLDER,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onVoiceTranscriptDone() }),
+                    modifier = Modifier.testTag(Voice.TestIds.VOICE_TRANSCRIPT),
+                )
+            }
         }
 
         val deviceId = settings.voiceDeviceId
