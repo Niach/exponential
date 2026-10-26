@@ -485,6 +485,25 @@ Sizes of the first-use download: Linux ~2.97 GB (runtime 196 MB, cuBLAS
 581 MB, model 1.83 GB, codec 358 MB), macOS ~2.19 GB (the models only; the
 bundle grows by ~25 MB), Windows ~2.28 GB.
 
+On disk: Linux ~3.29 GB unpacked (runtime + cuBLAS 1.09 GB, models
+2.19 GB, built-in clips 1 MB), macOS ~2.19 GB plus the ~25 MB in the
+bundle, Windows ~2.3 GB.
+
+### On disk: `{data_dir}/talk/`
+
+| path | what | written by |
+|---|---|---|
+| `crispasr-0.8.45/` | the runtime libraries, their licences, one `.<artifact id>.sha256` manifest per artifact (Linux, Windows; macOS reads `Contents/Frameworks` of the bundle instead) | `crispasr::artifact::ensure` |
+| `models/` | `qwen3-tts-12hz-0.6b-base.gguf`, `qwen3-tts-tokenizer-12hz.gguf` and their manifests | same |
+| `voices/` | `builtin-<language>.wav`, the built-in clips written out for CrispASR (rewritten when they differ) | `voice::builtin::materialize` |
+| `no-gpu.txt` | the "this GPU and driver were too slow" verdict (fingerprint + time, 30 days) | the speech worker |
+| `<artifact id>.part` | a download in progress (deleted on failure or after unpacking) | `crispasr::artifact::download` |
+| `<file>.tmp` | a file being unpacked (renamed into place when complete) | `crispasr::artifact::write_kept` |
+
+The NEW-53 `kokoro-multi-lang-v1_0/` directory is deleted by the worker on
+start. Cleaning the rest when a device stops being the voice device is
+#NEW-63.
+
 The built-in reference clips (`apps/desktop/crates/voice/assets/`, in the
 binary, ~0.9 MB) are our own output of Qwen3-TTS 0.6B CustomVoice
 (Apache-2.0), preset speaker `ryan`; no person's voice is in them (see the
