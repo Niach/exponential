@@ -14,7 +14,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, AppContext as _, Entity, IntoElement, ParentElement as _, Render, SharedString, Window,
+    AnyElement, App, AppContext as _, Entity, IntoElement, ParentElement as _, Render, SharedString, Styled as _, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},

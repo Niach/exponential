@@ -400,7 +400,7 @@ pub struct VoiceOption {
 /// The Assistant picker's options: None first, then the agents by label
 /// (`{name} · {team}` when two agents share a name).
 pub fn agent_options(agents: &[VoiceAgent]) -> Vec<VoiceOption> {
-    let mut options: Vec<AssistantOption> = agents
+    let mut options: Vec<VoiceOption> = agents
         .iter()
         .map(|agent| {
             let shared = agents.iter().filter(|other| other.name == agent.name).count() > 1;
@@ -514,7 +514,7 @@ mod tests {
                     team: a["team"].as_str().unwrap().into(),
                 })
                 .collect();
-            let expected: Vec<AssistantOption> = case["options"]
+            let expected: Vec<VoiceOption> = case["options"]
                 .as_array()
                 .unwrap()
                 .iter()
