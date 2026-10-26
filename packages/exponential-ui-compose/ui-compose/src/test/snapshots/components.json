@@ -25291,10 +25291,10 @@
       {
         "component" : "Text",
         "frame" : [
-          0,
-          0,
+          60,
+          70,
           40,
-          160
+          20
         ],
         "id" : "voice-wave-child"
       }
@@ -25317,10 +25317,10 @@
       {
         "component" : "Text",
         "frame" : [
-          0,
-          0,
+          60,
+          70,
           40,
-          160
+          20
         ],
         "id" : "voice-wave-child"
       }
@@ -25343,10 +25343,10 @@
       {
         "component" : "Text",
         "frame" : [
-          0,
-          0,
+          60,
+          70,
           40,
-          160
+          20
         ],
         "id" : "voice-wave-child"
       }
@@ -25369,10 +25369,10 @@
       {
         "component" : "Text",
         "frame" : [
-          0,
-          0,
+          60,
+          70,
           40,
-          160
+          20
         ],
         "id" : "voice-wave-child"
       }
@@ -25395,10 +25395,10 @@
       {
         "component" : "Text",
         "frame" : [
-          0,
-          0,
+          60,
+          70,
           40,
-          160
+          20
         ],
         "id" : "voice-wave-child"
       }
@@ -25421,10 +25421,10 @@
       {
         "component" : "Text",
         "frame" : [
-          0,
-          0,
+          60,
+          70,
           40,
-          160
+          20
         ],
         "id" : "voice-wave-child"
       }
@@ -25447,10 +25447,10 @@
       {
         "component" : "Text",
         "frame" : [
-          0,
-          0,
+          60,
+          70,
           40,
-          160
+          20
         ],
         "id" : "voice-wave-child"
       }
@@ -25473,10 +25473,10 @@
       {
         "component" : "Text",
         "frame" : [
-          0,
-          0,
+          8,
+          18,
           40,
-          56
+          20
         ],
         "id" : "voice-wave-child"
       }
@@ -25499,10 +25499,10 @@
       {
         "component" : "Text",
         "frame" : [
-          0,
-          0,
+          -4,
+          6,
           40,
-          32
+          20
         ],
         "id" : "voice-wave-child"
       }
@@ -25525,10 +25525,10 @@
       {
         "component" : "Text",
         "frame" : [
-          0,
-          0,
+          80,
+          90,
           40,
-          200
+          20
         ],
         "id" : "voice-wave-child"
       }
