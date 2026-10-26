@@ -57,6 +57,10 @@
   background: oklch(0.141 0.005 285.823);
 }
 
+.home-phone-screen > div {
+  height: 100%;
+}
+
 .home-phone-screen .ui-demo {
   margin: 0;
   padding: 0;

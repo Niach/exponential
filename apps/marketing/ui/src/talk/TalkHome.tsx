@@ -1,7 +1,7 @@
 /* NEW-15: exponential.at/talk/, the voice library's front page. The
    overlay is the real push-to-talk capsule (src/ui-demos/VoiceOverlay.tsx,
    VoiceWave from @exp/ui); every claim is marked shipped, beta or coming. */
-import { UiDemo } from "../../../src/components/UiDemo"
+import { TalkOverlay } from "../../../src/components/TalkOverlay"
 import { StatusChip, type Status } from "../../../src/components/blog/StatusChip"
 import { CardGrid, DocsTable, IcArrow } from "../components/Content"
 import type { PageProps } from "../lib/routes"
@@ -33,7 +33,7 @@ export default function TalkHome(_: PageProps) {
             </div>
           </div>
           <div className="home-demo talk-demo">
-            <UiDemo id="voice-overlay" />
+            <TalkOverlay />
           </div>
         </div>
       </section>
