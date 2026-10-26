@@ -46,6 +46,23 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-26-push-to-talk",
+    date: "2026-10-26",
+    title: "Push to talk on your voice device",
+    summary: "Hold a shortcut anywhere on your voice device, speak, and let go: what you said goes to your agent as a plain message, and a small overlay shows it listening, thinking and speaking the reply.",
+    body: r#"- **Hold to talk**: on the desktop picked as your voice device, with Push to talk on, hold the shortcut from Settings → Voice (Ctrl + Space by default) in any app, speak, and release. The words land in your chat with the voice agent; with Speak replies on, the answer is read aloud.
+- **The overlay**: a capsule at the bottom of the screen under your pointer shows Listening, Heard, Thinking and Speaking, with Stop while a reply is read. Talking over a reply stops it.
+- **Mute**: the tray gains Mute microphone; while it is on, the shortcut shows Microphone muted and the microphone never opens.
+- **Never silent**: if the shortcut can't be held system-wide (another app has it, or the desktop has no global shortcuts), the tray item says it is unavailable, Settings → Voice says why, and it still works while an Exponential window is focused. On Wayland, KDE, GNOME 48+ and Hyprland ask you to confirm the shortcut once.
+- **Mouse buttons**: Mouse button 4 and 5 work on Linux with X11 and on Windows; macOS and Wayland don't offer them.
+- **Not sent**: if a message can't be sent, the overlay says so and the words wait in the agent's chat composer.
+- **Windows**: speech recognition needs the Microsoft Visual C++ runtime; the voice device's Microphone row offers to install it when it is missing.
+- **First use** downloads the speech recognition model (about 670 MB)."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_90: ChangelogEntry = ChangelogEntry {
     id: "2026-10-26-voice-german",
     date: "2026-10-26",
     title: "Speak replies in German and in your own voice",

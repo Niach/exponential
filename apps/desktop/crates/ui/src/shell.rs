@@ -1174,6 +1174,18 @@ impl Render for Shell {
                         gpui::MouseButton::Navigate(gpui::NavigationDirection::Forward),
                         |_, window, cx| crate::navigation::go_forward(window, cx),
                     )
+                    // #NEW-54: a push-to-talk shortcut that can't be held
+                    // system-wide still works while this window is focused.
+                    .capture_key_down(|event: &gpui::KeyDownEvent, _, cx| {
+                        if crate::push_to_talk::on_focused_key(true, &event.keystroke, cx) {
+                            cx.stop_propagation();
+                        }
+                    })
+                    .capture_key_up(|event: &gpui::KeyUpEvent, _, cx| {
+                        if crate::push_to_talk::on_focused_key(false, &event.keystroke, cx) {
+                            cx.stop_propagation();
+                        }
+                    })
                     // EXP-767: the ROOT paints the ONE page gradient, the
                     // window's ground, and no region ever stacks a second
                     // ramp on it. There are exactly two layers, each painted

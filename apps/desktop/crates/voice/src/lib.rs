@@ -93,9 +93,13 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
     let shared = Arc::new(Shared { generation: AtomicU64::new(0), current: Mutex::new(None) });
     let (tx, rx) = mpsc::channel::<Job>();
     let engine_shared = shared.clone();
+    let (engine_done, engine_ended) = mpsc::channel::<()>();
     let engine = std::thread::Builder::new()
         .name("voice-engine".into())
-        .spawn(move || engine_loop(&data_dir, rx, &engine_shared))
+        .spawn(move || {
+            engine_loop(&data_dir, rx, &engine_shared);
+            let _ = engine_done.send(());
+        })
         .expect("spawn the voice engine");
     let listening = Arc::new(listener::Listening::default());
     let (listen, listener) = listener::spawn(hearing, listening.clone());
@@ -149,9 +153,21 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
     silence(&shared);
     drop(tx);
     drop(listen);
-    let _ = engine.join();
+    // The listener closes the microphone: always waited for.
     let _ = listener.join();
+    // #NEW-80: a voice download (GBs) is not waited out. The engine gets
+    // ENGINE_GRACE to finish a sentence; past that the process exits and
+    // takes the download with it (it writes `<id>.part`, which the next
+    // download truncates, so nothing half-written is ever installed).
+    if engine_ended.recv_timeout(ENGINE_GRACE).is_ok() {
+        let _ = engine.join();
+    } else {
+        eprintln!("exiting while the voice engine is busy (a download or a load)");
+    }
 }
+
+/// How long EOF waits for the voice engine before the worker exits anyway.
+const ENGINE_GRACE: Duration = Duration::from_secs(2);
 
 /// NEW-74: the Kokoro voice of NEW-53 is retired; free its ~340 MB.
 fn remove_retired_voices(data_dir: &Path) {

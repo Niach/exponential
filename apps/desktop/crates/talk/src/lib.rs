@@ -299,6 +299,19 @@ impl SpeechClient {
         self.send(&Request::Listen { id: id.into(), language: language.into() });
     }
 
+    /// #NEW-54: bring the worker up without a request (push to talk wants
+    /// it resident and its `Ready` known before the first key-down).
+    pub fn start(&self) {
+        let Ok(mut guard) = self.worker.lock() else { return };
+        if guard.is_some() {
+            return;
+        }
+        match self.spawn() {
+            Ok(worker) => *guard = Some(worker),
+            Err(err) => log::warn!("talk: speech worker failed to start: {err}"),
+        }
+    }
+
     /// NEW-78: the key was released; Heard or Empty follows.
     pub fn end_listen(&self, id: impl Into<String>) {
         self.send_if_running(&Request::EndListen { id: id.into() });
@@ -368,7 +381,7 @@ impl SpeechClient {
         // prints decoded token ids) never reach the worker, whose stderr
         // is this process's log.
         for (key, _) in std::env::vars_os() {
-            if key.to_string_lossy().starts_with("CRISPASR_") {
+            if strips_env(&key.to_string_lossy(), cfg!(windows)) {
                 command.env_remove(key);
             }
         }
@@ -409,6 +422,18 @@ impl Drop for Worker {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+
+/// Whether `key` is one of CrispASR's switches the worker never inherits.
+/// #NEW-80: Windows env names are case-insensitive, so `crispasr_…` counts
+/// there too.
+fn strips_env(key: &str, case_insensitive: bool) -> bool {
+    const PREFIX: &str = "CRISPASR_";
+    if case_insensitive {
+        key.get(..PREFIX.len()).is_some_and(|head| head.eq_ignore_ascii_case(PREFIX))
+    } else {
+        key.starts_with(PREFIX)
     }
 }
 
@@ -543,8 +568,20 @@ mod tests {
     }
 
     #[test]
+    fn crispasr_switches_are_stripped_case_insensitively_on_windows() {
+        assert!(strips_env("CRISPASR_PARAKEET_DEBUG", false));
+        assert!(!strips_env("crispasr_parakeet_debug", false), "unix names are case-sensitive");
+        assert!(strips_env("crispasr_parakeet_debug", true));
+        assert!(strips_env("CrispAsr_X", true));
+        assert!(!strips_env("CRISPASR", true));
+        assert!(!strips_env("MY_CRISPASR_X", true));
+        assert!(!strips_env("ü", true), "a short non-ASCII name never panics");
+    }
+
+    #[test]
     fn a_missing_executable_fails_quietly() {
         let client = SpeechClient::new(PathBuf::from("/nonexistent/exe"), std::env::temp_dir(), |_| {});
+        client.start();
         client.speak("m1", "Hello.");
         client.stop();
         client.end_listen("u1");

@@ -42,14 +42,14 @@ const BANNER_BOTTOM: f32 = 16.;
 /// gaps) inside a 1 px stroke; the rest in logical pixels ([`item`]: 32
 /// tall, 8 px sides, 6 px gaps; the label 4 px sides; the key chip 6 px
 /// sides and a 1 px hairline; the glyph 16).
-const BAR_SIDE_REMS: f32 = 0.625;
-const BAR_TOP_REMS: f32 = 0.5;
-const BAR_GAP_REMS: f32 = 0.25;
-const BAR_STROKE: f32 = 1.;
+pub(crate) const BAR_SIDE_REMS: f32 = 0.625;
+pub(crate) const BAR_TOP_REMS: f32 = 0.5;
+pub(crate) const BAR_GAP_REMS: f32 = 0.25;
+pub(crate) const BAR_STROKE: f32 = 1.;
 const ITEM_HEIGHT: f32 = 32.;
-const ITEM_SIDE: f32 = 8.;
+pub(crate) const ITEM_SIDE: f32 = 8.;
 const ITEM_GAP: f32 = 6.;
-const LABEL_SIDE: f32 = 4.;
+pub(crate) const LABEL_SIDE: f32 = 4.;
 const KEY_SIDE: f32 = 6.;
 const GLYPH: f32 = 16.;
 
@@ -60,7 +60,7 @@ const GLYPH: f32 = 16.;
 /// fills the window ([`Banner`]'s `w_full`) and the air lands inside its
 /// padding, unseen; without it the window was 1 px narrower than the bar
 /// for some labels and ellipsized them.
-const BAR_SLACK: f32 = 4.;
+pub(crate) const BAR_SLACK: f32 = 4.;
 
 /// X11 without a screen layout (no RandR answer): the toolkit's display is
 /// the whole X screen, every monitor side by side, so its width is no cap a
@@ -95,14 +95,14 @@ impl Words {
 
 /// The banner's rem: the theme's font size, as every `Root` window sets it
 /// (the styleguide's bar, which the banner must match).
-fn rem_size(cx: &App) -> Pixels {
+pub(crate) fn rem_size(cx: &App) -> Pixels {
     cx.theme().font_size
 }
 
 /// One line's shaped width in the theme's font, the path the text element
 /// takes, without a window (the banner's does not exist yet); whole pixels
 /// up, as the text element takes it.
-fn shaped_width(text: &str, size: Pixels, weight: FontWeight, cx: &App) -> f32 {
+pub(crate) fn shaped_width(text: &str, size: Pixels, weight: FontWeight, cx: &App) -> f32 {
     if text.is_empty() {
         return 0.;
     }

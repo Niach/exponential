@@ -34,7 +34,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-943 third-party components are distributed as part of this build. They are
+944 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -4192,6 +4192,47 @@ MIT
 
 Applies to the following 3 components:
 
+  global-hotkey 0.9.0  [aarch64-apple-darwin, x86_64-pc-windows-msvc]
+    Copyright (c) 2022-2022 Tauri Programme within The Commons Conservancy
+    MIT elected from `Apache-2.0 OR MIT`
+  muda 0.21.2  [aarch64-apple-darwin, x86_64-pc-windows-msvc]
+    Copyright (c) 2022-2022 Tauri Programme within The Commons Conservancy
+    MIT elected from `Apache-2.0 OR MIT`
+  tray-icon 0.26.1  [aarch64-apple-darwin, x86_64-pc-windows-msvc]
+    Copyright (c) 2022-2022 Tauri Programme within The Commons Conservancy
+    MIT elected from `MIT OR Apache-2.0`
+
+..............................................................................
+
+MIT License
+
+Copyright (c) 2022-2022 Tauri Programme within The Commons Conservancy
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 3 components:
+
   hyper-rustls 0.27.9
     Copyright (c) 2016 Joseph Birr-Pixton <jpixton@gmail.com>
     MIT elected from `Apache-2.0 OR ISC OR MIT`
@@ -6118,44 +6159,6 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 2 components:
-
-  muda 0.21.2  [aarch64-apple-darwin, x86_64-pc-windows-msvc]
-    Copyright (c) 2022-2022 Tauri Programme within The Commons Conservancy
-    MIT elected from `Apache-2.0 OR MIT`
-  tray-icon 0.26.1  [aarch64-apple-darwin, x86_64-pc-windows-msvc]
-    Copyright (c) 2022-2022 Tauri Programme within The Commons Conservancy
-    MIT elected from `MIT OR Apache-2.0`
-
-..............................................................................
-
-MIT License
-
-Copyright (c) 2022-2022 Tauri Programme within The Commons Conservancy
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -18519,6 +18522,8 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   glob 0.3.3
     MIT elected from `MIT OR Apache-2.0`
+  global-hotkey 0.9.0
+    MIT elected from `Apache-2.0 OR MIT`
   globset 0.4.18
     MIT elected from `Unlicense OR MIT`
   glow 0.17.0

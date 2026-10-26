@@ -136,6 +136,7 @@ mod onboarding;
 pub mod os_notifications;
 /// NEW-53: exponentialTalk, Speak replies (the assistant's replies read aloud).
 pub mod speak_replies;
+pub mod push_to_talk;
 pub mod voice_tray;
 // NEW-77: the voice overlay capsule (push to talk #NEW-54 puts it in a window).
 mod voice_overlay;

@@ -1,10 +1,11 @@
 //! NEW-77 — `voice-call-overlay` (3 Special components), the "Voice overlay":
 //! the four states of THE capsule (`voice_overlay::capsule`) the push-to-talk
 //! window draws, the same rows as the web entry
-//! (`apps/styleguide/src/entries/voice-call-overlay.tsx`). The call card
-//! there stays the EXP-1268 draft for caller mode (V4).
+//! (`apps/styleguide/src/entries/voice-call-overlay.tsx`), both read from
+//! `fixtures/voice.json` `overlaySpecimens` (#NEW-54). The call card there
+//! stays the EXP-1268 draft for caller mode (V4).
 
-use exponential_ui::voice_wave::Activity;
+use domain::voice::VOICE;
 use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
 
 use crate::voice_overlay::{capsule, Capsule};
@@ -12,23 +13,20 @@ use crate::voice_overlay::{capsule, Capsule};
 pub(crate) const ID: &str = "voice-call-overlay";
 pub(crate) const OWNER: &str = "NEW-77";
 
-const HEARD: &str = "“move NEW-54 to in review”";
-
-fn rows() -> [Capsule; 4] {
-    [
-        Capsule { activity: Activity::Listening, level: 0.7, bands: vec![0.9, 0.6, 1., 0.5], state: "Listening".into(), line: HEARD.into(), pill: "Studio".into(), primary: false },
-        Capsule { activity: Activity::Thinking, level: 0., bands: vec![], state: "Heard".into(), line: HEARD.into(), pill: "Studio".into(), primary: false },
-        Capsule {
-            activity: Activity::Speaking,
-            level: 0.5,
-            bands: vec![0.7, 1., 0.5, 0.8],
-            state: "Speaking".into(),
-            line: "Created NEW-81.".into(),
-            pill: "Stop".into(),
-            primary: true,
-        },
-        Capsule { activity: Activity::Muted, level: 0., bands: vec![], state: "Microphone muted".into(), line: "Unmute in the tray".into(), pill: "Unmute".into(), primary: false },
-    ]
+fn rows() -> Vec<Capsule> {
+    VOICE
+        .overlay_specimens
+        .iter()
+        .map(|row| Capsule {
+            activity: crate::push_to_talk::overlay_activity(&row.activity),
+            level: row.level,
+            bands: row.bands.clone(),
+            state: row.state.clone().into(),
+            line: row.line.clone().into(),
+            pill: row.pill.clone().into(),
+            primary: row.primary,
+        })
+        .collect()
 }
 
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {

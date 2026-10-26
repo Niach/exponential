@@ -46,6 +46,44 @@ pub struct VoiceCopy {
     pub ellipsis: String,
 }
 
+/// #NEW-54: push to talk's words (`pttCopy`, desktop-only).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PttCopy {
+    pub shortcut_unavailable: String,
+    pub shortcut_reasons: ShortcutReasons,
+    pub overlay_listening: String,
+    pub overlay_heard: String,
+    pub overlay_thinking: String,
+    pub overlay_replied: String,
+    pub overlay_muted: String,
+    pub overlay_muted_line: String,
+    pub overlay_unmute: String,
+    pub overlay_not_sent: String,
+    pub overlay_not_sent_line: String,
+    pub listen_failed: ListenFailedCopy,
+}
+
+/// #NEW-54: why a push-to-talk shortcut can't be held (`copy.shortcutReasons`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShortcutReasons {
+    pub taken: String,
+    pub no_portal: String,
+    pub declined: String,
+    pub mouse: String,
+}
+
+/// #NEW-54: the overlay's line per Listen failure (`copy.listenFailed`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ListenFailedCopy {
+    pub no_microphone: String,
+    pub not_granted: String,
+    pub downloading: String,
+    pub unavailable: String,
+    pub failed: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceTestIds {
@@ -129,10 +167,11 @@ impl VoiceSettings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceSpec {
     pub copy: VoiceCopy,
+    pub ptt_copy: PttCopy,
     pub max_chars: usize,
     /// Keyed by language (`en`, `de`).
     pub spoken_words: HashMap<String, SpokenWords>,
@@ -141,6 +180,22 @@ pub struct VoiceSpec {
     pub languages: Vec<VoiceLanguage>,
     pub defaults: VoiceSettings,
     pub limits: VoiceLimits,
+    /// #NEW-54: how long an overlay state stays before it fades (ms).
+    pub overlay_hide_after_ms: HashMap<String, u64>,
+    /// #NEW-54: the styleguide `voice-call-overlay` rows.
+    pub overlay_specimens: Vec<OverlaySpecimen>,
+}
+
+/// #NEW-54: one styleguide capsule (`overlaySpecimens`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct OverlaySpecimen {
+    pub activity: String,
+    pub level: f32,
+    pub bands: Vec<f32>,
+    pub state: String,
+    pub line: String,
+    pub pill: String,
+    pub primary: bool,
 }
 
 /// #NEW-73: what the Language row and its menu show for a language.
@@ -243,6 +298,10 @@ pub struct TrayContext<'a> {
     pub mic_available: bool,
     /// THIS device is the member's voice device.
     pub device_is_voice_device: bool,
+    /// #NEW-54: the push-to-talk shortcut could not be grabbed.
+    pub shortcut_unavailable: bool,
+    /// #NEW-54: the portal's trigger description (Wayland).
+    pub shortcut_label: Option<&'a str>,
 }
 
 /// #NEW-68: the tray's OS-native menu; None = no tray on this device.
@@ -253,12 +312,9 @@ pub fn tray_menu(settings: &VoiceSettings, context: &TrayContext<'_>) -> Option<
     let copy = &VOICE.copy;
     let agent = context.agent.unwrap_or("…");
     let ready = settings.voice_device_id.is_some() && settings.agent_id.is_some();
-    let shortcut = VOICE
-        .shortcuts
-        .iter()
-        .find(|entry| entry.value == settings.ptt_shortcut)
-        .map(|entry| entry.label.clone())
-        .unwrap_or_else(|| settings.ptt_shortcut.clone());
+    let label = context.shortcut_label.map(str::to_string).unwrap_or_else(|| shortcut_label(&settings.ptt_shortcut));
+    let shortcut =
+        if context.shortcut_unavailable { VOICE.ptt_copy.shortcut_unavailable.replace("{shortcut}", &label) } else { label };
     let phrase = match settings.wake_phrase.trim() {
         "" => wake_phrase_placeholder(agent),
         phrase => phrase.to_string(),
@@ -283,6 +339,307 @@ pub fn tray_menu(settings: &VoiceSettings, context: &TrayContext<'_>) -> Option<
         TrayItem::Action { id: TrayItemId::Quit, label: copy.tray_quit.clone(), enabled: true },
     ]);
     Some(menu)
+}
+
+/// #NEW-54: a shortcut's label (`shortcuts`), the value itself when unknown.
+pub fn shortcut_label(value: &str) -> String {
+    VOICE.shortcuts.iter().find(|entry| entry.value == value).map(|entry| entry.label.clone()).unwrap_or_else(|| value.to_string())
+}
+
+/// #NEW-54: the voice device's OS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VoiceOs {
+    Linux,
+    Macos,
+    Windows,
+}
+
+/// #NEW-54: the Linux display session (None elsewhere).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VoiceSession {
+    X11,
+    Wayland,
+}
+
+/// #NEW-54: how the voice device holds a push-to-talk shortcut.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShortcutSupport {
+    /// Grabbed system-wide (X11, macOS, Windows).
+    Global,
+    /// Bound through the xdg GlobalShortcuts portal (Wayland).
+    Portal,
+    /// Only while an IDE window is focused (Wayland without the portal).
+    FocusedOnly,
+    /// Never (a mouse button on macOS or Wayland): hidden from the picker.
+    Unavailable,
+}
+
+impl ShortcutSupport {
+    pub fn key(self) -> &'static str {
+        match self {
+            ShortcutSupport::Global => "global",
+            ShortcutSupport::Portal => "portal",
+            ShortcutSupport::FocusedOnly => "focused-only",
+            ShortcutSupport::Unavailable => "unavailable",
+        }
+    }
+}
+
+/// Whether a `shortcuts` value is a mouse button.
+pub fn is_mouse_shortcut(shortcut: &str) -> bool {
+    shortcut.starts_with("mouse")
+}
+
+/// #NEW-54: `shortcutSupport(os, session, shortcut, portal)`.
+pub fn shortcut_support(os: VoiceOs, session: Option<VoiceSession>, shortcut: &str, portal: bool) -> ShortcutSupport {
+    match os {
+        VoiceOs::Windows => ShortcutSupport::Global,
+        VoiceOs::Macos if is_mouse_shortcut(shortcut) => ShortcutSupport::Unavailable,
+        VoiceOs::Macos => ShortcutSupport::Global,
+        VoiceOs::Linux if session != Some(VoiceSession::Wayland) => ShortcutSupport::Global,
+        VoiceOs::Linux if is_mouse_shortcut(shortcut) => ShortcutSupport::Unavailable,
+        VoiceOs::Linux if portal => ShortcutSupport::Portal,
+        VoiceOs::Linux => ShortcutSupport::FocusedOnly,
+    }
+}
+
+/// #NEW-54: the Shortcut picker's values on the voice device.
+pub fn shortcut_options(os: VoiceOs, session: Option<VoiceSession>) -> Vec<&'static VoiceShortcut> {
+    VOICE
+        .shortcuts
+        .iter()
+        .filter(|entry| shortcut_support(os, session, &entry.value, true) != ShortcutSupport::Unavailable)
+        .collect()
+}
+
+/// #NEW-54: why the shortcut can't be held (`copy.shortcutReasons`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShortcutReason {
+    Taken,
+    NoPortal,
+    Declined,
+    Mouse,
+}
+
+impl ShortcutReason {
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key {
+            "taken" => Some(Self::Taken),
+            "noPortal" => Some(Self::NoPortal),
+            "declined" => Some(Self::Declined),
+            "mouse" => Some(Self::Mouse),
+            _ => None,
+        }
+    }
+}
+
+/// #NEW-54: the line under the Shortcut row.
+pub fn shortcut_reason(reason: ShortcutReason, shortcut: &str) -> String {
+    let reasons = &VOICE.ptt_copy.shortcut_reasons;
+    let text = match reason {
+        ShortcutReason::Taken => &reasons.taken,
+        ShortcutReason::NoPortal => &reasons.no_portal,
+        ShortcutReason::Declined => &reasons.declined,
+        ShortcutReason::Mouse => &reasons.mouse,
+    };
+    text.replace("{shortcut}", &shortcut_label(shortcut))
+}
+
+/// #NEW-54: what a heard utterance sends: trimmed, None when blank.
+pub fn utterance_text(heard: &str) -> Option<&str> {
+    Some(heard.trim()).filter(|text| !text.is_empty())
+}
+
+/// #NEW-54: where an utterance goes (`utteranceInput`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UtteranceTarget {
+    /// Into the member's conversation with the agent.
+    Session { session_id: String, text: String },
+    /// To the agent, which creates the conversation.
+    Agent { team_id: String, agent_id: String, text: String },
+}
+
+pub fn utterance_input(heard: &str, team_id: &str, agent_id: Option<&str>, conversation_id: Option<&str>) -> Option<UtteranceTarget> {
+    let text = utterance_text(heard)?.to_string();
+    let agent_id = agent_id?;
+    Some(match conversation_id {
+        Some(session_id) => UtteranceTarget::Session { session_id: session_id.to_string(), text },
+        None => UtteranceTarget::Agent { team_id: team_id.to_string(), agent_id: agent_id.to_string(), text },
+    })
+}
+
+/// #NEW-54: a Listen failure (the wire's `ListenFailure`, snake_case).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListenFailure {
+    NoMicrophone,
+    NotGranted,
+    Downloading,
+    Unavailable,
+    Failed,
+}
+
+impl ListenFailure {
+    pub fn from_key(key: &str) -> Self {
+        match key {
+            "no_microphone" => Self::NoMicrophone,
+            "not_granted" => Self::NotGranted,
+            "downloading" => Self::Downloading,
+            "unavailable" => Self::Unavailable,
+            _ => Self::Failed,
+        }
+    }
+
+    fn line(self) -> &'static str {
+        let copy = &VOICE.ptt_copy.listen_failed;
+        match self {
+            Self::NoMicrophone => &copy.no_microphone,
+            Self::NotGranted => &copy.not_granted,
+            Self::Downloading => &copy.downloading,
+            Self::Unavailable => &copy.unavailable,
+            Self::Failed => &copy.failed,
+        }
+    }
+}
+
+/// #NEW-54: the push-to-talk phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PttPhase {
+    #[default]
+    Hidden,
+    Listening,
+    Heard,
+    Thinking,
+    Speaking,
+    Spoken,
+    Reply,
+    Muted,
+    NotSent,
+    Failed(ListenFailure),
+}
+
+impl PttPhase {
+    /// A phase by its fixture key (a failure reads `failed`).
+    pub fn from_key(key: &str) -> Option<PttPhase> {
+        Some(match key {
+            "hidden" => PttPhase::Hidden,
+            "listening" => PttPhase::Listening,
+            "heard" => PttPhase::Heard,
+            "thinking" => PttPhase::Thinking,
+            "speaking" => PttPhase::Speaking,
+            "spoken" => PttPhase::Spoken,
+            "reply" => PttPhase::Reply,
+            "muted" => PttPhase::Muted,
+            "notSent" => PttPhase::NotSent,
+            "failed" => PttPhase::Failed(ListenFailure::Failed),
+            _ => return None,
+        })
+    }
+
+    pub fn key(self) -> &'static str {
+        match self {
+            PttPhase::Hidden => "hidden",
+            PttPhase::Listening => "listening",
+            PttPhase::Heard => "heard",
+            PttPhase::Thinking => "thinking",
+            PttPhase::Speaking => "speaking",
+            PttPhase::Spoken => "spoken",
+            PttPhase::Reply => "reply",
+            PttPhase::Muted => "muted",
+            PttPhase::NotSent => "notSent",
+            PttPhase::Failed(_) => "failed",
+        }
+    }
+}
+
+/// #NEW-54: what the overlay shows (`pttStep`'s state).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PttState {
+    pub phase: PttPhase,
+    pub line: String,
+}
+
+/// #NEW-54: a key or worker event (`pttFlowCases` events).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PttEvent {
+    KeyDown { muted: bool },
+    KeyUp,
+    Partial(String),
+    Heard(String),
+    Empty,
+    ListenFailed(ListenFailure),
+    Sent,
+    SendFailed,
+    Replied { body: String, speaking: bool },
+    SpeakFinished,
+    Cancel,
+    Hide,
+}
+
+fn quoted(text: &str) -> String {
+    format!("\u{201c}{text}\u{201d}")
+}
+
+/// #NEW-54: one event folded into the push-to-talk state.
+pub fn ptt_step(state: &PttState, event: &PttEvent) -> PttState {
+    let at = |phase: PttPhase, line: String| PttState { phase, line };
+    let keep = || state.clone();
+    match event {
+        PttEvent::KeyDown { muted: true } => at(PttPhase::Muted, VOICE.ptt_copy.overlay_muted_line.clone()),
+        PttEvent::KeyDown { muted: false } => at(PttPhase::Listening, String::new()),
+        PttEvent::KeyUp => keep(),
+        PttEvent::Partial(text) if state.phase == PttPhase::Listening => at(PttPhase::Listening, quoted(text.trim())),
+        PttEvent::Heard(text) if state.phase == PttPhase::Listening => match utterance_text(text) {
+            Some(text) => at(PttPhase::Heard, quoted(text)),
+            None => PttState::default(),
+        },
+        PttEvent::Empty if state.phase == PttPhase::Listening => PttState::default(),
+        PttEvent::ListenFailed(reason) if state.phase == PttPhase::Listening => at(PttPhase::Failed(*reason), String::new()),
+        PttEvent::Sent if state.phase == PttPhase::Heard => at(PttPhase::Thinking, state.line.clone()),
+        PttEvent::SendFailed if state.phase == PttPhase::Heard => at(PttPhase::NotSent, VOICE.ptt_copy.overlay_not_sent_line.clone()),
+        PttEvent::Replied { body, speaking } if state.phase == PttPhase::Thinking => {
+            let spoken = spoken_text(body, VOICE.max_chars, "en");
+            at(if *speaking { PttPhase::Speaking } else { PttPhase::Reply }, first_sentence(&spoken).to_string())
+        }
+        PttEvent::SpeakFinished if state.phase == PttPhase::Speaking => at(PttPhase::Spoken, state.line.clone()),
+        PttEvent::Cancel | PttEvent::Hide => PttState::default(),
+        _ => keep(),
+    }
+}
+
+/// #NEW-54: the capsule for a push-to-talk state (None = hidden).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PttOverlay {
+    /// The VoiceWave activity key (`idle`, `listening`, `thinking`, `speaking`, `muted`).
+    pub activity: &'static str,
+    pub state: String,
+    pub line: String,
+    pub pill: String,
+    pub primary: bool,
+    pub hide_after_ms: Option<u64>,
+}
+
+pub fn ptt_overlay(state: &PttState, agent: Option<&str>) -> Option<PttOverlay> {
+    let copy = &VOICE.copy;
+    let ptt = &VOICE.ptt_copy;
+    let view = |activity: &'static str, label: &str| PttOverlay {
+        activity,
+        state: label.to_string(),
+        line: state.line.clone(),
+        pill: agent.unwrap_or("…").to_string(),
+        primary: false,
+        hide_after_ms: VOICE.overlay_hide_after_ms.get(state.phase.key()).copied(),
+    };
+    Some(match state.phase {
+        PttPhase::Hidden => return None,
+        PttPhase::Listening => view("listening", &ptt.overlay_listening),
+        PttPhase::Heard => view("thinking", &ptt.overlay_heard),
+        PttPhase::Thinking => view("thinking", &ptt.overlay_thinking),
+        PttPhase::Speaking => PttOverlay { pill: copy.stop.clone(), primary: true, ..view("speaking", &copy.speaking) },
+        PttPhase::Spoken | PttPhase::Reply => view("idle", &ptt.overlay_replied),
+        PttPhase::Muted => PttOverlay { pill: ptt.overlay_unmute.clone(), ..view("muted", &ptt.overlay_muted) },
+        PttPhase::NotSent => view("idle", &ptt.overlay_not_sent),
+        PttPhase::Failed(reason) => view("idle", reason.line()),
+    })
 }
 
 /// `fixtures/voice.json` minus its cases.
@@ -935,10 +1292,119 @@ mod tests {
                     call_available: context["callAvailable"].as_bool().unwrap(),
                     mic_available: context["micAvailable"].as_bool().unwrap(),
                     device_is_voice_device: context["deviceIsVoiceDevice"].as_bool().unwrap(),
+                    shortcut_unavailable: context["shortcutUnavailable"].as_bool().unwrap_or(false),
+                    shortcut_label: context["shortcutLabel"].as_str(),
                 },
             );
             let expected: Option<Vec<TrayItem>> = serde_json::from_value(case["menu"].clone()).unwrap();
             assert_eq!(menu, expected, "{}", case["name"]);
+        }
+    }
+
+    fn os_of(value: &Value) -> (VoiceOs, Option<VoiceSession>) {
+        let os = match value["os"].as_str().unwrap() {
+            "linux" => VoiceOs::Linux,
+            "macos" => VoiceOs::Macos,
+            _ => VoiceOs::Windows,
+        };
+        let session = match value["session"].as_str() {
+            Some("x11") => Some(VoiceSession::X11),
+            Some("wayland") => Some(VoiceSession::Wayland),
+            _ => None,
+        };
+        (os, session)
+    }
+
+    #[test]
+    fn shortcut_support_matches_the_fixture() {
+        let fixture = fixture();
+        for case in fixture["shortcutSupportCases"].as_array().unwrap() {
+            let (os, session) = os_of(case);
+            let support = shortcut_support(os, session, case["shortcut"].as_str().unwrap(), case["portal"].as_bool().unwrap());
+            assert_eq!(support.key(), case["support"].as_str().unwrap(), "{case}");
+        }
+        for case in fixture["shortcutOptionsCases"].as_array().unwrap() {
+            let (os, session) = os_of(case);
+            let options: Vec<&str> = shortcut_options(os, session).iter().map(|entry| entry.value.as_str()).collect();
+            let expected: Vec<&str> = case["options"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+            assert_eq!(options, expected, "{}", case["name"]);
+        }
+        for case in fixture["shortcutReasonCases"].as_array().unwrap() {
+            let reason = ShortcutReason::from_key(case["reason"].as_str().unwrap()).unwrap();
+            assert_eq!(shortcut_reason(reason, case["shortcut"].as_str().unwrap()), case["text"].as_str().unwrap());
+        }
+    }
+
+    fn ptt_event(value: &Value) -> PttEvent {
+        let text = || value["text"].as_str().unwrap().to_string();
+        match value["t"].as_str().unwrap() {
+            "keyDown" => PttEvent::KeyDown { muted: value["muted"].as_bool().unwrap() },
+            "keyUp" => PttEvent::KeyUp,
+            "partial" => PttEvent::Partial(text()),
+            "heard" => PttEvent::Heard(text()),
+            "empty" => PttEvent::Empty,
+            "listenFailed" => PttEvent::ListenFailed(ListenFailure::from_key(value["reason"].as_str().unwrap())),
+            "sent" => PttEvent::Sent,
+            "sendFailed" => PttEvent::SendFailed,
+            "replied" => PttEvent::Replied {
+                body: value["body"].as_str().unwrap().to_string(),
+                speaking: value["speaking"].as_bool().unwrap(),
+            },
+            "speakFinished" => PttEvent::SpeakFinished,
+            "cancel" => PttEvent::Cancel,
+            "hide" => PttEvent::Hide,
+            other => panic!("unknown event {other}"),
+        }
+    }
+
+    #[test]
+    fn ptt_flow_matches_the_fixture() {
+        for case in fixture()["pttFlowCases"].as_array().unwrap() {
+            let state = case["events"].as_array().unwrap().iter().fold(PttState::default(), |state, event| ptt_step(&state, &ptt_event(event)));
+            let overlay = ptt_overlay(&state, case["agent"].as_str());
+            let expected = &case["overlay"];
+            match overlay {
+                None => assert!(expected.is_null(), "{}: hidden, expected {expected}", case["name"]),
+                Some(overlay) => {
+                    assert_eq!(overlay.activity, expected["activity"].as_str().unwrap(), "{}", case["name"]);
+                    assert_eq!(overlay.state, expected["state"].as_str().unwrap(), "{}", case["name"]);
+                    assert_eq!(overlay.line, expected["line"].as_str().unwrap(), "{}", case["name"]);
+                    assert_eq!(overlay.pill, expected["pill"].as_str().unwrap(), "{}", case["name"]);
+                    assert_eq!(overlay.primary, expected["primary"].as_bool().unwrap(), "{}", case["name"]);
+                    assert_eq!(overlay.hide_after_ms, expected["hideAfterMs"].as_u64(), "{}", case["name"]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn utterance_input_matches_the_fixture() {
+        for case in fixture()["utteranceCases"].as_array().unwrap() {
+            let input = utterance_input(
+                case["heard"].as_str().unwrap(),
+                case["teamId"].as_str().unwrap(),
+                case["agentId"].as_str(),
+                case["conversationId"].as_str(),
+            );
+            let expected = &case["input"];
+            let actual = match input {
+                None => Value::Null,
+                Some(UtteranceTarget::Session { session_id, text }) => serde_json::json!({ "sessionId": session_id, "text": text }),
+                Some(UtteranceTarget::Agent { team_id, agent_id, text }) => {
+                    serde_json::json!({ "teamId": team_id, "agentId": agent_id, "text": text })
+                }
+            };
+            assert_eq!(&actual, expected, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn the_overlay_specimens_read_the_overlay_copy() {
+        let (copy, ptt) = (&VOICE.copy, &VOICE.ptt_copy);
+        let states = [&ptt.overlay_listening, &ptt.overlay_heard, &ptt.overlay_thinking, &copy.speaking, &ptt.overlay_muted];
+        assert_eq!(VOICE.overlay_specimens.len(), 4);
+        for specimen in &VOICE.overlay_specimens {
+            assert!(states.contains(&&specimen.state), "{}", specimen.state);
         }
     }
 }

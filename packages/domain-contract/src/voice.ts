@@ -346,6 +346,10 @@ export interface TrayContext {
   micAvailable: boolean
   /** THIS device is the member's voice device. */
   deviceIsVoiceDevice: boolean
+  /** #NEW-54: the push-to-talk shortcut could not be grabbed. */
+  shortcutUnavailable?: boolean
+  /** #NEW-54: the portal's trigger description (Wayland), else null. */
+  shortcutLabel?: string | null
 }
 
 export type TrayItemId = `open` | `call` | `speakReplies` | `pushToTalk` | `wakeWord` | `mute` | `settings` | `quit`
@@ -366,7 +370,8 @@ export function trayMenu(settings: TraySettings, context: TrayContext): TrayItem
   const copy = fixture.copy
   const agent = context.agent ?? `…`
   const ready = settings.voiceDeviceId !== null && settings.agentId !== null
-  const shortcut = fixture.shortcuts.find((entry) => entry.value === settings.pttShortcut)?.label ?? settings.pttShortcut
+  const label = context.shortcutLabel ?? shortcutLabel(settings.pttShortcut)
+  const shortcut = context.shortcutUnavailable ? fixture.pttCopy.shortcutUnavailable.replace(`{shortcut}`, label) : label
   const phrase = settings.wakePhrase.trim() || wakePhrasePlaceholder(agent)
   const check = (id: TrayItemId, label: string, on: boolean): TrayItem => ({
     kind: `check`,
@@ -415,4 +420,178 @@ export function downloadProgress(received: number, total: number): string {
   return fixture.copy.downloadingProgress
     .replace(`{received}`, downloadSize(received, true))
     .replace(`{total}`, downloadSize(total, false))
+}
+
+/** #NEW-54: a shortcut's label (`shortcuts`), the value itself when unknown. */
+export function shortcutLabel(value: string): string {
+  return fixture.shortcuts.find((entry) => entry.value === value)?.label ?? value
+}
+
+export type VoiceOs = `linux` | `macos` | `windows`
+export type VoiceSession = `x11` | `wayland` | null
+export type ShortcutSupport = `global` | `portal` | `focused-only` | `unavailable`
+
+function isMouse(shortcut: string): boolean {
+  return shortcut.startsWith(`mouse`)
+}
+
+/** #NEW-54: how the voice device holds a push-to-talk shortcut. */
+export function shortcutSupport(os: VoiceOs, session: VoiceSession, shortcut: string, portal: boolean): ShortcutSupport {
+  if (os === `windows`) return `global`
+  if (os === `macos`) return isMouse(shortcut) ? `unavailable` : `global`
+  if (session !== `wayland`) return `global`
+  if (isMouse(shortcut)) return `unavailable`
+  return portal ? `portal` : `focused-only`
+}
+
+/** #NEW-54: the Shortcut picker's values on the voice device. */
+export function shortcutOptions(os: VoiceOs, session: VoiceSession): string[] {
+  return fixture.shortcuts
+    .map((entry) => entry.value)
+    .filter((value) => shortcutSupport(os, session, value, true) !== `unavailable`)
+}
+
+export type ShortcutReason = keyof typeof fixture.pttCopy.shortcutReasons
+
+/** #NEW-54: why the shortcut can't be held, under the Shortcut row. */
+export function shortcutReason(reason: ShortcutReason, shortcut: string): string {
+  return fixture.pttCopy.shortcutReasons[reason].replace(`{shortcut}`, shortcutLabel(shortcut))
+}
+
+/** #NEW-54: what a heard utterance sends: trimmed, null when blank. */
+export function utteranceText(heard: string): string | null {
+  const text = heard.trim()
+  return text === `` ? null : text
+}
+
+export type UtteranceInput = { sessionId: string; text: string } | { teamId: string; agentId: string; text: string }
+
+/** #NEW-54: the `sessions.send` of an utterance: into the conversation with
+ *  the agent, or to the agent while there is none yet. */
+export function utteranceInput(
+  heard: string,
+  target: { teamId: string; agentId: string | null; conversationId: string | null }
+): UtteranceInput | null {
+  const text = utteranceText(heard)
+  if (text === null || target.agentId === null) return null
+  if (target.conversationId !== null) return { sessionId: target.conversationId, text }
+  return { teamId: target.teamId, agentId: target.agentId, text }
+}
+
+/** The first sentence of a spoken text (the Dock banner's title). */
+export function firstSentence(spoken: string): string {
+  const match = /[.!?](?= )/.exec(spoken)
+  return match === null ? spoken : spoken.slice(0, match.index + 1)
+}
+
+export type PttPhase = `hidden` | `listening` | `heard` | `thinking` | `speaking` | `spoken` | `reply` | `muted` | `notSent` | `failed`
+export type ListenFailure = keyof typeof fixture.pttCopy.listenFailed
+
+export interface PttState {
+  phase: PttPhase
+  line: string
+  /** listenFailed's reason. */
+  reason?: ListenFailure
+}
+
+export type PttEvent =
+  | { t: `keyDown`; muted: boolean }
+  | { t: `keyUp` }
+  | { t: `partial`; text: string }
+  | { t: `heard`; text: string }
+  | { t: `empty` }
+  | { t: `listenFailed`; reason: ListenFailure }
+  | { t: `sent` }
+  | { t: `sendFailed` }
+  | { t: `replied`; body: string; speaking: boolean }
+  | { t: `speakFinished` }
+  | { t: `cancel` }
+  | { t: `hide` }
+
+export const PTT_HIDDEN: PttState = { phase: `hidden`, line: `` }
+
+const quote = (text: string) => `“${text}”`
+
+/** #NEW-54: one key or worker event folded into the push-to-talk state. */
+export function pttStep(state: PttState, event: PttEvent): PttState {
+  switch (event.t) {
+    case `keyDown`:
+      return event.muted ? { phase: `muted`, line: fixture.pttCopy.overlayMutedLine } : { phase: `listening`, line: `` }
+    case `keyUp`:
+      return state
+    case `partial`:
+      return state.phase === `listening` ? { phase: `listening`, line: quote(event.text.trim()) } : state
+    case `heard`: {
+      if (state.phase !== `listening`) return state
+      const text = utteranceText(event.text)
+      return text === null ? PTT_HIDDEN : { phase: `heard`, line: quote(text) }
+    }
+    case `empty`:
+      return state.phase === `listening` ? PTT_HIDDEN : state
+    case `listenFailed`:
+      return state.phase === `listening` ? { phase: `failed`, line: ``, reason: event.reason } : state
+    case `sent`:
+      return state.phase === `heard` ? { phase: `thinking`, line: state.line } : state
+    case `sendFailed`:
+      return state.phase === `heard` ? { phase: `notSent`, line: fixture.pttCopy.overlayNotSentLine } : state
+    case `replied`: {
+      if (state.phase !== `thinking`) return state
+      const line = firstSentence(spokenText(event.body, fixture.maxChars))
+      return { phase: event.speaking ? `speaking` : `reply`, line }
+    }
+    case `speakFinished`:
+      return state.phase === `speaking` ? { phase: `spoken`, line: state.line } : state
+    case `cancel`:
+    case `hide`:
+      return PTT_HIDDEN
+  }
+}
+
+export interface PttOverlay {
+  activity: `idle` | `listening` | `thinking` | `speaking` | `muted`
+  state: string
+  line: string
+  pill: string
+  primary: boolean
+  hideAfterMs: number | null
+}
+
+const HIDE_AFTER: Record<string, number> = fixture.overlayHideAfterMs
+
+/** #NEW-54: the capsule for a push-to-talk state; null = hidden. */
+export function pttOverlay(state: PttState, agent: string | null): PttOverlay | null {
+  const copy = fixture.copy
+  const ptt = fixture.pttCopy
+  const pill = agent ?? `…`
+  const hideAfterMs = HIDE_AFTER[state.phase] ?? null
+  const view = (activity: PttOverlay[`activity`], label: string, overrides: Partial<PttOverlay> = {}): PttOverlay => ({
+    activity,
+    state: label,
+    line: state.line,
+    pill,
+    primary: false,
+    hideAfterMs,
+    ...overrides,
+  })
+  switch (state.phase) {
+    case `hidden`:
+      return null
+    case `listening`:
+      return view(`listening`, ptt.overlayListening)
+    case `heard`:
+      return view(`thinking`, ptt.overlayHeard)
+    case `thinking`:
+      return view(`thinking`, ptt.overlayThinking)
+    case `speaking`:
+      return view(`speaking`, copy.speaking, { pill: copy.stop, primary: true })
+    case `spoken`:
+    case `reply`:
+      return view(`idle`, ptt.overlayReplied)
+    case `muted`:
+      return view(`muted`, ptt.overlayMuted, { pill: ptt.overlayUnmute })
+    case `notSent`:
+      return view(`idle`, ptt.overlayNotSent)
+    case `failed`:
+      return view(`idle`, ptt.listenFailed[state.reason ?? `failed`])
+  }
 }

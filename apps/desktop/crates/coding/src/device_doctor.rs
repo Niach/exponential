@@ -38,6 +38,9 @@ pub const UNAVAILABLE: &str = "Not available here";
 pub const NOT_RESPONDING: &str = "Not responding";
 /// NEW-78: the microphone row with no input device (grey, no pill).
 pub const NO_INPUT_DEVICE: &str = "No input device";
+/// NEW-54: Windows without the MSVC OpenMP runtime the CPU transcriber
+/// needs (an error with a local-only install).
+pub const NEEDS_RUNTIME: &str = "Needs the Visual C++ runtime";
 /// EXP-1232: the managed Codex build is being fetched (no pill).
 pub const DOWNLOADING: &str = "Downloading…";
 /// EXP-1232: the fetch failed; Update re-fetches.
@@ -439,6 +442,9 @@ pub enum MicrophoneState {
     NotGranted,
     /// No input device at all.
     NoDevice,
+    /// NEW-54 (Windows): VCOMP140.dll is missing, so the CPU transcriber
+    /// cannot load.
+    NeedsRuntime,
 }
 
 /// NEW-78: append the voice group's `microphone` row (pure). The IDE calls it
@@ -452,6 +458,7 @@ pub fn add_microphone(doctor: &mut DeviceDoctor, state: MicrophoneState) {
             .detail(NOT_GRANTED)
             .action(DoctorAction::Grant),
         MicrophoneState::NoDevice => row(DoctorState::Missing).detail(NO_INPUT_DEVICE),
+        MicrophoneState::NeedsRuntime => row(DoctorState::Error).detail(NEEDS_RUNTIME).action(DoctorAction::Install),
     });
 }
 
@@ -541,6 +548,7 @@ mod tests {
             6 => Some(MicrophoneState::Granted),
             7 => Some(MicrophoneState::NotGranted),
             8 => Some(MicrophoneState::NoDevice),
+            9 => Some(MicrophoneState::NeedsRuntime),
             _ => None,
         }
     }
@@ -616,7 +624,7 @@ mod tests {
                 ComputerState::Unsupported(None),
             ),
             // NEW-78: the first case's machine, plus its microphone row.
-            6..=8 => case_input(0),
+            6..=9 => case_input(0),
             _ => panic!("no input for fixture case {index}: add one"),
         }
     }
@@ -625,7 +633,7 @@ mod tests {
     fn every_fixture_case_builds_exactly() {
         let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
         let cases = fixture["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 9, "a new fixture case needs an input here");
+        assert_eq!(cases.len(), 10, "a new fixture case needs an input here");
         for (index, case) in cases.iter().enumerate() {
             let name = case["name"].as_str().unwrap();
             let (report, settings, computer) = case_input(index);
@@ -707,6 +715,7 @@ mod tests {
             ("notGranted", NOT_GRANTED),
             ("unavailable", UNAVAILABLE),
             ("noInputDevice", NO_INPUT_DEVICE),
+            ("needsRuntime", NEEDS_RUNTIME),
             ("downloading", DOWNLOADING),
             ("downloadFailed", DOWNLOAD_FAILED),
             ("importBody", IMPORT_BODY),

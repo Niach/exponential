@@ -5172,6 +5172,30 @@
       ]
     },
     {
+      "name": "global-hotkey",
+      "version": "0.9.0",
+      "declared": "Apache-2.0 OR MIT",
+      "licenses": [
+        "MIT"
+      ],
+      "election": "MIT elected from `Apache-2.0 OR MIT`",
+      "homepage": "https://github.com/tauri-apps/global-hotkey",
+      "copyright": [
+        "Copyright (c) 2022-2022 Tauri Programme within The Commons Conservancy"
+      ],
+      "texts": [
+        {
+          "spdx": "MIT",
+          "source": "LICENSE-MIT",
+          "body": "MIT License\n\nCopyright (c) 2022-2022 Tauri Programme within The Commons Conservancy\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+        }
+      ],
+      "platforms": [
+        "aarch64-apple-darwin",
+        "x86_64-pc-windows-msvc"
+      ]
+    },
+    {
       "name": "globset",
       "version": "0.4.18",
       "declared": "Unlicense OR MIT",

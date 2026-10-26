@@ -29,13 +29,21 @@ use domain::voice::{VoiceContext, VoiceMessage, VOICE};
 pub(crate) struct DeviceVoice {
     pub agent_id: Option<String>,
     pub speak_replies: bool,
+    /// #NEW-54: push to talk listens here (the worker stays resident for it).
+    pub listen: bool,
     /// NEW-74: the language and voice file the worker speaks with.
     pub voice: talk::VoiceChoice,
 }
 
 impl DeviceVoice {
-    /// Speaking is on here: an agent is picked and Speak replies is on.
+    /// The worker runs here: an agent is picked and Speak replies or (#NEW-54)
+    /// push to talk is on.
     pub(crate) fn active(&self) -> bool {
+        (self.speak_replies || self.listen) && self.agent_id.is_some()
+    }
+
+    /// The voice (the TTS model) is wanted: Speak replies is on.
+    fn speaks(&self) -> bool {
         self.speak_replies && self.agent_id.is_some()
     }
 }
@@ -53,7 +61,7 @@ pub(crate) fn voice_here(settings: &domain::voice::VoiceSettings, own_device_id:
     let settings = settings.clone().clear_on_none();
     // NEW-74: the worker is prepared for every language; whether it speaks
     // is what it reports back (`voices`, empty without a usable GPU).
-    DeviceVoice { agent_id: settings.agent_id, speak_replies: settings.speak_replies, voice }
+    DeviceVoice { agent_id: settings.agent_id, speak_replies: settings.speak_replies, listen: settings.push_to_talk, voice }
 }
 
 /// NEW-78: THIS device listens: it is the member's voice device and Push to
@@ -162,6 +170,9 @@ pub(crate) struct SpeakReplies {
     voices: Vec<String>,
     pub speaking: Option<Speaking>,
     pub download: Download,
+    /// #NEW-54: the worker answered `Ready` and has not exited since (the
+    /// tray's Mute shows only then).
+    pub worker_ready: bool,
 }
 
 struct SpeakRepliesGlobal(Entity<SpeakReplies>);
@@ -196,6 +207,7 @@ pub fn install(cx: &mut App) {
             voices: Vec::new(),
             speaking: None,
             download: Download::Idle,
+            worker_ready: false,
         }
     });
     cx.set_global(SpeakRepliesGlobal(entity.clone()));
@@ -204,6 +216,11 @@ pub fn install(cx: &mut App) {
         while let Ok(event) = rx.recv_async().await {
             let Some(entity) = weak.upgrade() else { break };
             let _ = cx.update(|cx| {
+                // #NEW-54: what the microphone heard goes to push to talk.
+                if crate::push_to_talk::is_listen_event(&event) {
+                    crate::push_to_talk::on_worker_event(event, cx);
+                    return;
+                }
                 entity.update(cx, |this, cx| this.on_event(event, cx));
                 cx.refresh_windows();
             });
@@ -248,6 +265,17 @@ static DEV_SPEAKING: std::sync::LazyLock<Option<Speaking>> = std::sync::LazyLock
     })
 });
 
+/// #NEW-54: the speech worker, for push to talk's Listen / EndListen /
+/// CancelListen (one worker serves both).
+pub(crate) fn client(cx: &App) -> Option<talk::SpeechClient> {
+    global(cx).and_then(|entity| entity.read(cx).client.clone())
+}
+
+/// #NEW-54: the worker is up (the tray's `micAvailable`).
+pub(crate) fn worker_ready(cx: &App) -> bool {
+    global(cx).is_some_and(|entity| entity.read(cx).worker_ready)
+}
+
 /// The voice download state (the Speak replies row's detail).
 pub(crate) fn download(cx: &App) -> Download {
     global(cx).map(|entity| entity.read(cx).download.clone()).unwrap_or_default()
@@ -280,6 +308,9 @@ pub(crate) fn stop(cx: &mut App) {
 pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App) {
     let Some(entity) = global(cx) else { return };
     let listened = push_to_talk_here(cx);
+    // #NEW-54: push to talk first, so a Listen it drops is cancelled before
+    // this may end the worker.
+    crate::push_to_talk::settings_changed(&settings, cx);
     entity.update(cx, |this, cx| {
         if this.settings == settings {
             return;
@@ -320,11 +351,14 @@ impl SpeakReplies {
             return;
         }
         self.account = account;
+        // #NEW-54 (carry a): a Listen in flight is cancelled first.
+        crate::push_to_talk::signed_out(cx);
         // Another account (or none): silence, end the worker, forget the
         // history; the new account's settings prepare it again.
         if let Some(client) = self.client.as_ref() {
             client.shutdown();
         }
+        self.worker_ready = false;
         self.gate = Gate::default();
         self.prepared = DeviceVoice::default();
         // The settings are the member's: the new account's beat brings its own.
@@ -344,6 +378,7 @@ impl SpeakReplies {
             return;
         }
         let was_active = self.prepared.active();
+        let was_speaking = self.prepared.speaks();
         let voice_changed = self.prepared.voice != wanted.voice;
         let agent_changed = self.prepared.agent_id != wanted.agent_id;
         self.prepared = wanted.clone();
@@ -358,11 +393,23 @@ impl SpeakReplies {
             if (agent_changed || voice_changed) && self.speaking.take().is_some() {
                 client.stop();
             }
-            if !was_active || voice_changed {
-                client.prepare(wanted.voice.clone());
+            if wanted.speaks() {
+                if !was_speaking || voice_changed {
+                    client.prepare(wanted.voice.clone());
+                }
+            } else {
+                // #NEW-54: push to talk alone: the worker stays up (its
+                // Listen loads the transcriber), the voice is never fetched.
+                if was_speaking && self.speaking.take().is_some() {
+                    client.stop();
+                }
+                if !was_active {
+                    client.start();
+                }
             }
         } else {
             client.shutdown();
+            self.worker_ready = false;
             self.voices.clear();
             self.speaking = None;
             self.download = Download::Idle;
@@ -469,8 +516,9 @@ impl SpeakReplies {
                 }
             }
             talk::Event::Exited => self.on_exited(cx),
-            talk::Event::Ready { .. } | talk::Event::Started { .. } => {}
-            // NEW-78: listening has no host yet (push to talk = NEW-54 b2).
+            talk::Event::Ready { .. } => self.worker_ready = true,
+            talk::Event::Started { .. } => {}
+            // #NEW-54: routed to push to talk before they get here.
             talk::Event::Level { .. }
             | talk::Event::Partial { .. }
             | talk::Event::Heard { .. }
@@ -490,6 +538,7 @@ impl SpeakReplies {
     /// row gives up until the setting changes.
     fn on_exited(&mut self, cx: &mut Context<Self>) {
         self.speaking = None;
+        self.worker_ready = false;
         // A new worker reports its voices again.
         self.voices.clear();
         if matches!(self.download, Download::Running { .. }) {
@@ -516,7 +565,11 @@ impl SpeakReplies {
                 // Still the same setting and not given up: bring it back.
                 if this.prepared == prepared && this.download != Download::Unavailable {
                     if let Some(client) = this.client.as_ref() {
-                        client.prepare(prepared.voice.clone());
+                        if prepared.speaks() {
+                            client.prepare(prepared.voice.clone());
+                        } else {
+                            client.start();
+                        }
                     }
                 }
             });
@@ -607,8 +660,12 @@ mod tests {
             talk::VoiceChoice { language: "de".into(), file: "/home/me/clip.wav".into(), transcript: "Hallo.".into() }
         );
         assert_eq!(voice_here(&settings, "d-mint").voice.language, "en", "unset reads as English");
-        let no_agent = domain::voice::VoiceSettings { agent_id: None, ..settings };
+        let no_agent = domain::voice::VoiceSettings { agent_id: None, ..settings.clone() };
         assert!(!voice_here(&no_agent, "d-mint").active(), "no agent = nothing speaks");
+        // #NEW-54: push to talk alone keeps the worker, never the voice.
+        let listen_only = domain::voice::VoiceSettings { speak_replies: false, push_to_talk: true, ..settings };
+        let here = voice_here(&listen_only, "d-mint");
+        assert!(here.active() && !here.speaks());
     }
 
 }
