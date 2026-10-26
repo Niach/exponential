@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, lt, notInArray, sql } from "drizzle-orm"
 import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
@@ -6,7 +6,7 @@ import { devices, messages, sessions } from "@/db/schema"
 import { fireScheduledTriggers } from "@/lib/agents/triggers"
 import { pruneEvents } from "@/lib/events"
 import { BUS_COPY, busLine } from "@/lib/sessions/bus"
-import { hostDeviceCondition, resolveSessionHost } from "@/lib/sessions/host"
+import { hostDeviceCondition, hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
 import { pendingInput } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
@@ -44,8 +44,14 @@ function flag(kind: CodingSessionBlocked[`kind`], now: Date): CodingSessionBlock
   return { kind, agent: null, window: null, resetsAt: null, since: now.toISOString() }
 }
 
-/** `blocked` cleared and `needs_input` re-derived (an open card still waits). */
-export async function clearBlockedInTx(tx: Tx, sessionIds: readonly string[]): Promise<void> {
+/** `blocked` cleared and `needs_input` re-derived (an open card still waits).
+ *  `kind` (FEED-146) clears only a flag of that kind: a usage wall the
+ *  device wrote in between is never wiped by another clearer. */
+export async function clearBlockedInTx(
+  tx: Tx,
+  sessionIds: readonly string[],
+  kind?: CodingSessionBlocked[`kind`]
+): Promise<void> {
   if (sessionIds.length === 0) return
   await tx
     .update(sessions)
@@ -56,7 +62,12 @@ export async function clearBlockedInTx(tx: Tx, sessionIds: readonly string[]): P
       needsInput: sql`EXISTS (SELECT 1 FROM ${messages} m WHERE m.session_id = ${sessions.id} AND m.answered_at IS NULL AND m.card->>'kind' IN ('question', 'plan'))`,
       updatedAt: new Date(),
     })
-    .where(inArray(sessions.id, [...sessionIds]))
+    .where(
+      and(
+        inArray(sessions.id, [...sessionIds]),
+        ...(kind ? [sql`${sessions.blocked} ->> 'kind' = ${kind}`] : [])
+      )
+    )
 }
 
 /** A queued session nobody claimed in `unclaimedMinutes`: flagged once. */
@@ -218,33 +229,45 @@ async function clearExpiredWalls(now: Date): Promise<number> {
     })
     await clearBlockedInTx(
       tx,
-      expired.map((row) => row.id)
+      expired.map((row) => row.id),
+      `rate_limit`
     )
     return expired.length
   })
 }
 
+/** FEED-146: the heartbeat's `liveSessionIds` is a free list from the
+ *  device: only distinct uuids (lower-cased, as Postgres prints them) can
+ *  name a session row; anything else is dropped, never cast in SQL (one bad
+ *  id would fail every beat). */
+export function cleanLiveSessionIds(ids: readonly unknown[]): { ids: string[]; dropped: number } {
+  const valid = ids.filter((id): id is string => typeof id === `string` && UUID.test(id))
+  return { ids: [...new Set(valid.map((id) => id.toLowerCase()))], dropped: ids.length - valid.length }
+}
+
+/** The heartbeat's device: its sender and the machine id it beats for. */
+export interface BeatingDevice {
+  deviceId: string
+  userId: string
+}
+
+/** FEED-147: the sessions a heartbeat may move: on that machine AND hosted
+ *  by its sender (`hostedByCondition`), never every row naming the id. */
+function beatScope(device: BeatingDevice) {
+  return and(eq(sessions.deviceId, device.deviceId), hostedByCondition(device.userId))!
+}
+
 /** The device heartbeat: its `device_offline` sessions are live again. */
-export async function restoreDeviceSessionsInTx(
-  tx: Tx,
-  device: { deviceId: string; userId: string }
-): Promise<number> {
+export async function restoreDeviceSessionsInTx(tx: Tx, device: BeatingDevice): Promise<number> {
   const rows = await tx
     .select({ id: sessions.id })
     .from(sessions)
-    .where(
-      and(
-        eq(sessions.deviceId, device.deviceId),
-        sql`${sessions.blocked} ->> 'kind' = 'device_offline'`,
-        or(
-          eq(sessions.userId, device.userId),
-          sql`EXISTS (SELECT 1 FROM ${devices} d WHERE d.device_id = ${device.deviceId} AND d.user_id = ${device.userId} AND ${sessions.teamId} = ANY(d.shared_team_ids))`
-        )
-      )
-    )
+    .where(and(beatScope(device), sql`${sessions.blocked} ->> 'kind' = 'device_offline'`))
+    .for(`update`, { skipLocked: true })
   await clearBlockedInTx(
     tx,
-    rows.map((row) => row.id)
+    rows.map((row) => row.id),
+    `device_offline`
   )
   return rows.length
 }
@@ -254,29 +277,26 @@ export async function restoreDeviceSessionsInTx(
  *  claimed) is cleared and `needs_input` re-derived from its open cards. */
 export async function clearLiveStuckInTx(
   tx: Tx,
-  device: { deviceId: string; userId: string; liveSessionIds: readonly string[] }
+  device: BeatingDevice & { liveSessionIds: readonly string[] }
 ): Promise<number> {
-  // A free string from the device: only a uuid can name a session row.
-  const live = [...new Set(device.liveSessionIds)].filter((id) => UUID.test(id))
+  const live = cleanLiveSessionIds(device.liveSessionIds).ids
   if (live.length === 0) return 0
   const rows = await tx
     .select({ id: sessions.id })
     .from(sessions)
     .where(
       and(
-        eq(sessions.deviceId, device.deviceId),
+        beatScope(device),
         inArray(sessions.id, live),
         inArray(sessions.status, [...LIVE]),
-        sql`${sessions.blocked} ->> 'kind' = 'stuck'`,
-        or(
-          eq(sessions.userId, device.userId),
-          sql`EXISTS (SELECT 1 FROM ${devices} d WHERE d.device_id = ${device.deviceId} AND d.user_id = ${device.userId} AND ${sessions.teamId} = ANY(d.shared_team_ids))`
-        )
+        sql`${sessions.blocked} ->> 'kind' = 'stuck'`
       )
     )
+    .for(`update`, { skipLocked: true })
   await clearBlockedInTx(
     tx,
-    rows.map((row) => row.id)
+    rows.map((row) => row.id),
+    `stuck`
   )
   return rows.length
 }
@@ -287,16 +307,16 @@ export async function clearLiveStuckInTx(
  *  `stuck` (its next report or claim clears it), said once to its parent. */
 export async function flagDeadSessionsInTx(
   tx: Tx,
-  device: { deviceId: string; liveSessionIds: readonly string[] },
+  device: BeatingDevice & { liveSessionIds: readonly string[] },
   now: Date = new Date()
 ): Promise<number> {
-  const live = [...new Set(device.liveSessionIds)]
+  const live = cleanLiveSessionIds(device.liveSessionIds).ids
   const rows = await tx
     .select({ id: sessions.id, parentId: sessions.parentId })
     .from(sessions)
     .where(
       and(
-        eq(sessions.deviceId, device.deviceId),
+        beatScope(device),
         eq(sessions.status, `running`),
         eq(sessions.busy, true),
         ...(live.length > 0 ? [notInArray(sessions.id, live)] : [])

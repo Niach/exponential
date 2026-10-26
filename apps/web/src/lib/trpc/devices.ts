@@ -13,7 +13,12 @@
 // EXP-432 bends the per-user rule exactly once: a server device may be SHARED
 // with teams (`shared_team_ids`, owner-toggled via `setShared`; FEED-33 made
 // it a set) so their members can remote-start on it.
-import { clearLiveStuckInTx, flagDeadSessionsInTx, restoreDeviceSessionsInTx } from "@/lib/sessions/watchdog"
+import {
+  cleanLiveSessionIds,
+  clearLiveStuckInTx,
+  flagDeadSessionsInTx,
+  restoreDeviceSessionsInTx,
+} from "@/lib/sessions/watchdog"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import {
@@ -662,12 +667,21 @@ export const devicesRouter = router({
         // NEW-5: the session ids this host process runs right now. Present =
         // a busy session on this device missing from it has a dead process
         // (flagged `stuck`), a listed one is alive (FEED-145: never `stuck`
-        // for a long turn); absent = no claim.
-        liveSessionIds: z.array(z.string().min(1).max(128)).max(1000).optional(),
+        // for a long turn); absent = no claim. FEED-146: a malformed entry
+        // is dropped (`cleanLiveSessionIds`), never a failed beat.
+        liveSessionIds: z.array(z.unknown()).max(1000).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const now = new Date()
+      let liveSessionIds: string[] | null = null
+      if (input.liveSessionIds) {
+        const clean = cleanLiveSessionIds(input.liveSessionIds)
+        if (clean.dropped > 0) {
+          console.warn(`[devices.heartbeat] dropped ${clean.dropped} invalid liveSessionIds from ${input.deviceId}`)
+        }
+        liveSessionIds = clean.ids
+      }
       const updated = await ctx.db
         .update(devices)
         .set({
@@ -675,8 +689,9 @@ export const devicesRouter = router({
           updatedAt: now,
           activeSessions: input.activeSessions,
           // FEED-145: the listed sessions are vouched for (no `stuck` flag
-          // for a long turn); absent = the last claim stands.
-          ...(input.liveSessionIds ? { liveSessionIds: [...new Set(input.liveSessionIds)] } : {}),
+          // for a long turn). FEED-146: sent every beat, so absent (the
+          // device is past its cap) = NULL, never the last list standing.
+          liveSessionIds,
           ...(input.agentAccounts
             ? { agentAccounts: clampAgentAccounts(input.agentAccounts) }
             : {}),
@@ -706,17 +721,14 @@ export const devicesRouter = router({
       // NEW-1: the device is back: its sessions the watchdog parked as
       // `device_offline` read live again (the device re-claims them).
       // NEW-5: a busy session the host no longer runs is a dead process.
-      const liveSessionIds = input.liveSessionIds
+      // FEED-147: every move is scoped to the sessions this sender hosts.
+      const beating = { deviceId: input.deviceId, userId: ctx.session.user.id }
       await ctx.db.transaction(async (tx) => {
-        await restoreDeviceSessionsInTx(tx, { deviceId: input.deviceId, userId: ctx.session.user.id })
+        await restoreDeviceSessionsInTx(tx, beating)
         if (liveSessionIds) {
-          await flagDeadSessionsInTx(tx, { deviceId: input.deviceId, liveSessionIds }, now)
+          await flagDeadSessionsInTx(tx, { ...beating, liveSessionIds }, now)
           // FEED-145: a listed session is alive: a `stuck` flag on it goes.
-          await clearLiveStuckInTx(tx, {
-            deviceId: input.deviceId,
-            userId: ctx.session.user.id,
-            liveSessionIds,
-          })
+          await clearLiveStuckInTx(tx, { ...beating, liveSessionIds })
         }
       })
 
