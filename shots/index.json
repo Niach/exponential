@@ -3261,6 +3261,13 @@
         "bytes": 19824,
         "sha256": "c58329c252028b0a9fc3d570b3f1258abfcf34d448c6d559c56227e5eca2fe7c"
       },
+      "desktop": {
+        "file": "shots/exponential-ui-voice-wave/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 34496,
+        "sha256": "8de1dd4891381692718372f2c4627511c4f6d3ea63315477b70c4a190074f9e6"
+      },
       "ios": {
         "file": "shots/exponential-ui-voice-wave/ios.webp",
         "width": 828,
