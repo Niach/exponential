@@ -374,7 +374,9 @@ export async function restoreDeviceSessionsInTx(
   if (busyAgain.length > 0) {
     await tx
       .update(sessions)
-      .set({ status: `running`, busy: true, updatedAt: now })
+      // `background` resets with it: the device's next report says whether
+      // only background tasks hold the run (never stale from before).
+      .set({ status: `running`, busy: true, background: false, updatedAt: now })
       .where(inArray(sessions.id, busyAgain))
   }
   await clearBlockedInTx(tx, [...clear, ...busyAgain], `device_offline`)

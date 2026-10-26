@@ -157,11 +157,17 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     // EXP-1374 (FEED-141): a push to a live session's branch is its sign of
     // life for the stuck rule (a long gate run pushes, it never messages).
     // Needs the App's `push` event subscription; without it nothing arrives.
+    // A branch deletion and a push to the default branch (every merge lands
+    // there) vouch for nobody.
     if (event === `push`) {
-      const payload = JSON.parse(rawBody) as { ref?: string; repository?: { full_name?: string } }
+      const payload = JSON.parse(rawBody) as {
+        ref?: string
+        deleted?: boolean
+        repository?: { full_name?: string; default_branch?: string }
+      }
       const branch = payload.ref?.startsWith(`refs/heads/`) ? payload.ref.slice(`refs/heads/`.length) : null
       const fullName = payload.repository?.full_name
-      if (branch && fullName) {
+      if (branch && fullName && !payload.deleted && branch !== payload.repository?.default_branch) {
         await touchSessionActivity(
           and(
             eq(sessions.branch, branch),
