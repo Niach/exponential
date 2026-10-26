@@ -104,7 +104,6 @@ fn picker_row(
         .px_0()
         .py_0()
         .text_color(value_color)
-        .disabled(on_pick.is_none())
         .child(picker_value_label(value))
         .child(crate::surface::picker_row_chevron(cx))
         .dropdown_menu(move |mut menu, _, _| {
@@ -130,23 +129,24 @@ fn picker_row(
 fn switch_row(
     id: &'static str,
     label: &str,
+    detail: Option<SharedString>,
     checked: bool,
     enabled: bool,
     on_toggle: Option<Rc<dyn Fn(bool, &mut App)>>,
     cx: &App,
 ) -> gpui::Div {
-    let switch = crate::controls::web_switch(id).checked(checked && enabled).disabled(!enabled || on_toggle.is_none());
+    let switch = crate::controls::web_switch(id).checked(checked && enabled).disabled(!enabled);
     let switch = match on_toggle {
         Some(on_toggle) => switch.on_click(move |on: &bool, _, cx| on_toggle(*on, cx)),
         None => switch,
     };
-    glass_toggle_row(label.to_string(), None, switch.into_any_element(), cx)
+    glass_toggle_row(label.to_string(), detail, switch.into_any_element(), cx)
 }
 
 /// THE Voice rows (`voice.json`): group 1, then the tray group while a voice
 /// device is picked. `wake_input` = the wake phrase's input element (the
 /// pane's live field, or the twin's static one); `on_change` = None draws
-/// the rows inert (the styleguide twin).
+/// the rows inert but in their live look (the styleguide twin).
 pub(crate) fn voice_rows(
     settings: &VoiceSettings,
     devices: &[VoiceOption],
@@ -157,6 +157,12 @@ pub(crate) fn voice_rows(
 ) -> Vec<AnyElement> {
     let copy = &VOICE.copy;
     let ready = settings.voice_device_id.is_some() && settings.agent_id.is_some();
+    // voice.json: while the voice downloads (only ever on the voice device,
+    // i.e. here) the Speak replies row's detail reads `downloading`.
+    let downloading = on_change.is_some()
+        && ready
+        && settings.speak_replies
+        && crate::speak_replies::download(cx) == crate::speak_replies::Download::Running;
     let send = |make: Rc<dyn Fn(Option<String>) -> VoiceUpdate>| -> Option<Rc<dyn Fn(Option<String>, &mut App)>> {
         on_change.clone().map(|on_change| {
             Rc::new(move |value: Option<String>, cx: &mut App| on_change(make(value), cx)) as Rc<dyn Fn(Option<String>, &mut App)>
@@ -196,6 +202,7 @@ pub(crate) fn voice_rows(
             switch_row(
                 "settings-voice-speak-replies",
                 &copy.speak_replies,
+                downloading.then(|| SharedString::from(copy.downloading.clone())),
                 settings.speak_replies,
                 ready,
                 toggle(Rc::new(|on| VoiceUpdate { speak_replies: Some(on), ..Default::default() })),
@@ -218,6 +225,7 @@ pub(crate) fn voice_rows(
                 switch_row(
                     "settings-voice-push-to-talk",
                     &copy.push_to_talk,
+                    None,
                     settings.push_to_talk,
                     ready,
                     toggle(Rc::new(|on| VoiceUpdate { push_to_talk: Some(on), ..Default::default() })),
@@ -235,6 +243,7 @@ pub(crate) fn voice_rows(
                 switch_row(
                     "settings-voice-wake-word",
                     &copy.wake_word,
+                    None,
                     settings.wake_word,
                     ready,
                     toggle(Rc::new(|on| VoiceUpdate { wake_word: Some(on), ..Default::default() })),

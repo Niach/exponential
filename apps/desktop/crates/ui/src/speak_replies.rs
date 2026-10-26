@@ -204,19 +204,6 @@ pub(crate) fn stop(cx: &mut App) {
     }
 }
 
-/// THIS device's share of the member's voice settings.
-pub(crate) fn own_voice(cx: &App) -> DeviceVoice {
-    let Some(entity) = global(cx) else { return DeviceVoice::default() };
-    let device_id = steer::persistent_device_id(&crate::session::AuthContext::global(cx).data_dir);
-    voice_here(&entity.read(cx).settings, &device_id)
-}
-
-/// The member's voice settings, as the last heartbeat (or a save on this
-/// device) delivered them.
-pub(crate) fn settings(cx: &App) -> domain::voice::VoiceSettings {
-    global(cx).map(|entity| entity.read(cx).settings.clone()).unwrap_or_default()
-}
-
 /// NEW-67: new voice settings arrived (a heartbeat, or this device's own
 /// Settings → Voice save): adopt them and start or stop the voice here.
 pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App) {
@@ -238,6 +225,14 @@ fn session_account(cx: &App) -> Option<String> {
 }
 
 impl SpeakReplies {
+    /// THIS device's share of the member's voice settings. A method, not a
+    /// read of the global: every caller already runs inside this entity's
+    /// update, where a read panics.
+    fn own_voice(&self, cx: &App) -> DeviceVoice {
+        let device_id = steer::persistent_device_id(&crate::session::AuthContext::global(cx).data_dir);
+        voice_here(&self.settings, &device_id)
+    }
+
     fn on_session(&mut self, cx: &mut Context<Self>) {
         let account = session_account(cx);
         if account == self.account {
@@ -261,7 +256,7 @@ impl SpeakReplies {
     }
 
     fn on_settings(&mut self, cx: &mut Context<Self>) {
-        let voice = own_voice(cx);
+        let voice = self.own_voice(cx);
         let wanted = if voice.active() { voice } else { DeviceVoice::default() };
         if wanted == self.prepared {
             return;
@@ -301,7 +296,7 @@ impl SpeakReplies {
         if self.download == Download::Unavailable {
             return;
         }
-        let voice = own_voice(cx);
+        let voice = self.own_voice(cx);
         let Some(agent_id) = voice.agent_id.as_deref().filter(|_| voice.speak_replies) else {
             return;
         };
@@ -350,6 +345,7 @@ impl SpeakReplies {
     }
 
     fn on_event(&mut self, event: talk::Event, cx: &mut Context<Self>) {
+        let download_before = self.download.clone();
         match event {
             talk::Event::Downloading { .. } => self.download = Download::Running,
             talk::Event::ModelReady => self.download = Download::Idle,
@@ -377,6 +373,10 @@ impl SpeakReplies {
             }
             talk::Event::Exited => self.on_exited(cx),
             talk::Event::Ready { .. } | talk::Event::Started { .. } => {}
+        }
+        // Settings → Voice draws the download as the Speak replies detail.
+        if self.download != download_before {
+            cx.refresh_windows();
         }
         cx.notify();
     }

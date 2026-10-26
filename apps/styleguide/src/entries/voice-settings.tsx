@@ -59,10 +59,14 @@ export const entry: StyleguideEntry = {
       symbol: `VoiceSettingsPage`,
       file: `apps/ios/Exponential/UI/Settings/VoiceSettingsPage.swift`,
     },
-    android: { state: `n/a`, note: `NEW-67 in progress` },
+    android: {
+      state: `ok`,
+      symbol: `VoiceSettingsScreen`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/settings/VoiceSettingsScreen.kt`,
+    },
   },
   island: () => (
-    <SubShellHost className="w-[24rem]">
+    <SubShellHost className="w-full">
       <GlassGroup data-testid={`demo-${VOICE_TEST_IDS.page}`}>
         <Picker
           mode="single"
