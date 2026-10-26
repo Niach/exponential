@@ -72,6 +72,10 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
+      "package": "crispasr@0.14.78",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
       "package": "dispatch@0.2.0",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },

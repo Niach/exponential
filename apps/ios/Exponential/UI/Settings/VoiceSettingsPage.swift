@@ -159,7 +159,7 @@ struct VoiceSettingsPage: View {
             .disabled(!enabled)
     }
 
-    /// #NEW-73: picker over `languages`; German carries its GPU note
+    /// #NEW-73: picker over `languages`; every language carries its GPU note
     /// (`languageLabel`), in the row and in the menu.
     private func languageRow(_ settings: Voice.Settings) -> some View {
         let device = settings.voiceDeviceId.map(deviceName)

@@ -6,13 +6,20 @@
 //! stdout, and logs to stderr (the host forwards it to its log). A host
 //! that dies closes stdin; the worker sees EOF and exits.
 //!
-//! Slice (b): the Kokoro voice ([`model::KOKORO`], English, speaker 0),
-//! synthesized sentence by sentence through sherpa-onnx and played as it
-//! arrives ([`sink`]). A new `Speak` replaces the one playing; `Stop` ends
-//! it. Each request carries a generation number; synthesis and playback of
-//! an older generation stop at their next chunk.
+//! NEW-74: ONE engine for every language, Qwen3-TTS 0.6B Base (F16) through
+//! CrispASR on the GPU, cloning zero-shot from the member's reference clip
+//! (`voiceFile` + `voiceTranscript`, validated by
+//! [`talk::custom_voice_file`]) or the built-in clip of the language
+//! ([`builtin`]). GPU only: the CPU runs it about two times SLOWER than real
+//! time, so a machine without a usable GPU speaks nothing and reports
+//! `voices: []`. Usable = the platform's GPU driver exists (checked before
+//! any download), ggml finds a GPU with room for the model, and a warm-up
+//! sentence synthesizes faster than [`MAX_WARMUP_RTF`]. A reply is
+//! synthesized sentence by sentence and played as it arrives ([`sink`]); a
+//! new `Speak` replaces the one playing, `Stop` ends it (each request
+//! carries a generation number; older work stops at its next sentence).
 
-pub mod model;
+pub mod builtin;
 pub mod sink;
 
 use std::io::{BufRead, Write};
@@ -20,12 +27,18 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use talk::{Event, Request};
+use crispasr::{artifact, models, Device, Runtime, TtsSession};
+use talk::{Event, Request, VoiceChoice};
 
-/// The Kokoro speaker id (the voice the owner heard and chose).
-const SPEAKER: i32 = 0;
+/// The CrispASR backend of the model.
+const BACKEND: &str = "qwen3-tts";
+/// The warm-up must run at least this much faster than real time (the
+/// 4090 measured 0.13-0.27, the CPU ~2.0).
+const MAX_WARMUP_RTF: f64 = 0.6;
+/// A GPU needs this much memory for the F16 model (measured peak 3.7 GB).
+const MIN_GPU_BYTES: u64 = 4_000_000_000;
 
 /// Run the worker to completion and exit the process. Call it from `main`
 /// when [`talk::requested`] answers; it never returns.
@@ -46,7 +59,7 @@ fn emit(event: &Event) {
 }
 
 enum Job {
-    Prepare,
+    Prepare(VoiceChoice),
     Speak { id: String, text: String, generation: u64 },
 }
 
@@ -59,6 +72,7 @@ struct Shared {
 
 fn run(data_dir: PathBuf) {
     emit(&Event::Ready { protocol: talk::PROTOCOL });
+    remove_retired_voices(&data_dir);
     let shared = Arc::new(Shared { generation: AtomicU64::new(0), current: Mutex::new(None) });
     let (tx, rx) = mpsc::channel::<Job>();
     let engine_shared = shared.clone();
@@ -78,8 +92,8 @@ fn run(data_dir: PathBuf) {
             }
         };
         match request {
-            Request::Prepare => {
-                let _ = tx.send(Job::Prepare);
+            Request::Prepare { voice } => {
+                let _ = tx.send(Job::Prepare(voice));
             }
             Request::Speak { id, text } => {
                 let generation = shared.generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -99,6 +113,14 @@ fn run(data_dir: PathBuf) {
     let _ = engine.join();
 }
 
+/// NEW-74: the Kokoro voice of NEW-53 is retired; free its ~340 MB.
+fn remove_retired_voices(data_dir: &Path) {
+    let kokoro = data_dir.join("talk").join("kokoro-multi-lang-v1_0");
+    if kokoro.is_dir() && std::fs::remove_dir_all(&kokoro).is_ok() {
+        eprintln!("removed the retired Kokoro voice");
+    }
+}
+
 fn silence(shared: &Shared) {
     let sink = shared.current.lock().ok().and_then(|mut current| current.take());
     if let Some(sink) = sink {
@@ -113,136 +135,325 @@ fn retry_after(failures: u32) -> Duration {
     Duration::from_secs(60u64.saturating_mul(1u64 << failures.saturating_sub(1).min(6))).min(Duration::from_secs(3600))
 }
 
+/// The engine once it is up: the runtime lives for the process.
+struct Loaded {
+    session: TtsSession<'static>,
+    sample_rate: u32,
+    /// The voice installed in the session.
+    voice: Option<VoiceChoice>,
+}
+
+enum State {
+    /// Not tried yet, or backing off until `retry_at`.
+    Idle { failures: u32, retry_at: Option<Instant> },
+    /// No usable GPU on this machine: nothing is ever spoken (until the
+    /// worker restarts).
+    NoGpu,
+    Ready(Loaded),
+}
+
 fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
-    let mut tts: Option<sherpa_onnx::OfflineTts> = None;
-    let mut failures = 0u32;
-    let mut retry_at: Option<Instant> = None;
+    let mut state = State::Idle { failures: 0, retry_at: None };
+    let mut choice = VoiceChoice { language: "en".into(), ..Default::default() };
     while let Ok(first) = rx.recv() {
-        // Only the newest Speak matters: drain what queued up behind it.
+        // Only the newest Speak matters; the newest Prepare is the choice.
         let mut job = first;
         while let Ok(next) = rx.try_recv() {
-            if matches!(next, Job::Speak { .. }) || matches!(job, Job::Prepare) {
-                job = next;
+            match next {
+                Job::Prepare(voice) => {
+                    choice = voice;
+                    if !matches!(job, Job::Speak { .. }) {
+                        job = Job::Prepare(choice.clone());
+                    }
+                }
+                speak => job = speak,
             }
         }
-        if tts.is_none() {
+        if let Job::Prepare(voice) = &job {
+            choice = voice.clone();
+        }
+        if let State::Idle { failures, retry_at } = state {
             if retry_at.is_some_and(|at| Instant::now() < at) {
                 // Backing off: the voice is not tried again yet.
+                emit(&Event::Voices { voices: Vec::new() });
                 if let Job::Speak { id, .. } = job {
                     emit(&Event::Failed { id, error: "the voice is unavailable for now".into() });
                 }
                 continue;
             }
-            match load(data_dir) {
-                Ok(engine) => {
-                    tts = Some(engine);
-                    failures = 0;
-                    retry_at = None;
+            state = match bring_up(data_dir) {
+                Ok(Some(loaded)) => {
                     emit(&Event::ModelReady);
+                    // Also when a Speak swallowed the Prepare behind it.
+                    emit(&Event::Voices { voices: builtin::languages() });
+                    State::Ready(loaded)
                 }
+                Ok(None) => State::NoGpu,
                 Err(err) => {
-                    failures += 1;
+                    let failures = failures + 1;
                     let wait = retry_after(failures);
-                    retry_at = Some(Instant::now() + wait);
                     eprintln!("voice unavailable (attempt {failures}, next in {}s): {err}", wait.as_secs());
                     emit(&Event::DownloadFailed { error: err.clone() });
-                    if let Job::Speak { id, .. } = job {
-                        emit(&Event::Failed { id, error: err });
-                    }
-                    continue;
+                    State::Idle { failures, retry_at: Some(Instant::now() + wait) }
                 }
+            };
+        }
+        let State::Ready(loaded) = &mut state else {
+            emit(&Event::Voices { voices: Vec::new() });
+            if let Job::Speak { id, .. } = job {
+                emit(&Event::Failed { id, error: "no usable GPU for the voice".into() });
+            }
+            continue;
+        };
+        if loaded.voice.as_ref() != Some(&choice) {
+            if let Err(err) = install_voice(data_dir, loaded, &choice) {
+                eprintln!("{err}");
             }
         }
-        if let (Job::Speak { id, text, generation }, Some(engine)) = (job, tts.as_ref()) {
-            speak(engine, shared, &id, &text, generation);
+        match job {
+            Job::Prepare(_) => emit(&Event::Voices { voices: builtin::languages() }),
+            Job::Speak { id, text, generation } => speak(loaded, shared, &id, &text, generation),
         }
     }
 }
 
-fn load(data_dir: &Path) -> Result<sherpa_onnx::OfflineTts, String> {
-    let dir = model::ensure(data_dir, &model::KOKORO, |received, total| {
-        emit(&Event::Downloading { received, total });
-    })?;
-    let path = |name: &str| Some(dir.join(name).to_string_lossy().into_owned());
-    let config = sherpa_onnx::OfflineTtsConfig {
-        model: sherpa_onnx::OfflineTtsModelConfig {
-            kokoro: sherpa_onnx::OfflineTtsKokoroModelConfig {
-                model: path("model.onnx"),
-                voices: path("voices.bin"),
-                tokens: path("tokens.txt"),
-                // sherpa-onnx 2.0: the lexicon replaces espeak-ng.
-                lexicon: path("lexicon-us-en.txt"),
-                length_scale: 1.0,
-                lang: Some("en".into()),
-                ..Default::default()
-            },
-            num_threads: synthesis_threads(),
-            provider: Some("cpu".into()),
-            ..Default::default()
-        },
-        // One sentence per callback: the first audio after one sentence.
-        max_num_sentences: 1,
-        silence_scale: 0.2,
-        ..Default::default()
+/// Probe, download, verify, load and warm up. `Ok(None)` = no usable GPU
+/// (permanent for this worker); `Err` = a failure worth retrying later.
+fn bring_up(data_dir: &Path) -> Result<Option<Loaded>, String> {
+    if !crispasr::platform::supported() || !crispasr::platform::gpu_driver_present() {
+        eprintln!("no usable GPU: no GPU driver for the voice on this machine");
+        return Ok(None);
+    }
+    let runtime_dir = crispasr::runtime_dir(data_dir);
+    let models_dir = data_dir.join("talk").join(models::MODELS_DIR);
+    let runtime = crispasr::platform::ARTIFACTS;
+    let model_files = [models::QWEN3_TTS_0_6B_BASE, models::QWEN3_TTS_CODEC];
+    let total: u64 = runtime.iter().chain(model_files.iter()).map(|artifact| artifact.size).sum();
+    let runtime_total: u64 = runtime.iter().map(|artifact| artifact.size).sum();
+    let mut last = Instant::now() - Duration::from_secs(1);
+    let mut report = |received: u64| {
+        // At most 4 events a second (the row's detail redraws on each).
+        if last.elapsed() >= Duration::from_millis(250) || received == total {
+            last = Instant::now();
+            emit(&Event::Downloading { received, total });
+        }
     };
-    sherpa_onnx::OfflineTts::create(&config).ok_or_else(|| "the voice model failed to load".to_string())
+    // The runtime first: whether there is a usable GPU at all is known
+    // before the 2.2 GB of models are fetched.
+    artifact::ensure_all(&runtime_dir, runtime, |received, _| report(received)).map_err(|err| err.to_string())?;
+    // Every library re-hashed inside `load` before dlopen.
+    let runtime = Runtime::load(&runtime_dir)?;
+    let gpus = runtime.gpus();
+    let Some(gpu) = gpus.iter().filter(|gpu| gpu.total_bytes >= MIN_GPU_BYTES).max_by_key(|gpu| gpu.free_bytes) else {
+        let seen: Vec<String> = gpus.iter().map(|gpu| format!("{} ({} MB)", gpu.description, gpu.total_bytes / 1_000_000)).collect();
+        eprintln!("no usable GPU: ggml found {}", if seen.is_empty() { "none".to_string() } else { seen.join(", ") });
+        return Ok(None);
+    };
+    eprintln!("voice GPU: {} ({} MB, {} MB free)", gpu.description, gpu.total_bytes / 1_000_000, gpu.free_bytes / 1_000_000);
+    let fingerprint = gpu_fingerprint(gpu, crispasr::platform::driver_version().as_deref());
+    let cache = no_gpu_cache_path(data_dir);
+    if no_gpu_cached(&cache, &fingerprint, SystemTime::now()) {
+        eprintln!("no usable GPU: this GPU and driver were too slow before (cached; a driver change or 30 days re-test)");
+        return Ok(None);
+    }
+    artifact::ensure_all(&models_dir, &model_files, |received, _| report(runtime_total + received))
+        .map_err(|err| err.to_string())?;
+    // The GGUFs are re-hashed before ggml parses them (~1-2 s for 2.2 GB).
+    let hashing = Instant::now();
+    for model in &model_files {
+        artifact::verify(&models_dir, model).map_err(|err| err.to_string())?;
+    }
+    eprintln!("voice models verified in {} ms", hashing.elapsed().as_millis());
+    // The worker keeps the runtime until it exits; sessions borrow it.
+    let runtime: &'static Runtime = Box::leak(Box::new(runtime));
+    let started = Instant::now();
+    let session = runtime.open_tts(
+        BACKEND,
+        &models_dir.join(models::QWEN3_TTS_0_6B_BASE.keep[0].1),
+        &models_dir.join(models::QWEN3_TTS_CODEC.keep[0].1),
+        Device::Gpu,
+    )?;
+    let sample_rate = session.sample_rate();
+    let mut loaded = Loaded { session, sample_rate, voice: None };
+    let english = VoiceChoice { language: "en".into(), ..Default::default() };
+    install_voice(data_dir, &mut loaded, &english)?;
+    eprintln!("voice loaded in {} ms", started.elapsed().as_millis());
+    // Two tries: the first call of a cold GPU pipeline compiles its shaders.
+    let mut best = f64::MAX;
+    for _ in 0..2 {
+        let started = Instant::now();
+        let pcm = loaded.session.synthesize("Hello, this is a quick voice check.")?;
+        let audio = pcm.len() as f64 / f64::from(sample_rate);
+        let rtf = if audio > 0.0 { started.elapsed().as_secs_f64() / audio } else { f64::MAX };
+        best = best.min(rtf);
+        if best <= MAX_WARMUP_RTF {
+            break;
+        }
+    }
+    eprintln!("voice warm-up: real-time factor {best:.2}");
+    if best > MAX_WARMUP_RTF {
+        eprintln!("no usable GPU: the voice runs slower than {MAX_WARMUP_RTF} of real time");
+        remember_no_gpu(&cache, &fingerprint, SystemTime::now());
+        return Ok(None);
+    }
+    Ok(Some(loaded))
 }
 
-fn synthesis_threads() -> i32 {
-    std::thread::available_parallelism().map(|n| (n.get() / 2).clamp(1, 4) as i32).unwrap_or(2)
+/// How long a "too slow" verdict stands before the GPU is tried again.
+const NO_GPU_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
+
+/// The GPU and driver a "too slow" verdict is about.
+fn gpu_fingerprint(gpu: &crispasr::Gpu, driver: Option<&str>) -> String {
+    format!(
+        "{} | {} | {} MB | {} | max rtf {MAX_WARMUP_RTF}",
+        crispasr::platform::RUNTIME_DIR,
+        gpu.description,
+        gpu.total_bytes / 1_000_000,
+        driver.unwrap_or("driver unknown")
+    )
 }
 
-fn speak(engine: &sherpa_onnx::OfflineTts, shared: &Arc<Shared>, id: &str, text: &str, generation: u64) {
-    if shared.generation.load(Ordering::SeqCst) != generation {
+fn no_gpu_cache_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("talk").join("no-gpu.txt")
+}
+
+/// The cache: the fingerprint on line one, the unix time on line two.
+fn no_gpu_cached(path: &Path, fingerprint: &str, now: SystemTime) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else { return false };
+    let mut lines = text.lines();
+    let (Some(cached), Some(at)) = (lines.next(), lines.next().and_then(|at| at.trim().parse::<u64>().ok())) else {
+        return false;
+    };
+    let age = now.duration_since(UNIX_EPOCH).map(|now| now.as_secs().saturating_sub(at)).unwrap_or(u64::MAX);
+    cached == fingerprint && age < NO_GPU_TTL.as_secs()
+}
+
+fn remember_no_gpu(path: &Path, fingerprint: &str, now: SystemTime) {
+    let at = now.duration_since(UNIX_EPOCH).map(|now| now.as_secs()).unwrap_or(0);
+    if let Err(err) = std::fs::write(path, format!("{fingerprint}\n{at}\n")) {
+        eprintln!("could not remember the slow GPU: {err}");
+    }
+}
+
+/// A synthesis error as logged and reported: never the reply's text (a
+/// backend that echoed its input would otherwise put it in the log).
+fn scrub(error: &str, text: &str) -> String {
+    let mut error = error.to_string();
+    if !text.trim().is_empty() {
+        error = error.replace(text, "<reply>");
+    }
+    for sentence in sentences(text).into_iter().filter(|sentence| sentence.len() >= 8) {
+        error = error.replace(sentence, "<reply>");
+    }
+    error.chars().take(200).collect()
+}
+
+/// Install the member's clip (validated) or the language's built-in clip.
+fn install_voice(data_dir: &Path, loaded: &mut Loaded, choice: &VoiceChoice) -> Result<(), String> {
+    let language = builtin::for_language(&choice.language);
+    let custom = match talk::custom_voice_file(&choice.file, &choice.transcript) {
+        Ok(custom) => custom,
+        Err(reason) => {
+            // Logged once per choice (a new choice is the only way here).
+            eprintln!("voice file rejected, using the built-in voice: {reason}");
+            None
+        }
+    };
+    let installed = match &custom {
+        Some(path) => loaded.session.set_voice(path, choice.transcript.trim(), language.language),
+        None => Err(String::new()),
+    };
+    if let Err(err) = installed {
+        if !err.is_empty() {
+            eprintln!("voice file failed to load, using the built-in voice: {err}");
+        }
+        let path = builtin::materialize(&data_dir.join("talk").join("voices"), language)?;
+        loaded.session.set_voice(&path, language.transcript, language.language)?;
+    }
+    loaded.voice = Some(choice.clone());
+    Ok(())
+}
+
+/// Split spoken text into sentences (each is one synthesis call, so the
+/// first audio arrives after the first sentence and Stop lands between).
+fn sentences(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    for (index, ch) in text.char_indices() {
+        if matches!(ch, '.' | '!' | '?') && text[index + 1..].starts_with(' ') {
+            out.push(text[start..=index].trim());
+            start = index + 1;
+        }
+    }
+    let rest = text[start..].trim();
+    if !rest.is_empty() {
+        out.push(rest);
+    }
+    out.retain(|sentence| !sentence.is_empty());
+    out
+}
+
+fn speak(loaded: &mut Loaded, shared: &Arc<Shared>, id: &str, text: &str, generation: u64) {
+    let current = |shared: &Shared| shared.generation.load(Ordering::SeqCst) == generation;
+    if !current(shared) {
         emit(&Event::Finished { id: id.into(), stopped: true });
         return;
     }
-    let sink = match sink::open(engine.sample_rate() as u32) {
+    let sink = match sink::open(loaded.sample_rate) {
         Ok(sink) => sink,
         Err(err) => {
             emit(&Event::Failed { id: id.into(), error: err });
             return;
         }
     };
-    if let Ok(mut current) = shared.current.lock() {
-        *current = Some(sink.clone());
+    if let Ok(mut playing) = shared.current.lock() {
+        *playing = Some(sink.clone());
     }
-    let started = Arc::new(Mutex::new(false));
-    let callback_shared = shared.clone();
-    let callback_sink = sink.clone();
-    let callback_started = started.clone();
-    let callback_id = id.to_string();
-    let config = sherpa_onnx::GenerationConfig { sid: SPEAKER, speed: 1.0, ..Default::default() };
-    let _ = engine.generate_with_config(
-        text,
-        &config,
-        Some(move |samples: &[f32], _progress: f32| {
-            if callback_shared.generation.load(Ordering::SeqCst) != generation {
-                return false;
-            }
-            if let Ok(mut started) = callback_started.lock() {
-                if !*started && !samples.is_empty() {
-                    *started = true;
-                    emit(&Event::Started { id: callback_id.clone() });
+    let mut started = false;
+    for sentence in sentences(text) {
+        if !current(shared) {
+            break;
+        }
+        match loaded.session.synthesize(sentence) {
+            Ok(pcm) => {
+                if !current(shared) {
+                    break;
                 }
+                if !started && !pcm.is_empty() {
+                    started = true;
+                    emit(&Event::Started { id: id.into() });
+                }
+                sink.push(&pcm);
             }
-            callback_sink.push(samples);
-            true
-        }),
-    );
-    let current_generation = shared.generation.load(Ordering::SeqCst) == generation;
-    if current_generation {
+            Err(err) => {
+                let err = scrub(&err, text);
+                eprintln!("synthesis failed: {err}");
+                if !started {
+                    sink.stop();
+                    clear_current(shared, &sink);
+                    emit(&Event::Failed { id: id.into(), error: err });
+                    return;
+                }
+                break;
+            }
+        }
+    }
+    if current(shared) {
         sink.finish();
     } else {
         sink.stop();
     }
-    let still_current = shared.generation.load(Ordering::SeqCst) == generation;
-    if let Ok(mut current) = shared.current.lock() {
-        if current.as_ref().is_some_and(|playing| Arc::ptr_eq(playing, &sink)) {
-            *current = None;
+    let still_current = current(shared);
+    clear_current(shared, &sink);
+    emit(&Event::Finished { id: id.into(), stopped: !still_current });
+}
+
+fn clear_current(shared: &Shared, sink: &Arc<dyn sink::Sink>) {
+    if let Ok(mut playing) = shared.current.lock() {
+        if playing.as_ref().is_some_and(|playing| Arc::ptr_eq(playing, sink)) {
+            *playing = None;
         }
     }
-    emit(&Event::Finished { id: id.into(), stopped: !still_current });
 }
 
 #[cfg(test)]
@@ -256,5 +467,41 @@ mod tests {
         assert_eq!(retry_after(4), Duration::from_secs(480));
         assert_eq!(retry_after(7), Duration::from_secs(3600));
         assert_eq!(retry_after(30), Duration::from_secs(3600));
+    }
+
+    #[test]
+    fn a_slow_gpu_is_remembered_per_gpu_and_driver_for_30_days() {
+        let dir = std::env::temp_dir().join(format!("voice-no-gpu-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("no-gpu.txt");
+        let gpu = crispasr::Gpu { description: "GT 1030".into(), integrated: false, total_bytes: 4_294_967_296, free_bytes: 0 };
+        let print = gpu_fingerprint(&gpu, Some("cuda 12080"));
+        let now = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+        assert!(!no_gpu_cached(&path, &print, now));
+        remember_no_gpu(&path, &print, now);
+        assert!(no_gpu_cached(&path, &print, now + Duration::from_secs(3600)));
+        assert!(!no_gpu_cached(&path, &gpu_fingerprint(&gpu, Some("cuda 12090")), now), "a new driver re-tests");
+        let other = crispasr::Gpu { description: "RTX 4090".into(), ..gpu.clone() };
+        assert!(!no_gpu_cached(&path, &gpu_fingerprint(&other, Some("cuda 12080")), now), "another GPU re-tests");
+        assert!(!no_gpu_cached(&path, &print, now + NO_GPU_TTL), "after 30 days it re-tests");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_synthesis_error_never_carries_the_reply() {
+        let text = "Der Build ist grün. EXP-1390 ist erledigt.";
+        assert_eq!(scrub("failed on: Der Build ist grün. EXP-1390 ist erledigt.", text), "failed on: <reply>");
+        assert_eq!(scrub("failed at Der Build ist grün.", text), "failed at <reply>");
+        assert_eq!(scrub("qwen3-tts synthesis failed", text), "qwen3-tts synthesis failed");
+        assert_eq!(scrub(&"x".repeat(500), text).len(), 200);
+    }
+
+    #[test]
+    fn replies_split_into_sentences() {
+        assert_eq!(sentences("Done. The PR is open! Merge it? yes"), ["Done.", "The PR is open!", "Merge it?", "yes"]);
+        assert_eq!(sentences("E X P dreizehn neunzig ist erledigt."), ["E X P dreizehn neunzig ist erledigt."]);
+        assert_eq!(sentences("Version 1.5 ships."), ["Version 1.5 ships."], "a decimal point is no sentence end");
+        assert!(sentences("  ").is_empty());
     }
 }

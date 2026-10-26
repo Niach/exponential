@@ -4,6 +4,7 @@ import fixture from "../fixtures/voice.json" with { type: "json" }
 import {
   agentOptions,
   clearOnNone,
+  downloadProgress,
   identifierNumberWords,
   languageLabel,
   languageNote,
@@ -24,17 +25,17 @@ describe(`voice.json`, () => {
   }
   for (const c of fixture.spokenTextCases) {
     it(`spokenText: ${c.name}`, () => {
-      expect(spokenText(c.body, c.maxChars ?? fixture.maxChars)).toBe(c.spoken)
+      expect(spokenText(c.body, c.maxChars ?? fixture.maxChars, c.language ?? `en`)).toBe(c.spoken)
     })
   }
   for (const c of fixture.numberWordsCases) {
-    it(`numberWords ${c.n}`, () => {
-      expect(numberWords(c.n)).toBe(c.words)
+    it(`numberWords ${c.language ?? `en`} ${c.n}`, () => {
+      expect(numberWords(c.n, c.language ?? `en`)).toBe(c.words)
     })
   }
   for (const c of fixture.identifierNumberCases) {
-    it(`identifierNumberWords ${c.n}`, () => {
-      expect(identifierNumberWords(c.n)).toBe(c.words)
+    it(`identifierNumberWords ${c.language ?? `en`} ${c.n}`, () => {
+      expect(identifierNumberWords(c.n, c.language ?? `en`)).toBe(c.words)
     })
   }
   for (const c of fixture.agentOptionsCases) {
@@ -61,6 +62,12 @@ describe(`voice.json`, () => {
   for (const c of fixture.languageLabelCases) {
     it(`languageLabel: ${c.name}`, () => expect(languageLabel(c.language, c.device)).toBe(c.label))
   }
+  for (const c of fixture.downloadProgressCases) {
+    it(`downloadProgress: ${c.name}`, () => expect(downloadProgress(c.received, c.total)).toBe(c.text))
+  }
+  it(`spokenWords: an unknown language reads as English`, () => {
+    expect(spokenText(`See https://example.com, 50% done.`, fixture.maxChars, `fr`)).toBe(`See link, fifty percent done.`)
+  })
   for (const c of fixture.wakePhrasePlaceholderCases) {
     it(`wakePhrasePlaceholder ${c.agent}`, () => expect(wakePhrasePlaceholder(c.agent)).toBe(c.placeholder))
   }

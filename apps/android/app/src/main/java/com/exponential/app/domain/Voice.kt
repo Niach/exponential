@@ -46,6 +46,7 @@ object Voice {
         const val TRAY_SETTINGS = "Voice settings…"
         const val TRAY_QUIT = "Quit"
         const val DOWNLOADING = "Downloading voice…"
+        const val DOWNLOADING_PROGRESS = "Downloading voice… {received} of {total}"
         const val DOWNLOAD_FAILED = "Couldn't download the voice"
         const val UNAVAILABLE = "The voice stopped working"
         const val SPEAKING = "Speaking"
@@ -221,11 +222,12 @@ object Voice {
         Copy.WAKE_PHRASE_PLACEHOLDER.replace("{agent}", agentName)
 
     /**
-     * #NEW-73: the Language row's trailing detail; German speaks on the voice
-     * device's GPU only. Null without a voice device or for English.
+     * #NEW-73: the Language row's trailing detail; every language speaks on
+     * the voice device's GPU only (#NEW-74). Null without a voice device.
      */
+    @Suppress("UNUSED_PARAMETER")
     fun languageNote(language: String, deviceName: String?): String? {
-        if (language != "de" || deviceName == null) return null
+        if (deviceName == null) return null
         return Copy.LANGUAGE_NOTE.replace("{device}", deviceName)
     }
 

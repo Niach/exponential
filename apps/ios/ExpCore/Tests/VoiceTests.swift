@@ -52,6 +52,7 @@ final class VoiceTests: XCTestCase {
             "traySettings": Voice.Copy.traySettings,
             "trayQuit": Voice.Copy.trayQuit,
             "downloading": Voice.Copy.downloading,
+            "downloadingProgress": Voice.Copy.downloadingProgress,
             "downloadFailed": Voice.Copy.downloadFailed,
             "unavailable": Voice.Copy.unavailable,
             "speaking": Voice.Copy.speaking,

@@ -2,6 +2,7 @@
 //! desktop mirror of `packages/domain-contract/src/voice.ts`, byte-locked by
 //! `fixtures/voice.json` (every case list replays below).
 
+use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
@@ -36,6 +37,7 @@ pub struct VoiceCopy {
     pub tray_settings: String,
     pub tray_quit: String,
     pub downloading: String,
+    pub downloading_progress: String,
     pub download_failed: String,
     pub unavailable: String,
     pub speaking: String,
@@ -72,6 +74,14 @@ pub struct VoiceShortcut {
 pub struct VoiceLanguage {
     pub value: String,
     pub label: String,
+}
+
+/// #NEW-74: the words a spoken reply uses in one language (`spokenWords`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct SpokenWords {
+    pub link: String,
+    pub point: String,
+    pub percent: String,
 }
 
 /// The input rows' length caps (`limits`).
@@ -124,6 +134,8 @@ impl VoiceSettings {
 pub struct VoiceSpec {
     pub copy: VoiceCopy,
     pub max_chars: usize,
+    /// Keyed by language (`en`, `de`).
+    pub spoken_words: HashMap<String, SpokenWords>,
     pub test_ids: VoiceTestIds,
     pub shortcuts: Vec<VoiceShortcut>,
     pub languages: Vec<VoiceLanguage>,
@@ -145,16 +157,49 @@ pub fn language_label(language: &str, device_name: Option<&str>) -> String {
     }
 }
 
-/// #NEW-73: the Language row's trailing detail; German speaks on the voice
-/// device's GPU only. None without a voice device or for English.
-pub fn language_note(language: &str, device_name: Option<&str>) -> Option<String> {
-    let device_name = device_name.filter(|_| language == "de")?;
+/// #NEW-73: the Language row's trailing detail; every language speaks on the
+/// voice device's GPU only (#NEW-74). None without a voice device.
+pub fn language_note(_language: &str, device_name: Option<&str>) -> Option<String> {
+    let device_name = device_name?;
     Some(VOICE.copy.language_note.replace("{device}", device_name))
 }
 
 /// The tray group's header for the voice device.
 pub fn tray_header(device_name: &str) -> String {
     VOICE.copy.tray_header.replace("{device}", device_name)
+}
+
+/// The spoken words of a language; an unknown one reads as English.
+pub fn spoken_words(language: &str) -> &'static SpokenWords {
+    VOICE.spoken_words.get(language).or_else(|| VOICE.spoken_words.get("en")).expect("voice.json spokenWords.en")
+}
+
+const GB: u64 = 1_000_000_000;
+const MB: u64 = 1_000_000;
+
+/// One size for the download detail: MB below 1 GB, else GB with one
+/// decimal; `down` rounds down (received never overstates progress).
+fn download_size(bytes: u64, down: bool) -> String {
+    if bytes < GB {
+        let mb = if down { bytes / MB } else { (bytes + MB / 2) / MB };
+        return format!("{mb} MB");
+    }
+    let tenth = GB / 10;
+    let tenths = if down { bytes / tenth } else { (bytes + tenth / 2) / tenth };
+    format!("{}.{} GB", tenths / 10, tenths % 10)
+}
+
+/// The Speak replies row's detail while the voice downloads; a total of 0
+/// (unknown) reads `copy.downloading`.
+pub fn download_progress(received: u64, total: u64) -> String {
+    if total == 0 {
+        return VOICE.copy.downloading.clone();
+    }
+    VOICE
+        .copy
+        .downloading_progress
+        .replace("{received}", &download_size(received, true))
+        .replace("{total}", &download_size(total, false))
 }
 
 /// The wake phrase's placeholder (and its value when empty).
@@ -265,7 +310,8 @@ pub struct VoiceContext<'a> {
     pub speak_replies: bool,
     /// #NEW-73: the language replies are spoken in.
     pub language: &'a str,
-    /// The languages THIS device has a voice for.
+    /// The languages THIS device's speech worker reports (empty without a
+    /// usable GPU, #NEW-74).
     pub voices: &'a [&'a str],
     /// When the watcher armed; older rows are a backfill.
     pub armed_at: &'a str,
@@ -347,24 +393,99 @@ fn below_thousand(n: u64) -> String {
     parts.join(" ")
 }
 
-fn digits_words(digits: &str) -> String {
+const ONES_DE: [&str; 20] = [
+    "null", "eins", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun", "zehn", "elf", "zwölf",
+    "dreizehn", "vierzehn", "fünfzehn", "sechzehn", "siebzehn", "achtzehn", "neunzehn",
+];
+const TENS_DE: [&str; 10] =
+    ["", "", "zwanzig", "dreißig", "vierzig", "fünfzig", "sechzig", "siebzig", "achtzig", "neunzig"];
+
+/// A German digit in front of `und`, `hundert` or `tausend` (`ein`, not `eins`).
+fn unit_de(n: u64) -> &'static str {
+    if n == 1 { "ein" } else { ONES_DE[n as usize] }
+}
+
+fn below_hundred_de(n: u64) -> String {
+    if n < 20 {
+        return ONES_DE[n as usize].to_string();
+    }
+    let tens = TENS_DE[(n / 10) as usize];
+    if n % 10 == 0 {
+        tens.to_string()
+    } else {
+        format!("{}und{tens}", unit_de(n % 10))
+    }
+}
+
+/// One written compound: `einhunderteins`, `siebenhundertdreiundachtzig`.
+fn below_thousand_de(n: u64) -> String {
+    let hundreds = n / 100;
+    let rest = n % 100;
+    let mut words = if hundreds > 0 { format!("{}hundert", unit_de(hundreds)) } else { String::new() };
+    if rest > 0 || hundreds == 0 {
+        words.push_str(&below_hundred_de(rest));
+    }
+    words
+}
+
+/// A compound ending in `eins` with the ending a following noun wants.
+fn with_ending(mut words: String, ending: &str) -> String {
+    if words.ends_with("eins") {
+        words.truncate(words.len() - 1);
+        words.push_str(ending);
+    }
+    words
+}
+
+/// German cardinal words for an integer below a billion.
+fn whole_words_de(whole: u64) -> String {
+    if whole == 0 {
+        return ONES_DE[0].to_string();
+    }
+    let millions = whole / 1_000_000;
+    let thousands = whole % 1_000_000 / 1_000;
+    let rest = whole % 1_000;
+    let mut parts = Vec::new();
+    if millions == 1 {
+        parts.push("eine Million".to_string());
+    } else if millions > 1 {
+        parts.push(format!("{} Millionen", with_ending(below_thousand_de(millions), "e")));
+    }
+    let mut tail = String::new();
+    if thousands > 0 {
+        tail.push_str(&with_ending(below_thousand_de(thousands), ""));
+        tail.push_str("tausend");
+    }
+    if rest > 0 {
+        tail.push_str(&below_thousand_de(rest));
+    }
+    if !tail.is_empty() {
+        parts.push(tail);
+    }
+    parts.join(" ")
+}
+
+fn digits_words(digits: &str, language: &str) -> String {
+    let ones = if language == "de" { &ONES_DE } else { &ONES };
     digits
         .chars()
         .filter_map(|c| c.to_digit(10))
-        .map(|d| ONES[d as usize])
+        .map(|d| ones[d as usize])
         .collect::<Vec<_>>()
         .join(" ")
 }
 
-/// English cardinal words for a number written with digits (a decimal part
-/// reads `point` and then digit by digit).
-pub fn number_words(text: &str) -> String {
+/// Cardinal words for a number written with digits, in the language (`en`
+/// or `de`; a decimal part reads `spokenWords.point` and then digit by digit).
+pub fn number_words(text: &str, language: &str) -> String {
     let (whole, fraction) = match text.split_once('.') {
         Some((whole, fraction)) => (whole, Some(fraction)),
         None => (text, None),
     };
     let mut words = if whole.len() > 9 {
-        digits_words(whole)
+        digits_words(whole, language)
+    } else if language == "de" {
+        whole_words_de(whole.parse().unwrap_or(0))
     } else {
         let mut n: u64 = whole.parse().unwrap_or(0);
         if n == 0 {
@@ -388,26 +509,37 @@ pub fn number_words(text: &str) -> String {
         }
     };
     if let Some(fraction) = fraction.filter(|fraction| !fraction.is_empty()) {
-        words.push_str(" point ");
-        words.push_str(&digits_words(fraction));
+        words.push(' ');
+        words.push_str(&spoken_words(language).point);
+        words.push(' ');
+        words.push_str(&digits_words(fraction, language));
     }
     words
 }
 
-/// How people say an issue number (see `voice.json`).
-pub fn identifier_number_words(digits: &str) -> String {
+/// How people say an issue number in the language (see `voice.json`).
+pub fn identifier_number_words(digits: &str, language: &str) -> String {
     if digits.len() <= 3 {
-        return number_words(digits);
+        return number_words(digits, language);
     }
     if digits.len() > 4 {
-        return digits_words(digits);
+        return digits_words(digits, language);
     }
     let n: u64 = digits.parse().unwrap_or(0);
     if n % 1000 == 0 {
-        return number_words(digits);
+        return number_words(digits, language);
     }
     let high = n / 100;
     let low = n % 100;
+    if language == "de" {
+        return if low == 0 {
+            format!("{}hundert", below_hundred_de(high))
+        } else if low < 10 {
+            format!("{} null {}", below_hundred_de(high), ONES_DE[low as usize])
+        } else {
+            format!("{} {}", below_hundred_de(high), below_hundred_de(low))
+        };
+    }
     if low == 0 {
         format!("{} hundred", below_hundred(high))
     } else if low < 10 {
@@ -473,8 +605,10 @@ re!(PERCENT, r"(\d+(?:\.\d+)?)\s?%");
 re!(NUMBER, r"\b\d+(?:\.\d+)?\b");
 re!(SPACE, r"\s+");
 
-/// What a voice says for a reply's Markdown body (`voice.json` rules).
-pub fn spoken_text(body: &str, max_chars: usize) -> String {
+/// What a voice says for a reply's Markdown body in the language
+/// (`voice.json` rules; an unknown language reads as English).
+pub fn spoken_text(body: &str, max_chars: usize, language: &str) -> String {
+    let words = spoken_words(language);
     let text = body.replace("\r\n", "\n").replace('\r', "\n");
     let text = FENCE.replace_all(&text, "\n");
     let text: String = text
@@ -489,7 +623,7 @@ pub fn spoken_text(body: &str, max_chars: usize) -> String {
         let url = &caps[0];
         let trimmed = url.trim_end_matches(['.', ',', ';', ':', '!', '?']);
         let tail = &url[trimmed.len()..];
-        format!("{}{tail}", VOICE.copy.link)
+        format!("{}{tail}", words.link)
     });
     let text: String = text
         .split('\n')
@@ -510,11 +644,11 @@ pub fn spoken_text(body: &str, max_chars: usize) -> String {
     let text = MENTION.replace_all(&text, "$1");
     let text = ISSUE_REF.replace_all(&text, "$1");
     let text = IDENTIFIER.replace_all(&text, |caps: &Captures<'_>| {
-        format!("{} {}", spell(&caps[1]), identifier_number_words(&caps[2]))
+        format!("{} {}", spell(&caps[1]), identifier_number_words(&caps[2], language))
     });
     let text = ACRONYM.replace_all(&text, |caps: &Captures<'_>| spell(&caps[0]));
-    let text = PERCENT.replace_all(&text, |caps: &Captures<'_>| format!("{} percent", number_words(&caps[1])));
-    let text = NUMBER.replace_all(&text, |caps: &Captures<'_>| number_words(&caps[0]));
+    let text = PERCENT.replace_all(&text, |caps: &Captures<'_>| format!("{} {}", number_words(&caps[1], language), words.percent));
+    let text = NUMBER.replace_all(&text, |caps: &Captures<'_>| number_words(&caps[0], language));
     let text = SPACE.replace_all(&text, " ");
     clip(text.trim(), max_chars)
 }
@@ -636,18 +770,39 @@ mod tests {
         let default_max = fixture["maxChars"].as_u64().unwrap() as usize;
         for case in fixture["spokenTextCases"].as_array().unwrap() {
             let max = case["maxChars"].as_u64().map(|n| n as usize).unwrap_or(default_max);
-            assert_eq!(spoken_text(case["body"].as_str().unwrap(), max), case["spoken"].as_str().unwrap(), "{}", case["name"]);
+            let language = case["language"].as_str().unwrap_or("en");
+            assert_eq!(
+                spoken_text(case["body"].as_str().unwrap(), max, language),
+                case["spoken"].as_str().unwrap(),
+                "{}",
+                case["name"]
+            );
         }
+        assert_eq!(spoken_text("See https://example.com, 50% done.", default_max, "fr"), "See link, fifty percent done.");
     }
 
     #[test]
     fn number_words_match_the_fixture() {
         let fixture = fixture();
         for case in fixture["numberWordsCases"].as_array().unwrap() {
-            assert_eq!(number_words(case["n"].as_str().unwrap()), case["words"].as_str().unwrap());
+            let language = case["language"].as_str().unwrap_or("en");
+            assert_eq!(number_words(case["n"].as_str().unwrap(), language), case["words"].as_str().unwrap());
         }
         for case in fixture["identifierNumberCases"].as_array().unwrap() {
-            assert_eq!(identifier_number_words(case["n"].as_str().unwrap()), case["words"].as_str().unwrap());
+            let language = case["language"].as_str().unwrap_or("en");
+            assert_eq!(identifier_number_words(case["n"].as_str().unwrap(), language), case["words"].as_str().unwrap());
+        }
+    }
+
+    #[test]
+    fn download_progress_matches_the_fixture() {
+        for case in fixture()["downloadProgressCases"].as_array().unwrap() {
+            assert_eq!(
+                download_progress(case["received"].as_u64().unwrap(), case["total"].as_u64().unwrap()),
+                case["text"].as_str().unwrap(),
+                "{}",
+                case["name"]
+            );
         }
     }
 
@@ -747,6 +902,9 @@ mod tests {
         }
         assert_eq!(VOICE.languages.iter().map(|l| l.value.as_str()).collect::<Vec<_>>(), ["en", "de"]);
         assert_eq!(VOICE.defaults.language(), "en");
+        for language in &VOICE.languages {
+            assert!(VOICE.spoken_words.contains_key(&language.value), "spokenWords.{}", language.value);
+        }
     }
 
     #[test]
