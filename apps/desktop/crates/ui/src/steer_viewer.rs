@@ -2680,16 +2680,18 @@ impl SteerSessionView {
             self.conv_unanchored.clear();
             return;
         }
+        // EXP-1398 (ask-dock.json `sessionCardsCases`): THE card set ×4.
         let messages = crate::session_data::messages_of_session(&self.session_id, cx);
-        let mut ordered: Vec<&domain::rows::MessageRow> = messages.iter().collect();
-        ordered.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
-        self.conv_cards = ordered
-            .into_iter()
-            .filter_map(|message| {
-                if domain::session_tree::is_tool_card(message) {
-                    domain::session_tree::ask_card_row(message)
-                } else {
+        let by_id: HashMap<&str, &domain::rows::MessageRow> =
+            messages.iter().map(|message| (message.id.as_str(), message)).collect();
+        self.conv_cards = domain::ask_dock::session_cards(&messages)
+            .iter()
+            .filter_map(|card| {
+                let message = by_id.get(card.id.as_str())?;
+                if card.kind == domain::ask_dock::SessionCardKind::Surface {
                     domain::session_tree::surface_card_row(message)
+                } else {
+                    domain::session_tree::ask_card_row(message)
                 }
             })
             .collect();

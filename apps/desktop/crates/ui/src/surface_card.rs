@@ -379,44 +379,33 @@ pub(crate) fn surface_frame(
 // The single-session feed: the conversation's cards beside the relay rows
 // ---------------------------------------------------------------------------
 
-/// The `session_self_*` display row of the call that posts a card of this
-/// row kind (`plan` → `session_self_plan`, a question → `session_self_ask`,
-/// a surface → `session_self_show`); `None` for any other row.
-pub(crate) fn posting_call(row: &SessionThreadRow) -> Option<&'static str> {
+/// A session card row's kind (`None` for any other row).
+fn card_kind(row: &SessionThreadRow) -> Option<domain::ask_dock::SessionCardKind> {
+    use domain::ask_dock::SessionCardKind;
     match row {
-        SessionThreadRow::Plan { .. } => Some("session_self_plan"),
-        SessionThreadRow::Question { .. } => Some("session_self_ask"),
-        SessionThreadRow::Surface { .. } => Some("session_self_show"),
+        SessionThreadRow::Plan { .. } => Some(SessionCardKind::Plan),
+        SessionThreadRow::Question { .. } => Some(SessionCardKind::Question),
+        SessionThreadRow::Surface { .. } => Some(SessionCardKind::Surface),
         _ => None,
     }
 }
 
-/// Where a session's conversation cards sit in its relay feed (web
-/// `anchorToolCards` / `anchorShowCards`): each card right after the
-/// SETTLED call that posted it, paired newest back per call kind; a card
-/// with no such call in the feed (the call is above the loaded window, or
-/// the card arrived first) is `unanchored` (card order), painted at the
-/// transcript's HEAD before its first row (web's `head`).
+/// Where a session's conversation cards sit in its relay feed: THE rule ×4
+/// (`domain::ask_dock::anchor_session_cards`, ask-dock.json `anchorCases`):
+/// each card right after the SETTLED call that posted it, paired newest back
+/// per call kind; a card with no such call in the feed is `unanchored` (card
+/// order), painted at the transcript's HEAD before its first row.
 /// `calls` = the feed's settled, unfailed Exponential calls in feed order:
 /// (feed item id, display row). Returns card INDICES into `cards`.
 pub(crate) fn anchor_cards(
     calls: &[(u64, &str)],
     cards: &[SessionThreadRow],
 ) -> (HashMap<u64, Vec<usize>>, Vec<usize>) {
-    let mut anchors: HashMap<u64, Vec<usize>> = HashMap::new();
-    let mut unanchored = Vec::new();
-    let mut used: HashMap<&str, usize> = HashMap::new();
-    for (index, card) in cards.iter().enumerate().rev() {
-        let Some(kind) = posting_call(card) else { continue };
-        let skip = used.entry(kind).or_default();
-        let call = calls.iter().rev().filter(|(_, row)| *row == kind).nth(*skip);
-        *skip += 1;
-        match call {
-            Some((id, _)) => anchors.entry(*id).or_default().insert(0, index),
-            None => unanchored.insert(0, index),
-        }
-    }
-    (anchors, unanchored)
+    let (indices, kinds): (Vec<usize>, Vec<_>) =
+        cards.iter().enumerate().filter_map(|(index, card)| card_kind(card).map(|kind| (index, kind))).unzip();
+    let (anchors, unanchored) = domain::ask_dock::anchor_session_cards(calls, &kinds);
+    let back = |list: Vec<usize>| list.into_iter().map(|i| indices[i]).collect::<Vec<_>>();
+    (anchors.into_iter().map(|(call, list)| (call, back(list))).collect(), back(unanchored))
 }
 
 #[cfg(test)]
