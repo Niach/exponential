@@ -151,4 +151,66 @@ class AskDockTest {
             }
         }
     }
+
+    @Test
+    fun `sessionCardsCases`() {
+        for (case in array("sessionCardsCases")) {
+            val messages = case.getValue("messages").jsonArray.map { raw ->
+                val m = raw.jsonObject
+                SessionTree.Message(
+                    id = m.str("id")!!,
+                    sessionId = "s",
+                    authorKind = DomainContract.messageAuthorKindAgent,
+                    authorId = null,
+                    body = "",
+                    card = m["card"] as? JsonObject,
+                    answeredAt = m.str("answeredAt"),
+                    consumedAt = null,
+                    createdAt = m.str("createdAt")!!,
+                )
+            }
+            val actual = buildJsonArray {
+                for (card in AskDock.sessionCards(messages)) {
+                    add(buildJsonObject {
+                        put("id", card.id)
+                        put("kind", card.kind.wire)
+                        put("waiting", card.waiting)
+                    })
+                }
+            }
+            assertEquals(case.str("name"), case.getValue("expected"), actual)
+        }
+    }
+
+    @Test
+    fun `anchorCases`() {
+        for (case in array("anchorCases")) {
+            val calls = case.getValue("feed").jsonArray.map { it.jsonObject }
+                .filter { it.str("kind") == "tool" }
+                .map {
+                    AskDock.FeedCall(
+                        id = it.getValue("id").jsonPrimitive.long,
+                        name = it.str("name"),
+                        settled = it.getValue("settled").jsonPrimitive.boolean,
+                        failed = it.getValue("failed").jsonPrimitive.boolean,
+                    )
+                }
+            val cards = case.getValue("cards").jsonArray.map { it.jsonObject }.map { card ->
+                AskDock.SessionCard(
+                    id = card.str("id")!!,
+                    kind = AskDock.SessionCardKind.entries.first { it.wire == card.str("kind") },
+                    waiting = false,
+                )
+            }
+            val anchors = AskDock.anchorSessionCards(calls, cards)
+            val actual = buildJsonObject {
+                put("anchors", buildJsonObject {
+                    for ((id, ids) in anchors.after) put(id.toString(), buildJsonArray { ids.forEach { add(JsonPrimitive(it)) } })
+                })
+                put("unanchored", buildJsonArray { anchors.unanchored.forEach { add(JsonPrimitive(it)) } })
+            }
+            assertEquals(case.str("name"), case.getValue("expected"), actual)
+        }
+    }
 }
+

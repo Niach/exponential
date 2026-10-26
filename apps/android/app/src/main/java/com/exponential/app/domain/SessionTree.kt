@@ -626,18 +626,29 @@ object SessionTree {
         }
     }
 
-    /**
-     * The session view's waiting cards a TOOL posted (`exponential_plan_propose`
-     * / `exponential_sessions_ask`: no `questionId`, so no open relay ask
-     * mirrors them), oldest first; answered through `sessions.answer` only.
-     */
-    fun toolPostedAsks(messages: List<Message>): List<ThreadRow> = messages
-        .filter { it.card != null && it.card.str("questionId") == null }
-        .sortedWith(compareBy<Message>({ it.createdAt }, { it.id }))
-        .mapNotNull(::askRow)
-        .filter { row ->
-            (row is ThreadRow.Plan && row.decision == null) || (row is ThreadRow.Question && !row.answered)
+    /** A `surface` message's row (null = another kind or no surface). */
+    fun surfaceRow(message: Message): ThreadRow.Surface? {
+        val card = message.card ?: return null
+        if (card.str("kind") != DomainContract.messageCardKindSurface) return null
+        val surface = cardSurface(card["surface"]) ?: return null
+        return ThreadRow.Surface(
+            id = message.id,
+            sessionId = message.sessionId,
+            title = card.str("title")?.trim()?.takeIf { it.isNotEmpty() },
+            surface = surface,
+        )
+    }
+
+    /** EXP-1398: the session view's cards ([AskDock.sessionCards]) with the
+     *  rows they draw as, oldest first. */
+    fun sessionCardRows(messages: List<Message>): List<Pair<AskDock.SessionCard, ThreadRow>> {
+        val byId = messages.associateBy { it.id }
+        return AskDock.sessionCards(messages).mapNotNull { card ->
+            val message = byId[card.id] ?: return@mapNotNull null
+            val row = if (card.kind == AskDock.SessionCardKind.Surface) surfaceRow(message) else askRow(message)
+            row?.let { card to it }
         }
+    }
 
     /** The question card's options: `options` = plain labels, descriptions ride
      *  the parallel `optionDescriptions` sidecar (null / "" = none, EXP-1322),
@@ -968,17 +979,7 @@ object SessionTree {
                     }
                     if (text != null) rows.add(ThreadRow.Event(message.id, card.text("event"), text))
                 }
-                DomainContract.messageCardKindSurface -> {
-                    val surface = cardSurface(card["surface"]) ?: continue
-                    rows.add(
-                        ThreadRow.Surface(
-                            id = message.id,
-                            sessionId = message.sessionId,
-                            title = card.str("title")?.trim()?.takeIf { it.isNotEmpty() },
-                            surface = surface,
-                        ),
-                    )
-                }
+                DomainContract.messageCardKindSurface -> surfaceRow(message)?.let(rows::add)
                 // NEW-1: a child's ask mirrored into its parent: the child's own
                 // card already surfaces in the Conversation, the mirror draws nothing.
                 DomainContract.messageCardKindAsk -> Unit

@@ -177,6 +177,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.SessionEntity
+import com.exponential.app.domain.AskDock
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.PlanCard
 import com.exponential.app.ui.components.AgentRunMark
@@ -341,6 +342,10 @@ import com.exponential.app.ui.components.DockCards
 import com.exponential.app.ui.components.DockSheetBody
 import com.exponential.app.ui.components.DockSheetScope
 import com.exponential.app.ui.thread.PlanAskCard
+import com.exponential.app.ui.thread.SurfaceCard
+import com.exponential.app.ui.thread.ThreadAnswer
+import com.exponential.app.ui.thread.ThreadAskCard
+import com.exponential.app.ui.thread.ThreadPlanDecision
 import com.exponential.app.ui.emoji.rememberEmojiData
 import com.exponential.app.ui.emoji.rememberEmojiPrefs
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -914,6 +919,40 @@ private fun RunFaceContent(
     }
     // EXP-1280: a card a TOOL posted (plan_propose / sessions_ask) has no
     // relay ask: THE rich card answers it through `sessions.answer`.
+    val answerToolCard: ThreadAnswer = { messageId, a, settled ->
+        viewModel.answerCard(
+            AnswerInput(
+                messageId = messageId,
+                answer = a.answer,
+                answers = a.answers?.let(AnswerInput::questionAnswers),
+                surfaceData = a.surfaceData,
+            ),
+            "question",
+            settled,
+        )
+    }
+    val decideToolPlan: ThreadPlanDecision = { messageId, d, settled ->
+        viewModel.answerCard(
+            AnswerInput(
+                messageId = messageId,
+                decision = if (d.approved) "approved" else "rejected",
+                fresh = if (d.approved && d.fresh) true else null,
+                feedback = d.feedback,
+                answers = d.answers?.let(AnswerInput::planAnswers),
+                surfaceData = d.surfaceData,
+            ),
+            "plan",
+            settled,
+        )
+    }
+    // EXP-1398 (ask-dock.json `anchorCases`): EVERY session card draws inline
+    // after the call that posted it (the rest at the head); a waiting one
+    // ALSO sits in the Dock (FEED-140).
+    val sessionCards by viewModel.sessionCards.collectAsStateWithLifecycle()
+    val cardSlots = remember(feed, sessionCards) {
+        val anchors = AskDock.anchorSessionCards(AskDock.feedCalls(feed), sessionCards.map { it.first })
+        SessionCardSlots(anchors, sessionCards.associate { it.first.id to it.second })
+    }
     val toolPending = if (sessionEnded) emptyList() else AskDockModel.threadPendingAsks(toolAsks) { null }
     val toolById = remember(toolAsks) { toolAsks.associateBy { it.id } }
     val askSources: List<Dock.Source> = listOfNotNull(relaySource) + toolPending.map { ask ->
@@ -934,32 +973,8 @@ private fun RunFaceContent(
                     toolById[row.id]?.let { threadRow ->
                         PlanAskCard(
                             row = threadRow,
-                            onAnswer = { messageId, a, settled ->
-                                viewModel.answerCard(
-                                    AnswerInput(
-                                        messageId = messageId,
-                                        answer = a.answer,
-                                        answers = a.answers?.let(AnswerInput::questionAnswers),
-                                        surfaceData = a.surfaceData,
-                                    ),
-                                    "question",
-                                    settled,
-                                )
-                            },
-                            onDecidePlan = { messageId, d, settled ->
-                                viewModel.answerCard(
-                                    AnswerInput(
-                                        messageId = messageId,
-                                        decision = if (d.approved) "approved" else "rejected",
-                                        fresh = if (d.approved && d.fresh) true else null,
-                                        feedback = d.feedback,
-                                        answers = d.answers?.let(AnswerInput::planAnswers),
-                                        surfaceData = d.surfaceData,
-                                    ),
-                                    "plan",
-                                    settled,
-                                )
-                            },
+                            onAnswer = answerToolCard,
+                            onDecidePlan = decideToolPlan,
                             sheet = scope,
                         )
                     }
@@ -1156,6 +1171,17 @@ private fun RunFaceContent(
                     topInset = topInset,
                     header = {},
                     docked = dockedRow,
+                    sessionCards = cardSlots,
+                    renderCard = { row ->
+                        when (row) {
+                            is SessionTree.ThreadRow.Surface -> SurfaceCard(
+                                row = row,
+                                animate = false,
+                                onReply = { text -> viewModel.sendCommand(text) },
+                            )
+                            else -> ThreadAskCard(row, answerToolCard, decideToolPlan)
+                        }
+                    },
                 )
             }
         }
@@ -1672,6 +1698,9 @@ private fun ActivityFeed(
     /** THE ask dock (ask-dock.json): the card row waiting on the viewer,
      *  drawn in the composer's slot instead of here; null = none. */
     docked: AgentFeedRow? = null,
+    /** EXP-1398: the session's own cards, where each draws ([renderCard]). */
+    sessionCards: SessionCardSlots = SessionCardSlots.None,
+    renderCard: @Composable (SessionTree.ThreadRow) -> Unit = {},
 ) {
     // A card with a wire id stays answerable until it resolves; an id-less one
     // (a pre-EXP-249 desktop) is read-only (EXP-672).
@@ -1873,10 +1902,15 @@ private fun ActivityFeed(
                     )
                 }
             }
+            // EXP-1398: the session cards whose call is not in the feed.
+            items(sessionCards.head, key = { "session-card-${it.id}" }) { card ->
+                SessionCardRow(card, renderCard)
+            }
             // EXP-787: the row's space comes from the row BEFORE it — the one
             // gap ladder, shared with web, iOS and the desktop. Keys stay the
             // row ids: the follow/scroll logic is anchored on them.
             itemsIndexed(rows, key = { _, row -> row.id }) { index, row ->
+                Column {
                 TranscriptRow(
                     transcriptGap(rows.getOrNull(index - 1)?.rowClass, row.rowClass),
                 ) {
@@ -1985,6 +2019,9 @@ private fun ActivityFeed(
                         }
                     }
                 }
+                // EXP-1398: the session cards the row's calls posted.
+                for (card in sessionCards.after(row)) SessionCardRow(card, renderCard)
+                }
             }
             // EXP-850 (S3): a card whose `Workflow` tool row is not in the
             // rendered window (evicted, or below it) still has to be seen —
@@ -2058,6 +2095,41 @@ private fun ActivityFeed(
             )
         }
         }
+    }
+}
+
+/** EXP-1398: where the session's own cards draw in its transcript
+ *  ([AskDock.anchorSessionCards]) and the rows they draw as. */
+internal class SessionCardSlots(
+    private val anchors: AskDock.Anchors,
+    private val rows: Map<String, SessionTree.ThreadRow>,
+) {
+    /** The cards with no call in the feed, at the transcript's head. */
+    val head: List<SessionTree.ThreadRow> get() = anchors.unanchored.mapNotNull(rows::get)
+
+    /** The cards a feed row's calls posted, oldest first. */
+    fun after(row: AgentFeedRow): List<SessionTree.ThreadRow> {
+        if (anchors.after.isEmpty()) return emptyList()
+        val ids = when (row) {
+            is AgentFeedRow.Single -> listOf(row.item.id)
+            is AgentFeedRow.ToolRun -> row.items.map { it.id }
+            is AgentFeedRow.Edits -> row.items.map { it.id }
+            is AgentFeedRow.ExpRun -> row.items.map { it.id }
+            else -> emptyList()
+        }
+        return ids.flatMap { anchors.after[it].orEmpty() }.mapNotNull(rows::get)
+    }
+
+    companion object {
+        val None = SessionCardSlots(AskDock.Anchors(emptyMap(), emptyList()), emptyMap())
+    }
+}
+
+/** One session card in the transcript, the block gap above it. */
+@Composable
+private fun SessionCardRow(row: SessionTree.ThreadRow, render: @Composable (SessionTree.ThreadRow) -> Unit) {
+    TranscriptRow(TranscriptGap.Block) {
+        Box(Modifier.testTag("session-tool-card")) { render(row) }
     }
 }
 
