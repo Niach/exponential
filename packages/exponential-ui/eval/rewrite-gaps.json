@@ -65,6 +65,7 @@
     { "id": "settings-widget", "class": "extension", "with": "the live whole-panel widget preview is an app component; Form + Input + ChipInput + Select + Switch for the rest" },
     { "id": "settings-account", "class": "expressible", "with": "Page + Group + Row (sign-in methods with trailing Buttons) + Select; FormActions" },
     { "id": "settings-notifications", "class": "expressible", "with": "Page + Group + Row with two Switches trailing (a Toolbar-like control row) + TimePicker; FormActions" },
+    { "id": "settings-voice", "class": "expressible", "with": "Page + Group of picker Rows (Select trailing) and Switch Rows + a SectionHeader + Group with a TextField Row; saves on change" },
     { "id": "settings-api-keys", "class": "expressible", "with": "Page + Section + Row (sessions with Log out) + Table (keys) + Dialog + FieldGroup (name, scope) + AlertDialog" },
     { "id": "settings-team", "class": "expressible", "with": "Group + Row chevron" },
     { "id": "settings-root", "class": "expressible", "with": "Section (per server) + Row chevron" },
