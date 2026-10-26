@@ -29,7 +29,7 @@ import {
   type GuideSummaryRow,
 } from "@/lib/sessions/guide-entries"
 import { postAgentMessage } from "@/lib/sessions/messages"
-import type { Tx } from "@/lib/sessions/tx"
+import type { Db, Tx } from "@/lib/sessions/tx"
 import { deleteObject } from "@/lib/storage"
 import { mintGuideUploadToken } from "@/lib/storage/guide-upload-token"
 import {
@@ -62,7 +62,7 @@ interface GuideReach {
 }
 
 /** EXP-1397: who the writer is in its tree. */
-async function guideReach(tx: Tx, session: Session): Promise<GuideReach> {
+async function guideReach(tx: Db, session: Session): Promise<GuideReach> {
   const tree = await tx
     .select({ id: sessions.id, parentId: sessions.parentId, branch: sessions.branch, status: sessions.status })
     .from(sessions)
@@ -198,7 +198,6 @@ export async function writeGuide(args: {
   if (args.files?.some((path) => path.length > SESSION_RESULT_FILE_PATH_MAX)) {
     throw bad(`File paths are at most ${SESSION_RESULT_FILE_PATH_MAX} characters`)
   }
-  const owns = ownedBy(session.id)
 
   let prUrl: string | null | undefined = undefined
   if (args.prUrl !== undefined) {
@@ -227,7 +226,8 @@ export async function writeGuide(args: {
       topic,
       uploadUrl: grant.uploadUrl,
       curl: grant.curl,
-      results: guideSummary(((root?.guide ?? []) as GuideEntry[]).filter(owns)),
+      // EXP-1397: the logical session's entries, as every other response.
+      results: guideSummary(((root?.guide ?? []) as GuideEntry[]).filter((await guideReach(db, session)).owns)),
     }
   }
 
@@ -265,7 +265,7 @@ export async function writeGuide(args: {
               ),
             ]
       if (tagged.length > 0) {
-        if (prUrl === undefined && args.files == null) {
+        if (prUrl === undefined && args.files === undefined) {
           throw bad(`Topic "${topic}" is a child's: pass prUrl or files to change it (text files your own topic)`)
         }
         let written: GuideEntry[] | null = guide
@@ -275,7 +275,7 @@ export async function writeGuide(args: {
             written,
             topic,
             entry.text!.trim(),
-            args.files ?? undefined,
+            args.files === null ? [] : args.files,
             { at: entry.at ?? Date.now(), sessionId: owner, ...(prUrl !== undefined ? { prUrl } : {}) },
             ownedBy(owner)
           )
@@ -289,11 +289,12 @@ export async function writeGuide(args: {
             `Nothing in this thread's Guide matched topic "${topic}" written by this session or its children: text is required for a new topic`
           )
         }
-        // EXP-1397: an untagged topic of a writer with an open PR is that PR's.
+        // EXP-1397: a NEW topic of a writer with an open PR is that PR's; a
+        // rewrite keeps the topic's tag (an explicit `prUrl: null` sticks).
         const tag =
           prUrl !== undefined
             ? prUrl
-            : existing?.prUrl
+            : existing
               ? undefined
               : ((await openPullRequestUrl(tx, lock.rootId, reach.mine)) ?? undefined)
         const written = upsertGuideText(
@@ -410,16 +411,45 @@ export async function publishGuidePicture(
   return { label, results: guideSummary(results), replaced: displaced !== null }
 }
 
-/** EXP-1251/EXP-1397 for the PR lane: a session opening a NEW PR tags its
- *  logical session's untagged text topics with it. True = the Guide moved
- *  (the caller re-renders the thread's bodies). */
+/** EXP-1397: a merged PR's logical session's untagged text topics went out
+ *  with it: stamped with its URL, they leave every still-open body of the
+ *  thread (a body excludes by prUrl only). A PR with no session (UI-opened,
+ *  adopted) resolves through its head: the tree's newest session on it.
+ *  True = the Guide moved. */
+export async function tagGuideForMergedPullRequest(pr: {
+  rootSessionId: string | null
+  sessionId: string | null
+  head: string
+  url: string
+}): Promise<boolean> {
+  if (!pr.rootSessionId) return false
+  let sessionId = pr.sessionId
+  if (!sessionId) {
+    const [row] = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(and(eq(sessions.rootId, pr.rootSessionId), eq(sessions.branch, pr.head)))
+      .orderBy(desc(sessions.createdAt))
+      .limit(1)
+    sessionId = row?.id ?? null
+  }
+  if (!sessionId) return false
+  return tagGuideForPullRequest({ sessionId, prUrl: pr.url })
+}
+
+/** EXP-1251/EXP-1397 for the PR lane: a session opening a NEW PR (or one
+ *  merging) tags its logical session's untagged text topics with it. Only
+ *  entries STAMPED with the logical session: a legacy unstamped one is
+ *  nobody's and stays in every body. True = the Guide moved (the caller
+ *  re-renders the thread's bodies). */
 export async function tagGuideForPullRequest(args: { sessionId: string; prUrl: string }): Promise<boolean> {
   return db.transaction(async (tx) => {
     const lock = await lockGuide(tx, args.sessionId)
+    const mine = new Set((await guideReach(tx, lock.session)).mine)
     const { results, changed } = stampUntaggedGuideEntries(
       lock.guide,
       canonicalGithubPrUrl(args.prUrl) ?? args.prUrl,
-      (await guideReach(tx, lock.session)).owns
+      (row) => !!row?.sessionId && mine.has(row.sessionId)
     )
     if (changed) await saveGuide(tx, lock.rootId, results)
     return changed

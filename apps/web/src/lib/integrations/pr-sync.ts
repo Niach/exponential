@@ -1066,12 +1066,21 @@ export async function applyPullRequestMerged(opts: {
     })
   }
   invalidateOpenPullsLazy(result.pr.teamId)
-  // EXP-1397: the thread's live PR bodies drop what went out with this one.
+  // EXP-1397: the merging session's untagged topics went out with this PR:
+  // stamped with its URL, they leave the thread's still-open bodies.
   const rootId = result.pr.rootSessionId
   if (rootId) {
-    void import(`@/lib/pull-requests`)
-      .then((module) => module.syncPullRequestBodies(rootId))
-      .catch((error: unknown) => console.warn(`[pr-sync] body sync after a merge failed`, error))
+    try {
+      const { tagGuideForMergedPullRequest } = await import(`@/lib/sessions/guide`)
+      if (await tagGuideForMergedPullRequest(result.pr)) {
+        const { syncPullRequestBodies } = await import(`@/lib/pull-requests`)
+        void syncPullRequestBodies(rootId).catch((error: unknown) =>
+          console.warn(`[pr-sync] body sync after a merge failed`, error)
+        )
+      }
+    } catch (error) {
+      console.warn(`[pr-sync] tagging the Guide after a merge failed`, error)
+    }
   }
   // EXP-324: the PRs based on the merged head move onto the default branch,
   // THEN (NEW-5) the head branch itself goes: any branch when the merge was

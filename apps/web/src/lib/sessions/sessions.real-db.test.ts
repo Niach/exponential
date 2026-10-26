@@ -43,6 +43,7 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
 // The object store (never reached here: card pictures arrive as rows).
 vi.mock(`@/lib/storage`, () => ({
   uploadObject: async () => {},
+  deleteObject: async () => {},
   getObject: async () => ({ Body: {}, ContentLength: 3 }),
   toResponseBody: async () => new Uint8Array([1, 2, 3]).buffer,
 }))
@@ -892,6 +893,206 @@ describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, (
     expect((await row(root.sessionId)).guide!.filter((e) => e.topic === `After`).map((e) => e.sessionId)).toEqual([
       root.sessionId,
     ])
+  })
+})
+
+// EXP-1397 review: a merge stamps ITS session's untagged topics with its URL
+// (bodies exclude by prUrl only, never by time); sibling/cross-thread writes
+// never reach another's entries; a parent may tag or replace a child's.
+describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
+  const { publishGuidePicture } = await import(`@/lib/sessions/guide`)
+  const { applyPullRequestMerged } = await import(`@/lib/integrations/pr-sync`)
+  const { prBodyFromGuide } = await import(`@/lib/pr-body`)
+
+  async function thread() {
+    const w = await world()
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
+    const kid = async (branch: string) => {
+      const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: branch } })
+      await db.update(sessions).set({ branch }).where(eq(sessions.id, child.sessionId))
+      return child.sessionId
+    }
+    const [repo] = await db
+      .insert(repositories)
+      .values({ teamId: w.teamId, fullName: `o/r-${id8()}` })
+      .returning({ id: repositories.id, fullName: repositories.fullName })
+    const pr = async (number: number, sessionId: string | null, head: string) => {
+      const url = `https://github.com/${repo!.fullName}/pull/${number}`
+      const [inserted] = await db
+        .insert(pullRequests)
+        .values({
+          teamId: w.teamId,
+          rootSessionId: root.sessionId,
+          sessionId,
+          repositoryId: repo!.id,
+          number,
+          url,
+          head,
+          base: `master`,
+          state: `open`,
+        })
+        .returning({ id: pullRequests.id })
+      return { id: inserted!.id, url }
+    }
+    const guide = async () => (await row(root.sessionId)).guide ?? []
+    const body = async (prUrl: string) => prBodyFromGuide(await guide(), { prUrl }) ?? ``
+    const write = (sessionId: string, topic: string, extra: Record<string, unknown> = {}) =>
+      writeGuide({ userId: w.owner, sessionId, topic, ...extra })
+    return { w, root: root.sessionId, kid, pr, guide, body, write }
+  }
+
+  const picture = () => {
+    const attachmentId = crypto.randomUUID()
+    return {
+      attachmentId,
+      filename: `shot.png`,
+      contentType: `image/png`,
+      sizeBytes: 3,
+      storageKey: `test/${attachmentId}`,
+      url: `/api/attachments/${attachmentId}`,
+      width: 10,
+      height: 10,
+    }
+  }
+
+  it(`two sibling PRs: one merges, the other's body keeps its topics`, async () => {
+    const t = await thread()
+    const a = await t.kid(`exp/a`)
+    const b = await t.kid(`exp/b`)
+    // Untagged words, as filed before the PRs existed (or before deploy).
+    await t.write(t.root, `Summary`, { text: `The thread.` })
+    await t.write(a, `Alpha`, { text: `A's work.` })
+    await t.write(b, `Beta`, { text: `B's work.` })
+    const prA = await t.pr(1, a, `exp/a`)
+    const prB = await t.pr(2, b, `exp/b`)
+    expect(await t.body(prB.url)).toContain(`A's work.`)
+
+    await applyPullRequestMerged({ pullRequestId: prA.id })
+    const alpha = (await t.guide()).find((e) => e.topic === `Alpha`)
+    expect(alpha).toMatchObject({ prUrl: prA.url, sessionId: a })
+    const bodyB = await t.body(prB.url)
+    expect(bodyB).toContain(`B's work.`)
+    expect(bodyB).toContain(`The thread.`)
+    expect(bodyB).not.toContain(`A's work.`)
+    expect((await t.guide()).find((e) => e.topic === `Beta`)?.prUrl).toBeUndefined()
+    // A later write by B (new `at` everywhere else) changes nothing of that.
+    await t.write(b, `Beta`, { text: `B's work, again.` })
+    expect(await t.body(prB.url)).toContain(`The thread.`)
+  })
+
+  it(`legacy entries without at or sessionId stay in every open body after a merge and a write`, async () => {
+    const t = await thread()
+    const a = await t.kid(`exp/a`)
+    const b = await t.kid(`exp/b`)
+    const legacy = (topic: string, text: string) => ({
+      topic,
+      label: null,
+      attachmentId: null,
+      width: null,
+      height: null,
+      text,
+    })
+    await db
+      .update(sessions)
+      .set({ guide: [legacy(`Summary`, `Legacy summary.`), legacy(`Old`, `Legacy topic.`)] })
+      .where(eq(sessions.id, t.root))
+    const prA = await t.pr(1, a, `exp/a`)
+    const prB = await t.pr(2, b, `exp/b`)
+    await applyPullRequestMerged({ pullRequestId: prA.id })
+    await t.write(b, `Beta`, { text: `B's work.` })
+    const bodyB = await t.body(prB.url)
+    expect(bodyB).toContain(`Legacy summary.`)
+    expect(bodyB).toContain(`Legacy topic.`)
+    expect(bodyB).toContain(`B's work.`)
+    expect((await t.guide()).filter((e) => e.prUrl)).toEqual([expect.objectContaining({ topic: `Beta`, prUrl: prB.url })])
+  })
+
+  it(`a UI-opened PR (no session) merging stamps the session on its head, nobody else's`, async () => {
+    const t = await thread()
+    const a = await t.kid(`exp/a`)
+    const b = await t.kid(`exp/b`)
+    await t.write(a, `Alpha`, { text: `A's work.` })
+    await t.write(b, `Beta`, { text: `B's work.` })
+    const prA = await t.pr(1, null, `exp/a`)
+    const prB = await t.pr(2, null, `exp/b`)
+    // A head no session of the tree is on: nothing moves.
+    const stray = await t.pr(3, null, `feature/elsewhere`)
+    const before = await t.guide()
+    await applyPullRequestMerged({ pullRequestId: stray.id })
+    expect(await t.guide()).toEqual(before)
+
+    await applyPullRequestMerged({ pullRequestId: prA.id })
+    expect((await t.guide()).find((e) => e.topic === `Alpha`)?.prUrl).toBe(prA.url)
+    const bodyB = await t.body(prB.url)
+    expect(bodyB).toContain(`B's work.`)
+    expect(bodyB).not.toContain(`A's work.`)
+  })
+
+  it(`an explicit prUrl: null sticks across rewrites; a NEW topic takes the open PR`, async () => {
+    const t = await thread()
+    const a = await t.kid(`exp/a`)
+    const prA = await t.pr(1, a, `exp/a`)
+    await t.write(a, `Shared`, { text: `For every PR.`, prUrl: null })
+    await t.write(a, `Shared`, { text: `Still for every PR.` })
+    expect((await t.guide()).find((e) => e.topic === `Shared`)).toMatchObject({ text: `Still for every PR.` })
+    expect((await t.guide()).find((e) => e.topic === `Shared`)?.prUrl).toBeUndefined()
+    await t.write(a, `New`, { text: `Mine.` })
+    expect((await t.guide()).find((e) => e.topic === `New`)?.prUrl).toBe(prA.url)
+  })
+
+  it(`a parent's files: null clears a child's files; a sibling and another thread are denied`, async () => {
+    const t = await thread()
+    const a = await t.kid(`exp/a`)
+    const b = await t.kid(`exp/b`)
+    await t.write(a, `Alpha`, { text: `A's work.`, files: [`a.ts`] })
+    await t.write(t.root, `Alpha`, { files: null })
+    const alpha = (await t.guide()).find((e) => e.topic === `Alpha`)!
+    expect(alpha).toMatchObject({ sessionId: a, text: `A's work.` })
+    expect(alpha.files).toBeUndefined()
+
+    const before = await t.guide()
+    await expect(t.write(b, `Alpha`, { prUrl: `https://github.com/o/r/pull/9` })).rejects.toThrow(
+      /Nothing in this thread's Guide matched topic "Alpha"/
+    )
+    await expect(t.write(b, `Alpha`, { remove: true })).rejects.toMatchObject({ code: `NOT_FOUND` })
+    const other = await thread()
+    await expect(other.write(other.root, `Alpha`, { prUrl: `https://github.com/o/r/pull/9` })).rejects.toThrow(
+      /Nothing in this thread's Guide matched topic "Alpha"/
+    )
+    expect(await t.guide()).toEqual(before)
+  })
+
+  it(`pictures: a sibling never replaces or removes another's; a parent replaces a child's in place`, async () => {
+    const t = await thread()
+    const a = await t.kid(`exp/a`)
+    const b = await t.kid(`exp/b`)
+    const publish = (sessionId: string, prepared: ReturnType<typeof picture>) =>
+      publishGuidePicture(
+        { sessionId, teamId: t.w.teamId, topic: `Screen`, label: `web: home`, uploaderId: t.w.owner },
+        prepared
+      )
+    const first = picture()
+    await publish(a, first)
+    const pics = async () => (await t.guide()).filter((e) => e.attachmentId)
+
+    // A sibling's same (topic, label) = its own new entry, A's untouched.
+    const sib = picture()
+    expect((await publish(b, sib)).replaced).toBe(false)
+    expect((await pics()).map((e) => [e.sessionId, e.attachmentId])).toEqual([
+      [a, first.attachmentId],
+      [b, sib.attachmentId],
+    ])
+    await expect(t.write(b, `Screen`, { label: `web: home`, remove: true })).resolves.toBeTruthy()
+    expect((await pics()).map((e) => e.sessionId)).toEqual([a])
+    await expect(t.write(b, `Screen`, { label: `web: home`, remove: true })).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
+
+    // The parent replaces the child's picture in place; the child keeps it.
+    const next = picture()
+    expect((await publish(t.root, next)).replaced).toBe(true)
+    expect((await pics()).map((e) => [e.sessionId, e.attachmentId])).toEqual([[a, next.attachmentId]])
+    expect(await db.select().from(attachments).where(eq(attachments.id, first.attachmentId))).toHaveLength(0)
   })
 })
 
