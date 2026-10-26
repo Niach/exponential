@@ -87,12 +87,12 @@ export default function EvalPage({ path }: PageProps) {
             validates every reply with the same reducer the renderers use and scores it; <code>render.ts</code> paints
             it in the React renderer, the Solid renderer and the <code>{`<exponential-surface>`}</code> element,
             measures the boxes of each and compares them with React;{` `}
-            <code>parity.ts</code> measures the sample Devices template against a reference layout on the stored shots.
+            <code>parity.ts</code> measures the sample template against a reference layout on the stored shots.
           </p>
           <DocsCode>{`bun run --filter @exponential_app/ui eval:record   # once, needs ANTHROPIC_API_KEY
 bun run --filter @exponential_app/ui eval          # score the fixtures → eval/report.json
 bun run --filter @exponential_app/ui eval:render   # web renders, React + Solid + element, at every width (Playwright)
-bun run --filter @exponential_app/ui eval:parity   # the sample Devices template vs a reference layout`}</DocsCode>
+bun run --filter @exponential_app/ui eval:parity   # the sample template vs a reference layout`}</DocsCode>
           <p>
             Recorded by: {Object.entries(a.recordedBy).map(([k, v]) => `${v} ${k === `api` ? `over the API` : k === `claude-cli` ? `through the Claude Code CLI (real usage)` : `by the session's own model from the same prompt`}`).join(`, `)}.
           </p>
@@ -186,7 +186,7 @@ bun run --filter @exponential_app/ui eval:parity   # the sample Devices template
         <DocsSection id="parity" num="06" label="Spacing parity with a reference layout">
           <h2>Spacing parity with a reference layout</h2>
           <p>
-            The sample Devices template (a declarative package rendered through the public host API) was measured
+            The sample template (a declarative package rendered through the public host API) was measured
             beside a native reference layout of the same page, on the stored shots of both: the Section band every
             list starts with, and the first row under it. Store pixels are 1.25 CSS px; the deltas are template minus
             reference.

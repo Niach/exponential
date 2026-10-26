@@ -49,8 +49,8 @@ type Card = { file: string; title: string; subtitle: string; kicker?: string }
 const CARDS: Card[] = [
   {
     file: `og-home.png`,
-    title: `The next generation dev platform for teams`,
-    subtitle: `Issues, customer feedback and coding agents in one realtime tracker. Agents run on your hardware, on your subscription.`,
+    title: `The next generation dev platform for teams and agents`,
+    subtitle: `Agents plan the work, write the code, build your apps and answer when you talk to them.`,
   },
   {
     file: `og-pricing.png`,
@@ -68,9 +68,14 @@ const CARDS: Card[] = [
     subtitle: `Issues, the desktop and mobile apps, local AI agents, and integrations.`,
   },
   {
+    file: `og-talk.png`,
+    title: `Exponential Talk`,
+    subtitle: `Talk to your agents. Speech in and out on your own GPU, in English and German.`,
+  },
+  {
     file: `og-default.png`,
     title: `Exponential`,
-    subtitle: `One realtime tracker for issues, user feedback and local AI coding agents.`,
+    subtitle: `The next generation dev platform for teams and agents.`,
   },
   /* The blog (EXP-1366): the index card and one per post, from the registry;
      a post's meta names its file as `ogImage`. */

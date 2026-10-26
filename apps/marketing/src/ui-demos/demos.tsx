@@ -19,6 +19,8 @@
 
 import type { ReactElement } from "react"
 import { PhoneChat } from "../../ui/src/sdk/PhoneChat"
+import { AgentChat } from "./AgentChat"
+import { VoiceOverlay } from "./VoiceOverlay"
 import {
   BUILTIN_STATUS_COLOR_CLASS,
   IssueChip,
@@ -71,6 +73,12 @@ export const UI_DEMOS_SOURCE: Record<string, () => ReactElement> = {
      Exponential UI surface (ui/src/sdk/PhoneChat.tsx): the LAST frame,
      which the page then replays live inside the same shadow root. */
   "ui-phone-chat": () => <PhoneChat />,
+
+  /* NEW-15: the home hero, a team agent's chat on the phone. */
+  "home-agent-chat": () => <AgentChat />,
+
+  /* NEW-15: the push-to-talk overlay, three states. */
+  "voice-overlay": () => <VoiceOverlay />,
 
   "subject-chips": () => (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-1 text-lg leading-tight font-semibold">

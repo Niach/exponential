@@ -1,7 +1,8 @@
-/* exponential.at/ui: generative UI in one screen. The live demo (the SDK
-   lane's HomeDemo: a prompt, an A2UI replay in the React renderer and the
-   same surface's native shots) sits in the hero; the rest is the pitch, the
-   six renderers, the entry points and the packages. */
+/* exponential.at/ui: generative UI in one screen. The live demo (HomeDemo:
+   the app's phone chat answering with a surface generated node by node,
+   beside the same surface's native shots) sits in the hero; the rest is the
+   pitch, the six renderers, the entry points and the packages. The header's
+   "UI SDK" link opens this page (NEW-15). */
 import manifest from "@exponential_app/ui/conformance/manifest.json"
 import promptBudget from "@exponential_app/ui/fixtures/prompt-budget.json"
 import { CardGrid, DocsTable, IcArrow } from "../components/Content"

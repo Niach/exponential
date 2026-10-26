@@ -48,6 +48,7 @@ import { COMPONENT_DOCS, componentPath } from "../ui/src/lib/catalog"
 import { GUIDES, guidePath } from "../ui/src/lib/guides"
 import { ROUTES as UI_ROUTES, type PageModule } from "../ui/src/lib/routes"
 import { UI_HOME } from "../ui/src/lib/site"
+import { TALK_ROUTES } from "../ui/src/talk/routes"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), `..`)
 const DIST = resolve(ROOT, `dist`)
@@ -199,6 +200,10 @@ const SECTIONS = [
     { heading: `Exponential UI guides`, paths: [`/ui/guides/`, ...GUIDES.map((g) => guidePath(g.slug))] },
     { heading: `Exponential UI themes`, paths: [`/ui/themes/`, `/ui/themes/builder/`] },
     { heading: `Exponential UI components`, paths: [`/ui/components/`, ...COMPONENT_DOCS.map(componentPath)] },
+    {
+      heading: `Exponential Talk (speech in and out for agents)`,
+      paths: TALK_ROUTES.map((r) => r.path),
+    },
   ]
 
 assertDocsNavParity()
@@ -218,9 +223,10 @@ prerenderSite({
     return <Component />
   },
   llms: {
-    summary: `An open-source (Apache-2.0) realtime tracker for issues, user feedback and coding agents. Hand issues to AI coding agents (Claude Code or Codex) that run on your own machine, in the desktop app or the CLI daemon, and open GitHub pull requests (unlimited sessions, flat price). Native apps for web, iOS, Android, macOS, Windows and Linux. Free cloud tier for teams of three, or self-host it for free at any company size.`,
+    summary: `The next generation dev platform for teams and agents, open source (Apache-2.0). Team agents plan the work, start coding sessions (Claude Code or Codex on your own machine, in the desktop app or the CLI daemon) that open GitHub pull requests, build team apps, and answer by voice (Talk: push to talk and spoken replies on your desktop). Boards, a feedback widget, native apps for web, iOS, Android, macOS, Windows and Linux. Free cloud tier for teams of three, or self-host it for free.`,
     intro: [
       `The app itself lives at https://app.exponential.at; the source code is at https://github.com/Niach/exponential. The open generative-UI SDK the apps are built on, Exponential UI (Apache-2.0), is documented under https://exponential.at/ui/: an agent sends an A2UI surface as JSON and native renderers paint it in React, Solid, web components, SwiftUI, Jetpack Compose and gpui, from one core catalog, with runtime themes, extensions and a shared host API.`,
+      `Talk, the voice layer, is documented under https://exponential.at/talk/: speech in (Silero VAD and Parakeet) and spoken replies (Qwen3-TTS) through CrispASR on the member's own desktop GPU, in English and German.`,
     ],
     sections: SECTIONS,
     extras: [

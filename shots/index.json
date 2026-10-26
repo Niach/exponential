@@ -29,8 +29,8 @@
         "file": "shots/agent-channel/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 52760,
-        "sha256": "5df9e37e45cb18acefc26f8909d6fc38d5338c5f44bdbb4ce165d051bc04346e"
+        "bytes": 53510,
+        "sha256": "f7deae06fb07cf552774ebd7e8c2595b26611232a0a3ebba94a359dff66894fb"
       },
       "ios": {
         "file": "shots/agent-channel/ios.webp",
@@ -1458,8 +1458,8 @@
         "file": "shots/exponential-ui-demo/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 38980,
-        "sha256": "d6c79d77d69de493e184412dcbaf900453cdcb14dc24862cd310d3f9387effa5"
+        "bytes": 38526,
+        "sha256": "b3e3b8f2793be5fcc2c6715711ef63f0e73be00aa89d57ef84fbdb4a60de8881"
       },
       "ios": {
         "file": "shots/exponential-ui-demo/ios.webp",

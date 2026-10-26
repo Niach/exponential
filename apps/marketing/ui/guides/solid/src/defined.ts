@@ -5,21 +5,21 @@
 // a validator issue. `node src/defined.ts` prints the JSONL a host consumes.
 import { bind, call, defineSurface, event, run, ui } from "@exponential_app/ui"
 
-const devices = ui.Stack({ gap: `md` }, [
-  ui.Section({ title: `Devices`, icon: `nav-devices`, count: 3 }),
+const entries = ui.Stack({ gap: `md` }, [
+  ui.Section({ title: `Entries`, icon: `ui-clock`, count: 2 }),
   ui.List(
     { divided: true },
-    { template: ui.Row({ title: bind(`label`), subtitle: bind(`detail`), icon: `ui-device`, chevron: `right`, pressable: true }, undefined, { on: { press: event(`openDevice`, { id: bind(`id`) }) } }), path: `/devices/rows`, key: `id` }
+    { template: ui.Row({ title: bind(`label`), subtitle: bind(`detail`), icon: `ui-clock`, chevron: `right`, pressable: true }, undefined, { on: { press: event(`openEntry`, { id: bind(`id`) }) } }), path: `/entries/rows`, key: `id` }
   ),
-  ui.EmptyState({ icon: `nav-devices`, title: `No devices yet`, description: `Install the desktop app on a machine and it appears here.`, actionLabel: `Add device` }, undefined, {
-    visible: call(`eq`, { a: 0, b: bind(`/devices/count`) }),
+  ui.EmptyState({ icon: `ui-clock`, title: `No hours yet`, description: `Log the hours you worked and they appear here.`, actionLabel: `Log hours` }, undefined, {
+    visible: call(`eq`, { a: 0, b: bind(`/entries/count`) }),
     on: { press: run(`app.toast`, { title: `Soon` }) },
   }),
 ])
 
-export const defined = defineSurface(devices, {
-  surfaceId: `devices`,
-  data: { "/devices": { count: 2, rows: [{ id: `d1`, label: `Alex's Mac mini`, detail: `Desktop · macos · v0.14.71` }, { id: `d2`, label: `Acme build server`, detail: `Server · linux · v0.13.11` }] } },
+export const defined = defineSurface(entries, {
+  surfaceId: `working-hours`,
+  data: { "/entries": { count: 2, rows: [{ id: `e1`, label: `support, admin, orgs`, detail: `2026-10-23 · 3 h` }, { id: `e2`, label: `review, onboarding`, detail: `2026-10-22 · 4.5 h` }] } },
 })
 
 if (defined.issues.length) throw new Error(defined.issues.map((i) => `${i.id}: ${i.message}`).join(`\n`))

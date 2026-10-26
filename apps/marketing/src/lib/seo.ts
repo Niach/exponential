@@ -4,6 +4,7 @@
    The source HTML heads carry ONLY charset/viewport/title/fonts/icons — every
    description/canonical/og:/twitter:/ld+json tag is owned here. */
 
+import { LINKS } from "./links"
 import { PLANS } from "./plans"
 import { blogPages } from "../blog/seo"
 
@@ -21,7 +22,7 @@ const organization: Record<string, unknown> = {
   name: SITE_NAME,
   url: `${SITE_ORIGIN}/`,
   logo: `${SITE_ORIGIN}/icon-512.png`,
-  sameAs: [`https://github.com/Niach/exponential`],
+  sameAs: [`https://github.com/Niach/exponential`, LINKS.downloads.ios, LINKS.downloads.android],
 }
 
 const softwareApplication: Record<string, unknown> = {
@@ -30,7 +31,7 @@ const softwareApplication: Record<string, unknown> = {
   name: SITE_NAME,
   applicationCategory: `DeveloperApplication`,
   operatingSystem: `Web, iOS, Android, macOS, Windows, Linux`,
-  description: `The next generation dev platform for teams. Issues, customer feedback and coding agents in one realtime tracker. AI agents run locally on your machines, on your subscription, and open GitHub pull requests.`,
+  description: `The next generation dev platform for teams and agents. Agents plan the work, write the code and build apps, running Claude Code or Codex on your own machines and subscription.`,
   url: `${SITE_ORIGIN}/`,
   /* SoftwareApplication is also eligible for Google's product rich result.
      Give that item the same crawlable image and complete offer as the pricing
@@ -83,17 +84,14 @@ export const PAGES: PageSeo[] = [
     htmlFile: `index.html`,
     sources: [
       `src/HomePage.tsx`,
-      `src/components/ActionsSection.tsx`,
-      `src/components/AgentsSection.tsx`,
-      `src/components/CollabSection.tsx`,
       `src/components/HeroDownload.tsx`,
-      `src/components/HomePricing.tsx`,
-      `src/components/PlanCards.tsx`,
-      `src/components/SocialProof.tsx`,
-      `src/lib/plans.ts`,
+      `src/components/HeroPhone.tsx`,
+      `src/ui-demos/AgentChat.tsx`,
+      `src/ui-demos/VoiceOverlay.tsx`,
+      `src/styles/home.css`,
     ],
-    title: `Exponential · The next generation dev platform for teams`,
-    description: `The next generation dev platform for teams. Issues, customer feedback and coding agents in one realtime tracker. Agents run on your hardware, on your subscription, no cloud agents. Native on web, iOS, Android, macOS, Windows and Linux. Free for teams of three, open source and free to self-host.`,
+    title: `Exponential · The next generation dev platform for teams and agents`,
+    description: `The next generation dev platform for teams and agents. Agents plan the work, write the code, build your apps and answer when you talk to them. Web, desktop, iOS and Android. Open source, free to self-host.`,
     ogImage: `/og/og-home.png`,
     jsonLd: [organization, softwareApplication],
   },

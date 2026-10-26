@@ -21,8 +21,7 @@ export function useScrolled(): boolean {
 }
 
 /** A level of the header below the main menu (exponential.at/ui/, /talk/):
- *  its own links, entered from the main link to `href`, left by the back
- *  button. */
+ *  its own links, shown on every page under `href` (NEW-15). */
 export type ShellSection = { label: string; href: string; links: ShellLink[] }
 
 const isCurrent = (link: ShellLink, currentPath?: string) =>
@@ -58,10 +57,11 @@ function PhoneMenu({ children }: { children: ReactNode }) {
   )
 }
 
-/** ONE header for every page of exponential.at. A page inside a section
- *  (its path starts with the section's href) opens on that section's links
- *  with a back button in front; back steps up to the main menu in place (a
- *  link to `/` without JS), and a section's main link steps down into it. */
+/** ONE header for every page of exponential.at. The level follows the
+ *  route (NEW-15): a page inside a section (its path starts with the
+ *  section's href) shows that section's links behind a back link to `/`;
+ *  every other page shows the main menu, whose link to a section is a plain
+ *  link to its front page. The phone menu shows the same level. */
 export function SiteHeaderBar({
   brand,
   homeHref = `/`,
@@ -80,7 +80,9 @@ export function SiteHeaderBar({
   currentPath?: string
 }) {
   const scrolled = useScrolled()
-  const [section, setOpen] = useState(() => sections.find((s) => currentPath?.startsWith(s.href)))
+  /* NEW-15: the level IS the route: inside a section its links, everywhere
+     else the main menu. */
+  const section = sections.find((s) => currentPath?.startsWith(s.href))
   const level = section ? (
       <>
         <a
@@ -88,10 +90,6 @@ export function SiteHeaderBar({
           href="/"
           aria-label="Main menu"
           title="Main menu"
-          onClick={(e) => {
-            e.preventDefault()
-            setOpen(undefined)
-          }}
         >
           <ChevronLeft size={14} strokeWidth={2} aria-hidden />
           <span className="nav-back-label">Main menu</span>
@@ -106,26 +104,11 @@ export function SiteHeaderBar({
         ))}
       </>
     ) : (
-      nav.map((link) => {
-        const into = sections.find((s) => s.href === link.href)
-        return (
-          <a
-            key={link.href}
-            href={link.href}
-            aria-current={isCurrent(link, currentPath) ? `page` : undefined}
-            onClick={
-              into
-                ? (e) => {
-                    e.preventDefault()
-                    setOpen(into)
-                  }
-                : undefined
-            }
-          >
-            {link.label}
-          </a>
-        )
-      })
+      nav.map((link) => (
+        <a key={link.href} href={link.href} aria-current={isCurrent(link, currentPath) ? `page` : undefined}>
+          {link.label}
+        </a>
+      ))
     )
   return (
     <header className={`topbar${scrolled ? ` is-scrolled` : ``}`}>

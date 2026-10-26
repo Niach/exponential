@@ -6,6 +6,11 @@
       "source": "/blog/what-an-assistant-should-do",
       "destination": "/blog/ui-as-data-down-to-the-compositor/",
       "type": 301
+    },
+    {
+      "source": "/skills/voice-reference-clip/SKILL.md",
+      "destination": "/talk/skills/voice-reference-clip/SKILL.md",
+      "type": 301
     }
   ],
   "headers": [
