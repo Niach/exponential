@@ -57,6 +57,8 @@ struct LeafContent: View {
             SpinnerView(size: min(cx.inner.width, cx.inner.height), color: cx.ink).frame(width: cx.size.width, height: cx.size.height)
         case ("Ring", _):
             RingLeaf(cx: cx)
+        case ("VoiceWave", _):
+            VoiceWaveLeaf(cx: cx)
         case ("Skeleton", _):
             Color.clear
         case ("Chart", _):

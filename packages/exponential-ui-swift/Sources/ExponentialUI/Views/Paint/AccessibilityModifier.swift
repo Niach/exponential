@@ -113,6 +113,18 @@ struct A11yInfo: Equatable {
             info.passthrough = true
             info.adjustable = "spinbutton"
             return info
+        case ("VoiceWave", nil):
+            // NEW-77 (a11y.json): one img named by `label` with the activity
+            // appended; decorative without a label; the child never reads.
+            let name = a.label ?? n.props.str("label")
+            guard !name.isEmpty else {
+                info.hidden = true
+                return info
+            }
+            let activity = n.props.str("activity").isEmpty ? "idle" : n.props.str("activity")
+            info.label = "\(name), \(activity)"
+            info.traits = .isImage
+            return info
         default:
             break
         }
