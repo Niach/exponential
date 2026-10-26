@@ -76,6 +76,7 @@ const PINNED_RECIPES = [
   `openAppExport`,
   `openAppImport`,
   `openBoardBulkEdit`,
+  `openFirstBoardSettings`,
   `openIssuePropertiesMobile`,
   `openMachineSettings`,
   `expandFirstDevice`,

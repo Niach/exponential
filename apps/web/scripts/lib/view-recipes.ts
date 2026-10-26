@@ -681,6 +681,17 @@ async function recipeOpenGettingStarted(page: Page): Promise<void> {
 }
 
 /**
+ * Settings → Boards lists the team's boards since EXP-1383 (each row opens
+ * its own page); the `settings-boards` view photographs ONE board's page, so
+ * open the first row (`boards-section.tsx` `boards-list-row-{id}`).
+ */
+async function recipeOpenFirstBoardSettings(page: Page): Promise<void> {
+  const rows = page.locator(`[data-testid^="boards-list-row-"]`)
+  await rows.first().waitFor({ timeout: 20_000 })
+  await rows.first().click()
+}
+
+/**
  * The registry itself. Keys are the names `views.json` uses; the view-catalog
  * test parses this literal, so keep it a flat name-to-function table with the
  * closing brace in column 0.
@@ -696,6 +707,7 @@ export const RECIPES: Record<string, Recipe> = {
   scrollToComments: recipeScrollToComments,
   openSearch: recipeOpenSearch,
   openBoardBulkEdit: recipeOpenBoardBulkEdit,
+  openFirstBoardSettings: recipeOpenFirstBoardSettings,
   openIssuePropertiesMobile: recipeOpenIssuePropertiesMobile,
   expandFirstDiffFile: recipeExpandFirstDiffFile,
   openMachineSettings: recipeOpenMachineSettings,
