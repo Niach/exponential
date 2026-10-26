@@ -1085,6 +1085,9 @@ export const messageEventKindValues = [
   `trigger_fired`,
   // EXP-1374: a child's run stopped mid-turn (runner restart); it resumes.
   `session_interrupted`,
+  // EXP-1391: a merge GitHub or the check gate refused, posted into the
+  // PR's root session as pending input (it wakes the root).
+  `pr_merge_refused`,
 ] as const
 export type MessageEventKind = (typeof messageEventKindValues)[number]
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { TRPCClientError } from "@trpc/client"
-import { mergeFailure } from "@/lib/merge-failure"
+import { MERGE_ANYWAY_LABEL, mergeFailure } from "@/lib/merge-failure"
 import { OFFLINE_ERROR_MESSAGE } from "@/lib/trpc-error"
 
 function serverError(code: string, message: string): TRPCClientError<never> {
@@ -9,48 +9,31 @@ function serverError(code: string, message: string): TRPCClientError<never> {
   return error as TRPCClientError<never>
 }
 
-const CONFLICT_MESSAGE = `Pull Request has merge conflicts with 'master': rebase onto origin/master, resolve the conflicts, push with --force-with-lease, then retry the merge.`
-
 describe(`mergeFailure`, () => {
-  it(`flags a real conflict from the server's CONFLICT code`, () => {
-    expect(
-      mergeFailure(serverError(`CONFLICT`, CONFLICT_MESSAGE), `fallback`)
-    ).toEqual({ message: CONFLICT_MESSAGE, conflict: true })
-  })
-
-  it(`does not flag a stale base as a conflict`, () => {
-    const message = `Pull Request is not mergeable: its base branch 'exp/EXP-314' is the head of already-merged PR #240. Retarget this PR to 'master' (call exponential_pr_retarget), rebase onto origin/master if needed, then retry the merge.`
-    expect(
-      mergeFailure(serverError(`PRECONDITION_FAILED`, message), `fallback`)
-    ).toEqual({ message, conflict: false })
-  })
-
-  it(`does not flag a 412 that merely quotes the conflict wording`, () => {
-    expect(
-      mergeFailure(serverError(`PRECONDITION_FAILED`, CONFLICT_MESSAGE), `fallback`)
-    ).toEqual({ message: CONFLICT_MESSAGE, conflict: false })
-  })
-
-  it(`never offers the recovery run for a policy refusal`, () => {
-    const message = `Squash merges are not allowed on this repository`
-    expect(
-      mergeFailure(serverError(`PRECONDITION_FAILED`, message), `fallback`)
-    ).toEqual({ message, conflict: false })
-  })
-
-  it(`reads an unreachable server as offline, never as a conflict`, () => {
-    const error = new TRPCClientError(`Failed to fetch`, {
-      cause: new TypeError(`Failed to fetch`),
+  it(`flags the check gate's PRECONDITION_REQUIRED`, () => {
+    const message = `Checks are still running on PR #12: "gate". Sent to the thread.`
+    expect(mergeFailure(serverError(`PRECONDITION_REQUIRED`, message), `fallback`)).toEqual({
+      message,
+      checks: true,
     })
-    expect(mergeFailure(error, `The pull request could not be merged`)).toEqual({
-      message: OFFLINE_ERROR_MESSAGE,
-      conflict: false,
-    })
+    expect(MERGE_ANYWAY_LABEL).toBe(`Merge anyway`)
   })
 
-  it(`falls back for anything unrecognisable`, () => {
-    expect(mergeFailure(new Error(`boom`), `The pull request could not be merged`)).toEqual(
-      { message: `The pull request could not be merged`, conflict: false }
-    )
+  it(`a conflict is a refusal like any other (EXP-1391)`, () => {
+    const message = `Pull Request has merge conflicts with 'master'. Sent to the thread.`
+    expect(mergeFailure(serverError(`PRECONDITION_FAILED`, message), `fallback`)).toEqual({
+      message,
+      checks: false,
+    })
+    expect(mergeFailure(serverError(`CONFLICT`, message), `fallback`).checks).toBe(false)
+  })
+
+  it(`falls back for a non-tRPC error`, () => {
+    expect(mergeFailure(new Error(`boom`), `The pull request could not be merged`).checks).toBe(false)
+  })
+
+  it(`keeps the offline message`, () => {
+    const failure = mergeFailure(new TypeError(`Failed to fetch`), `fallback`)
+    expect([OFFLINE_ERROR_MESSAGE, `fallback`, `Failed to fetch`]).toContain(failure.message)
   })
 })

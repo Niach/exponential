@@ -49,3 +49,26 @@ export const ISSUE_LIFECYCLE_CASES = fixture.cases as {
   input: { event: IssueLifecycleEvent } & IssueLifecycleState
   expected: IssueLifecycleTarget | null
 }[]
+
+const PART_BRACKETED = /[([]\s*(\d+)\s*\/\s*(\d+)\s*[)\]]/
+const PART_WORDS = /\bpart\s+(\d+)\s*(?:\/|of)\s*(\d+)\b/i
+
+/** EXP-1378: the PR's title marks it as part n of m with n < m (the last
+ *  part lands its issues). fixtures/issue-lifecycle.json `partPr`. */
+export function isPartPullRequest(title: string | null | undefined): boolean {
+  if (!title) return false
+  for (const pattern of [PART_BRACKETED, PART_WORDS]) {
+    const match = title.match(pattern)
+    if (!match) continue
+    const part = Number(match[1])
+    const of = Number(match[2])
+    if (part >= 1 && part < of) return true
+  }
+  return false
+}
+
+export const PART_PR_CASES = fixture.partPr.cases as {
+  name: string
+  title: string | null
+  expected: boolean
+}[]

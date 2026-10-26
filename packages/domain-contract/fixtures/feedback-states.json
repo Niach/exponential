@@ -1037,6 +1037,12 @@
     "rule": "ONLY a failure of something the PERSON just did toasts. Automatic or background work (trunk sync, polling, refresh on open or on focus, heartbeats, prefetch, live reloads) NEVER toasts: it keeps its existing quiet surface (the IDE trunk_sync badge + banner, a list's band spinner, its empty state). A FAILED ACTION (save, delete, start, connect, merge, send, invite, sign-in request that reached the server) = toast.error(title, {description: the server's message, action: Retry when re-running the same call is safe}). Title = `Couldn't <verb> <thing>` (sentence case, no period). INVALID INPUT stays INLINE under its field in the rose foreground at 13px (a red field border + the line), never a toast: auth forms, the invite email, URL fields, byte caps, required fields, names already taken. Nothing else renders an error inline: no rose sentences in settings sections, dialogs, option lines, pickers or faces; a section whose automatic LOAD failed shows its empty state (plus its Retry); only a failed Retry tap toasts.",
     "titlePattern": "Couldn't {verb} {thing}",
     "retry": "Retry",
+    "mergeRefusal": {
+      "$comment": "EXP-1391 + EXP-1378: a refused PR merge (Merge PR, Merge stack, Merge through here) is the failed-action toast ×4, title `Couldn't merge the PR` / `Couldn't merge the stack`, description = the server's message verbatim (it ends with `handoff` when the refusal was posted into the thread, session-thread.json EXP-1391). The ONE code that changes the action is the check gate's PRECONDITION_REQUIRED (HTTP 428: required checks still running or red): its action is `force` (`pullRequests.merge({force: true})`, a person's explicit override of the gate; GitHub's own branch protection still applies) instead of Retry. Every other refusal keeps Retry. No client reads CONFLICT any more (the Fix conflicts run is gone).",
+      "checksCode": "PRECONDITION_REQUIRED",
+      "force": "Merge anyway",
+      "handoff": "Sent to the thread."
+    },
     "inline": {
       "size": 13
     },

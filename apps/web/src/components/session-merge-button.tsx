@@ -15,7 +15,7 @@ import { StackMergeConfirmDialog } from "@/components/stack-merge-choice-dialog"
 import { usePullRequestStackConfirm } from "@/hooks/use-stack-merge-choice"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { pullRequestCollection, pullRequestIssueCollection } from "@/lib/collections"
-import { mergeFailure } from "@/lib/merge-failure"
+import { MERGE_ANYWAY_LABEL, mergeFailure } from "@/lib/merge-failure"
 import { MERGE_STACK_LABEL } from "@/lib/pr-stack"
 import { mergeIssuePrPrompt, mergeRunPrPrompt, promptActions } from "@/lib/prompts"
 import type { PullRequestRow } from "@/lib/session-tree"
@@ -26,8 +26,9 @@ import { cn } from "@/lib/utils"
 // row (`pullRequests.merge({pullRequestId, stack})`). A PR in an open linear
 // stack reads `Merge stack` and asks the ONE stack confirm (it lands the
 // chain through its top, EXP-1248); any other open PR asks the plain merge
-// confirm. Merging never opens a session: a refusal is a toast (a conflict
-// offers no Retry, it never clears by retrying). The spinner holds until the
+// confirm. Merging never opens a session: a refusal is a toast and (EXP-1391)
+// a line into the thread's root, which takes it over; the check gate's
+// refusal offers `Merge anyway` (`force`, EXP-1378) instead of Retry. The spinner holds until the
 // echo moves the row off `open`. Close (`pullRequests.close`) rides the
 // caller's menu (`usePullRequestClose`), copy = `close-pr.json` ×4.
 
@@ -87,7 +88,7 @@ export function PullRequestMergePill({
 
   if (!open || !canMerge) return null
 
-  const run = async (input: { pullRequestId: string; stack?: boolean }) => {
+  const run = async (input: { pullRequestId: string; stack?: boolean; force?: boolean }) => {
     setMerging(true)
     const what = input.stack ? `the stack` : `the PR`
     try {
@@ -113,7 +114,8 @@ export function PullRequestMergePill({
       setConfirmOpen(false)
       setStackOpen(false)
       failedAction(`merge`, what, failure.message, {
-        retry: failure.conflict ? undefined : () => void run(input),
+        retry: failure.checks ? () => void run({ ...input, force: true }) : () => void run(input),
+        ...(failure.checks ? { retryLabel: MERGE_ANYWAY_LABEL } : {}),
       })
     }
   }

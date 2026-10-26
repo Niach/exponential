@@ -322,11 +322,7 @@
     "chatHeadline": "Ask the agent",
     "chatPlaceholder": "Ask the agent…",
     "instructionsPlaceholder": "Additional instructions (optional)…",
-    "dialogTitle": "Start a session",
-    "fixConflictsHeadline": "Fix merge conflicts",
-    "fixConflictsSubmit": "Fix conflicts",
-    "prPlaceholder": "Select a pull request…",
-    "conflictNote": "Merge refused: the branch has conflicts."
+    "dialogTitle": "Start a session"
   },
   "toolKind": {
     "values": [
@@ -427,7 +423,7 @@
     "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface"]
   },
   "messageEventKind": {
-    "values": ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted"]
+    "values": ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused"]
   },
   "codingAgent": {
     "values": ["claude", "codex"]

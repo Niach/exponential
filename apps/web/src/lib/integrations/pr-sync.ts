@@ -1,3 +1,4 @@
+import { isPartPullRequest } from "@exp/domain-contract/issue-lifecycle"
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
@@ -435,10 +436,17 @@ async function applyLandedInTx(
   actorUserId: string | null
 ): Promise<string[]> {
   const held = await heldMergedAboveInTx(tx, pr.id)
+  // EXP-1378: a PART PR ("(1/2)") lands nothing; its last part does.
+  const landing = await tx
+    .select({ id: pullRequests.id, title: pullRequests.title })
+    .from(pullRequests)
+    .where(inArray(pullRequests.id, [pr.id, ...held.map((row) => row.id)]))
+  const whole = landing.filter((row) => !isPartPullRequest(row.title)).map((row) => row.id)
+  if (whole.length === 0) return []
   const rows = await tx
     .select({ id: pullRequestIssues.issueId })
     .from(pullRequestIssues)
-    .where(inArray(pullRequestIssues.pullRequestId, [pr.id, ...held.map((row) => row.id)]))
+    .where(inArray(pullRequestIssues.pullRequestId, whole))
   return applyPrEventToIssuesInTx(tx, {
     teamId: pr.teamId,
     issueIds: rows.map((row) => row.id),

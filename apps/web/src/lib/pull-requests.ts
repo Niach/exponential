@@ -80,7 +80,14 @@ import {
   stackStopBranches,
 } from "@/lib/pr-merge-guard"
 import { ensureGithubStack, GitHubStackForkError, inferBaseBranch, mergeThrough } from "@/lib/pr-stacks"
-import { isNotMergeable, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
+import { pullRequestChecks, type ChecksVerdict } from "@/lib/integrations/github-checks"
+import { mergeRefusalText } from "@/lib/merge-refusal"
+import {
+  checksRefusal,
+  isNotMergeable,
+  MergeRefusal,
+  prMergeFailureError,
+} from "@/lib/trpc/pr-merge-error"
 import { patchPullDescription } from "@/lib/trpc/pr-update"
 import {
   effectiveDefaultBranch,
@@ -570,19 +577,49 @@ async function adoptByUrl(userId: string, url: string): Promise<PullRequest | nu
   return rows[0] ? adoptByNumber(userId, rows[0].id, number) : null
 }
 
-/** The internal merge, throwing TRPCErrors whose CODE is the signal
- *  (EXP-533: CONFLICT = a diagnosed content conflict). The tRPC router
- *  passes them through; `mergePullRequest` turns them into `error`. */
+const CHECKS_POLL_MS = 15_000
+
+/** EXP-1378: the check gate over every PR that lands. `waitMs` > 0 polls
+ *  while checks run (an agent's merge); red or still running at the
+ *  deadline refuses (PRECONDITION_REQUIRED, the code `force` overrides). */
+async function gateOnChecks(opts: {
+  repo: string
+  token: string | null | undefined
+  prNumbers: number[]
+  waitMs: number
+}): Promise<void> {
+  const deadline = Date.now() + opts.waitMs
+  for (const prNumber of opts.prNumbers) {
+    let verdict: ChecksVerdict | null
+    for (;;) {
+      verdict = await pullRequestChecks({ repo: opts.repo, prNumber, token: opts.token })
+      if (verdict?.state !== `pending` || Date.now() + CHECKS_POLL_MS > deadline) break
+      await new Promise((resolve) => setTimeout(resolve, CHECKS_POLL_MS))
+    }
+    if (verdict && verdict.state !== `green`) throw checksRefusal(verdict, prNumber)
+  }
+}
+
+/** The internal merge, throwing TRPCErrors (EXP-1391: a refusal is a
+ *  `MergeRefusal` with its kind). The tRPC router passes them through;
+ *  `mergePullRequest` turns them into `error`. `force` (a person's explicit
+ *  override, EXP-1378) skips the check gate; `waitForChecksMs` lets the
+ *  gate wait for running checks. */
 export async function mergePullRequestOrThrow(args: {
   userId: string
   pullRequestId: string
   stack?: boolean
   callerSessionId?: string | null
+  force?: boolean
+  waitForChecksMs?: number
 }): Promise<{ merged: boolean; queued?: boolean; note?: string; mergedIds?: string[]; txid?: number }> {
   const pr = await resolvePullRequest({ userId: args.userId, pullRequestId: args.pullRequestId })
   if (pr.state === `merged`) return { merged: true, mergedIds: [pr.id] }
   if (pr.state === `draft`) {
-    fail(`PRECONDITION_FAILED`, `PR #${pr.number} is a draft. Mark it ready for review first.`)
+    throw new MergeRefusal({
+      kind: `other`,
+      message: `PR #${pr.number} is a draft. Mark it ready for review first.`,
+    })
   }
   if (!isLivePrState(pr.state)) {
     fail(`PRECONDITION_FAILED`, `The pull request is ${pr.state}. Only open pull requests can be merged.`)
@@ -636,11 +673,19 @@ export async function mergePullRequestOrThrow(args: {
         stopBranches: stackStopBranches(defaults),
       })
     } catch (err) {
-      fail(`PRECONDITION_FAILED`, err instanceof Error ? err.message : String(err))
+      throw new MergeRefusal({ kind: `other`, message: err instanceof Error ? err.message : String(err) })
     }
   }
 
   const landed = landing ?? [{ id: pr.id, number: pr.number }]
+  if (!args.force) {
+    await gateOnChecks({
+      repo: repo.fullName,
+      token,
+      prNumbers: landed.map((member) => member.number),
+      waitMs: args.waitForChecksMs ?? 0,
+    })
+  }
   const viaAgent = Boolean(args.callerSessionId)
   for (const member of landed) claimPrMerge(repo.fullName, member.number, { userId: args.userId, viaAgent })
   const releaseClaims = () => {
@@ -726,6 +771,7 @@ export async function mergePullRequest(args: {
   pullRequestId: string
   stack?: boolean
   callerSessionId?: string | null
+  waitForChecksMs?: number
 }): Promise<{ merged: boolean; queued?: boolean; error?: string; mergedIds?: string[] }> {
   try {
     const { txid: _txid, note: _note, ...result } = await mergePullRequestOrThrow(args)
@@ -733,6 +779,11 @@ export async function mergePullRequest(args: {
     void _note
     return result
   } catch (err) {
+    // EXP-1391: a refusal reads as the steps the agent takes next.
+    if (err instanceof MergeRefusal) {
+      const { number } = await resolvePullRequest({ userId: args.userId, pullRequestId: args.pullRequestId })
+      return { merged: false, error: mergeRefusalText(number, err.message, err.kind) }
+    }
     if (err instanceof TRPCError && err.code !== `NOT_FOUND`) {
       return { merged: false, error: err.message }
     }
