@@ -137,8 +137,9 @@ pub struct AdapterSpec {
     /// Claude: `can_use_tool` (and a `PreToolUse` hook, which fires even
     /// under `bypassPermissions`) DENIES file tools whose path resolves
     /// outside it, and Bash commands naming a path outside it
-    /// ([`confine::confinement_denial`]); its own claude project dir (memory,
-    /// tool results) stays open (FEED-142). Codex: every turn asks the
+    /// ([`confine::confinement_denial`]; a word it cannot resolve fails
+    /// closed, code an interpreter runs is beyond any hook); its own claude
+    /// project dir (memory, tool results) stays open (FEED-142). Codex: every turn asks the
     /// app-server's `workspaceWrite` sandbox rooted here (network on), and
     /// falls back to full access when the app-server rejects it.
     pub confine_to: Option<PathBuf>,

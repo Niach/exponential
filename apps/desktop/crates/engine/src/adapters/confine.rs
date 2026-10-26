@@ -5,7 +5,29 @@
 //! tool may touch the scratch dir, a temp dir and the run's own claude state
 //! ([`claude_harness_dirs`], FEED-142); a Bash command is scanned for the
 //! paths it names ([`bash_offending`]).
+//!
+//! What this guarantees, and what it does not:
+//!
+//! - File tools (`Read`, `Edit`, `Write`, `Glob`, `Grep`, `LS`, notebooks):
+//!   the path argument, resolved through symlinks and `..`, lands inside the
+//!   scratch dir, the run's own claude project dir or a temp dir. A `Glob`
+//!   pattern may not climb out with `..`.
+//! - Bash: every path the command line spells out statically (literal,
+//!   `~`, `$HOME`/`$PWD`/`$TMPDIR`, a variable assigned a literal earlier in
+//!   the same command, a brace expansion, a `cd` chain, a symlink that exists
+//!   now) is checked, including inside `$(…)`, backticks, `bash -c '…'` and
+//!   here-docs fed to a shell. A word the scanner cannot resolve FAILS
+//!   CLOSED: a `${…}` modifier on a variable that could name a path, a
+//!   `cd` into a computed dir, a path built on a command substitution or an
+//!   untracked variable (`$(…)/x`, `$dir/x`), a command substitution used as
+//!   a file operand, unparseable quoting. The agent is told why.
+//! - NOT guaranteed: code an interpreter runs (`python -c`, `node -e`,
+//!   `perl`, a script file, awk's `system()` beyond the paths it spells out)
+//!   builds paths at runtime no hook can see; neither can a file's contents
+//!   fed to `xargs`, nor an untracked variable used whole (`cat "$f"`). This
+//!   is a guard rail that stops an agent wandering out, not an OS sandbox.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -45,16 +67,65 @@ const BASH_SYSTEM_PREFIXES: [&str; 12] = [
     "/Library/Developer/CommandLineTools",
 ];
 
-/// Commands that only pass their wrapped command through.
-const WRAPPERS: [&str; 8] = ["sudo", "env", "command", "exec", "time", "nohup", "nice", "builtin"];
-/// Commands whose quoted arguments are themselves shell code.
-const SHELLS: [&str; 7] = ["bash", "sh", "zsh", "dash", "ksh", "fish", "eval"];
+/// A command that only passes its wrapped command through: the options that
+/// take a separate value, the options whose value is shell code, and how
+/// many operands come before the wrapped command.
+struct Wrapper {
+    name: &'static str,
+    valued: &'static [&'static str],
+    shell: &'static [&'static str],
+    operands: usize,
+}
+
+const fn wrapper(name: &'static str, valued: &'static [&'static str], shell: &'static [&'static str], operands: usize) -> Wrapper {
+    Wrapper { name, valued, shell, operands }
+}
+
+static WRAPPERS: [Wrapper; 18] = [
+    wrapper("sudo", &["-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U", "--user", "--group", "--host", "--prompt", "--chdir"], &[], 0),
+    wrapper("doas", &["-u", "-C"], &[], 0),
+    wrapper("env", &["-u", "-C", "--unset", "--chdir"], &["-S", "--split-string"], 0),
+    wrapper("command", &[], &[], 0),
+    wrapper("exec", &["-a"], &[], 0),
+    wrapper("time", &["-f", "-o", "--format", "--output"], &[], 0),
+    wrapper("nohup", &[], &[], 0),
+    wrapper("nice", &["-n", "--adjustment"], &[], 0),
+    wrapper("builtin", &[], &[], 0),
+    wrapper("timeout", &["-s", "-k", "--signal", "--kill-after"], &[], 1),
+    wrapper(
+        "xargs",
+        &["-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s", "--arg-file", "--delimiter", "--max-args", "--max-procs", "--max-chars", "--max-lines", "--process-slot-var"],
+        &[],
+        0,
+    ),
+    wrapper("ionice", &["-c", "-n", "-p", "-P", "-u", "--class", "--classdata", "--pid", "--pgid", "--uid"], &[], 0),
+    wrapper("stdbuf", &["-i", "-o", "-e", "--input", "--output", "--error"], &[], 0),
+    wrapper("flock", &["-w", "-E", "--timeout", "--wait", "--conflict-exit-code"], &["-c", "--command"], 1),
+    wrapper("watch", &["-n", "--interval"], &[], 0),
+    wrapper("script", &["-E", "-I", "-O", "-T", "-B", "--echo", "--log-in", "--log-out", "--log-io", "--log-timing"], &["-c", "--command"], 0),
+    wrapper("su", &["-g", "-G", "-s", "-w", "--group", "--supp-group", "--shell", "--whitelist-environment"], &["-c", "--command"], 0),
+    wrapper("chrt", &["-p"], &[], 1),
+];
+/// Shell keywords that stand before a command word.
+const RESERVED: [&str; 15] =
+    ["if", "then", "else", "elif", "fi", "do", "done", "while", "until", "!", "{", "}", "esac", "function", "coproc"];
+/// Commands whose quoted arguments are themselves shell code (`watch` joins
+/// its arguments into a `sh -c`, `su` hands them to the user's shell).
+const SHELLS: [&str; 9] = ["bash", "sh", "zsh", "dash", "ksh", "fish", "eval", "watch", "su"];
 /// Commands whose first operand is a regex, never a file.
 const PATTERN_COMMANDS: [&str; 6] = ["grep", "egrep", "fgrep", "rg", "ag", "ack"];
 /// Commands whose first operand is a script (`/re/`, `s/a/b/`).
 const SCRIPT_COMMANDS: [&str; 5] = ["sed", "awk", "gawk", "mawk", "nawk"];
 /// Commands whose operands are text.
 const TEXT_COMMANDS: [&str; 8] = ["echo", "printf", "tr", "expr", "let", "test", "[", "[["];
+/// Commands whose operands may be assignments.
+const DECLARE_COMMANDS: [&str; 5] = ["export", "local", "declare", "typeset", "readonly"];
+
+/// The lexer's marks inside a word: a `$` the shell expands (`$x`, `${x}`),
+/// the output of a command substitution, and an untracked variable's value.
+const EXPAND: char = '\u{E000}';
+const UNKNOWN: char = '\u{E001}';
+const OPAQUE: char = '\u{E002}';
 
 /// Where a confined run may go: the scratch dir plus the run's own harness
 /// dirs ([`claude_harness_dirs`]). Temp dirs are always open.
@@ -121,39 +192,59 @@ fn munge_project_name(path: &str) -> String {
 /// relative = relative to `cwd`) is resolved (canonicalized as far as it
 /// exists, so a symlink is followed to where it points, `..` folded) and must
 /// land inside the scratch dir, a harness dir or a temp dir (`/tmp`, the
-/// system temp dir). `Glob`'s `pattern` is checked too when it is absolute.
+/// system temp dir). `Glob`'s `pattern` is checked too, relative to its
+/// `path`; a `..` after a wildcard is refused.
 ///
-/// Bash: see [`bash_offending`]. It is a guard rail for an agent that plays
-/// along, not a sandbox: a path built at runtime passes. The deny tells the
-/// agent why, so it can self-correct.
+/// Bash: see [`bash_offending`] and the module docs for what is and is not
+/// guaranteed. The deny tells the agent why, so it can self-correct.
 pub fn confinement_denial(tool: &str, input: &Value, cwd: &Path, confine: &Confinement) -> Option<String> {
     let check = Check::new(cwd, confine);
-    let offending = if CONFINED_FILE_TOOLS.contains(&tool) {
+    let offense = if CONFINED_FILE_TOOLS.contains(&tool) {
         let mut hit = CONFINED_PATH_KEYS
             .iter()
             .filter_map(|key| input.get(*key).and_then(Value::as_str))
             .filter(|raw| !raw.trim().is_empty())
             .find_map(|raw| check.outside(raw.trim(), cwd, false));
         if hit.is_none() && tool == "Glob" {
-            hit = input
-                .get("pattern")
-                .and_then(Value::as_str)
-                .filter(|pattern| pattern.starts_with('/') || pattern.starts_with('~'))
-                .and_then(|pattern| check.outside(glob_base(pattern), cwd, false));
+            let base = match input.get("path").and_then(Value::as_str).map(str::trim).filter(|path| !path.is_empty()) {
+                Some(path) => check.resolve(path, cwd),
+                None => cwd.to_path_buf(),
+            };
+            hit = input.get("pattern").and_then(Value::as_str).and_then(|pattern| match literal_base(pattern) {
+                Some(literal) => check.outside(literal, &base, false).map(|_| pattern.to_string()),
+                None => Some(pattern.to_string()),
+            });
         }
-        hit
+        hit.map(Offense::Outside)
     } else if tool == "Bash" {
         let command = input.get("command").and_then(Value::as_str).unwrap_or_default();
         bash_offending(command, &check)
     } else {
         None
     }?;
-    Some(format!(
-        "This session is confined to its scratch folder {}; it cannot read or change files \
-         elsewhere on this machine (`{offending}` is outside it). Work inside the scratch \
-         folder or a temp dir instead.",
-        confine.root.display()
-    ))
+    let root = confine.root.display();
+    Some(match offense {
+        Offense::Outside(path) => format!(
+            "This session is confined to its scratch folder {root}; it cannot read or change files \
+             elsewhere on this machine (`{path}` is outside it). Work inside the scratch \
+             folder or a temp dir instead."
+        ),
+        Offense::Unresolved(what) => format!(
+            "This session is confined to its scratch folder {root}; the guard cannot check {what} \
+             statically (a `${{…}}` modifier, a command substitution or an untracked variable used \
+             as a path, a `cd` into a computed dir, or unparseable quoting), so the command is \
+             refused. Spell the path out literally, inside the scratch folder or a temp dir."
+        ),
+    })
+}
+
+/// Why a call is refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Offense {
+    /// A path outside the confinement.
+    Outside(String),
+    /// Something the scanner cannot resolve: it fails closed.
+    Unresolved(String),
 }
 
 struct Check {
@@ -189,54 +280,55 @@ impl Check {
 // Bash
 // ---------------------------------------------------------------------------
 
-/// The first path a Bash command names outside the confinement, if any.
+/// The first path a Bash command names outside the confinement, or the first
+/// word it cannot resolve.
 ///
 /// The command is lexed like a shell would (quotes, escapes, `;|&()`,
-/// backticks, `$(…)`, redirections, here-docs, `$((…))`) into simple
-/// commands; each word is split further on `=:,` and quotes so `--out=/x`,
-/// `PATH=/a:/b` and `open('/x')` still show their paths. A word is checked
-/// when it is absolute (`/…`, not `//…`), starts with `~`, names
-/// `$HOME`/`$PWD`/`$OLDPWD`, climbs with `..`, carries a path on a flag
-/// (`-o/x`), or names something that EXISTS relative to the cwd (a symlink
-/// out is followed). An absolute word under a top-level directory nobody has
-/// (`/api/x` in a URL) is not a path.
+/// `$(…)` and backticks, also inside double quotes and here-docs, `$((…))`,
+/// redirections, here-docs) into simple commands. Each word has its
+/// variables resolved (`$HOME`, `$PWD`, `$TMPDIR`, ones assigned earlier in
+/// the command), its braces expanded (`/{a,b}`), and is split further on
+/// `=:,` and quotes so `--out=/x`, `PATH=/a:/b` and `open('/x')` still show
+/// their paths. A part is checked when it is absolute (`//x` = `/x`), starts
+/// with `~`, climbs with `..`, carries a path on a flag (`-o/x`), or names
+/// something that EXISTS relative to the cwd (a symlink out is followed). An
+/// absolute part under a top-level directory nobody has (`/api/x` in a URL)
+/// is not a path.
 ///
 /// `cd`/`pushd` targets join the bases relative words resolve against, so
-/// `cd /tmp && cat link/x` follows `/tmp/link`; a bare `cd` (home) is refused.
+/// `cd /tmp && cat link/x` follows `/tmp/link`; a bare `cd` (home) and a
+/// `cd` into a dir the scanner cannot compute are refused.
 ///
 /// The root `/` (or a glob straight under it, `/ho*`) is only a path as an
 /// operand of its own (`ls /`, `find "/" …`): not inside a larger word
 /// (`IFS=/`, `-F/`, `'{print $1"/"$2}'`, `split('/')`), nor as the operand
 /// of a text command (`tr / -`, `[ "$p" = / ]`), a pattern (`grep -c / f`),
-/// a script (`sed`, `awk`; there a `/re/` is not a path either) or a
-/// delimiter flag (`cut -d /`, `awk -F /`, `sort -t /`). Quoted text a shell
-/// runs (`bash -c 'ls /'`, a here-doc fed to `bash`) is lexed again as a
-/// command; any other quoted text and here-doc is data, still checked for
-/// the paths it names.
-fn bash_offending(command: &str, check: &Check) -> Option<String> {
-    let mut bases = vec![check.cwd.clone()];
-    bash_offending_in(command, check, &mut bases, 0)
-}
-
-fn bash_offending_in(command: &str, check: &Check, bases: &mut Vec<PathBuf>, depth: usize) -> Option<String> {
-    for words in shell_commands(command) {
-        if let Some(hit) = command_offending(&words, check, bases, depth) {
-            return Some(hit);
-        }
-    }
-    None
+/// a script (`sed`, `awk`; there a `/re/` opening the script is not a path
+/// either) or a delimiter flag (`cut -d /`, `awk -F /`, `sort -t /`). A
+/// pattern still may not name `~`, `$HOME` or a real absolute path. Quoted
+/// text after a shell name (`timeout 9 bash -c 'ls /'`, a here-doc fed to
+/// `bash`) is lexed again as a command; any other quoted text and here-doc
+/// is data, still checked for the paths it names. A text command piped into
+/// `xargs` passes its operands on as arguments, so they count as paths.
+fn bash_offending(command: &str, check: &Check) -> Option<Offense> {
+    let mut scan = Scan { check, bases: vec![check.cwd.clone()], pwd: check.cwd.clone(), vars: HashMap::new() };
+    scan.run(command, 0)
 }
 
 /// What an operand is to its command.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Role {
     /// A file operand, an option value, a redirection target.
     Plain,
-    /// A regex (`grep PATTERN`): never a file.
+    /// A regex (`grep PATTERN`): absolute paths and `~` are checked, the
+    /// bare root and relative words are not.
     Pattern,
-    /// A sed/awk script or the operand of a text command: paths inside it
+    /// A sed/awk script: paths inside it are checked, a bare `/` is not the
+    /// root, a `/re/` opening it is not a path.
+    Script,
+    /// The operand of a text command (`echo`, `tr`, `[`): paths inside it
     /// are checked, a bare `/` is not the root.
-    Data,
+    Text,
     /// A delimiter (`cut -d /`).
     Delimiter,
     /// A `cd`/`pushd` target.
@@ -245,114 +337,455 @@ enum Role {
     Shell,
 }
 
-fn command_offending(words: &[ShellWord], check: &Check, bases: &mut Vec<PathBuf>, depth: usize) -> Option<String> {
-    // The command word: past assignments, redirections and wrappers.
-    let mut index = 0;
-    while let Some(word) = words.get(index) {
-        let name = basename(&word.text);
-        if word.redirect || is_assignment(word) || WRAPPERS.contains(&name) || (index > 0 && name.starts_with('-') && WRAPPERS.contains(&basename(&words[index - 1].text))) {
-            index += 1;
-        } else {
+/// How a grep/sed/awk flag affects the operand that follows.
+enum FlagEffect {
+    /// The next word has this role (and, for a pattern or script, the
+    /// pattern is given).
+    Next(Role, bool),
+    /// This word itself carries the pattern or script (`-epat`).
+    Attached(Role),
+    /// The pattern is given elsewhere (`--files`, `-f file`).
+    Given,
+    None,
+}
+
+/// The state a command line carries from one simple command to the next.
+struct Scan<'a> {
+    check: &'a Check,
+    /// Every dir relative words may resolve against (the cwd plus each `cd`).
+    bases: Vec<PathBuf>,
+    /// `$PWD`: the last `cd`.
+    pwd: PathBuf,
+    /// Variables assigned in this command line: `None` = an unknown value
+    /// (a command substitution, `read`).
+    vars: HashMap<String, Option<String>>,
+}
+
+impl Scan<'_> {
+    fn run(&mut self, command: &str, depth: usize) -> Option<Offense> {
+        let commands = match lex(command, 0) {
+            Ok(commands) => commands,
+            Err(why) => return Some(Offense::Unresolved(why)),
+        };
+        for (at, command) in commands.iter().enumerate() {
+            let feeds_args = command.feeds_next
+                && commands[at + 1..].iter().find(|next| !next.nested).is_some_and(|next| {
+                    next.words.iter().any(|word| matches!(basename(&word.text), "xargs" | "parallel"))
+                });
+            if let Some(hit) = self.command_offending(&command.words, feeds_args, depth) {
+                return Some(hit);
+            }
+        }
+        None
+    }
+
+    fn command_offending(&mut self, words: &[ShellWord], feeds_args: bool, depth: usize) -> Option<Offense> {
+        let mut roles = vec![Role::Plain; words.len()];
+        // The command word: past assignments, redirections, keywords and
+        // wrappers with their options.
+        let mut index = 0;
+        let mut wrapper: Option<&Wrapper> = None;
+        let mut operands = 0;
+        let mut valued = false;
+        while let Some(word) = words.get(index) {
+            if std::mem::take(&mut valued) {
+                index += 1;
+                continue;
+            }
+            if word.redirect || is_assignment(word) || (!word.quoted && RESERVED.contains(&word.text.as_str())) {
+                index += 1;
+                continue;
+            }
+            if let Some(found) = WRAPPERS.iter().find(|wrapper| wrapper.name == basename(&word.text)) {
+                wrapper = Some(found);
+                operands = found.operands;
+                index += 1;
+                continue;
+            }
+            if let Some(current) = wrapper {
+                if is_flag(word) {
+                    if current.shell.contains(&word.text.as_str()) {
+                        if let Some(role) = roles.get_mut(index + 1) {
+                            *role = Role::Shell;
+                        }
+                        valued = true;
+                    } else {
+                        valued = current.valued.contains(&word.text.as_str());
+                    }
+                    index += 1;
+                    continue;
+                }
+                if operands > 0 {
+                    operands -= 1;
+                    index += 1;
+                    continue;
+                }
+            }
             break;
         }
-    }
-    let name = words.get(index).map(|word| basename(&word.text).to_string()).unwrap_or_default();
-    let name = name.as_str();
-    let mut roles = vec![Role::Plain; words.len()];
-    let mut next: Option<Role> = None;
-    let mut operand_taken = false;
-    let mut cd_target = false;
-    let mut options_done = false;
-    for (at, word) in words.iter().enumerate().skip(index + 1) {
-        if word.redirect {
-            continue;
-        }
-        if let Some(role) = next.take() {
-            roles[at] = role;
-            continue;
-        }
-        let flag = !options_done && word.text.starts_with('-') && word.text.len() > 1 && !word.quoted;
-        if word.text == "--" && !word.quoted {
-            options_done = true;
-            continue;
-        }
-        if PATTERN_COMMANDS.contains(&name) {
-            if flag {
-                match word.text.as_str() {
-                    "-e" | "--regexp" => {
-                        next = Some(Role::Pattern);
-                        operand_taken = true;
-                    }
-                    "-f" | "--file" => operand_taken = true,
-                    _ if word.text.starts_with("--regexp=") => {
-                        roles[at] = Role::Pattern;
-                        operand_taken = true;
-                    }
-                    _ => {}
-                }
-            } else if !operand_taken {
-                roles[at] = Role::Pattern;
-                operand_taken = true;
+        if let Some(word) = words.get(index) {
+            // `watch -n 1 'ls /'`: the "command" is shell code.
+            if words[..index].iter().any(|word| SHELLS.contains(&basename(&word.text)))
+                && (word.quoted || word.text.contains(char::is_whitespace))
+            {
+                roles[index] = Role::Shell;
             }
-        } else if SCRIPT_COMMANDS.contains(&name) {
-            if flag {
-                match word.text.as_str() {
-                    "-e" | "--expression" => {
-                        next = Some(Role::Data);
-                        operand_taken = true;
-                    }
-                    "-f" | "--file" => operand_taken = true,
-                    "-F" if name != "sed" => next = Some(Role::Delimiter),
-                    _ => {}
-                }
-            } else if !operand_taken {
-                roles[at] = Role::Data;
-                operand_taken = true;
+        }
+        let name = words.get(index).map(|word| basename(&word.text).to_string()).unwrap_or_default();
+        let name = name.as_str();
+        let mut next: Option<Role> = None;
+        let mut given = false;
+        let mut cd_target = false;
+        let mut options_done = false;
+        for (at, word) in words.iter().enumerate().skip(index + 1) {
+            let after_shell = words[..at].iter().any(|word| SHELLS.contains(&basename(&word.text)));
+            if word.data {
+                roles[at] = if after_shell { Role::Shell } else { Role::Text };
+                continue;
             }
-        } else if TEXT_COMMANDS.contains(&name) {
-            roles[at] = Role::Data;
-        } else if SHELLS.contains(&name) {
-            if word.quoted || name == "eval" {
+            if word.redirect {
+                continue;
+            }
+            if let Some(role) = next.take() {
+                roles[at] = role;
+                continue;
+            }
+            if name == "eval" || (after_shell && (word.quoted || word.text.contains(char::is_whitespace))) {
                 roles[at] = Role::Shell;
+                continue;
             }
-        } else if name == "cd" || name == "pushd" {
-            if !flag && !cd_target {
-                roles[at] = Role::Cd;
-                cd_target = true;
+            let flag = !options_done && is_flag(word);
+            if word.text == "--" && !word.quoted {
+                options_done = true;
+                continue;
             }
-        } else if flag && delimiter_flag(name, &word.text) {
-            next = Some(Role::Delimiter);
-        }
-    }
-    if (name == "cd" || name == "pushd") && !cd_target {
-        // A bare `cd` goes home.
-        return Some("~".to_string());
-    }
-    for (at, word) in words.iter().enumerate() {
-        let hit = match roles[at] {
-            Role::Pattern | Role::Delimiter => None,
-            Role::Shell if depth < 4 => bash_offending_in(&word.text, check, bases, depth + 1),
-            Role::Cd => {
-                let target = if word.text == "-" { "~".to_string() } else { word.text.clone() };
-                let hit = word_offending(&ShellWord { text: target.clone(), ..word.clone() }, Role::Plain, check, bases);
-                if hit.is_none() {
-                    let resolved: Vec<PathBuf> =
-                        bases.iter().map(|base| check.resolve(&expand_vars(&target, &check.cwd), base)).collect();
-                    for path in resolved {
-                        if !bases.contains(&path) {
-                            bases.push(path);
+            if PATTERN_COMMANDS.contains(&name) || SCRIPT_COMMANDS.contains(&name) {
+                let script = SCRIPT_COMMANDS.contains(&name);
+                if flag {
+                    match operand_flag(name, &word.text) {
+                        FlagEffect::Next(role, gives) => {
+                            next = Some(role);
+                            given |= gives;
                         }
+                        FlagEffect::Attached(role) => {
+                            roles[at] = role;
+                            given = true;
+                        }
+                        FlagEffect::Given => given = true,
+                        FlagEffect::None => {}
+                    }
+                } else if !given {
+                    roles[at] = if script { Role::Script } else { Role::Pattern };
+                    given = true;
+                }
+            } else if TEXT_COMMANDS.contains(&name) {
+                roles[at] = if feeds_args { Role::Plain } else { Role::Text };
+            } else if name == "cd" || name == "pushd" {
+                if !flag && !cd_target {
+                    roles[at] = Role::Cd;
+                    cd_target = true;
+                }
+            } else if flag && delimiter_flag(name, &word.text) {
+                next = Some(Role::Delimiter);
+            }
+        }
+        if (name == "cd" || name == "pushd") && !cd_target {
+            // A bare `cd` goes home.
+            return Some(Offense::Outside("~".to_string()));
+        }
+        for (at, word) in words.iter().enumerate() {
+            let hit = match roles[at] {
+                Role::Delimiter => None,
+                Role::Shell if depth < 4 => self.run(&word.text, depth + 1),
+                Role::Shell => Some(Offense::Unresolved("shell code nested this deep".to_string())),
+                Role::Cd => self.cd(word),
+                role => {
+                    let assignment = is_assignment(word) && (at < index || DECLARE_COMMANDS.contains(&name));
+                    self.word_offending(word, role, assignment)
+                }
+            };
+            if hit.is_some() {
+                return hit;
+            }
+        }
+        self.record(words, index, name);
+        None
+    }
+
+    /// Remembers what this command assigns, for the commands after it.
+    fn record(&mut self, words: &[ShellWord], index: usize, name: &str) {
+        let declares = DECLARE_COMMANDS.contains(&name);
+        for (at, word) in words.iter().enumerate() {
+            if !(is_assignment(word) && (at < index || declares)) {
+                continue;
+            }
+            let (var, value) = word.text.split_once('=').expect("an assignment");
+            let value = self.resolve_vars(value).ok().filter(|value| !value.contains(UNKNOWN));
+            self.vars.insert(var.to_string(), value);
+        }
+        let operands = words.iter().skip(index + 1).filter(|word| !word.redirect && !is_flag(word));
+        match name {
+            "read" | "mapfile" | "readarray" => {
+                for word in operands {
+                    self.vars.insert(word.text.clone(), None);
+                }
+            }
+            "for" | "select" => {
+                let mut operands = operands;
+                if let Some(var) = operands.next() {
+                    let unknown = operands.any(|word| self.resolve_vars(&word.text).map_or(true, |text| text.contains(UNKNOWN)));
+                    if unknown {
+                        self.vars.insert(var.text.clone(), None);
+                    } else {
+                        self.vars.remove(&var.text);
                     }
                 }
-                hit
             }
-            role => word_offending(word, role, check, bases),
-        };
-        if hit.is_some() {
-            return hit;
+            _ => {}
         }
     }
-    None
+
+    /// A `cd` target: refused when outside or not computable, else a new
+    /// base for the relative words after it.
+    fn cd(&mut self, word: &ShellWord) -> Option<Offense> {
+        let text = match self.resolve_vars(&word.text) {
+            Ok(text) => text,
+            Err(offense) => return Some(offense),
+        };
+        if text.contains([UNKNOWN, OPAQUE]) || text.contains(['*', '?', '[', '{']) {
+            return Some(Offense::Unresolved(format!("the `cd` target `{}`", shown(&word.text))));
+        }
+        let target = if text == "-" { "~".to_string() } else { collapse_slashes(&text) };
+        let hit = self.word_offending(&ShellWord { text: target.clone(), ..word.clone() }, Role::Plain, false);
+        if hit.is_none() {
+            let resolved: Vec<PathBuf> = self.bases.iter().map(|base| self.check.resolve(&target, base)).collect();
+            self.pwd = self.check.resolve(&target, &self.pwd);
+            for path in resolved {
+                if !self.bases.contains(&path) {
+                    self.bases.push(path);
+                }
+            }
+        }
+        hit
+    }
+
+    fn word_offending(&self, word: &ShellWord, role: Role, assignment: bool) -> Option<Offense> {
+        let text = match self.resolve_vars(&word.text) {
+            Ok(text) => text,
+            Err(offense) => return Some(offense),
+        };
+        let Some(alternatives) = brace_expand(&text) else {
+            return Some(Offense::Unresolved(format!("`{}` (too many brace alternatives)", shown(&word.text))));
+        };
+        for alternative in &alternatives {
+            for (start, part) in split_parts(alternative) {
+                let whole = part.len() == alternative.len();
+                if let Some(hit) = self.part_offending(word, part, role, start == 0, whole, assignment) {
+                    return Some(hit);
+                }
+            }
+        }
+        None
+    }
+
+    /// One part of a word (`opens` = it starts the word, `whole` = it is the
+    /// whole word).
+    fn part_offending(&self, word: &ShellWord, part: &str, role: Role, opens: bool, whole: bool, assignment: bool) -> Option<Offense> {
+        let unresolved = || Some(Offense::Unresolved(format!("`{}`", shown(&word.text))));
+        if role == Role::Plain {
+            // A path built on a value the scanner does not know.
+            if let Some(at) = part.find([UNKNOWN, OPAQUE]) {
+                if part[at..].contains('/') {
+                    return unresolved();
+                }
+            }
+            // A command substitution's output used as a file operand.
+            if part.contains(UNKNOWN) && !assignment {
+                return unresolved();
+            }
+        }
+        let (raw, attached) = match part.strip_prefix('-') {
+            Some(_) => match part.find('/') {
+                Some(slash) => (&part[slash..], true),
+                None => return None,
+            },
+            None => (part, false),
+        };
+        let path = collapse_slashes(raw);
+        if path.starts_with('/') {
+            let Some(literal) = literal_base(&path) else { return unresolved() };
+            if self.check.resolve(literal, &self.check.cwd) == Path::new("/") {
+                // The root alone: a path only as an operand of its own.
+                if role == Role::Plain && !attached && whole {
+                    return Some(Offense::Outside(shown(raw)));
+                }
+                return None;
+            }
+            if !top_level_exists(literal) && first_component(literal) != first_component(&self.check.cwd.to_string_lossy()) {
+                return None;
+            }
+            if role == Role::Script && opens && path.ends_with('/') {
+                // `sed '/usr/'`, `awk '/home/ {…}'`: a regex, not a file.
+                return None;
+            }
+            return self.check.outside(literal, &self.check.cwd, true).map(|_| Offense::Outside(shown(raw)));
+        }
+        if path.starts_with('~') {
+            let Some(literal) = literal_base(&path) else { return unresolved() };
+            return self.check.outside(literal, &self.check.cwd, true).map(|_| Offense::Outside(shown(raw)));
+        }
+        if role == Role::Pattern || attached || path.contains("://") {
+            return None;
+        }
+        let climbs = path == ".." || path.starts_with("../") || path.contains("/../") || path.ends_with("/..");
+        let Some(literal) = literal_base(&path) else { return unresolved() };
+        let first = literal.split('/').next().unwrap_or_default();
+        for base in &self.bases {
+            let exists = climbs || (!first.is_empty() && base.join(first).symlink_metadata().is_ok());
+            if exists && self.check.outside(literal, base, true).is_some() {
+                return Some(Offense::Outside(shown(raw)));
+            }
+        }
+        None
+    }
+
+    /// The word with its `$` expansions resolved: a known value spelled out,
+    /// an untracked variable as [`OPAQUE`], an unknown value as [`UNKNOWN`].
+    /// A `${…}` the scanner cannot follow fails closed.
+    fn resolve_vars(&self, text: &str) -> Result<String, Offense> {
+        let chars: Vec<char> = text.chars().collect();
+        let mut out = String::with_capacity(text.len());
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i] != EXPAND {
+                out.push(chars[i]);
+                i += 1;
+                continue;
+            }
+            match chars.get(i + 1) {
+                Some('{') => {
+                    let Some(end) = (i + 2..chars.len()).find(|at| chars[*at] == '}') else {
+                        return Err(Offense::Unresolved(format!("`{}`", shown(text))));
+                    };
+                    let inner: String = chars[i + 2..end].iter().collect();
+                    out.push_str(&self.braced_var(&inner).ok_or_else(|| Offense::Unresolved(format!("`${{{}}}`", shown(&inner))))?);
+                    i = end + 1;
+                }
+                Some(c) if *c == '_' || c.is_ascii_alphabetic() => {
+                    let end = (i + 1..chars.len()).find(|at| !(chars[*at] == '_' || chars[*at].is_ascii_alphanumeric())).unwrap_or(chars.len());
+                    let name: String = chars[i + 1..end].iter().collect();
+                    out.push_str(&self.var(&name));
+                    i = end;
+                }
+                Some(_) => {
+                    // `$1`, `$@`, `$?`, …
+                    out.push(OPAQUE);
+                    i += 2;
+                }
+                None => {
+                    out.push('$');
+                    i += 1;
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// `${name}`, `${#name}`, or `${name<modifier>}` on a variable that
+    /// cannot name a path; `None` = refuse.
+    fn braced_var(&self, inner: &str) -> Option<String> {
+        if is_name(inner) {
+            return Some(self.var(inner));
+        }
+        if inner.strip_prefix('#').is_some_and(|name| is_name(name) || name.chars().all(|c| c.is_ascii_digit())) {
+            return Some("0".to_string());
+        }
+        if !inner.is_empty() && (inner.chars().all(|c| c.is_ascii_digit()) || matches!(inner, "@" | "*" | "#" | "?" | "$" | "!" | "-")) {
+            return Some(OPAQUE.to_string());
+        }
+        // A modifier: only on an untracked variable, and only one that
+        // cannot spell a path.
+        let name: String = inner.chars().take_while(|c| *c == '_' || c.is_ascii_alphanumeric()).collect();
+        let modifier = &inner[name.len()..];
+        let tracked = self.vars.contains_key(&name) || matches!(name.as_str(), "HOME" | "PWD" | "OLDPWD" | "TMPDIR");
+        if !is_name(&name) || tracked || modifier.contains("..") || modifier.contains(['/', '~', '$', EXPAND, UNKNOWN, '`']) {
+            return None;
+        }
+        Some(OPAQUE.to_string())
+    }
+
+    fn var(&self, name: &str) -> String {
+        match self.vars.get(name) {
+            Some(Some(value)) => value.clone(),
+            Some(None) => UNKNOWN.to_string(),
+            None => match name {
+                "HOME" => home_dir().unwrap_or_else(|| PathBuf::from("/")).display().to_string(),
+                "PWD" => self.pwd.display().to_string(),
+                "TMPDIR" => std::env::temp_dir().display().to_string(),
+                "OLDPWD" => UNKNOWN.to_string(),
+                _ => OPAQUE.to_string(),
+            },
+        }
+    }
+}
+
+/// What a grep-ish or sed/awk flag does to the operands after it.
+fn operand_flag(command: &str, flag: &str) -> FlagEffect {
+    let script = SCRIPT_COMMANDS.contains(&command);
+    let code = if script { Role::Script } else { Role::Pattern };
+    if let Some(long) = flag.strip_prefix("--") {
+        let (long, value) = match long.split_once('=') {
+            Some((long, _)) => (long, true),
+            None => (long, false),
+        };
+        return match long {
+            "regexp" | "expression" | "source" => {
+                if value {
+                    FlagEffect::Attached(code)
+                } else {
+                    FlagEffect::Next(code, true)
+                }
+            }
+            "file" if value => FlagEffect::Given,
+            "file" => FlagEffect::Next(Role::Plain, true),
+            "files" | "type-list" => FlagEffect::Given,
+            "field-separator" if !value => FlagEffect::Next(Role::Delimiter, false),
+            "assign" | "max-count" | "context" | "after-context" | "before-context" | "glob" | "iglob" | "type"
+            | "type-not" | "max-depth" | "threads" | "encoding" | "replace" | "include" | "exclude"
+            | "exclude-dir" | "ignore-file" | "max-filesize" | "sort" | "sortr" | "line-length"
+                if !value =>
+            {
+                FlagEffect::Next(Role::Plain, false)
+            }
+            _ => FlagEffect::None,
+        };
+    }
+    let letters: Vec<char> = flag.chars().skip(1).collect();
+    if command == "sed" && letters.first() == Some(&'i') {
+        // `-i.bak`: the rest is a suffix.
+        return FlagEffect::None;
+    }
+    let valued: &str = match command {
+        "sed" => "l",
+        "awk" | "gawk" | "mawk" | "nawk" => "",
+        "grep" | "egrep" | "fgrep" => "ABCmdD",
+        _ => "ABCmgGtTjMEdr",
+    };
+    for (at, letter) in letters.iter().enumerate() {
+        let last = at + 1 == letters.len();
+        let effect = match letter {
+            'e' => Some((FlagEffect::Next(code, true), FlagEffect::Attached(code))),
+            'f' => Some((FlagEffect::Next(Role::Plain, true), FlagEffect::Given)),
+            'F' if script && command != "sed" => Some((FlagEffect::Next(Role::Delimiter, false), FlagEffect::None)),
+            'v' if script && command != "sed" => Some((FlagEffect::Next(Role::Plain, false), FlagEffect::None)),
+            letter if valued.contains(*letter) => Some((FlagEffect::Next(Role::Plain, false), FlagEffect::None)),
+            _ => None,
+        };
+        if let Some((separate, attached)) = effect {
+            return if last { separate } else { attached };
+        }
+    }
+    FlagEffect::None
 }
 
 /// `cut -d /`, `awk -F /`, `sort -t /` …: the next word is a delimiter.
@@ -361,92 +794,98 @@ fn delimiter_flag(command: &str, flag: &str) -> bool {
         "cut" | "paste" => matches!(flag, "-d" | "--delimiter"),
         "sort" | "join" => matches!(flag, "-t" | "--field-separator"),
         "column" => matches!(flag, "-s" | "-o" | "--separator" | "--output-separator"),
-        "xargs" => matches!(flag, "-d" | "--delimiter"),
         _ => false,
     }
 }
 
-fn word_offending(word: &ShellWord, role: Role, check: &Check, bases: &[PathBuf]) -> Option<String> {
-    for part in word.text.split(|c: char| {
-        c.is_whitespace() || matches!(c, '\'' | '"' | '`' | ';' | '|' | '&' | '(' | ')' | '<' | '>' | '=' | ':' | ',')
-    }) {
-        if part.is_empty() {
-            continue;
-        }
-        let (raw, attached) = match part.strip_prefix('-') {
-            Some(_) => match part.find('/') {
-                Some(slash) => (&part[slash..], true),
-                None => continue,
-            },
-            None => (part, false),
-        };
-        let expanded = expand_vars(raw, &check.cwd);
-        let path = expanded.as_str();
-        if path.starts_with('/') {
-            if path.starts_with("//") {
-                continue;
+fn is_flag(word: &ShellWord) -> bool {
+    !word.quoted && word.text.starts_with('-') && word.text.len() > 1
+}
+
+fn is_name(text: &str) -> bool {
+    !text.is_empty()
+        && text.chars().all(|c| c == '_' || c.is_ascii_alphanumeric())
+        && !text.starts_with(|c: char| c.is_ascii_digit())
+}
+
+/// A word for a message: the lexer's marks spelled back.
+fn shown(text: &str) -> String {
+    text.replace(EXPAND, "$").replace(UNKNOWN, "$(…)").replace(OPAQUE, "$…")
+}
+
+/// The parts of a word worth checking on their own, with their byte offset.
+fn split_parts(text: &str) -> Vec<(usize, &str)> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    for (at, c) in text.char_indices() {
+        if c.is_whitespace() || matches!(c, '\'' | '"' | '`' | ';' | '|' | '&' | '(' | ')' | '<' | '>' | '=' | ':' | ',') {
+            if at > start {
+                parts.push((start, &text[start..at]));
             }
-            let literal = glob_base(path);
-            let is_root = check.resolve(literal, &check.cwd) == Path::new("/");
-            if is_root {
-                // The root alone: a path only as an operand of its own.
-                if role == Role::Plain && !attached && raw == word.text {
-                    return Some(raw.to_string());
+            start = at + c.len_utf8();
+        }
+    }
+    if start < text.len() {
+        parts.push((start, &text[start..]));
+    }
+    parts
+}
+
+/// Bash brace expansion (`/{a,b}/x` → `/a/x`, `/b/x`); a brace without a
+/// top-level comma, or with whitespace in it, stays literal. `None` = more
+/// alternatives than worth checking.
+fn brace_expand(text: &str) -> Option<Vec<String>> {
+    const LIMIT: usize = 256;
+    let mut done = Vec::new();
+    let mut pending = vec![text.to_string()];
+    while let Some(text) = pending.pop() {
+        match first_brace(&text) {
+            Some((open, close, commas)) => {
+                let mut cuts = vec![open];
+                cuts.extend(commas);
+                cuts.push(close);
+                for pair in cuts.windows(2) {
+                    pending.push(format!("{}{}{}", &text[..open], &text[pair[0] + 1..pair[1]], &text[close + 1..]));
                 }
-                continue;
             }
-            if expanded == raw && !top_level_exists(literal) {
-                continue;
-            }
-            if role == Role::Data && path.ends_with('/') {
-                // `sed '/usr/d'`, `awk '/home/ {…}'`: a regex, not a file.
-                continue;
-            }
-            if check.outside(literal, &check.cwd, true).is_some() {
-                return Some(raw.to_string());
-            }
-            continue;
+            None => done.push(text),
         }
-        if path.starts_with('~') {
-            if check.outside(glob_base(path), &check.cwd, true).is_some() {
-                return Some(raw.to_string());
-            }
-            continue;
+        if done.len() + pending.len() > LIMIT {
+            return None;
         }
-        if attached || path.contains('$') || path.contains("://") {
-            continue;
-        }
-        let climbs =
-            path == ".." || path.starts_with("../") || path.contains("/../") || path.ends_with("/..");
-        let literal = glob_base(path);
-        let first = literal.split('/').next().unwrap_or_default();
-        for base in bases {
-            let exists = climbs || (!first.is_empty() && base.join(first).symlink_metadata().is_ok());
-            if exists && check.outside(literal, base, true).is_some() {
-                return Some(raw.to_string());
+    }
+    Some(done)
+}
+
+/// The first `{…,…}` in `text`: its `{`, its `}` and its top-level commas.
+fn first_brace(text: &str) -> Option<(usize, usize, Vec<usize>)> {
+    let bytes = text.as_bytes();
+    let mut from = 0;
+    while let Some(open) = text[from..].find('{').map(|at| at + from) {
+        let mut depth = 0usize;
+        let mut commas = Vec::new();
+        let mut close = None;
+        for (at, byte) in bytes.iter().enumerate().skip(open) {
+            match byte {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(at);
+                        break;
+                    }
+                }
+                b',' if depth == 1 => commas.push(at),
+                byte if byte.is_ascii_whitespace() => break,
+                _ => {}
             }
+        }
+        match close {
+            Some(close) if !commas.is_empty() => return Some((open, close, commas)),
+            _ => from = open + 1,
         }
     }
     None
-}
-
-/// `$HOME`/`${HOME}` → `~`, `$PWD` → the cwd, `$OLDPWD` → `~` (unknown, so
-/// treated as outside).
-fn expand_vars(raw: &str, cwd: &Path) -> String {
-    let text = raw
-        .replace("${HOME}", "$HOME")
-        .replace("${PWD}", "$PWD")
-        .replace("${OLDPWD}", "$OLDPWD");
-    if let Some(rest) = text.strip_prefix("$HOME").or_else(|| text.strip_prefix("$OLDPWD")) {
-        return format!("~{rest}");
-    }
-    if let Some(rest) = text.strip_prefix("$PWD") {
-        return format!("{}{rest}", cwd.display());
-    }
-    if text.contains("$HOME") || text.contains("$OLDPWD") {
-        return "~".to_string();
-    }
-    text
 }
 
 fn basename(word: &str) -> &str {
@@ -456,63 +895,287 @@ fn basename(word: &str) -> &str {
 /// `NAME=value` before the command word.
 fn is_assignment(word: &ShellWord) -> bool {
     match word.text.split_once('=') {
-        Some((name, _)) => {
-            !name.is_empty()
-                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-                && !name.starts_with(|c: char| c.is_ascii_digit())
-        }
+        Some((name, _)) => is_name(name),
         None => false,
     }
 }
 
-/// One shell word: its text with the quotes removed, whether any of it was
-/// quoted (quoted text is data unless a shell runs it), and whether it is a
-/// redirection target.
+/// One shell word: its text with the quotes removed (expansions marked, see
+/// [`EXPAND`]), whether any of it was quoted (quoted text is data unless a
+/// shell runs it), whether it is a redirection target, and whether it is a
+/// here-doc body.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ShellWord {
     pub text: String,
     pub quoted: bool,
     pub redirect: bool,
+    /// A here-doc body: data, or code when a shell reads it.
+    pub data: bool,
 }
 
-#[derive(Default)]
+/// One simple command: its words, whether it pipes into the next one, and
+/// whether it ran inside a command substitution.
+#[derive(Debug, Default)]
+pub(crate) struct ShellCommand {
+    pub words: Vec<ShellWord>,
+    pub feeds_next: bool,
+    pub nested: bool,
+}
+
+struct Heredoc {
+    delimiter: String,
+    strip: bool,
+    /// An unquoted delimiter: the body's `$` and `$(…)` expand.
+    expand: bool,
+    command: usize,
+}
+
 struct Lexer {
-    commands: Vec<Vec<ShellWord>>,
+    commands: Vec<ShellCommand>,
     word: ShellWord,
     started: bool,
     redirect_next: bool,
-    /// Pending here-docs: (delimiter, `<<-`, the command they feed).
-    heredocs: Vec<(String, bool, usize)>,
+    heredocs: Vec<Heredoc>,
+    depth: usize,
 }
+
+const UNTERMINATED: &str = "an unterminated quote or substitution";
 
 impl Lexer {
     fn flush(&mut self) {
         if self.started {
             let mut word = std::mem::take(&mut self.word);
             word.redirect = std::mem::take(&mut self.redirect_next);
-            self.commands.last_mut().expect("one command").push(word);
+            self.commands.last_mut().expect("one command").words.push(word);
         }
         self.word = ShellWord::default();
         self.started = false;
     }
 
-    fn data(&mut self, command: usize, text: String) {
-        self.commands[command].push(ShellWord { text, quoted: true, redirect: false });
-    }
-
     fn split(&mut self) {
         self.flush();
         self.redirect_next = false;
-        if !self.commands.last().expect("one command").is_empty() {
-            self.commands.push(Vec::new());
+        if !self.commands.last().expect("one command").words.is_empty() {
+            self.commands.push(ShellCommand::default());
         }
+    }
+
+    /// A command substitution: its commands run before the current one, its
+    /// output is [`UNKNOWN`].
+    fn substitute(&mut self, inner: &str) -> Result<(), String> {
+        let mut commands = lex(inner, self.depth + 1)?;
+        for command in &mut commands {
+            command.nested = true;
+        }
+        let at = self.commands.len() - 1;
+        for heredoc in &mut self.heredocs {
+            if heredoc.command >= at {
+                heredoc.command += commands.len();
+            }
+        }
+        self.commands.splice(at..at, commands);
+        self.word.text.push(UNKNOWN);
+        self.started = true;
+        Ok(())
+    }
+
+    /// A `$` (or an [`EXPAND`] from an outer lexer) at `at`; returns where
+    /// lexing resumes.
+    fn dollar(&mut self, chars: &[char], at: usize) -> Result<usize, String> {
+        self.started = true;
+        match chars.get(at + 1) {
+            Some('(') if chars.get(at + 2) == Some(&'(') => {
+                // `$((…))` is arithmetic: a number.
+                let mut depth = 0usize;
+                for end in at + 1..chars.len() {
+                    match chars[end] {
+                        '(' => depth += 1,
+                        ')' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                if chars[at + 3..end].contains(&'`') || chars[at + 3..end].windows(2).any(|pair| pair[0] == '$' && pair[1] == '(') {
+                                    return Err("a command substitution inside `$((…))`".to_string());
+                                }
+                                self.word.text.push('0');
+                                return Ok(end + 1);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Err(UNTERMINATED.to_string())
+            }
+            Some('(') => {
+                let end = closing_paren(chars, at + 2).ok_or(UNTERMINATED)?;
+                let inner: String = chars[at + 2..end].iter().collect();
+                self.substitute(&inner)?;
+                Ok(end + 1)
+            }
+            Some('{') => {
+                let mut depth = 0usize;
+                for end in at + 1..chars.len() {
+                    match chars[end] {
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                self.word.text.push(EXPAND);
+                                self.word.text.extend(&chars[at + 1..=end]);
+                                return Ok(end + 1);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Err(UNTERMINATED.to_string())
+            }
+            Some('\'') => {
+                // `$'…'`: only the plain escapes are followed.
+                let mut end = at + 2;
+                loop {
+                    match chars.get(end) {
+                        None => return Err(UNTERMINATED.to_string()),
+                        Some('\'') => break,
+                        Some('\\') => {
+                            match chars.get(end + 1) {
+                                Some('n' | 't' | 'r') => self.word.text.push(' '),
+                                Some(c @ ('\\' | '\'' | '"')) => self.word.text.push(*c),
+                                _ => return Err("an escape inside `$'…'`".to_string()),
+                            }
+                            end += 2;
+                        }
+                        Some(c) => {
+                            self.word.text.push(*c);
+                            end += 1;
+                        }
+                    }
+                }
+                self.word.quoted = true;
+                Ok(end + 1)
+            }
+            Some(c) if *c == '_' || c.is_ascii_alphanumeric() || matches!(c, '@' | '*' | '#' | '?' | '$' | '!' | '-') => {
+                self.word.text.push(EXPAND);
+                Ok(at + 1)
+            }
+            _ => {
+                self.word.text.push('$');
+                Ok(at + 1)
+            }
+        }
+    }
+
+    /// A backtick substitution at `at`; returns where lexing resumes.
+    fn backtick(&mut self, chars: &[char], at: usize) -> Result<usize, String> {
+        let end = closing_backtick(chars, at + 1).ok_or(UNTERMINATED)?;
+        let mut inner = String::new();
+        let mut i = at + 1;
+        while i < end {
+            if chars[i] == '\\' && matches!(chars.get(i + 1), Some('`' | '\\' | '$')) {
+                i += 1;
+            }
+            inner.push(chars[i]);
+            i += 1;
+        }
+        self.substitute(&inner)?;
+        Ok(end + 1)
+    }
+
+    /// Double-quoted text from `start` (to the closing `"` when `quoted`,
+    /// else to the end: a here-doc body); returns where lexing resumes.
+    fn double_quoted(&mut self, chars: &[char], start: usize, quoted: bool) -> Result<usize, String> {
+        let mut at = start;
+        loop {
+            let Some(&c) = chars.get(at) else {
+                return if quoted { Err(UNTERMINATED.to_string()) } else { Ok(at) };
+            };
+            match c {
+                '"' if quoted => return Ok(at + 1),
+                '\\' if chars.get(at + 1) == Some(&'\n') => at += 2,
+                '\\' if matches!(chars.get(at + 1), Some('"' | '\\' | '$' | '`')) => {
+                    self.word.text.push(chars[at + 1]);
+                    at += 2;
+                }
+                '$' | EXPAND => at = self.dollar(chars, at)?,
+                '`' => at = self.backtick(chars, at)?,
+                c => {
+                    self.word.text.push(c);
+                    at += 1;
+                }
+            }
+        }
+    }
+
+    /// An unquoted here-doc body with its expansions marked.
+    fn expand_body(&mut self, body: &str) -> Result<String, String> {
+        let saved = std::mem::take(&mut self.word);
+        let started = self.started;
+        let chars: Vec<char> = body.chars().collect();
+        let result = self.double_quoted(&chars, 0, false);
+        let out = std::mem::replace(&mut self.word, saved).text;
+        self.started = started;
+        result.map(|_| out)
     }
 }
 
-/// The simple commands of a command line (see [`bash_offending`]).
-pub(crate) fn shell_commands(command: &str) -> Vec<Vec<ShellWord>> {
+/// The `)` closing a `$(` whose text starts at `start`.
+fn closing_paren(chars: &[char], start: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut at = start;
+    while at < chars.len() {
+        match chars[at] {
+            '\\' => at += 1,
+            '\'' => at = (at + 1..chars.len()).find(|end| chars[*end] == '\'')?,
+            '`' => at = closing_backtick(chars, at + 1)?,
+            '"' => {
+                at += 1;
+                while chars.get(at)? != &'"' {
+                    match chars[at] {
+                        '\\' => at += 1,
+                        '`' => at = closing_backtick(chars, at + 1)?,
+                        '$' if chars.get(at + 1) == Some(&'(') => at = closing_paren(chars, at + 2)?,
+                        _ => {}
+                    }
+                    at += 1;
+                }
+            }
+            '(' => depth += 1,
+            ')' if depth == 0 => return Some(at),
+            ')' => depth -= 1,
+            _ => {}
+        }
+        at += 1;
+    }
+    None
+}
+
+fn closing_backtick(chars: &[char], start: usize) -> Option<usize> {
+    let mut at = start;
+    while at < chars.len() {
+        match chars[at] {
+            '\\' => at += 1,
+            '`' => return Some(at),
+            _ => {}
+        }
+        at += 1;
+    }
+    None
+}
+
+/// The simple commands of a command line (see [`bash_offending`]); `Err`
+/// = it cannot be lexed, which fails closed.
+pub(crate) fn lex(command: &str, depth: usize) -> Result<Vec<ShellCommand>, String> {
+    if depth > 8 {
+        return Err("command substitutions nested this deep".to_string());
+    }
     let chars: Vec<char> = command.chars().collect();
-    let mut lexer = Lexer { commands: vec![Vec::new()], ..Lexer::default() };
+    let mut lexer = Lexer {
+        commands: vec![ShellCommand::default()],
+        word: ShellWord::default(),
+        started: false,
+        redirect_next: false,
+        heredocs: Vec::new(),
+        depth,
+    };
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
@@ -527,7 +1190,7 @@ pub(crate) fn shell_commands(command: &str) -> Vec<Vec<ShellWord>> {
                 continue;
             }
             '\'' => {
-                let end = (i + 1..chars.len()).find(|at| chars[*at] == '\'').unwrap_or(chars.len());
+                let end = (i + 1..chars.len()).find(|at| chars[*at] == '\'').ok_or(UNTERMINATED)?;
                 lexer.word.text.extend(&chars[i + 1..end]);
                 lexer.word.quoted = true;
                 lexer.started = true;
@@ -535,47 +1198,17 @@ pub(crate) fn shell_commands(command: &str) -> Vec<Vec<ShellWord>> {
                 continue;
             }
             '"' => {
-                let mut at = i + 1;
-                while at < chars.len() && chars[at] != '"' {
-                    if chars[at] == '\\' && matches!(chars.get(at + 1), Some('"' | '\\' | '$' | '`')) {
-                        at += 1;
-                    }
-                    lexer.word.text.push(chars[at]);
-                    at += 1;
-                }
                 lexer.word.quoted = true;
                 lexer.started = true;
-                i = at + 1;
+                i = lexer.double_quoted(&chars, i + 1, true)?;
                 continue;
             }
-            '$' if next == Some('(') && chars.get(i + 2) == Some(&'(') => {
-                // `$((…))` is arithmetic: data.
-                let start = i + 3;
-                let mut depth = 2usize;
-                let mut at = start;
-                while at < chars.len() {
-                    match chars[at] {
-                        '(' => depth += 1,
-                        ')' => {
-                            depth -= 1;
-                            if depth == 0 {
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
-                    at += 1;
-                }
-                let end = at.saturating_sub(1).clamp(start.min(chars.len()), chars.len());
-                lexer.word.text.extend(&chars[start.min(end)..end]);
-                lexer.word.quoted = true;
-                lexer.started = true;
-                i = at + 1;
+            '$' | EXPAND => {
+                i = lexer.dollar(&chars, i)?;
                 continue;
             }
-            '$' if next == Some('(') => {
-                lexer.split();
-                i += 2;
+            '`' => {
+                i = lexer.backtick(&chars, i)?;
                 continue;
             }
             '<' if next == Some('<') && chars.get(i + 2) != Some(&'<') => {
@@ -589,14 +1222,17 @@ pub(crate) fn shell_commands(command: &str) -> Vec<Vec<ShellWord>> {
                     at += 1;
                 }
                 let mut delimiter = String::new();
+                let mut expand = true;
                 while at < chars.len() && !chars[at].is_whitespace() && !matches!(chars[at], ';' | '|' | '&' | '<' | '>' | '(' | ')') {
-                    if !matches!(chars[at], '\'' | '"' | '\\') {
+                    if matches!(chars[at], '\'' | '"' | '\\') {
+                        expand = false;
+                    } else {
                         delimiter.push(chars[at]);
                     }
                     at += 1;
                 }
                 let command = lexer.commands.len() - 1;
-                lexer.heredocs.push((delimiter, strip, command));
+                lexer.heredocs.push(Heredoc { delimiter, strip, expand, command });
                 i = at;
                 continue;
             }
@@ -612,28 +1248,35 @@ pub(crate) fn shell_commands(command: &str) -> Vec<Vec<ShellWord>> {
             '\n' => {
                 lexer.split();
                 i += 1;
-                for (delimiter, strip, command) in std::mem::take(&mut lexer.heredocs) {
+                for heredoc in std::mem::take(&mut lexer.heredocs) {
                     let mut body = String::new();
                     while i < chars.len() {
                         let end = (i..chars.len()).find(|at| chars[*at] == '\n').unwrap_or(chars.len());
                         let line: String = chars[i..end].iter().collect();
                         i = end + 1;
-                        let line_text = if strip { line.trim_start_matches('\t') } else { line.as_str() };
-                        if line_text == delimiter {
+                        let line_text = if heredoc.strip { line.trim_start_matches('\t') } else { line.as_str() };
+                        if line_text == heredoc.delimiter {
                             break;
                         }
                         body.push_str(&line);
                         body.push('\n');
                     }
-                    lexer.data(command, body);
+                    let text = if heredoc.expand { lexer.expand_body(&body)? } else { body };
+                    lexer.commands[heredoc.command].words.push(ShellWord { text, quoted: true, redirect: false, data: true });
                 }
                 continue;
             }
-            ';' | '|' | '&' | '(' | ')' | '`' => {
+            '|' if next == Some('|') => {
                 lexer.split();
-                i += 1;
+                i += 2;
                 continue;
             }
+            '|' => {
+                lexer.flush();
+                lexer.commands.last_mut().expect("one command").feeds_next = true;
+                lexer.split();
+            }
+            ';' | '&' | '(' | ')' => lexer.split(),
             '#' if !lexer.started => {
                 while i < chars.len() && chars[i] != '\n' {
                     i += 1;
@@ -649,7 +1292,7 @@ pub(crate) fn shell_commands(command: &str) -> Vec<Vec<ShellWord>> {
         i += 1;
     }
     lexer.flush();
-    lexer.commands.into_iter().filter(|words| !words.is_empty()).collect()
+    Ok(lexer.commands.into_iter().filter(|command| !command.words.is_empty()).collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -725,9 +1368,10 @@ fn in_temp_dir(path: &Path) -> bool {
     roots.iter().any(|root| root != Path::new("/") && within(path, root))
 }
 
-/// `/a/b/**/*.rs` → `/a/b`: the literal directory a glob pattern starts in.
+/// `/a/b/**/*.rs` → `/a/b`: the literal directory a glob pattern starts in
+/// (an expansion the scanner does not know counts as a wildcard).
 pub(crate) fn glob_base(pattern: &str) -> &str {
-    let Some(cut) = pattern.find(['*', '?', '[', '{']) else { return pattern };
+    let Some(cut) = pattern.find(['*', '?', '[', '{', UNKNOWN, OPAQUE]) else { return pattern };
     match pattern[..cut].rfind('/') {
         Some(0) => "/",
         Some(index) => &pattern[..index],
@@ -735,10 +1379,34 @@ pub(crate) fn glob_base(pattern: &str) -> &str {
     }
 }
 
+/// [`glob_base`], or `None` when the pattern climbs with `..` after its
+/// wildcard (`/tmp/*/../../home`), where the base says nothing.
+fn literal_base(pattern: &str) -> Option<&str> {
+    let base = glob_base(pattern);
+    let rest = pattern.get(base.len()..).unwrap_or_default();
+    if base.len() < pattern.len() && rest.split('/').any(|component| component == "..") {
+        return None;
+    }
+    Some(base)
+}
+
+/// `//x`, `///x` → `/x` (the kernel reads them alike).
+fn collapse_slashes(raw: &str) -> String {
+    if raw.starts_with("//") {
+        format!("/{}", raw.trim_start_matches('/'))
+    } else {
+        raw.to_string()
+    }
+}
+
+fn first_component(path: &str) -> &str {
+    path.trim_start_matches('/').split('/').next().unwrap_or_default()
+}
+
 /// Whether `/<first>` exists: an absolute-looking word under a top-level
 /// directory nobody has is a pattern or a URL path, not a file.
 fn top_level_exists(word: &str) -> bool {
-    let first = word.trim_start_matches('/').split('/').next().unwrap_or_default();
+    let first = first_component(word);
     first.is_empty() || Path::new("/").join(first).exists()
 }
 
@@ -991,12 +1659,118 @@ mod tests {
 
     #[test]
     fn the_lexer_splits_simple_commands_and_keeps_quotes() {
-        let commands = shell_commands("cd a && cat 'b c' > out; echo \"x\\\"y\" | wc # note\nls");
+        let commands = lex("cd a && cat 'b c' > out; echo \"x\\\"y\" | wc # note\nls", 0).expect("lexes");
         let texts: Vec<Vec<&str>> =
-            commands.iter().map(|words| words.iter().map(|word| word.text.as_str()).collect()).collect();
+            commands.iter().map(|command| command.words.iter().map(|word| word.text.as_str()).collect()).collect();
         assert_eq!(texts, vec![vec!["cd", "a"], vec!["cat", "b c", "out"], vec!["echo", "x\"y"], vec!["wc"], vec!["ls"]]);
-        assert!(commands[1][1].quoted);
-        assert!(commands[1][2].redirect);
+        assert!(commands[1].words[1].quoted);
+        assert!(commands[1].words[2].redirect);
+        assert!(commands[2].feeds_next && !commands[3].feeds_next);
+        // A substitution inside double quotes is code: its command comes first.
+        let commands = lex("cd \"$(dirname \"$PWD\")\" && ls", 0).expect("lexes");
+        assert_eq!(commands[0].words[0].text, "dirname");
+        assert!(commands[0].nested);
+        assert_eq!(commands[1].words[1].text, UNKNOWN.to_string());
+        // Unparseable quoting fails closed.
+        assert!(lex("cat 'x", 0).is_err());
+        assert!(lex("echo \"$(ls", 0).is_err());
+    }
+
+    /// N-5 review: commands the first scanner let through.
+    #[test]
+    fn the_reviewed_escapes_are_denied() {
+        let home = home();
+        for command in [
+            // 1. Patterns still name paths; `--files`, `-e<x>`, `--regexp=` give the pattern.
+            "rg --files ~".to_string(),
+            format!("rg --files {home}"),
+            format!("grep -rn -epassword {home}"),
+            format!("grep -rn --regexp=password {home}"),
+            format!("grep -rn '{home}/x' ."),
+            "grep -rn x ~/code".to_string(),
+            "grep -rn \"$HOME\" .".to_string(),
+            // 2. `${…}` modifiers, computed `cd` targets, substitutions in double quotes.
+            "cat ${HOME%/}/CLAUDE.md".to_string(),
+            "cat ${HOME:-x}/x".to_string(),
+            "cat \"${HOME:+$HOME}/x\"".to_string(),
+            "cd \"${PWD%/*/*/*}\" && cat CLAUDE.md".to_string(),
+            "cd \"$(dirname \"$PWD\")\" && ls -R".to_string(),
+            "cd `dirname $PWD` && ls -R".to_string(),
+            "cd \"`dirname $PWD`\" && cat CLAUDE.md".to_string(),
+            "cat \"$(dirname \"$PWD\")/CLAUDE.md\"".to_string(),
+            "ls -R \"$(dirname \"$PWD\")\"".to_string(),
+            "d=$(dirname \"$PWD\"); cat $d/CLAUDE.md".to_string(),
+            "cat ${!x}".to_string(),
+            "cat $XDG_CONFIG_HOME/x".to_string(),
+            "bash <<EOF\ncat ${HOME%/}/CLAUDE.md\nEOF".to_string(),
+            "bash <<'EOF'\ncat ${HOME%/}/CLAUDE.md\nEOF".to_string(),
+            "bash <<EOF\ncd \"$(dirname \"$PWD\")\" && ls -R\nEOF".to_string(),
+            "sh <<'EOF'\ncd `dirname $PWD` && cat CLAUDE.md\nEOF".to_string(),
+            // 3. Literal-root spellings.
+            format!("cat /{home}/CLAUDE.md"),
+            format!("cat ///{home}/CLAUDE.md"),
+            "cat /{home,x}/someone/CLAUDE.md".to_string(),
+            "cat /tmp/{a,../../home}/x".to_string(),
+            "cat /tmp/*/../../home/x".to_string(),
+            "curl file:///etc/../home/x".to_string(),
+            // 4. Shells behind wrappers, `xargs`.
+            "timeout 60 sh -c 'find / -name exponential'".to_string(),
+            "nice -n 5 bash -c 'ls /'".to_string(),
+            "ionice -c 3 sh -c 'ls ~'".to_string(),
+            "stdbuf -oL bash -c 'cat ~/x'".to_string(),
+            "flock /tmp/lock -c 'ls /'".to_string(),
+            "su - me -c 'ls /'".to_string(),
+            "script -q -c 'ls /' /dev/null".to_string(),
+            "watch -n 1 'ls /'".to_string(),
+            "watch ls /".to_string(),
+            "env -S 'ls /'".to_string(),
+            "env -C / ls".to_string(),
+            "echo / | xargs ls".to_string(),
+            format!("printf '%s' {home} | xargs -I{{}} ls {{}}"),
+            "sudo -u root timeout 5 xargs -n 1 ls /".to_string(),
+            // 5. A `/re/`-looking path inside a script.
+            format!("awk 'BEGIN{{system(\"cd {home}/ && cat CLAUDE.md\")}}'"),
+            format!("sed -n 'w {home}/out/' x"),
+            // Unparseable quoting fails closed.
+            "cat 'x".to_string(),
+            "echo \"$(cat x\"".to_string(),
+        ] {
+            assert!(bash(&command), "{command}");
+        }
+        // The unresolved ones say so.
+        let message = denial_in("Bash", json!({ "command": "cat ${HOME%/}/x" }), &scratch(), &[]).expect("denied");
+        assert!(message.contains("cannot check `${HOME%/}`"), "{message}");
+    }
+
+    #[test]
+    fn a_relative_glob_climbing_out_is_denied() {
+        assert!(denied("Glob", json!({ "pattern": "../../../../**/*.md" })));
+        assert!(denied("Glob", json!({ "pattern": "**/../../x" })));
+        assert!(denied("Glob", json!({ "pattern": "*.md", "path": "../.." })));
+        assert!(!denied("Glob", json!({ "pattern": "sub/**/*.md" })));
+        assert!(!denied("Glob", json!({ "pattern": "../session/*.md" })));
+    }
+
+    /// What stays allowed: tracked variables, loops, plain substitutions.
+    #[test]
+    fn resolvable_expansions_stay_allowed() {
+        for command in [
+            "d=sub; cat $d/x",
+            "cat \"$PWD/notes.md\"",
+            "cd /tmp && cat $PWD/x",
+            "for f in *.md; do wc -l \"$f\"; done",
+            "echo \"$(date)\" > out.txt",
+            "n=$(wc -l < x); echo $n",
+            "echo ${#x} ${x:-default} ${f%.md}",
+            "IFS=$'\\n' read -r a",
+            "cat \"$TMPDIR/x\"",
+            "echo {a,b}/c",
+            "timeout 60 bash -c 'ls sub'",
+            "find . -name '*.rs' | xargs grep -n foo",
+            "cat <<EOF > notes.md\nbuilt $(date) in $PWD\nEOF",
+        ] {
+            assert!(!bash(command), "{command}");
+        }
     }
 
     #[test]
