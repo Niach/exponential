@@ -2526,6 +2526,10 @@ async function main() {
     pttShortcut: `ctrl+space`,
     wakeWord: false,
     wakePhrase: ``,
+    // #NEW-73: German shows the Language row's GPU note in the capture.
+    language: `de`,
+    voiceFile: ``,
+    voiceTranscript: ``,
   }
   await db
     .insert(userVoiceSettings)

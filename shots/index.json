@@ -4789,22 +4789,22 @@
         "file": "shots/settings-voice/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 30102,
-        "sha256": "6842b8ac4cbc040622c571867851ab0d5c932b1670bc6ef17a5ff5cfef92f067"
+        "bytes": 34038,
+        "sha256": "4ecaca4603e117ec7013bad02ac741e2d3adf5cb7cc213a9eeabfa63827a9d20"
       },
       "web": {
         "file": "shots/settings-voice/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 39674,
-        "sha256": "c4ee08247008756bcacacdfb0f84ec4aaf2498986dd0ae0b21cc816778746388"
+        "bytes": 45924,
+        "sha256": "6e2d42e74bcecfc0dd4f980ae675cf8f363607c9cbe6594985d041a7feb147b7"
       },
       "web-mobile": {
         "file": "shots/settings-voice/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 25172,
-        "sha256": "b43da215a58208f921f35c09d82cfb8320c9fd7542d9959b3c93acb0b4d04b32"
+        "bytes": 32374,
+        "sha256": "3d097c9d24c54da675800aedebb5a01ae26f18c4de49b65054f49d43e44fc269"
       }
     },
     "settings-widget": {
