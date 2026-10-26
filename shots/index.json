@@ -96,8 +96,8 @@
         "file": "shots/agents/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 36624,
-        "sha256": "4f747028b68627da141fb468b7f136bba6187c749e4db5cea87b7e5e0e783254"
+        "bytes": 36846,
+        "sha256": "d7b4d4014753c581233b05f34e82fd4a8d8d202357cebbc7dacb4b2356f4fefe"
       },
       "desktop": {
         "file": "shots/agents/desktop.webp",
