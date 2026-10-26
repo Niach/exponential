@@ -455,44 +455,11 @@ ISC notice without widening that list.
 
 ## exponentialTalk: the voice and its runtime (NEW-53)
 
-### What we ship and what we download
-
-- **sherpa-onnx** (Apache-2.0, k2-fsa) is linked statically into the desktop
-  app through its Rust crate. Its prebuilt archive (`SHERPA_ONNX_STATIC_LIBS`
-  in the vendored build.rs) carries, unmodified, the native code below; the
-  archive ships no licence files, so each upstream text is fetched at the
-  version sherpa-onnx v2.0.0's cmake files build into
-  `packages/licenses/texts/sherpa-onnx/` and reproduced in the desktop
-  notices ("Native code linked through sherpa-onnx"):
-
-  | library | version | licence |
-  |---|---|---|
-  | sherpa-onnx (c-api, core, kaldifst, fst, fstfar) | 2.0.0 | Apache-2.0 |
-  | ONNX Runtime | 1.28.2 | MIT (+ its ThirdPartyNotices) |
-  | KISS FFT | commit febd4ca | BSD-3-Clause |
-  | utf8proc | 2.12.0 | MIT + Unicode data licence |
-  | OpenFst (csukuangfj fork) | 1.8.5-2026-07-09 | Apache-2.0 |
-  | kaldi-native-fbank | 1.22.4 | Apache-2.0 |
-  | kaldi-decoder | 0.3.0 | Apache-2.0 |
-  | simple-sentencepiece (`ssentencepiece_core`) | 0.7 | Apache-2.0 |
-
-  The 2.0.0 archives no longer contain espeak-ng or piper-phonemize (removed
-  upstream in PR #4055, 2026-10-20), so no GPL code is linked. The archive's
-  portaudio library is not linked.
-- **sherpa-onnx-sys**, the FFI crate, is vendored at
-  `apps/desktop/vendor/sherpa-onnx-sys` (Apache-2.0); its NOTICE states the
-  one change (build.rs verifies the archive against pinned SHA-256s and picks
-  the /MD Windows archive) and sits in the notices' vendored-source section.
-- **Kokoro v1.0** was the NEW-53 English voice. It is retired by NEW-74 (one
-  engine for every language, below); the worker deletes its old download.
-
-### Determination (2026-10-25)
-
-Permitted, with attribution. Apache-2.0 and MIT allow static linking and
-redistribution; the weights are fetched by the user's machine from the
-upstream release and keep their LICENSE file beside them. Re-check on every
-sherpa-onnx or Kokoro bump: confirm the new archive still has no GPL
-component, then update the pinned hashes.
+Retired by NEW-74. NEW-53 linked sherpa-onnx 2.0.0 (Apache-2.0, with ONNX
+Runtime and its native dependencies) statically through a vendored
+`sherpa-onnx-sys`, and downloaded the Kokoro v1.0 voice at runtime. Both are
+gone: nothing of sherpa-onnx is linked any more, the vendored crate and its
+licence texts are deleted, and the worker removes the old Kokoro download.
 
 ## exponentialTalk: one voice engine on the GPU (NEW-74)
 

@@ -139,13 +139,6 @@ agent-client-protocol = { version = "=2.1.0", features = ["unstable_session_comp
 # `--cfg ztracing`, so upstream is inert no-ops in our builds anyway). Do NOT fix
 # by bumping the gpui rev instead: ztracing is GPL on zed main too. Guarded by
 # `cargo deny check licenses` (deny.toml) in build-desktop.yml.
-# NEW-53: sherpa-onnx's FFI crate with a build script that verifies the
-# prebuilt library archive against pinned SHA-256s before unpacking it (and
-# picks the /MD Windows archive our MSVC builds link against). See
-# vendor/sherpa-onnx-sys/Cargo.toml.
-[patch.crates-io]
-sherpa-onnx-sys = { path = "vendor/sherpa-onnx-sys" }
-
 [patch."https://github.com/zed-industries/zed"]
 ztracing = { path = "crates/ztracing" }
 ztracing_macro = { path = "crates/ztracing_macro" }

@@ -11446,7 +11446,3 @@ dependencies = [
  "syn 2.0.118",
  "winnow 1.0.3",
 ]
-
-[[patch.unused]]
-name = "sherpa-onnx-sys"
-version = "2.0.0"
