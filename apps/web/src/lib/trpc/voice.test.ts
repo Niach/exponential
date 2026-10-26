@@ -55,6 +55,9 @@ const stored = {
   pttShortcut: `ctrl+space`,
   wakeWord: false,
   wakePhrase: ``,
+  language: `en`,
+  voiceFile: ``,
+  voiceTranscript: ``,
 }
 
 beforeEach(() => {
@@ -127,6 +130,20 @@ describe(`#NEW-71`, () => {
     await expect(caller.update({ wakePhrase: `Hey\nOps` })).rejects.toThrow()
     await expect(caller.update({ wakePhrase: `Hey\u0007Ops` })).rejects.toThrow()
     expect(h.state.upserts).toHaveLength(0)
+  })
+})
+
+describe(`#NEW-73 language and custom voice`, () => {
+  it(`stores German and a trimmed voice file + transcript`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored }]]
+    const next = await caller.update({ language: `de`, voiceFile: `  /home/me/ref.wav `, voiceTranscript: ` Hallo zusammen. ` })
+    expect(next).toMatchObject({ language: `de`, voiceFile: `/home/me/ref.wav`, voiceTranscript: `Hallo zusammen.` })
+  })
+
+  it(`refuses an unknown language and a multi-line transcript`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored }], [{ userId: `me`, ...stored }]]
+    await expect(caller.update({ language: `fr` as never })).rejects.toThrow()
+    await expect(caller.update({ voiceTranscript: `one\ntwo` })).rejects.toThrow()
   })
 })
 

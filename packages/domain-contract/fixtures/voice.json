@@ -1,5 +1,5 @@
 {
-  "$comment": "NEW-67 (voice plan v3, V1): THE Settings → Voice section ×4 and the spoken-reply rules (TS reference packages/domain-contract/src/voice.ts; desktop domain::voice; iOS ExpCore Voice.swift and Android domain/Voice.kt mirror `copy`, `testIds`, `shortcuts` and the option builders). STORAGE: ONE row per member, `user_voice_settings` (server-only table, no shape): voiceDeviceId (a `devices.device_id` of the member's own desktop), agentId (an agent of one of the member's teams), speakReplies, pushToTalk, pttShortcut (one of `shortcuts`), wakeWord, wakePhrase (empty = `Hey {agent}`); read with tRPC `voice.get` (missing row = the defaults below), written with `voice.update` (the member only; an unknown device or agent is refused), and handed to the member's devices on every heartbeat (`voice`), with a nudge to the old and new voice device on each write. The per-device `launch_defaults.voice` of NEW-53 is migrated into it and retired. UI: Settings → Personal gains `copy.group` (icon concept `settings-voice`) after Notifications, on web, the IDE, iOS and Android; Device settings no longer has a Voice group. The page = ONE group: row `copy.voiceDevice` = THE device picker over `voiceDeviceOptions` (None first, then the member's desktop devices by name; phones and servers are never a voice device), row `copy.agent` = THE picker over `agentOptions` (None first, the member's agents by label, `{name} · {team}` on a shared name), toggle row `copy.speakReplies`. While a voice device is picked a second group follows under the header `copy.trayHeader` with {device} = the device's name: toggle `copy.pushToTalk`, picker row `copy.shortcut` over `shortcuts`, toggle `copy.wakeWord`, input row `copy.wakePhrase` (placeholder `copy.wakePhrasePlaceholder` with {agent}). TOGGLES: every switch reads off and is disabled while the voice device or the agent is None; choosing None for either clears speakReplies, pushToTalk and wakeWord, so picking again never turns listening or speaking on by itself (`clearOnNone`). Push to talk and the wake word are stored now and used from V2/V3/V7. SPEAKING (desktop): `shouldSpeak` decides whether a synced `messages` row is spoken: author_kind `agent`, no card, non-blank body, no author_session_id (a child's post is not the assistant talking), the row belongs to the member's conversation session with the voice agent (`agentSessionId`), speakReplies on, THIS device is the member's voice device (`isVoiceDevice`), and created at or after the moment the watcher armed (a backfill is never read aloud). The text spoken is `spokenText(body)`: Markdown reduced to what a voice can say, in order: fenced code blocks and tables are dropped; images are dropped; a link keeps its text; a bare URL becomes `copy.link`; inline code, emphasis, strike, heading and quote markers are unwrapped; list bullets and numbers drop; a mention `@local@domain` keeps `local`; an issue ref `#EXP-12` loses the `#`; an identifier `ABC-123` is spelled letter by letter and its number read the way people say issue numbers (`identifierNumberWords`: 1-3 digits as a cardinal, 4 digits as two pairs with `hundred` for a trailing 00 and `oh` for a leading 0 in the second pair, `x000` as a cardinal, 5+ digits digit by digit), an all-caps word of 2-5 letters is spelled letter by letter (the voice's lexicon has no such words and SKIPS what it does not know: measured in the NEW-52 spike); any other number becomes English cardinal words (`numberWords`: integers up to 999,999,999, a decimal reads `point` then each digit, `%` reads `percent`); whitespace collapses; the result stops at the last sentence end within `maxChars` (else at a word boundary + `copy.ellipsis`). While a reply is spoken the session shows a Dock banner (dock.json `Banner`: icon `media-volume-up`, label `copy.speaking`, title = the spoken text's first sentence, action `copy.stop`, tone muted); Stop ends the voice. The voice model downloads on first use (pinned + sha256, never in the binary); while it downloads the toggle row's trailing detail reads `copy.downloading`; a failed download is a toast `copy.downloadFailed` and the switch stays on; the worker retries it with backoff (1 min doubling to 1 h), never on every reply. A worker that keeps crashing is restarted with backoff (2, 4, 8 s) and given up on after 3 crashes in a row: a toast `copy.unavailable`, no more speaking until the setting changes. Speaking stops when the agent or the voice device changes, the setting turns off, or the account changes or signs out (which also ends the worker).",
+  "$comment": "NEW-67 (voice plan v3, V1): THE Settings → Voice section ×4 and the spoken-reply rules (TS reference packages/domain-contract/src/voice.ts; desktop domain::voice; iOS ExpCore Voice.swift and Android domain/Voice.kt mirror `copy`, `testIds`, `shortcuts` and the option builders). STORAGE: ONE row per member, `user_voice_settings` (server-only table, no shape): voiceDeviceId (a `devices.device_id` of the member's own desktop), agentId (an agent of one of the member's teams), speakReplies, pushToTalk, pttShortcut (one of `shortcuts`), wakeWord, wakePhrase (empty = `Hey {agent}`), language (one of `languages`: the language replies are spoken in), voiceFile (the path of a reference WAV ON the voice device, empty = the built-in voice) and voiceTranscript (what that clip says) (#NEW-73); read with tRPC `voice.get` (missing row = the defaults below), written with `voice.update` (the member only; an unknown device or agent is refused), and handed to the member's devices on every heartbeat (`voice`), with a nudge to the old and new voice device on each write. The per-device `launch_defaults.voice` of NEW-53 is migrated into it and retired. UI: Settings → Personal gains `copy.group` (icon concept `settings-voice`) after Notifications, on web, the IDE, iOS and Android; Device settings no longer has a Voice group. The page = ONE group: row `copy.voiceDevice` = THE device picker over `voiceDeviceOptions` (None first, then the member's desktop devices by name; phones and servers are never a voice device), row `copy.agent` = THE picker over `agentOptions` (None first, the member's agents by label, `{name} · {team}` on a shared name), toggle row `copy.speakReplies`, picker row `copy.language` over `languages` (its trailing detail = `languageNote(language, {device})`, null while no voice device is picked: German is spoken on the voice device's GPU only, without one it is shown, never spoken); while a voice device is picked two input rows follow in the same group, `copy.voiceFile` (placeholder `copy.voiceFilePlaceholder`) and `copy.voiceTranscript` (placeholder `copy.voiceTranscriptPlaceholder`), both one line, trimmed, no control characters, at most `limits.voiceFile` / `limits.voiceTranscript` characters. VOICES (#NEW-73, owner decision 2026-10-26 on #NEW-9): English = Kokoro on the CPU (the NEW-53 voice); German = Qwen3-TTS 0.6B Base, zero-shot on the GPU. A custom voice is cloned zero-shot from the member's reference clip (8-15 s of calm, clean speech) plus its transcript: no training, no upload, the file never leaves the voice device. The German speaker and cloning land in a later slice; until then the IDE stores both and keeps speaking only the languages it has a voice for. While a voice device is picked a second group follows under the header `copy.trayHeader` with {device} = the device's name: toggle `copy.pushToTalk`, picker row `copy.shortcut` over `shortcuts`, toggle `copy.wakeWord`, input row `copy.wakePhrase` (placeholder `copy.wakePhrasePlaceholder` with {agent}). TOGGLES: every switch reads off and is disabled while the voice device or the agent is None; choosing None for either clears speakReplies, pushToTalk and wakeWord, so picking again never turns listening or speaking on by itself (`clearOnNone`). Push to talk and the wake word are stored now and used from V2/V3/V7. SPEAKING (desktop): `shouldSpeak` decides whether a synced `messages` row is spoken: author_kind `agent`, no card, non-blank body, no author_session_id (a child's post is not the assistant talking), the row belongs to the member's conversation session with the voice agent (`agentSessionId`), speakReplies on, THIS device is the member's voice device (`isVoiceDevice`), the settings' `language` is one THIS device has a voice for (`voices`), and created at or after the moment the watcher armed (a backfill is never read aloud). The text spoken is `spokenText(body)`: Markdown reduced to what a voice can say, in order: fenced code blocks and tables are dropped; images are dropped; a link keeps its text; a bare URL becomes `copy.link`; inline code, emphasis, strike, heading and quote markers are unwrapped; list bullets and numbers drop; a mention `@local@domain` keeps `local`; an issue ref `#EXP-12` loses the `#`; an identifier `ABC-123` is spelled letter by letter and its number read the way people say issue numbers (`identifierNumberWords`: 1-3 digits as a cardinal, 4 digits as two pairs with `hundred` for a trailing 00 and `oh` for a leading 0 in the second pair, `x000` as a cardinal, 5+ digits digit by digit), an all-caps word of 2-5 letters is spelled letter by letter (the voice's lexicon has no such words and SKIPS what it does not know: measured in the NEW-52 spike); any other number becomes English cardinal words (`numberWords`: integers up to 999,999,999, a decimal reads `point` then each digit, `%` reads `percent`); whitespace collapses; the result stops at the last sentence end within `maxChars` (else at a word boundary + `copy.ellipsis`). While a reply is spoken the session shows a Dock banner (dock.json `Banner`: icon `media-volume-up`, label `copy.speaking`, title = the spoken text's first sentence, action `copy.stop`, tone muted); Stop ends the voice. The voice model downloads on first use (pinned + sha256, never in the binary); while it downloads the toggle row's trailing detail reads `copy.downloading`; a failed download is a toast `copy.downloadFailed` and the switch stays on; the worker retries it with backoff (1 min doubling to 1 h), never on every reply. A worker that keeps crashing is restarted with backoff (2, 4, 8 s) and given up on after 3 crashes in a row: a toast `copy.unavailable`, no more speaking until the setting changes. Speaking stops when the agent or the voice device changes, the setting turns off, or the account changes or signs out (which also ends the worker).",
   "copy": {
     "group": "Voice",
     "voiceDevice": "Voice device",
@@ -7,6 +7,12 @@
     "agent": "Agent",
     "agentNone": "None",
     "speakReplies": "Speak replies",
+    "language": "Language",
+    "languageNote": "Needs a GPU on {device}",
+    "voiceFile": "Voice file",
+    "voiceFilePlaceholder": "Built-in",
+    "voiceTranscript": "Transcript",
+    "voiceTranscriptPlaceholder": "What the clip says",
     "trayHeader": "On {device} (tray)",
     "pushToTalk": "Push to talk",
     "shortcut": "Shortcut",
@@ -26,6 +32,9 @@
     "voiceDevice": "settings-voice-device",
     "agent": "settings-voice-agent",
     "speakReplies": "settings-voice-speak-replies",
+    "language": "settings-voice-language",
+    "voiceFile": "settings-voice-file",
+    "voiceTranscript": "settings-voice-transcript",
     "pushToTalk": "settings-voice-push-to-talk",
     "shortcut": "settings-voice-shortcut",
     "wakeWord": "settings-voice-wake-word",
@@ -57,6 +66,16 @@
       "label": "Mouse button 5"
     }
   ],
+  "languages": [
+    {
+      "value": "en",
+      "label": "English"
+    },
+    {
+      "value": "de",
+      "label": "Deutsch"
+    }
+  ],
   "defaults": {
     "voiceDeviceId": null,
     "agentId": null,
@@ -64,7 +83,14 @@
     "pushToTalk": false,
     "pttShortcut": "ctrl+space",
     "wakeWord": false,
-    "wakePhrase": ""
+    "wakePhrase": "",
+    "language": "en",
+    "voiceFile": "",
+    "voiceTranscript": ""
+  },
+  "limits": {
+    "voiceFile": 512,
+    "voiceTranscript": 500
   },
   "maxChars": 600,
   "voiceDeviceOptionsCases": [
@@ -242,6 +268,26 @@
       "placeholder": "Hey Ops"
     }
   ],
+  "languageNoteCases": [
+    {
+      "name": "German on a voice device names its GPU",
+      "language": "de",
+      "device": "Alex's MacBook Pro",
+      "note": "Needs a GPU on Alex's MacBook Pro"
+    },
+    {
+      "name": "English needs nothing",
+      "language": "en",
+      "device": "Alex's MacBook Pro",
+      "note": null
+    },
+    {
+      "name": "no voice device, no note",
+      "language": "de",
+      "device": null,
+      "note": null
+    }
+  ],
   "shouldSpeakCases": [
     {
       "name": "the assistant's final reply is spoken",
@@ -257,7 +303,11 @@
         "speakReplies": true,
         "armedAt": "2026-10-25T10:00:00.000Z",
         "agentSessionId": "s-1",
-        "isVoiceDevice": true
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ]
       },
       "speak": true
     },
@@ -275,7 +325,11 @@
         "speakReplies": false,
         "armedAt": "2026-10-25T10:00:00.000Z",
         "agentSessionId": "s-1",
-        "isVoiceDevice": true
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ]
       },
       "speak": false
     },
@@ -293,7 +347,11 @@
         "speakReplies": true,
         "armedAt": "2026-10-25T10:00:00.000Z",
         "agentSessionId": null,
-        "isVoiceDevice": true
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ]
       },
       "speak": false
     },
@@ -311,7 +369,11 @@
         "speakReplies": true,
         "armedAt": "2026-10-25T10:00:00.000Z",
         "agentSessionId": "s-1",
-        "isVoiceDevice": true
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ]
       },
       "speak": false
     },
@@ -329,7 +391,11 @@
         "speakReplies": true,
         "armedAt": "2026-10-25T10:00:00.000Z",
         "agentSessionId": "s-1",
-        "isVoiceDevice": true
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ]
       },
       "speak": false
     },
@@ -349,7 +415,11 @@
         "speakReplies": true,
         "armedAt": "2026-10-25T10:00:00.000Z",
         "agentSessionId": "s-1",
-        "isVoiceDevice": true
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ]
       },
       "speak": false
     },
@@ -367,7 +437,11 @@
         "speakReplies": true,
         "armedAt": "2026-10-25T10:00:00.000Z",
         "agentSessionId": "s-1",
-        "isVoiceDevice": true
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ]
       },
       "speak": false
     },
@@ -385,7 +459,11 @@
         "speakReplies": true,
         "armedAt": "2026-10-25T10:00:00.000Z",
         "agentSessionId": "s-1",
-        "isVoiceDevice": true
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ]
       },
       "speak": false
     },
@@ -403,7 +481,11 @@
         "speakReplies": true,
         "armedAt": "2026-10-25T10:00:00.000Z",
         "agentSessionId": "s-1",
-        "isVoiceDevice": true
+        "isVoiceDevice": true,
+        "language": "en",
+        "voices": [
+          "en"
+        ]
       },
       "speak": false
     },
@@ -421,9 +503,58 @@
         "agentSessionId": "s-1",
         "speakReplies": true,
         "armedAt": "2026-10-25T10:00:00.000Z",
-        "isVoiceDevice": false
+        "isVoiceDevice": false,
+        "language": "en",
+        "voices": [
+          "en"
+        ]
       },
       "speak": false
+    },
+    {
+      "name": "a language this device has no voice for is shown, never spoken",
+      "message": {
+        "authorKind": "agent",
+        "body": "Done, the PR is open.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "speakReplies": true,
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true,
+        "language": "de",
+        "voices": [
+          "en"
+        ]
+      },
+      "speak": false
+    },
+    {
+      "name": "German is spoken once the device has a German voice",
+      "message": {
+        "authorKind": "agent",
+        "body": "Done, the PR is open.",
+        "card": null,
+        "authorSessionId": null,
+        "sessionId": "s-1",
+        "createdAt": "2026-10-25T10:00:05.000Z"
+      },
+      "context": {
+        "speakReplies": true,
+        "armedAt": "2026-10-25T10:00:00.000Z",
+        "agentSessionId": "s-1",
+        "isVoiceDevice": true,
+        "language": "de",
+        "voices": [
+          "en",
+          "de"
+        ]
+      },
+      "speak": true
     }
   ],
   "spokenTextCases": [

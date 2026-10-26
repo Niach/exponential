@@ -8,7 +8,7 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray } from "drizzle-orm"
 
-import { VOICE_DEFAULTS, VOICE_SHORTCUTS } from "@exp/domain-contract/voice"
+import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUTS } from "@exp/domain-contract/voice"
 
 import type { db as Database } from "@/db/connection"
 import { agents, devices, teamMembers, userVoiceSettings } from "@/db/schema"
@@ -25,9 +25,20 @@ export interface VoiceSettings {
   pttShortcut: string
   wakeWord: boolean
   wakePhrase: string
+  language: string
+  voiceFile: string
+  voiceTranscript: string
 }
 
 const SHORTCUT_VALUES = VOICE_SHORTCUTS.map((shortcut) => shortcut.value) as [string, ...string[]]
+const LANGUAGE_VALUES = VOICE_LANGUAGES.map((language) => language.value) as [string, ...string[]]
+
+// #NEW-71/#NEW-73: one line of text; control characters and newlines never.
+const oneLine = (max: number, what: string) =>
+  z
+    .string()
+    .max(max)
+    .refine((value) => !/\p{Cc}/u.test(value), `The ${what} can't contain control characters`)
 
 /** The member's settings, the fixture's defaults when no row exists. */
 export async function voiceSettingsOf(database: Db, userId: string): Promise<VoiceSettings> {
@@ -48,6 +59,9 @@ export async function voiceSettingsOf(database: Db, userId: string): Promise<Voi
     pttShortcut: row.pttShortcut,
     wakeWord: row.wakeWord,
     wakePhrase: row.wakePhrase,
+    language: row.language,
+    voiceFile: row.voiceFile,
+    voiceTranscript: row.voiceTranscript,
   })
 }
 
@@ -80,12 +94,10 @@ export const voiceRouter = router({
         pushToTalk: z.boolean().optional(),
         pttShortcut: z.enum(SHORTCUT_VALUES).optional(),
         wakeWord: z.boolean().optional(),
-        // #NEW-71: one line of text; control characters and newlines never.
-        wakePhrase: z
-          .string()
-          .max(64)
-          .refine((value) => !/\p{Cc}/u.test(value), `The wake phrase can't contain control characters`)
-          .optional(),
+        wakePhrase: oneLine(64, `wake phrase`).optional(),
+        language: z.enum(LANGUAGE_VALUES).optional(),
+        voiceFile: oneLine(VOICE_LIMITS.voiceFile, `voice file`).optional(),
+        voiceTranscript: oneLine(VOICE_LIMITS.voiceTranscript, `transcript`).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -123,6 +135,8 @@ export const voiceRouter = router({
         ...before,
         ...Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)),
         wakePhrase: input.wakePhrase === undefined ? before.wakePhrase : input.wakePhrase.trim(),
+        voiceFile: input.voiceFile === undefined ? before.voiceFile : input.voiceFile.trim(),
+        voiceTranscript: input.voiceTranscript === undefined ? before.voiceTranscript : input.voiceTranscript.trim(),
       } as VoiceSettings)
       const now = new Date()
       await db

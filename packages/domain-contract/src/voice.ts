@@ -9,6 +9,8 @@ export const VOICE_TEST_IDS = fixture.testIds
 export const VOICE_MAX_CHARS = fixture.maxChars
 export const VOICE_SHORTCUTS = fixture.shortcuts
 export const VOICE_DEFAULTS = fixture.defaults
+export const VOICE_LANGUAGES = fixture.languages
+export const VOICE_LIMITS = fixture.limits
 
 export interface VoiceMessageLike {
   authorKind?: string | null
@@ -26,6 +28,10 @@ export interface VoiceContext {
   /** THIS device is the member's voice device. */
   isVoiceDevice: boolean
   speakReplies: boolean
+  /** #NEW-73: the language replies are spoken in (`languages`). */
+  language: string
+  /** The languages THIS device has a voice for. */
+  voices: string[]
   /** When the watcher armed; older rows are a backfill. */
   armedAt: string
 }
@@ -33,6 +39,7 @@ export interface VoiceContext {
 /** Whether a synced message row is read aloud. */
 export function shouldSpeak(message: VoiceMessageLike, context: VoiceContext): boolean {
   if (!context.speakReplies || !context.agentSessionId || !context.isVoiceDevice) return false
+  if (!context.voices.includes(context.language)) return false
   if (message.authorKind !== `agent`) return false
   if (message.card) return false
   if (!message.body || message.body.trim() === ``) return false
@@ -239,4 +246,11 @@ export function trayHeader(deviceName: string): string {
 /** The wake phrase's placeholder (and its value when empty). */
 export function wakePhrasePlaceholder(agentName: string): string {
   return fixture.copy.wakePhrasePlaceholder.replace(`{agent}`, agentName)
+}
+
+/** #NEW-73: the Language row's trailing detail; German speaks on the voice
+ *  device's GPU only. Null without a voice device or for English. */
+export function languageNote(language: string, deviceName: string | null): string | null {
+  if (language !== `de` || deviceName === null) return null
+  return fixture.copy.languageNote.replace(`{device}`, deviceName)
 }
