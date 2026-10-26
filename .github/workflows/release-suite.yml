@@ -221,6 +221,11 @@ jobs:
         env:
           BETTER_AUTH_SECRET: ci-only-real-db-secret
         run: cd apps/web && bunx vitest run src/lib/**/*.real-db.test.ts
+      - name: Duplicate device-share check (the pre-deploy check, on the migrated DB)
+        # FEED-149: the same script gates every deploy against the target
+        # database (.github/workflows/README.md); here it proves it still runs
+        # on the current schema. The real-DB suites delete what they make.
+        run: cd apps/web && bun run check:device-shares
 
 
   desktop:

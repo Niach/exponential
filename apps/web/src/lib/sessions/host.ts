@@ -20,8 +20,9 @@ type Reader = Pick<typeof db, `select`>
 // FEED-149: by design, two accounts signed in on ONE box (two daemons, or a
 // desktop and a daemon under different logins) cannot both share it into the
 // same team: the team would have two hosts for one machine. Each may share it
-// into a DIFFERENT team. The older row wins a contest (`otherShareRows`); a
-// team owner settles the rest with `devices.dropShare`.
+// into a DIFFERENT team. A contested share is always refused, never
+// displaced (`otherShareRows`); a team owner settles it with
+// `devices.dropShare`.
 
 export type HostKey = Pick<Session, `deviceId` | `userId` | `teamId`>
 
@@ -91,26 +92,21 @@ export function hostedByCondition(userId: string, s: typeof sessions = sessions)
 
 /** FEED-148: the other accounts' rows sharing the caller's machine into
  *  one of `teamIds`, first sharer first. Call it after `lockDeviceShares`,
- *  in the transaction that writes the caller's share.
+ *  in the transaction that writes the caller's share; any row = CONFLICT.
  *
  *  FEED-149 (squatting): a machine's id shows in team-visible sessions, so a
- *  teammate can register it and share it first. The box's own row predates
- *  anyone who learned its id there, so `older` (that row sorts before the
- *  caller's in `SHARING_ORDER`) decides: an older share holds and the
- *  caller's is refused (CONFLICT); a younger one is displaced by it. */
+ *  teammate can register it, and the box owner's Remove re-registers the box
+ *  with a NEW `created_at`. Neither age nor order proves who owns the box,
+ *  so no share displaces another (it would end the holder's runs and make
+ *  the caller the host); only a team owner's `dropShare` does. */
 export async function otherShareRows(
   tx: Reader,
-  row: { id: string; userId: string; deviceId: string },
+  row: { userId: string; deviceId: string },
   teamIds: readonly string[]
 ): Promise<ShareRow[]> {
   if (teamIds.length === 0) return []
   return tx
-    .select({
-      id: devices.id,
-      userId: devices.userId,
-      sharedTeamIds: devices.sharedTeamIds,
-      older: sql<boolean>`(${devices.createdAt}, ${devices.id}) < (SELECT o.created_at, o.id FROM ${devices} o WHERE o.id = ${row.id})`,
-    })
+    .select({ id: devices.id, userId: devices.userId, sharedTeamIds: devices.sharedTeamIds })
     .from(devices)
     .where(
       and(
@@ -122,7 +118,7 @@ export async function otherShareRows(
     .orderBy(...SHARING_ORDER)
 }
 
-export type ShareRow = { id: string; userId: string; sharedTeamIds: string[] | null; older: boolean }
+export type ShareRow = { id: string; userId: string; sharedTeamIds: string[] | null }
 
 /** FEED-148: `teamIds` where the caller's row `rowId` is the FIRST sharing
  *  row of its machine (the host of teammates' starts there). */
@@ -143,7 +139,8 @@ export async function firstSharerTeams(
 }
 
 /** Serializes every share write on one machine id (FEED-148: two accounts
- *  racing to share the same box into one team). */
+ *  racing to share the same box into one team). 64-bit key: a 32-bit
+ *  `hashtext` collision would let two machines' writes interleave. */
 export async function lockDeviceShares(tx: Pick<typeof db, `execute`>, deviceId: string): Promise<void> {
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`device-share:${deviceId}`}))`)
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`device-share:${deviceId}`}, 0))`)
 }

@@ -46,7 +46,7 @@ Never lint/format. Schema change = edit `packages/db-schema/src/schema.ts`, `bun
 
 ## Deploys
 
-Coolify (home-LAN-only): `coolify deploy uuid <uuid>` after a green Actions run. `build-web.yml` publishes `ghcr.io/niach/exponential-web` on master pushes + `v*` tags: ONE image for cloud, staging and self-host. Native releases = tags `{android,desktop,cli,ios}-v*` → `build-*.yml`. The operations runbook lives outside the repo.
+Coolify (home-LAN-only): `coolify deploy uuid <uuid>` after a green Actions run and a clean `check:device-shares` on the target DB (`.github/workflows/README.md`). `build-web.yml` publishes `ghcr.io/niach/exponential-web` on master pushes + `v*` tags: ONE image for cloud, staging and self-host. Native releases = tags `{android,desktop,cli,ios}-v*` → `build-*.yml`. The operations runbook lives outside the repo.
 
 **CI:** pull requests run ONE gate, `test.yml` (required check `gate`, < 5 min): typecheck, web unit tests ×4 shards, migrations from scratch + drift + triggers, desktop `cargo check` when touched. Everything heavy (eUI renderers + conformance + bench, iOS, Android, desktop `cargo test`, marketing + `shots:check`, package + real-DB suites, image smoke builds) = `release-suite.yml`, on the release tags (once per commit) and `workflow_dispatch`. Bench timings only warn.
 

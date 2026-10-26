@@ -1426,10 +1426,13 @@ export const devicesRouter = router({
         // with is refused (it would compete for the host of teammates'
         // starts), and only the row that IS the host disarms the team's
         // agents on revoke (a decoy's unshare pauses nothing).
+        // FEED-149: refused whatever the rows' ages. Age proves nothing (the
+        // box owner's Remove re-registers it YOUNGER than a teammate's squat
+        // of its id), so no share ever displaces another: a team owner
+        // settles a contest with `dropShare`.
         await lockDeviceShares(tx, input.deviceId)
-        const self = { id: row.id, userId: ctx.session.user.id, deviceId: input.deviceId }
-        const others = await otherShareRows(tx, self, added)
-        const holder = others.find((other) => other.older)
+        const self = { userId: ctx.session.user.id, deviceId: input.deviceId }
+        const [holder] = await otherShareRows(tx, self, added)
         if (holder) {
           const teamId = added.find((entry) => holder.sharedTeamIds?.includes(entry))!
           throw await shareConflict(tx, ctx.session.user.id, teamId, holder.userId)
@@ -1442,18 +1445,6 @@ export const devicesRouter = router({
         // commit. Device-scoped (EXP-560): the owner's other same-team
         // shares keep theirs.
         const ending: string[] = []
-        // FEED-149 (squatting): a YOUNGER account's share of this box into
-        // an added team is displaced (`otherShareRows`), with the runs it
-        // hosted.
-        for (const other of others) {
-          for (const teamId of added.filter((entry) => other.sharedTeamIds?.includes(entry))) {
-            ending.push(...(await foreignHostedSessionIds(tx, other.userId, teamId, [input.deviceId])))
-            await tx
-              .update(devices)
-              .set({ sharedTeamIds: sql`array_remove(${devices.sharedTeamIds}, ${teamId}::uuid)`, updatedAt: new Date() })
-              .where(eq(devices.id, other.id))
-          }
-        }
         for (const teamId of revoked) {
           ending.push(...(await foreignHostedSessionIds(tx, ctx.session.user.id, teamId, [input.deviceId])))
         }
@@ -1472,7 +1463,8 @@ export const devicesRouter = router({
     }),
 
   // FEED-149: a team OWNER drops one member's share of a machine from the
-  // team: a duplicate row left from before FEED-148, a squat, or a box the
+  // team: a duplicate row left from before FEED-148, a squat (the only way to
+  // settle a contested share), or a box the
   // team should not run on. Same consequences as the member's own unshare:
   // the runs it hosted for teammates end and, when it was the machine's
   // first sharer, the team's agents on it are disarmed.
