@@ -159,7 +159,12 @@ mod platform {
         ];
         let mut errors = Vec::new();
         for (program, args) in candidates {
-            match Command::new(program).args(&args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() {
+            // Absolute, from the system dirs: never a binary the PATH plants.
+            let Some(path) = talk::system_binary(program) else {
+                errors.push(format!("{program}: not in {}", talk::SYSTEM_BIN_DIRS.join(", ")));
+                continue;
+            };
+            match Command::new(path).args(&args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() {
                 Ok(mut child) => {
                     let mut stdout = child.stdout.take().expect("piped");
                     let (tx, rx) = mpsc::channel();

@@ -8,6 +8,10 @@ use std::sync::Mutex;
 use crispasr::{artifact, Build, Runtime};
 
 static LOADED: Mutex<Option<&'static Runtime>> = Mutex::new(None);
+/// Serializes downloads (the speaker and the transcriber may both fetch the
+/// same files); [`LOADED`] is never held across one, so `loaded()` and a
+/// Listen's readiness check never wait on the network.
+static FETCHING: Mutex<()> = Mutex::new(());
 
 /// The runtime already loaded, if any.
 pub fn loaded() -> Option<&'static Runtime> {
@@ -23,18 +27,29 @@ pub fn is_ready(data_dir: &Path, build: Build) -> bool {
 /// Download (`progress(received, total)` over the runtime's bytes) and
 /// load `build`, or return the runtime already loaded when it IS `build`.
 pub fn get(data_dir: &Path, build: Build, progress: impl FnMut(u64, u64)) -> Result<&'static Runtime, String> {
-    let mut loaded = LOADED.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(runtime) = *loaded {
-        return if runtime.build() == build {
-            Ok(runtime)
-        } else {
-            Err(format!("the {:?} runtime is loaded, not the {build:?} one", runtime.build()))
-        };
+    if let Some(runtime) = loaded() {
+        return same_build(runtime, build);
     }
     let dir = crispasr::runtime_dir_of(data_dir, build);
-    artifact::ensure_all(&dir, build.artifacts(), progress).map_err(|err| err.to_string())?;
+    {
+        let _fetching = FETCHING.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        artifact::ensure_all(&dir, build.artifacts(), progress).map_err(|err| err.to_string())?;
+    }
+    // Loading stays under the lock: a process loads ONE runtime.
+    let mut loaded = LOADED.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(runtime) = *loaded {
+        return same_build(runtime, build);
+    }
     // Verified again inside `load_build` (every file re-hashed before dlopen).
     let runtime: &'static Runtime = Box::leak(Box::new(Runtime::load_build(&dir, build)?));
     *loaded = Some(runtime);
     Ok(runtime)
+}
+
+fn same_build(runtime: &'static Runtime, build: Build) -> Result<&'static Runtime, String> {
+    if runtime.build() == build {
+        Ok(runtime)
+    } else {
+        Err(format!("the {:?} runtime is loaded, not the {build:?} one", runtime.build()))
+    }
 }

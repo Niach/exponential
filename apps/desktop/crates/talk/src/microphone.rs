@@ -4,7 +4,8 @@
 //! every doctor build.
 //!
 //! - Linux: an input source exists (`pactl list short sources` minus the
-//!   `.monitor` sources; no pactl but `pw-record` = Granted). No OS
+//!   `.monitor` sources; no pactl but `pw-record` = Granted; both looked up in
+//!   [`crate::SYSTEM_BIN_DIRS`], never the `PATH`). No OS
 //!   permission to ask for.
 //! - macOS: `AVCaptureDevice`'s authorization for audio plus a default input
 //!   device. [`request_access`] asks while the OS has not asked yet.
@@ -61,7 +62,10 @@ mod platform {
     use std::process::{Command, Stdio};
 
     pub(super) fn probe() -> Microphone {
-        let output = Command::new("pactl")
+        let Some(pactl) = crate::system_binary("pactl") else {
+            return if crate::system_binary("pw-record").is_some() { Microphone::Granted } else { Microphone::NoDevice };
+        };
+        let output = Command::new(pactl)
             .args(["list", "short", "sources"])
             .stdin(Stdio::null())
             .stderr(Stdio::null())
@@ -71,17 +75,12 @@ mod platform {
                 parse_pactl_sources(&String::from_utf8_lossy(&output.stdout))
             }
             // No pactl (or no server answering it): a PipeWire recorder
-            // on the PATH is the best this can say without opening a stream.
-            _ if on_path("pw-record") => Microphone::Granted,
+            // in the system dirs is the best this can say without opening a stream.
+            _ if crate::system_binary("pw-record").is_some() => Microphone::Granted,
             _ => Microphone::NoDevice,
         }
     }
 
-    fn on_path(binary: &str) -> bool {
-        std::env::var_os("PATH").is_some_and(|path| {
-            std::env::split_paths(&path).any(|dir| dir.join(binary).is_file())
-        })
-    }
 
     pub(super) fn refused() -> bool {
         false

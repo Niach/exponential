@@ -232,6 +232,21 @@ pub fn windows_local_disk_path(path: &str) -> Result<(), String> {
     }
 }
 
+/// #1238 review: where the audio tools (`pw-record`, `parec`, `pactl`,
+/// `pw-play`, `paplay`) are run from: the system directories, never the
+/// inherited `PATH`, so a planted binary earlier on it never gets the
+/// microphone.
+pub const SYSTEM_BIN_DIRS: [&str; 3] = ["/usr/bin", "/bin", "/usr/local/bin"];
+
+/// `name` in [`SYSTEM_BIN_DIRS`] (the first that has it), absolute.
+pub fn system_binary(name: &str) -> Option<PathBuf> {
+    binary_in(&SYSTEM_BIN_DIRS.map(std::path::Path::new), name)
+}
+
+fn binary_in(dirs: &[&std::path::Path], name: &str) -> Option<PathBuf> {
+    dirs.iter().map(|dir| dir.join(name)).find(|path| path.is_file())
+}
+
 /// Whether THIS process was started as the speech worker.
 pub fn requested() -> bool {
     std::env::args_os().nth(1).is_some_and(|arg| arg == ARGV_MARKER)
@@ -348,7 +363,16 @@ impl SpeechClient {
     }
 
     fn spawn(&self) -> std::io::Result<Worker> {
-        let mut child = Command::new(&self.exe)
+        let mut command = Command::new(&self.exe);
+        // #1238 review: CrispASR's debug switches (`CRISPASR_PARAKEET_DEBUG`
+        // prints decoded token ids) never reach the worker, whose stderr
+        // is this process's log.
+        for (key, _) in std::env::vars_os() {
+            if key.to_string_lossy().starts_with("CRISPASR_") {
+                command.env_remove(key);
+            }
+        }
+        let mut child = command
             .arg(ARGV_MARKER)
             .arg(DATA_DIR_FLAG)
             .arg(&self.data_dir)
@@ -398,6 +422,22 @@ fn write_line(stdin: &mut ChildStdin, request: &Request) -> std::io::Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn audio_tools_resolve_in_the_system_dirs_only() {
+        let root = std::env::temp_dir().join(format!("talk-bin-{}", std::process::id()));
+        let (first, second) = (root.join("usr-bin"), root.join("bin"));
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+        std::fs::write(second.join("pw-record"), "").unwrap();
+        let dirs = [first.as_path(), second.as_path()];
+        assert_eq!(binary_in(&dirs, "pw-record"), Some(second.join("pw-record")));
+        std::fs::write(first.join("pw-record"), "").unwrap();
+        assert_eq!(binary_in(&dirs, "pw-record"), Some(first.join("pw-record")), "the first dir wins");
+        assert_eq!(binary_in(&dirs, "parec"), None);
+        assert!(SYSTEM_BIN_DIRS.iter().all(|dir| std::path::Path::new(dir).is_absolute()));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn the_wire_is_tagged_camel_case() {

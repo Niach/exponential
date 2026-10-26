@@ -20458,7 +20458,15 @@ https://huggingface.co/ggml-org/whisper-vad, MIT). On a Linux or Windows
 machine without a GPU driver it downloads CrispASR v0.8.45's CPU-only runtime
 instead of the GPU one; on Linux that archive carries OpenBLAS (BSD-3-Clause)
 with libgfortran and libquadmath (GCC Runtime Library Exception / LGPL-2.1),
-listed in the CrispASR notices below and not redistributed by Exponential.
+listed in the CrispASR notices below and not redistributed by Exponential. On
+Linux both CrispASR archives (CUDA and CPU-only) carry libgomp.so.1, the GNU
+OpenMP runtime (https://gcc.gnu.org/, GPL-3.0-or-later WITH GCC-exception-3.1,
+the GCC Runtime Library Exception: https://www.gnu.org/licenses/gpl-3.0.html,
+https://www.gnu.org/licenses/gcc-exception-3.1.html), unmodified from Ubuntu
+22.04's gcc-12, whose corresponding source is available from Ubuntu's source
+archive (apt-get source gcc-12), from https://gcc.gnu.org/ and from the
+CrispASR maintainers as their notices below state; it is fetched by the
+member's machine, not redistributed by Exponential.
 
 ..............................................................................
 MIT License — CrispASR (incl. ggml)
