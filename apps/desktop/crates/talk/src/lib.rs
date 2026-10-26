@@ -9,8 +9,11 @@
 //! that runs in the host process.
 //!
 //! Slice (b) speaks only: [`SpeechClient::prepare`] fetches the voice ahead
-//! of the first reply, [`SpeechClient::speak`] replaces whatever is being
-//! said, [`SpeechClient::stop`] ends it. Listening arrives with slice (c).
+//! of the first reply (and, NEW-74, hands it the member's language and
+//! voice file), [`SpeechClient::speak`] replaces whatever is being said,
+//! [`SpeechClient::stop`] ends it. The worker answers with
+//! [`Event::Voices`]: the languages it can speak on THIS machine (none
+//! without a usable GPU). Listening arrives with slice (c).
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -24,14 +27,15 @@ pub const ARGV_MARKER: &str = "__speech-worker";
 /// The flag carrying the data dir the worker keeps its models under.
 pub const DATA_DIR_FLAG: &str = "--data-dir";
 /// The wire's version; a worker that answers another is replaced.
-pub const PROTOCOL: u32 = 1;
+pub const PROTOCOL: u32 = 2;
 
 /// Host → worker, one JSON object per line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "camelCase")]
 pub enum Request {
-    /// Download and load the voice now (the switch just turned on).
-    Prepare,
+    /// Download and load the voice now (the switch just turned on, or the
+    /// language or voice file changed). Repeating it is cheap.
+    Prepare { voice: VoiceChoice },
     /// Say `text` (already the spoken form); replaces anything playing.
     Speak { id: String, text: String },
     /// End whatever is being said.
@@ -50,6 +54,9 @@ pub enum Event {
     DownloadFailed { error: String },
     /// The voice is on disk, verified and loaded.
     ModelReady,
+    /// NEW-74: the languages this machine can speak now; empty = no usable
+    /// GPU (replies are shown, never spoken). Sent after every Prepare.
+    Voices { voices: Vec<String> },
     /// The first audio of `id` is playing.
     Started { id: String },
     /// `id` ended: played to the end, or `stopped`.
@@ -59,6 +66,57 @@ pub enum Event {
     /// Host-side: the worker process ended (crash, kill, EOF). Never sent
     /// by the worker itself.
     Exited,
+}
+
+/// NEW-74: the voice the member picked (`user_voice_settings`): the
+/// language replies are spoken in and, optionally, the reference clip the
+/// voice is cloned from. Empty `file` = the built-in voice of `language`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceChoice {
+    pub language: String,
+    pub file: String,
+    pub transcript: String,
+}
+
+/// The largest reference clip read (a calm 8-15 s clip is ~0.5-1.5 MB).
+pub const MAX_VOICE_FILE_BYTES: u64 = 10 * 1024 * 1024;
+
+/// NEW-74: the member's `voiceFile` is set remotely (web and phones write
+/// it), so the voice device accepts only an absolute local path to a
+/// regular `.wav` of at most [`MAX_VOICE_FILE_BYTES`], with a transcript:
+/// no URL scheme, no `..`. `Ok(None)` = no file (the built-in voice);
+/// `Err` = rejected (the caller logs it once and uses the built-in voice).
+pub fn custom_voice_file(file: &str, transcript: &str) -> Result<Option<PathBuf>, String> {
+    let file = file.trim();
+    if file.is_empty() {
+        return Ok(None);
+    }
+    let lower = file.to_ascii_lowercase();
+    if lower.contains("://") || lower.starts_with("file:") || lower.starts_with("http:") || lower.starts_with("https:") {
+        return Err("the voice file must be a local path, not a URL".into());
+    }
+    let path = PathBuf::from(file);
+    if !path.is_absolute() {
+        return Err("the voice file must be an absolute path".into());
+    }
+    if path.components().any(|component| matches!(component, std::path::Component::ParentDir)) {
+        return Err("the voice file path must not contain `..`".into());
+    }
+    if !path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("wav")) {
+        return Err("the voice file must be a .wav".into());
+    }
+    if transcript.trim().is_empty() {
+        return Err("the voice file needs its transcript".into());
+    }
+    let metadata = std::fs::metadata(&path).map_err(|err| format!("the voice file is unreadable ({err})"))?;
+    if !metadata.is_file() {
+        return Err("the voice file is not a regular file".into());
+    }
+    if metadata.len() > MAX_VOICE_FILE_BYTES {
+        return Err(format!("the voice file is larger than {} MB", MAX_VOICE_FILE_BYTES / (1024 * 1024)));
+    }
+    Ok(Some(path))
 }
 
 /// Whether THIS process was started as the speech worker.
@@ -100,8 +158,8 @@ impl SpeechClient {
         Self { exe, data_dir, on_event: Arc::new(on_event), worker: Arc::new(Mutex::new(None)) }
     }
 
-    pub fn prepare(&self) {
-        self.send(&Request::Prepare);
+    pub fn prepare(&self, voice: VoiceChoice) {
+        self.send(&Request::Prepare { voice });
     }
 
     pub fn speak(&self, id: impl Into<String>, text: impl Into<String>) {
@@ -218,6 +276,44 @@ mod tests {
         assert_eq!(event, Event::Finished { id: "m1".into(), stopped: true });
         let event: Event = serde_json::from_str(r#"{"t":"downloading","received":5,"total":10}"#).unwrap();
         assert_eq!(event, Event::Downloading { received: 5, total: 10 });
+        let prepare = Request::Prepare { voice: VoiceChoice { language: "de".into(), ..Default::default() } };
+        assert_eq!(
+            serde_json::to_string(&prepare).unwrap(),
+            r#"{"t":"prepare","voice":{"language":"de","file":"","transcript":""}}"#
+        );
+        let event: Event = serde_json::from_str(r#"{"t":"voices","voices":["en","de"]}"#).unwrap();
+        assert_eq!(event, Event::Voices { voices: vec!["en".into(), "de".into()] });
+    }
+
+    #[test]
+    fn only_a_local_absolute_wav_with_a_transcript_is_a_voice_file() {
+        let dir = std::env::temp_dir().join(format!("talk-voice-file-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        let clip = dir.join("me.WAV");
+        std::fs::write(&clip, b"RIFF").unwrap();
+        let clip_text = clip.to_string_lossy().into_owned();
+        assert_eq!(custom_voice_file("", "x"), Ok(None), "empty = the built-in voice");
+        assert_eq!(custom_voice_file(&clip_text, "Hello there."), Ok(Some(clip.clone())));
+        for rejected in [
+            "file:///tmp/me.wav".to_string(),
+            "https://example.com/me.wav".to_string(),
+            "me.wav".to_string(),
+            dir.join("sub").join("..").join("me.WAV").to_string_lossy().into_owned(),
+            dir.join("me.mp3").to_string_lossy().into_owned(),
+            dir.join("missing.wav").to_string_lossy().into_owned(),
+            dir.join("sub.wav").to_string_lossy().into_owned(),
+        ] {
+            if rejected.ends_with("sub.wav") {
+                std::fs::create_dir_all(&rejected).unwrap();
+            }
+            assert!(custom_voice_file(&rejected, "Hello.").is_err(), "{rejected}");
+        }
+        assert!(custom_voice_file(&clip_text, "  ").is_err(), "a clip needs its transcript");
+        let big = dir.join("big.wav");
+        std::fs::File::create(&big).unwrap().set_len(MAX_VOICE_FILE_BYTES + 1).unwrap();
+        assert!(custom_voice_file(&big.to_string_lossy(), "Hello.").is_err(), "over 10 MB");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

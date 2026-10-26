@@ -204,6 +204,41 @@ writeFileSync(
     `Do not hand-edit these files.\n`
 )
 
+// NEW-74: exponentialTalk's speech worker downloads CrispASR's prebuilt
+// runtime (libcrispasr + ggml, MIT) at first use; nothing of it is in the
+// binary. Its licence and third-party notices, pinned to the release tag the
+// worker pins (apps/desktop/crates/crispasr/src/platform.rs).
+const CRISPASR = [
+  { file: `LICENSE.txt`, repo: `CrispStrobe/CrispASR`, rev: `v0.8.45`, path: `LICENSE` },
+  { file: `THIRD_PARTY_NOTICES.txt`, repo: `CrispStrobe/CrispASR`, rev: `v0.8.45`, path: `THIRD_PARTY_NOTICES.txt` },
+]
+const crispasrDir = join(pkgRoot, `texts/crispasr`)
+mkdirSync(crispasrDir, { recursive: true })
+
+for (const text of CRISPASR) {
+  const url = `https://raw.githubusercontent.com/${text.repo}/${text.rev}/${text.path}`
+  const res = await fetch(url)
+  if (!res.ok) {
+    console.error(`FAILED crispasr/${text.file}: ${res.status} ${url}`)
+    failed++
+    continue
+  }
+  writeFileSync(join(crispasrDir, text.file), normalise(await res.text()))
+  console.log(`wrote crispasr/${text.file}`)
+}
+
+writeFileSync(
+  join(crispasrDir, `SOURCE.txt`),
+  `Licence and third-party notices of the CrispASR runtime exponentialTalk's\n` +
+    `speech worker downloads at first use (never in the binary), vendored\n` +
+    `verbatim, pinned to the release tag the worker pins:\n` +
+    `\n` +
+    CRISPASR.map((t) => `  ${t.file}\n    https://github.com/${t.repo}/blob/${t.rev}/${t.path}\n`).join(``) +
+    `\n` +
+    `Regenerate with: bun run --filter @exp/licenses fetch:texts\n` +
+    `Do not hand-edit these files.\n`
+)
+
 if (failed > 0) {
   console.error(`\n${failed} text(s) failed to fetch`)
   process.exit(1)

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  NEW-74: the hardened runtime's entitlements for the release signature.
+  exponentialTalk's speech worker (this same executable, `__speech-worker`)
+  loads the CrispASR runtime (libcrispasr + ggml, Metal) that it downloads on
+  first use; those dylibs are signed by their publisher, not by our team, so
+  library validation would refuse them. The worker checks every file against
+  a pinned sha256 before it loads it (crates/crispasr), which is what stands
+  in for the signature check (docs/third-party-licences.md, NEW-74).
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

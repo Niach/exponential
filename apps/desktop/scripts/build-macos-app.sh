@@ -125,9 +125,14 @@ fi
 if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
   echo "signing with Developer ID: ${MACOS_SIGN_IDENTITY}"
   # Inner Mach-O first, then the bundle (outside-in signing is invalid).
+  # NEW-74: entitlements = disable-library-validation, so the speech worker
+  # can load the sha256-pinned CrispASR runtime it downloads.
   codesign --force --options runtime --timestamp \
+    --entitlements "${DESKTOP_DIR}/assets/packaging/exp-desktop.entitlements" \
     --sign "$MACOS_SIGN_IDENTITY" "$APP_DIR/Contents/MacOS/exp-desktop"
+  # The bundle's signature re-signs its main executable: same entitlements.
   codesign --force --options runtime --timestamp \
+    --entitlements "${DESKTOP_DIR}/assets/packaging/exp-desktop.entitlements" \
     --sign "$MACOS_SIGN_IDENTITY" "$APP_DIR"
   codesign --verify --strict --verbose=2 "$APP_DIR"
 else

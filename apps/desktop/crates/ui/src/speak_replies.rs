@@ -9,7 +9,10 @@
 //! While it plays, the conversation's Dock shows the Speaking banner with
 //! Stop (`steer_viewer::dock_banners`). The worker is started and the voice
 //! fetched as soon as the setting turns on, so the first reply does not wait
-//! for a 350 MB download; it is shut down when the setting turns off.
+//! for the download (~2-3 GB: the CrispASR runtime and Qwen3-TTS, NEW-74);
+//! it is shut down when the setting turns off. NEW-74: which languages are
+//! spoken is what the worker reports (`talk::Event::Voices`): none without a
+//! usable GPU, so a reply there is shown, never spoken.
 
 use std::collections::HashSet;
 use std::time::Duration;
@@ -26,6 +29,8 @@ use domain::voice::{VoiceContext, VoiceMessage, VOICE};
 pub(crate) struct DeviceVoice {
     pub agent_id: Option<String>,
     pub speak_replies: bool,
+    /// NEW-74: the language and voice file the worker speaks with.
+    pub voice: talk::VoiceChoice,
 }
 
 impl DeviceVoice {
@@ -40,16 +45,16 @@ pub(crate) fn voice_here(settings: &domain::voice::VoiceSettings, own_device_id:
     if settings.voice_device_id.as_deref() != Some(own_device_id) {
         return DeviceVoice::default();
     }
-    let language_voiced = VOICES.contains(&settings.language());
+    let voice = talk::VoiceChoice {
+        language: settings.language().to_string(),
+        file: settings.voice_file.clone(),
+        transcript: settings.voice_transcript.clone(),
+    };
     let settings = settings.clone().clear_on_none();
-    // #NEW-73: a language this IDE has no voice for is shown, never spoken,
-    // so the worker is not even prepared (no Kokoro download for German).
-    DeviceVoice { agent_id: settings.agent_id, speak_replies: settings.speak_replies && language_voiced }
+    // NEW-74: the worker is prepared for every language; whether it speaks
+    // is what it reports back (`voices`, empty without a usable GPU).
+    DeviceVoice { agent_id: settings.agent_id, speak_replies: settings.speak_replies, voice }
 }
-
-/// The languages this IDE has a voice for (voice.json `voices`): Kokoro's
-/// English until the German speaker lands.
-pub(crate) const VOICES: &[&str] = &["en"];
 
 /// The reply being spoken (for the Dock banner).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,7 +70,8 @@ pub(crate) struct Speaking {
 pub(crate) enum Download {
     #[default]
     Idle,
-    Running,
+    /// Bytes so far of the whole first-use download (`total` 0 = unknown).
+    Running { received: u64, total: u64 },
     Failed,
     /// The worker crashed [`MAX_CRASHES`] times in a row: no more speaking
     /// until the setting changes.
@@ -133,6 +139,9 @@ pub(crate) struct SpeakReplies {
     account: Option<String>,
     /// Worker crashes since the last utterance that played to its end.
     crashes: u32,
+    /// voice.json `voices`: the languages the worker reported it speaks
+    /// (empty until it answers, and without a usable GPU).
+    voices: Vec<String>,
     pub speaking: Option<Speaking>,
     pub download: Download,
 }
@@ -166,6 +175,7 @@ pub fn install(cx: &mut App) {
             settings: domain::voice::VoiceSettings::default(),
             account: None,
             crashes: 0,
+            voices: Vec::new(),
             speaking: None,
             download: Download::Idle,
         }
@@ -207,6 +217,15 @@ pub(crate) fn speaking(cx: &App) -> Option<Speaking> {
 /// The voice download state (the Speak replies row's detail).
 pub(crate) fn download(cx: &App) -> Download {
     global(cx).map(|entity| entity.read(cx).download.clone()).unwrap_or_default()
+}
+
+/// The Speak replies row's trailing detail while the voice downloads:
+/// voice.json `downloadProgress`, `None` when nothing downloads.
+pub(crate) fn download_detail(cx: &App) -> Option<String> {
+    match download(cx) {
+        Download::Running { received, total } => Some(domain::voice::download_progress(received, total)),
+        _ => None,
+    }
 }
 
 /// The banner's Stop.
@@ -269,6 +288,7 @@ impl SpeakReplies {
         // The settings are the member's: the new account's beat brings its own.
         self.settings = domain::voice::VoiceSettings::default();
         self.crashes = 0;
+        self.voices.clear();
         self.speaking = None;
         self.download = Download::Idle;
         cx.notify();
@@ -282,6 +302,8 @@ impl SpeakReplies {
             return;
         }
         let was_active = self.prepared.active();
+        let voice_changed = self.prepared.voice != wanted.voice;
+        let agent_changed = self.prepared.agent_id != wanted.agent_id;
         self.prepared = wanted.clone();
         // A new setting is a fresh start, a given-up voice included.
         self.crashes = 0;
@@ -290,15 +312,16 @@ impl SpeakReplies {
         }
         let Some(client) = self.client.as_ref() else { return };
         if wanted.active() {
-            // The assistant changed: what the old one said stops.
-            if self.speaking.take().is_some() {
+            // The assistant or the voice changed: what was said stops.
+            if (agent_changed || voice_changed) && self.speaking.take().is_some() {
                 client.stop();
             }
-            if !was_active {
-                client.prepare();
+            if !was_active || voice_changed {
+                client.prepare(wanted.voice.clone());
             }
         } else {
             client.shutdown();
+            self.voices.clear();
             self.speaking = None;
             self.download = Download::Idle;
         }
@@ -323,12 +346,13 @@ impl SpeakReplies {
         let Some(conversation) = crate::session_data::my_conversation(agent_id, cx) else { return };
         let Some(store) = Store::try_global(cx) else { return };
         let sessions = domain::message_conversation::conversation_sessions(store.collections().conversations.read(cx).iter());
+        let voices: Vec<&str> = self.voices.iter().map(String::as_str).collect();
         let context = VoiceContext {
             agent_session_id: Some(conversation.id.as_str()),
             is_voice_device: true,
             speak_replies: true,
             language: self.settings.language(),
-            voices: VOICES,
+            voices: &voices,
             armed_at: self.gate.armed_at(),
         };
         // A burst (a reconnect) speaks only its newest reply.
@@ -352,7 +376,7 @@ impl SpeakReplies {
         else {
             return;
         };
-        let spoken = domain::voice::spoken_text(row.body.as_deref().unwrap_or(""), VOICE.max_chars);
+        let spoken = domain::voice::spoken_text(row.body.as_deref().unwrap_or(""), VOICE.max_chars, self.settings.language());
         if spoken.is_empty() {
             return;
         }
@@ -369,8 +393,17 @@ impl SpeakReplies {
     fn on_event(&mut self, event: talk::Event, cx: &mut Context<Self>) {
         let download_before = self.download.clone();
         match event {
-            talk::Event::Downloading { .. } => self.download = Download::Running,
+            talk::Event::Downloading { received, total } => self.download = Download::Running { received, total },
             talk::Event::ModelReady => self.download = Download::Idle,
+            talk::Event::Voices { voices } => {
+                if self.download != Download::Failed {
+                    self.download = Download::Idle;
+                }
+                if voices.is_empty() && self.voices != voices {
+                    log::info!("[ui] speak replies: no usable GPU here; replies are shown, never spoken");
+                }
+                self.voices = voices;
+            }
             talk::Event::DownloadFailed { error } => {
                 log::warn!("[ui] speak replies: voice download failed: {error}");
                 if self.download != Download::Failed {
@@ -409,6 +442,11 @@ impl SpeakReplies {
     /// row gives up until the setting changes.
     fn on_exited(&mut self, cx: &mut Context<Self>) {
         self.speaking = None;
+        // A new worker reports its voices again.
+        self.voices.clear();
+        if matches!(self.download, Download::Running { .. }) {
+            self.download = Download::Idle;
+        }
         if !self.prepared.active() || self.download == Download::Unavailable {
             return;
         }
@@ -430,7 +468,7 @@ impl SpeakReplies {
                 // Still the same setting and not given up: bring it back.
                 if this.prepared == prepared && this.download != Download::Unavailable {
                     if let Some(client) = this.client.as_ref() {
-                        client.prepare();
+                        client.prepare(prepared.voice.clone());
                     }
                 }
             });
@@ -491,8 +529,19 @@ mod tests {
         };
         assert!(voice_here(&settings, "d-mint").active());
         assert!(!voice_here(&settings, "d-mac").active(), "another device stays silent");
-        let german = domain::voice::VoiceSettings { language: "de".into(), ..settings.clone() };
-        assert!(!voice_here(&german, "d-mint").active(), "no German voice yet = shown, never spoken");
+        let german = domain::voice::VoiceSettings {
+            language: "de".into(),
+            voice_file: "/home/me/clip.wav".into(),
+            voice_transcript: "Hallo.".into(),
+            ..settings.clone()
+        };
+        let here = voice_here(&german, "d-mint");
+        assert!(here.active(), "every language prepares the worker; it reports what it speaks");
+        assert_eq!(
+            here.voice,
+            talk::VoiceChoice { language: "de".into(), file: "/home/me/clip.wav".into(), transcript: "Hallo.".into() }
+        );
+        assert_eq!(voice_here(&settings, "d-mint").voice.language, "en", "unset reads as English");
         let no_agent = domain::voice::VoiceSettings { agent_id: None, ..settings };
         assert!(!voice_here(&no_agent, "d-mint").active(), "no agent = nothing speaks");
     }

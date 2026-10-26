@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-26-voice-german",
+    date: "2026-10-26",
+    title: "Speak replies in German and in your own voice",
+    summary: "The IDE now speaks replies in English or German with one voice that runs on your GPU, cloned from your own clip or a built-in voice; without a usable GPU, replies are shown, not spoken.",
+    body: r#"- **German and English**: the IDE reads your agent's replies aloud in the language you pick in Settings → Voice, with one voice for both.
+- **Your own voice**: with a Voice file and its transcript set, the voice is cloned from that clip on your voice device; without one it uses a built-in voice. The file must be a local .wav of at most 10 MB, and nothing is uploaded.
+- **Needs a GPU**: the voice runs on your desktop's GPU (NVIDIA on Linux, Apple Silicon on macOS, a Vulkan GPU on Windows). Without a usable GPU, replies in either language are shown, not spoken; this also ends English speaking on a desktop without one, and Settings → Voice says so next to each language.
+- **One download on first use**: about 3.0 GB on Linux, 2.2 GB on macOS and 2.3 GB on Windows, checked before it is used; the Speak replies row shows the progress. The old English voice (about 350 MB) is removed.
+- **Marked as AI**: every spoken reply carries an inaudible AI-content watermark."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_89: ChangelogEntry = ChangelogEntry {
     id: "2026-10-26-voice-tray",
     date: "2026-10-26",
     title: "The IDE in your system tray",

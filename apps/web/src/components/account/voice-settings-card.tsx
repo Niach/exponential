@@ -110,7 +110,7 @@ export function VoiceSettingsCard({
     ``
   const agentName = agents.find((agent) => agent.id === settings.agentId)?.name ?? VOICE_COPY.agent
   const switchesLive = settings.voiceDeviceId !== null && settings.agentId !== null
-  // #NEW-73: German carries its GPU note, in the row and in the menu.
+  // #NEW-73: every language carries its GPU note (#NEW-74), in the row and in the menu.
   const languageItems = VOICE_LANGUAGES.map((language) => ({
     value: language.value,
     label: languageLabel(language.value, settings.voiceDeviceId === null ? null : deviceName),

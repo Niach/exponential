@@ -62,6 +62,7 @@ class VoiceTest {
             "traySettings" to Voice.Copy.TRAY_SETTINGS,
             "trayQuit" to Voice.Copy.TRAY_QUIT,
             "downloading" to Voice.Copy.DOWNLOADING,
+            "downloadingProgress" to Voice.Copy.DOWNLOADING_PROGRESS,
             "downloadFailed" to Voice.Copy.DOWNLOAD_FAILED,
             "unavailable" to Voice.Copy.UNAVAILABLE,
             "speaking" to Voice.Copy.SPEAKING,
