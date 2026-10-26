@@ -95,6 +95,8 @@ pub mod steer;
 pub mod token_store;
 pub mod trpc;
 pub mod users;
+/// NEW-67: the member's voice settings (Settings → Voice).
+pub mod voice;
 pub mod teams;
 pub mod widgets;
 

@@ -32,6 +32,7 @@ import { billingRouter } from "@/lib/trpc/billing"
 import { onboardingRouter } from "@/lib/trpc/onboarding"
 import { subscriptionsRouter } from "@/lib/trpc/subscriptions"
 import { notificationsRouter } from "@/lib/trpc/notifications"
+import { voiceRouter } from "@/lib/trpc/voice"
 import { widgetsRouter } from "@/lib/trpc/widgets"
 import { mcpGrantsRouter } from "@/lib/trpc/mcp-grants"
 import { mcpServersRouter } from "@/lib/trpc/mcp-servers"
@@ -71,6 +72,8 @@ export const appRouter = router({
   onboarding: onboardingRouter,
   subscriptions: subscriptionsRouter,
   notifications: notificationsRouter,
+  // NEW-67: the member's voice settings (Settings → Voice).
+  voice: voiceRouter,
   widgets: widgetsRouter,
   mcpGrants: mcpGrantsRouter,
   mcpServers: mcpServersRouter,

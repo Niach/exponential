@@ -38,6 +38,8 @@ final class AppDependencies: @unchecked Sendable {
     let commentsApi: CommentsApi
     let usersApi: UsersApi
     let notificationsApi: NotificationsApi
+    /// NEW-67: Settings → Voice (`voice.get` / `voice.update`).
+    let voiceApi: VoiceApi
     // EXP-736: typed issue relations (blocks / parent / duplicate /
     // related) — writes go through tRPC, the rows arrive over the shape.
     let relationsApi: RelationsApi
@@ -173,6 +175,7 @@ final class AppDependencies: @unchecked Sendable {
         self.commentsApi = CommentsApi(trpc: trpc)
         self.usersApi = UsersApi(trpc: trpc)
         self.notificationsApi = NotificationsApi(trpc: trpc)
+        self.voiceApi = VoiceApi(trpc: trpc)
         self.relationsApi = RelationsApi(trpc: trpc)
         self.issueDraftsApi = IssueDraftsApi(trpc: trpc)
         self.sessionsApi = SessionsApi(trpc: trpc)

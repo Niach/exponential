@@ -1,7 +1,17 @@
 import { describe, expect, it } from "bun:test"
 
 import fixture from "../fixtures/voice.json" with { type: "json" }
-import { assistantOptions, identifierNumberWords, numberWords, shouldSpeak, spokenText } from "./voice"
+import {
+  agentOptions,
+  clearOnNone,
+  identifierNumberWords,
+  numberWords,
+  shouldSpeak,
+  spokenText,
+  trayHeader,
+  voiceDeviceOptions,
+  wakePhrasePlaceholder,
+} from "./voice"
 
 describe(`voice.json`, () => {
   for (const c of fixture.shouldSpeakCases) {
@@ -24,9 +34,25 @@ describe(`voice.json`, () => {
       expect(identifierNumberWords(c.n)).toBe(c.words)
     })
   }
-  for (const c of fixture.assistantOptionsCases) {
-    it(`assistantOptions: ${c.name}`, () => {
-      expect(assistantOptions(c.agents)).toEqual(c.options)
+  for (const c of fixture.agentOptionsCases) {
+    it(`agentOptions: ${c.name}`, () => {
+      expect(agentOptions(c.agents)).toEqual(c.options)
     })
+  }
+  for (const c of fixture.voiceDeviceOptionsCases) {
+    it(`voiceDeviceOptions: ${c.name}`, () => {
+      expect(voiceDeviceOptions(c.devices)).toEqual(c.options)
+    })
+  }
+  for (const c of fixture.clearOnNoneCases) {
+    it(`clearOnNone: ${c.name}`, () => {
+      expect(clearOnNone(c.before as never, c.change as never)).toEqual(c.after)
+    })
+  }
+  for (const c of fixture.trayHeaderCases) {
+    it(`trayHeader ${c.device}`, () => expect(trayHeader(c.device)).toBe(c.header))
+  }
+  for (const c of fixture.wakePhrasePlaceholderCases) {
+    it(`wakePhrasePlaceholder ${c.agent}`, () => expect(wakePhrasePlaceholder(c.agent)).toBe(c.placeholder))
   }
 })

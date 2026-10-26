@@ -1,6 +1,8 @@
 package com.exponential.app.ui.settings
 
 import com.exponential.app.domain.FeedbackStates
+import com.exponential.app.domain.Voice
+import androidx.compose.ui.platform.testTag
 import com.exponential.app.ui.components.Blocking
 import com.exponential.app.ui.components.PickerRow
 import androidx.compose.foundation.clickable
@@ -431,6 +433,8 @@ data class ChangeEmailState(
 fun ServerDetailScreen(
     accountId: String,
     onBack: () -> Unit,
+    /** NEW-67: Settings → Personal → Voice (`voice.json`). */
+    onOpenVoice: () -> Unit = {},
     viewModel: ServerDetailViewModel = hiltViewModel(),
 ) {
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
@@ -546,6 +550,19 @@ fun ServerDetailScreen(
                             onSelect = { viewModel.pickTimezone(accountId, it) },
                         )
                     }
+                }
+            }
+
+            // NEW-67: Settings → Personal → Voice (`voice.json`), icon concept
+            // `settings-voice`: the row opens the page.
+            if (account?.token != null) {
+                Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
+                    SettingsRow(
+                        icon = ExpIcons.settingsVoice,
+                        title = Voice.Copy.GROUP,
+                        onClick = onOpenVoice,
+                        modifier = Modifier.testTag("${Voice.TestIds.PAGE}-row"),
+                    )
                 }
             }
 

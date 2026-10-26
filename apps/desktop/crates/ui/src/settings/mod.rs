@@ -63,6 +63,8 @@ mod archived_boards;
 mod change_email_dialog;
 mod sign_in_methods;
 mod notifications_prefs;
+// NEW-67: Settings → Personal → Voice (`fixtures/voice.json`).
+pub(crate) mod voice_prefs;
 // NEW-6: Settings → Prompts (the list + one prompt's page).
 pub(crate) mod prompts;
 mod board_detail;
@@ -158,6 +160,7 @@ use agents::AgentsPane;
 use archived_boards::ArchivedBoardsPane;
 use board_detail::BoardDetailPane;
 use notifications_prefs::NotificationsPrefsPane;
+use voice_prefs::VoicePrefsPane;
 use prompts::{PromptPage, PromptsPane};
 use repositories::RepositoriesPane;
 use sessions::SessionsPane;
@@ -255,6 +258,9 @@ pub(crate) enum SettingsSection {
     /// EXP-238: email/push notification prefs as their own section (web
     /// parity: `settings/notifications`). Never gated.
     Notifications,
+    /// NEW-67: the member's voice settings (web `settings/voice`). Never
+    /// gated.
+    Voice,
     /// EXP-238: personal `expu_` API keys — list/mint/revoke. EXP-862
     /// relabelled the nav entry "Security" (web `/settings/security`); the
     /// variant keeps its name, and so does the `settings-api` icon.
@@ -373,6 +379,7 @@ const NAV_GROUPS: &[NavGroup] = &[
         items: &[
             NavItem::leaf("Account", SettingsSection::Account),
             NavItem::leaf("Notifications", SettingsSection::Notifications),
+            NavItem::leaf("Voice", SettingsSection::Voice),
             NavItem::leaf("Security", SettingsSection::ApiKeys),
             NavItem::leaf("About", SettingsSection::About),
         ],
@@ -433,6 +440,7 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::Sessions => Icon::from(registry::SETTINGS_SESSIONS),
         SettingsSection::Account => Icon::from(registry::SETTINGS_ACCOUNT),
         SettingsSection::Notifications => Icon::from(registry::SETTINGS_NOTIFICATIONS),
+        SettingsSection::Voice => Icon::from(registry::SETTINGS_VOICE),
         SettingsSection::ApiKeys => Icon::from(registry::SETTINGS_API),
         SettingsSection::About => Icon::from(registry::SETTINGS_ABOUT),
     }
@@ -652,6 +660,7 @@ pub struct SettingsView {
     account: Entity<AccountPane>,
     /// EXP-238: email/push notification prefs — their own section now.
     notifications: Entity<NotificationsPrefsPane>,
+    voice: Entity<VoicePrefsPane>,
     /// EXP-238: personal `expu_` API keys (fetch-on-open server read).
     api_keys: Entity<ApiKeysPane>,
     /// EXP-262: version + third-party licence notices (stateless, un-gated).
@@ -701,6 +710,7 @@ impl SettingsView {
         let sessions = cx.new(SessionsPane::new);
         let account = cx.new(|cx| AccountPane::new(nav.clone(), window, cx));
         let notifications = cx.new(NotificationsPrefsPane::new);
+        let voice = cx.new(VoicePrefsPane::new);
         let api_keys = cx.new(|cx| ApiKeysPane::new(window, cx));
         let about = cx.new(|_| AboutPane::new());
 
@@ -748,6 +758,7 @@ impl SettingsView {
             sessions,
             account,
             notifications,
+            voice,
             api_keys,
             about,
             scroll: gpui::ScrollHandle::new(),
@@ -843,6 +854,7 @@ impl Render for SettingsView {
                 SettingsSection::Notifications => self
                     .notifications
                     .update(cx, |pane, cx| pane.mark_stale(cx)),
+                SettingsSection::Voice => self.voice.update(cx, |pane, cx| pane.mark_stale(cx)),
                 SettingsSection::ApiKeys => {
                     self.api_keys.update(cx, |pane, cx| pane.mark_stale(cx))
                 }
@@ -920,6 +932,7 @@ impl Render for SettingsView {
             SettingsSection::Sessions => self.sessions.clone().into_any_element(),
             SettingsSection::Account => self.account.clone().into_any_element(),
             SettingsSection::Notifications => self.notifications.clone().into_any_element(),
+            SettingsSection::Voice => self.voice.clone().into_any_element(),
             SettingsSection::ApiKeys => self.api_keys.clone().into_any_element(),
             SettingsSection::About => self.about.clone().into_any_element(),
         };
@@ -1842,6 +1855,7 @@ mod tests {
         for section in [
             SettingsSection::Account,
             SettingsSection::Notifications,
+            SettingsSection::Voice,
             SettingsSection::ApiKeys,
             SettingsSection::About,
         ] {

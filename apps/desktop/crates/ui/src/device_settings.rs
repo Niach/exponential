@@ -176,8 +176,6 @@ enum SectionRollback {
     /// EXP-924: the optimistic icon pick. There is nothing to put BACK — the
     /// swatch simply falls off the pick and renders the synced row again.
     Icon,
-    /// NEW-53: the voice settings before the write.
-    Voice(crate::speak_replies::DeviceVoice),
 }
 
 /// EXP-484/694: what THIS install's agent CLIs last reported — the hub's live
@@ -377,11 +375,6 @@ pub struct DeviceSettingsView {
     /// screen-driving subagents run on; the picker row under the switch,
     /// shown only while it is on, saved through the same defaults write.
     computer_use_model_select: ChoiceSelect,
-    /// NEW-53 (`voice.json`): the Assistant picker (value = agent id, `""` =
-    /// None), the Speak replies switch, and the stored values they mirror.
-    voice_assistant_select: ChoiceSelect,
-    voice_speak_replies: bool,
-    seeded_voice: crate::speak_replies::DeviceVoice,
     agent_tab: CodingAgent,
     editor_agents: Vec<CodingAgent>,
     /// The current baseline as a Settings value (drafts overlay it): the
@@ -522,8 +515,6 @@ impl DeviceSettingsView {
             crate::coding_selects::model_select(CodingAgent::Claude, &seeded.claude_subagent_model, window, cx);
         let computer_use_model_select =
             crate::coding_selects::model_select(CodingAgent::Claude, &seeded.computer_use_model, window, cx);
-        let seeded_voice = crate::speak_replies::device_voice(&row);
-        let voice_assistant_select = Self::assistant_select(&seeded_voice, window, cx);
 
         let mut subscriptions = vec![
             // EXP-490: a devices delta re-renders AND mirrors the new
@@ -564,12 +555,6 @@ impl DeviceSettingsView {
                 cx.notify();
             }));
         }
-        // NEW-53: a picked assistant IS the save (`save_voice` ignores the
-        // programmatic rewrites `resync` makes).
-        subscriptions.push(cx.observe(&voice_assistant_select, |this: &mut Self, _, cx| {
-            this.save_voice(cx);
-            cx.notify();
-        }));
         // EXP-694: the name saves debounced while typing and immediately on
         // blur / Enter — no Save button.
         subscriptions.push(cx.subscribe(&name_input, |this: &mut Self, _, event: &InputEvent, cx| {
@@ -607,9 +592,6 @@ impl DeviceSettingsView {
             claude_auto_rotate: seeded.auto_rotate_accounts,
             computer_use: seeded.computer_use,
             computer_use_model_select,
-            voice_speak_replies: seeded_voice.speak_replies,
-            voice_assistant_select,
-            seeded_voice,
             agent_tab: seeded.default_agent,
             editor_agents,
             seeded_label: row.label.clone().unwrap_or_default(),
@@ -729,21 +711,6 @@ impl DeviceSettingsView {
             self.seeded_label = label;
         }
 
-        // NEW-53: the voice rows follow the row unless a pick of their own
-        // is still on its way up.
-        let stored_voice = crate::speak_replies::device_voice(&row);
-        if stored_voice != self.seeded_voice {
-            let drafted_voice = self.drafted_voice(cx);
-            if drafted_voice == self.seeded_voice || drafted_voice == stored_voice {
-                let value = SharedString::from(stored_voice.assistant_agent_id.clone().unwrap_or_default());
-                self.voice_assistant_select
-                    .update(cx, |select, cx| select.set_selected_value(&value, window, cx));
-                self.voice_speak_replies = stored_voice.speak_replies;
-                self.seeded_voice = stored_voice;
-                cx.notify();
-            }
-        }
-
         let (baseline, editor_agents) = Self::baseline_for(&row, self.own, cx);
         if baseline == self.seeded && editor_agents == self.editor_agents {
             return;
@@ -838,127 +805,6 @@ impl DeviceSettingsView {
         })
     }
 
-    /// NEW-53: the Assistant picker over the member's agents
-    /// (`voice::assistant_options`: None first, `{name} · {team}` on a
-    /// shared name), preselecting the stored assistant.
-    fn assistant_select(voice: &crate::speak_replies::DeviceVoice, window: &mut Window, cx: &mut App) -> ChoiceSelect {
-        let agents: Vec<domain::voice::VoiceAgent> = match Store::try_global(cx) {
-            Some(store) => {
-                let collections = store.collections();
-                let teams = collections.teams.read(cx);
-                collections
-                    .agents
-                    .read(cx)
-                    .iter()
-                    .map(|agent| domain::voice::VoiceAgent {
-                        id: agent.id.clone(),
-                        name: agent.name.clone().unwrap_or_default(),
-                        team: agent
-                            .team_id
-                            .as_deref()
-                            .and_then(|team_id| teams.get(team_id))
-                            .map(|team| team.name.clone())
-                            .unwrap_or_default(),
-                    })
-                    .collect()
-            }
-            None => Vec::new(),
-        };
-        let options: Vec<(String, String)> = domain::voice::assistant_options(&agents)
-            .into_iter()
-            .map(|option| (option.label, option.id.unwrap_or_default()))
-            .collect();
-        let choices: Vec<(&str, &str)> = options.iter().map(|(label, value)| (label.as_str(), value.as_str())).collect();
-        choice_select(&choices, voice.assistant_agent_id.as_deref().unwrap_or(""), window, cx)
-    }
-
-    /// NEW-53: the voice settings the controls show.
-    fn drafted_voice(&self, cx: &App) -> crate::speak_replies::DeviceVoice {
-        let assistant = selected(&self.voice_assistant_select, cx);
-        crate::speak_replies::DeviceVoice {
-            assistant_agent_id: (!assistant.is_empty()).then_some(assistant),
-            speak_replies: self.voice_speak_replies,
-        }
-    }
-
-    /// NEW-53: write the voice settings: the whole launch defaults (a save
-    /// replaces the object) with `voice` set. Own and remote device alike
-    /// write the row directly; nothing of it lives in settings.json.
-    fn save_voice(&mut self, cx: &mut gpui::Context<Self>) {
-        // voice.json: choosing None clears Speak replies, so a later pick
-        // never turns speaking on by itself.
-        if selected(&self.voice_assistant_select, cx).is_empty() {
-            self.voice_speak_replies = false;
-        }
-        let drafted = self.drafted_voice(cx);
-        if drafted == self.seeded_voice && !self.section_errors.contains_key("voice") {
-            return;
-        }
-        if self.busy_section.is_some() {
-            self.queue_section("voice");
-            return;
-        }
-        let previous = std::mem::replace(&mut self.seeded_voice, drafted.clone());
-        self.rollback = Some(("voice", SectionRollback::Voice(previous)));
-        let mut wire = serde_json::to_value(coding::defaults_wire(&self.drafted(cx)))
-            .expect("defaults serialize cannot fail");
-        if let Some(object) = wire.as_object_mut() {
-            object.insert(
-                "voice".into(),
-                serde_json::json!({
-                    "assistantAgentId": drafted.assistant_agent_id,
-                    "speakReplies": drafted.speak_replies,
-                }),
-            );
-        }
-        let device_id = self.device_id.clone();
-        self.run_section(
-            "voice",
-            move |trpc| {
-                api::devices::set_launch_defaults(trpc, &device_id, &wire, api::devices::ExpectedStamp::Unconditional)
-                    .map(|_| ())
-            },
-            cx,
-        );
-    }
-
-    /// NEW-53 (`voice.json`): the Voice group: the Assistant picker, then
-    /// Speak replies (disabled with no assistant; its trailing detail reads
-    /// the download while the voice is fetched on THIS machine).
-    fn render_voice_section(&self, cx: &mut gpui::Context<Self>) -> Div {
-        let copy = &domain::voice::VOICE.copy;
-        let has_assistant = !selected(&self.voice_assistant_select, cx).is_empty();
-        let downloading = self.own
-            && self.voice_speak_replies
-            && crate::speak_replies::download(cx) == crate::speak_replies::Download::Running;
-        let assistant_row = surface::glass_picker_row(
-            copy.assistant.clone(),
-            None,
-            surface::glass_picker_select(Select::new(&self.voice_assistant_select), cx).into_any_element(),
-            cx,
-        );
-        let switch = crate::controls::web_switch("device-voice-speak-replies")
-            .checked(self.voice_speak_replies && has_assistant)
-            .disabled(!has_assistant)
-            .on_click(cx.listener(|this, on: &bool, _, cx| {
-                this.voice_speak_replies = *on;
-                this.save_voice(cx);
-                cx.notify();
-            }));
-        let speak_row = surface::glass_toggle_row(
-            copy.speak_replies.clone(),
-            downloading.then(|| SharedString::from(copy.downloading.clone())),
-            switch.into_any_element(),
-            cx,
-        );
-        div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .child(surface::glass_section_header(copy.group.clone(), None, cx))
-            .child(surface::glass_group_rows(vec![assistant_row, speak_row]))
-    }
-
     fn set_error(&mut self, key: impl Into<String>, message: Option<SharedString>, cx: &mut App) {
         let key = key.into();
         match message {
@@ -987,7 +833,6 @@ impl DeviceSettingsView {
             Some((_, SectionRollback::Label(label))) => self.last_saved_label = label,
             Some((_, SectionRollback::Defaults(seeded))) => self.seeded = *seeded,
             Some((_, SectionRollback::Icon)) => self.icon_pick = None,
-            Some((_, SectionRollback::Voice(voice))) => self.seeded_voice = voice,
             None => {}
         }
     }
@@ -1055,7 +900,6 @@ impl DeviceSettingsView {
             "name" => self.save_name(cx),
             "icon" => self.commit_icon(cx),
             "defaults" => self.save_defaults(cx),
-            "voice" => self.save_voice(cx),
             _ => {}
         }
     }
@@ -2060,7 +1904,6 @@ fn section_failure(key: &str) -> (&'static str, String) {
         "icon" => ("save", "the icon".into()),
         "sharing" | "default" => ("update", "the device".into()),
         "defaults" => ("save", "the agent defaults".into()),
-        "voice" => ("save", "the voice settings".into()),
         "update" => ("queue", "the update".into()),
         "remove" => ("remove", "the device".into()),
         key => match key.strip_prefix("update ").and_then(CodingAgent::parse) {
@@ -2208,8 +2051,6 @@ impl Render for DeviceSettingsView {
             Some(block) => body.child(block),
             None => body,
         };
-        // NEW-53: the Voice group, right under the Computer use band.
-        let body = body.child(self.render_voice_section(cx));
         let mut body = body.child(self.render_defaults_section(online, cx));
         // EXP-909: Update and Remove are the LAST two sections ×4 — the
         // device row carries one control now (the gear that opened this), so

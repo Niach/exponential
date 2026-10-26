@@ -3,12 +3,9 @@ import {
   GlassSectionHeader,
   GlassToggleRow,
   ModelPicker,
-  Picker,
   SubShellHost,
   conceptIcon,
 } from "@exp/ui"
-
-import { VOICE_COPY, VOICE_TEST_IDS } from "@exp/domain-contract/voice"
 
 import type { StyleguideEntry } from "./types.ts"
 
@@ -26,11 +23,6 @@ const MODELS = [
   { value: `sonnet`, label: `Sonnet` },
   { value: `haiku`, label: `Haiku` },
 ]
-/** NEW-53: the Assistant picker's agents (None is the picker's none row). */
-const ASSISTANTS = [
-  { value: `ops`, label: `Ops` },
-  { value: `scout`, label: `Scout` },
-]
 const RemoveIcon = conceptIcon(`ui-delete`)
 
 export const entry: StyleguideEntry = {
@@ -38,7 +30,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1020`,
   title: `Device settings`,
-  blurb: `One layout on all four clients (EXP-1020). Top to bottom: the identity row, the default-device toggle, sharing (server machines), then the computer-use card (the switch and, while it is on, the model the session's screen-driving subagents use, EXP-1236), then Voice (NEW-53, voice.json: the Assistant picker over the member's agents with None first, then Speak replies, off while no assistant), then the agent-defaults card — agent tabs, model, thread model (the model a thread's or team agent's dispatcher root runs on: Haiku for Claude, the codex models for Codex), subagent model (claude only), effort, ultracode, plan mode — and nothing after it. Every model row is THE model picker over the contract list, no Default row. Update comes last but one; "Remove device" is a plain row, not a section of its own. No worktrees: a machine's worktrees are the IDE's local Settings → Worktrees. A headline only appears where something else shares the page, which is why the agent card has none.`,
+  blurb: `One layout on all four clients (EXP-1020). Top to bottom: the identity row, the default-device toggle, sharing (server machines), then the computer-use card (the switch and, while it is on, the model the session's screen-driving subagents use, EXP-1236), then the agent-defaults card — agent tabs, model, thread model (the model a thread's or team agent's dispatcher root runs on: Haiku for Claude, the codex models for Codex), subagent model (claude only), effort, ultracode, plan mode — and nothing after it. Every model row is THE model picker over the contract list, no Default row. Update comes last but one; "Remove device" is a plain row, not a section of its own. No worktrees: a machine's worktrees are the IDE's local Settings → Worktrees. No Voice: it is the member's Settings → Voice (NEW-67, voice-settings). A headline only appears where something else shares the page, which is why the agent card has none.`,
   status: {
     web: {
       state: `ok`,
@@ -96,28 +88,6 @@ export const entry: StyleguideEntry = {
           value="haiku"
           onChange={noop}
           models={MODELS}
-        />
-      </GlassGroup>
-      {/* NEW-53 (voice.json): the assistant, then the switch (disabled while
-          the assistant is None). */}
-      <GlassSectionHeader label={VOICE_COPY.group} />
-      <GlassGroup data-testid={`demo-${VOICE_TEST_IDS.group}`}>
-        <Picker
-          mode="single"
-          triggerVariant="row"
-          width="md"
-          mobileTitle={VOICE_COPY.assistant}
-          value="ops"
-          items={ASSISTANTS}
-          noneLabel={VOICE_COPY.assistantNone}
-          onNone={noop}
-          onChange={noop}
-        />
-        <GlassToggleRow
-          id={`demo-${VOICE_TEST_IDS.speakReplies}`}
-          label={VOICE_COPY.speakReplies}
-          checked
-          onCheckedChange={noop}
         />
       </GlassGroup>
       <GlassGroup>

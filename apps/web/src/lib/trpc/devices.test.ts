@@ -865,45 +865,15 @@ describe(`devices.setLaunchDefaults`, () => {
     )
   })
 
-  // NEW-53: the voice settings ride launch_defaults like computerUse.
-  const AGENT = `3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`
-
-  it(`stores the voice settings, dropping nulls and a non-uuid assistant`, async () => {
+  // NEW-67: `voice` left launch_defaults for user_voice_settings; an older
+  // client that still sends it has the key dropped, never a 400.
+  it(`drops a voice key an older client still sends`, async () => {
     h.state.selectQueue = deviceRow()
-    const ok = await caller.setLaunchDefaults({
+    const result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
-      launchDefaults: { voice: { assistantAgentId: AGENT, speakReplies: true } },
+      launchDefaults: { computerUse: true, voice: { speakReplies: true } } as never,
     })
-    expect(ok.launchDefaults).toEqual({ voice: { assistantAgentId: AGENT, speakReplies: true } })
-    h.state.selectQueue = deviceRow()
-    const partial = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { voice: { assistantAgentId: null, speakReplies: false } },
-    })
-    expect(partial.launchDefaults).toEqual({ voice: { speakReplies: false } })
-    h.state.selectQueue = deviceRow()
-    await expect(
-      caller.setLaunchDefaults({
-        deviceId: `dev-1`,
-        launchDefaults: { voice: { assistantAgentId: `not-a-uuid` } },
-      })
-    ).rejects.toThrow()
-  })
-
-  it(`a save without a voice key keeps the stored voice; voice: null clears it`, async () => {
-    const stored = { voice: { assistantAgentId: AGENT, speakReplies: true } }
-    h.state.selectQueue = deviceRow({ launchDefaults: stored })
-    const kept = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { computerUse: true },
-    })
-    expect(kept.launchDefaults).toEqual({ computerUse: true, ...stored })
-    h.state.selectQueue = deviceRow({ launchDefaults: stored })
-    const cleared = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { computerUse: true, voice: null },
-    })
-    expect(cleared.launchDefaults).toEqual({ computerUse: true })
+    expect(result.launchDefaults).toEqual({ computerUse: true })
   })
 
   it(`device push with a stale stamp gets conflict + the server copy`, async () => {

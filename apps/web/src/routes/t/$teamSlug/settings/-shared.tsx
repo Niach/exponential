@@ -38,6 +38,7 @@ export type SettingsSectionPath =
   | `/t/$teamSlug/settings/mcp-servers`
   | `/t/$teamSlug/settings/account`
   | `/t/$teamSlug/settings/notifications`
+  | `/t/$teamSlug/settings/voice`
   | `/t/$teamSlug/settings/security`
 
 export interface SettingsNavItem {
@@ -194,6 +195,14 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
         label: `Notifications`,
         to: `/t/$teamSlug/settings/notifications`,
         icon: conceptIcon(`settings-notifications`),
+        visible: () => true,
+      },
+      // NEW-67 (voice.json `copy.group`, a literal so the icons gate pairs it
+      // with the desktop nav): the member's voice device, agent and switches.
+      {
+        label: `Voice`,
+        to: `/t/$teamSlug/settings/voice`,
+        icon: conceptIcon(`settings-voice`),
         visible: () => true,
       },
       // EXP-862: "Security" — API keys AND passkeys (the latter moved off

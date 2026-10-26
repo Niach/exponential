@@ -65,6 +65,7 @@ import {
   sessions,
   teamInvites,
   users,
+  userVoiceSettings,
   teamMembers,
   teams,
   widgetConfigs,
@@ -2513,6 +2514,23 @@ async function main() {
     return row
   }
   await seedSessionTree({ teamId: ws.id, demoId, jonas, repoId: repo.id, issue })
+
+  // NEW-67: Settings → Voice with the demo desktop as the voice device and
+  // Triage (seeded by the session tree above) as the agent, so the capture
+  // shows the tray group too.
+  const voice = {
+    voiceDeviceId: DEMO_DEVICE_ID,
+    agentId: DEMO_AGENT_IDS.triage,
+    speakReplies: true,
+    pushToTalk: true,
+    pttShortcut: `ctrl+space`,
+    wakeWord: false,
+    wakePhrase: ``,
+  }
+  await db
+    .insert(userVoiceSettings)
+    .values({ userId: demoId, ...voice })
+    .onConflictDoUpdate({ target: userVoiceSettings.userId, set: voice })
   const live = await assertDemoLiveSessions(now)
   if (live !== DEMO_LIVE_SESSIONS.length) {
     throw new Error(`expected ${DEMO_LIVE_SESSIONS.length} live demo sessions, wrote ${live}`)

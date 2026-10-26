@@ -103,6 +103,7 @@ import { Route as TTeamSlugDraftsIndexRouteImport } from './routes/t/$teamSlug/d
 import { Route as TTeamSlugAppsIndexRouteImport } from './routes/t/$teamSlug/apps/index'
 import { Route as TTeamSlugThreadsThreadIdRouteImport } from './routes/t/$teamSlug/threads/$threadId'
 import { Route as TTeamSlugSettingsWidgetRouteImport } from './routes/t/$teamSlug/settings/widget'
+import { Route as TTeamSlugSettingsVoiceRouteImport } from './routes/t/$teamSlug/settings/voice'
 import { Route as TTeamSlugSettingsStorageRouteImport } from './routes/t/$teamSlug/settings/storage'
 import { Route as TTeamSlugSettingsStatusesRouteImport } from './routes/t/$teamSlug/settings/statuses'
 import { Route as TTeamSlugSettingsSecurityRouteImport } from './routes/t/$teamSlug/settings/security'
@@ -625,6 +626,11 @@ const TTeamSlugSettingsWidgetRoute = TTeamSlugSettingsWidgetRouteImport.update({
   path: '/widget',
   getParentRoute: () => TTeamSlugSettingsRouteRoute,
 } as any)
+const TTeamSlugSettingsVoiceRoute = TTeamSlugSettingsVoiceRouteImport.update({
+  id: '/voice',
+  path: '/voice',
+  getParentRoute: () => TTeamSlugSettingsRouteRoute,
+} as any)
 const TTeamSlugSettingsStorageRoute =
   TTeamSlugSettingsStorageRouteImport.update({
     id: '/storage',
@@ -958,6 +964,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/security': typeof TTeamSlugSettingsSecurityRoute
   '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
+  '/t/$teamSlug/settings/voice': typeof TTeamSlugSettingsVoiceRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
   '/t/$teamSlug/threads/$threadId': typeof TTeamSlugThreadsThreadIdRoute
   '/t/$teamSlug/apps/': typeof TTeamSlugAppsIndexRoute
@@ -1088,6 +1095,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/security': typeof TTeamSlugSettingsSecurityRoute
   '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
+  '/t/$teamSlug/settings/voice': typeof TTeamSlugSettingsVoiceRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
   '/t/$teamSlug/threads/$threadId': typeof TTeamSlugThreadsThreadIdRoute
   '/t/$teamSlug/apps': typeof TTeamSlugAppsIndexRoute
@@ -1223,6 +1231,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/security': typeof TTeamSlugSettingsSecurityRoute
   '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
+  '/t/$teamSlug/settings/voice': typeof TTeamSlugSettingsVoiceRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
   '/t/$teamSlug/threads/$threadId': typeof TTeamSlugThreadsThreadIdRoute
   '/t/$teamSlug/apps/': typeof TTeamSlugAppsIndexRoute
@@ -1358,6 +1367,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/security'
     | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
+    | '/t/$teamSlug/settings/voice'
     | '/t/$teamSlug/settings/widget'
     | '/t/$teamSlug/threads/$threadId'
     | '/t/$teamSlug/apps/'
@@ -1488,6 +1498,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/security'
     | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
+    | '/t/$teamSlug/settings/voice'
     | '/t/$teamSlug/settings/widget'
     | '/t/$teamSlug/threads/$threadId'
     | '/t/$teamSlug/apps'
@@ -1622,6 +1633,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/security'
     | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
+    | '/t/$teamSlug/settings/voice'
     | '/t/$teamSlug/settings/widget'
     | '/t/$teamSlug/threads/$threadId'
     | '/t/$teamSlug/apps/'
@@ -2386,6 +2398,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsWidgetRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
+    '/t/$teamSlug/settings/voice': {
+      id: '/t/$teamSlug/settings/voice'
+      path: '/voice'
+      fullPath: '/t/$teamSlug/settings/voice'
+      preLoaderRoute: typeof TTeamSlugSettingsVoiceRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
     '/t/$teamSlug/settings/storage': {
       id: '/t/$teamSlug/settings/storage'
       path: '/storage'
@@ -2714,6 +2733,7 @@ interface TTeamSlugSettingsRouteRouteChildren {
   TTeamSlugSettingsSecurityRoute: typeof TTeamSlugSettingsSecurityRoute
   TTeamSlugSettingsStatusesRoute: typeof TTeamSlugSettingsStatusesRoute
   TTeamSlugSettingsStorageRoute: typeof TTeamSlugSettingsStorageRoute
+  TTeamSlugSettingsVoiceRoute: typeof TTeamSlugSettingsVoiceRoute
   TTeamSlugSettingsWidgetRoute: typeof TTeamSlugSettingsWidgetRoute
   TTeamSlugSettingsIndexRoute: typeof TTeamSlugSettingsIndexRoute
   TTeamSlugSettingsAgentsAgentIdRoute: typeof TTeamSlugSettingsAgentsAgentIdRoute
@@ -2745,6 +2765,7 @@ const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
     TTeamSlugSettingsSecurityRoute: TTeamSlugSettingsSecurityRoute,
     TTeamSlugSettingsStatusesRoute: TTeamSlugSettingsStatusesRoute,
     TTeamSlugSettingsStorageRoute: TTeamSlugSettingsStorageRoute,
+    TTeamSlugSettingsVoiceRoute: TTeamSlugSettingsVoiceRoute,
     TTeamSlugSettingsWidgetRoute: TTeamSlugSettingsWidgetRoute,
     TTeamSlugSettingsIndexRoute: TTeamSlugSettingsIndexRoute,
     TTeamSlugSettingsAgentsAgentIdRoute: TTeamSlugSettingsAgentsAgentIdRoute,

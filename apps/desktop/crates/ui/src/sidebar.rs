@@ -311,6 +311,7 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         "sessions" => Some(S::Sessions),
         "account" => Some(S::Account),
         "notifications" => Some(S::Notifications),
+        "voice" => Some(S::Voice),
         "api-keys" => Some(S::ApiKeys),
         "mcp-servers" => Some(S::McpServers),
         "about" => Some(S::About),

@@ -109,24 +109,19 @@ public struct AgentLaunchDefaultsInput: Encodable, Sendable {
 /// toggled); nil writes no key and the server carries the stored value forward.
 /// EXP-1236: `computerUseModel` rides the same way beside it (a contract
 /// `computerUseModel` alias; the server clamps unknown ones).
-/// NEW-53: `voice` rides the same way (nil = no key = the server carries the
-/// stored value forward); the device settings sheet always sends it.
 public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
     public let agents: [String: AgentLaunchDefaultsInput]?
     public let computerUse: Bool?
     public let computerUseModel: String?
-    public let voice: VoiceLaunchDefaults?
 
     public init(
         agents: [String: AgentLaunchDefaultsInput]? = nil,
         computerUse: Bool? = nil,
-        computerUseModel: String? = nil,
-        voice: VoiceLaunchDefaults? = nil
+        computerUseModel: String? = nil
     ) {
         self.agents = agents
         self.computerUse = computerUse
         self.computerUseModel = computerUseModel
-        self.voice = voice
     }
 }
 

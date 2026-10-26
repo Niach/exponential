@@ -146,6 +146,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`team-agents-settings`]: `Surfaces`,
   [`voice-call-overlay`]: `Surfaces`,
   [`computer-use-banner`]: `Feedback`,
+  [`voice-settings`]: `Surfaces`,
   [`feedback-states`]: `Feedback`,
   [`agent-home`]: `Surfaces`,
   [`work-tabs-strip`]: `Surfaces`,

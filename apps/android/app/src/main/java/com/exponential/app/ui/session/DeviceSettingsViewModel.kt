@@ -13,11 +13,9 @@ import com.exponential.app.data.api.agentUpdateCommand
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
-import com.exponential.app.data.db.AgentDefinitionEntity
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
-import com.exponential.app.domain.Voice
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -29,7 +27,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.stateIn
@@ -138,22 +135,6 @@ class DeviceSettingsViewModel @Inject constructor(
     val teams: StateFlow<List<TeamEntity>> =
         dbFlow.scopedQuery(emptyList<TeamEntity>()) { it.teamDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /**
-     * NEW-53: the Voice group's Assistant picker — every agent in the
-     * member's teams (`Voice.assistantOptions`: None first, `{name} · {team}`
-     * when two agents share a name).
-     */
-    val assistantOptions: StateFlow<List<Voice.AssistantOption>> =
-        combine(
-            dbFlow.scopedQuery(emptyList<AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() },
-            teams,
-        ) { agents, teams ->
-            val teamNames = teams.associate { it.id to it.name }
-            Voice.assistantOptions(
-                agents.map { Voice.AgentLike(id = it.id, name = it.name, team = teamNames[it.teamId].orEmpty()) },
-            )
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Voice.assistantOptions(emptyList()))
 
     // Per-section busy flags (EXP-323 idiom).
     private val _nameBusy = MutableStateFlow(false)
