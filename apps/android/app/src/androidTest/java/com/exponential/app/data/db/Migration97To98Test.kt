@@ -41,12 +41,12 @@ class Migration97To98Test {
         createVersion97()
 
         val db = Room.databaseBuilder(context, ExponentialDatabase::class.java, TEST_DB)
-            .addMigrations(MIGRATION_97_98, MIGRATION_98_99, MIGRATION_99_100)
+            .addMigrations(MIGRATION_97_98, MIGRATION_98_99, MIGRATION_99_100, MIGRATION_100_101)
             .allowMainThreadQueries()
             .build()
         try {
             val sql = db.openHelper.writableDatabase
-            assertEquals(100, sql.version)
+            assertEquals(101, sql.version)
             sql.query("SELECT title, assignee_agent_id FROM issues WHERE id = 'i1'").use {
                 assertTrue(it.moveToFirst())
                 assertEquals("Crash on launch", it.getString(0))

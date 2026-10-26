@@ -47,4 +47,15 @@ class SessionEntityDecodeTest {
         val camel = json.decodeFromString(SessionEntity.serializer(), """{"id":"s-3","agentId":"ag-2"}""")
         org.junit.Assert.assertEquals("ag-2", camel.agentId)
     }
+
+    /** EXP-1374: `background` (Postgres `t`/`f` or a JSON bool) decodes;
+     *  absent = false. */
+    @Test
+    fun `background decodes, absent = false`() {
+        val bg = json.decodeFromString(SessionEntity.serializer(), """{"id":"s-1","busy":"t","background":"t"}""")
+        assertTrue(bg.background)
+        val camel = json.decodeFromString(SessionEntity.serializer(), """{"id":"s-2","background":true}""")
+        assertTrue(camel.background)
+        assertFalse(json.decodeFromString(SessionEntity.serializer(), """{"id":"s-3"}""").background)
+    }
 }

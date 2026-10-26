@@ -2500,14 +2500,20 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
     // EXP-1321/1324: THE Queue, only while the run is live.
     val taskQueue = rememberSessionTaskQueue(feed, activity.taskList, activity.backgroundTasks)
         .takeIf { phase == AgentPhase.Live && !sessionEnded }
+    // EXP-1374 (session-card.json `banner`): an interrupted or background
+    // session's own Dock banner; while it shows it replaces the host's
+    // offline "paused" banner (and an interruption's blocked strip).
+    val sessionBanner = session?.let { SessionTree.sessionBanner(SessionTree.session(it)) }
     val paused = hostOffline && phase.isWaitingForStream
     val persistedBlock = AgentUsagePresentation.parseBlocked(session?.blocked)
     val blockedLabel = AgentUsagePresentation.blockedBadgeLabel(persistedBlock, nowMs)
+        .takeUnless { sessionBanner?.id == SessionTree.SessionState.Interrupted.wire }
     val rateLimit = activity.rateLimit
     val sources = buildList<Dock.Source> {
         add(Dock.Source.Queued(queue.map { Dock.QueuedMessage(it.id, it.text.replace(QUEUE_LINE_WHITESPACE, " ").trim()) }))
         add(Dock.Source.Tasks(taskQueue))
-        if (paused && feed.isNotEmpty()) {
+        if (sessionBanner != null) add(sessionBanner.source)
+        if (paused && feed.isNotEmpty() && sessionBanner == null) {
             add(
                 Dock.Source.Banner(
                     "paused", "ui-device-offline", "${hostDevice.displayLabel} is offline",

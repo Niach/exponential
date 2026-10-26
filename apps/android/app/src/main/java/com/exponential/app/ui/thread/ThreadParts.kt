@@ -909,6 +909,9 @@ internal fun sessionCardIcon(concept: String): ImageVector = when (concept) {
     "coding-needs-input" -> ExpIcons.codingNeedsInput
     "notification-session-blocked" -> ExpIcons.notificationSessionBlocked
     "coding-ended" -> ExpIcons.codingEnded
+    // EXP-1374: interrupted + background.
+    "run-pause" -> ExpIcons.runPause
+    "trace-background" -> ExpIcons.traceBackground
     else -> ExpIcons.codingAssistant
 }
 

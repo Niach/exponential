@@ -465,8 +465,11 @@ import androidx.room.TypeConverters
     // v100 (VAPP-120): apps.granted_tools (the typed actions an app may run
     //      without asking, a JSON string[]). Explicit [MIGRATION_99_100] adds
     //      the column with "[]" and refetches only the apps shape.
+    // v101 (EXP-1374): sessions.background (busy only on background tasks).
+    //      Explicit [MIGRATION_100_101] adds the column as 0 and refetches
+    //      only the sessions shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 100,
+    version = 101,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
