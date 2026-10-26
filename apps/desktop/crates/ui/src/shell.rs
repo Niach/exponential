@@ -343,9 +343,11 @@ impl Shell {
                 crate::native_dialog::on_opener_released(window_id, cx);
                 // Non-macOS: the app quits when the last window closes.
                 // macOS keeps running (standard platform behavior; the dock
-                // icon / File ▸ New Window reopens a shell).
+                // icon / File ▸ New Window reopens a shell). NEW-68: while
+                // the voice tray is up it keeps running too, so the speech
+                // worker stays resident (the tray's Quit is the way out).
                 #[cfg(not(target_os = "macos"))]
-                if shared.read(cx).windows_open == 0 {
+                if shared.read(cx).windows_open == 0 && !crate::voice_tray::keeps_running(cx) {
                     cx.quit();
                 }
             }

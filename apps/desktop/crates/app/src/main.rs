@@ -211,6 +211,8 @@ fn main() {
         // NEW-53: Speak replies (after the store + AuthContext, like the
         // notifier above).
         ui::speak_replies::install(cx);
+        // NEW-68: the voice tray (follows the settings speak replies holds).
+        ui::voice_tray::install(cx);
 
         // Session bootstrap: the EXP_DEV_SERVER/EXP_DEV_TOKEN dev override
         // (headless verification, dev-only) or a warm-start resume of the
