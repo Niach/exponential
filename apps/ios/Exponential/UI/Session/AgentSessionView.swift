@@ -178,6 +178,11 @@ struct AgentSessionView: View {
     /// mirrored ACP ask) — the relay has no open ask for them, so they answer
     /// through `sessions.answer`, in the ask dock like a thread's.
     @State private var toolAsks: [ThreadRow] = []
+    /// EXP-1398: this session's cards (`AskDock.sessionCards`: the tool-posted
+    /// plan / question cards above plus its `surface` cards), oldest first.
+    @State private var sessionCards: [AskDock.SessionCard] = []
+    /// EXP-1398: the `surface` cards' rows, by message id.
+    @State private var surfaceRows: [String: ThreadRow] = [:]
     @State private var toolAnsweringId: String?
     /// N-12: THE Dock's open sheet (a card id).
     @State private var dockOpenId: String?
@@ -745,17 +750,15 @@ struct AgentSessionView: View {
                             // (`bottomBand`).
                             let docked = dockedRow(model)?.id
                             let rows = model.rows.filter { $0.id != docked }
-                            // EXP-1280: the tool-posted cards NOT in the dock
-                            // draw inline — each after the call that posted
-                            // it, the ones older than the window up top — so
-                            // a tool plan waiting beside a relay question,
-                            // and every answered one, stays in the history
-                            // (web `renderToolCards`).
-                            let toolCardAnchors = AskDock.anchorToolCards(
-                                feed: model.feed, cardIds: toolAsks.map(\.id)
+                            // EXP-1398 (ask-dock.json `anchorCases`): EVERY
+                            // session card draws inline after the call that
+                            // posted it (paired per kind), the ones older than
+                            // the window up top; a waiting one ALSO sits in
+                            // the Dock (FEED-140; web `renderToolCards`).
+                            let toolCardAnchors = AskDock.anchorSessionCards(
+                                AskDock.feedCalls(model.feed), cards: sessionCards
                             )
-                            let dockedToolIds = dockedToolCardIds(model)
-                            inlineToolCards(toolCardAnchors.unanchored, docked: dockedToolIds, model: model)
+                            inlineToolCards(toolCardAnchors.unanchored, model: model)
                             // EXP-787: every row's space above it comes from
                             // the shared gap ladder, keyed on the row BEFORE
                             // it — the rows themselves carry no outer margin
@@ -769,7 +772,6 @@ struct AgentSessionView: View {
                                     )))
                                 inlineToolCards(
                                     Self.rowItemIds(row).flatMap { toolCardAnchors.anchors[$0] ?? [] },
-                                    docked: dockedToolIds,
                                     model: model
                                 )
                             }
@@ -1137,13 +1139,6 @@ struct AgentSessionView: View {
         return AskDock.threadPendingAsks(toolAsks) { _ in nil }
     }
 
-    /// EXP-1280: the tool-posted cards THE Dock holds right now — every
-    /// waiting one (web `dockedToolCards`). Every other tool card draws
-    /// inline, closed.
-    private func dockedToolCardIds(_ model: AgentSessionModel) -> Set<String> {
-        Set(pendingToolAsks(model).map(\.id))
-    }
-
     /// The feed item ids a transcript row draws (web `rowItemIds`): where a
     /// tool-posted card anchors.
     private static func rowItemIds(_ row: AgentFeedRow) -> [Int] {
@@ -1154,15 +1149,25 @@ struct AgentSessionView: View {
         }
     }
 
-    /// EXP-1280: the tool-posted cards with these message ids, inline as
-    /// THE thread card (`ThreadAskCard`): a waiting one answerable by a
-    /// viewer who may post, an answered one closed with its picks. The
-    /// docked ones are skipped (they sit in the composer's slot).
+    /// EXP-1280: the session cards with these message ids, inline as THE
+    /// thread card (`ThreadAskCard`): a waiting one answerable by a viewer
+    /// who may post (FEED-140: it also sits in the Dock), an answered one
+    /// closed with its picks; a `surface` card = THE thread's
+    /// `SurfaceCardRow`.
     @ViewBuilder
-    private func inlineToolCards(_ ids: [String], docked: Set<String>, model: AgentSessionModel) -> some View {
+    private func inlineToolCards(_ ids: [String], model: AgentSessionModel) -> some View {
         let canAnswerCards = model.mayPost && !model.sessionEnded
-        ForEach(ids.filter { !docked.contains($0) }, id: \.self) { id in
-            if let row = toolAsks.first(where: { $0.id == id }) {
+        ForEach(ids, id: \.self) { id in
+            if case let .surface(_, _, title, surface)? = surfaceRows[id] {
+                SurfaceCardRow(
+                    surface: surface,
+                    title: title,
+                    animate: false,
+                    onReply: canAnswerCards ? { text in replyFromSurface(text) } : nil
+                )
+                .padding(.top, DesignTokens.Transcript.gapBlock)
+                .accessibilityIdentifier("session-surface-card")
+            } else if let row = toolAsks.first(where: { $0.id == id }) {
                 ThreadAskCard(
                     row: row,
                     canAnswer: canAnswerCards,
@@ -1176,8 +1181,8 @@ struct AgentSessionView: View {
         }
     }
 
-    /// EXP-1280: observe this session's own synced card messages; keep the
-    /// tool-posted ones (no `questionId`) as rows.
+    /// EXP-1280: observe this session's own synced card messages; keep its
+    /// cards (EXP-1398 `AskDock.sessionCards`) as rows.
     private func observeToolAsks() async {
         guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         let id = session.id
@@ -1186,13 +1191,42 @@ struct AgentSessionView: View {
         }
         do {
             for try await messages in observation.values(in: pool) {
-                toolAsks = messages.compactMap { row in
-                    let message = TreeMessage(messageRow: row)
-                    guard message.authorKind == "agent", message.card?.questionId == nil else { return nil }
-                    return ThreadRow.askCard(message)
+                let tree = messages.map(TreeMessage.init(messageRow:))
+                let byId = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                let cards = AskDock.sessionCards(tree)
+                var asks: [ThreadRow] = []
+                var surfaces: [String: ThreadRow] = [:]
+                for card in cards {
+                    guard let message = byId[card.id] else { continue }
+                    if card.kind == .surface {
+                        surfaces[card.id] = ThreadRow.surfaceCard(message)
+                    } else if let row = ThreadRow.askCard(message) {
+                        asks.append(row)
+                    }
                 }
+                sessionCards = cards.filter { $0.kind != .surface || surfaces[$0.id] != nil }
+                toolAsks = asks
+                surfaceRows = surfaces
             }
         } catch {}
+    }
+
+    /// EXP-1398: a surface card's reply = the person's next message, through
+    /// the one send path (ThreadScreen `reply`).
+    private func replyFromSurface(_ text: String) {
+        let api = deps.sessionsApi
+        let accountId = accountId
+        let sessionId = session.id
+        Task {
+            do {
+                _ = try await api.send(accountId: accountId, .message(sessionId: sessionId, text: text))
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "send", thing: "the message"),
+                    description: error.userFacingMessage
+                )
+            }
+        }
     }
 
     /// EXP-1280: answer a tool-posted card (`sessions.answer`); a refusal

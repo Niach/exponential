@@ -715,6 +715,14 @@ public enum ThreadRow: Equatable, Sendable {
     /// preview (`surface` card); `title` trimmed, nil = none.
     case surface(id: String, sessionId: String, title: String?, surface: CardSurface)
 
+    /// A `surface` card message as its row (nil = another kind or no
+    /// surface); `title` trimmed, empty = nil.
+    public static func surfaceCard(_ message: TreeMessage) -> ThreadRow? {
+        guard let card = message.card, card.kind == "surface", let surface = card.surface else { return nil }
+        let title = card.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return .surface(id: message.id, sessionId: message.sessionId, title: title.isEmpty ? nil : title, surface: surface)
+    }
+
     /// A `question` / `plan` card message as its row (nil = another kind).
     public static func askCard(_ message: TreeMessage) -> ThreadRow? {
         guard let card = message.card else { return nil }
@@ -1516,14 +1524,7 @@ public enum SessionTree {
             case "ask":
                 break
             case "surface":
-                guard let surface = card.surface else { break }
-                let title = card.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                rows.append(.surface(
-                    id: message.id,
-                    sessionId: message.sessionId,
-                    title: title.isEmpty ? nil : title,
-                    surface: surface
-                ))
+                if let row = ThreadRow.surfaceCard(message) { rows.append(row) }
             default:
                 break
             }
