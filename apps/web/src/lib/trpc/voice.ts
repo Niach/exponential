@@ -37,7 +37,10 @@ export async function voiceSettingsOf(database: Db, userId: string): Promise<Voi
     .where(eq(userVoiceSettings.userId, userId))
     .limit(1)
   if (!row) return { ...VOICE_DEFAULTS }
-  return {
+  // #NEW-71: a deleted agent nulls `agent_id` (FK set null) but leaves the
+  // switches stored as they were; read them through clearOnNone so they never
+  // come back on silently when a new agent is picked.
+  return withClearOnNone({
     voiceDeviceId: row.voiceDeviceId,
     agentId: row.agentId,
     speakReplies: row.speakReplies,
@@ -45,7 +48,7 @@ export async function voiceSettingsOf(database: Db, userId: string): Promise<Voi
     pttShortcut: row.pttShortcut,
     wakeWord: row.wakeWord,
     wakePhrase: row.wakePhrase,
-  }
+  })
 }
 
 /** voice.json `clearOnNone`: with no voice device or no agent, nothing
@@ -77,7 +80,12 @@ export const voiceRouter = router({
         pushToTalk: z.boolean().optional(),
         pttShortcut: z.enum(SHORTCUT_VALUES).optional(),
         wakeWord: z.boolean().optional(),
-        wakePhrase: z.string().max(64).optional(),
+        // #NEW-71: one line of text; control characters and newlines never.
+        wakePhrase: z
+          .string()
+          .max(64)
+          .refine((value) => !/\p{Cc}/u.test(value), `The wake phrase can't contain control characters`)
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {

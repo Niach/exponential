@@ -110,6 +110,26 @@ describe(`voice.update`, () => {
   })
 })
 
+describe(`#NEW-71`, () => {
+  it(`a deleted agent (agent_id nulled by the FK) reads with every switch off`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored, agentId: null }]]
+    expect(await caller.get()).toMatchObject({ agentId: null, speakReplies: false, pushToTalk: false, wakeWord: false })
+  })
+
+  it(`picking a new agent after that never turns speaking back on`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored, agentId: null }], [{ id: AGENT }]]
+    const next = await caller.update({ agentId: AGENT })
+    expect(next).toMatchObject({ agentId: AGENT, speakReplies: false, pushToTalk: false, wakeWord: false })
+  })
+
+  it(`refuses a wake phrase with a newline or a control character`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored }], [{ userId: `me`, ...stored }]]
+    await expect(caller.update({ wakePhrase: `Hey\nOps` })).rejects.toThrow()
+    await expect(caller.update({ wakePhrase: `Hey\u0007Ops` })).rejects.toThrow()
+    expect(h.state.upserts).toHaveLength(0)
+  })
+})
+
 describe(`withClearOnNone matches the fixture`, () => {
   for (const c of fixture.clearOnNoneCases) {
     it(c.name, () => {
