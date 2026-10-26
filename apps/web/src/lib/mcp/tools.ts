@@ -388,7 +388,7 @@ const cardSurfaceInput = z
   .optional()
 
 // EXP-1251 → EXP-1291: the Guide tool's description (always-loaded bytes).
-const GUIDE_TOOL_DESCRIPTION = `Your thread's GUIDE = the body of every PR in it. Per topic: text (2-3 GFM sentences) + files (touched paths); 'Summary' first. Sections together cover every changed file; unassigned files land in Other changes. prUrl = the topic's PR. label = picture: uploadUrl + curl (PNG/JPEG/WebP, 10 MB). remove drops a label, text (text: '') or topic.`
+const GUIDE_TOOL_DESCRIPTION = `Your thread's GUIDE = the body of every PR in it. Per topic: text (2-3 GFM sentences) + files (touched paths); 'Summary' first. Sections together cover every changed file; unassigned files land in Other changes. prUrl = the topic's PR (default: your open PR; a parent may tag its children's). label = picture: uploadUrl + curl (PNG/JPEG/WebP, 10 MB). remove drops a label, text (text: '') or topic.`
 // EXP-1262: the call only mints the upload grant; nothing renders until the
 // curl runs.
 export const GUIDE_PICTURE_NEXT_STEP = `Run the curl line now: the picture shows only once it uploads.`
@@ -2798,8 +2798,10 @@ export function registerExponentialTools(
             sessionId: own.id,
             topic,
             text: text ?? null,
-            files: files ?? null,
-            prUrl: prUrl ?? null,
+            // EXP-1397: omitted = kept (a prUrl-only write never clears the
+            // topic's files, a rewrite never drops its PR).
+            ...(files !== undefined ? { files } : {}),
+            ...(prUrl !== undefined ? { prUrl } : {}),
             remove: remove ?? false,
             label: label ?? null,
           })

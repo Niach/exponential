@@ -18,7 +18,7 @@ import { boardVisible } from "@/lib/board-visibility"
 import { loadSessionForUser } from "@/lib/sessions/access"
 import { appBaseUrl, buildSessionDeepLinkPath } from "@/lib/notification-email-policy"
 import { NOT_RUN_TOPIC, PR_BODY_MAX, prBodyFromGuide } from "@/lib/pr-body"
-import { writeGuide } from "@/lib/sessions/guide"
+import { tagGuideForPullRequest, writeGuide } from "@/lib/sessions/guide"
 import { prDefaultIssueIds } from "@/lib/sessions/pr-issues"
 import {
   compareChangedPaths,
@@ -423,6 +423,13 @@ export async function openPullRequest(args: {
 
   const recorded = await record({ url: created.url, number: created.number, base: created.base, title: args.title })
   await joinGithubStack({ pr: recorded.pullRequest, repoFullName: repo.fullName, token })
+  // EXP-1397: the opener's untagged topics are this PR's now, so a later PR
+  // of the thread never claims them.
+  if (caller && root) {
+    if (await tagGuideForPullRequest({ sessionId: caller.id, prUrl: created.url })) {
+      void syncPullRequestBodies(root.id)
+    }
+  }
   return {
     pullRequestId: recorded.pullRequest.id,
     url: created.url,

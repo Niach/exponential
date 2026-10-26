@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { eq, inArray } from "drizzle-orm"
+import { and, desc, eq, inArray } from "drizzle-orm"
 import {
   SESSION_RESULT_CAPTION_MAX,
   SESSION_RESULT_FILE_PATH_MAX,
@@ -8,16 +8,20 @@ import {
   type GuideEntry,
 } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
-import { attachments, sessions, type Session } from "@/db/schema"
+import { attachments, pullRequests, sessions, type Session } from "@/db/schema"
+import { LIVE_PR_STATES } from "@/lib/pr-merge-guard"
 import { assertCanSteer, loadSessionForUser } from "@/lib/sessions/access"
 import {
   canonicalGithubPrUrl,
   exceedsGuideCap,
   guideSummary,
   isTextEntry,
+  logicalSessionIds,
   nextShowLabel,
   ownedBy,
+  ownedByAny,
   ownedBySubtree,
+  type GuideEntryFilter,
   removeGuideEntries,
   stampUntaggedGuideEntries,
   upsertGuidePicture,
@@ -25,7 +29,7 @@ import {
   type GuideSummaryRow,
 } from "@/lib/sessions/guide-entries"
 import { postAgentMessage } from "@/lib/sessions/messages"
-import type { Tx } from "@/lib/sessions/tx"
+import type { Db, Tx } from "@/lib/sessions/tx"
 import { deleteObject } from "@/lib/storage"
 import { mintGuideUploadToken } from "@/lib/storage/guide-upload-token"
 import {
@@ -43,6 +47,46 @@ import { syncPullRequestBodies } from "@/lib/pull-requests"
 // another's entry. Entries are stamped with their writer (`sessionId`) + the
 // write time (`at`); a writer replaces only its own, removes its subtree's
 // (EXP-1351), and a remove that matches nothing fails (guide-entries).
+// EXP-1397: "its own" = its LOGICAL session's (itself + the ended rows it
+// continues, `logicalSessionIds`); a write with no own topic of that name
+// but no text either (a prUrl/files tag) and a picture reach the subtree's,
+// keeping their writer; a text write never takes a child's topic over. A
+// topic of a writer with an open PR is that PR's unless it says otherwise.
+
+interface GuideReach {
+  /** The writer's logical session (itself first). */
+  mine: string[]
+  owns: GuideEntryFilter
+  /** The logical session's whole subtree (edits and removes). */
+  reaches: GuideEntryFilter
+}
+
+/** EXP-1397: who the writer is in its tree. */
+async function guideReach(tx: Db, session: Session): Promise<GuideReach> {
+  const tree = await tx
+    .select({ id: sessions.id, parentId: sessions.parentId, branch: sessions.branch, status: sessions.status })
+    .from(sessions)
+    .where(eq(sessions.rootId, session.rootId))
+  const mine = logicalSessionIds(session.id, tree)
+  return { mine, owns: ownedByAny(mine), reaches: ownedBySubtree(mine, tree) }
+}
+
+/** EXP-1397: the newest live PR the writer's logical session opened. */
+async function openPullRequestUrl(tx: Tx, rootId: string, mine: string[]): Promise<string | null> {
+  const [row] = await tx
+    .select({ url: pullRequests.url })
+    .from(pullRequests)
+    .where(
+      and(
+        eq(pullRequests.rootSessionId, rootId),
+        inArray(pullRequests.sessionId, mine),
+        inArray(pullRequests.state, [...LIVE_PR_STATES])
+      )
+    )
+    .orderBy(desc(pullRequests.createdAt))
+    .limit(1)
+  return row ? (canonicalGithubPrUrl(row.url) ?? row.url) : null
+}
 // Pictures are owner-less team `attachments` rows a Guide entry references
 // by id (the orphan sweep keeps every id some Guide names).
 
@@ -154,7 +198,6 @@ export async function writeGuide(args: {
   if (args.files?.some((path) => path.length > SESSION_RESULT_FILE_PATH_MAX)) {
     throw bad(`File paths are at most ${SESSION_RESULT_FILE_PATH_MAX} characters`)
   }
-  const owns = ownedBy(session.id)
 
   let prUrl: string | null | undefined = undefined
   if (args.prUrl !== undefined) {
@@ -183,22 +226,21 @@ export async function writeGuide(args: {
       topic,
       uploadUrl: grant.uploadUrl,
       curl: grant.curl,
-      results: guideSummary(((root?.guide ?? []) as GuideEntry[]).filter(owns)),
+      // EXP-1397: the logical session's entries, as every other response.
+      results: guideSummary(((root?.guide ?? []) as GuideEntry[]).filter((await guideReach(db, session)).owns)),
     }
   }
 
   const outcome = await db.transaction(async (tx) => {
     const lock = await lockGuide(tx, session.id)
+    const reach = await guideReach(tx, session)
+    const guide = lock.guide ?? []
     let next: GuideEntry[]
     let removed: string[] = []
     if (args.remove) {
-      const tree = await tx
-        .select({ id: sessions.id, parentId: sessions.parentId })
-        .from(sessions)
-        .where(eq(sessions.rootId, lock.rootId))
       const target = { topic, label: args.label?.trim() || null, text: args.text === `` }
-      const removal = removeGuideEntries(lock.guide, target, ownedBySubtree(session.id, tree))
-      if (removal.results.length === (lock.guide ?? []).length) {
+      const removal = removeGuideEntries(lock.guide, target, reach.reaches)
+      if (removal.results.length === guide.length) {
         const what = target.text ? ` text` : target.label ? ` label "${target.label}"` : ``
         throw new TRPCError({
           code: `NOT_FOUND`,
@@ -208,30 +250,72 @@ export async function writeGuide(args: {
       next = removal.results
       removed = removal.removedAttachmentIds
     } else {
-      const existing = (lock.guide ?? []).find(
-        (row) => isTextEntry(row) && row.topic === topic && owns(row)
-      )
-      const text = args.text ?? existing?.text
-      if (typeof text !== `string` || !text.trim()) {
-        throw bad(`text is required for a new topic`)
+      const isTopic = (row: GuideEntry) => isTextEntry(row) && row.topic === topic
+      const existing = guide.find((row) => isTopic(row) && reach.owns(row))
+      // EXP-1397: no own topic and no text = a tag (prUrl, files) of the
+      // subtree's entries of that topic, each keeping its writer.
+      const tagged =
+        existing || args.text
+          ? []
+          : [
+              ...new Set(
+                guide
+                  .filter((row) => isTopic(row) && reach.reaches(row) && row.sessionId)
+                  .map((row) => row.sessionId!)
+              ),
+            ]
+      if (tagged.length > 0) {
+        if (prUrl === undefined && args.files === undefined) {
+          throw bad(`Topic "${topic}" is a child's: pass prUrl or files to change it (text files your own topic)`)
+        }
+        let written: GuideEntry[] | null = guide
+        for (const owner of tagged) {
+          const entry = written.find((row) => isTopic(row) && row.sessionId === owner)!
+          written = upsertGuideText(
+            written,
+            topic,
+            entry.text!.trim(),
+            args.files === null ? [] : args.files,
+            { at: entry.at ?? Date.now(), sessionId: owner, ...(prUrl !== undefined ? { prUrl } : {}) },
+            ownedBy(owner)
+          )
+          if (!written) throw guideCapError()
+        }
+        next = written
+      } else {
+        const text = args.text ?? existing?.text
+        if (typeof text !== `string` || !text.trim()) {
+          throw bad(
+            `Nothing in this thread's Guide matched topic "${topic}" written by this session or its children: text is required for a new topic`
+          )
+        }
+        // EXP-1397: a NEW topic of a writer with an open PR is that PR's; a
+        // rewrite keeps the topic's tag (an explicit `prUrl: null` sticks).
+        const tag =
+          prUrl !== undefined
+            ? prUrl
+            : existing
+              ? undefined
+              : ((await openPullRequestUrl(tx, lock.rootId, reach.mine)) ?? undefined)
+        const written = upsertGuideText(
+          lock.guide,
+          topic,
+          text.trim(),
+          args.files === null ? [] : (args.files ?? undefined),
+          { at: Date.now(), sessionId: session.id, ...(tag !== undefined ? { prUrl: tag } : {}) },
+          reach.owns
+        )
+        if (!written) throw guideCapError()
+        next = written
       }
-      const written = upsertGuideText(
-        lock.guide,
-        topic,
-        text.trim(),
-        args.files === null ? [] : (args.files ?? undefined),
-        { at: Date.now(), sessionId: session.id, ...(prUrl !== undefined ? { prUrl } : {}) }
-      )
-      if (!written) throw guideCapError()
-      next = written
     }
     await saveGuide(tx, lock.rootId, next)
-    return { rootId: lock.rootId, next, removed }
+    return { rootId: lock.rootId, next, removed, owns: reach.owns }
   })
 
   await reclaimPictures(outcome.removed)
   syncBodies(outcome.rootId)
-  return { topic, results: guideSummary(outcome.next.filter(owns)) }
+  return { topic, results: guideSummary(outcome.next.filter(outcome.owns)) }
 }
 
 /**
@@ -261,8 +345,20 @@ export async function publishGuidePicture(
     await db.transaction(async (tx) => {
       const lock = await lockGuide(tx, input.sessionId)
       rootId = lock.rootId
-      const owns = ownedBy(lock.session.id)
+      const reach = await guideReach(tx, lock.session)
       label = input.label || nextShowLabel(lock.guide, input.topic)
+      // EXP-1397: the logical session's picture of this (topic, label), else
+      // a child's (replaced in place, its writer kept), else a new own one.
+      const isPair = (row: GuideEntry) =>
+        !isTextEntry(row) && row?.topic === input.topic && row?.label === label
+      const child = (lock.guide ?? []).find(
+        (row) => isPair(row) && !reach.owns(row) && reach.reaches(row) && row.sessionId
+      )
+      const writer =
+        child && !(lock.guide ?? []).some((row) => isPair(row) && reach.owns(row))
+          ? child.sessionId!
+          : lock.session.id
+      const owns = writer === lock.session.id ? reach.owns : ownedBy(writer)
       const caption = input.inline?.caption?.slice(0, SESSION_RESULT_CAPTION_MAX) ?? null
       const upsert = upsertGuidePicture(
         lock.guide,
@@ -274,7 +370,7 @@ export async function publishGuidePicture(
           height: prepared.height,
           ...(input.inline ? { inline: true, ...(caption ? { caption } : {}) } : {}),
           at: Date.now(),
-          sessionId: lock.session.id,
+          sessionId: writer,
         },
         owns
       )
@@ -304,7 +400,7 @@ export async function publishGuidePicture(
         })
       }
       displaced = upsert.displacedAttachmentId
-      results = upsert.results.filter(owns)
+      results = upsert.results.filter(reach.owns)
     })
   } catch (error) {
     if (!keyOwnedByAnotherRow) await rollbackSessionImage(prepared.storageKey)
@@ -315,17 +411,47 @@ export async function publishGuidePicture(
   return { label, results: guideSummary(results), replaced: displaced !== null }
 }
 
-/** EXP-1251 for the PR lane: a session opening a NEW PR tags its untagged
- *  text topics with it (inside the caller's transaction). */
-export async function tagGuideForPullRequest(
-  tx: Tx,
-  args: { sessionId: string; prUrl: string }
-): Promise<void> {
-  const lock = await lockGuide(tx, args.sessionId)
-  const { results, changed } = stampUntaggedGuideEntries(
-    lock.guide,
-    args.prUrl,
-    ownedBy(lock.session.id)
-  )
-  if (changed) await saveGuide(tx, lock.rootId, results)
+/** EXP-1397: a merged PR's logical session's untagged text topics went out
+ *  with it: stamped with its URL, they leave every still-open body of the
+ *  thread (a body excludes by prUrl only). A PR with no session (UI-opened,
+ *  adopted) resolves through its head: the tree's newest session on it.
+ *  True = the Guide moved. */
+export async function tagGuideForMergedPullRequest(pr: {
+  rootSessionId: string | null
+  sessionId: string | null
+  head: string
+  url: string
+}): Promise<boolean> {
+  if (!pr.rootSessionId) return false
+  let sessionId = pr.sessionId
+  if (!sessionId) {
+    const [row] = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(and(eq(sessions.rootId, pr.rootSessionId), eq(sessions.branch, pr.head)))
+      .orderBy(desc(sessions.createdAt))
+      .limit(1)
+    sessionId = row?.id ?? null
+  }
+  if (!sessionId) return false
+  return tagGuideForPullRequest({ sessionId, prUrl: pr.url })
+}
+
+/** EXP-1251/EXP-1397 for the PR lane: a session opening a NEW PR (or one
+ *  merging) tags its logical session's untagged text topics with it. Only
+ *  entries STAMPED with the logical session: a legacy unstamped one is
+ *  nobody's and stays in every body. True = the Guide moved (the caller
+ *  re-renders the thread's bodies). */
+export async function tagGuideForPullRequest(args: { sessionId: string; prUrl: string }): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const lock = await lockGuide(tx, args.sessionId)
+    const mine = new Set((await guideReach(tx, lock.session)).mine)
+    const { results, changed } = stampUntaggedGuideEntries(
+      lock.guide,
+      canonicalGithubPrUrl(args.prUrl) ?? args.prUrl,
+      (row) => !!row?.sessionId && mine.has(row.sessionId)
+    )
+    if (changed) await saveGuide(tx, lock.rootId, results)
+    return changed
+  })
 }

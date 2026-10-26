@@ -108,7 +108,10 @@ vi.mock(`@/lib/pr-stacks`, () => ({
 }))
 vi.mock(`@/lib/trpc/pr-update`, () => ({ patchPullDescription: vi.fn(async () => {}) }))
 vi.mock(`@/lib/sessions/pr-issues`, () => ({ prDefaultIssueIds: vi.fn(async () => []) }))
-vi.mock(`@/lib/sessions/guide`, () => ({ writeGuide: vi.fn(async () => ({ topic: `Not run`, results: [] })) }))
+vi.mock(`@/lib/sessions/guide`, () => ({
+  writeGuide: vi.fn(async () => ({ topic: `Not run`, results: [] })),
+  tagGuideForPullRequest: vi.fn(async () => false),
+}))
 vi.mock(`@/lib/pr-ui-guard`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/pr-ui-guard")>()),
   compareChangedPaths: vi.fn(async () => []),

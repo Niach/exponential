@@ -8,9 +8,11 @@ import {
   canonicalGithubPrUrl,
   guideAttachmentIds,
   guideSummary,
+  logicalSessionIds,
   missingGuideFiles,
   nextShowLabel,
   ownedBy,
+  ownedByAny,
   ownedBySubtree,
   removeGuideEntries,
   stampUntaggedGuideEntries,
@@ -173,5 +175,33 @@ describe(`PR helpers`, () => {
     expect(
       missingGuideFiles([`a`, `b`, `old`], [{ path: `a` }, { path: `new`, previousPath: `old` }])
     ).toEqual([`b`])
+  })
+})
+
+// EXP-1397: ownership follows the logical session (its continuations).
+describe(`logicalSessionIds`, () => {
+  const tree = [
+    { id: `root`, parentId: null, branch: `exp/root`, status: `idle` },
+    { id: `c1`, parentId: `root`, branch: `exp/kid`, status: `ended` },
+    { id: `c2`, parentId: `root`, branch: `exp/kid`, status: `ended` },
+    { id: `c3`, parentId: `root`, branch: `exp/kid`, status: `running` },
+    { id: `other`, parentId: `root`, branch: `exp/other`, status: `ended` },
+    { id: `g`, parentId: `c1`, branch: `exp/g`, status: `ended` },
+  ]
+
+  it(`is the row and every ended row on its branch`, () => {
+    expect(logicalSessionIds(`c3`, tree)).toEqual([`c3`, `c1`, `c2`])
+    expect(logicalSessionIds(`other`, tree)).toEqual([`other`])
+    // No branch yet: only itself.
+    expect(logicalSessionIds(`x`, [{ id: `x`, parentId: `root`, branch: null, status: `queued` }])).toEqual([`x`])
+  })
+
+  it(`owns and reaches across the chain`, () => {
+    const mine = logicalSessionIds(`c3`, tree)
+    expect(ownedByAny(mine)({ sessionId: `c1` } as GuideEntry)).toBe(true)
+    expect(ownedByAny(mine)({ sessionId: `other` } as GuideEntry)).toBe(false)
+    // A predecessor's child is in the continuation's subtree.
+    expect(ownedBySubtree(mine, tree)({ sessionId: `g` } as GuideEntry)).toBe(true)
+    expect(ownedBySubtree(mine, tree)({ sessionId: `root` } as GuideEntry)).toBe(false)
   })
 })
