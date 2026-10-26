@@ -412,7 +412,9 @@ export function MyMachines({
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
+                      // Level with the name, like the gear: this row's logins
+                      // live inside it, not in a fold beneath.
+                      className="shrink-0 self-start opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
                       aria-label={`Remove ${device.deviceLabel || device.deviceId} from this team`}
                       title="Remove from this team"
                       onClick={() => setDropTarget(device)}

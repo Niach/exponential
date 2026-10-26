@@ -654,6 +654,9 @@ class StyleguideScreenshotsTest {
         // demo device so its logins and their usage are in frame.
         composeRule.onAllNodes(hasText(DEMO_DEVICE_NAME, substring = true)).onFirst().performClick()
         flow.waitFor(hasTestTag("device-login-row"), NETWORK_TIMEOUT)
+        // FEED-149: the demo user OWNS the demo team, so the seeded teammate's
+        // shared server ("Acme build server") carries the owner's Remove.
+        flow.waitFor(hasTestTag("device-remove-share-button"), NETWORK_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_agents")
 

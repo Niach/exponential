@@ -419,6 +419,20 @@ pub fn set_shared(
     Ok(())
 }
 
+/// `devices.dropShare` (FEED-149): a team OWNER drops a teammate's share of
+/// a machine from `team_id`. `id` is the `devices` ROW id (two legacy rows
+/// can carry the same machine id); the owner's other teams are untouched.
+pub fn drop_share(trpc: &TrpcClient, id: &str, team_id: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        id: &'a str,
+        team_id: &'a str,
+    }
+    let _: OkResult = trpc.mutation("devices.dropShare", &Input { id, team_id })?;
+    Ok(())
+}
+
 /// `devices.setDefault` (EXP-622) — mark one of the caller's OWN machines as
 /// their default, the row every device picker prefills. The server clears the
 /// flag on their other machines in the same transaction, so the result lands
@@ -1184,6 +1198,16 @@ mod tests {
 
     /// FEED-33: the toggle form. One team per call, `shared` says which way;
     /// there is no clearing-null form any more.
+    /// FEED-149: keyed by the devices ROW id plus the team.
+    #[test]
+    fn drop_share_posts_the_row_and_team() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true,"txid":7}}}"#);
+        drop_share(&client(&base), "row-1", "team-9").unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/devices.dropShare HTTP/1.1"));
+        assert!(request.ends_with(r#"{"id":"row-1","teamId":"team-9"}"#));
+    }
+
     #[test]
     fn set_shared_posts_the_per_team_toggle() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);

@@ -105,6 +105,7 @@ class PromptsTest {
             Prompts.DeleteTrigger.prompt(),
             Prompts.DeleteAction.prompt("Triage"),
             Prompts.RemoveDevice.prompt("Mac"),
+            Prompts.RemoveDeviceShare.prompt("Acme build server"),
             Prompts.DeleteTeam.prompt("Acme"),
             Prompts.TrashBoard.prompt("Web"),
             Prompts.DeleteLabel.prompt("bug"),

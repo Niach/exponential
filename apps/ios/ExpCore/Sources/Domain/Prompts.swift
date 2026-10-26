@@ -299,6 +299,22 @@ public enum Prompts {
         }
     }
 
+    /// FEED-149: a team owner drops a teammate's share of a machine from
+    /// the current team (`devices.dropShare`).
+    public enum RemoveDeviceShare {
+        public static let entry = destructive(
+            "remove-device-share",
+            texts: [
+                "title": "Remove \"{name}\" from this team?",
+                "body": "Sessions teammates started on it end.",
+            ],
+            params: ["name"], answer: "remove", label: "Remove"
+        )
+        public static func copy(name: String) -> PromptCopy {
+            entry.copy(["name": name])
+        }
+    }
+
     public enum DeleteTeam {
         public static let entry = destructive(
             "delete-team",
@@ -544,7 +560,8 @@ public enum Prompts {
     public static let all: [PromptEntry] = [
         DeleteIssue.entry, DeleteIssues.entry, DeleteFile.entry, MoveIssue.entry,
         MergeIssuePr.entry, MergeRunPr.entry, StopRun.entry, ResumeRun.entry,
-        DeleteTrigger.entry, DeleteAction.entry, RemoveDevice.entry, DeleteTeam.entry, TrashBoard.entry,
+        DeleteTrigger.entry, DeleteAction.entry, RemoveDevice.entry, RemoveDeviceShare.entry,
+        DeleteTeam.entry, TrashBoard.entry,
         DeleteLabel.entry, RemoveMember.entry, LeaveTeam.entry, MakeOwner.entry,
         MakeMember.entry, RemoveRepository.entry, UnlinkSignInMethod.entry,
         RemovePassword.entry, RemovePasskey.entry, DeleteAccount.entry,

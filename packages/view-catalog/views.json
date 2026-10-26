@@ -831,7 +831,7 @@
       "id": "agents",
       "group": "coding",
       "title": "Devices",
-      "blurb": "The machines that can run a coding session: the caller's desktops and headless servers, each listing the agent logins it holds — identity, health and its rate-limit numbers. A row starts nothing: its one control is a settings gear that opens Device settings.",
+      "blurb": "The machines that can run a coding session: the caller's desktops and headless servers, each listing the agent logins it holds — identity, health and its rate-limit numbers. A row starts nothing: its one control is a settings gear that opens Device settings; on a teammate's shared server, a team owner gets Remove instead, which drops that share from the team.",
       "order": 1,
       "web": {
         "route": "/t/$teamSlug/devices",
