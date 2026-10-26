@@ -285,7 +285,7 @@ export const teamMembersRouter = router({
       // state the write side refuses to create (assertAssigneeInTeam). No
       // assignee_changed events: this is bulk offboarding hygiene, not an
       // editorial change by the remover.
-      let clearedDeviceShare = false
+      let clearedDeviceIds: string[] = []
       await ctx.db.transaction(async (tx) => {
         await lockTeamMembers(tx, target.teamId)
         // Prevent removing the last owner — inside the team-locked
@@ -368,8 +368,8 @@ export const teamMembersRouter = router({
               arrayContains(devices.sharedTeamIds, [target.teamId])
             )
           )
-          .returning({ id: devices.id })
-        clearedDeviceShare = cleared.length > 0
+          .returning({ deviceId: devices.deviceId })
+        clearedDeviceIds = cleared.map((row) => row.deviceId)
         // EXP-630: an unclaimed placeholder nothing references any more has
         // no reason to exist once it is off its last roster (its invites
         // cascade with it). A referenced one stays, like any former member.
@@ -381,8 +381,8 @@ export const teamMembersRouter = router({
       // The share was the consent that let teammates run sessions on the
       // ex-member's box — end any still-live foreign-hosted runs (EXP-445
       // semantics, same post-write ordering as devices.setShared).
-      if (clearedDeviceShare) {
-        await endForeignHostedSessions(target.userId, target.teamId)
+      if (clearedDeviceIds.length > 0) {
+        await endForeignHostedSessions(target.userId, target.teamId, clearedDeviceIds)
       }
 
       return { ok: true }

@@ -361,7 +361,7 @@ private fun VoiceSettingsForm(
                 modifier = Modifier.testTag(Voice.TestIds.SPEAK_REPLIES),
             )
             GroupDivider()
-            // German carries its GPU note, in the row and in the menu.
+            // Every language carries its GPU note (#NEW-74), in the row and in the menu.
             val languageDevice = settings.voiceDeviceId?.let { vocabulary.deviceNames[it] ?: it }
             OptionPickerRow(
                 label = Voice.Copy.LANGUAGE,

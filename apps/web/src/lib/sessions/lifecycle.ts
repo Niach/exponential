@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { and, asc, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm"
 import { isPersistent } from "@exp/domain-contract/session-kind"
 import { db } from "@/db/connection"
 import { agents, attachments, devices, messages, sessions, type Session } from "@/db/schema"
@@ -10,6 +10,7 @@ import { getTeamMember } from "@/lib/auth/membership"
 import { busReport, forgetWatched } from "@/lib/sessions/bus"
 import { postAgentMessage, postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
+import { hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
 import { getSteerRelayConfig, relayPostInterrupt, relayPostKill } from "@/lib/steer"
 import { contract } from "@exp/domain-contract"
 
@@ -110,22 +111,19 @@ export async function endRowsInTx(
 }
 
 /** Whether the session's host device heartbeat within the contract's
- *  online window (`devices.last_seen_at`). */
+ *  online window (`devices.last_seen_at`). FEED-148: the resolved host's
+ *  row only, never a decoy row naming the same machine. */
 export async function sessionDeviceOnline(
   session: Pick<Session, `deviceId` | `userId` | `teamId`>,
   now: Date = new Date()
 ): Promise<boolean> {
   const since = new Date(now.getTime() - contract.device.onlineWindowSeconds * 1000)
+  const host = await resolveSessionHost(session)
+  if (!host) return false
   const [row] = await db
     .select({ id: devices.id })
     .from(devices)
-    .where(
-      and(
-        eq(devices.deviceId, session.deviceId),
-        or(eq(devices.userId, session.userId), sql`${session.teamId} = ANY(${devices.sharedTeamIds})`),
-        gte(devices.lastSeenAt, since)
-      )
-    )
+    .where(and(eq(devices.deviceId, session.deviceId), eq(devices.userId, host), gte(devices.lastSeenAt, since)))
     .limit(1)
   return !!row
 }
@@ -259,15 +257,18 @@ export async function endDeadSessionInTx(tx: Tx, session: TreeRow): Promise<bool
 /**
  * EXP-445: the consent behind a hosted run went away (the host unshared the
  * box, or the requester left the team): end every live THREAD session
- * someone else started in `teamId` on a device `hostUserId` owns (narrowed
- * to one machine on unshare). Agents never end: `pauseDeviceAgents` disarms
- * them.
+ * someone else started in `teamId` on the machines in `deviceIds` whose
+ * share `hostUserId` just withdrew. Agents never end: `pauseDeviceAgents`
+ * disarms them. FEED-148: only the sessions `hostUserId` HOSTED (the
+ * resolved host as of before the write, `hostedByCondition`), never every
+ * session on a machine id they merely registered too.
  */
 export async function endForeignHostedSessions(
   hostUserId: string,
   teamId: string,
-  deviceId?: string
+  deviceIds: readonly string[]
 ): Promise<string[]> {
+  if (deviceIds.length === 0) return []
   const endedIds = await db.transaction(async (tx) => {
     const hosted = await tx
       .select({ id: sessions.id, parentId: sessions.parentId, depth: sessions.depth, agentId: sessions.agentId })
@@ -278,10 +279,8 @@ export async function endForeignHostedSessions(
           eq(sessions.teamId, teamId),
           ne(sessions.status, `ended`),
           isNull(sessions.agentId),
-          sql`EXISTS (SELECT 1 FROM ${devices} d WHERE d.user_id = ${hostUserId} AND d.device_id = ${sessions.deviceId})`,
-          // The starter's own row for the machine makes the starter the host.
-          sql`NOT EXISTS (SELECT 1 FROM ${devices} d WHERE d.user_id = ${sessions.userId} AND d.device_id = ${sessions.deviceId})`,
-          ...(deviceId ? [eq(sessions.deviceId, deviceId)] : [])
+          inArray(sessions.deviceId, [...deviceIds]),
+          hostedByCondition(hostUserId, sessions, { revoking: true })
         )
       )
       .orderBy(desc(sessions.depth), asc(sessions.createdAt))

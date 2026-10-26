@@ -13,6 +13,7 @@ import {
 import { getUserTeamIds } from "@/lib/auth/membership"
 import { loadSessionForUser } from "@/lib/sessions/access"
 import { deriveSessionTitles } from "@/lib/sessions/title"
+import { SHARING_ORDER } from "@/lib/sessions/host"
 
 // EXP-1291/NEW-1/NEW-2: the session tree as one read (MCP `sessions_get`)
 // and the thread list (MCP `sessions_list`: thread roots; an agent's
@@ -55,6 +56,7 @@ export async function resolveSessionAccounts(
         })
         .from(devices)
         .where(inArray(devices.deviceId, deviceIds))
+        .orderBy(...SHARING_ORDER)
     : []
   for (const row of rows) {
     // NEW-1: the host = the starter's own row, else a row sharing the team
@@ -62,9 +64,7 @@ export async function resolveSessionAccounts(
     const machine = deviceRows.filter((entry) => entry.deviceId === row.deviceId)
     const device =
       machine.find((entry) => entry.userId === row.userId) ??
-      machine
-        .filter((entry) => (entry.sharedTeamIds ?? []).includes(row.teamId))
-        .sort((a, b) => (a.userId < b.userId ? -1 : 1))[0]
+      machine.find((entry) => (entry.sharedTeamIds ?? []).includes(row.teamId))
     const agent = row.cli ?? device?.launchDefaults?.defaultAgent ?? null
     const accounts = device?.agentAccounts ?? {}
     const agents = agent ? [agent] : Object.keys(accounts)

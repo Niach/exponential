@@ -1,0 +1,11 @@
+Licence and third-party notices of the CrispASR runtime exponentialTalk's
+speech worker downloads at first use (never in the binary), vendored
+verbatim, pinned to the release tag the worker pins:
+
+  LICENSE.txt
+    https://github.com/CrispStrobe/CrispASR/blob/v0.8.45/LICENSE
+  THIRD_PARTY_NOTICES.txt
+    https://github.com/CrispStrobe/CrispASR/blob/v0.8.45/THIRD_PARTY_NOTICES.txt
+
+Regenerate with: bun run --filter @exp/licenses fetch:texts
+Do not hand-edit these files.

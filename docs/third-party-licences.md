@@ -455,46 +455,85 @@ ISC notice without widening that list.
 
 ## exponentialTalk: the voice and its runtime (NEW-53)
 
-### What we ship and what we download
+Retired by NEW-74. NEW-53 linked sherpa-onnx 2.0.0 (Apache-2.0, with ONNX
+Runtime and its native dependencies) statically through a vendored
+`sherpa-onnx-sys`, and downloaded the Kokoro v1.0 voice at runtime. Both are
+gone: nothing of sherpa-onnx is linked any more, the vendored crate and its
+licence texts are deleted, and the worker removes the old Kokoro download.
 
-- **sherpa-onnx** (Apache-2.0, k2-fsa) is linked statically into the desktop
-  app through its Rust crate. Its prebuilt archive (`SHERPA_ONNX_STATIC_LIBS`
-  in the vendored build.rs) carries, unmodified, the native code below; the
-  archive ships no licence files, so each upstream text is fetched at the
-  version sherpa-onnx v2.0.0's cmake files build into
-  `packages/licenses/texts/sherpa-onnx/` and reproduced in the desktop
-  notices ("Native code linked through sherpa-onnx"):
+## exponentialTalk: one voice engine on the GPU (NEW-74)
 
-  | library | version | licence |
-  |---|---|---|
-  | sherpa-onnx (c-api, core, kaldifst, fst, fstfar) | 2.0.0 | Apache-2.0 |
-  | ONNX Runtime | 1.28.2 | MIT (+ its ThirdPartyNotices) |
-  | KISS FFT | commit febd4ca | BSD-3-Clause |
-  | utf8proc | 2.12.0 | MIT + Unicode data licence |
-  | OpenFst (csukuangfj fork) | 1.8.5-2026-07-09 | Apache-2.0 |
-  | kaldi-native-fbank | 1.22.4 | Apache-2.0 |
-  | kaldi-decoder | 0.3.0 | Apache-2.0 |
-  | simple-sentencepiece (`ssentencepiece_core`) | 0.7 | Apache-2.0 |
+### What we download, and the one piece we ship (macOS)
 
-  The 2.0.0 archives no longer contain espeak-ng or piper-phonemize (removed
-  upstream in PR #4055, 2026-10-20), so no GPL code is linked. The archive's
-  portaudio library is not linked.
-- **sherpa-onnx-sys**, the FFI crate, is vendored at
-  `apps/desktop/vendor/sherpa-onnx-sys` (Apache-2.0); its NOTICE states the
-  one change (build.rs verifies the archive against pinned SHA-256s and picks
-  the /MD Windows archive) and sits in the notices' vendored-source section.
-- **Kokoro v1.0** (weights Apache-2.0, hexgrad/Kokoro-82M as packaged by
-  sherpa-onnx) is NOT in the binary: the speech worker downloads
-  `kokoro-multi-lang-v1_0.tar.bz2` on first use, verifies its SHA-256
-  (`crates/voice/src/model.rs`), and unpacks only `model.onnx`,
-  `voices.bin`, `tokens.txt`, `lexicon-us-en.txt` and `LICENSE` into
-  `{data_dir}/talk/`. The bundle's `espeak-ng-data` directory (GPL-3.0 data
-  files) is skipped and never written; the English lexicon replaces it.
+On Linux and Windows the speech worker fetches all of these on first use
+from the publishers' own servers; on macOS the CrispASR runtime instead ships
+INSIDE the signed, notarized app bundle (`Contents/Frameworks`, put there by
+`apps/desktop/scripts/build-macos-app.sh` from the same pinned release asset,
+re-signed with our identity) and only the models are fetched. The worker checks each download against a pinned sha256 BEFORE it unpacks or
+loads it (`apps/desktop/crates/crispasr`: `platform.rs`, `models.rs`), keeps
+only the named files, and re-hashes every library before `dlopen`. A
+mismatch deletes the file and the voice backs off (1 min doubling to 1 h).
 
-### Determination (2026-10-25)
+| what | version | licence | where from | platforms |
+|---|---|---|---|---|
+| CrispASR runtime: `libcrispasr` + ggml (`libggml*`), plus libgomp (GCC Runtime Library Exception) and the reference BLAS on Linux | v0.8.45 release assets | MIT (its `THIRD_PARTY_NOTICES.txt` lists the rest; built without espeak-ng, the only GPL component it knows) | github.com/CrispStrobe/CrispASR releases | Linux x86_64 (CUDA) and Windows x86_64 (Vulkan): downloaded; macOS arm64 (Metal): shipped in the bundle |
+| NVIDIA CUDA runtime (`libcudart.so.12`) and cuBLAS (`libcublas.so.12`, `libcublasLt.so.12`) | 12.9.79 / 12.9.2.10 | NVIDIA CUDA Toolkit EULA (proprietary, redistributable); its text is kept beside the files | NVIDIA's own wheels on PyPI (`nvidia-cuda-runtime-cu12`, `nvidia-cublas-cu12`) | Linux x86_64 only |
+| Qwen3-TTS 12 Hz 0.6B Base, F16 GGUF | cstr/qwen3-tts-0.6b-base-GGUF @ 94072f5 | Apache-2.0 | Hugging Face | all three |
+| Qwen3-TTS 12 Hz tokenizer (codec), F16 GGUF | cstr/qwen3-tts-tokenizer-12hz-GGUF @ 344e279 | Apache-2.0 | Hugging Face | all three |
+| NEW-78: CrispASR CPU-only runtime (`libcrispasr` + ggml; on Linux with libgomp (GCC Runtime Library Exception), OpenBLAS (BSD-3-Clause), libgfortran (GCC Runtime Library Exception) and libquadmath (LGPL-2.1)) | v0.8.45 release assets | MIT (+ the listed) | github.com/CrispStrobe/CrispASR releases | Linux x86_64 and Windows x86_64 without a GPU driver, for push to talk only |
+| NEW-78: GNU OpenMP runtime `libgomp.so.1` (inside both Linux CrispASR archives, the CUDA and the CPU-only one; unmodified, from Ubuntu 22.04's `gcc-12`) | as built into CrispASR v0.8.45 | GPL-3.0-or-later WITH GCC-exception-3.1 (GCC Runtime Library Exception); corresponding source: `apt-get source gcc-12`, gcc.gnu.org, or the CrispASR maintainers (their `THIRD_PARTY_NOTICES.txt`) | github.com/CrispStrobe/CrispASR releases | Linux x86_64 only |
+| NEW-78: Parakeet TDT 0.6B v3 (NVIDIA), Q8_0 GGUF | cstr/parakeet-tdt-0.6b-v3-GGUF @ dff69b0 | **CC BY 4.0** (attribution + "converted and quantised by cstr" in the notices) | Hugging Face | all three |
+| NEW-78: Silero VAD v6.2, ggml | ggml-org/whisper-vad @ 9ffd54a | MIT | Hugging Face | all three |
 
-Permitted, with attribution. Apache-2.0 and MIT allow static linking and
-redistribution; the weights are fetched by the user's machine from the
-upstream release and keep their LICENSE file beside them. Re-check on every
-sherpa-onnx or Kokoro bump: confirm the new archive still has no GPL
-component, then update the pinned hashes.
+Sizes of the first-use download: Linux ~2.97 GB (runtime 196 MB, cuBLAS
+581 MB, model 1.83 GB, codec 358 MB), macOS ~2.19 GB (the models only; the
+bundle grows by ~25 MB), Windows ~2.28 GB.
+
+On disk: Linux ~3.29 GB unpacked (runtime + cuBLAS 1.09 GB, models
+2.19 GB, built-in clips 1 MB), macOS ~2.19 GB plus the ~25 MB in the
+bundle, Windows ~2.3 GB.
+
+### On disk: `{data_dir}/talk/`
+
+| path | what | written by |
+|---|---|---|
+| `crispasr-0.8.45/` | the runtime libraries, their licences, one `.<artifact id>.sha256` manifest per artifact (Linux, Windows; macOS reads `Contents/Frameworks` of the bundle instead) | `crispasr::artifact::ensure` |
+| `crispasr-0.8.45-cpu/` | NEW-78: the CPU-only runtime, where no GPU driver exists (Linux, Windows) | same |
+| `models/` | `qwen3-tts-12hz-0.6b-base.gguf`, `qwen3-tts-tokenizer-12hz.gguf`, NEW-78's `parakeet-tdt-0.6b-v3-q8_0.gguf` (674 MB) and `ggml-silero-v6.2.0.bin` (0.9 MB), and their manifests | same |
+| `voices/` | `builtin-<language>.wav`, the built-in clips written out for CrispASR (rewritten when they differ) | `voice::builtin::materialize` |
+| `no-gpu.txt` | the "this GPU and driver were too slow" verdict (fingerprint + time, 30 days) | the speech worker |
+| `<artifact id>.part` | a download in progress (deleted on failure or after unpacking) | `crispasr::artifact::download` |
+| `<file>.tmp` | a file being unpacked (renamed into place when complete) | `crispasr::artifact::write_kept` |
+
+The NEW-53 `kokoro-multi-lang-v1_0/` directory is deleted by the worker on
+start. Cleaning the rest when a device stops being the voice device is
+#NEW-63.
+
+The built-in reference clips (`apps/desktop/crates/voice/assets/`, in the
+binary, ~0.9 MB) are our own output of Qwen3-TTS 0.6B CustomVoice
+(Apache-2.0), preset speaker `ryan`; no person's voice is in them (see the
+README there). A member's own reference clip never leaves the voice device.
+
+### Determination (2026-10-26)
+
+Permitted, with attribution. MIT and Apache-2.0 allow use and
+redistribution; on Linux and Windows we redistribute none of it (the user's
+machine fetches it), on macOS we redistribute the MIT CrispASR runtime inside
+the bundle, and the desktop notices reproduce CrispASR's licence and
+third-party notices either way ("exponentialTalk's voice runtime"). The NVIDIA libraries
+are fetched by the user's machine from NVIDIA's distribution under NVIDIA's
+EULA, not shipped by Exponential. No GPL: CrispASR's espeak-ng path is off in
+these builds and its phonemizer is not used by Qwen3-TTS. On macOS library
+validation stays ON (review of #1237, 2026-10-26): no
+`disable-library-validation` entitlement; the bundled dylibs carry our
+signature and are loaded by absolute path from the running bundle only.
+CrispASR watermarks every synthesized clip (an inaudible AI-content mark, EU
+AI Act Art. 50(2)); it stays on. NEW-78 (2026-10-26): Parakeet is CC BY 4.0,
+which permits use with attribution and a note of changes: the notices name
+NVIDIA, the licence, cstr's GGUF conversion and Q8_0 quantisation; we change
+nothing and redistribute nothing (the voice device fetches it). Silero and its
+ggml conversion are MIT. The CPU-only runtime's GCC runtime libraries are
+fetched by the user's machine with CrispASR's notices, not shipped by us.
+Re-check on every CrispASR or model bump:
+the pins, the release's notices, and that no GPL component entered the
+prebuilt library.

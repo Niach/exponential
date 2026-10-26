@@ -25,6 +25,7 @@ import {
   verifications,
 } from "@/db/schema"
 import type { db as Database } from "@/db/connection"
+import { hostedByCondition } from "@/lib/sessions/host"
 import { collectTeamStorageKeys } from "@/lib/storage/team-storage-keys"
 import { collectAttachmentStorageKeys } from "@/lib/storage/issue-attachments"
 import {
@@ -184,9 +185,10 @@ export async function guardAndCleanupTeamsForUserDeletion(
   // host keeps them as host-owned rows, ended when live; the visibility
   // mirrors (`owner_id`) follow, or the messages and issue links would
   // cascade away with the account.
-  // The host = the lowest-id owner of a devices row for the session's
-  // machine that shares the session's team (`lib/sessions/host.ts`).
-  const hostOfSession = sql`(SELECT d.user_id FROM devices d WHERE d.device_id = ${sessions.deviceId} AND d.user_id <> ${userId} AND ${sessions.teamId} = ANY(d.shared_team_ids) ORDER BY d.user_id LIMIT 1)`
+  // The host = the owner of the FIRST devices row (created_at, then id) for
+  // the session's machine that shares the session's team
+  // (`lib/sessions/host.ts`, FEED-148).
+  const hostOfSession = sql`(SELECT d.user_id FROM devices d WHERE d.device_id = ${sessions.deviceId} AND d.user_id <> ${userId} AND ${sessions.teamId} = ANY(d.shared_team_ids) ORDER BY d.created_at, d.id LIMIT 1)`
   const requested = await tx
     .update(sessions)
     .set({ userId: hostOfSession, updatedAt: now })
@@ -224,7 +226,9 @@ export async function guardAndCleanupTeamsForUserDeletion(
 
   // Live sessions this user HOSTS for a teammate (their device, the
   // starter owns no row for it): the device executing them authenticates as
-  // the account being deleted, so they are over.
+  // the account being deleted, so they are over. FEED-148: hosted = the
+  // resolved host (`hostedByCondition`), never a row that merely names the
+  // machine (anyone can register a box's id).
   const hosted = await tx
     .update(sessions)
     .set({ status: `ended`, endedAt: now, busy: false, needsInput: false, updatedAt: now })
@@ -233,8 +237,7 @@ export async function guardAndCleanupTeamsForUserDeletion(
         ne(sessions.userId, userId),
         ne(sessions.status, `ended`),
         isNull(sessions.agentId),
-        sql`EXISTS (SELECT 1 FROM devices d WHERE d.user_id = ${userId} AND d.device_id = ${sessions.deviceId})`,
-        sql`NOT EXISTS (SELECT 1 FROM devices d WHERE d.user_id = ${sessions.userId} AND d.device_id = ${sessions.deviceId})`
+        hostedByCondition(userId)
       )
     )
     .returning({ id: sessions.id })

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
 import { boards, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
@@ -55,7 +55,7 @@ if (!ready.ok) console.info(`[watchdog.real-db] skipped: ${ready.reason}`)
 const { sendSession } = await import(`@/lib/sessions/send`)
 const { BUS_COPY } = await import(`@/lib/sessions/bus`)
 const { buildQuestionCard, postAskCard } = await import(`@/lib/sessions/plan`)
-const { runWatchdog, restoreDeviceSessionsInTx } = await import(`@/lib/sessions/watchdog`)
+const { runWatchdog, restoreDeviceSessionsInTx, clearLiveStuckInTx } = await import(`@/lib/sessions/watchdog`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
 const { devicesRouter } = await import(`@/lib/trpc/devices`)
 
@@ -363,6 +363,279 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     // The next report clears it, as for the watchdog's own `stuck`.
     await w.host.report({ sessionId: dead, status: `running`, busy: true })
     expect(await row(dead)).toMatchObject({ blocked: null, needsInput: false, busy: true })
+  })
+
+  it(`FEED-145: a long turn its online host lists live is never flagged stuck, so a busy row never reads needs input`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const long = await w.child(rootId, `long turn, subagents and pictures`)
+    const unlisted = await w.child(rootId, `not in the beat`)
+    for (const id of [long, unlisted]) {
+      await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+      await w.host.report({ sessionId: id, busy: true })
+    }
+    // Non-asking cards mid-turn are no input to wait on.
+    await w.host.reply({ sessionId: long, card: { kind: `subagent`, title: `Explore`, status: `running` } })
+    await w.host.reply({
+      sessionId: long,
+      card: { kind: `picture`, attachmentId: crypto.randomUUID(), width: null, height: null },
+    })
+    expect(await row(long)).toMatchObject({ busy: true, needsInput: false })
+    await devicesRouter
+      .createCaller({ session: { user: { id: w.owner } }, db, request: new Request(`http://x.test`) } as never)
+      .heartbeat({ deviceId: w.deviceId, activeSessions: 2, defaultsSyncedAt: null, liveSessionIds: [long, unlisted] })
+    for (const id of [long, unlisted]) {
+      await backdateSession(id, `updated_at`, ago((watchdog.stuckMinutes + 1) * MIN))
+    }
+    await backdateDevice(w.deviceId, NOW)
+    // Only `long` stays listed on the device row.
+    await db.update(devices).set({ liveSessionIds: [long] }).where(eq(devices.deviceId, w.deviceId))
+
+    await runWatchdog(NOW)
+    expect(await row(long)).toMatchObject({ status: `running`, busy: true, needsInput: false, blocked: null })
+    expect(await lines(rootId, `session_stuck`, long)).toEqual([])
+    // A session the claim does not name keeps the 30-minute rule.
+    expect(await row(unlisted)).toMatchObject({ busy: true, needsInput: true, blocked: { kind: `stuck` } })
+
+    // A host past the online window vouches for nothing.
+    const later = await w.child(rootId, `host went quiet`)
+    await w.host.claim({ sessionId: later, deviceId: w.deviceId })
+    await w.host.report({ sessionId: later, busy: true })
+    await db.update(devices).set({ liveSessionIds: [later] }).where(eq(devices.deviceId, w.deviceId))
+    await backdateSession(later, `updated_at`, ago((watchdog.stuckMinutes + 1) * MIN))
+    await backdateDevice(w.deviceId, ago((contract.device.onlineWindowSeconds + 1) * 1000))
+    await runWatchdog(NOW)
+    expect((await row(later)).blocked).not.toBeNull()
+  })
+
+  it(`FEED-145: a heartbeat listing a stuck session clears the flag; needs input re-derives from its open cards`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const working = await w.child(rootId, `working`)
+    const asking = await w.child(rootId, `asking`)
+    for (const id of [working, asking]) {
+      await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+      await w.host.report({ sessionId: id, busy: true })
+      await backdateSession(id, `updated_at`, ago((watchdog.stuckMinutes + 1) * MIN))
+    }
+    await runWatchdog(NOW)
+    for (const id of [working, asking]) {
+      expect(await row(id)).toMatchObject({ busy: true, needsInput: true, blocked: { kind: `stuck` } })
+    }
+    // `asking` has a question open: it still waits once the flag goes.
+    await w.host.reply({
+      sessionId: asking,
+      card: { kind: `question`, question: `Which one?`, options: [`a`, `b`] },
+    })
+
+    await devicesRouter
+      .createCaller({ session: { user: { id: w.owner } }, db, request: new Request(`http://x.test`) } as never)
+      .heartbeat({ deviceId: w.deviceId, activeSessions: 2, defaultsSyncedAt: null, liveSessionIds: [working, asking] })
+    expect(await row(working)).toMatchObject({ status: `running`, busy: true, needsInput: false, blocked: null })
+    expect(await row(asking)).toMatchObject({ busy: true, needsInput: true, blocked: null })
+    const [device] = await db.select().from(devices).where(eq(devices.deviceId, w.deviceId))
+    expect(device!.liveSessionIds).toEqual([working, asking])
+  })
+
+  it(`FEED-147: another account registering the same deviceId moves none of the host's sessions`, async () => {
+    const w = await world({ shared: true })
+    const rootId = await w.root()
+    const busy = await w.child(rootId, `busy`)
+    const stuck = await w.child(rootId, `stuck`)
+    const offline = await w.child(rootId, `offline`)
+    for (const id of [busy, stuck, offline]) {
+      await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+      await w.host.report({ sessionId: id, busy: true })
+    }
+    const stuckFlag = { kind: `stuck`, agent: null, window: null, resetsAt: null, since: NOW.toISOString() }
+    const offlineFlag = { ...stuckFlag, kind: `device_offline` }
+    await db.update(sessions).set({ blocked: stuckFlag, needsInput: true }).where(eq(sessions.id, stuck))
+    await db
+      .update(sessions)
+      .set({ status: `idle`, busy: false, blocked: offlineFlag, needsInput: true })
+      .where(eq(sessions.id, offline))
+    const before = await Promise.all([busy, stuck, offline].map(row))
+
+    // A stranger, and a teammate sharing the very team, each register the
+    // owner's machine id: their rows exist, so their beats are accepted.
+    const stranger = await user()
+    for (const attacker of [stranger, w.mate]) {
+      await db.insert(devices).values({
+        userId: attacker,
+        deviceId: w.deviceId,
+        label: `not yours`,
+        kind: `server`,
+        sharedTeamIds: attacker === w.mate ? [w.teamId] : [],
+      })
+      const beat = (liveSessionIds: string[]) =>
+        devicesRouter
+          .createCaller({ session: { user: { id: attacker } }, db, request: new Request(`http://x.test`) } as never)
+          .heartbeat({ deviceId: w.deviceId, activeSessions: 0, defaultsSyncedAt: null, liveSessionIds })
+      // Lists nothing (would flag every busy row dead), then lists them
+      // all (would clear `stuck`); restore would clear `device_offline`.
+      expect(await beat([])).toMatchObject({ ok: true })
+      expect(await beat([busy, stuck, offline])).toMatchObject({ ok: true })
+      await db.transaction(async (tx) => {
+        expect(await restoreDeviceSessionsInTx(tx, { deviceId: w.deviceId, userId: attacker })).toBe(0)
+        expect(
+          await clearLiveStuckInTx(tx, { deviceId: w.deviceId, userId: attacker, liveSessionIds: [stuck] })
+        ).toBe(0)
+      })
+    }
+    expect(await Promise.all([busy, stuck, offline].map(row))).toEqual(before)
+    expect(await lines(rootId, `session_stuck`, busy)).toEqual([])
+
+    // The owner's own beat still speaks for them.
+    await devicesRouter
+      .createCaller({ session: { user: { id: w.owner } }, db, request: new Request(`http://x.test`) } as never)
+      .heartbeat({ deviceId: w.deviceId, activeSessions: 1, defaultsSyncedAt: null, liveSessionIds: [stuck] })
+    expect(await row(busy)).toMatchObject({ busy: false, blocked: { kind: `stuck` } })
+    expect(await row(stuck)).toMatchObject({ blocked: null })
+    expect(await row(offline)).toMatchObject({ blocked: null })
+  })
+
+  it(`FEED-148: a teammate's online decoy row listing the box's sessions keeps none of them from being flagged stuck`, async () => {
+    const w = await world({ shared: true })
+    const hosted = await w.root(`hosted`, w.mate)
+    await w.host.claim({ sessionId: hosted, deviceId: w.deviceId })
+    await w.host.report({ sessionId: hosted, busy: true })
+    // The host is online but runs nothing; a teammate's later sharing row
+    // for the same machine id (from before the one-sharer rule) is online
+    // and lists the session.
+    await db.update(devices).set({ liveSessionIds: [] }).where(and(eq(devices.deviceId, w.deviceId), eq(devices.userId, w.owner)))
+    await backdateDevice(w.deviceId, NOW)
+    const decoy = await user()
+    await db.insert(teamMembers).values({ teamId: w.teamId, userId: decoy, role: `member` })
+    await db.insert(devices).values({
+      userId: decoy,
+      deviceId: w.deviceId,
+      label: `decoy`,
+      kind: `server`,
+      sharedTeamIds: [w.teamId],
+      lastSeenAt: NOW,
+      liveSessionIds: [hosted],
+    })
+    await backdateSession(hosted, `updated_at`, ago((watchdog.stuckMinutes + 1) * MIN))
+
+    await runWatchdog(NOW)
+    expect(await row(hosted)).toMatchObject({ busy: true, needsInput: true, blocked: { kind: `stuck` } })
+  })
+
+  it(`FEED-148: a teammate's online decoy row keeps none of an offline host's sessions live`, async () => {
+    const w = await world({ shared: true })
+    const hosted = await w.root(`hosted`, w.mate)
+    await w.host.claim({ sessionId: hosted, deviceId: w.deviceId })
+    await w.host.report({ sessionId: hosted, busy: true })
+    await backdateDevice(w.deviceId, ago((contract.device.onlineWindowSeconds + 1) * 1000))
+    const decoy = await user()
+    await db.insert(teamMembers).values({ teamId: w.teamId, userId: decoy, role: `member` })
+    await db.insert(devices).values({
+      userId: decoy,
+      deviceId: w.deviceId,
+      label: `decoy`,
+      kind: `server`,
+      sharedTeamIds: [w.teamId],
+      lastSeenAt: NOW,
+    })
+
+    await runWatchdog(NOW)
+    expect(await row(hosted)).toMatchObject({ status: `idle`, busy: false, blocked: { kind: `device_offline` } })
+  })
+
+  it(`FEED-146: malformed liveSessionIds are dropped before the save and the dead-process check; the beat never fails`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const listed = await w.child(rootId, `listed in caps`)
+    const unlisted = await w.child(rootId, `not listed`)
+    for (const id of [listed, unlisted]) {
+      await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+      await w.host.report({ sessionId: id, busy: true })
+    }
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+    const result = await devicesRouter
+      .createCaller({ session: { user: { id: w.owner } }, db, request: new Request(`http://x.test`) } as never)
+      .heartbeat({
+        deviceId: w.deviceId,
+        activeSessions: 1,
+        defaultsSyncedAt: null,
+        liveSessionIds: [`not-a-uuid`, ``, listed.toUpperCase(), listed, 42, `x`.repeat(5000)] as never,
+      })
+    expect(result).toMatchObject({ ok: true })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(`dropped 4 invalid liveSessionIds`))
+    warn.mockRestore()
+    const [device] = await db.select().from(devices).where(eq(devices.deviceId, w.deviceId))
+    expect(device!.liveSessionIds).toEqual([listed])
+    expect(await row(listed)).toMatchObject({ busy: true, blocked: null })
+    expect(await row(unlisted)).toMatchObject({ busy: false, blocked: { kind: `stuck` } })
+
+    // Past the count cap: a 400, not a 500, and nothing written.
+    await expect(
+      devicesRouter
+        .createCaller({ session: { user: { id: w.owner } }, db, request: new Request(`http://x.test`) } as never)
+        .heartbeat({
+          deviceId: w.deviceId,
+          activeSessions: 1,
+          defaultsSyncedAt: null,
+          liveSessionIds: Array.from({ length: 1001 }, () => crypto.randomUUID()),
+        })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+
+  it(`FEED-146: a beat without liveSessionIds stores NULL, so a stale list never vouches for a session`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const long = await w.child(rootId, `was listed`)
+    await w.host.claim({ sessionId: long, deviceId: w.deviceId })
+    await w.host.report({ sessionId: long, busy: true })
+    const beat = (liveSessionIds?: string[]) =>
+      devicesRouter
+        .createCaller({ session: { user: { id: w.owner } }, db, request: new Request(`http://x.test`) } as never)
+        .heartbeat({ deviceId: w.deviceId, activeSessions: 1, defaultsSyncedAt: null, ...(liveSessionIds ? { liveSessionIds } : {}) })
+    await beat([long])
+    expect((await db.select().from(devices).where(eq(devices.deviceId, w.deviceId)))[0]!.liveSessionIds).toEqual([long])
+    // The device went past its cap: no claim this beat.
+    await beat()
+    expect((await db.select().from(devices).where(eq(devices.deviceId, w.deviceId)))[0]!.liveSessionIds).toBeNull()
+
+    await backdateSession(long, `updated_at`, ago((watchdog.stuckMinutes + 1) * MIN))
+    await backdateDevice(w.deviceId, NOW)
+    await runWatchdog(NOW)
+    expect(await row(long)).toMatchObject({ blocked: { kind: `stuck` } })
+  })
+
+  it(`FEED-146: a usage wall written while a beat clears stuck / device_offline survives`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const stuck = await w.child(rootId, `stuck`)
+    const offline = await w.child(rootId, `offline`)
+    for (const id of [stuck, offline]) await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+    const base = { agent: null, window: null, resetsAt: null, since: NOW.toISOString() }
+    await db.update(sessions).set({ blocked: { kind: `stuck`, ...base }, needsInput: true }).where(eq(sessions.id, stuck))
+    await db
+      .update(sessions)
+      .set({ blocked: { kind: `device_offline`, ...base }, needsInput: true })
+      .where(eq(sessions.id, offline))
+    const wall = { kind: `rate_limit`, agent: `claude`, window: `weekly`, resetsAt: null, since: NOW.toISOString() } as const
+
+    // The device's wall lands in a transaction still open while the beat runs.
+    await db.transaction(async (wallTx) => {
+      await wallTx.update(sessions).set({ blocked: wall }).where(inArray(sessions.id, [stuck, offline]))
+      const beat = devicesRouter
+        .createCaller({ session: { user: { id: w.owner } }, db, request: new Request(`http://x.test`) } as never)
+        .heartbeat({ deviceId: w.deviceId, activeSessions: 2, defaultsSyncedAt: null, liveSessionIds: [stuck, offline] })
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      return beat
+    })
+    for (const id of [stuck, offline]) expect((await row(id)).blocked).toEqual(wall)
+
+    // The guarded clear alone never wipes another kind either.
+    await db.transaction(async (tx) => {
+      expect(await restoreDeviceSessionsInTx(tx, { deviceId: w.deviceId, userId: w.owner })).toBe(0)
+      expect(
+        await clearLiveStuckInTx(tx, { deviceId: w.deviceId, userId: w.owner, liveSessionIds: [stuck] })
+      ).toBe(0)
+    })
+    expect((await row(stuck)).blocked).toEqual(wall)
   })
 
   it(`a usage wall keeps the session under Needs you until the device clears it`, async () => {

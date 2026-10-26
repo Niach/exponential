@@ -197,6 +197,8 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
         // UI can explain WHY the machine is not startable. EXP-485: this row
         // is now the ONLY path the agent lists and launch defaults take to the
         // server; the online frame carries neither.
+        // NEW-78: whether the doctor carries the microphone row.
+        let listening = cx.update(|cx| crate::speak_replies::push_to_talk_here(cx));
         register_device(
             Arc::clone(&trpc),
             device_id.clone(),
@@ -206,6 +208,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             &settings2,
             Some(&report),
             &register_dir,
+            listening,
             &cx.background_executor(),
         );
         let _ = cx.update(|cx| {
@@ -360,6 +363,7 @@ pub fn refresh_device_advertisement(cx: &mut App) {
         &settings,
         Some(&report),
         &auth.data_dir,
+        crate::speak_replies::push_to_talk_here(cx),
         &cx.background_executor(),
     );
     if let Some(channels) = ControlChannels::global_ref(cx) {
@@ -390,6 +394,7 @@ fn register_device(
     settings: &coding::Settings,
     report: Option<&coding::DoctorReport>,
     data_dir: &std::path::Path,
+    listening: bool,
     executor: &gpui::BackgroundExecutor,
 ) {
     let agents = advertisement.agents.clone();
@@ -421,12 +426,15 @@ fn register_device(
     let launch_defaults = serde_json::to_value(coding::defaults_wire(settings))
         .expect("defaults serialize cannot fail");
     // EXP-1196: the readiness block, always on register (once the doctor
-    // probe has landed).
-    let doctor = report.and_then(|report| {
-        serde_json::to_value(coding::device_doctor::current(settings, data_dir, report)).ok()
-    });
+    // probe has landed). NEW-78: its microphone row probes the OS, so it is
+    // added on the background executor.
+    let doctor = report.map(|report| coding::device_doctor::current(settings, data_dir, report));
     executor
         .spawn(async move {
+            let doctor = doctor.and_then(|mut doctor| {
+                crate::device_readiness::add_microphone_row(&mut doctor, listening);
+                serde_json::to_value(doctor).ok()
+            });
             let _ = api::devices::register(
                 &trpc,
                 &api::devices::RegisterDevice {

@@ -13,7 +13,12 @@
 // EXP-432 bends the per-user rule exactly once: a server device may be SHARED
 // with teams (`shared_team_ids`, owner-toggled via `setShared`; FEED-33 made
 // it a set) so their members can remote-start on it.
-import { flagDeadSessionsInTx, restoreDeviceSessionsInTx } from "@/lib/sessions/watchdog"
+import {
+  cleanLiveSessionIds,
+  clearLiveStuckInTx,
+  flagDeadSessionsInTx,
+  restoreDeviceSessionsInTx,
+} from "@/lib/sessions/watchdog"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import {
@@ -60,6 +65,7 @@ import { assertTeamMember, getTeamMember } from "@/lib/team-membership"
 import { voiceSettingsOf } from "@/lib/trpc/voice"
 import { versionPayload } from "@/lib/client-version"
 import { endForeignHostedSessions, pauseDeviceAgents } from "@/lib/sessions/lifecycle"
+import { firstSharerTeams, lockDeviceShares, shareContested } from "@/lib/sessions/host"
 import {
   agentEffortValues,
   agentModelValues,
@@ -661,18 +667,35 @@ export const devicesRouter = router({
         doctor: deviceDoctorSchema.nullish(),
         // NEW-5: the session ids this host process runs right now. Present =
         // a busy session on this device missing from it has a dead process
-        // (flagged `stuck`); absent = no claim.
-        liveSessionIds: z.array(z.string().min(1).max(128)).max(1000).optional(),
+        // (flagged `stuck`), a listed one is alive (FEED-145: never `stuck`
+        // for a long turn); absent = no claim. FEED-146: a malformed entry
+        // is dropped (`cleanLiveSessionIds`), never a failed beat.
+        // FEED-148: each entry is capped at 128 characters again (the
+        // relay's id bound): a longer one, like any non-string, is null
+        // here and dropped below, never a failed beat.
+        liveSessionIds: z.array(z.string().max(128).nullable().catch(null)).max(1000).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const now = new Date()
+      let liveSessionIds: string[] | null = null
+      if (input.liveSessionIds) {
+        const clean = cleanLiveSessionIds(input.liveSessionIds)
+        if (clean.dropped > 0) {
+          console.warn(`[devices.heartbeat] dropped ${clean.dropped} invalid liveSessionIds from ${input.deviceId}`)
+        }
+        liveSessionIds = clean.ids
+      }
       const updated = await ctx.db
         .update(devices)
         .set({
           lastSeenAt: now,
           updatedAt: now,
           activeSessions: input.activeSessions,
+          // FEED-145: the listed sessions are vouched for (no `stuck` flag
+          // for a long turn). FEED-146: sent every beat, so absent (the
+          // device is past its cap) = NULL, never the last list standing.
+          liveSessionIds,
           ...(input.agentAccounts
             ? { agentAccounts: clampAgentAccounts(input.agentAccounts) }
             : {}),
@@ -702,11 +725,14 @@ export const devicesRouter = router({
       // NEW-1: the device is back: its sessions the watchdog parked as
       // `device_offline` read live again (the device re-claims them).
       // NEW-5: a busy session the host no longer runs is a dead process.
-      const liveSessionIds = input.liveSessionIds
+      // FEED-147: every move is scoped to the sessions this sender hosts.
+      const beating = { deviceId: input.deviceId, userId: ctx.session.user.id }
       await ctx.db.transaction(async (tx) => {
-        await restoreDeviceSessionsInTx(tx, { deviceId: input.deviceId, userId: ctx.session.user.id })
+        await restoreDeviceSessionsInTx(tx, beating)
         if (liveSessionIds) {
-          await flagDeadSessionsInTx(tx, { deviceId: input.deviceId, liveSessionIds }, now)
+          await flagDeadSessionsInTx(tx, { ...beating, liveSessionIds }, now)
+          // FEED-145: a listed session is alive: a `stuck` flag on it goes.
+          await clearLiveStuckInTx(tx, { ...beating, liveSessionIds })
         }
       })
 
@@ -1370,12 +1396,26 @@ export const devicesRouter = router({
       }
       const txid = await ctx.db.transaction(async (tx) => {
         const id = await generateTxId(tx)
+        // FEED-148: a machine id is unique per account only, so anyone can
+        // register a box's id. One sharing row per (machine, team): a
+        // second account's share into a team the box is already shared
+        // with is refused (it would compete for the host of teammates'
+        // starts), and only the row that IS the host disarms the team's
+        // agents on revoke (a decoy's unshare pauses nothing).
+        await lockDeviceShares(tx, input.deviceId)
+        if (await shareContested(tx, ctx.session.user.id, input.deviceId, added)) {
+          throw new TRPCError({
+            code: `CONFLICT`,
+            message: `Another account already shares this machine with that team`,
+          })
+        }
+        const pause = await firstSharerTeams(tx, { id: row.id, deviceId: input.deviceId }, disarm)
         await tx
           .update(devices)
           .set({ sharedTeamIds: next, updatedAt: new Date() })
           .where(eq(devices.id, row.id))
-        if (disarm.length > 0) {
-          await pauseDeviceAgents(tx, disarm, input.deviceId)
+        if (pause.length > 0) {
+          await pauseDeviceAgents(tx, pause, input.deviceId)
         }
         return id
       })
@@ -1388,11 +1428,9 @@ export const devicesRouter = router({
       // (EXP-560): only THIS machine's foreign runs die — the owner's other
       // same-team shares keep theirs.
       for (const teamId of revoked) {
-        await endForeignHostedSessions(
-          ctx.session.user.id,
-          teamId,
-          input.deviceId
-        )
+        await endForeignHostedSessions(ctx.session.user.id, teamId, [
+          input.deviceId,
+        ])
       }
       return { ok: true, txid }
     }),

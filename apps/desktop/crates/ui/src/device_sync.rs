@@ -428,6 +428,9 @@ struct BeatSnapshot {
     inflight_logins: Arc<Mutex<HashSet<String>>>,
     /// See [`DeviceSyncState::doctor_soon`].
     doctor_soon: Arc<AtomicBool>,
+    /// NEW-78: this device listens (the member's voice device, Push to talk
+    /// on): the readiness block carries the microphone row.
+    listening: bool,
 }
 
 /// What this loop last SENT, so an unchanged payload is left off the beat
@@ -512,6 +515,7 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Result<BeatSnapshot, Snapshot
         doctor,
         inflight_logins,
         doctor_soon,
+        listening: crate::speak_replies::push_to_talk_here(cx),
     })
 }
 
@@ -635,7 +639,9 @@ fn beat(
     // EXP-1196: the readiness block rides only when its items moved since
     // the last accepted beat (and never before the first doctor probe).
     let device_doctor = snapshot.doctor.as_ref().map(|report| {
-        coding::device_doctor::current(&snapshot.settings, &snapshot.data_dir, report)
+        let mut doctor = coding::device_doctor::current(&snapshot.settings, &snapshot.data_dir, report);
+        crate::device_readiness::add_microphone_row(&mut doctor, snapshot.listening);
+        doctor
     });
     let doctor_write = device_doctor.as_ref().and_then(|doctor| {
         let key = coding::device_doctor::items_key(doctor);
@@ -939,6 +945,7 @@ pub(crate) fn push_local_defaults_if_changed(
         doctor: None,
         inflight_logins: Arc::new(Mutex::new(HashSet::new())),
         doctor_soon: Arc::new(AtomicBool::new(false)),
+        listening: false,
     };
     push_defaults(&snapshot, &settings, &marker);
 }

@@ -215,6 +215,44 @@ the human recording set decides between them in #NEW-54.
   only, kept out of git), a
   running game beside the engines.
 
+## Speech in through CrispASR (NEW-78, 2026-10-26)
+
+Push to talk's transcriber as it ships in the speech worker: Silero VAD v6.2
+(MIT, 0.88 MB) and Parakeet TDT 0.6B v3 Q8_0 GGUF (CC-BY-4.0, 674 MB), both
+through CrispASR 0.8.45, sha256-pinned and verified before ggml reads them.
+Measured on mint (RTX 4090, i9) with `cargo run --release -p voice --example
+listen -- <data-dir> <en|de> [--cpu] <clip.wav>...`, which runs every clip
+through the worker's own pipeline (`crates/voice/src/listen.rs`: 32 ms
+frames, Silero segments closed after 300 ms of silence, each finished segment
+transcribed at once, partials every 300 ms on the GPU only) in 20 ms chunks.
+"Tail" = compute after release, what the person waits for; WER is scored
+against the spoken form as above.
+
+| device | clips | WER | tail after release | partials | load |
+|---|---|---|---|---|---|
+| CUDA | Kokoro en (10) | 14.9 % | **10–41 ms** | every 300 ms (1–13 per clip) | 0.72 s |
+| CPU (8 threads) | Kokoro en (10) | **12.6 %** | 102–450 ms | none | 0.48 s |
+| CUDA, CPU | our Qwen built-in clips, en + de (9 s each) | 0 errors | 0 ms (the last segment closed in the trailing silence) | | |
+
+The spike's offline measurement of the same model (the `parakeet`
+subcommand, sherpa-onnx int8, and CrispASR's own CLI) found CUDA 10–30 ms per
+clip of up to 4 s, 11.5 % WER with no content errors, 1,246 MiB of VRAM, and
+the CPU at 110–540 ms per segment and 14.9 %. Through the pipeline the errors
+are the same kind: identifiers as words ("New 54" for "NEW fifty four",
+"Except all" for "Accept all"), and one content word on both devices
+("done" → "Dunn", a two-word clip with no context). German has only the
+built-in clip so far: word for word on both devices.
+
+One CrispASR finding: `whisper_vad_detect_speech_continue` on a FRESH VAD
+context runs Silero's recurrent state from uncleared memory and scored the
+first 2.7 s of speech as silence; the worker's first call per Listen is the
+resetting `whisper_vad_detect_speech` (`crispasr::VadStream`).
+
+Downloads: the transcriber needs the runtime (the CUDA build, 781 MB with
+NVIDIA's wheels; on a machine without a GPU driver, NEW-78 pins the CPU-only
+build of the same release: 22.7 MB on Linux, 58.4 MB on Windows) plus the two
+models, fetched on the first Listen.
+
 ## macbook
 
 The same harness on the owner's macbook (Apple M4 Pro, 10 performance + 4

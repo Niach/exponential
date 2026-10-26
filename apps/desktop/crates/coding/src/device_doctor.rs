@@ -24,6 +24,8 @@ use crate::settings::Settings;
 
 pub const KEY_GIT: &str = "git";
 pub const KEY_COMPUTER_USE: &str = "computer_use";
+/// NEW-78: the voice group's one row (see [`add_microphone`]).
+pub const KEY_MICROPHONE: &str = "microphone";
 
 pub const NOT_INSTALLED: &str = "Not installed";
 pub const SIGNED_OUT: &str = "Signed out";
@@ -34,6 +36,8 @@ pub const UNAVAILABLE: &str = "Not available here";
 /// An agent whose version passes the floor but whose deep ACP probe failed
 /// (`exponential doctor`'s codex handshake). Not in the fixture's copy.
 pub const NOT_RESPONDING: &str = "Not responding";
+/// NEW-78: the microphone row with no input device (grey, no pill).
+pub const NO_INPUT_DEVICE: &str = "No input device";
 /// EXP-1232: the managed Codex build is being fetched (no pill).
 pub const DOWNLOADING: &str = "Downloading…";
 /// EXP-1232: the fetch failed; Update re-fetches.
@@ -77,11 +81,17 @@ pub enum DoctorGroup {
     Required,
     Agents,
     ComputerUse,
+    /// NEW-78: the microphone row, on the member's voice device only.
+    Voice,
 }
 
 impl DoctorGroup {
-    pub const ALL: [DoctorGroup; 3] =
-        [DoctorGroup::Required, DoctorGroup::Agents, DoctorGroup::ComputerUse];
+    pub const ALL: [DoctorGroup; 4] = [
+        DoctorGroup::Required,
+        DoctorGroup::Agents,
+        DoctorGroup::ComputerUse,
+        DoctorGroup::Voice,
+    ];
 
     /// The fixture's `groups[].label`.
     pub fn label(self) -> &'static str {
@@ -89,6 +99,7 @@ impl DoctorGroup {
             DoctorGroup::Required => "Required",
             DoctorGroup::Agents => "Coding agents",
             DoctorGroup::ComputerUse => "Computer use",
+            DoctorGroup::Voice => "Voice",
         }
     }
 
@@ -96,7 +107,9 @@ impl DoctorGroup {
     pub fn tag(self) -> Option<&'static str> {
         match self {
             DoctorGroup::Required => None,
-            DoctorGroup::Agents | DoctorGroup::ComputerUse => Some("optional"),
+            DoctorGroup::Agents | DoctorGroup::ComputerUse | DoctorGroup::Voice => {
+                Some("optional")
+            }
         }
     }
 }
@@ -150,6 +163,7 @@ pub fn label(key: &str) -> &str {
         "computer_use" => "Computer use",
         "screen_recording" => "Screen Recording",
         "accessibility" => "Accessibility",
+        "microphone" => "Microphone",
         other => other,
     }
 }
@@ -414,6 +428,33 @@ pub fn current(settings: &Settings, data_dir: &Path, report: &DoctorReport) -> D
     build(&report, settings, computer)
 }
 
+/// NEW-78: what the IDE's microphone probe found (`talk::microphone`, mapped
+/// by the IDE: coding never depends on talk).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MicrophoneState {
+    /// macOS: access granted; Linux/Windows (no OS permission): an input
+    /// device is there.
+    Granted,
+    /// macOS only: access not granted (or not asked yet).
+    NotGranted,
+    /// No input device at all.
+    NoDevice,
+}
+
+/// NEW-78: append the voice group's `microphone` row (pure). The IDE calls it
+/// only on the member's voice device with Push to talk on; the CLI daemon
+/// never does.
+pub fn add_microphone(doctor: &mut DeviceDoctor, state: MicrophoneState) {
+    let row = |state| item(KEY_MICROPHONE, DoctorGroup::Voice, state);
+    doctor.items.push(match state {
+        MicrophoneState::Granted => row(DoctorState::Ok).detail(GRANTED),
+        MicrophoneState::NotGranted => row(DoctorState::Action)
+            .detail(NOT_GRANTED)
+            .action(DoctorAction::Grant),
+        MicrophoneState::NoDevice => row(DoctorState::Missing).detail(NO_INPUT_DEVICE),
+    });
+}
+
 /// The agents whose row is `ok`, and only while git is (the fixture's
 /// `runnable`).
 pub fn runnable_agents(doctor: &DeviceDoctor) -> Vec<&str> {
@@ -493,6 +534,17 @@ mod tests {
         }
     }
 
+    /// NEW-78: the microphone row a fixture case carries, by index (the
+    /// IDE's [`add_microphone`] after [`build`]).
+    fn case_microphone(index: usize) -> Option<MicrophoneState> {
+        match index {
+            6 => Some(MicrophoneState::Granted),
+            7 => Some(MicrophoneState::NotGranted),
+            8 => Some(MicrophoneState::NoDevice),
+            _ => None,
+        }
+    }
+
     /// The hand-built input behind each fixture case, by index.
     fn case_input(index: usize) -> (DoctorReport, Settings, ComputerState) {
         match index {
@@ -563,6 +615,8 @@ mod tests {
                 settings(false),
                 ComputerState::Unsupported(None),
             ),
+            // NEW-78: the first case's machine, plus its microphone row.
+            6..=8 => case_input(0),
             _ => panic!("no input for fixture case {index}: add one"),
         }
     }
@@ -571,11 +625,14 @@ mod tests {
     fn every_fixture_case_builds_exactly() {
         let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
         let cases = fixture["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 6, "a new fixture case needs an input here");
+        assert_eq!(cases.len(), 9, "a new fixture case needs an input here");
         for (index, case) in cases.iter().enumerate() {
             let name = case["name"].as_str().unwrap();
             let (report, settings, computer) = case_input(index);
-            let doctor = build(&report, &settings, computer);
+            let mut doctor = build(&report, &settings, computer);
+            if let Some(microphone) = case_microphone(index) {
+                add_microphone(&mut doctor, microphone);
+            }
             let expected: Vec<DoctorItem> =
                 serde_json::from_value(case["doctor"]["items"].clone()).unwrap();
             assert_eq!(doctor.items, expected, "{name}");
@@ -623,6 +680,13 @@ mod tests {
             assert_eq!(parsed.label(), group["label"].as_str().unwrap());
             assert_eq!(parsed.tag(), group["tag"].as_str());
         }
+        let order: Vec<DoctorGroup> = fixture["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|group| serde_json::from_value(group["key"].clone()).unwrap())
+            .collect();
+        assert_eq!(order, DoctorGroup::ALL);
         for (key, text) in fixture["labels"].as_object().unwrap() {
             assert_eq!(label(key), text.as_str().unwrap());
         }
@@ -642,6 +706,7 @@ mod tests {
             ("granted", GRANTED),
             ("notGranted", NOT_GRANTED),
             ("unavailable", UNAVAILABLE),
+            ("noInputDevice", NO_INPUT_DEVICE),
             ("downloading", DOWNLOADING),
             ("downloadFailed", DOWNLOAD_FAILED),
             ("importBody", IMPORT_BODY),

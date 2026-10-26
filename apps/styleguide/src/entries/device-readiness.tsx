@@ -34,7 +34,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1196`,
   title: `Device readiness`,
-  blurb: `One block ×5 from the device's doctor report (device-doctor.json): a band per group (Required, Coding agents, Computer use; the tag trailing), one flat row per item with its state glyph, label, the device's detail and at most one action pill. An agent with an ambient login carries an Import pill before it, confirmed first (Import {email}?). Computer use is the switch row; its permission rows indent under it and hide while it is off. On the device every action is offered, from another device only Update, Sign in and Import; the first action/error row's pill is primary. No subtitles, no footers.`,
+  blurb: `One block ×5 from the device's doctor report (device-doctor.json): a band per group (Required, Coding agents, Computer use, Voice; the tag trailing), one flat row per item with its state glyph, label, the device's detail and at most one action pill. An agent with an ambient login carries an Import pill before it, confirmed first (Import {email}?). Computer use is the switch row; its permission rows indent under it and hide while it is off. Voice (NEW-78) is the Microphone row, only on the voice device with Push to talk on. On the device every action is offered, from another device only Update, Sign in and Import; the first action/error row's pill is primary. No subtitles, no footers.`,
   status: {
     web: {
       state: `ok`,

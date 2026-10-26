@@ -168,11 +168,10 @@ pub(crate) fn voice_rows(
     let copy = &VOICE.copy;
     let ready = settings.voice_device_id.is_some() && settings.agent_id.is_some();
     // voice.json: while the voice downloads (only ever on the voice device,
-    // i.e. here) the Speak replies row's detail reads `downloading`.
-    let downloading = on_change.is_some()
-        && ready
-        && settings.speak_replies
-        && crate::speak_replies::download(cx) == crate::speak_replies::Download::Running;
+    // i.e. here) the Speak replies row's detail reads `downloadProgress`.
+    let downloading = (on_change.is_some() && ready && settings.speak_replies)
+        .then(|| crate::speak_replies::download_detail(cx))
+        .flatten();
     let send = |make: Rc<dyn Fn(Option<String>) -> VoiceUpdate>| -> Option<Rc<dyn Fn(Option<String>, &mut App)>> {
         on_change.clone().map(|on_change| {
             Rc::new(move |value: Option<String>, cx: &mut App| on_change(make(value), cx)) as Rc<dyn Fn(Option<String>, &mut App)>
@@ -189,7 +188,7 @@ pub(crate) fn voice_rows(
         .map(|option| option.label.clone());
 
     let language = settings.language().to_string();
-    // German carries its GPU note, in the row and in the menu.
+    // Every language carries its GPU note (#NEW-74), in the row and in the menu.
     let languages = VOICE
         .languages
         .iter()
@@ -221,7 +220,7 @@ pub(crate) fn voice_rows(
             switch_row(
                 "settings-voice-speak-replies",
                 &copy.speak_replies,
-                downloading.then(|| SharedString::from(copy.downloading.clone())),
+                downloading.map(SharedString::from),
                 settings.speak_replies,
                 ready,
                 toggle(Rc::new(|on| VoiceUpdate { speak_replies: Some(on), ..Default::default() })),

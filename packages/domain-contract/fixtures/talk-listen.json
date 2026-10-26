@@ -1,0 +1,57 @@
+{
+  "_": "NEW-78: what the speech worker does with the microphone while push to talk is held, before any client draws it. Only the voice device listens, so ONE implementation replays this (apps/desktop/crates/voice/src/listen.rs); the clients ×4 draw the `level` events (VoiceWave, NEW-54 b2) and never recompute them. Audio is mono 16 kHz in frames of 512 samples (32 ms, Silero's frame): every frame yields one `level` event (`level` + 8 `bands`, each 0..1, rounded to 3 decimals). A frame's level = its RMS in dBFS mapped linearly from floorDb (0) to ceilingDb (1), clamped; a band's level = the same mapping of the RMS of its share of a Hann-windowed spectrum (bandEdgesHz, log-spaced). The drawn value moves towards the measured one by `attack` per frame when rising and by `release` when falling. Speech = Silero probabilities per frame: a segment opens at a frame >= threshold, a run of frames below negThreshold starts the silence (frames between the two thresholds keep the segment open), minSilenceMs of silence closes it, a segment with less than minSpeechMs of speech is dropped, padMs of audio is kept on both sides (never reaching back into the previous segment), and a segment is cut at maxSegmentMs. Releasing the key closes the open segment where the speech ended. Every closed segment is transcribed at once (Parakeet), so release waits only for the last; on a GPU the open segment is re-transcribed every partialEveryMs for `partial` (never on the CPU). Transcripts are normalised (whitespace collapsed, no space before . , ! ? ; : % ), nothing without a letter or digit) and the segments joined with one space: empty = `empty`, else `heard`.",
+  "constants": {
+    "rate": 16000,
+    "frame": 512,
+    "floorDb": -60,
+    "ceilingDb": -10,
+    "attack": 0.6,
+    "release": 0.2,
+    "bandEdgesHz": [80, 142.3, 253, 449.9, 800, 1422.6, 2529.8, 4498.6, 8000],
+    "threshold": 0.5,
+    "negThreshold": 0.35,
+    "minSpeechMs": 250,
+    "minSilenceMs": 300,
+    "padMs": 64,
+    "maxSegmentMs": 20000,
+    "partialEveryMs": 300
+  },
+  "levelOfRms": [
+    { "rms": 0, "level": 0 },
+    { "rms": 0.001, "level": 0 },
+    { "rms": 0.0031623, "level": 0.2 },
+    { "rms": 0.01, "level": 0.4 },
+    { "rms": 0.1, "level": 0.8 },
+    { "rms": 0.316228, "level": 1 },
+    { "rms": 1, "level": 1 }
+  ],
+  "smoothing": [
+    { "name": "rises fast, falls slowly", "from": 0, "measured": [1, 1, 0, 0], "drawn": [0.6, 0.84, 0.672, 0.5376] },
+    { "name": "holds a steady level", "from": 0.5, "measured": [0.5, 0.5], "drawn": [0.5, 0.5] },
+    { "name": "settles towards silence", "from": 1, "measured": [0, 0, 0, 0, 0], "drawn": [0.8, 0.64, 0.512, 0.4096, 0.32768] }
+  ],
+  "normalize": [
+    { "in": "  Move EXP thirteen  sixty nine to done . ", "out": "Move EXP thirteen sixty nine to done." },
+    { "in": "Hallo , Welt !", "out": "Hallo, Welt!" },
+    { "in": "Setz die Priorität auf hoch.", "out": "Setz die Priorität auf hoch." },
+    { "in": "Raise it to 50 %", "out": "Raise it to 50%" },
+    { "in": "Say (hello) now", "out": "Say (hello) now" },
+    { "in": ".", "out": "" },
+    { "in": " - ", "out": "" },
+    { "in": "", "out": "" }
+  ],
+  "join": [
+    { "parts": ["Move the issue.", "", " To done. "], "out": "Move the issue. To done." },
+    { "parts": ["", "  "], "out": "" }
+  ],
+  "segments": [
+    { "name": "one phrase", "probabilities": [[0.1, 10], [0.9, 20], [0.1, 15]], "segments": [[8, 32]] },
+    { "name": "a blip shorter than minSpeech is dropped", "probabilities": [[0.1, 10], [0.9, 5], [0.1, 20]], "segments": [] },
+    { "name": "frames between the thresholds keep the segment open", "probabilities": [[0.9, 10], [0.4, 12], [0.9, 10], [0.1, 12]], "segments": [[0, 34]] },
+    { "name": "two phrases; the second's padding stops at the first's end", "probabilities": [[0.9, 10], [0.1, 10], [0.9, 10], [0.1, 10]], "segments": [[0, 12], [18, 32]] },
+    { "name": "released mid-phrase", "probabilities": [[0.1, 5], [0.9, 12]], "segments": [[3, 17]] },
+    { "name": "released in a pause shorter than minSilence", "probabilities": [[0.9, 10], [0.1, 4]], "segments": [[0, 12]] },
+    { "name": "a tap without speech", "probabilities": [[0.1, 8]], "segments": [] },
+    { "name": "a long monologue is cut at maxSegment", "probabilities": [[0.9, 1300]], "segments": [[0, 625], [625, 1250], [1250, 1300]] }
+  ]
+}

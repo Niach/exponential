@@ -157,7 +157,7 @@ export const VENDORED: CuratedEntry[] = [
     title: `Vendored source in the desktop application`,
     clients: [`desktop`],
     body: [
-      `Three crates in this repository contain third-party source that was copied in and modified rather than depended on. All are Apache-2.0, and each carries the statement of changes that Apache-2.0 section 4(b) requires. Their NOTICE files are reproduced in full below.`,
+      `Two crates in this repository contain third-party source that was copied in and modified rather than depended on. Both are Apache-2.0, and both carry the statement of changes that Apache-2.0 section 4(b) requires. Their NOTICE files are reproduced in full below.`,
     ],
     reproduce: [
       {
@@ -168,37 +168,23 @@ export const VENDORED: CuratedEntry[] = [
         label: `apps/desktop/crates/gpui-markdown-editor/NOTICE`,
         path: `apps/desktop/crates/gpui-markdown-editor/NOTICE`,
       },
-      // NEW-53: the FFI crate of sherpa-onnx, build.rs changed to verify
-      // the prebuilt archive against pinned SHA-256s.
-      {
-        label: `apps/desktop/vendor/sherpa-onnx-sys/NOTICE`,
-        path: `apps/desktop/vendor/sherpa-onnx-sys/NOTICE`,
-      },
     ],
   },
-  // NEW-53: sherpa-onnx's prebuilt static archive is linked into the desktop
-  // binary (exponentialTalk's speech worker). No dependency graph sees the
-  // C/C++ inside it, so each linked library gets its upstream licence here
-  // (texts/sherpa-onnx/, fetched by scripts/fetch-texts.ts at the versions
-  // sherpa-onnx v2.0.0 builds). The Kokoro voice is downloaded at runtime,
-  // never shipped (docs/third-party-licences.md, NEW-53 section).
+  // NEW-74: exponentialTalk's voice. Not in the binary: the speech worker
+  // downloads it on first use from the publishers, verifies every file
+  // against a pinned sha256 and loads it at runtime; the macOS bundle ships
+  // the CrispASR runtime itself (apps/desktop/scripts/build-macos-app.sh;
+  // docs/third-party-licences.md, NEW-74).
   {
-    title: `Native code linked through sherpa-onnx (exponentialTalk)`,
+    title: `exponentialTalk's voice runtime (downloaded at first use; bundled on macOS)`,
     clients: [`desktop`],
     body: [
-      `The desktop application statically links the prebuilt library archive of sherpa-onnx v2.0.0 (https://github.com/k2-fsa/sherpa-onnx, Apache-2.0), which contains the following third-party native code, unmodified: ONNX Runtime 1.28.2 (Microsoft, MIT; its third-party notices follow its licence), KISS FFT (Mark Borgerding, BSD-3-Clause), utf8proc 2.12.0 (MIT and the Unicode data licence), OpenFst 1.8.5 as forked by csukuangfj (Apache-2.0), kaldi-native-fbank 1.22.4 (Apache-2.0), kaldi-decoder 0.3.0 (Apache-2.0) and simple-sentencepiece 0.7 (Apache-2.0). The archive contains no espeak-ng or piper-phonemize code (removed upstream in sherpa-onnx 2.0.0). Each licence is reproduced in full below.`,
+      `The macOS application bundle contains the CrispASR v0.8.45 Metal runtime (libcrispasr and ggml dylibs, unmodified, re-signed). On Linux and Windows, when a member turns on Speak replies, the desktop application's speech worker downloads, from the publishers' own servers, the CrispASR v0.8.45 runtime for the platform (https://github.com/CrispStrobe/CrispASR, MIT; the prebuilt libcrispasr with ggml, MIT, and the bundled components its third-party notices list; built without espeak-ng) ; on every platform it downloads the Qwen3-TTS 12 Hz 0.6B Base model with its 12 Hz tokenizer (https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-Base, Apache-2.0; GGUF conversions by cstr for CrispASR, Apache-2.0). On Linux it also fetches NVIDIA's CUDA runtime (nvidia-cuda-runtime-cu12 12.9.79) and cuBLAS (nvidia-cublas-cu12 12.9.2.10) from NVIDIA's own wheels on PyPI; they are governed by the NVIDIA CUDA Toolkit End User License Agreement (https://docs.nvidia.com/cuda/eula/), whose text is kept beside them, and are not redistributed by Exponential. The CrispASR licence and notices are reproduced below; the Apache License 2.0 is reproduced above.`,
+      `NEW-78: when a member turns on Push to talk, the worker downloads, on first use, the transcriber: Parakeet TDT 0.6B v3 by NVIDIA (https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3, licensed under CC BY 4.0, https://creativecommons.org/licenses/by/4.0/; converted to GGUF and quantised to Q8_0 by cstr for CrispASR, https://huggingface.co/cstr/parakeet-tdt-0.6b-v3-GGUF; not modified by Exponential) and the Silero VAD v6.2 (https://github.com/snakers4/silero-vad, MIT, Silero Team; ggml conversion by ggml-org, https://huggingface.co/ggml-org/whisper-vad, MIT). On a Linux or Windows machine without a GPU driver it downloads CrispASR v0.8.45's CPU-only runtime instead of the GPU one; on Linux that archive carries OpenBLAS (BSD-3-Clause) with libgfortran and libquadmath (GCC Runtime Library Exception / LGPL-2.1), listed in the CrispASR notices below and not redistributed by Exponential. On Linux both CrispASR archives (CUDA and CPU-only) carry libgomp.so.1, the GNU OpenMP runtime (https://gcc.gnu.org/, GPL-3.0-or-later WITH GCC-exception-3.1, the GCC Runtime Library Exception: https://www.gnu.org/licenses/gpl-3.0.html, https://www.gnu.org/licenses/gcc-exception-3.1.html), unmodified from Ubuntu 22.04's gcc-12, whose corresponding source is available from Ubuntu's source archive (apt-get source gcc-12), from https://gcc.gnu.org/ and from the CrispASR maintainers as their notices below state; it is fetched by the member's machine, not redistributed by Exponential.`,
     ],
     reproduce: [
-      { label: `Apache License 2.0 — sherpa-onnx`, path: `packages/licenses/texts/sherpa-onnx/sherpa-onnx-LICENSE.txt` },
-      { label: `MIT License — ONNX Runtime`, path: `packages/licenses/texts/sherpa-onnx/onnxruntime-LICENSE.txt` },
-      { label: `ONNX Runtime third-party notices`, path: `packages/licenses/texts/sherpa-onnx/onnxruntime-ThirdPartyNotices.txt` },
-      { label: `KISS FFT — COPYING`, path: `packages/licenses/texts/sherpa-onnx/kissfft-COPYING.txt` },
-      { label: `BSD-3-Clause — KISS FFT`, path: `packages/licenses/texts/sherpa-onnx/kissfft-BSD-3-Clause.txt` },
-      { label: `utf8proc licence`, path: `packages/licenses/texts/sherpa-onnx/utf8proc-LICENSE.txt` },
-      { label: `Apache License 2.0 — OpenFst`, path: `packages/licenses/texts/sherpa-onnx/openfst-COPYING.txt` },
-      { label: `Apache License 2.0 — kaldi-native-fbank`, path: `packages/licenses/texts/sherpa-onnx/kaldi-native-fbank-LICENSE.txt` },
-      { label: `Apache License 2.0 — kaldi-decoder`, path: `packages/licenses/texts/sherpa-onnx/kaldi-decoder-LICENSE.txt` },
-      { label: `Apache License 2.0 — simple-sentencepiece`, path: `packages/licenses/texts/sherpa-onnx/simple-sentencepiece-LICENSE.txt` },
+      { label: `MIT License — CrispASR (incl. ggml)`, path: `packages/licenses/texts/crispasr/LICENSE.txt` },
+      { label: `CrispASR third-party notices`, path: `packages/licenses/texts/crispasr/THIRD_PARTY_NOTICES.txt` },
     ],
   },
   // VAPP-87: the web app bundles the Exponential UI catalog package

@@ -12,6 +12,20 @@ export const VOICE_DEFAULTS = fixture.defaults
 export const VOICE_LANGUAGES = fixture.languages
 export const VOICE_LIMITS = fixture.limits
 
+/** #NEW-74: the words a spoken reply uses per language (`spokenWords`). */
+export interface VoiceSpokenWords {
+  link: string
+  point: string
+  percent: string
+}
+
+const SPOKEN_WORDS: Record<string, VoiceSpokenWords> = fixture.spokenWords
+
+/** The spoken words of a language; an unknown one reads as English. */
+export function spokenWords(language: string): VoiceSpokenWords {
+  return SPOKEN_WORDS[language] ?? SPOKEN_WORDS.en
+}
+
 export interface VoiceMessageLike {
   authorKind?: string | null
   body?: string | null
@@ -30,7 +44,8 @@ export interface VoiceContext {
   speakReplies: boolean
   /** #NEW-73: the language replies are spoken in (`languages`). */
   language: string
-  /** The languages THIS device has a voice for. */
+  /** The languages THIS device's speech worker reports (empty without a
+   *  usable GPU, #NEW-74). */
   voices: string[]
   /** When the watcher armed; older rows are a backfill. */
   armedAt: string
@@ -73,17 +88,65 @@ function belowThousand(n: number): string {
   return parts.join(` `)
 }
 
-function digitsWords(digits: string): string {
-  return digits.split(``).map((d) => ONES[Number(d)]).join(` `)
+const ONES_DE = [
+  `null`, `eins`, `zwei`, `drei`, `vier`, `fünf`, `sechs`, `sieben`, `acht`, `neun`,
+  `zehn`, `elf`, `zwölf`, `dreizehn`, `vierzehn`, `fünfzehn`, `sechzehn`,
+  `siebzehn`, `achtzehn`, `neunzehn`,
+]
+const TENS_DE = [``, ``, `zwanzig`, `dreißig`, `vierzig`, `fünfzig`, `sechzig`, `siebzig`, `achtzig`, `neunzig`]
+
+/** A German digit in front of `und`, `hundert` or `tausend` (`ein`, not `eins`). */
+function unitDe(n: number): string {
+  return n === 1 ? `ein` : ONES_DE[n]
 }
 
-/** English cardinal words for a number written with digits (an optional
- * decimal part reads `point` and then digit by digit). */
-export function numberWords(text: string): string {
+function belowHundredDe(n: number): string {
+  if (n < 20) return ONES_DE[n]
+  const tens = TENS_DE[Math.floor(n / 10)]
+  return n % 10 === 0 ? tens : `${unitDe(n % 10)}und${tens}`
+}
+
+/** One written compound: `einhunderteins`, `siebenhundertdreiundachtzig`. */
+function belowThousandDe(n: number): string {
+  const hundreds = Math.floor(n / 100)
+  const rest = n % 100
+  let words = hundreds > 0 ? `${unitDe(hundreds)}hundert` : ``
+  if (rest > 0 || hundreds === 0) words += belowHundredDe(rest)
+  return words
+}
+
+function digitsWords(digits: string, language: string = `en`): string {
+  const ones = language === `de` ? ONES_DE : ONES
+  return digits.split(``).map((d) => ones[Number(d)]).join(` `)
+}
+
+/** German cardinal words for an integer below a billion. */
+function wholeWordsDe(whole: number): string {
+  if (whole === 0) return ONES_DE[0]
+  const millions = Math.floor(whole / 1_000_000)
+  const thousands = Math.floor((whole % 1_000_000) / 1_000)
+  const rest = whole % 1_000
+  const parts: string[] = []
+  if (millions === 1) parts.push(`eine Million`)
+  else if (millions > 1) parts.push(`${belowThousandDe(millions).replace(/eins$/, `eine`)} Millionen`)
+  let tail = ``
+  if (thousands > 0) tail += `${belowThousandDe(thousands).replace(/eins$/, `ein`)}tausend`
+  if (rest > 0) tail += belowThousandDe(rest)
+  if (tail !== ``) parts.push(tail)
+  return parts.join(` `)
+}
+
+/** Cardinal words for a number written with digits, in the language
+ * (`en` or `de`; an optional decimal part reads `spokenWords.point` and
+ * then digit by digit). */
+export function numberWords(text: string, language: string = `en`): string {
   const [whole, fraction] = text.split(`.`)
+  const german = language === `de`
   let words: string
   if (whole.length > 9) {
-    words = digitsWords(whole)
+    words = digitsWords(whole, language)
+  } else if (german) {
+    words = wholeWordsDe(Number(whole))
   } else {
     let n = Number(whole)
     if (n === 0) {
@@ -100,20 +163,28 @@ export function numberWords(text: string): string {
       words = parts.join(` `)
     }
   }
-  if (fraction !== undefined && fraction !== ``) words += ` point ${digitsWords(fraction)}`
+  if (fraction !== undefined && fraction !== ``) {
+    words += ` ${spokenWords(language).point} ${digitsWords(fraction, language)}`
+  }
   return words
 }
 
 /** How people say an issue number: 1-3 digits as a cardinal, 4 digits as
  * two pairs (`twelve forty-two`, `twelve hundred`, `twelve oh five`, a
- * round thousand as a cardinal), 5+ digits digit by digit. */
-export function identifierNumberWords(digits: string): string {
-  if (digits.length <= 3) return numberWords(digits)
-  if (digits.length > 4) return digitsWords(digits)
+ * round thousand as a cardinal; German `zwölf zweiundvierzig`,
+ * `zwölfhundert`, `zwölf null fünf`), 5+ digits digit by digit. */
+export function identifierNumberWords(digits: string, language: string = `en`): string {
+  if (digits.length <= 3) return numberWords(digits, language)
+  if (digits.length > 4) return digitsWords(digits, language)
   const n = Number(digits)
-  if (n % 1000 === 0) return numberWords(digits)
+  if (n % 1000 === 0) return numberWords(digits, language)
   const high = Math.floor(n / 100)
   const low = n % 100
+  if (language === `de`) {
+    if (low === 0) return `${belowHundredDe(high)}hundert`
+    if (low < 10) return `${belowHundredDe(high)} null ${ONES_DE[low]}`
+    return `${belowHundredDe(high)} ${belowHundredDe(low)}`
+  }
   if (low === 0) return `${belowHundred(high)} hundred`
   if (low < 10) return `${belowHundred(high)} oh ${ONES[low]}`
   return `${belowHundred(high)} ${belowHundred(low)}`
@@ -134,8 +205,10 @@ function clip(text: string, maxChars: number): string {
   return `${(space > 0 ? head.slice(0, space) : head).trimEnd()}${fixture.copy.ellipsis}`
 }
 
-/** What a voice says for a reply's Markdown body (`voice.json` rules). */
-export function spokenText(body: string, maxChars: number = fixture.maxChars): string {
+/** What a voice says for a reply's Markdown body in the language
+ * (`voice.json` rules; an unknown language reads as English). */
+export function spokenText(body: string, maxChars: number = fixture.maxChars, language: string = `en`): string {
+  const words = spokenWords(language)
   let text = body.replace(/\r\n?/g, `\n`)
   // Fenced code blocks and tables drop.
   text = text.replace(/```[\s\S]*?(```|$)/g, `\n`)
@@ -146,7 +219,7 @@ export function spokenText(body: string, maxChars: number = fixture.maxChars): s
   // Images drop; links keep their text; bare urls become the word `link`.
   text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, ``)
   text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, `$1`)
-  text = text.replace(/https?:\/\/[^\s)]+?(?=[.,;:!?]?(\s|$))/g, fixture.copy.link)
+  text = text.replace(/https?:\/\/[^\s)]+?(?=[.,;:!?]?(\s|$))/g, words.link)
   // Line markers: headings, quotes, bullets, numbered items.
   text = text
     .split(`\n`)
@@ -168,11 +241,11 @@ export function spokenText(body: string, maxChars: number = fixture.maxChars): s
   text = text.replace(/#([A-Za-z]{2,10}-\d+)/g, `$1`)
   // Identifiers, then acronyms, then numbers.
   text = text.replace(/\b([A-Za-z]{2,10})-(\d+)\b/g, (_, letters: string, digits: string) =>
-    `${spell(letters)} ${identifierNumberWords(digits)}`
+    `${spell(letters)} ${identifierNumberWords(digits, language)}`
   )
   text = text.replace(/\b[A-Z]{2,5}\b/g, (word) => spell(word))
-  text = text.replace(/(\d+(?:\.\d+)?)\s?%/g, (_, n: string) => `${numberWords(n)} percent`)
-  text = text.replace(/\b\d+(?:\.\d+)?\b/g, (n) => numberWords(n))
+  text = text.replace(/(\d+(?:\.\d+)?)\s?%/g, (_, n: string) => `${numberWords(n, language)} ${words.percent}`)
+  text = text.replace(/\b\d+(?:\.\d+)?\b/g, (n) => numberWords(n, language))
   text = text.replace(/\s+/g, ` `).trim()
   return clip(text, maxChars)
 }
@@ -248,10 +321,10 @@ export function wakePhrasePlaceholder(agentName: string): string {
   return fixture.copy.wakePhrasePlaceholder.replace(`{agent}`, agentName)
 }
 
-/** #NEW-73: the Language row's trailing detail; German speaks on the voice
- *  device's GPU only. Null without a voice device or for English. */
-export function languageNote(language: string, deviceName: string | null): string | null {
-  if (language !== `de` || deviceName === null) return null
+/** #NEW-73: the Language row's trailing detail; every language speaks on
+ *  the voice device's GPU only (#NEW-74). Null without a voice device. */
+export function languageNote(_language: string, deviceName: string | null): string | null {
+  if (deviceName === null) return null
   return fixture.copy.languageNote.replace(`{device}`, deviceName)
 }
 
@@ -321,4 +394,25 @@ export function trayMenu(settings: TraySettings, context: TrayContext): TrayItem
     { kind: `action`, id: `quit`, label: copy.trayQuit, enabled: true }
   )
   return menu
+}
+
+const GB = 1_000_000_000
+const MB = 1_000_000
+
+/** One size for the download detail: MB below 1 GB, else GB with one
+ *  decimal; `down` rounds down (received never overstates progress). */
+function downloadSize(bytes: number, down: boolean): string {
+  const round = down ? Math.floor : Math.round
+  if (bytes < GB) return `${round(bytes / MB)} MB`
+  const tenths = round(bytes / (GB / 10))
+  return `${Math.floor(tenths / 10)}.${tenths % 10} GB`
+}
+
+/** The Speak replies row's detail while the voice downloads; a total of 0
+ *  (unknown) reads `copy.downloading`. */
+export function downloadProgress(received: number, total: number): string {
+  if (total <= 0) return fixture.copy.downloading
+  return fixture.copy.downloadingProgress
+    .replace(`{received}`, downloadSize(received, true))
+    .replace(`{total}`, downloadSize(total, false))
 }

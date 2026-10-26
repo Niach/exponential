@@ -33,6 +33,7 @@ public enum Voice {
         public static let traySettings = "Voice settings…"
         public static let trayQuit = "Quit"
         public static let downloading = "Downloading voice…"
+        public static let downloadingProgress = "Downloading voice… {received} of {total}"
         public static let downloadFailed = "Couldn't download the voice"
         public static let unavailable = "The voice stopped working"
         public static let speaking = "Speaking"
@@ -328,10 +329,10 @@ public enum Voice {
         Copy.wakePhrasePlaceholder.replacingOccurrences(of: "{agent}", with: agentName)
     }
 
-    /// #NEW-73: the Language row's trailing detail; German speaks on the voice
-    /// device's GPU only. Nil without a voice device or for English.
-    public static func languageNote(language: String, deviceName: String?) -> String? {
-        guard language == "de", let deviceName else { return nil }
+    /// #NEW-73: the Language row's trailing detail; every language speaks on
+    /// the voice device's GPU only (#NEW-74). Nil without a voice device.
+    public static func languageNote(language _: String, deviceName: String?) -> String? {
+        guard let deviceName else { return nil }
         return Copy.languageNote.replacingOccurrences(of: "{device}", with: deviceName)
     }
 
