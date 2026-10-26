@@ -782,8 +782,8 @@
         "file": "shots/dock-card/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 67072,
-        "sha256": "8d79682f64402c58ef4ff99e1ed685209ad05510694ebc033f8732bdd574a2a6"
+        "bytes": 70916,
+        "sha256": "db7e74bb572ce1b7b41deb3b6dea43cfb43a16ac8e72b0c425351a3755934782"
       },
       "web": {
         "file": "shots/dock-card/web.webp",
@@ -4258,8 +4258,8 @@
         "file": "shots/session-row/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 53298,
-        "sha256": "e868472d2049b14a31c3ea30d4943e2fa9796b0dfe90925a0f2bf1ecba1242c0"
+        "bytes": 78682,
+        "sha256": "651a3c305e689e8704634caef77565dbf839b317e6fde52d9ac5f36a40fb54b3"
       }
     },
     "session-slash-menu": {

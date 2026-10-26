@@ -1928,7 +1928,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertEqual(
             sessionBools,
-            ["plan_mode", "computer_use", "ultracode", "busy", "needs_input", "shared"]
+            ["plan_mode", "computer_use", "ultracode", "busy", "needs_input", "shared", "background"]
         )
 
         // Custom issue statuses (EXP-314, 16th shape): the team-scoped table
