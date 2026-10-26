@@ -103,15 +103,15 @@
         "file": "shots/agents/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 53906,
-        "sha256": "03130540b8d9491d3e22e3ee41b4e97fc7d7ccd6cd6cd88d01c529374910adad"
+        "bytes": 54112,
+        "sha256": "07aef63d89cdd61b60b11ea3ac30a5766cb08a469189055b81a2db350bc123f3"
       },
       "ios": {
         "file": "shots/agents/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 33520,
-        "sha256": "dcc353f296e5f3c4ec5a83ae63f0d39e83cf5e4f051f3afa3fbe47e6e3323499"
+        "bytes": 38060,
+        "sha256": "4381a41f6b43a249f170d579f5a0eef02e7a90281fd1e4f254745c5c32b167c7"
       },
       "web": {
         "file": "shots/agents/web.webp",
