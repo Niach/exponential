@@ -1308,6 +1308,12 @@ export const devices = pgTable(
     // reaches 0, and the machine rows say "Update queued" instead of spinning
     // forever. Stays 0 for desktops and pre-EXP-411 daemons omitting the field.
     activeSessions: integer(`active_sessions`).notNull().default(0),
+    // FEED-145: the last heartbeat's `liveSessionIds` (NEW-5). Server-only.
+    // A session listed here on an online device has a live process whose
+    // own stall watchdog (FEED-25) guards its turn, so the server watchdog
+    // never flags it `stuck` for a long, report-free turn. NULL = the
+    // device never claimed (an older client): the 30-minute rule applies.
+    liveSessionIds: text(`live_session_ids`).array(),
     agents: jsonb()
       .$type<string[]>()
       .notNull()

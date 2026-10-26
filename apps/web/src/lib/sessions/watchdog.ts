@@ -24,6 +24,7 @@ import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 export const WATCHDOG_INTERVAL_MS = 60 * 1000
 
 const MIN = 60 * 1000
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export interface WatchdogRun {
   unclaimed: number
@@ -120,9 +121,16 @@ async function nudgeStalled(now: Date): Promise<number> {
   return seen.size
 }
 
-/** A busy session with no device report for `stuckMinutes`: flagged once. */
+/** A busy session with no device report for `stuckMinutes`: flagged once.
+ *  FEED-145: a device only reports on a state edge, so a long turn (a
+ *  subagent fan-out, a build) is report-free by design. A session its
+ *  ONLINE host lists in the heartbeat's `liveSessionIds` has a live process
+ *  whose own stall watchdog (FEED-25) guards the turn: never flagged here
+ *  (it read "needs input" while busy). An older device that never claims
+ *  keeps the 30-minute rule. */
 async function flagStuck(now: Date): Promise<number> {
   const cutoff = new Date(now.getTime() - contract.sessionWatchdog.stuckMinutes * MIN)
+  const online = new Date(now.getTime() - contract.device.onlineWindowSeconds * 1000)
   return db.transaction(async (tx) => {
     const rows = await tx
       .select({ id: sessions.id, parentId: sessions.parentId })
@@ -132,7 +140,9 @@ async function flagStuck(now: Date): Promise<number> {
           inArray(sessions.status, [...LIVE]),
           eq(sessions.busy, true),
           isNull(sessions.blocked),
-          lt(sessions.updatedAt, cutoff)
+          lt(sessions.updatedAt, cutoff),
+          // `hostDeviceCondition` names the devices table itself: no alias.
+          sql`NOT EXISTS (SELECT 1 FROM ${devices} WHERE ${hostDeviceCondition(sessions, devices)} AND ${devices.lastSeenAt} >= ${online} AND ${sessions.id}::text = ANY(${devices.liveSessionIds}))`
         )
       )
       .for(`update`, { skipLocked: true })
@@ -226,6 +236,38 @@ export async function restoreDeviceSessionsInTx(
       and(
         eq(sessions.deviceId, device.deviceId),
         sql`${sessions.blocked} ->> 'kind' = 'device_offline'`,
+        or(
+          eq(sessions.userId, device.userId),
+          sql`EXISTS (SELECT 1 FROM ${devices} d WHERE d.device_id = ${device.deviceId} AND d.user_id = ${device.userId} AND ${sessions.teamId} = ANY(d.shared_team_ids))`
+        )
+      )
+    )
+  await clearBlockedInTx(
+    tx,
+    rows.map((row) => row.id)
+  )
+  return rows.length
+}
+
+/** FEED-145: a session the heartbeat lists in `liveSessionIds` is alive: a
+ *  `stuck` flag on it (the 30-minute rule's, from before its device
+ *  claimed) is cleared and `needs_input` re-derived from its open cards. */
+export async function clearLiveStuckInTx(
+  tx: Tx,
+  device: { deviceId: string; userId: string; liveSessionIds: readonly string[] }
+): Promise<number> {
+  // A free string from the device: only a uuid can name a session row.
+  const live = [...new Set(device.liveSessionIds)].filter((id) => UUID.test(id))
+  if (live.length === 0) return 0
+  const rows = await tx
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.deviceId, device.deviceId),
+        inArray(sessions.id, live),
+        inArray(sessions.status, [...LIVE]),
+        sql`${sessions.blocked} ->> 'kind' = 'stuck'`,
         or(
           eq(sessions.userId, device.userId),
           sql`EXISTS (SELECT 1 FROM ${devices} d WHERE d.device_id = ${device.deviceId} AND d.user_id = ${device.userId} AND ${sessions.teamId} = ANY(d.shared_team_ids))`

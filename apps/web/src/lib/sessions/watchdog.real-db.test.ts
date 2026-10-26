@@ -365,6 +365,78 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     expect(await row(dead)).toMatchObject({ blocked: null, needsInput: false, busy: true })
   })
 
+  it(`FEED-145: a long turn its online host lists live is never flagged stuck, so a busy row never reads needs input`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const long = await w.child(rootId, `long turn, subagents and pictures`)
+    const unlisted = await w.child(rootId, `not in the beat`)
+    for (const id of [long, unlisted]) {
+      await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+      await w.host.report({ sessionId: id, busy: true })
+    }
+    // Non-asking cards mid-turn are no input to wait on.
+    await w.host.reply({ sessionId: long, card: { kind: `subagent`, title: `Explore`, status: `running` } })
+    await w.host.reply({
+      sessionId: long,
+      card: { kind: `picture`, attachmentId: crypto.randomUUID(), width: null, height: null },
+    })
+    expect(await row(long)).toMatchObject({ busy: true, needsInput: false })
+    await devicesRouter
+      .createCaller({ session: { user: { id: w.owner } }, db, request: new Request(`http://x.test`) } as never)
+      .heartbeat({ deviceId: w.deviceId, activeSessions: 2, defaultsSyncedAt: null, liveSessionIds: [long, unlisted] })
+    for (const id of [long, unlisted]) {
+      await backdateSession(id, `updated_at`, ago((watchdog.stuckMinutes + 1) * MIN))
+    }
+    await backdateDevice(w.deviceId, NOW)
+    // Only `long` stays listed on the device row.
+    await db.update(devices).set({ liveSessionIds: [long] }).where(eq(devices.deviceId, w.deviceId))
+
+    await runWatchdog(NOW)
+    expect(await row(long)).toMatchObject({ status: `running`, busy: true, needsInput: false, blocked: null })
+    expect(await lines(rootId, `session_stuck`, long)).toEqual([])
+    // A session the claim does not name keeps the 30-minute rule.
+    expect(await row(unlisted)).toMatchObject({ busy: true, needsInput: true, blocked: { kind: `stuck` } })
+
+    // A host past the online window vouches for nothing.
+    const later = await w.child(rootId, `host went quiet`)
+    await w.host.claim({ sessionId: later, deviceId: w.deviceId })
+    await w.host.report({ sessionId: later, busy: true })
+    await db.update(devices).set({ liveSessionIds: [later] }).where(eq(devices.deviceId, w.deviceId))
+    await backdateSession(later, `updated_at`, ago((watchdog.stuckMinutes + 1) * MIN))
+    await backdateDevice(w.deviceId, ago((contract.device.onlineWindowSeconds + 1) * 1000))
+    await runWatchdog(NOW)
+    expect((await row(later)).blocked).not.toBeNull()
+  })
+
+  it(`FEED-145: a heartbeat listing a stuck session clears the flag; needs input re-derives from its open cards`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const working = await w.child(rootId, `working`)
+    const asking = await w.child(rootId, `asking`)
+    for (const id of [working, asking]) {
+      await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+      await w.host.report({ sessionId: id, busy: true })
+      await backdateSession(id, `updated_at`, ago((watchdog.stuckMinutes + 1) * MIN))
+    }
+    await runWatchdog(NOW)
+    for (const id of [working, asking]) {
+      expect(await row(id)).toMatchObject({ busy: true, needsInput: true, blocked: { kind: `stuck` } })
+    }
+    // `asking` has a question open: it still waits once the flag goes.
+    await w.host.reply({
+      sessionId: asking,
+      card: { kind: `question`, question: `Which one?`, options: [`a`, `b`] },
+    })
+
+    await devicesRouter
+      .createCaller({ session: { user: { id: w.owner } }, db, request: new Request(`http://x.test`) } as never)
+      .heartbeat({ deviceId: w.deviceId, activeSessions: 2, defaultsSyncedAt: null, liveSessionIds: [working, asking] })
+    expect(await row(working)).toMatchObject({ status: `running`, busy: true, needsInput: false, blocked: null })
+    expect(await row(asking)).toMatchObject({ busy: true, needsInput: true, blocked: null })
+    const [device] = await db.select().from(devices).where(eq(devices.deviceId, w.deviceId))
+    expect(device!.liveSessionIds).toEqual([working, asking])
+  })
+
   it(`a usage wall keeps the session under Needs you until the device clears it`, async () => {
     const w = await world()
     const rootId = await w.root()
