@@ -168,40 +168,110 @@ public enum AskDock {
         return pending
     }
 
-    /// EXP-1280: the Exponential tools that post a card (NEW-4: the display
-    /// rows of `session_self` op plan / op ask; web `CARD_TOOLS`).
-    public static let cardTools: Set<String> = ["session_self_plan", "session_self_ask"]
+    // MARK: - EXP-1398: THE session view's cards ×4
 
-    /// Where the session view paints each tool-posted card (web
-    /// `anchorToolCards`): right after the settled call that posted it. Calls
-    /// and cards pair from the NEWEST back (the transcript may start
-    /// mid-history; a failed call posted nothing); a card with no call on
-    /// screen = `unanchored` (it predates the window). `cardIds` oldest first;
-    /// `anchors` keys = feed item ids, each list oldest first.
-    public static func anchorToolCards(
-        feed: [AgentFeedItem], cardIds: [String]
-    ) -> (anchors: [Int: [String]], unanchored: [String]) {
-        // EXP-1358: nothing to anchor = no walk over the whole feed (the
-        // session body called this on every render, cards or not).
-        guard !cardIds.isEmpty else { return ([:], []) }
-        let calls: [Int] = feed.compactMap { item in
-            guard case let .tool(id, name, _, _, _, _, settled, failed, _, _, _, _, _) = item,
-                  settled, !failed,
-                  let display = ExpToolDisplay.resolve(toolName: name),
-                  cardTools.contains(display.row)
-            else { return nil }
-            return id
+    public enum SessionCardKind: String, Equatable, Sendable {
+        case plan, question, surface
+
+        /// The display row of the call that posts a card of this kind.
+        public var postingCall: String {
+            switch self {
+            case .plan: "session_self_plan"
+            case .question: "session_self_ask"
+            case .surface: "session_self_show"
+            }
         }
+    }
+
+    public struct SessionCard: Equatable, Sendable {
+        /// The card's `messages.id`.
+        public let id: String
+        public let kind: SessionCardKind
+        /// A plan with no decision / an unanswered question (Dock + answerable).
+        public let waiting: Bool
+
+        public init(id: String, kind: SessionCardKind, waiting: Bool) {
+            self.id = id
+            self.kind = kind
+            self.waiting = waiting
+        }
+    }
+
+    /// The session view's cards: its own conversation's `plan` / `question`
+    /// cards a TOOL posted (no `questionId`) and its `surface` cards, oldest
+    /// first (createdAt, then id). Each draws inline; a waiting one also docks.
+    public static func sessionCards(_ messages: [TreeMessage]) -> [SessionCard] {
+        var cards: [(card: SessionCard, at: Double)] = []
+        for message in messages {
+            guard let card = message.card else { continue }
+            let engine = card.questionId != nil
+            let at = SessionTree.ms(message.createdAt) ?? 0
+            switch card.kind {
+            case "plan" where !engine:
+                cards.append((SessionCard(id: message.id, kind: .plan, waiting: card.decision == nil), at))
+            case "question" where !engine:
+                cards.append((SessionCard(id: message.id, kind: .question, waiting: message.answeredAt == nil), at))
+            case "surface":
+                cards.append((SessionCard(id: message.id, kind: .surface, waiting: false), at))
+            default:
+                break
+            }
+        }
+        cards.sort { $0.at != $1.at ? $0.at < $1.at : $0.card.id < $1.card.id }
+        return cards.map(\.card)
+    }
+
+    /// A feed call as `anchorSessionCards` reads it.
+    public struct FeedCall: Equatable, Sendable {
+        public let id: Int
+        public let name: String?
+        public let settled: Bool
+        public let failed: Bool
+
+        public init(id: Int, name: String?, settled: Bool, failed: Bool) {
+            self.id = id
+            self.name = name
+            self.settled = settled
+            self.failed = failed
+        }
+    }
+
+    /// The feed's tool calls, as `anchorSessionCards` reads them.
+    public static func feedCalls(_ feed: [AgentFeedItem]) -> [FeedCall] {
+        feed.compactMap { item in
+            guard case let .tool(id, name, _, _, _, _, settled, failed, _, _, _, _, _) = item else { return nil }
+            return FeedCall(id: id, name: name, settled: settled, failed: failed)
+        }
+    }
+
+    /// Where each session card draws: right after the SETTLED, unfailed call
+    /// that posted it, paired newest back PER KIND; a card with no call left =
+    /// `unanchored` (card order, the transcript's head). `anchors` keys = feed
+    /// item ids, each list oldest first.
+    public static func anchorSessionCards(
+        _ calls: [FeedCall], cards: [SessionCard]
+    ) -> (anchors: [Int: [String]], unanchored: [String]) {
+        // EXP-1358: nothing to anchor = no walk over the whole feed.
+        guard !cards.isEmpty else { return ([:], []) }
+        var byRow: [String: [Int]] = [:]
+        for call in calls where call.settled && !call.failed {
+            guard let name = call.name, let display = ExpToolDisplay.resolve(toolName: name) else { continue }
+            byRow[display.row, default: []].append(call.id)
+        }
+        var used: [String: Int] = [:]
         var anchors: [Int: [String]] = [:]
         var unanchored: [String] = []
-        for k in 0..<cardIds.count {
-            let card = cardIds[cardIds.count - 1 - k]
-            let callIndex = calls.count - 1 - k
-            guard callIndex >= 0 else {
-                unanchored.insert(card, at: 0)
-                continue
+        for card in cards.reversed() {
+            let row = card.kind.postingCall
+            let skip = used[row] ?? 0
+            used[row] = skip + 1
+            let ids = byRow[row] ?? []
+            let index = ids.count - 1 - skip
+            if index >= 0 {
+                anchors[ids[index], default: []].insert(card.id, at: 0)
+            } else {
+                unanchored.insert(card.id, at: 0)
             }
-            anchors[calls[callIndex], default: []].insert(card, at: 0)
         }
         return (anchors, unanchored)
     }

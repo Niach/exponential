@@ -152,24 +152,74 @@ final class AskDockTests: XCTestCase {
         }
     }
 
-    /// EXP-1280 (web `anchorToolCards`): a tool-posted card sits after the
-    /// settled `plan_propose` / `sessions_ask` call that posted it, pairing
-    /// from the newest back; a failed or running call posted nothing; a card
-    /// older than the window is unanchored.
-    func testAnchorToolCardsPairsNewestBack() {
+    /// EXP-1398: the session view's cards (`sessionCardsCases`), the WHOLE
+    /// expected list.
+    func testSessionCardsCases() throws {
+        for c in try list("sessionCardsCases") {
+            let messages = try XCTUnwrap(c["messages"] as? [[String: Any]]).map { raw in
+                TreeMessage(
+                    id: try XCTUnwrap(raw["id"] as? String),
+                    sessionId: "s",
+                    authorKind: "agent",
+                    authorId: nil,
+                    body: "",
+                    card: (raw["card"] as? [String: Any]).map(TreeMessageCard.init(object:)),
+                    answeredAt: raw["answeredAt"] as? String,
+                    consumedAt: nil,
+                    createdAt: try XCTUnwrap(raw["createdAt"] as? String)
+                )
+            }
+            let expected = try XCTUnwrap(c["expected"] as? [[String: Any]]).map { raw in
+                AskDock.SessionCard(
+                    id: try XCTUnwrap(raw["id"] as? String),
+                    kind: try XCTUnwrap((raw["kind"] as? String).flatMap(AskDock.SessionCardKind.init(rawValue:))),
+                    waiting: try XCTUnwrap(raw["waiting"] as? Bool)
+                )
+            }
+            XCTAssertEqual(AskDock.sessionCards(messages), expected, "\(c["name"] ?? "")")
+        }
+    }
+
+    /// EXP-1398: where each session card draws (`anchorCases`), the WHOLE
+    /// expected object.
+    func testAnchorCases() throws {
+        for c in try list("anchorCases") {
+            let calls = try XCTUnwrap(c["feed"] as? [[String: Any]]).compactMap { raw -> AskDock.FeedCall? in
+                guard raw["kind"] as? String == "tool" else { return nil }
+                return AskDock.FeedCall(
+                    id: (raw["id"] as? NSNumber)?.intValue ?? -1,
+                    name: raw["name"] as? String,
+                    settled: raw["settled"] as? Bool ?? false,
+                    failed: raw["failed"] as? Bool ?? false
+                )
+            }
+            let cards = try XCTUnwrap(c["cards"] as? [[String: Any]]).map { raw in
+                AskDock.SessionCard(
+                    id: try XCTUnwrap(raw["id"] as? String),
+                    kind: try XCTUnwrap((raw["kind"] as? String).flatMap(AskDock.SessionCardKind.init(rawValue:))),
+                    waiting: false
+                )
+            }
+            let expected = try XCTUnwrap(c["expected"] as? [String: Any])
+            let anchors = try XCTUnwrap(expected["anchors"] as? [String: [String]])
+            let got = AskDock.anchorSessionCards(calls, cards: cards)
+            XCTAssertEqual(
+                Dictionary(uniqueKeysWithValues: got.anchors.map { (String($0.key), $0.value) }), anchors,
+                "\(c["name"] ?? "")"
+            )
+            XCTAssertEqual(got.unanchored, expected["unanchored"] as? [String], "\(c["name"] ?? "")")
+            XCTAssertEqual(Set(expected.keys), ["anchors", "unanchored"], "\(c["name"] ?? "")")
+        }
+    }
+
+    func testFeedCallsReadTheFeedsToolCalls() {
         let feed: [AgentFeedItem] = [
-            .tool(id: 1, name: "mcp__exponential__exponential_session_self_ask", detail: nil, subagentId: nil, settled: true),
-            .tool(id: 2, name: "Edit", detail: "a.ts", subagentId: nil, settled: true),
+            .tool(id: 1, name: "exponential_session_self_ask", detail: nil, subagentId: nil, settled: true),
             .tool(id: 3, name: "exponential_session_self_plan", detail: nil, subagentId: nil, settled: true, failed: true),
-            .tool(id: 4, name: "exponential_session_self_plan", detail: nil, subagentId: nil, settled: true),
-            .tool(id: 5, name: "exponential_session_self_ask", detail: nil, subagentId: nil, settled: false),
         ]
-        let paired = AskDock.anchorToolCards(feed: feed, cardIds: ["m-old", "m-1", "m-4"])
-        XCTAssertEqual(paired.anchors, [1: ["m-1"], 4: ["m-4"]])
-        XCTAssertEqual(paired.unanchored, ["m-old"])
-        let none = AskDock.anchorToolCards(feed: [], cardIds: ["a", "b"])
-        XCTAssertEqual(none.anchors, [:])
-        XCTAssertEqual(none.unanchored, ["a", "b"])
-        XCTAssertEqual(AskDock.cardTools, ["session_self_plan", "session_self_ask"])
+        XCTAssertEqual(AskDock.feedCalls(feed), [
+            AskDock.FeedCall(id: 1, name: "exponential_session_self_ask", settled: true, failed: false),
+            AskDock.FeedCall(id: 3, name: "exponential_session_self_plan", settled: true, failed: true),
+        ])
     }
 }
