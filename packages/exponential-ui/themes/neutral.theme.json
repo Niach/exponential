@@ -1940,6 +1940,144 @@
         }
       ]
     },
+    "VoiceWave": {
+      "root": [
+        {
+          "style": {
+            "width": 56,
+            "height": 56,
+            "opacity": 1
+          }
+        },
+        {
+          "when": {
+            "size": "sm"
+          },
+          "style": {
+            "width": 32,
+            "height": 32
+          }
+        },
+        {
+          "when": {
+            "size": "lg"
+          },
+          "style": {
+            "width": 160,
+            "height": 160
+          }
+        },
+        {
+          "when": {
+            "size": "xl"
+          },
+          "style": {
+            "width": 200,
+            "height": 200
+          }
+        },
+        {
+          "when": {
+            "activity": "idle"
+          },
+          "style": {
+            "opacity": 0.35
+          }
+        },
+        {
+          "when": {
+            "activity": "muted"
+          },
+          "style": {
+            "opacity": 0.35
+          }
+        }
+      ],
+      "outer": [
+        {
+          "style": {
+            "color": "$color.info"
+          }
+        },
+        {
+          "when": {
+            "activity": "idle"
+          },
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "activity": "muted"
+          },
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "mid": [
+        {
+          "style": {
+            "color": "$color.primary"
+          }
+        },
+        {
+          "when": {
+            "activity": "idle"
+          },
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "activity": "muted"
+          },
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "inner": [
+        {
+          "style": {
+            "color": "$color.primary"
+          }
+        },
+        {
+          "when": {
+            "activity": "idle"
+          },
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "activity": "muted"
+          },
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "child": [
+        {
+          "style": {
+            "color": "$color.foreground"
+          }
+        },
+        {
+          "when": {
+            "activity": "muted"
+          },
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ]
+    },
     "Skeleton": {
       "root": [
         {

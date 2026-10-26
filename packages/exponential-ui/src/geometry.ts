@@ -25,6 +25,7 @@ export const CONTROL_PARTS: Record<string, string> = {
   Icon: `root`,
   Spinner: `root`,
   Ring: `root`,
+  VoiceWave: `root`,
   Tabs: `tab`,
   // Round 1: the new fields keep the input height contract.
   NumberField: `field`,

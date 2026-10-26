@@ -3051,6 +3051,21 @@
       ]
     },
     {
+      "name": "VoiceWave",
+      "kind": "native",
+      "parts": [
+        "root",
+        "outer",
+        "mid",
+        "inner",
+        "child"
+      ],
+      "props": [
+        "activity",
+        "size"
+      ]
+    },
+    {
       "name": "Table",
       "kind": "native",
       "parts": [

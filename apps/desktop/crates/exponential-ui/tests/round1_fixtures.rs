@@ -208,6 +208,29 @@ fn text_shimmer_every_case_matches_the_reference() {
 }
 
 #[test]
+fn voice_wave_every_case_matches_the_reference() {
+    use exponential_ui::voice_wave::{voice_wave, VoiceWave, VoiceWaveInput};
+    let file = fixture("voice-wave.json");
+    for c in file["cases"].as_array().unwrap() {
+        let input: VoiceWaveInput = serde_json::from_value(c["input"].clone()).unwrap();
+        let got = voice_wave(&input);
+        let expected: VoiceWave = serde_json::from_value(c["expected"].clone()).unwrap();
+        let name = c["name"].as_str().unwrap();
+        assert_eq!(got.child_size, expected.child_size, "{name}");
+        assert_eq!(got.phase, expected.phase, "{name}");
+        assert_eq!(got.rings.len(), expected.rings.len(), "{name}");
+        for (g, e) in got.rings.iter().zip(&expected.rings) {
+            assert_eq!((g.part.as_str(), g.fill_alpha, g.stroke_alpha, g.stroke_width), (e.part.as_str(), e.fill_alpha, e.stroke_alpha, e.stroke_width), "{name}");
+            assert_eq!(g.points.len(), e.points.len(), "{name}");
+            for (p, q) in g.points.iter().zip(&e.points) {
+                // libm and V8 may round the last digit differently
+                assert!((p[0] - q[0]).abs() <= 0.011 && (p[1] - q[1]).abs() <= 0.011, "{name} {} {p:?} vs {q:?}", e.part);
+            }
+        }
+    }
+}
+
+#[test]
 fn theme_settings_density_contrast_system_mode_and_breakpoint_keys() {
     let neutral = builtin_theme("neutral").unwrap();
     assert_eq!(resolve_mode(ModeSetting::System, true), Mode::Dark);

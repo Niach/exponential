@@ -825,6 +825,18 @@ pub fn text_shimmer_json(color: String, dark: bool) -> String {
     })
 }
 
+/// NEW-77: the VoiceWave rings for one frame. `input_json` =
+/// `{size, activity, level?, bands?, elapsed?, reducedMotion?}`; the result
+/// is `{rings: [{part, points, fillAlpha, strokeAlpha, strokeWidth}], childSize, phase}`.
+#[uniffi::export]
+pub fn voice_wave_json(input_json: String) -> String {
+    shield("voice_wave_json", || "{}".to_string(), || {
+        serde_json::from_str::<exponential_ui::voice_wave::VoiceWaveInput>(&input_json)
+            .map(|input| serde_json::to_string(&exponential_ui::voice_wave::voice_wave(&input)).unwrap_or_default())
+            .unwrap_or_else(|_| "{}".to_string())
+    })
+}
+
 /// `{min, max}` of a chart (`series_json` = the Chart's `series`).
 #[uniffi::export]
 pub fn chart_extent_json(kind: String, series_json: String, min: Option<f64>, max: Option<f64>) -> Result<String, UiError> {

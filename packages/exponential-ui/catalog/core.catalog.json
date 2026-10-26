@@ -273,6 +273,19 @@
     "traceSize": [
       "default",
       "sm"
+    ],
+    "voiceWaveActivity": [
+      "idle",
+      "listening",
+      "thinking",
+      "speaking",
+      "muted"
+    ],
+    "voiceWaveSize": [
+      "sm",
+      "md",
+      "lg",
+      "xl"
     ]
   },
   "defs": {
@@ -3063,6 +3076,57 @@
       "example": {
         "width": "60%",
         "height": "16px"
+      }
+    },
+    "VoiceWave": {
+      "kind": "native",
+      "group": "feedback",
+      "lite": false,
+      "children": "one",
+      "description": "A live voice level: three waves around an optional centre child.",
+      "props": {
+        "activity": {
+          "type": "enum",
+          "enum": "voiceWaveActivity",
+          "default": "idle",
+          "bindable": true,
+          "description": "What the voice is doing."
+        },
+        "level": {
+          "type": "number",
+          "default": 0,
+          "bindable": true,
+          "description": "Loudness 0 to 1."
+        },
+        "bands": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "bindable": true,
+          "description": "Up to 8 band levels 0 to 1."
+        },
+        "size": {
+          "type": "enum",
+          "enum": "voiceWaveSize",
+          "default": "md",
+          "description": "Edge class; sm hides the child."
+        },
+        "label": {
+          "type": "string",
+          "description": "An accessibility label."
+        }
+      },
+      "example": {
+        "activity": "listening",
+        "level": 0.6,
+        "bands": [
+          0.9,
+          0.6,
+          1,
+          0.5
+        ],
+        "size": "lg"
       }
     },
     "Table": {

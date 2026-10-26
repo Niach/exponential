@@ -124,5 +124,23 @@
     "highlightLightnessBoost": 0.4,
     "highlightAlphaBoost": 0.4,
     "lightAlphaFactor": 0.2
+  },
+  "voiceWave": {
+    "$comment": "NEW-77: the VoiceWave native (the EXP-1268 draft made exact): a microphone or speaker level drawn as three closed polar waves around one optional centre child. Per ring k (0 outer, 1 mid, 2 inner): r(t) = size × radius[k] + Σ_j amp_k / (j + 1) × band(k, j) × sin(harmonics[k][j] × t + (phase0[k] + phase) × (j + 1)), t = 2π i / steps for i = 0..steps (the last point repeats the first), x = size/2 + r cos t, y = size/2 + r sin t (y down). amp_k = ringAmp[k] × size / 200 × (activity listening | speaking: ampBase + ampLevel × level; thinking: thinkingAmp; idle | muted: 0). band(k, j) = bands[(3k + j) mod len] clamped to 0..1, or 1 when bands is empty or the activity is thinking; level is clamped to 0..1 and only the first maxBands bands count. phase = the elapsed seconds × phaseSpeed (rad/s) while listening, thinking or speaking; 0 when idle or muted and under reduced motion. Each ring is filled with its part colour at fillAlpha[k] and stroked at strokeAlpha[k], width max(1, strokeWidth[k] × size / 200); the root recipe's opacity applies to the whole wave. The child sits centred at childScale × size (lg and xl: childScaleLarge) and is not painted at `sm`. src/voice-wave.ts voiceWave(...) is the reference (the Rust core `voice_wave`, FFI `voice_wave_json`); fixtures/voice-wave.json locks the points.",
+    "steps": 120,
+    "radius": [0.33, 0.3, 0.26],
+    "harmonics": [[11, 17, 23], [9, 15, 21], [7, 13]],
+    "phase0": [0.4, 1.9, 3.1],
+    "ringAmp": [1, 0.85, 0.45],
+    "ampBase": 2,
+    "ampLevel": 6,
+    "thinkingAmp": 2.5,
+    "phaseSpeed": 0.9,
+    "fillAlpha": [0.1, 0.1, 0.15],
+    "strokeAlpha": [0.7, 0.8, 0.4],
+    "strokeWidth": [1.5, 1.5, 1],
+    "childScale": 0.3,
+    "childScaleLarge": 0.22,
+    "maxBands": 8
   }
 }
