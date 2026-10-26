@@ -154,7 +154,7 @@ export default function Api({ path }: PageProps) {
             head={[`Field`, `Type`, `Default`]}
             rows={[
               [<code key="f">voiceDeviceId</code>, `one of your desktops, or null`, `null`],
-              [<code key="f">agentId</code>, `one of your agents, or null`, `null`],
+              [<code key="f">agentId</code>, `an agent of one of your teams, or null`, `null`],
               [<code key="f">speakReplies</code>, `boolean`, `false`],
               [<code key="f">pushToTalk</code>, `boolean`, `false`],
               [<code key="f">pttShortcut</code>, <>a <a href="/talk/guides/push-to-talk/">shortcut</a></>, <code key="d">ctrl+space</code>],

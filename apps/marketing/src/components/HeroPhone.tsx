@@ -1,6 +1,7 @@
-/* The home hero's phone (NEW-15): an agent's chat in an iPhone frame
-   (src/ui-demos/AgentChat.tsx: the prompt typed, the answer's words, its
-   Exponential UI surface node by node, the tap and the session it starts),
+/* The home hero's phone (NEW-15): an agent's chat in a phone frame
+   (src/ui-demos/AgentChat.tsx: the person's message, the agent's answer and
+   its Exponential UI surface, the press on its reply button and the session
+   that starts),
    played by IslandFilm. */
 import { IslandFilm, type Film } from "./IslandFilm"
 
@@ -11,7 +12,7 @@ const loadChat = async (): Promise<Film> => {
 
 export function HeroPhone() {
   return (
-    <div className={`home-phone`} role="img" aria-label={`An agent's chat on iPhone`}>
+    <div className={`home-phone`} role="img" aria-label={`An agent's chat on a phone`}>
       <span className={`home-phone-island`} aria-hidden />
       <div className={`home-phone-status`} aria-hidden>
         <span>9:41</span>

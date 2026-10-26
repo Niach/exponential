@@ -110,7 +110,7 @@ export function CodingDocsPage() {
               <li>
                 <strong>Open a repo-backed board.</strong> The IDE clones
                 the repository automatically. (Connect a repo in{` `}
-                <strong>Team settings → Repositories</strong> if you
+                <strong>Settings → Repositories</strong> if you
                 haven&apos;t. See{` `}
                 <a href="/docs/getting-started/#connect-github">
                   Getting started
@@ -196,7 +196,7 @@ export function CodingDocsPage() {
             <DocShot
               view="issue-detail"
               platform="desktop"
-              caption="An issue in the desktop IDE: Start in its header, and under the title the chip of the thread already working it"
+              caption="An issue in the desktop IDE: Start in its header, and under the title the chip of the chat already working it"
             />
 
             <UiDemo id="subject-chips" />
@@ -209,7 +209,7 @@ export function CodingDocsPage() {
               <li>
                 One <strong>subject</strong>, as chips over the prompt:{` `}
                 <strong>issue chips</strong> (one issue or several, one
-                thread either way), <em>or</em> one <strong>prompt chip</strong>
+                chat either way), <em>or</em> one <strong>prompt chip</strong>
                 {` `}from the <a href="/docs/actions/">team&apos;s saved
                 prompts</a>, <em>or</em> one <strong>agent chip</strong> that
                 turns the send into a message to that{` `}
@@ -282,7 +282,7 @@ export function CodingDocsPage() {
 
             <DocShot
               view="chat-issues"
-              caption="The Agent page composer with two issues chipped above the prompt, the device, account and model under it: one thread, whether it takes one issue or several"
+              caption="The Agent page composer with two issues chipped above the prompt, the device, account and model under it: one chat, whether it takes one issue or several"
             />
             <p>
               Defaults are <strong>per agent</strong>: every start prefills
@@ -320,8 +320,8 @@ export function CodingDocsPage() {
               </li>
               <li>
                 The session opens seeded with the issue, as a{` `}
-                <strong>thread</strong>: the issue moves to{` `}
-                <strong>In Progress</strong>, and the thread&apos;s{` `}
+                <strong>chat</strong>: the issue moves to{` `}
+                <strong>In Progress</strong>, and the chat&apos;s{` `}
                 <strong>Conversation</strong> tab is the session&apos;s own
                 work, beside the issue&apos;s chip and the Guide. With plan
                 mode on it <strong>plans first</strong>; you approve before
@@ -337,7 +337,7 @@ export function CodingDocsPage() {
                 The issue flips to <strong>In Review</strong> and merging the
                 PR completes it to <strong>Done</strong>. Both targets are
                 configurable in{` `}
-                <a href="/docs/issues/#branches-prs">Team settings → Statuses</a>
+                <a href="/docs/issues/#branches-prs">Settings → Issues → Statuses</a>
                 .
               </li>
             </ol>
@@ -349,7 +349,7 @@ export function CodingDocsPage() {
             <p>
               Chip <strong>two or more issues</strong> in the composer (or
               use the board&apos;s bulk-select bar) and you get{` `}
-              <strong>one thread</strong> given all the issues at once, on{` `}
+              <strong>one chat</strong> given all the issues at once, on{` `}
               <strong>one branch</strong>, ending in <strong>one PR</strong>
               {` `}linked to every issue it worked. Merging that PR completes
               them all.
@@ -363,7 +363,7 @@ export function CodingDocsPage() {
             <ul>
               <li>
                 <strong>Related fixes</strong>: five small bugs in one screen
-                make one coherent thread and one reviewable PR.
+                make one coherent chat and one reviewable PR.
               </li>
               <li>
                 <strong>Sweeping changes</strong>: a rename, an API
@@ -372,7 +372,7 @@ export function CodingDocsPage() {
               </li>
               <li>
                 <strong>Feedback triage</strong>: bulk-select a morning&apos;s
-                worth of widget reports and clear them in one thread.
+                worth of widget reports and clear them in one chat.
               </li>
             </ul>
             <DocsCallout kind="note" title="Size">
@@ -380,11 +380,11 @@ export function CodingDocsPage() {
               to the prompt, so big requests are token-hungry.
             </DocsCallout>
             <p>
-              <strong>A thread grows as the work does.</strong> The agent
+              <strong>A chat grows as the work does.</strong> The agent
               starts child sessions for the parts it can run side by side, and
               work it finds out of scope becomes a new issue. Every session of
-              the tree shows as a card in the thread&apos;s Conversation and
-              nests under it on the Threads page; a child that opens its own
+              the tree shows as a card in the chat&apos;s Conversation and as
+              a chip in its strip; a child that opens its own
               pull request stacks it on the root&apos;s, and{` `}
               <strong>Merge stack</strong> lands them together.
             </p>
@@ -394,7 +394,7 @@ export function CodingDocsPage() {
           <DocsSection id="watch-steer" num="06" label="Watch & steer">
             <h2>Watch &amp; steer</h2>
             <p>
-              Every start is a <strong>thread</strong> with one address,{` `}
+              Every start is a <strong>chat</strong> with one address,{` `}
               <code>/t/&lt;team&gt;/threads/&lt;id&gt;</code>. Its header is
               the title over one strip of tabs that never scrolls away: a{` `}
               <strong>+</strong> (<strong>Link an issue</strong> or{` `}
@@ -402,9 +402,9 @@ export function CodingDocsPage() {
               chip per linked issue, a chip per session the agent started, and
               the <strong>Guide</strong> pinned on the right; deeper sessions
               and sub-issues fold under their chip&apos;s chevron. While the
-              thread is one session, its Conversation is that session&apos;s
+              chat is one session, its Conversation is that session&apos;s
               own work. Once the agent starts a child session, the
-              Conversation becomes the thread&apos;s own: your messages, one
+              Conversation becomes the chat&apos;s own: your messages, one
               card per session, each child&apos;s report when it ends, its
               questions and plans, answered right in their card, and the
               tasks it suggests for you to start. A session chip opens that
@@ -422,23 +422,36 @@ export function CodingDocsPage() {
               first message.
             </p>
             <p>
-              <strong>Threads</strong> in the sidebar lists every thread of
-              the team in three bands: <strong>Needs you</strong> (a question,
-              a plan or a usage wall waits on a person), <strong>Running</strong>
-              {` `}and <strong>Recent</strong> (the last day, then the last
-              twenty). A row is its mark, its title, one quiet word (question ·
-              ready to merge · stack) and the device it runs on; a live tree
-              nests its sessions under the root. The rail&apos;s{` `}
-              <strong>Active</strong> section keeps the threads that need you
-              or are running one click away, and on web and desktop an open
-              thread is a tab along the top of the window. An unread thread
-              reads bold until you open it.
+              <strong>Chats</strong> in the sidebar lists every chat of the
+              team, newest activity first, the same list on the desktop, the
+              web and the phones: the team&apos;s agents as bubbles on top,
+              the <strong>All</strong>, <strong>Needs you</strong> (a
+              question, a plan or a usage wall waits on a person),{` `}
+              <strong>Running</strong> and <strong>Unread</strong> chips, then
+              one row per chat: its mark, its title, its time, its last
+              message, one quiet word (question · ready to merge · stack) and
+              its unread count. A chat with something new reads bold until you
+              open it. Right-click a row (long-press on a phone) to{` `}
+              <strong>Stop</strong> a live chat or{` `}
+              <strong>Stop and delete</strong> it, or to{` `}
+              <strong>Delete</strong> an ended one; deleting is for whoever
+              started the chat and the team&apos;s owners, and asks first. The
+              rail&apos;s <strong>Active</strong> section keeps the chats that
+              need you or are running one click away, with their sessions
+              nested under them, and on web and desktop an open chat is a tab
+              along the top of the window.
             </p>
+
+            <DocShot
+              view="threads"
+              platform="ios"
+              caption="Chats on a phone: the agents as bubbles, the filter chips, one row per chat"
+            />
 
             <DocShot
               view="steering"
               platform="desktop"
-              caption="A session in the desktop IDE: the thread's strip, the agent's work, its question waiting above the composer"
+              caption="A session in the desktop IDE: the chat's strip, the agent's work, its question waiting above the composer"
             />
 
             <h3>The Dock</h3>
@@ -488,12 +501,13 @@ export function CodingDocsPage() {
               <li>
                 Plain text, and up to <strong>four images</strong> and four
                 files per message (attach, or paste and drop on the web) — in
-                every thread, whatever started it.
+                every chat, whatever started it.
               </li>
               <li>
                 <strong>Slash commands</strong>, from a <code>/</code>{` `}
                 typeahead: <code>/compact</code> (&ldquo;Compact the
                 conversation context&rdquo;, optionally with instructions),{` `}
+                <code>/new</code> (&ldquo;Start a fresh conversation&rdquo;),{` `}
                 <code>/model</code> and <code>/effort</code>, then the
                 team&apos;s <a href="/docs/actions/">prompts</a>, whose body
                 lands in your draft. Commands the agent CLI injects on its own
@@ -501,7 +515,8 @@ export function CodingDocsPage() {
                 <strong>Compacting</strong> card reads{` `}
                 <strong>Compacting context…</strong>, and a{` `}
                 <strong>Context compacted</strong> marker stays in the
-                transcript.
+                transcript; <code>/new</code> leaves a{` `}
+                <strong>New conversation</strong> marker.
               </li>
               <li>
                 <strong>Quick replies</strong>: when the agent offers short
@@ -526,25 +541,23 @@ export function CodingDocsPage() {
               The device glyph moves the session: pick another of the
               team&apos;s machines under <strong>Move to device</strong> and
               the session ends where it is and continues there, on the same
-              branch, with its conversation; the glyph reads{` `}
-              <strong>Moving to &lt;device&gt;…</strong> until it lands. A
+              branch, with its conversation. A
               machine that is offline, has no login for the agent, or needs an
               update says why on its row. Everything else is steered with
               words.
             </p>
             <p>
               The transcript keeps the <strong>whole session</strong>, not the
-              last few hundred events. Each client renders a window of it and
-              pulls the rest in as you scroll to the top; past what your
-              client already holds, <strong>Load earlier</strong> fetches the
-              next page from the machine that ran the session — the full
+              last few hundred events. Each client shows the newest 100
+              messages, and <strong>Load earlier</strong> above them brings
+              the next 100; past what your client already holds, it fetches
+              the next page from the machine that ran the session — the full
               transcript lives on <em>that</em> machine, never on our servers.
               Past transcripts stay there for as long as that machine&apos;s
               {` `}<strong>Settings → This device → Sessions</strong>{` `}
               (<strong>Keep session history</strong>) allows (Unlimited by
-              default). <strong>Threads</strong> keeps the last day of threads
-              in Recent, then the last twenty; an issue names every thread
-              that worked it, one chip each under its header.
+              default). An issue names every chat that worked it, one chip
+              each under its header.
             </p>
             <p>
               A session whose host machine goes offline is paused rather than
@@ -561,19 +574,21 @@ export function CodingDocsPage() {
             <p>
               A session you started makes no report. When the agent finishes its
               turn it waits for your next reply, in the desktop app and on a
-              daemon alike, with no idle timeout. <strong>Stop</strong>, in
-              the thread&apos;s header (on a phone, in the top bar), interrupts
-              the turn it is on: the messages you had queued come back into
-              your composer, and the session waits for you. Quitting the
+              daemon alike, with no idle timeout. The composer&apos;s stop
+              button, while the agent works, interrupts the turn it is on: the
+              messages you had queued come back into your composer, and the
+              session waits for you. <strong>Stop</strong> in the chat&apos;s
+              header (on a phone, in the top bar) ends the whole chat, its
+              child sessions included. Quitting the
               desktop app or stopping the daemon only suspends its sessions:
               they pick up again in the same worktree when it is back.
-              Writing to an ended thread revives it: the same session goes
+              Writing to an ended chat revives it: the same session goes
               back to work on its branch, with every message you sent
               meanwhile.
             </p>
             <p>
-              Sessions another session started (a thread&apos;s child sessions,
-              a thread a <a href="/docs/actions/#triggers">team agent</a>{` `}
+              Sessions another session started (a chat&apos;s child sessions,
+              a chat a <a href="/docs/actions/#triggers">team agent</a>{` `}
               started) are the ones that <strong>end themselves</strong>: the
               agent closes the session when its work is done and its report
               goes back to whoever started it.
@@ -601,12 +616,12 @@ export function CodingDocsPage() {
               sidebar on web and desktop, and the chat button beside the
               phone&apos;s tab bar, open the Agent page: the home of every
               client, a greeting over the composer and nothing else. With
-              nothing chipped, the send starts a thread bound to no issue: it
+              nothing chipped, the send starts a chat bound to no issue: it
               works in the repository you pick, or in a scratch directory when
               there is none. It runs on one of your machines like
               any other session, with the Exponential tools wired up, so it
               can read and write the tracker while you talk to it. Every
-              thread lives on the Threads page; open an ended one to read it
+              chat lives on the Chats page; open an ended one to read it
               back, or write to it to continue.
             </p>
             <p>
@@ -615,13 +630,23 @@ export function CodingDocsPage() {
               and triggers (a schedule, or an event such as an issue being
               created). Every member has a private conversation with each
               agent — <strong>Message an agent</strong> in the composer&apos;s{` `}
-              <strong>+</strong> menu, or the agent&apos;s row in the sidebar.
+              <strong>+</strong> menu, the agent&apos;s row in the sidebar, or
+              its bubble on the Chats page.
               Its page reads like a chat: the agent&apos;s reports, your
-              messages, and one card per thread it started for you. An agent
-              answers a quick question itself and starts a thread for real
-              work; the thread&apos;s report comes back into the conversation
+              messages, and one card per chat it started for you. An agent
+              answers a quick question itself and starts a chat for real
+              work; the chat&apos;s report comes back into the conversation
               when it ends. A trigger firing arrives there as a message too,
-              and the conversation itself never ends. Agents are set up under{` `}
+              and the conversation itself never ends: its <strong>…</strong>{` `}
+              menu holds <strong>Compact conversation</strong> and{` `}
+              <strong>New conversation</strong> (the same as typing{` `}
+              <code>/compact</code> or <code>/new</code>), and after an owner
+              edits the agent&apos;s instructions a banner offers{` `}
+              <strong>Start new conversation</strong> so it runs on them. An
+              agent acts under its own name and mark, can be assigned issues
+              (the assignee picker lists the team&apos;s agents after its
+              members), and works only inside its own team. Agents are set up
+              under{` `}
               <a href="/docs/actions/#triggers">Settings → Agents</a>.
             </p>
 
@@ -637,7 +662,7 @@ export function CodingDocsPage() {
             <p>You never have to leave the IDE to land the work:</p>
             <ul>
               <li>
-                The thread&apos;s <strong>Guide</strong> tab is the pull
+                The chat&apos;s <strong>Guide</strong> tab is the pull
                 request&apos;s body, written by the agent: a Summary, then one
                 section per change with its screenshots and a{` `}
                 <strong>Changes</strong> row that opens that part of the diff.
@@ -651,28 +676,29 @@ export function CodingDocsPage() {
                 <strong>Other changes</strong>.
               </li>
               <li>
-                While the PR is open the thread header carries the one{` `}
+                While the PR is open the chat header carries the one{` `}
                 <strong>Merge PR</strong> pill (on a phone, the Merge capsule
                 at the bottom of the Guide); a PR stacked on another open one
                 reads <strong>Merge stack</strong> and lands the whole stack,
                 bottom up, and the Guide opens with the{` `}
                 <strong>Stack</strong> it belongs to. The linked issues
-                complete on merge. The thread header&apos;s{` `}
-                <strong>…</strong> menu holds <strong>Close PR</strong>. On
-                the Threads page a thread whose
+                complete on merge. The chat header&apos;s{` `}
+                <strong>…</strong> menu on the Guide holds{` `}
+                <strong>Close PR without merging</strong>. In the Chats list a
+                chat whose
                 PR waits reads <strong>ready to merge</strong>, a stacked one{` `}
                 <strong>stack</strong>, and its mark turns green while the PR
                 is open and violet once it is merged.
               </li>
               <li>
                 A merge refused for conflicts says so in a toast: write to the
-                thread and the session rebases and pushes, then merge again.
+                chat and the session rebases and pushes, then merge again.
               </li>
             </ul>
             <p>
               With <strong>Yolo mode</strong> on in{` `}
               <strong>Settings → General</strong>, nobody has to press Merge: a
-              thread&apos;s pull requests merge by themselves once none of its
+              chat&apos;s pull requests merge by themselves once none of its
               sessions is working, the one at the bottom of a stack first.
             </p>
             <p>
@@ -684,7 +710,7 @@ export function CodingDocsPage() {
             <DocShot
               view="guide"
               platform="desktop"
-              caption="A thread's Guide in the desktop IDE: its stack, a section with its screenshots, Merge stack in the header"
+              caption="A chat's Guide in the desktop IDE: its stack, a section with its screenshots, Merge stack in the header"
             />
 
             <DocShot

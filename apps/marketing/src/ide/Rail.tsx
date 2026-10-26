@@ -4,10 +4,11 @@
    · the FIXED header: the team switcher (28px team square, semibold name,
      chevrons-up-down), the ghost Search circle and the PRIMARY New issue
      circle, then the column's 1px rule;
-   · the scrolling rail: Agent · Inbox · Threads · Devices (· Drafts while
-     any draft is parked), then the Agents, Apps and Boards groups — each a
-     muted label with its `+` — and Active (my live threads, hidden while
-     none runs);
+   · the scrolling rail: Agent · Inbox · Chats · Devices (· Drafts while
+     any draft is parked; EXP-1373: the product says chats, the rail label
+     is threads-list.json `copy.title`), then the Agents, Apps and Boards
+     groups — each a muted label with its `+` — and Active (`copy.rail`,
+     the live chats, hidden while none runs);
    · the footer: the muted Getting started row (until its checklist is
      done), then the account button with the Computer menu (Terminal,
      Files, Source Control) and the settings gear on its right. ─── */
@@ -55,7 +56,7 @@ export const ACTIVE_BOARD = BOARDS[0]
 /* The team the demo signs in as — the switcher names it. */
 const TEAM_NAME = `Exponential`
 
-const AGENT_GLYPH: Record<RailAgent[`icon`], IdeIcon> = {
+export const AGENT_GLYPH: Record<RailAgent[`icon`], IdeIcon> = {
   bug: IcBug,
   palette: IcPalette,
   package: IcPackage,
@@ -209,7 +210,7 @@ export function Rail() {
         />
         <RailRow
           Icon={IcThreads}
-          label="Threads"
+          label="Chats"
           active={on(`threads`)}
           badge={threadsDot ? <span className={`ide-rail-dot ${threadsDot}`} /> : undefined}
           onClick={go(`threads`)}

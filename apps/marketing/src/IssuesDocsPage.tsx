@@ -83,7 +83,7 @@ export function IssuesDocsPage() {
               then <strong>Create</strong>. The draft saves itself as you
               type, and parked drafts collect under{` `}
               <strong>Drafts</strong> in the sidebar (on a phone, the
-              Inbox&apos;s Drafts tab). Leaving a new issue
+              board&apos;s Drafts chip). Leaving a new issue
               with content asks <strong>Save this issue as a draft?</strong>{` `}
               with <strong>Create issue</strong>, <strong>Save draft</strong>{` `}
               and <strong>Discard</strong>.
@@ -97,7 +97,8 @@ export function IssuesDocsPage() {
               <strong>Cmd/Ctrl+F</strong> anywhere, opens{` `}
               <strong>Search issues</strong> across the current team's boards: it
               matches identifiers, titles and full text, and picking a result
-              opens it.
+              opens it. On a phone, the round search button in every
+              page&apos;s header does the same for the active team.
             </p>
 
             <h3>Bulk edit</h3>
@@ -108,7 +109,7 @@ export function IssuesDocsPage() {
               <strong>Assignee</strong> and <strong>Labels</strong>, deletes
               the selection with <strong>Delete</strong>, or hands the whole
               thing to an agent with <strong>Start coding</strong> as{` `}
-              <a href="/docs/coding/#batch-runs">one thread</a>.
+              <a href="/docs/coding/#batch-runs">one chat</a>.
             </p>
 
             <DocShot view="board-bulk-edit" />
@@ -288,17 +289,18 @@ export function IssuesDocsPage() {
               <strong>Add relation</strong>, <strong>Unmark duplicate</strong>{` `}
               on a duplicate, <strong>Close PR without merging</strong> while a
               PR is open,{` `}
-              <strong>Delete issue</strong>). Once a thread works the issue, a{` `}
-              <strong>Threads</strong> row under the title names it: one chip
-              per thread, opening it. Then come the property chips (status,
-              priority, assignee, labels, estimate when the team uses one, due
+              <strong>Delete issue</strong>). Once a chat works the issue, a{` `}
+              <strong>Chats</strong> row under the title names it: one chip
+              per chat, opening it. Then come the property chips (status,
+              priority, assignee (a teammate or one of the team&apos;s
+              agents), labels, estimate when the team uses one, due
               date, board), the description, the sub-issues and relations, and
               the activity. On web and desktop the content area is a rounded
               card floating on a darker ground; phones run full-bleed.
             </p>
             <p>
               <strong>Start</strong> opens the composer with the issue as its
-              subject; the send starts a new thread. While a step is missing
+              subject; the send starts a new chat. While a step is missing
               (GitHub, the board&apos;s repository, a device online) it opens
               the <strong>Ready to code?</strong> checklist instead.
             </p>
@@ -340,7 +342,8 @@ export function IssuesDocsPage() {
               events: issue created, title changes, status changes, label
               changes, assignments, priority and estimate changes, board moves,
               relations, PR opened, PR merged — each led by its own icon and
-              ending in its time. You follow an
+              ending in its time. What a team agent does reads under the
+              agent&apos;s own name and mark. You follow an
               issue automatically when you create it, comment on it, get
               assigned or get mentioned; there is no subscribe button.
             </p>
@@ -351,8 +354,9 @@ export function IssuesDocsPage() {
               the docked composer switches to <strong>Replying to</strong>,
               with an <strong>×</strong> back to a plain comment. Replies sit
               under their comment with a smaller avatar and edit and delete
-              like any comment. A comment an agent posted over MCP says{` `}
-              <strong>via MCP</strong> in its header.
+              like any comment. A comment a person posted from an MCP client
+              says <strong>via MCP</strong> in its header; a team agent&apos;s
+              comment carries the agent&apos;s own name instead.
             </p>
             <p>
               Comments carry <strong>attachments</strong>, not just markdown:{` `}
@@ -373,7 +377,9 @@ export function IssuesDocsPage() {
               reporter replies, a coding session of yours that hit a rate
               limit, and messages from agents. Its{` `}
               <strong>My issues</strong> tab lists the issues assigned to you,
-              and <strong>Mark all read</strong> clears the lot.
+              and <strong>Mark all read</strong> clears the lot. On a phone
+              the inbox is its own page, behind the inbox button in every
+              page&apos;s header, and My issues is a chip on the board.
             </p>
 
             <DocShot view="inbox" />
@@ -421,11 +427,11 @@ export function IssuesDocsPage() {
           <DocsSection id="branches-prs" num="07" label="Branches & PRs">
             <h2>Branches &amp; PRs</h2>
             <p>
-              A thread that codes a single issue works on that issue&apos;s
+              A chat that codes a single issue works on that issue&apos;s
               branch (<code>exp/&lt;IDENTIFIER&gt;</code>, e.g.{` `}
-              <code>exp/EXP-42</code>); a thread with several issues, or none,
+              <code>exp/EXP-42</code>); a chat with several issues, or none,
               gets its own <code>exp/session-…</code> branch. The pull request
-              links every issue the thread holds, and its state (open, merged)
+              links every issue the chat holds, and its state (open, merged)
               is tracked on each issue automatically.
             </p>
             <h3>The base branch</h3>
@@ -447,7 +453,7 @@ export function IssuesDocsPage() {
             </p>
             <ul>
               <li>
-                A coding thread <strong>taking up</strong> an issue in{` `}
+                A coding chat <strong>taking up</strong> an issue in{` `}
                 <strong>Backlog</strong> or <strong>In Review</strong> moves it
                 to <strong>In Progress</strong>. A session that only{` `}
                 <em>files</em> an issue moves nothing.
@@ -458,9 +464,9 @@ export function IssuesDocsPage() {
                 them to <strong>Done</strong>.
               </li>
               <li>
-                A thread that <strong>drops</strong> an issue it was working
+                A chat that <strong>drops</strong> an issue it was working
                 puts it back from <strong>In Progress</strong> to{` `}
-                <strong>Backlog</strong>, unless a PR is open or another thread
+                <strong>Backlog</strong>, unless a PR is open or another chat
                 still holds it.
               </li>
             </ul>
@@ -480,7 +486,7 @@ export function IssuesDocsPage() {
               <strong>Do nothing</strong> and move issues by hand.
             </p>
             <p>
-              A thread that took{` `}
+              A chat that took{` `}
               <a href="/docs/coding/#batch-runs">several issues</a> opens{` `}
               <strong>one PR linked to every issue</strong> it worked.
               Merging that single PR completes them all.

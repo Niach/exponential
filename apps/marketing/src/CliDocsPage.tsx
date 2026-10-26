@@ -26,9 +26,9 @@ const COMMANDS: { name: string; desc: string }[] = [
   { name: `exponential status`, desc: `Account, this machine's device row, daemon state, auto-update, installed agents, and git in one summary. With no daemon running it says so plainly: the machine is not a device yet.` },
   { name: `exponential doctor`, desc: `The device readiness block every client shows for this machine: Git under Required, Claude Code and Codex under Coding agents, Computer use, each with what to do about it. Exits non-zero only when nothing can run a coding session here.` },
   { name: `exponential code <ISSUE> [--device <label|id>] [--agent claude|codex] [--model <m>] [--effort <e>] [--plan] [--detach] [--account <profile>] [--follow]`, desc: `Start a coding session for an issue, by identifier ("EXP-42") or id. --device starts it on another of your devices instead.` },
-  { name: `exponential run <prompt> [--device <label|id>] [--team <id>] [--prompt <text>] [--agent <a>] [--model <m>] [--effort <e>] [--plan] [--detach] [--account <profile>] [--follow]`, desc: `Run one of the team's saved prompts by name or id, as a thread. --prompt adds instructions after its body. The same agent flags apply.` },
+  { name: `exponential run <prompt> [--device <label|id>] [--team <id>] [--prompt <text>] [--agent <a>] [--model <m>] [--effort <e>] [--plan] [--detach] [--account <profile>] [--follow]`, desc: `Run one of the team's saved prompts by name or id, as a chat. --prompt adds instructions after its body. The same agent flags apply.` },
   { name: `exponential devices [--team <id>]`, desc: `Your devices (desktop apps and daemons), online or not, with their agents and running sessions. --team adds the servers teammates shared with that team.` },
-  { name: `exponential sessions [--device <d>] [--status queued|running|idle|ended] [--agents] [--limit n]`, desc: `The threads you can see, newest first; --agents lists the team agents instead.` },
+  { name: `exponential sessions [--device <d>] [--status queued|running|idle|ended] [--agents] [--limit n]`, desc: `The chats you can see, newest first; --agents lists the team agents instead.` },
   { name: `exponential sessions show | log [--follow] | message | stop | end <id>`, desc: `One session's status, device, branch and issues; its transcript; a message to it (an idle session wakes up; - reads the text from stdin); stop interrupts its current turn and leaves it idle; end ends it and its sub-sessions. An id prefix is enough.` },
   { name: `exponential mcp list | connect <server> | set-secret <server> | disconnect <server> [--team <id>]`, desc: `Your teams' MCP servers and your connection to each. The server holds your credential, so one connection works on every device, remote start and trigger: connect opens the server's connect page in your signed-in browser, set-secret reads a key from a no-echo prompt (never argv), disconnect deletes your credential.` },
   { name: `exponential daemon [--foreground] [--label <name>]`, desc: `Run the device daemon in this terminal: it registers the machine and runs the sessions queued for it.` },
@@ -270,7 +270,7 @@ exponential daemon install
               <a href="/docs/actions/">prompt</a>, and it runs on that machine
               exactly like it would on the desktop app: the same launcher,
               the same live transcript, the same steering from web, iOS, or
-              Android. Threads over several issues, free requests and the
+              Android. Chats over several issues, free requests and the
               conversations of{` `}
               <a href="/docs/actions/#triggers">team agents</a> set to run on
               it run there too. When the daemon restarts, it claims its
@@ -280,11 +280,13 @@ exponential daemon install
               A session you start on the daemon makes no report, exactly like a
               session in the desktop app or an attached CLI: when the agent
               finishes its turn it waits for your next reply, and the daemon
-              keeps its worktree with no idle timeout.{` `}
-              <strong>Stop</strong> in the web or mobile app interrupts the
-              current turn and leaves the session waiting;{` `}
+              keeps its worktree with no idle timeout. The composer&apos;s
+              stop button in the web or mobile app (or{` `}
+              <code>exponential sessions stop</code>) interrupts the current
+              turn and leaves the session waiting; <strong>Stop</strong> in
+              the chat&apos;s header or{` `}
               <code>exponential sessions end</code> ends it. Sessions another
-              session started (a thread&apos;s child sessions, a thread a{` `}
+              session started (a chat&apos;s child sessions, a chat a{` `}
               <a href="/docs/actions/#triggers">team agent</a> starts) are the
               ones that end themselves when their work is done, and a
               team agent&apos;s own conversation never ends.
@@ -300,7 +302,8 @@ exponential daemon install
             <h3>Running it from a phone</h3>
             <p>
               Everything you would set at the desk is on the machine&apos;s
-              row on the <strong>Devices</strong> page and in its{` `}
+              row on the <strong>Devices</strong> page (on a phone, the last
+              row of the Team tab) and in its{` `}
               <strong>Device settings</strong> (the row&apos;s gear), from any
               client:
             </p>
@@ -322,7 +325,7 @@ exponential daemon install
               </li>
               <li>
                 Its launch defaults, one tab per agent: <strong>Model</strong>,{` `}
-                <strong>Thread model</strong>, <strong>Subagent model</strong>,{` `}
+                <strong>Chat model</strong>, <strong>Subagent model</strong>,{` `}
                 <strong>Effort</strong>, <strong>Ultracode</strong>,{` `}
                 <strong>Plan mode</strong> and{` `}
                 <strong>Auto-rotate accounts</strong>.

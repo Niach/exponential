@@ -1,8 +1,9 @@
 /* ─── The issue detail (issue_detail.rs + issue_header.rs + work_header.rs,
    EXP-877/1162/1294): ONE scrolling body in the 896px work column (20px
    gutter), under the compact fixed bar whose right cluster is
-   [Start] [pin] [⋯]. The body: the 24/32 semibold title; the Threads row
-   while a thread works the issue; the property chips (Status · Priority ·
+   [Start] [pin] [⋯]. The body: the 24/32 semibold title; the Chats row
+   (thread_screen.rs `issue_threads_row`, labelled threads-list.json
+   `copy.title`) while a chat works the issue; the property chips (Status · Priority ·
    Assignee · Labels · Due date · Board — Sm glass pills, unset ones muted);
    the description; the editor's emoji / image / attach glyphs; "Add
    sub-issues"; a hairline; then "Activity (N)" — muted event lines and
@@ -173,7 +174,7 @@ export function IssueDetail({ issueId }: { issueId: string }) {
           <h1 className="ide-issue-title">{issue.title}</h1>
           {issueThread && (
             <div className="ide-threads-row">
-              <span className="ide-threads-label">Threads</span>
+              <span className="ide-threads-label">Chats</span>
               <button
                 className={`ide-pill is-sm is-action${interactive ? ` is-click` : ``}`}
                 type="button"

@@ -98,8 +98,8 @@ export function ActionsDocsPage() {
 
             <p>
               In a live session, <code>/</code> lists <code>/compact</code>,
-              {` `}
-              <code>/model</code> and <code>/effort</code>, then the
+              {` `}<code>/new</code>, <code>/model</code> and{` `}
+              <code>/effort</code>, then the
               prompts. Picking a prompt puts its body in your draft.
             </p>
 
@@ -136,13 +136,17 @@ export function ActionsDocsPage() {
               <strong>Add</strong> on the Triggers row opens{` `}
               <strong>New trigger</strong> with two tabs.{` `}
               <strong>Schedule</strong> picks <strong>Repeat</strong> (every
-              hour, day, week or month), the <strong>Days</strong> or{` `}
-              <strong>Day</strong>, the <strong>Time</strong> and the{` `}
-              <strong>Time zone</strong>, and reads back as &ldquo;Every day
-              at 09:00 (Europe/Vienna)&rdquo;. <strong>On event</strong>{` `}
+              few minutes, every hour, day, week or month), then{` `}
+              <strong>Every</strong> (5, 10, 15, 20 or 30 minutes), the{` `}
+              <strong>Minute</strong> of the hour, or the{` `}
+              <strong>Days</strong> or <strong>Day</strong> and the{` `}
+              <strong>Time</strong>, with a <strong>Time zone</strong> for
+              daily, weekly and monthly ones, and reads back as &ldquo;Every
+              day at 09:00 (Europe/Vienna)&rdquo;. <strong>On event</strong>{` `}
               names an event: a built-in one (&ldquo;When an issue is
               created&rdquo;, &ldquo;When an issue&apos;s status
-              changes&rdquo;, &ldquo;When a pull request opens&rdquo;,
+              changes&rdquo;, &ldquo;When an issue is assigned&rdquo;,
+              &ldquo;When a pull request opens&rdquo;,
               &ldquo;When a pull request merges&rdquo;, &ldquo;When a session
               ends&rdquo;) or any name of your own, which a session emits over
               MCP. Each trigger has its own switch; a paused one reads{` `}
