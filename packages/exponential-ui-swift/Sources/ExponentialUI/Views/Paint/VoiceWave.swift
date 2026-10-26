@@ -5,7 +5,8 @@ import ExponentialUIPrimitives
 /// NEW-77: one frame of the `VoiceWave` native (catalog/style.json
 /// `voiceWave`), computed by the core (`voiceWaveJson`): per ring (outer,
 /// mid, inner) its points in px from the box's top-left, alphas and stroke
-/// width; the centre child's edge (0 = not painted) and the phase.
+/// width; the centre child's edge (0 = not painted), the phase and, when
+/// the input gave the child's size, its `child` box.
 public struct VoiceWaveFrame: Equatable, Sendable {
     public struct Ring: Equatable, Sendable {
         public var part: String
@@ -15,15 +16,26 @@ public struct VoiceWaveFrame: Equatable, Sendable {
         public var strokeWidth: CGFloat
     }
 
+    /// THE CHILD RULE's box (`voiceWaveChildBox`): where the child is drawn
+    /// in the wave's box (pt from its top-left) and the scale about the box
+    /// centre (min(1, childSize / its longer edge), never up; 0 = kept in
+    /// the tree, not painted).
+    public struct ChildBox: Equatable, Sendable {
+        public var rect: CGRect
+        public var scale: CGFloat
+    }
+
     public var rings: [Ring]
     public var childSize: CGFloat
     public var phase: Double
+    public var child: ChildBox?
 
     /// The activities that animate (the phase advances with time).
     static let animated: Set<String> = ["listening", "thinking", "speaking"]
 
     /// The frame for a `size` px box at `elapsed` seconds.
-    public static func compute(size: CGFloat, activity: String, level: Double, bands: [Double]?, elapsed: Double, reducedMotion: Bool) -> VoiceWaveFrame? {
+    /// `child` = the child's own laid-out size (the core then answers its box).
+    public static func compute(size: CGFloat, activity: String, level: Double, bands: [Double]?, elapsed: Double, reducedMotion: Bool, child: CGSize? = nil) -> VoiceWaveFrame? {
         var input: [String: JSONValue] = [
             "size": .number(Double(size)),
             "activity": .string(activity),
@@ -32,6 +44,7 @@ public struct VoiceWaveFrame: Equatable, Sendable {
             "reducedMotion": .bool(reducedMotion),
         ]
         if let bands { input["bands"] = .array(bands.map { .number($0.isFinite ? $0 : 0) }) }
+        if let child { input["child"] = .object(["width": .number(Double(child.width)), "height": .number(Double(child.height))]) }
         return parse(voiceWaveJson(inputJson: JSONValue.object(input).json))
     }
 
@@ -49,8 +62,19 @@ public struct VoiceWaveFrame: Equatable, Sendable {
                 )
             },
             childSize: CGFloat(v["childSize"]?.number ?? 0),
-            phase: v["phase"]?.number ?? 0
+            phase: v["phase"]?.number ?? 0,
+            child: v["child"].map { c in
+                ChildBox(
+                    rect: CGRect(x: c["x"]?.number ?? 0, y: c["y"]?.number ?? 0, width: c["width"]?.number ?? 0, height: c["height"]?.number ?? 0),
+                    scale: CGFloat(c["scale"]?.number ?? 0)
+                )
+            }
         )
+    }
+
+    /// The core's child box for a child of `child` pt in a wave of edge `size`.
+    public static func childBox(size: CGFloat, child: CGSize) -> ChildBox? {
+        compute(size: size, activity: "idle", level: 0, bands: nil, elapsed: 0, reducedMotion: true, child: child)?.child
     }
 }
 

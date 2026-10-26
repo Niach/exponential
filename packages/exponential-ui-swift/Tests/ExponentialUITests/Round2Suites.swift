@@ -131,7 +131,8 @@ enum Round2Suites {
 
     /// NEW-77: `fixtures/voice-wave.json` through the facade
     /// (`voiceWaveJson`) and the painter's own `VoiceWaveFrame` read of it:
-    /// every point within 0.5 px, the alphas, widths, child edge and phase.
+    /// every point within 0.5 px, the alphas, widths, child edge, phase and
+    /// (a case with `input.child`) the core's child box.
     static func voiceWave() throws -> [Case] {
         list(try json("voice-wave.json"), "cases").map { c in
             run(s(c, "name")) {
@@ -144,7 +145,8 @@ enum Round2Suites {
                     level: num(input["level"]) ?? 0,
                     bands: input["bands"]?.array?.map { num($0) ?? 0 },
                     elapsed: num(input["elapsed"]) ?? 0,
-                    reducedMotion: input["reducedMotion"]?.bool ?? false
+                    reducedMotion: input["reducedMotion"]?.bool ?? false,
+                    child: input["child"].map { CGSize(width: num($0["width"]) ?? 0, height: num($0["height"]) ?? 0) }
                 )
                 for (label, frame) in [("facade", viaFacade), ("painter", viaPainter)] {
                     guard let f = frame else { return "\(label): no frame" }
@@ -161,8 +163,53 @@ enum Round2Suites {
                         if let d = near([got.fillAlpha, got.strokeAlpha, Double(got.strokeWidth)], [num(want["fillAlpha"]) ?? .nan, num(want["strokeAlpha"]) ?? .nan, num(want["strokeWidth"]) ?? .nan], 1e-9) { return "\(label) \(got.part) paint: \(d)" }
                     }
                     if let d = near([Double(f.childSize), f.phase], [num(e["childSize"]) ?? .nan, num(e["phase"]) ?? .nan], 1e-9) { return "\(label) childSize/phase: \(d)" }
+                    if (e["child"] == nil) != (f.child == nil) { return "\(label) child \(String(describing: f.child)) / \(e["child"]?.json ?? "none")" }
+                    if let wc = e["child"], let gc = f.child {
+                        let want = ["x", "y", "width", "height", "scale"].map { num(wc[$0]) ?? .nan }
+                        if let d = near([gc.rect.minX, gc.rect.minY, gc.rect.width, gc.rect.height, gc.scale].map(Double.init), want, 1e-3) { return "\(label) child: \(d)" }
+                    }
                 }
                 return nil
+            }
+        }
+    }
+
+    /// A `fixtures/voice-wave.json` case with a child: the wave's edge,
+    /// activity, the child's own size and the expected `child` box.
+    struct VoiceWaveChildCase {
+        let name: String
+        let size: CGFloat
+        let activity: String
+        let child: CGSize
+        let expected: JSONValue
+    }
+
+    static func voiceWaveChildCases() throws -> [VoiceWaveChildCase] {
+        list(try json("voice-wave.json"), "cases").compactMap { c in
+            guard let i = c["input"], let child = i["child"], let e = c["expected"]?["child"] else { return nil }
+            return VoiceWaveChildCase(
+                name: s(c, "name"),
+                size: CGFloat(num(i["size"]) ?? 0),
+                activity: s(i, "activity"),
+                child: CGSize(width: num(child["width"]) ?? 0, height: num(child["height"]) ?? 0),
+                expected: e
+            )
+        }
+    }
+
+    /// NEW-77 THE CHILD RULE, measured: every child case's DRAWN child
+    /// bounds (`drawn`: pt from the wave box's top-left, after the painter's
+    /// scale; nil = nothing drawn) within 0.5 px of the fixture's `child`
+    /// box; a child the rule does not paint (scale 0) draws nothing.
+    static func voiceWaveChild(drawn: (VoiceWaveChildCase) -> CGRect?) throws -> [Case] {
+        try voiceWaveChildCases().map { c in
+            run(c.name) {
+                let visible = (num(c.expected["scale"]) ?? 0) > 0
+                let r = drawn(c)
+                guard visible else { return r.map { "drawn \($0) / not painted" } }
+                guard let r else { return "no drawn child" }
+                let want = ["x", "y", "width", "height"].map { num(c.expected[$0]) ?? .nan }
+                return near([r.minX, r.minY, r.width, r.height].map(Double.init), want, 0.5).map { "drawn \($0)" }
             }
         }
     }
