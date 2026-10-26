@@ -43,6 +43,7 @@ export const SESSION_COLUMNS = [
   `handoff_restored_at`,
   `status`,
   `busy`,
+  `background`,
   `needs_input`,
   `blocked`,
   `started_at`,

@@ -26,7 +26,7 @@ object DomainContract {
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
     val sessionKindValues: List<String> = listOf("thread", "agent")
     val sessionStatusValues: List<String> = listOf("queued", "running", "idle", "ended")
-    val codingSessionBlockedKinds: List<String> = listOf("rate_limit", "device_offline", "unclaimed", "stuck")
+    val codingSessionBlockedKinds: List<String> = listOf("rate_limit", "device_offline", "unclaimed", "stuck", "restarted")
     val codingSessionBlockedWindows: List<String> = listOf("session", "weekly", "model")
     val toolKindValues: List<String> = listOf("read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "wait", "script", "other")
     val toolKindEditValues: List<String> = listOf("edit", "delete", "move")
@@ -41,7 +41,7 @@ object DomainContract {
     val messageAuthorKindValues: List<String> = listOf("user", "agent", "system")
     val conversationKindValues: List<String> = listOf("dm", "channel", "session")
     val messageCardKindValues: List<String> = listOf("question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface")
-    val messageEventKindValues: List<String> = listOf("issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired")
+    val messageEventKindValues: List<String> = listOf("issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted")
     val codingAgentValues: List<String> = listOf("claude", "codex")
     val codingModelValues: List<String> = listOf("fable", "opus", "sonnet", "haiku")
     val codingEffortValues: List<String> = listOf("low", "medium", "high", "xhigh", "max")
@@ -275,4 +275,5 @@ object DomainContract {
     const val messageEventKindSessionStuck: String = "session_stuck"
     const val messageEventKindDeviceOffline: String = "device_offline"
     const val messageEventKindTriggerFired: String = "trigger_fired"
+    const val messageEventKindSessionInterrupted: String = "session_interrupted"
 }

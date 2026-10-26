@@ -239,8 +239,8 @@
     "values": ["queued", "running", "idle", "ended"]
   },
   "codingSessionBlocked": {
-    "$comment": "NEW-1: rate_limit = the usage wall (device-written; FEED-129: the server watchdog clears one whose resetsAt passed); device_offline, unclaimed, stuck = the server watchdog (sessionWatchdog).",
-    "kinds": ["rate_limit", "device_offline", "unclaimed", "stuck"],
+    "$comment": "NEW-1: rate_limit = the usage wall (device-written; FEED-129: the server watchdog clears one whose resetsAt passed); device_offline, unclaimed, stuck = the server watchdog (sessionWatchdog). EXP-1374: restarted = the heartbeat no longer lists a busy session (its run stopped while the device lived: the runner restarted). device_offline and restarted are INTERRUPTIONS: never on a person (needs_input stays false), `resume` = it was mid-turn, so its device continues it by itself when back; any device report clears them.",
+    "kinds": ["rate_limit", "device_offline", "unclaimed", "stuck", "restarted"],
     "windows": ["session", "weekly", "model"]
   },
   "codingSession": {
@@ -260,9 +260,10 @@
     "treeMaxSessions": 10
   },
   "sessionWatchdog": {
-    "$comment": "NEW-1: the server watchdog (every minute). A queued session nobody claimed for unclaimedMinutes = blocked:unclaimed + Needs you; a live session with pending input older than nudgeMinutes = the device is nudged again; a busy session with no device report for stuckMinutes = blocked:stuck, unless its online host lists it in the heartbeat's liveSessionIds (FEED-145: a live process guards its own turn; a listed session's stuck flag clears); a host device silent past device.onlineWindowSeconds = its live sessions idle + blocked:device_offline until its next heartbeat; a rate_limit wall whose resetsAt passed = cleared (FEED-129).",
+    "$comment": "NEW-1: the server watchdog (every minute). A queued session nobody claimed for unclaimedMinutes = blocked:unclaimed + Needs you; a live session with pending input older than nudgeMinutes = the device is nudged again; EXP-1374: a busy session with NO SIGN OF LIFE for stuckMinutes = blocked:stuck (the bus says 'no sign of life for N minutes, check whether it is still needed', never 'stop it'). Sign of life = the latest of a device report, a message, the heartbeat's per-session activity (a tool call, terminal output), an MCP call by the session, a push to its branch; a session with background tasks (`background`) or that its online host lists in liveSessionIds is alive (FEED-145). A host device silent past device.onlineWindowSeconds = its live sessions idle + blocked:device_offline (resume = it was busy) until its next heartbeat: a listed one is busy again, an unlisted mid-turn one keeps the flag until its device continues it (pickup `Continue`); a listed-dead busy one = blocked:restarted, resume. An interruption its device has not continued resumeMinutes after the device is back = Needs you. A rate_limit wall whose resetsAt passed = cleared (FEED-129).",
     "unclaimedMinutes": 5,
     "nudgeMinutes": 2,
+    "resumeMinutes": 5,
     "stuckMinutes": 30
   },
   "device": {
@@ -426,7 +427,7 @@
     "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface"]
   },
   "messageEventKind": {
-    "values": ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired"]
+    "values": ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted"]
   },
   "codingAgent": {
     "values": ["claude", "codex"]

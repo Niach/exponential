@@ -1,11 +1,13 @@
 {
-  "$comment": "EXP-1291 Threads v2: THE session card ×4 — a session inside a thread (the root's own session first, every child where its `session` card message sits, an agent channel's `thread_started` cards) is ONE card = the Work card's HEADER row (work-card.json geometry.header px, radius lg, card hairline, no shadow): the state `icon` (concept), the `name` (medium, truncates), the muted `kindWord`, trailing the muted `elapsed` (tabular figures) with a 12px spinner in front while `running`. No device, account, branch or other caption. Tapping it opens that session's raw view (today's session view). Model = pure `sessionCard(session, title, now)` (TS reference packages/domain-contract/src/session-tree.ts; mirrors desktop domain::session_tree, iOS ExpCore SessionTree.swift, Android domain/SessionTree.kt), every mirror replays `cases` and compares the WHOLE expected object. state = `ended` when status ended, else `needs_you` when needsInput, else `blocked` when blocked is set, else `queued` when status queued, else `working` when busy, else `waiting`. name = `title`, the session's display title (EXP-1341 session-title.json `sessionTitle`; never `Session N`). elapsed = startedAt → now (ended: → endedAt, else updatedAt), the work card's ladder ('37s', '2m 04s', '1h 03m'); null while queued or without a parsable startedAt. running = state working. tone = `tones[state]`. NEW-1: `blocked.kind` names why (contract codingSessionBlocked.kinds); `copy.blockedKinds[kind]` is the state word for it (an unknown kind reads `copy.states.blocked`); the server holds needsInput while blocked, so the card reads Needs you first.",
+  "$comment": "EXP-1291 Threads v2: THE session card ×4 — a session inside a thread (the root's own session first, every child where its `session` card message sits, an agent channel's `thread_started` cards) is ONE card = the Work card's HEADER row (work-card.json geometry.header px, radius lg, card hairline, no shadow): the state `icon` (concept), the `name` (medium, truncates), the muted `kindWord`, trailing the muted `elapsed` (tabular figures) with a 12px spinner in front while `running`. No device, account, branch or other caption. Tapping it opens that session's raw view (today's session view). Model = pure `sessionCard(session, title, now)` (TS reference packages/domain-contract/src/session-tree.ts; mirrors desktop domain::session_tree, iOS ExpCore SessionTree.swift, Android domain/SessionTree.kt), every mirror replays `cases` and compares the WHOLE expected object. state = `ended` when status ended, else `needs_you` when needsInput, else `interrupted` when blocked.kind is an interruption (`interruptedKinds`), else `blocked` when blocked is set, else `queued` when status queued, else `background` when busy AND background (EXP-1374: the turn is over, background tasks still run on its device and hold its slot), else `working` when busy, else `waiting`. name = `title`, the session's display title (EXP-1341 session-title.json `sessionTitle`; never `Session N`). elapsed = startedAt → now (ended: → endedAt, else updatedAt), the work card's ladder ('37s', '2m 04s', '1h 03m'); null while queued or without a parsable startedAt. running = state working or background. tone = `tones[state]`. NEW-1: `blocked.kind` names why (contract codingSessionBlocked.kinds); `copy.blockedKinds[kind]` is the state word for it (an unknown kind reads `copy.states.blocked`); the server holds needsInput while blocked, so the card reads Needs you first. EXP-1374: an INTERRUPTION (contract codingSessionBlocked: device_offline, restarted) is never on a person: the server keeps needsInput false and the device continues the run by itself when back; kindWord = `copy.interruptedKinds[kind]`. The Dock card of the same state = `sessionBanner(session)` (dock.json `banner` source, one model x4: web agent-session.tsx useSessionDock, desktop steer_viewer, iOS AgentSessionModel, Android AgentSessionScreen): `interrupted` = {id 'interrupted', icon = icons.interrupted, label = copy.states.interrupted, text = `banner.interrupted[kind]`, tone muted, action null}, `background` = {id 'background', icon = icons.background, label = copy.states.background, text = banner.background, tone muted, action null}, any other state = null. It REPLACES the host's own offline 'paused' banner while shown; `bannerCases` replay it.",
   "copy": {
     "states": {
       "queued": "Queued",
       "working": "Working",
+      "background": "Background task",
       "waiting": "Waiting",
       "needs_you": "Needs you",
+      "interrupted": "Interrupted",
       "blocked": "Usage limit",
       "ended": "Ended"
     },
@@ -13,22 +15,31 @@
       "rate_limit": "Usage limit",
       "device_offline": "Device offline",
       "unclaimed": "Not picked up",
-      "stuck": "Stuck"
+      "stuck": "Stuck",
+      "restarted": "Interrupted"
+    },
+    "interruptedKinds": {
+      "device_offline": "Interrupted · device offline",
+      "restarted": "Interrupted · runner restarted"
     }
   },
   "icons": {
     "queued": "ui-clock",
     "working": "coding-running",
+    "background": "trace-background",
     "waiting": "coding-assistant",
     "needs_you": "coding-needs-input",
+    "interrupted": "run-pause",
     "blocked": "notification-session-blocked",
     "ended": "coding-ended"
   },
   "tones": {
     "queued": "muted",
     "working": "foreground",
+    "background": "foreground",
     "waiting": "muted",
     "needs_you": "amber",
+    "interrupted": "muted",
     "blocked": "rose",
     "ended": "muted"
   },
@@ -364,6 +375,351 @@
         "running": false,
         "testId": "session-card"
       }
+    },
+    {
+      "name": "EXP-1374: background tasks after the turn read Background task, still spinning",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "userId": "u-dana",
+          "status": "running",
+          "busy": true,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "s1",
+          "id": "s1",
+          "background": true
+        },
+        "title": "Fix the login race",
+        "now": "2026-10-13T10:12:34.000Z"
+      },
+      "expected": {
+        "sessionId": "s1",
+        "icon": "trace-background",
+        "name": "Fix the login race",
+        "kindWord": "Background task",
+        "state": "background",
+        "tone": "foreground",
+        "elapsed": "12m 34s",
+        "running": true,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "EXP-1374: an offline device interrupts, never on a person",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "userId": "u-dana",
+          "status": "idle",
+          "busy": false,
+          "needsInput": false,
+          "blocked": {
+            "kind": "device_offline",
+            "agent": null,
+            "window": null,
+            "resetsAt": null,
+            "since": "2026-10-13T10:05:00.000Z",
+            "resume": true
+          },
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "s1",
+          "id": "s1"
+        },
+        "title": "Fix the login race",
+        "now": "2026-10-13T10:12:34.000Z"
+      },
+      "expected": {
+        "sessionId": "s1",
+        "icon": "run-pause",
+        "name": "Fix the login race",
+        "kindWord": "Interrupted · device offline",
+        "state": "interrupted",
+        "tone": "muted",
+        "elapsed": "12m 34s",
+        "running": false,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "EXP-1374: a runner restart interrupts",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "userId": "u-dana",
+          "status": "idle",
+          "busy": false,
+          "needsInput": false,
+          "blocked": {
+            "kind": "restarted",
+            "agent": null,
+            "window": null,
+            "resetsAt": null,
+            "since": "2026-10-13T10:05:00.000Z",
+            "resume": true
+          },
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "s1",
+          "id": "s1"
+        },
+        "title": "Fix the login race",
+        "now": "2026-10-13T10:12:34.000Z"
+      },
+      "expected": {
+        "sessionId": "s1",
+        "icon": "run-pause",
+        "name": "Fix the login race",
+        "kindWord": "Interrupted · runner restarted",
+        "state": "interrupted",
+        "tone": "muted",
+        "elapsed": "12m 34s",
+        "running": false,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "EXP-1374: an interruption nobody continued is on a person again",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "userId": "u-dana",
+          "status": "idle",
+          "busy": false,
+          "needsInput": true,
+          "blocked": {
+            "kind": "device_offline",
+            "agent": null,
+            "window": null,
+            "resetsAt": null,
+            "since": "2026-10-13T10:05:00.000Z",
+            "resume": true
+          },
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "s1",
+          "id": "s1"
+        },
+        "title": "Fix the login race",
+        "now": "2026-10-13T10:12:34.000Z"
+      },
+      "expected": {
+        "sessionId": "s1",
+        "icon": "coding-needs-input",
+        "name": "Fix the login race",
+        "kindWord": "Needs you",
+        "state": "needs_you",
+        "tone": "amber",
+        "elapsed": "12m 34s",
+        "running": false,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "EXP-1374: background without busy is plain waiting",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "userId": "u-dana",
+          "status": "running",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "s1",
+          "id": "s1",
+          "background": true
+        },
+        "title": "Fix the login race",
+        "now": "2026-10-13T10:12:34.000Z"
+      },
+      "expected": {
+        "sessionId": "s1",
+        "icon": "coding-assistant",
+        "name": "Fix the login race",
+        "kindWord": "Waiting",
+        "state": "waiting",
+        "tone": "muted",
+        "elapsed": "12m 34s",
+        "running": false,
+        "testId": "session-card"
+      }
+    }
+  ],
+  "banner": {
+    "interrupted": {
+      "device_offline": "Its device went offline. It continues by itself when the device is back.",
+      "restarted": "Its runner restarted mid-turn. It continues by itself."
+    },
+    "background": "The turn is over; background tasks still run on its device."
+  },
+  "bannerCases": [
+    {
+      "name": "an offline device",
+      "session": {
+        "status": "idle",
+        "busy": false,
+        "needsInput": false,
+        "blocked": {
+          "kind": "device_offline",
+          "agent": null,
+          "window": null,
+          "resetsAt": null,
+          "since": "2026-10-13T10:05:00.000Z",
+          "resume": true
+        },
+        "background": false
+      },
+      "expected": {
+        "id": "interrupted",
+        "icon": "run-pause",
+        "label": "Interrupted",
+        "text": "Its device went offline. It continues by itself when the device is back.",
+        "tone": "muted",
+        "action": null
+      }
+    },
+    {
+      "name": "a runner restart",
+      "session": {
+        "status": "idle",
+        "busy": false,
+        "needsInput": false,
+        "blocked": {
+          "kind": "restarted",
+          "agent": null,
+          "window": null,
+          "resetsAt": null,
+          "since": "2026-10-13T10:05:00.000Z",
+          "resume": true
+        },
+        "background": false
+      },
+      "expected": {
+        "id": "interrupted",
+        "icon": "run-pause",
+        "label": "Interrupted",
+        "text": "Its runner restarted mid-turn. It continues by itself.",
+        "tone": "muted",
+        "action": null
+      }
+    },
+    {
+      "name": "background tasks",
+      "session": {
+        "status": "running",
+        "busy": true,
+        "needsInput": false,
+        "blocked": null,
+        "background": true
+      },
+      "expected": {
+        "id": "background",
+        "icon": "trace-background",
+        "label": "Background task",
+        "text": "The turn is over; background tasks still run on its device.",
+        "tone": "muted",
+        "action": null
+      }
+    },
+    {
+      "name": "working: no banner",
+      "session": {
+        "status": "running",
+        "busy": true,
+        "needsInput": false,
+        "blocked": null,
+        "background": false
+      },
+      "expected": null
+    },
+    {
+      "name": "a usage wall stays the host's own banner",
+      "session": {
+        "status": "running",
+        "busy": false,
+        "needsInput": true,
+        "blocked": {
+          "kind": "rate_limit",
+          "agent": null,
+          "window": null,
+          "resetsAt": null,
+          "since": "2026-10-13T10:05:00.000Z",
+          "resume": null
+        },
+        "background": false
+      },
+      "expected": null
+    },
+    {
+      "name": "needs you beats an interruption",
+      "session": {
+        "status": "idle",
+        "busy": false,
+        "needsInput": true,
+        "blocked": {
+          "kind": "device_offline",
+          "agent": null,
+          "window": null,
+          "resetsAt": null,
+          "since": "2026-10-13T10:05:00.000Z",
+          "resume": true
+        },
+        "background": false
+      },
+      "expected": null
+    },
+    {
+      "name": "an ended session",
+      "session": {
+        "status": "ended",
+        "busy": false,
+        "needsInput": false,
+        "blocked": {
+          "kind": "device_offline",
+          "agent": null,
+          "window": null,
+          "resetsAt": null,
+          "since": "2026-10-13T10:05:00.000Z",
+          "resume": true
+        },
+        "background": false
+      },
+      "expected": null
     }
   ]
 }

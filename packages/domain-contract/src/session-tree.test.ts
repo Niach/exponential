@@ -14,6 +14,7 @@ import {
   questionOption,
   questionOptions,
   railThreads,
+  sessionBanner,
   sessionCard,
   threadInStack,
   threadRowLeadPr,
@@ -40,11 +41,18 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
     const word = (blocked: Record<string, unknown>) =>
       sessionCard({ ...base.session, blocked } as never, base.title, base.now).kindWord
     for (const [kind, text] of Object.entries(card.copy.blockedKinds)) {
-      expect(word({ kind })).toBe(text)
+      // EXP-1374: an interruption reads its own word, not the blocked one.
+      const interrupted = (card.copy.interruptedKinds as Record<string, string>)[kind]
+      expect(word({ kind })).toBe(interrupted ?? text)
     }
     expect(word({ kind: `future_kind` })).toBe(card.copy.states.blocked)
     expect(word({ window: `weekly` })).toBe(card.copy.states.blocked)
   })
+  for (const entry of card.bannerCases) {
+    test(`session banner: ${entry.name}`, () => {
+      expect(sessionBanner(entry.session as never)).toEqual(entry.expected as never)
+    })
+  }
   for (const entry of thread.cases) {
     test(`thread: ${entry.name}`, () => {
       expect(buildSessionThread(entry.input as never, (entry as { options?: never }).options)).toEqual(entry.expected as never)
