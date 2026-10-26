@@ -25,7 +25,7 @@ use gpui_component::{
 
 use api::voice::VoiceUpdate;
 use domain::voice::{
-    agent_options, language_label, tray_header, voice_device_options, wake_phrase_placeholder, VoiceAgent, VoiceDevice,
+    agent_options, language_label, shortcut_label, shortcut_options, shortcut_reason, tray_header, voice_device_options, wake_phrase_placeholder, VoiceAgent, VoiceDevice,
     VoiceOption, VoiceSettings, VOICE,
 };
 
@@ -244,13 +244,23 @@ pub(crate) fn voice_rows(
     }
     out.push(glass_group_rows(first).into_any_element());
     if let Some(device_name) = device_name {
-        let shortcut_label = VOICE
-            .shortcuts
-            .iter()
-            .find(|shortcut| shortcut.value == settings.ptt_shortcut)
-            .map(|shortcut| shortcut.label.clone())
-            .unwrap_or_else(|| settings.ptt_shortcut.clone());
-        let shortcuts = VOICE.shortcuts.iter().map(|shortcut| (Some(shortcut.value.clone()), shortcut.label.clone())).collect();
+        // #NEW-54: on the voice device itself the picker offers what this OS
+        // can hold (no mouse buttons on macOS or Wayland), the portal's
+        // trigger names the shortcut, and a shortcut that can't be held
+        // system-wide says why under the row.
+        let here = on_change.is_some()
+            && cx.try_global::<crate::session::AuthContext>().is_some_and(|auth| {
+                settings.voice_device_id.as_deref() == Some(steer::persistent_device_id(&auth.data_dir).as_str())
+            });
+        let status = if here && settings.push_to_talk { crate::push_to_talk::status(cx) } else { Default::default() };
+        let shortcut_label = status.trigger().map(str::to_string).unwrap_or_else(|| shortcut_label(&settings.ptt_shortcut));
+        let reason = status.reason().map(|reason| SharedString::from(shortcut_reason(reason, &settings.ptt_shortcut)));
+        let shortcuts = if here {
+            let (os, session) = crate::push_to_talk::platform();
+            shortcut_options(os, session).into_iter().map(|shortcut| (Some(shortcut.value.clone()), shortcut.label.clone())).collect()
+        } else {
+            VOICE.shortcuts.iter().map(|shortcut| (Some(shortcut.value.clone()), shortcut.label.clone())).collect()
+        };
         out.push(crate::surface::glass_section_header(tray_header(&device_name), None, cx).into_any_element());
         out.push(
             glass_group_rows(vec![
@@ -266,7 +276,7 @@ pub(crate) fn voice_rows(
                 picker_row(
                     "settings-voice-shortcut",
                     &copy.shortcut,
-                    None,
+                    reason,
                     SharedString::from(shortcut_label),
                     shortcuts,
                     Some(settings.ptt_shortcut.clone()),

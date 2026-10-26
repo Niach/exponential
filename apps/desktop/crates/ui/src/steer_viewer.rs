@@ -8828,6 +8828,12 @@ impl Render for SteerSessionView {
         // EXP-776: the transcript list learns what changed since the last
         // frame here, before anything reads the cached projection.
         self.sync_list(cx);
+        // #NEW-54: an utterance push to talk could not send waits in this
+        // chat's composer (the member's conversation with the voice agent).
+        if let Some(unsent) = crate::push_to_talk::take_unsent(&self.session_id, cx) {
+            let draft = restore_unread_to_draft(&self.input.read(cx).value(), &unsent);
+            self.input.update(cx, |state, cx| state.set_value(draft, window, cx));
+        }
         self.dev_scroll_to_script_card();
         self.refresh_tool_card(cx);
         self.sync_card_focus(window, cx);

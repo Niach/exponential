@@ -170,6 +170,7 @@ pub(crate) fn add_microphone_row(doctor: &mut DeviceDoctor, listening: bool) {
         talk::microphone::Microphone::Granted => device_doctor::MicrophoneState::Granted,
         talk::microphone::Microphone::NotGranted => device_doctor::MicrophoneState::NotGranted,
         talk::microphone::Microphone::NoDevice => device_doctor::MicrophoneState::NoDevice,
+        talk::microphone::Microphone::NeedsRuntime => device_doctor::MicrophoneState::NeedsRuntime,
     };
     device_doctor::add_microphone(doctor, state);
 }
@@ -612,6 +613,8 @@ pub(crate) fn install_url(key: &str) -> Option<&'static str> {
     match key {
         KEY_GIT => Some("https://git-scm.com/downloads"),
         "claude" => Some("https://code.claude.com/docs/en/quickstart#step-1-install-claude-code"),
+        // NEW-54: the Visual C++ runtime the Windows CPU transcriber needs.
+        KEY_MICROPHONE => Some(talk::microphone::VC_RUNTIME_URL),
         // EXP-1232: codex is a managed download — its row never offers Install.
         _ => None,
     }

@@ -1,3 +1,4 @@
+import voice from "@exp/domain-contract/fixtures/voice.json"
 import { ExponentialLogo, Pill, VoiceWave, type VoiceWaveActivity } from "@exp/ui"
 import { renderIsland } from "@exp/ui/island"
 
@@ -21,14 +22,9 @@ interface Capsule {
   primary?: boolean
 }
 
-const HEARD = `“move NEW-54 to in review”`
-
-const CAPSULES: Capsule[] = [
-  { activity: `listening`, level: 0.7, bands: [0.9, 0.6, 1, 0.5], state: `Listening`, line: HEARD, pill: `Studio` },
-  { activity: `thinking`, state: `Heard`, line: HEARD, pill: `Studio` },
-  { activity: `speaking`, level: 0.5, bands: [0.7, 1, 0.5, 0.8], state: `Speaking`, line: `Created NEW-81.`, pill: `Stop`, primary: true },
-  { activity: `muted`, state: `Microphone muted`, line: `Unmute in the tray`, pill: `Unmute` },
-]
+// #NEW-54: the four rows are the fixture's (`overlaySpecimens`), the words of
+// the push-to-talk overlay (`pttCopy`); the desktop twin reads the same rows.
+const CAPSULES = voice.overlaySpecimens as Capsule[]
 
 function capsule(c: Capsule): string {
   return [

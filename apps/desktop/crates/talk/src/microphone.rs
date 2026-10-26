@@ -10,6 +10,9 @@
 //! - macOS: `AVCaptureDevice`'s authorization for audio plus a default input
 //!   device. [`request_access`] asks while the OS has not asked yet.
 //! - Windows: cpal's default input device. No permission asked here.
+//!   NEW-54: CrispASR's Windows CPU build links the MSVC OpenMP runtime
+//!   (VCOMP140.dll), which a clean machine lacks: with an input device but
+//!   no `System32\vcomp140.dll` the row reads [`Microphone::NeedsRuntime`].
 
 /// What this machine's microphone looks like to the doctor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,7 +23,14 @@ pub enum Microphone {
     NotGranted,
     /// No input device at all.
     NoDevice,
+    /// NEW-54 (Windows): an input device, but not the MSVC OpenMP runtime
+    /// (VCOMP140.dll) the CPU transcriber loads.
+    NeedsRuntime,
 }
+
+/// NEW-54: where Microsoft's Visual C++ Redistributable (which carries
+/// VCOMP140.dll) downloads from: the doctor row's Install.
+pub const VC_RUNTIME_URL: &str = "https://aka.ms/vs/17/release/vc_redist.x64.exe";
 
 /// Probe this machine (never prompts).
 pub fn probe() -> Microphone {
@@ -182,11 +192,20 @@ mod platform {
     use cpal::traits::HostTrait as _;
 
     pub(super) fn probe() -> Microphone {
-        if cpal::default_host().default_input_device().is_some() {
-            Microphone::Granted
-        } else {
-            Microphone::NoDevice
+        if cpal::default_host().default_input_device().is_none() {
+            return Microphone::NoDevice;
         }
+        if !openmp_runtime_present() {
+            return Microphone::NeedsRuntime;
+        }
+        Microphone::Granted
+    }
+
+    /// VCOMP140.dll in System32 (the Visual C++ Redistributable installs it
+    /// there; the worker never loads one from elsewhere).
+    fn openmp_runtime_present() -> bool {
+        std::env::var_os("SystemRoot")
+            .is_some_and(|root| std::path::Path::new(&root).join("System32").join("vcomp140.dll").is_file())
     }
 
     pub(super) fn refused() -> bool {

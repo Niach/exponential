@@ -5,6 +5,11 @@
 //! needs no ALSA headers (the playback side's pattern, [`crate::sink`]).
 //! macOS and Windows open the default input device with cpal, downmix it
 //! and resample to 16 kHz ([`Resampler`]).
+//!
+//! #NEW-54 (the #1238 review): the recorder hands its chunks to the listening
+//! thread (which runs the VAD and the transcriber in turn) over a BOUNDED
+//! channel of [`CAPACITY`] chunks; a stalled consumer drops the newest audio
+//! ([`offer`]) instead of growing memory.
 
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::Duration;
@@ -12,6 +17,33 @@ use std::time::Duration;
 use talk::ListenFailure;
 
 use crate::listen::RATE;
+
+/// The chunks the capture channel holds (pw-record's 4 KiB reads are 64 ms;
+/// cpal's callbacks 10-20 ms): a few seconds of slack before audio drops.
+pub const CAPACITY: usize = 128;
+
+/// Hand `samples` to the listening thread without ever blocking the
+/// recorder: a full channel drops them (counted in `dropped`, logged on the
+/// first of a run). `false` = the listener is gone (stop recording).
+pub fn offer(tx: &std::sync::mpsc::SyncSender<Vec<f32>>, samples: Vec<f32>, dropped: &mut u64) -> bool {
+    match tx.try_send(samples) {
+        Ok(()) => {
+            if *dropped > 0 {
+                eprintln!("voice: the listener caught up after {dropped} dropped audio chunks");
+                *dropped = 0;
+            }
+            true
+        }
+        Err(std::sync::mpsc::TrySendError::Full(_)) => {
+            if *dropped == 0 {
+                eprintln!("voice: the listener is behind; dropping audio");
+            }
+            *dropped += 1;
+            true
+        }
+        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => false,
+    }
+}
 
 /// An open microphone. Dropping it closes the device.
 pub struct Capture {
@@ -167,10 +199,11 @@ mod platform {
             match Command::new(path).args(&args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() {
                 Ok(mut child) => {
                     let mut stdout = child.stdout.take().expect("piped");
-                    let (tx, rx) = mpsc::channel();
+                    let (tx, rx) = mpsc::sync_channel(super::CAPACITY);
                     let spawned = std::thread::Builder::new().name("voice-capture".into()).spawn(move || {
                         let mut buffer = vec![0u8; 4096];
                         let mut carry: Vec<u8> = Vec::new();
+                        let mut dropped = 0;
                         loop {
                             match stdout.read(&mut buffer) {
                                 Ok(0) | Err(_) => break,
@@ -182,7 +215,7 @@ mod platform {
                                         .map(|quad| f32::from_le_bytes(quad.try_into().expect("4 bytes")))
                                         .collect();
                                     carry.drain(..whole);
-                                    if tx.send(samples).is_err() {
+                                    if !super::offer(&tx, samples, &mut dropped) {
                                         break;
                                     }
                                 }
@@ -205,7 +238,7 @@ mod platform {
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod platform {
-    use std::sync::mpsc::{self, Receiver, Sender};
+    use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use cpal::{FromSample, SizedSample};
@@ -230,7 +263,7 @@ mod platform {
     }
 
     pub fn open() -> Result<(Receiver<Vec<f32>>, Closer), (ListenFailure, String)> {
-        let (tx, rx) = mpsc::channel::<Vec<f32>>();
+        let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(super::CAPACITY);
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(), (ListenFailure, String)>>();
         let (done_tx, done_rx) = mpsc::channel::<()>();
         let thread = std::thread::Builder::new()
@@ -275,13 +308,14 @@ mod platform {
         config: &cpal::StreamConfig,
         channels: usize,
         rate: u32,
-        tx: Sender<Vec<f32>>,
+        tx: SyncSender<Vec<f32>>,
     ) -> Result<cpal::Stream, String>
     where
         T: SizedSample,
         f32: FromSample<T>,
     {
         let mut resampler = Resampler::new(rate, crate::listen::RATE as u32);
+        let mut dropped = 0;
         device
             .build_input_stream(
                 config,
@@ -292,7 +326,8 @@ mod platform {
                         .collect();
                     let mut out = Vec::with_capacity(mono.len());
                     resampler.process(&mono, &mut out);
-                    let _ = tx.send(out);
+                    // Never blocks the audio callback.
+                    super::offer(&tx, out, &mut dropped);
                 },
                 |err| eprintln!("voice: microphone stream error: {err}"),
                 None,
@@ -331,5 +366,20 @@ mod tests {
         assert!((samples.len() as f32 / RATE as f32 - 9.12).abs() < 0.05, "{}", samples.len());
         assert!(samples.iter().any(|sample| sample.abs() > 0.1));
         assert!(read_wav(b"not a wav").is_err());
+    }
+
+    #[test]
+    fn a_stalled_listener_drops_audio_instead_of_growing() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(2);
+        let mut dropped = 0;
+        for chunk in 0..5 {
+            assert!(offer(&tx, vec![chunk as f32], &mut dropped));
+        }
+        assert_eq!(dropped, 3, "the channel holds two, the rest drop");
+        assert_eq!(rx.try_iter().collect::<Vec<_>>(), [vec![0.0], vec![1.0]]);
+        assert!(offer(&tx, vec![9.0], &mut dropped));
+        assert_eq!(dropped, 0, "caught up");
+        drop(rx);
+        assert!(!offer(&tx, vec![1.0], &mut dropped), "a gone listener stops the recorder");
     }
 }

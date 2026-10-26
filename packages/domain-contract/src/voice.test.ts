@@ -9,10 +9,17 @@ import {
   languageLabel,
   languageNote,
   numberWords,
+  PTT_HIDDEN,
+  pttOverlay,
+  pttStep,
+  shortcutOptions,
+  shortcutReason,
+  shortcutSupport,
   shouldSpeak,
   spokenText,
   trayHeader,
   trayMenu,
+  utteranceInput,
   voiceDeviceOptions,
   wakePhrasePlaceholder,
 } from "./voice"
@@ -74,4 +81,29 @@ describe(`voice.json`, () => {
   for (const c of fixture.trayMenuCases) {
     it(`trayMenu: ${c.name}`, () => expect(trayMenu(c.settings, c.context)).toEqual(c.menu))
   }
+  for (const c of fixture.shortcutSupportCases) {
+    it(`shortcutSupport ${c.os} ${c.session} ${c.shortcut} portal=${c.portal}`, () =>
+      expect(shortcutSupport(c.os as `linux`, c.session as `x11` | null, c.shortcut, c.portal)).toBe(c.support as `global`))
+  }
+  for (const c of fixture.shortcutOptionsCases) {
+    it(`shortcutOptions: ${c.name}`, () => expect(shortcutOptions(c.os as `linux`, c.session as `x11` | null)).toEqual(c.options))
+  }
+  for (const c of fixture.shortcutReasonCases) {
+    it(`shortcutReason ${c.reason}`, () => expect(shortcutReason(c.reason as `taken`, c.shortcut)).toBe(c.text))
+  }
+  for (const c of fixture.pttFlowCases) {
+    it(`pttFlow: ${c.name}`, () => {
+      const state = (c.events as Parameters<typeof pttStep>[1][]).reduce(pttStep, PTT_HIDDEN)
+      expect(pttOverlay(state, c.agent)).toEqual(c.overlay as ReturnType<typeof pttOverlay>)
+    })
+  }
+  for (const c of fixture.utteranceCases) {
+    it(`utteranceInput: ${c.name}`, () =>
+      expect(utteranceInput(c.heard, { teamId: c.teamId, agentId: c.agentId, conversationId: c.conversationId })).toEqual(c.input))
+  }
+  it(`the overlay specimens read the overlay copy`, () => {
+    const ptt = fixture.pttCopy
+    const states = [ptt.overlayListening, ptt.overlayHeard, ptt.overlayThinking, fixture.copy.speaking, ptt.overlayMuted]
+    for (const specimen of fixture.overlaySpecimens) expect(states).toContain(specimen.state)
+  })
 })

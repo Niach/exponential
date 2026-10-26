@@ -9,7 +9,10 @@
 //! The rows come from [`domain::voice::tray_menu`]; a toggle writes
 //! `voice.update` optimistically like Settings → Voice (the menu flips at
 //! once, the stored value goes to `speak_replies::set_settings`, a refusal
-//! reverts and toasts). Mute microphone is IDE-local (V3 consumes it).
+//! reverts and toasts). Mute microphone is IDE-local: it shows while push to
+//! talk listens here and the speech worker is up (`micAvailable`), and push
+//! to talk never opens the microphone while it is on (#NEW-54). A shortcut
+//! that can't be held system-wide says so on the Push to talk item.
 //! While the tray is up, closing the last window keeps the IDE running
 //! ([`keeps_running`], read by the shell) so the speech worker stays resident.
 
@@ -151,6 +154,10 @@ pub fn install(cx: &mut App) {
         if let Some(agents) = sync::Store::try_global(cx).map(|store| store.collections().agents.clone()) {
             cx.observe(&agents, |this: &mut VoiceTray, _, cx| this.sync(cx)).detach();
         }
+        // #NEW-54: the shortcut's grab status shapes the Push to talk item.
+        if let Some(push_to_talk) = crate::push_to_talk::entity(cx) {
+            cx.observe(&push_to_talk, |this: &mut VoiceTray, _, cx| this.sync(cx)).detach();
+        }
         VoiceTray { muted: false, pending: None, generation: 0, device_id, menu: None, backend: backend::Backend::new(tx) }
     });
     cx.set_global(VoiceTrayGlobal(entity.clone()));
@@ -184,10 +191,19 @@ pub(crate) fn keeps_running(cx: &App) -> bool {
     })
 }
 
-/// Mute microphone (V3 stops listening while it is on).
-#[allow(dead_code)]
+/// Mute microphone: push to talk never opens the microphone while it is on.
 pub(crate) fn muted(cx: &App) -> bool {
     global(cx).is_some_and(|entity| entity.read(cx).muted)
+}
+
+/// #NEW-54: the overlay's Unmute.
+pub(crate) fn set_muted(muted: bool, cx: &mut App) {
+    if let Some(entity) = global(cx) {
+        entity.update(cx, |this, cx| {
+            this.muted = muted;
+            this.sync(cx);
+        });
+    }
 }
 
 /// Bring a shell window forward, or open one when every window is closed
@@ -202,7 +218,7 @@ pub fn open_ide(cx: &mut App) {
 }
 
 /// The voice agent's label as Settings → Voice shows it.
-fn agent_label(settings: &VoiceSettings, cx: &App) -> Option<String> {
+pub(crate) fn agent_label(settings: &VoiceSettings, cx: &App) -> Option<String> {
     let agent_id = settings.agent_id.as_deref()?;
     let (_, agents) = crate::settings::voice_prefs::voice_choices(cx);
     agents.into_iter().find(|option| option.id.as_deref() == Some(agent_id)).map(|option| option.label)
@@ -216,15 +232,22 @@ impl VoiceTray {
     fn sync(&mut self, cx: &mut Context<Self>) {
         let settings = self.settings(cx);
         let agent = agent_label(&settings, cx);
+        // #NEW-54: Mute shows once push to talk listens here and the worker
+        // is up; the grab's status names an unavailable shortcut or the
+        // portal's trigger.
+        let mic_available = crate::speak_replies::listens_here(&settings, &self.device_id) && crate::speak_replies::worker_ready(cx);
+        let status = crate::push_to_talk::status(cx);
         let menu = tray_menu(
             &settings,
             &TrayContext {
                 agent: agent.as_deref(),
                 muted: self.muted,
-                // V4 brings the call, V3 the microphone.
+                // V4 brings the call.
                 call_available: false,
-                mic_available: false,
+                mic_available,
                 device_is_voice_device: settings.voice_device_id.as_deref() == Some(self.device_id.as_str()),
+                shortcut_unavailable: status.reason().is_some(),
+                shortcut_label: status.trigger(),
             },
         );
         if menu == self.menu {
