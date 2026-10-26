@@ -89,6 +89,7 @@ export function toTreeSession(row: SessionRow): TreeSession {
     deviceId: row.deviceId ?? null,
     status: row.status,
     busy: row.busy,
+    background: row.background ?? false,
     needsInput: row.needsInput,
     blocked: row.blocked ?? null,
     shared: row.shared,

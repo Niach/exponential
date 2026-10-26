@@ -136,7 +136,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
-             "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools"]
+             "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
+             "v83_session_background"]
         )
     }
 
@@ -194,7 +195,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
-             "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools"]
+             "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
+             "v83_session_background"]
         )
     }
 
@@ -724,7 +726,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
-             "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools"]
+             "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
+             "v83_session_background"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -830,7 +833,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v72_session_move_to_device", "v73_issue_identifier_upper_index",
              "v74_agents_events_prompts", "v75_conversations", "v76_apps",
              "v77_message_conversation", "v78_drop_actions_and_legacy_session_columns",
-             "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools"]
+             "v79_app_records", "v80_agent_actors", "v81_conversation_digest", "v82_apps_granted_tools",
+             "v83_session_background"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1875,7 +1879,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "computer_use", "ultracode", "repository_id", "branch", "status", "busy",
              "needs_input", "blocked", "started_at", "last_turn_at", "ended_at",
              "shared", "title", "guide", "created_at", "updated_at", "agent_id", "app_id",
-             "agent_instructions_at", "started_by_agent_id"]
+             "agent_instructions_at", "started_by_agent_id", "background"]
         )
         // NEW-2: agent definitions, events and prompts carry exactly the
         // shape allowlists (`instructions`, `trigger_state`, `body` never).
@@ -3492,6 +3496,56 @@ final class DatabaseMigrationTests: XCTestCase {
             Chats.digestMessages(sessionId: "s-1", digest: digest).map(\.id),
             ["digest:s-1:agent"]
         )
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // EXP-1374: v83 adds `sessions.background` (false on existing rows),
+    // resetting ONLY the sessions cursor; a synced row decodes the wire bool
+    // (absent = false) and round-trips through the store.
+    func testSessionBackgroundColumnAdded() throws {
+        let pool = try makePool("exp1374-session-background")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v82_apps_granted_tools")
+        try pool.write { db in
+            for shape in ["sessions", "messages"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+            try db.execute(sql: """
+                INSERT INTO "sessions" ("id", "team_id", "root_id", "user_id", "device_id", "created_at", "updated_at")
+                VALUES ('s-0', 't', 's-0', 'u', 'd', 'x', 'x')
+                """)
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertTrue(try columnNames(pool, "sessions").contains("background"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["sessions"])
+            XCTAssertEqual(try SessionEntity.fetchOne(db, key: "s-0")?.background, false)
+        }
+        for (wireValue, expected) in [("true", true), (#""t""#, true), (#""f""#, false)] {
+            let wire = Data("""
+                {"id":"s-1","team_id":"t","root_id":"s-1","user_id":"u","device_id":"d","busy":true,
+                 "background":\(wireValue),"created_at":"x","updated_at":"x"}
+                """.utf8)
+            let row = try JSONDecoder().decode(SessionEntity.self, from: wire)
+            XCTAssertEqual(row.background, expected, wireValue)
+            try pool.write { db in try row.save(db) }
+            let read = try pool.read { db in try SessionEntity.fetchOne(db, key: "s-1") }
+            XCTAssertEqual(read?.background, expected, wireValue)
+        }
+        let missing = try JSONDecoder().decode(SessionEntity.self, from: Data(#"""
+            {"id":"s-2","team_id":"t","user_id":"u","device_id":"d","created_at":"x","updated_at":"x"}
+            """#.utf8))
+        XCTAssertFalse(missing.background)
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

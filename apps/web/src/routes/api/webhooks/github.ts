@@ -2,7 +2,8 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { createFileRoute } from "@tanstack/react-router"
 import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { repositories } from "@/db/schema"
+import { repositories, sessions } from "@/db/schema"
+import { touchSessionActivity } from "@/lib/sessions/watchdog"
 import {
   adoptOutOfBandPullRequest,
   applyPullRequestBase,
@@ -49,7 +50,8 @@ function verifySignature(rawBody: string, signature: string, secret: string) {
 // changes → flag/heal `repositories.inaccessible_at`) and `pull_request`
 // (EXP-1291: the `pull_requests` row by url: merged / closed / reopened /
 // base edits / draft flips; `opened` adopts an out-of-band PR whose
-// `exp/<IDENTIFIER>` head names an issue). Everything else is acked.
+// `exp/<IDENTIFIER>` head names an issue) and `push` (EXP-1374: the live
+// sessions on that branch show a sign of life). Everything else is acked.
 async function handleGithubWebhook(request: Request): Promise<Response> {
   try {
     const secret = process.env.GITHUB_WEBHOOK_SECRET
@@ -148,6 +150,27 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
               )
             )
           )
+      }
+      return jsonResponse(200, { ok: true })
+    }
+
+    // EXP-1374 (FEED-141): a push to a live session's branch is its sign of
+    // life for the stuck rule (a long gate run pushes, it never messages).
+    // Needs the App's `push` event subscription; without it nothing arrives.
+    if (event === `push`) {
+      const payload = JSON.parse(rawBody) as { ref?: string; repository?: { full_name?: string } }
+      const branch = payload.ref?.startsWith(`refs/heads/`) ? payload.ref.slice(`refs/heads/`.length) : null
+      const fullName = payload.repository?.full_name
+      if (branch && fullName) {
+        await touchSessionActivity(
+          and(
+            eq(sessions.branch, branch),
+            inArray(
+              sessions.repositoryId,
+              db.select({ id: repositories.id }).from(repositories).where(eq(repositories.fullName, fullName))
+            )
+          )!
+        )
       }
       return jsonResponse(200, { ok: true })
     }

@@ -395,6 +395,9 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     public let status: String
     /// Inside a turn right now — the ONLY list-spinner input (EXP-848).
     public let busy: Bool
+    /// EXP-1374: busy ONLY because background tasks still run after the turn
+    /// (device-written; absent on an older server = false).
+    public let background: Bool
     /// A question/plan card waits for a person.
     public let needsInput: Bool
     /// EXP-804: the usage wall, the raw jsonb TEXT; nil = not blocked.
@@ -445,6 +448,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         branch: String? = nil,
         status: String = DomainContract.sessionStatusQueued,
         busy: Bool = false,
+        background: Bool = false,
         needsInput: Bool = false,
         blocked: String? = nil,
         startedAt: String? = nil,
@@ -482,6 +486,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         self.branch = branch
         self.status = status
         self.busy = busy
+        self.background = background
         self.needsInput = needsInput
         self.blocked = blocked
         self.startedAt = startedAt
@@ -505,7 +510,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
 
     enum CodingKeys: String, CodingKey {
         case id, depth, cli, account, model, effort, ultracode, branch, status
-        case busy, blocked, shared, title, guide
+        case busy, background, blocked, shared, title, guide
         case teamId = "team_id"
         case parentId = "parent_id"
         case rootId = "root_id"
@@ -554,6 +559,8 @@ extension SessionEntity: Codable {
         branch = try c.decodeIfPresent(String.self, forKey: .branch)
         status = try c.decodeIfPresent(String.self, forKey: .status) ?? DomainContract.sessionStatusQueued
         busy = c.decodeWireBool(forKey: .busy, default: false)
+        // EXP-1374: absent on a pre-EXP-1374 server = not background.
+        background = c.decodeWireBool(forKey: .background, default: false)
         needsInput = c.decodeWireBool(forKey: .needsInput, default: false)
         blocked = c.decodeWireJsonString(forKey: .blocked)
         startedAt = try c.decodeIfPresent(String.self, forKey: .startedAt)

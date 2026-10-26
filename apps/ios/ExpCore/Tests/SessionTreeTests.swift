@@ -41,7 +41,8 @@ final class SessionTreeTests: XCTestCase {
         let row = try XCTUnwrap(object as? [String: Any])
         let blocked = (row["blocked"] as? [String: Any]).map {
             TreeSessionBlocked(
-                kind: $0["kind"] as? String, window: $0["window"] as? String, resetsAt: $0["resetsAt"] as? String
+                kind: $0["kind"] as? String, window: $0["window"] as? String, resetsAt: $0["resetsAt"] as? String,
+                resume: $0["resume"] as? Bool
             )
         }
         let guide = (row["guide"] as? [[String: Any]]).map { entries in
@@ -65,7 +66,8 @@ final class SessionTreeTests: XCTestCase {
             createdAt: try XCTUnwrap(string(row["createdAt"])),
             updatedAt: try XCTUnwrap(string(row["updatedAt"])),
             deviceId: string(row["deviceId"]),
-            agentId: string(row["agentId"])
+            agentId: string(row["agentId"]),
+            background: (row["background"] as? Bool) ?? false
         )
     }
 
@@ -159,6 +161,19 @@ final class SessionTreeTests: XCTestCase {
             "running": card.running,
             "testId": card.testId,
         ]
+    }
+
+    /// EXP-1374: nil = the reference's `null`.
+    private func json(_ banner: SessionBanner?) -> Any {
+        guard let banner else { return NSNull() }
+        return [
+            "id": banner.id,
+            "icon": banner.icon,
+            "label": banner.label,
+            "text": banner.text,
+            "tone": banner.tone,
+            "action": json(banner.action),
+        ] as [String: Any]
     }
 
     private func json(_ tab: ThreadTab) -> [String: Any] {
@@ -317,6 +332,11 @@ final class SessionTreeTests: XCTestCase {
         }
         XCTAssertEqual((fixture["testIds"] as? [String: String])?["card"], SessionTree.CardCopy.testId)
         XCTAssertEqual(copy["blockedKinds"] as? [String: String], SessionTree.CardCopy.blockedKinds)
+        // EXP-1374: the interruptions and the Dock banner's words.
+        XCTAssertEqual(copy["interruptedKinds"] as? [String: String], SessionTree.CardCopy.interruptedKinds)
+        let banner = try XCTUnwrap(fixture["banner"] as? [String: Any])
+        XCTAssertEqual(banner["interrupted"] as? [String: String], SessionTree.CardCopy.bannerInterrupted)
+        XCTAssertEqual(banner["background"] as? String, SessionTree.CardCopy.bannerBackground)
     }
 
     func testSessionCardReplaysEveryCase() throws {
@@ -348,15 +368,43 @@ final class SessionTreeTests: XCTestCase {
             row["blocked"] = blocked
             return SessionTree.sessionCard(try session(row), title: title, now: now).kindWord
         }
-        let kinds = try XCTUnwrap((fixture["copy"] as? [String: Any])?["blockedKinds"] as? [String: String])
+        let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
+        let kinds = try XCTUnwrap(copy["blockedKinds"] as? [String: String])
+        let interrupted = try XCTUnwrap(copy["interruptedKinds"] as? [String: String])
+        for (kind, text) in kinds {
+            // EXP-1374: an interruption reads its own word, not the blocked one.
+            XCTAssertEqual(try word(["kind": kind]), interrupted[kind] ?? text, kind)
+        }
         XCTAssertEqual(try word(["kind": "rate_limit"]), kinds["rate_limit"])
-        XCTAssertEqual(try word(["kind": "device_offline"]), "Device offline")
+        XCTAssertEqual(try word(["kind": "device_offline"]), "Interrupted · device offline")
+        XCTAssertEqual(try word(["kind": "restarted"]), "Interrupted · runner restarted")
         XCTAssertEqual(try word(["kind": "unclaimed"]), "Not picked up")
         XCTAssertEqual(try word(["kind": "stuck"]), "Stuck")
         XCTAssertEqual(try word(["kind": "future_kind"]), SessionState.blocked.word)
         XCTAssertEqual(try word(["window": "weekly"]), SessionState.blocked.word)
-        // The jsonb parse carries the kind.
+        // The jsonb parse carries the kind (EXP-1374: and `resume`).
         XCTAssertEqual(TreeSessionBlocked.parse(#"{"kind":"stuck"}"#)?.kind, "stuck")
+        XCTAssertEqual(TreeSessionBlocked.parse(#"{"kind":"restarted","resume":true}"#)?.resume, true)
+        XCTAssertNil(TreeSessionBlocked.parse(#"{"kind":"restarted"}"#)?.resume)
+    }
+
+    /// EXP-1374: the Dock card of an interrupted or background session
+    /// (`bannerCases`: the state inputs alone; the rest of the row is filler
+    /// the rule never reads), compared as the whole object.
+    func testSessionBannerReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("session-card.json"), "bannerCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            var row = try XCTUnwrap(testCase["session"] as? [String: Any])
+            for (key, value) in [
+                "id": "s1", "teamId": "t1", "rootId": "s1", "userId": "u1",
+                "createdAt": "2026-10-13T10:00:00.000Z", "updatedAt": "2026-10-13T10:00:00.000Z",
+            ] where row[key] == nil {
+                row[key] = value
+            }
+            if row["shared"] == nil { row["shared"] = true }
+            let banner = SessionTree.sessionBanner(try session(row))
+            assertJSON(json(banner), testCase["expected"], name)
+        }
     }
 
     func testFormatsTheElapsedLadder() {

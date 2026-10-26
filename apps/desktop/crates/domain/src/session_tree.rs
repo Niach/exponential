@@ -53,8 +53,12 @@ fn title_of<'t>(titles: &'t HashMap<String, String>, id: &str) -> &'t str {
 pub struct StateStrings {
     pub queued: String,
     pub working: String,
+    /// EXP-1374: busy only on background tasks after the turn.
+    pub background: String,
     pub waiting: String,
     pub needs_you: String,
+    /// EXP-1374: an interruption (device offline, runner restarted).
+    pub interrupted: String,
     pub blocked: String,
     pub ended: String,
 }
@@ -64,8 +68,10 @@ impl StateStrings {
         match state {
             SessionState::Queued => &self.queued,
             SessionState::Working => &self.working,
+            SessionState::Background => &self.background,
             SessionState::Waiting => &self.waiting,
             SessionState::NeedsYou => &self.needs_you,
+            SessionState::Interrupted => &self.interrupted,
             SessionState::Blocked => &self.blocked,
             SessionState::Ended => &self.ended,
         }
@@ -80,6 +86,17 @@ pub struct SessionCardCopy {
     /// NEW-1: the word per `blocked.kind` (`rate_limit` → `Usage limit`,
     /// `device_offline`, `unclaimed`, `stuck`).
     pub blocked_kinds: BTreeMap<String, String>,
+    /// EXP-1374: the word per INTERRUPTION kind (`device_offline`,
+    /// `restarted`); its keys ARE the interruption kinds.
+    pub interrupted_kinds: BTreeMap<String, String>,
+}
+
+/// EXP-1374: `session-card.json` `banner` = the Dock banner's text.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct SessionBannerCopy {
+    /// The text per interruption kind.
+    pub interrupted: BTreeMap<String, String>,
+    pub background: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -97,6 +114,8 @@ pub struct SessionCardSpec {
     /// Tone per state (`muted`, `foreground`, `amber`, `rose`).
     pub tones: StateStrings,
     pub test_ids: SessionCardTestIds,
+    /// EXP-1374: the Dock banner's text ([`session_banner`]).
+    pub banner: SessionBannerCopy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -340,8 +359,12 @@ pub fn format_elapsed(duration_ms: i64) -> String {
 pub enum SessionState {
     Queued,
     Working,
+    /// EXP-1374: busy only on background tasks after the turn.
+    Background,
     Waiting,
     NeedsYou,
+    /// EXP-1374: a device offline / runner restart; never on a person.
+    Interrupted,
     Blocked,
     Ended,
 }
@@ -352,8 +375,10 @@ impl SessionState {
         match self {
             Self::Queued => "queued",
             Self::Working => "working",
+            Self::Background => "background",
             Self::Waiting => "waiting",
             Self::NeedsYou => "needs_you",
+            Self::Interrupted => "interrupted",
             Self::Blocked => "blocked",
             Self::Ended => "ended",
         }
@@ -373,18 +398,35 @@ impl SessionState {
     pub fn tone(self) -> &'static str {
         SESSION_CARD.tones.get(self)
     }
+
+    /// EXP-1374: the card's spinner (working or background).
+    pub fn running(self) -> bool {
+        matches!(self, Self::Working | Self::Background)
+    }
 }
 
-/// ended → needs you → blocked → queued → working (busy) → waiting.
+/// EXP-1374 (TS `isInterruption`): whether the session's `blocked.kind`
+/// INTERRUPTS its run (`copy.interruptedKinds`' keys: device offline,
+/// runner restarted): never on a person, its device continues it.
+pub fn is_interruption(session: &SessionRow) -> bool {
+    blocked_kind(session).is_some_and(|kind| SESSION_CARD.copy.interrupted_kinds.contains_key(kind))
+}
+
+/// ended → needs you → interrupted → blocked → queued → background (busy
+/// on background tasks) → working (busy) → waiting.
 pub fn session_state(session: &SessionRow) -> SessionState {
     if status_is(session, SESSION_STATUS_ENDED) {
         SessionState::Ended
     } else if session.needs_input {
         SessionState::NeedsYou
+    } else if is_interruption(session) {
+        SessionState::Interrupted
     } else if session.blocked.is_some() {
         SessionState::Blocked
     } else if status_is(session, SESSION_STATUS_QUEUED) {
         SessionState::Queued
+    } else if session.busy && session.background {
+        SessionState::Background
     } else if session.busy {
         SessionState::Working
     } else {
@@ -476,6 +518,11 @@ pub fn is_usage_wall(session: &SessionRow) -> bool {
 /// names WHY (`copy.blockedKinds[blocked.kind]`; an unknown kind or none =
 /// `states.blocked`).
 pub fn session_kind_word(session: &SessionRow, state: SessionState) -> String {
+    if state == SessionState::Interrupted {
+        if let Some(word) = blocked_kind(session).and_then(|kind| SESSION_CARD.copy.interrupted_kinds.get(kind)) {
+            return word.clone();
+        }
+    }
     if state == SessionState::Blocked {
         if let Some(word) = blocked_kind(session).and_then(|kind| SESSION_CARD.copy.blocked_kinds.get(kind)) {
             return word.clone();
@@ -518,9 +565,47 @@ pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCa
         state,
         tone: state.tone().to_string(),
         elapsed,
-        running: state == SessionState::Working,
+        running: state.running(),
         test_id: SESSION_CARD.test_ids.card.clone(),
     }
+}
+
+/// EXP-1374: the Dock card of an interrupted or background session (a
+/// dock.json `banner` source without its `kind`; TS `SessionBanner`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SessionBanner {
+    /// `interrupted` | `background`.
+    pub id: SessionState,
+    /// Icon concept.
+    pub icon: String,
+    pub label: String,
+    pub text: String,
+    /// Always `muted`.
+    pub tone: String,
+    /// Always `None` (no action).
+    pub action: Option<String>,
+}
+
+/// EXP-1374 (TS `sessionBanner`): the Dock banner of an interrupted or
+/// background session, `None` for any other state. It replaces the host's
+/// own offline "paused" banner while shown.
+pub fn session_banner(session: &SessionRow) -> Option<SessionBanner> {
+    let state = session_state(session);
+    let text = match state {
+        SessionState::Interrupted => {
+            SESSION_CARD.banner.interrupted.get(blocked_kind(session)?)?.clone()
+        }
+        SessionState::Background => SESSION_CARD.banner.background.clone(),
+        _ => return None,
+    };
+    Some(SessionBanner {
+        id: state,
+        icon: state.icon().to_string(),
+        label: state.word().to_string(),
+        text,
+        tone: "muted".to_string(),
+        action: None,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -2388,7 +2473,6 @@ mod tests {
         };
         for (kind, word) in [
             ("rate_limit", "Usage limit"),
-            ("device_offline", "Device offline"),
             ("unclaimed", "Not picked up"),
             ("stuck", "Stuck"),
         ] {
@@ -2404,6 +2488,17 @@ mod tests {
                 assert_eq!(watchdog_blocked_word(&session).as_deref(), Some(word), "{kind}");
                 assert!(!is_usage_wall(&session), "{kind}");
             }
+        }
+        // EXP-1374: an interruption reads its own state and word.
+        for (kind, word) in [
+            ("device_offline", "Interrupted · device offline"),
+            ("restarted", "Interrupted · runner restarted"),
+        ] {
+            let session = row(serde_json::json!({"kind": kind, "resume": true}));
+            assert!(is_interruption(&session), "{kind}");
+            assert_eq!(session_state(&session), SessionState::Interrupted, "{kind}");
+            assert_eq!(session_card(&session, "T", 0).kind_word, word, "{kind}");
+            assert!(!is_usage_wall(&session), "{kind}");
         }
         let future = row(serde_json::json!({"kind": "future_kind"}));
         assert_eq!(session_kind_word(&future, SessionState::Blocked), "Usage limit");
@@ -2464,6 +2559,19 @@ mod tests {
             let session: SessionRow = row(&input["session"], "s");
             let title = input["title"].as_str().unwrap();
             assert_whole(session_card(&session, title, now(&input["now"])), &case["expected"], name);
+        }
+    }
+
+    /// EXP-1374: `session-card.json` `bannerCases`, whole objects.
+    #[test]
+    fn session_banner_matches_the_fixture() {
+        let fixture = fixture(SESSION_CARD_JSON);
+        let cases = fixture["bannerCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let session: SessionRow = row(&case["session"], "s");
+            assert_whole(session_banner(&session), &case["expected"], name);
         }
     }
 

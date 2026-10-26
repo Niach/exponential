@@ -180,6 +180,7 @@ import { EntityRefChips } from "@/components/entity-preview/entity-ref-chips"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import {
   buildSessionThread,
+  sessionBanner,
   sessionState,
   toTreeMessage,
   toTreeSession,
@@ -1990,7 +1991,11 @@ export function useSessionDock(session: SessionRow): {
     device.online === false &&
     !sessionEnded &&
     (phase.kind === `starting` || phase.kind === `connecting` || phase.kind === `idle` || phase.kind === `closed`)
-  const blockedLabel = blockedBadgeLabel(session.blocked, now)
+  // EXP-1374 (session-card.json `sessionBanner`): an interrupted or
+  // background run says so; it replaces the offline banner and, for an
+  // interruption, the blocked one (one card per cause).
+  const stateBanner = useMemo(() => sessionBanner(toTreeSession(session)), [session])
+  const blockedLabel = stateBanner?.id === `interrupted` ? null : blockedBadgeLabel(session.blocked, now)
   const ticking = backgroundTasks.some((task) => task.kind !== `agent`)
   const tick = useNow(ticking ? 1_000 : 60_000)
   const queueModel = useMemo(
@@ -2007,7 +2012,9 @@ export function useSessionDock(session: SessionRow): {
       { kind: `queued`, messages: queue.map((entry) => ({ id: entry.id, text: entry.text })) },
       { kind: `tasks`, queue: queueModel },
     ]
-    if (paused && feed.length > 0) {
+    if (stateBanner) {
+      out.push({ kind: `banner`, ...stateBanner })
+    } else if (paused && feed.length > 0) {
       out.push({
         kind: `banner`,
         id: `paused`,
@@ -2075,7 +2082,7 @@ export function useSessionDock(session: SessionRow): {
     }
     if (hintSource) out.push(hintSource)
     return out
-  }, [queue, queueModel, paused, feed.length, device.label, phase, blockedLabel, sessionEnded, session.blocked, compacting, limit, hintSource])
+  }, [queue, queueModel, stateBanner, paused, feed.length, device.label, phase, blockedLabel, sessionEnded, session.blocked, compacting, limit, hintSource])
   const renderSheet = (row: DockRow): ReactNode => {
     if (row.kind === `tasks`) {
       return (

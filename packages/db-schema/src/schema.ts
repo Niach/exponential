@@ -3369,6 +3369,8 @@ export const selectSessionSchema = createSelectSchema(sessions, {
 export const selectSyncedSessionSchema = selectSessionSchema.omit({
   mcpServerIds: true,
   wakeOn: true,
+  // EXP-1374: the stuck rule's clock, server-only.
+  lastActivityAt: true,
 })
 
 // NEW-2: agents, events, prompts.

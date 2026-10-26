@@ -2798,6 +2798,27 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v83 (EXP-1374): `sessions.background` — busy only because
+        // background tasks still run after the turn (the session card's
+        // Background task state and its Dock banner). A guarded additive
+        // ALTER; the sessions cursor resets only when the column was added,
+        // so synced rows re-arrive carrying it.
+        migrator.registerMigration("v83_session_background") { db in
+            guard try db.tableExists("sessions") else { return }
+            let existing = Set(try db.columns(in: "sessions").map(\.name))
+            guard !existing.contains("background") else { return }
+            try db.alter(table: "sessions") { t in
+                t.add(column: "background", .boolean).notNull().defaults(to: false)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'sessions'
+                    """)
+            }
+        }
+
         return migrator
     }
 

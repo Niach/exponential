@@ -8,7 +8,10 @@ import SwiftUI
 /// dropped stream with its Reconnect, EXP-804 the usage wall with EXP-849's
 /// account switch, EXP-724 compacting, EXP-784 the rate-limit window, the
 /// starting line) as `Dock.Source`s with their sheets (dock.json `banner`:
-/// the host's words). The session view and a thread's Conversation share it.
+/// the host's words). EXP-1374: an interrupted or background session leads
+/// with its own card (`SessionTree.sessionBanner`, session-card.json
+/// `banner`) in place of the paused one. The session view and a thread's
+/// Conversation share it.
 @MainActor
 enum SessionDock {
     /// EXP-550: the hosting machine is asleep while the stream is down.
@@ -29,7 +32,17 @@ enum SessionDock {
         }
         let paused = hostPaused(model)
         let hasFeed = !model.feed.isEmpty
-        if paused, hasFeed {
+        let row = model.session ?? session
+        let tree = TreeSession(sessionRow: row)
+        // EXP-1374 (session-card.json `banner`): an interrupted or background
+        // session's own card; it replaces the offline "paused" banner while
+        // shown.
+        if let banner = SessionTree.sessionBanner(tree) {
+            out.append(.banner(
+                id: banner.id, icon: banner.icon, label: banner.label, text: banner.text,
+                tone: Dock.Tint(rawValue: banner.tone) ?? .muted, action: banner.action
+            ))
+        } else if paused, hasFeed {
             out.append(.banner(
                 id: "paused", icon: "ui-device-offline", label: "\(model.hostDevice.displayLabel) is offline",
                 text: "The agent is paused on that machine and continues when it comes back online.",
@@ -42,9 +55,11 @@ enum SessionDock {
                 text: detail ?? "Connection lost.", tone: .muted, action: "Reconnect"
             ))
         }
-        let row = model.session ?? session
         let blocked = AgentUsagePresentation.parseBlocked(row.blocked)
-        if let label = AgentUsagePresentation.blockedBadgeLabel(blocked, now: model.activityNow) {
+        // EXP-1374: an interruption is the session banner above, never the
+        // usage-wall strip.
+        if !SessionTree.isInterruption(tree.blocked),
+           let label = AgentUsagePresentation.blockedBadgeLabel(blocked, now: model.activityNow) {
             out.append(.banner(
                 id: "blocked", icon: "ui-usage", label: "Usage limit", text: label, tone: .warning,
                 action: !model.sessionEnded && model.mayPost && AgentUsagePresentation.isUsageWall(blocked)

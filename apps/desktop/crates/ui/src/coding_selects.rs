@@ -225,7 +225,12 @@ pub(crate) fn agent_working_mark(agent: Option<coding::CodingAgent>, size: f32) 
 pub(crate) fn run_badge_color(state: domain::session_tree::SessionState) -> Option<gpui::Hsla> {
     use domain::session_tree::SessionState;
     match state {
-        SessionState::Queued | SessionState::Working | SessionState::Waiting => None,
+        // EXP-1374: background spins like working; an interruption is muted.
+        SessionState::Queued
+        | SessionState::Working
+        | SessionState::Background
+        | SessionState::Waiting
+        | SessionState::Interrupted => None,
         SessionState::NeedsYou => Some(theme::tokens::YELLOW.to_hsla()),
         SessionState::Blocked => Some(theme::tokens::RED.to_hsla()),
         SessionState::Ended => Some(theme::tokens::BLUE.to_hsla()),

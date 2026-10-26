@@ -17,6 +17,7 @@ import {
   cleanLiveSessionIds,
   clearLiveStuckInTx,
   flagDeadSessionsInTx,
+  recordSessionActivityInTx,
   restoreDeviceSessionsInTx,
 } from "@/lib/sessions/watchdog"
 import { z } from "zod"
@@ -674,6 +675,18 @@ export const devicesRouter = router({
         // relay's id bound): a longer one, like any non-string, is null
         // here and dropped below, never a failed beat.
         liveSessionIds: z.array(z.string().max(128).nullable().catch(null)).max(1000).optional(),
+        // EXP-1374: each live session's latest engine activity (a tool
+        // call, terminal output), its sign of life for the stuck rule. A
+        // malformed entry is dropped, never a failed beat.
+        sessionActivity: z
+          .array(
+            z
+              .object({ sessionId: z.string().max(128), at: z.string().max(64) })
+              .nullable()
+              .catch(null)
+          )
+          .max(1000)
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -728,7 +741,13 @@ export const devicesRouter = router({
       // FEED-147: every move is scoped to the sessions this sender hosts.
       const beating = { deviceId: input.deviceId, userId: ctx.session.user.id }
       await ctx.db.transaction(async (tx) => {
-        await restoreDeviceSessionsInTx(tx, beating)
+        // EXP-1374: a listed session survived the absence; an unlisted
+        // mid-turn one waits for its device to continue it.
+        await restoreDeviceSessionsInTx(tx, { ...beating, liveSessionIds }, now)
+        if (input.sessionActivity) {
+          const activity = input.sessionActivity.filter((entry) => entry !== null)
+          await recordSessionActivityInTx(tx, { ...beating, activity }, now)
+        }
         if (liveSessionIds) {
           await flagDeadSessionsInTx(tx, { ...beating, liveSessionIds }, now)
           // FEED-145: a listed session is alive: a `stuck` flag on it goes.

@@ -22,7 +22,9 @@ import type { Tx } from "@/lib/sessions/tx"
 //   S ended / died      → `report` card (its summary)      wakes
 //   S claimed           → event `session_claimed`          no
 //   watchdog            → `session_unclaimed`/`session_stuck` wake,
-//                         `device_offline` no
+//                         `device_offline`/`session_interrupted` no
+//                         (EXP-1374: an interruption continues by itself;
+//                         `session_interrupted` wakes once it did not)
 //
 // With nobody listening (a root without watchers) a line lands on S
 // itself, pre-consumed, so a person still sees it.
@@ -194,8 +196,13 @@ export const BUS_COPY = {
     return `Hit a usage limit${window}${resets}. It stays blocked until its login rotates or the limit resets; nothing to do unless it should move or end.`
   },
   session_unclaimed: `Not picked up by its device for ${minutes.unclaimedMinutes} minutes (still queued). The device may be offline; a person sees it under Needs you.`,
-  session_stuck: `No activity for ${minutes.stuckMinutes} minutes while busy: it looks stuck. Stop or end it if it should not run on.`,
-  device_offline: `Paused: its device went offline. It resumes when the device is back.`,
+  // EXP-1374 (FEED-141): how long, and a check, never "stop it": a silent
+  // gate or spec run is the normal case and killing one costs real work.
+  session_stuck: (silent: number) =>
+    `No sign of life for ${silent} minutes while busy (no message, tool call, push or background task). Check whether it is still needed.`,
+  device_offline: `Interrupted: its device went offline. It continues by itself when the device is back.`,
+  session_interrupted: `Interrupted: its runner restarted mid-turn. It continues by itself.`,
+  session_unresumed: `Interrupted ${minutes.resumeMinutes}+ minutes ago and not continued by its device. A person sees it under Needs you; a message continues it.`,
   pr_opened: (number: number, url: string) => `Opened PR #${number}: ${url}`,
 } as const
 
@@ -206,7 +213,13 @@ export async function busLine(
   child: Pick<Session, `id` | `parentId`>,
   event: Extract<
     MessageEventKind,
-    `session_claimed` | `session_blocked` | `session_unclaimed` | `session_stuck` | `device_offline` | `pr_opened`
+    | `session_claimed`
+    | `session_blocked`
+    | `session_unclaimed`
+    | `session_stuck`
+    | `device_offline`
+    | `session_interrupted`
+    | `pr_opened`
   >,
   body: string,
   opts: { waking: boolean; pullRequestId?: string | null; selfFallback?: boolean }

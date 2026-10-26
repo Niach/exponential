@@ -7287,7 +7287,12 @@ impl SteerSessionView {
             )),
             _ => {}
         }
-        if paused && !self.feed.is_empty() {
+        // EXP-1374 (session-card.json `banner`): an interrupted or
+        // background session's own card; it replaces the offline "paused"
+        // banner while shown.
+        if let Some(session) = self.row.as_ref().and_then(domain::session_tree::session_banner) {
+            out.push(banner(session.id.as_str(), &session.icon, &session.label, session.text, DockTint::Muted, None));
+        } else if paused && !self.feed.is_empty() {
             let device = self.device(cx);
             out.push(banner("paused", "ui-device-offline", &paused_title(device.label.as_deref()), PAUSED_BODY.to_string(), DockTint::Muted, None));
         }

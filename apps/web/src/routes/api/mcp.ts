@@ -1,14 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
-import { eq } from "drizzle-orm"
+import { and, eq, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { users } from "@/db/auth-schema"
+import { sessions } from "@/db/schema"
 import { resolveMcpCredential } from "@/lib/auth/resolve-bearer"
 import { jsonResponse } from "@/lib/mcp/helpers"
 import { createExponentialMcpServer } from "@/lib/mcp/server"
 import { resolveMcpToolGates } from "@/lib/mcp/gates"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
 import { confineMcpAccessToActingSession } from "@/lib/sessions/acting"
+import { hostedByCondition } from "@/lib/sessions/host"
+import { touchSessionActivity } from "@/lib/sessions/watchdog"
 import {
   FULL_ACCESS,
   resolveMcpAccessForGrant,
@@ -112,6 +115,13 @@ async function handle(request: Request) {
     user.id,
     sessionId
   )
+  // EXP-1374: a tool call by a session of the caller's is its sign of life
+  // (the stuck rule); best effort, never in the request's way.
+  if (sessionId) {
+    void touchSessionActivity(
+      and(eq(sessions.id, sessionId), or(eq(sessions.userId, user.id), hostedByCondition(user.id)))!
+    ).catch(() => {})
+  }
   // EXP-660: which conditional tool families this caller gets to see.
   const gates = await resolveMcpToolGates(user.id, access, sessionId)
   const server = createExponentialMcpServer(

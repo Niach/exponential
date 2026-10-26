@@ -118,6 +118,7 @@ vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 // (watchdog.real-db.test.ts covers it against Postgres).
 vi.mock(`@/lib/sessions/watchdog`, () => ({
   restoreDeviceSessionsInTx: vi.fn(async () => 0),
+  recordSessionActivityInTx: vi.fn(async () => 0),
 }))
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,

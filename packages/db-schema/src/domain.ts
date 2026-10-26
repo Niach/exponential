@@ -406,6 +406,9 @@ export interface CodingSessionBlocked {
   /** EXP-1374: an interruption (`device_offline`, `restarted`) of a run
    *  that was mid-turn: its device continues it by itself when back. */
   resume?: boolean | null
+  /** EXP-1374: since when its device could continue it (back online, or
+   *  the restart itself): the watchdog's `resumeMinutes` clock. */
+  resumeSince?: string | null
 }
 
 // Every field is `.nullish()` for the same reason deviceAgentUsageSchema's

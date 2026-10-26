@@ -21,10 +21,11 @@ struct SessionStateDot: View {
         }
     }
 
-    /// The dot's fill: a working session is the live green, the attention
-    /// tones their semantic colour, everything else neutral.
+    /// The dot's fill: a working session (EXP-1374: or one whose background
+    /// tasks still run) is the live green, the attention tones their
+    /// semantic colour, everything else neutral.
     static func color(_ state: SessionState) -> Color {
-        if state == .working { return DesignTokens.Semantic.green }
+        if state == .working || state == .background { return DesignTokens.Semantic.green }
         return sessionStateBadgeColor(state) ?? DesignTokens.Semantic.neutral
     }
 }

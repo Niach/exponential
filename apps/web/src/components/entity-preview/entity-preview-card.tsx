@@ -270,8 +270,10 @@ function CommentCard({ comment }: { comment: Comment }) {
 const SESSION_TONE: Record<SessionState, LiveDotTone> = {
   queued: `muted`,
   working: `live`,
+  background: `live`,
   waiting: `live`,
   needs_you: `attention`,
+  interrupted: `muted`,
   blocked: `attention`,
   ended: `muted`,
 }
