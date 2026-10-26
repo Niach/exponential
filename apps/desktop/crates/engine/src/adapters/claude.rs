@@ -65,7 +65,7 @@ use agent_client_protocol::{
 use serde_json::{json, Map, Value};
 
 use super::claude_wire::{self as wire, ClaudeArgs, ClaudeOut, McpConfig, SystemSubtype, TurnOutcome};
-use super::AdapterSpec;
+use super::{confine, AdapterSpec};
 use crate::host::{CANCEL_QUEUED_META_KEY, FRESH_CONTEXT_META_KEY, NATIVE_SESSION_META_KEY};
 use crate::mapper::{API_ERROR_META_KEY, RATE_LIMIT_META_KEY};
 use crate::session::{EngineError, ResumeHandle};
@@ -1154,6 +1154,16 @@ impl ClaudeSession {
 
     fn cwd(&self) -> &Path {
         &self.spec.cwd
+    }
+
+    /// N-5 / NEW-5: the deny message when a confined run's tool call leaves
+    /// its scratch dir. FEED-142: the run's own claude project dir (memory,
+    /// tool results) stays open.
+    fn confinement_denial(&self, tool: &str, input: &Value) -> Option<String> {
+        let root = self.spec.confine_to.as_deref()?;
+        let config = claude_config_dir(&self.spec.spawn.env);
+        let harness = confine::claude_harness_dirs(config.as_deref(), &[self.cwd(), root]);
+        confine::confinement_denial(tool, input, self.cwd(), &confine::Confinement { root, harness: &harness })
     }
 
     /// EXP-784: the `_meta` naming claude's own session id, for the
@@ -4060,9 +4070,7 @@ impl ClaudeSession {
         request: wire::ControlReq,
     ) {
         let tool_use_id = request.tool_use_id.clone().unwrap_or_else(|| request_id.clone());
-        let denial = self.spec.confine_to.as_deref().and_then(|confine| {
-            confinement_denial(&request.tool_name, &request.input, self.cwd(), confine)
-        });
+        let denial = self.confinement_denial(&request.tool_name, &request.input);
         let answer = if let Some(message) = denial {
             // N-5 / NEW-5: a plain deny (no interrupt) reaches the model as
             // the tool's error, so it can self-correct inside the scratch dir.
@@ -4156,9 +4164,7 @@ impl ClaudeSession {
             // N-5 / NEW-5: decided synchronously, so answering first still holds.
             let input: wire::HookInput =
                 serde_json::from_value(request.input.clone()).unwrap_or_default();
-            let denial = self.spec.confine_to.as_deref().and_then(|confine| {
-                confinement_denial(&input.tool_name, &input.tool_input, self.cwd(), confine)
-            });
+            let denial = self.confinement_denial(&input.tool_name, &input.tool_input);
             if denial.is_some() {
                 log::info!("engine: claude PreToolUse denied {} outside the confined dir", input.tool_name);
             }
@@ -5304,17 +5310,21 @@ fn image_block(block: &Value) -> Option<ContentBlock> {
 /// process's: the transcripts that matter are the ones the CLI we spawn would
 /// write, and `PreparedLaunch::spawn.env` is what it runs with.
 fn claude_projects_root(env: &[(String, String)]) -> Option<PathBuf> {
-    let config = match env
+    let projects = claude_config_dir(env)?.join("projects");
+    projects.is_dir().then_some(projects)
+}
+
+/// The CHILD's `CLAUDE_CONFIG_DIR` (else this process's, else `~/.claude`).
+fn claude_config_dir(env: &[(String, String)]) -> Option<PathBuf> {
+    match env
         .iter()
         .find(|(key, _)| key == "CLAUDE_CONFIG_DIR")
         .map(|(_, value)| PathBuf::from(value))
         .or_else(|| std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from))
     {
-        Some(dir) => dir,
-        None => PathBuf::from(std::env::var_os("HOME")?).join(".claude"),
-    };
-    let projects = config.join("projects");
-    projects.is_dir().then_some(projects)
+        Some(dir) => Some(dir),
+        None => Some(PathBuf::from(std::env::var_os("HOME")?).join(".claude")),
+    }
 }
 
 /// EXP-761: `coding::locate_claude_transcript`, the ONE locator (by session
@@ -5519,222 +5529,6 @@ fn disallowed_tools(disallow_ask: bool, aside: bool) -> Vec<&'static str> {
         tools.extend_from_slice(crate::aside::ASIDE_DISALLOWED_TOOLS);
     }
     tools
-}
-
-// ---------------------------------------------------------------------------
-// N-5 / NEW-5: confinement of a repo-less run to its scratch dir
-// ---------------------------------------------------------------------------
-
-/// The file tools whose path argument a confined run checks, and the input
-/// keys that path rides under. `Glob`/`Grep`/`LS` without a `path` search the
-/// cwd, which is inside.
-const CONFINED_FILE_TOOLS: [&str; 9] = [
-    "Read",
-    "Edit",
-    "Write",
-    "MultiEdit",
-    "NotebookEdit",
-    "NotebookRead",
-    "Glob",
-    "Grep",
-    "LS",
-];
-const CONFINED_PATH_KEYS: [&str; 3] = ["file_path", "path", "notebook_path"];
-
-/// System prefixes a Bash command may name without leaving the sandbox in any
-/// way that matters (interpreters, `/dev/null`, `/etc/hosts`). Everything
-/// else outside the scratch and temp dirs (`/`, `/Users`, `/home`, `~`,
-/// `$HOME`, another volume) is refused.
-const BASH_SYSTEM_PREFIXES: [&str; 12] = [
-    "/dev",
-    "/usr",
-    "/bin",
-    "/sbin",
-    "/etc",
-    "/private/etc",
-    "/opt/homebrew",
-    "/nix",
-    "/proc",
-    "/sys",
-    "/System",
-    "/Library/Developer/CommandLineTools",
-];
-
-/// The deny message for a confined run, or `None` when the call may run.
-///
-/// File tools: the `file_path`/`path`/`notebook_path` argument (`~` expanded,
-/// relative = relative to `cwd`) is resolved — canonicalized when it exists,
-/// else its nearest existing ancestor is and `..` is folded lexically — and
-/// must land inside `confine` or a temp dir (`/tmp`, the system temp dir).
-/// `Glob`'s `pattern` is checked too when it is absolute.
-///
-/// Bash: a CONSERVATIVE heuristic over the command text, not a parser. It is
-/// split on whitespace, quotes and shell punctuation (`;|&()<>=:` and
-/// backticks); every word that is an absolute path (`/…`, not `//…`), starts
-/// with `~`, names `$HOME`/`${HOME}`, or climbs with `..` is resolved like a
-/// file path and refused when it lands outside the scratch dir, the temp dirs
-/// and [`BASH_SYSTEM_PREFIXES`]. An absolute word whose top-level directory
-/// does not exist (`/api/x` in a grep pattern) is not a path and passes. It
-/// misses paths a command builds at runtime; it is a guard rail for an agent
-/// that plays along, and the deny tells it why so it can self-correct.
-pub fn confinement_denial(tool: &str, input: &Value, cwd: &Path, confine: &Path) -> Option<String> {
-    let confine_root = resolve_path(confine, cwd);
-    let outside = |raw: &str, bash: bool| -> Option<String> {
-        let path = expand_home(raw)?;
-        let resolved = resolve_path(&path, cwd);
-        if within(&resolved, &confine_root) || in_temp_dir(&resolved) {
-            return None;
-        }
-        if bash && BASH_SYSTEM_PREFIXES.iter().any(|prefix| within(&resolved, Path::new(prefix))) {
-            return None;
-        }
-        Some(raw.to_string())
-    };
-    let offending = if CONFINED_FILE_TOOLS.contains(&tool) {
-        let mut hit = CONFINED_PATH_KEYS
-            .iter()
-            .filter_map(|key| input.get(*key).and_then(Value::as_str))
-            .filter(|raw| !raw.trim().is_empty())
-            .find_map(|raw| outside(raw.trim(), false));
-        if hit.is_none() && tool == "Glob" {
-            hit = input
-                .get("pattern")
-                .and_then(Value::as_str)
-                .filter(|pattern| pattern.starts_with('/') || pattern.starts_with('~'))
-                .and_then(|pattern| outside(glob_base(pattern), false));
-        }
-        hit
-    } else if tool == "Bash" {
-        let command = input.get("command").and_then(Value::as_str).unwrap_or_default();
-        bash_path_words(command).into_iter().find_map(|word| {
-            if word.starts_with('/') && !top_level_exists(&word) {
-                return None;
-            }
-            outside(&word, true)
-        })
-    } else {
-        None
-    }?;
-    Some(format!(
-        "This session is confined to its scratch folder {}; it cannot read or change files \
-         elsewhere on this machine (`{offending}` is outside it). Work inside the scratch \
-         folder or a temp dir instead.",
-        confine.display()
-    ))
-}
-
-/// The words of a Bash command that look like paths (see [`confinement_denial`]).
-fn bash_path_words(command: &str) -> Vec<String> {
-    command
-        .split(|c: char| {
-            c.is_whitespace() || matches!(c, '\'' | '"' | '`' | ';' | '|' | '&' | '(' | ')' | '<' | '>' | '=' | ':' | ',')
-        })
-        .filter(|word| !word.is_empty())
-        .filter_map(|word| {
-            let word = word.replace("${HOME}", "$HOME");
-            if let Some(rest) = word.strip_prefix("$HOME") {
-                return Some(format!("~{rest}"));
-            }
-            if word.contains("$HOME") {
-                return Some("~".to_string());
-            }
-            let pathlike = (word.starts_with('/') && !word.starts_with("//"))
-                || word == "~"
-                || word.starts_with("~/")
-                || word == ".."
-                || word.starts_with("../")
-                || word.contains("/../")
-                || word.ends_with("/..");
-            pathlike.then_some(word)
-        })
-        .collect()
-}
-
-/// `~` / `~/x` → the home dir. `~user` is refused as unresolvable (`None`
-/// would let it through, so it maps to `/` — outside by construction).
-fn expand_home(raw: &str) -> Option<PathBuf> {
-    if raw == "~" || raw.starts_with("~/") {
-        let home = home_dir().unwrap_or_else(|| PathBuf::from("/"));
-        return Some(match raw.strip_prefix("~/") {
-            Some(rest) => home.join(rest),
-            None => home,
-        });
-    }
-    if raw.starts_with('~') {
-        return Some(PathBuf::from("/"));
-    }
-    Some(PathBuf::from(raw))
-}
-
-fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .filter(|home| !home.is_empty())
-        .map(PathBuf::from)
-}
-
-/// Absolute, `..`-free, symlinks resolved as far as the path exists.
-fn resolve_path(path: &Path, cwd: &Path) -> PathBuf {
-    let absolute = if path.is_absolute() { path.to_path_buf() } else { cwd.join(path) };
-    let mut lexical = PathBuf::new();
-    for component in absolute.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                lexical.pop();
-            }
-            std::path::Component::CurDir => {}
-            other => lexical.push(other.as_os_str()),
-        }
-    }
-    // Canonicalize the longest existing prefix; re-append the rest.
-    let mut existing = lexical.clone();
-    let mut rest: Vec<std::ffi::OsString> = Vec::new();
-    loop {
-        if let Ok(canonical) = std::fs::canonicalize(&existing) {
-            let mut out = canonical;
-            for part in rest.iter().rev() {
-                out.push(part);
-            }
-            return out;
-        }
-        match (existing.file_name().map(|name| name.to_os_string()), existing.parent()) {
-            (Some(name), Some(parent)) => {
-                rest.push(name);
-                existing = parent.to_path_buf();
-            }
-            _ => return lexical,
-        }
-    }
-}
-
-fn within(path: &Path, root: &Path) -> bool {
-    path.starts_with(root)
-}
-
-fn in_temp_dir(path: &Path) -> bool {
-    let mut roots = vec![PathBuf::from("/tmp"), PathBuf::from("/private/tmp")];
-    let temp = std::env::temp_dir();
-    roots.push(resolve_path(&temp, Path::new("/")));
-    roots.push(temp);
-    roots.iter().any(|root| root != Path::new("/") && within(path, root))
-}
-
-/// `/a/b/**/*.rs` → `/a/b`: the literal directory a glob pattern starts in.
-fn glob_base(pattern: &str) -> &str {
-    let cut = pattern.find(['*', '?', '[', '{']).unwrap_or(pattern.len());
-    let base = &pattern[..cut];
-    match base.rfind('/') {
-        Some(0) => "/",
-        Some(index) if cut < pattern.len() => &base[..index],
-        _ => base,
-    }
-}
-
-/// Whether `/<first>` exists — an absolute-looking word under a top-level
-/// directory nobody has is a pattern or a URL path, not a file.
-fn top_level_exists(word: &str) -> bool {
-    let first = word.trim_start_matches('/').split('/').next().unwrap_or_default();
-    first.is_empty() || Path::new("/").join(first).exists()
 }
 
 #[cfg(test)]
@@ -6743,83 +6537,6 @@ mod tests {
     // -----------------------------------------------------------------------
     // N-5 / NEW-5: confinement
     // -----------------------------------------------------------------------
-
-    fn scratch() -> PathBuf {
-        PathBuf::from("/nonexistent-exp-scratch/scratch/root/session")
-    }
-
-    fn denied(tool: &str, input: Value) -> bool {
-        let dir = scratch();
-        super::confinement_denial(tool, &input, &dir, &dir).is_some()
-    }
-
-    #[test]
-    fn a_confined_file_tool_inside_the_scratch_dir_is_allowed() {
-        let dir = scratch();
-        assert!(!denied("Read", json!({ "file_path": dir.join("notes.md").display().to_string() })));
-        assert!(!denied("Write", json!({ "file_path": "out/report.md", "content": "x" })));
-        assert!(!denied("Edit", json!({ "file_path": "./a.txt" })));
-        assert!(!denied("Glob", json!({ "pattern": "**/*.md" })));
-        assert!(!denied("Grep", json!({ "pattern": "todo" })));
-        assert!(!denied("LS", json!({ "path": dir.display().to_string() })));
-        // Not a file tool at all.
-        assert!(!denied("WebFetch", json!({ "url": "https://example.com/Users/x" })));
-    }
-
-    #[test]
-    fn a_confined_file_tool_outside_the_scratch_dir_is_denied() {
-        assert!(denied("Read", json!({ "file_path": "/Users/someone/repo/src/lib.rs" })));
-        assert!(denied("Edit", json!({ "file_path": "/home/someone/repo/src/lib.rs" })));
-        assert!(denied("NotebookEdit", json!({ "notebook_path": "~/nb.ipynb" })));
-        assert!(denied("Grep", json!({ "pattern": "x", "path": "/" })));
-        assert!(denied("Glob", json!({ "pattern": "/Users/someone/**/*.rs" })));
-        let dir = scratch();
-        let message =
-            super::confinement_denial("Read", &json!({ "file_path": "/Users/a/b" }), &dir, &dir)
-                .expect("denied");
-        assert!(message.contains("confined to its scratch folder"));
-        assert!(message.contains(&dir.display().to_string()));
-    }
-
-    #[test]
-    fn a_relative_path_climbing_out_of_the_scratch_dir_is_denied() {
-        assert!(denied("Read", json!({ "file_path": "../../other/file.rs" })));
-        assert!(denied("LS", json!({ "path": ".." })));
-        // Climbing and coming back in stays inside.
-        assert!(!denied("Read", json!({ "file_path": "../session/notes.md" })));
-    }
-
-    #[test]
-    fn bash_naming_an_absolute_path_outside_is_denied() {
-        let home = super::home_dir().expect("HOME").display().to_string();
-        assert!(denied("Bash", json!({ "command": format!("ls {home}/code") })));
-        assert!(denied("Bash", json!({ "command": "find / -name exponential -type d" })));
-        assert!(denied("Bash", json!({ "command": "cat ~/code/repo/README.md" })));
-        assert!(denied("Bash", json!({ "command": "cd $HOME && git status" })));
-        assert!(denied("Bash", json!({ "command": "grep -r x \"${HOME}/code\"" })));
-        assert!(denied("Bash", json!({ "command": "cat ../../secrets" })));
-        // Inside, system tools and non-path slashes pass.
-        assert!(!denied("Bash", json!({ "command": "ls -la && echo hi > out.txt" })));
-        assert!(!denied("Bash", json!({ "command": "/usr/bin/env python3 x.py 2>/dev/null" })));
-        assert!(!denied("Bash", json!({ "command": "curl -s https://example.com/api/x" })));
-        assert!(!denied("Bash", json!({ "command": "grep -rn \"/nonexistent-top/route\" ." })));
-    }
-
-    #[test]
-    fn the_temp_dirs_stay_allowed_in_a_confined_run() {
-        assert!(!denied("Read", json!({ "file_path": "/tmp/x.txt" })));
-        assert!(!denied("Write", json!({ "file_path": "/tmp/sub/y.txt" })));
-        assert!(!denied("Bash", json!({ "command": "echo hi > /tmp/x && cat /tmp/x" })));
-        let temp = std::env::temp_dir().join("exp-confine-test.txt");
-        assert!(!denied("Read", json!({ "file_path": temp.display().to_string() })));
-    }
-
-    #[test]
-    fn the_glob_base_is_the_literal_directory() {
-        assert_eq!(super::glob_base("/a/b/**/*.rs"), "/a/b");
-        assert_eq!(super::glob_base("/*"), "/");
-        assert_eq!(super::glob_base("/a/b/c.rs"), "/a/b/c.rs");
-    }
 
     #[test]
     fn a_confined_run_registers_the_pre_tool_use_gate_and_an_open_one_does_not() {
