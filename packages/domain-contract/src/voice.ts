@@ -269,11 +269,13 @@ export interface TrayContext {
   muted: boolean
   /** A call can start (V4; false until then). */
   callAvailable: boolean
+  /** The microphone listens (V3; false until then): Mute shows. */
+  micAvailable: boolean
   /** THIS device is the member's voice device. */
   deviceIsVoiceDevice: boolean
 }
 
-export type TrayItemId = `call` | `speakReplies` | `pushToTalk` | `wakeWord` | `mute` | `settings` | `quit`
+export type TrayItemId = `open` | `call` | `speakReplies` | `pushToTalk` | `wakeWord` | `mute` | `settings` | `quit`
 
 export type TrayItem =
   | { kind: `separator` }
@@ -300,16 +302,20 @@ export function trayMenu(settings: TraySettings, context: TrayContext): TrayItem
     checked: on && ready,
     enabled: ready,
   })
-  const menu: TrayItem[] = []
+  const menu: TrayItem[] = [{ kind: `action`, id: `open`, label: copy.trayOpen, enabled: true }]
   if (context.callAvailable) {
     menu.push({ kind: `action`, id: `call`, label: copy.trayCall.replace(`{agent}`, agent), enabled: ready })
-    menu.push({ kind: `separator` })
   }
   menu.push(
+    { kind: `separator` },
     check(`speakReplies`, copy.speakReplies, settings.speakReplies),
     check(`pushToTalk`, `${copy.pushToTalk} · ${shortcut}`, settings.pushToTalk),
-    check(`wakeWord`, `${copy.wakeWord} · ${phrase}`, settings.wakeWord),
-    { kind: `check`, id: `mute`, label: copy.trayMute, checked: context.muted, enabled: true },
+    check(`wakeWord`, `${copy.wakeWord} · ${phrase}`, settings.wakeWord)
+  )
+  if (context.micAvailable) {
+    menu.push({ kind: `check`, id: `mute`, label: copy.trayMute, checked: context.muted, enabled: true })
+  }
+  menu.push(
     { kind: `separator` },
     { kind: `action`, id: `settings`, label: copy.traySettings, enabled: true },
     { kind: `action`, id: `quit`, label: copy.trayQuit, enabled: true }

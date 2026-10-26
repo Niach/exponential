@@ -230,7 +230,14 @@ fn main() {
         // `ui::handle_open_urls` (parse locally, validate, sign in, sync).
         cx.spawn(async move |cx| {
             while let Ok(urls) = url_rx.recv_async().await {
-                cx.update(|cx| ui::handle_open_urls(urls, cx));
+                // NEW-68: an empty batch is a plain second launch: bring a
+                // window up (the voice tray may keep the IDE running with
+                // every window closed).
+                if urls.is_empty() {
+                    cx.update(ui::voice_tray::open_ide);
+                } else {
+                    cx.update(|cx| ui::handle_open_urls(urls, cx));
+                }
             }
         })
         .detach();

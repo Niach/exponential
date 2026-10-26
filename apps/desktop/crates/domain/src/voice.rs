@@ -30,6 +30,7 @@ pub struct VoiceCopy {
     pub wake_word: String,
     pub wake_phrase: String,
     pub wake_phrase_placeholder: String,
+    pub tray_open: String,
     pub tray_call: String,
     pub tray_mute: String,
     pub tray_settings: String,
@@ -165,6 +166,7 @@ pub fn wake_phrase_placeholder(agent_name: &str) -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TrayItemId {
+    Open,
     Call,
     SpeakReplies,
     PushToTalk,
@@ -192,6 +194,8 @@ pub struct TrayContext<'a> {
     pub muted: bool,
     /// A call can start (V4; false until then).
     pub call_available: bool,
+    /// The microphone listens (V3; false until then): Mute shows.
+    pub mic_available: bool,
     /// THIS device is the member's voice device.
     pub device_is_voice_device: bool,
 }
@@ -215,16 +219,20 @@ pub fn tray_menu(settings: &VoiceSettings, context: &TrayContext<'_>) -> Option<
         phrase => phrase.to_string(),
     };
     let check = |id, label: String, on: bool| TrayItem::Check { id, label, checked: on && ready, enabled: ready };
-    let mut menu = Vec::new();
+    let mut menu = vec![TrayItem::Action { id: TrayItemId::Open, label: copy.tray_open.clone(), enabled: true }];
     if context.call_available {
         menu.push(TrayItem::Action { id: TrayItemId::Call, label: copy.tray_call.replace("{agent}", agent), enabled: ready });
-        menu.push(TrayItem::Separator);
     }
     menu.extend([
+        TrayItem::Separator,
         check(TrayItemId::SpeakReplies, copy.speak_replies.clone(), settings.speak_replies),
         check(TrayItemId::PushToTalk, format!("{} · {shortcut}", copy.push_to_talk), settings.push_to_talk),
         check(TrayItemId::WakeWord, format!("{} · {phrase}", copy.wake_word), settings.wake_word),
-        TrayItem::Check { id: TrayItemId::Mute, label: copy.tray_mute.clone(), checked: context.muted, enabled: true },
+    ]);
+    if context.mic_available {
+        menu.push(TrayItem::Check { id: TrayItemId::Mute, label: copy.tray_mute.clone(), checked: context.muted, enabled: true });
+    }
+    menu.extend([
         TrayItem::Separator,
         TrayItem::Action { id: TrayItemId::Settings, label: copy.tray_settings.clone(), enabled: true },
         TrayItem::Action { id: TrayItemId::Quit, label: copy.tray_quit.clone(), enabled: true },
@@ -767,6 +775,7 @@ mod tests {
                     agent: context["agent"].as_str(),
                     muted: context["muted"].as_bool().unwrap(),
                     call_available: context["callAvailable"].as_bool().unwrap(),
+                    mic_available: context["micAvailable"].as_bool().unwrap(),
                     device_is_voice_device: context["deviceIsVoiceDevice"].as_bool().unwrap(),
                 },
             );

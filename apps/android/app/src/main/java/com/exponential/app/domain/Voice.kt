@@ -40,6 +40,7 @@ object Voice {
         const val WAKE_WORD = "Wake word"
         const val WAKE_PHRASE = "Wake phrase"
         const val WAKE_PHRASE_PLACEHOLDER = "Hey {agent}"
+        const val TRAY_OPEN = "Open Exponential"
         const val TRAY_CALL = "Call {agent}"
         const val TRAY_MUTE = "Mute microphone"
         const val TRAY_SETTINGS = "Voice settings…"

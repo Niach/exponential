@@ -7,9 +7,10 @@
 //! (the app icon, Title, ToolTip; Activate brings the IDE up) and
 //! `com.canonical.dbusmenu` at `/MenuBar` (the fixture's rows: GetLayout,
 //! Event, AboutToShow; LayoutUpdated on every new menu). The item registers
-//! with `org.kde.StatusNotifierWatcher`; without one (GNOME without the
-//! AppIndicator extension) there is no tray and the last window quits as
-//! before.
+//! with `org.kde.StatusNotifierWatcher` and registers again whenever a
+//! watcher appears or its host changes (a panel restart); while no host
+//! shows it (GNOME without the AppIndicator extension) the last window quits
+//! as before, and losing the host with no window open brings one back.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,8 +30,17 @@ const WATCHER: &str = "org.kde.StatusNotifierWatcher";
 /// One icon frame as SNI wants it: (width, height, ARGB32 big-endian).
 type Pixmap = (i32, i32, Vec<u8>);
 
+/// What the worker thread acts on.
+enum Command {
+    /// A new menu (None = no tray).
+    Menu(Option<Vec<TrayItem>>),
+    /// A watcher came or went, or its host changed: register again and
+    /// re-read whether a host shows us.
+    Recheck,
+}
+
 pub(super) struct Backend {
-    tx: flume::Sender<Option<Vec<TrayItem>>>,
+    tx: flume::Sender<Command>,
     registered: Arc<AtomicBool>,
 }
 
@@ -39,18 +49,60 @@ impl Backend {
         let (tx, rx) = flume::unbounded();
         let registered = Arc::new(AtomicBool::new(false));
         let flag = registered.clone();
-        if let Err(err) = std::thread::Builder::new().name("voice-tray".into()).spawn(move || run(rx, clicks, flag)) {
+        let spawned = std::thread::Builder::new().name("voice-tray".into()).spawn(move || run(rx, clicks, flag));
+        if let Err(err) = spawned {
             log::warn!("[ui] voice tray: thread failed to start: {err}");
         }
+        watch(tx.clone());
         Self { tx, registered }
     }
 
     pub(super) fn set(&mut self, menu: Option<Vec<TrayItem>>) {
-        let _ = self.tx.send(menu);
+        let _ = self.tx.send(Command::Menu(menu));
     }
 
+    /// A host shows the item right now.
     pub(super) fn registered(&self) -> bool {
         self.registered.load(Ordering::SeqCst)
+    }
+}
+
+/// Recheck whenever `org.kde.StatusNotifierWatcher` changes owner (a panel
+/// restarts, the AppIndicator extension toggles) or announces a host change.
+fn watch(tx: flume::Sender<Command>) {
+    let rules = [
+        zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .sender("org.freedesktop.DBus")
+            .and_then(|rule| rule.interface("org.freedesktop.DBus"))
+            .and_then(|rule| rule.member("NameOwnerChanged"))
+            .and_then(|rule| rule.add_arg(WATCHER))
+            .map(|rule| rule.build()),
+        zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).interface(WATCHER).map(|rule| rule.build()),
+    ];
+    for rule in rules {
+        let tx = tx.clone();
+        let spawned = std::thread::Builder::new().name("voice-tray-watch".into()).spawn(move || {
+            let iterator = rule.and_then(|rule| {
+                let connection = Connection::session()?;
+                zbus::blocking::MessageIterator::for_match_rule(rule, &connection, None)
+            });
+            let iterator = match iterator {
+                Ok(iterator) => iterator,
+                Err(err) => {
+                    log::info!("[ui] voice tray: cannot watch the tray host: {err}");
+                    return;
+                }
+            };
+            for _ in iterator {
+                if tx.send(Command::Recheck).is_err() {
+                    break;
+                }
+            }
+        });
+        if let Err(err) = spawned {
+            log::warn!("[ui] voice tray: watch thread failed to start: {err}");
+        }
     }
 }
 
@@ -61,7 +113,13 @@ struct MenuState {
     revision: u32,
 }
 
-fn run(rx: flume::Receiver<Option<Vec<TrayItem>>>, clicks: flume::Sender<TrayEvent>, registered: Arc<AtomicBool>) {
+/// The item's live connection and the well-known name it registered.
+struct Live {
+    connection: Connection,
+    name: String,
+}
+
+fn run(rx: flume::Receiver<Command>, clicks: flume::Sender<TrayEvent>, registered: Arc<AtomicBool>) {
     let icon: Vec<Pixmap> = super::icon_frames(&[22, 32, 48, 64])
         .into_iter()
         .map(|frame| {
@@ -70,59 +128,77 @@ fn run(rx: flume::Receiver<Option<Vec<TrayItem>>>, clicks: flume::Sender<TrayEve
         })
         .collect();
     let state = Arc::new(Mutex::new(MenuState::default()));
-    let mut connection: Option<Connection> = None;
-    // A fresh well-known name per registration (`-{pid}-{n}`).
+    let mut live: Option<Live> = None;
+    // Whether a tray is wanted (this IDE is the voice device).
+    let mut wanted = false;
+    // A fresh well-known name per connection (`-{pid}-{n}`).
     let mut serial = 0u32;
-    while let Ok(mut menu) = rx.recv() {
-        // Only the newest menu matters.
-        while let Ok(newer) = rx.try_recv() {
-            menu = newer;
+    // Flip the flag; losing a host tells the IDE (no window = bring one up).
+    let set_registered = |now: bool| {
+        if registered.swap(now, Ordering::SeqCst) && !now {
+            let _ = clicks.send(TrayEvent::HostLost);
         }
-        let Some(items) = menu else {
-            // Closing the connection drops the name; the watcher forgets it.
-            connection = None;
-            registered.store(false, Ordering::SeqCst);
-            continue;
-        };
-        let revision = {
-            let mut state = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            state.items = items;
-            state.revision += 1;
-            state.revision
-        };
-        if let Some(connection) = connection.as_ref() {
-            let updated = connection.emit_signal(
-                None::<zbus::names::BusName<'_>>,
-                MENU_PATH,
-                MENU_INTERFACE,
-                "LayoutUpdated",
-                &(revision, 0i32),
-            );
-            if let Err(err) = updated {
-                log::warn!("[ui] voice tray: LayoutUpdated: {err}");
+    };
+    while let Ok(command) = rx.recv() {
+        match command {
+            Command::Menu(None) => {
+                wanted = false;
+                // Closing the connection drops the name; the watcher forgets it.
+                live = None;
+                // Hidden on purpose: not a lost host.
+                registered.store(false, Ordering::SeqCst);
+                continue;
             }
-            continue;
+            Command::Menu(Some(items)) => {
+                wanted = true;
+                let revision = {
+                    let mut state = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                    state.items = items;
+                    state.revision += 1;
+                    state.revision
+                };
+                if let Some(live) = live.as_ref() {
+                    let updated = live.connection.emit_signal(
+                        None::<zbus::names::BusName<'_>>,
+                        MENU_PATH,
+                        MENU_INTERFACE,
+                        "LayoutUpdated",
+                        &(revision, 0i32),
+                    );
+                    if let Err(err) = updated {
+                        log::warn!("[ui] voice tray: LayoutUpdated: {err}");
+                    }
+                    continue;
+                }
+            }
+            Command::Recheck => {
+                if !wanted {
+                    continue;
+                }
+                if let Some(live) = live.as_ref() {
+                    set_registered(register(live).is_ok_and(|()| host_registered(&live.connection)));
+                    continue;
+                }
+            }
         }
+        // Wanted with no connection yet (the first menu, or a watcher that
+        // was missing until now).
         serial += 1;
         match connect(serial, &icon, &state, &clicks) {
             Ok(opened) => {
-                connection = Some(opened);
-                registered.store(true, Ordering::SeqCst);
+                let shown = register(&opened).is_ok_and(|()| host_registered(&opened.connection));
+                live = Some(opened);
+                set_registered(shown);
             }
             Err(err) => {
-                log::info!("[ui] voice tray: no tray host: {err}");
-                registered.store(false, Ordering::SeqCst);
+                log::info!("[ui] voice tray: no session bus: {err}");
+                set_registered(false);
             }
         }
     }
 }
 
-fn connect(
-    serial: u32,
-    icon: &[Pixmap],
-    state: &Arc<Mutex<MenuState>>,
-    clicks: &flume::Sender<TrayEvent>,
-) -> zbus::Result<Connection> {
+fn connect(serial: u32, icon: &[Pixmap], state: &Arc<Mutex<MenuState>>, clicks: &flume::Sender<TrayEvent>) -> zbus::Result<Live> {
     let name = format!("org.kde.StatusNotifierItem-{}-{serial}", std::process::id());
     let item = Item { icon: icon.to_vec(), clicks: clicks.clone() };
     let menu = DbusMenu { state: state.clone(), clicks: clicks.clone() };
@@ -131,8 +207,32 @@ fn connect(
         .serve_at(ITEM_PATH, item)?
         .serve_at(MENU_PATH, menu)?
         .build()?;
-    connection.call_method(Some(WATCHER), "/StatusNotifierWatcher", Some(WATCHER), "RegisterStatusNotifierItem", &(name.as_str(),))?;
-    Ok(connection)
+    Ok(Live { connection, name })
+}
+
+/// Register with the watcher (again: a restarted watcher forgot us).
+fn register(live: &Live) -> zbus::Result<()> {
+    live.connection
+        .call_method(Some(WATCHER), "/StatusNotifierWatcher", Some(WATCHER), "RegisterStatusNotifierItem", &(live.name.as_str(),))
+        .map(|_| ())
+        .inspect_err(|err| log::info!("[ui] voice tray: no tray host: {err}"))
+}
+
+/// A host draws registered items (GNOME's watcher without the extension
+/// has none).
+fn host_registered(connection: &Connection) -> bool {
+    let reply = connection.call_method(
+        Some(WATCHER),
+        "/StatusNotifierWatcher",
+        Some("org.freedesktop.DBus.Properties"),
+        "Get",
+        &(WATCHER, "IsStatusNotifierHostRegistered"),
+    );
+    reply
+        .and_then(|reply| reply.body().deserialize::<OwnedValue>())
+        .ok()
+        .and_then(|value| bool::try_from(value).ok())
+        .unwrap_or(false)
 }
 
 /// `org.kde.StatusNotifierItem`.

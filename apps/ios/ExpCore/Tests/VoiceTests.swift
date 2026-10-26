@@ -46,6 +46,7 @@ final class VoiceTests: XCTestCase {
             "wakeWord": Voice.Copy.wakeWord,
             "wakePhrase": Voice.Copy.wakePhrase,
             "wakePhrasePlaceholder": Voice.Copy.wakePhrasePlaceholder,
+            "trayOpen": Voice.Copy.trayOpen,
             "trayCall": Voice.Copy.trayCall,
             "trayMute": Voice.Copy.trayMute,
             "traySettings": Voice.Copy.traySettings,

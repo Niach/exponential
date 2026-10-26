@@ -27,6 +27,7 @@ public enum Voice {
         public static let wakeWord = "Wake word"
         public static let wakePhrase = "Wake phrase"
         public static let wakePhrasePlaceholder = "Hey {agent}"
+        public static let trayOpen = "Open Exponential"
         public static let trayCall = "Call {agent}"
         public static let trayMute = "Mute microphone"
         public static let traySettings = "Voice settings…"

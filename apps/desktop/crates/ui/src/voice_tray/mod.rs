@@ -31,8 +31,30 @@ struct IconFrame {
     rgba: Vec<u8>,
 }
 
+/// The icon as the platform draws it. Windows: the white disc gains a dark
+/// ring, so it reads on a light taskbar as well as on the default dark one
+/// (macOS tints its template image itself; Linux panels are dark by default,
+/// like the hicolor icon `desktop_integration` installs).
+fn icon_svg() -> std::borrow::Cow<'static, [u8]> {
+    if cfg!(target_os = "windows") {
+        std::borrow::Cow::Owned(ringed(ICON_SVG))
+    } else {
+        std::borrow::Cow::Borrowed(ICON_SVG)
+    }
+}
+
+/// The icon with a dark ring around its disc.
+fn ringed(svg: &[u8]) -> Vec<u8> {
+    String::from_utf8_lossy(svg)
+        .replace(
+            "</svg>",
+            "  <circle cx=\"50\" cy=\"50\" r=\"48\" fill=\"none\" stroke=\"#27272a\" stroke-width=\"5\"></circle>\n</svg>",
+        )
+        .into_bytes()
+}
+
 fn icon_frames(sizes: &[u32]) -> Vec<IconFrame> {
-    let Ok(tree) = resvg::usvg::Tree::from_data(ICON_SVG, &resvg::usvg::Options::default()) else {
+    let Ok(tree) = resvg::usvg::Tree::from_data(&icon_svg(), &resvg::usvg::Options::default()) else {
         return Vec::new();
     };
     sizes
@@ -60,14 +82,19 @@ fn icon_frames(sizes: &[u32]) -> Vec<IconFrame> {
 pub(crate) enum TrayEvent {
     /// A menu entry was clicked.
     Item(TrayItemId),
-    /// The icon itself was clicked (Linux `Activate`): bring the IDE up.
+    /// The icon itself was clicked (Linux `Activate`, a Windows left
+    /// click): bring the IDE up.
     Activate,
+    /// The tray host went away (Linux): with no window open, bring one back
+    /// so the IDE never hides with no way in.
+    HostLost,
 }
 
 /// A menu entry's stable id across the OS boundary.
 #[cfg_attr(target_os = "linux", allow(dead_code))]
 fn item_key(id: TrayItemId) -> &'static str {
     match id {
+        TrayItemId::Open => "voice-tray:open",
         TrayItemId::Call => "voice-tray:call",
         TrayItemId::SpeakReplies => "voice-tray:speak-replies",
         TrayItemId::PushToTalk => "voice-tray:push-to-talk",
@@ -81,6 +108,7 @@ fn item_key(id: TrayItemId) -> &'static str {
 #[cfg_attr(target_os = "linux", allow(dead_code))]
 fn item_of(key: &str) -> Option<TrayItemId> {
     [
+        TrayItemId::Open,
         TrayItemId::Call,
         TrayItemId::SpeakReplies,
         TrayItemId::PushToTalk,
@@ -133,6 +161,11 @@ pub fn install(cx: &mut App) {
             cx.update(|cx| match event {
                 TrayEvent::Item(id) => entity.update(cx, |this, cx| this.on_click(id, cx)),
                 TrayEvent::Activate => open_ide(cx),
+                TrayEvent::HostLost => {
+                    if cx.windows().is_empty() {
+                        open_ide(cx);
+                    }
+                }
             });
         }
     })
@@ -157,11 +190,11 @@ pub(crate) fn muted(cx: &App) -> bool {
     global(cx).is_some_and(|entity| entity.read(cx).muted)
 }
 
-/// Bring a shell window forward, or open one when every window is closed.
-fn open_ide(cx: &mut App) {
+/// Bring a shell window forward, or open one when every window is closed
+/// (the tray's Open Exponential, a click on its icon, a second launch).
+pub fn open_ide(cx: &mut App) {
     cx.activate(true);
-    let window = cx.active_window().or_else(|| cx.windows().into_iter().next());
-    if let Some(window) = window {
+    if let Some(window) = crate::os_notifications::shell_window(cx) {
         let _ = window.update(cx, |_, window, _| window.activate_window());
         return;
     }
@@ -188,8 +221,9 @@ impl VoiceTray {
             &TrayContext {
                 agent: agent.as_deref(),
                 muted: self.muted,
-                // V4 brings the call.
+                // V4 brings the call, V3 the microphone.
                 call_available: false,
+                mic_available: false,
                 device_is_voice_device: settings.voice_device_id.as_deref() == Some(self.device_id.as_str()),
             },
         );
@@ -217,6 +251,7 @@ impl VoiceTray {
                 self.muted = !self.muted;
                 self.sync(cx);
             }
+            TrayItemId::Open => open_ide(cx),
             TrayItemId::Settings => crate::os_notifications::open_settings(crate::settings::SettingsSection::Voice, cx),
             TrayItemId::Quit => cx.quit(),
             // V4: the menu never offers Call before then.
@@ -280,36 +315,98 @@ use linux as backend;
 /// macOS and Windows: the native tray, on gpui's main thread.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod backend {
-    use domain::voice::TrayItem;
+    use domain::voice::{TrayItem, TrayItemId};
     use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
     use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
+    /// One live row, kept so a new menu of the same shape updates in place
+    /// (rebuilding the `Menu` on every change leaks HMENUs on Windows).
+    enum Row {
+        Separator,
+        Action(MenuItem),
+        Check(CheckMenuItem),
+    }
+
+    /// A row's shape: its kind and id (separators have none).
+    fn shape(item: &TrayItem) -> (u8, Option<TrayItemId>) {
+        match item {
+            TrayItem::Separator => (0, None),
+            TrayItem::Action { id, .. } => (1, Some(*id)),
+            TrayItem::Check { id, .. } => (2, Some(*id)),
+        }
+    }
+
     pub(super) struct Backend {
         tray: Option<TrayIcon>,
+        rows: Vec<Row>,
+        shape: Vec<(u8, Option<TrayItemId>)>,
     }
 
     impl Backend {
         pub(super) fn new(clicks: flume::Sender<super::TrayEvent>) -> Self {
+            let menu_clicks = clicks.clone();
             MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
                 if let Some(id) = super::item_of(event.id.0.as_str()) {
-                    let _ = clicks.send(super::TrayEvent::Item(id));
+                    let _ = menu_clicks.send(super::TrayEvent::Item(id));
                 }
             }));
-            Self { tray: None }
+            // Windows: a left click on the icon brings the IDE up (the menu
+            // is a right click). macOS opens the menu, which leads with Open.
+            #[cfg(target_os = "windows")]
+            tray_icon::TrayIconEvent::set_event_handler(Some(move |event: tray_icon::TrayIconEvent| {
+                use tray_icon::{MouseButton, MouseButtonState, TrayIconEvent};
+                let open = matches!(
+                    event,
+                    TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. }
+                        | TrayIconEvent::DoubleClick { button: MouseButton::Left, .. }
+                );
+                if open {
+                    let _ = clicks.send(super::TrayEvent::Activate);
+                }
+            }));
+            #[cfg(not(target_os = "windows"))]
+            let _ = clicks;
+            Self { tray: None, rows: Vec::new(), shape: Vec::new() }
         }
 
         pub(super) fn set(&mut self, menu: Option<Vec<TrayItem>>) {
             let Some(items) = menu else {
                 // Dropping the icon removes it.
                 self.tray = None;
+                self.rows.clear();
+                self.shape.clear();
                 return;
             };
-            let menu = build(&items);
+            let shape: Vec<_> = items.iter().map(shape).collect();
+            if self.tray.is_some() && shape == self.shape {
+                for (row, item) in self.rows.iter().zip(&items) {
+                    match (row, item) {
+                        (Row::Action(row), TrayItem::Action { label: text, enabled, .. }) => {
+                            row.set_text(label(text));
+                            row.set_enabled(*enabled);
+                        }
+                        (Row::Check(row), TrayItem::Check { label: text, checked, enabled, .. }) => {
+                            row.set_text(label(text));
+                            row.set_enabled(*enabled);
+                            row.set_checked(*checked);
+                        }
+                        _ => {}
+                    }
+                }
+                return;
+            }
+            let (menu, rows) = build(&items);
+            self.rows = rows;
+            self.shape = shape;
             if let Some(tray) = self.tray.as_ref() {
                 tray.set_menu(Some(Box::new(menu)));
                 return;
             }
             let mut builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip(super::TITLE);
+            #[cfg(target_os = "windows")]
+            {
+                builder = builder.with_menu_on_left_click(false);
+            }
             if let Some(frame) = super::icon_frames(&[64]).pop() {
                 if let Ok(icon) = Icon::from_rgba(frame.rgba, frame.width, frame.height) {
                     // The menu bar tints a template image for light and dark.
@@ -339,23 +436,33 @@ mod backend {
         if cfg!(target_os = "windows") { text.replace('&', "&&") } else { text.to_string() }
     }
 
-    fn build(items: &[TrayItem]) -> Menu {
+    fn build(items: &[TrayItem]) -> (Menu, Vec<Row>) {
         let menu = Menu::new();
+        let mut rows = Vec::with_capacity(items.len());
         for item in items {
             let appended = match item {
-                TrayItem::Separator => menu.append(&PredefinedMenuItem::separator()),
+                TrayItem::Separator => {
+                    rows.push(Row::Separator);
+                    menu.append(&PredefinedMenuItem::separator())
+                }
                 TrayItem::Action { id, label: text, enabled } => {
-                    menu.append(&MenuItem::with_id(super::item_key(*id), label(text), *enabled, None))
+                    let row = MenuItem::with_id(super::item_key(*id), label(text), *enabled, None);
+                    let appended = menu.append(&row);
+                    rows.push(Row::Action(row));
+                    appended
                 }
                 TrayItem::Check { id, label: text, checked, enabled } => {
-                    menu.append(&CheckMenuItem::with_id(super::item_key(*id), label(text), *enabled, *checked, None))
+                    let row = CheckMenuItem::with_id(super::item_key(*id), label(text), *enabled, *checked, None);
+                    let appended = menu.append(&row);
+                    rows.push(Row::Check(row));
+                    appended
                 }
             };
             if let Err(err) = appended {
                 log::warn!("[ui] voice tray: menu item: {err}");
             }
         }
-        menu
+        (menu, rows)
     }
 }
 
@@ -386,6 +493,7 @@ mod tests {
     #[test]
     fn every_item_round_trips_its_key() {
         for id in [
+            TrayItemId::Open,
             TrayItemId::Call,
             TrayItemId::SpeakReplies,
             TrayItemId::PushToTalk,
@@ -397,6 +505,17 @@ mod tests {
             assert_eq!(item_of(item_key(id)), Some(id));
         }
         assert_eq!(item_of("voice-tray:nope"), None);
+    }
+
+    #[test]
+    fn the_windows_icon_carries_a_dark_ring() {
+        let svg = ringed(ICON_SVG);
+        let tree = resvg::usvg::Tree::from_data(&svg, &resvg::usvg::Options::default()).unwrap();
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(64, 64).unwrap();
+        let scale = 64.0 / tree.size().width();
+        resvg::render(&tree, resvg::tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+        let dark = pixmap.pixels().iter().filter(|pixel| pixel.alpha() > 200 && pixel.red() < 80).count();
+        assert!(dark > 50, "the ring reads on a light taskbar ({dark} dark pixels)");
     }
 
     #[test]

@@ -8,10 +8,11 @@
 //!
 //! NEW-68: the voice device's IDE also shows a system tray item
 //! (`crate::voice_tray`) whose menu is OS-native, not a styleguide
-//! component: Speak replies, Push to talk · {shortcut}, Wake word ·
-//! {phrase} and Mute microphone as check items (disabled while the device
-//! or the agent is None, as on this page), then Voice settings… (opens this
-//! page) and Quit; Call {agent} leads once calls land (V4).
+//! component: Open Exponential first (Call {agent} after it once calls
+//! land, V4), then Speak replies, Push to talk · {shortcut} and Wake word ·
+//! {phrase} as check items (disabled while the device or the agent is None,
+//! as on this page; Mute microphone joins once the IDE listens, V3), then
+//! Voice settings… (opens this page) and Quit.
 
 use gpui::{div, px, App, IntoElement, ParentElement as _, Styled as _, Window};
 use gpui_component::{input::InputState, v_flex};

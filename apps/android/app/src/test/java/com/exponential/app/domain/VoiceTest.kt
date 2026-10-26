@@ -56,6 +56,7 @@ class VoiceTest {
             "wakeWord" to Voice.Copy.WAKE_WORD,
             "wakePhrase" to Voice.Copy.WAKE_PHRASE,
             "wakePhrasePlaceholder" to Voice.Copy.WAKE_PHRASE_PLACEHOLDER,
+            "trayOpen" to Voice.Copy.TRAY_OPEN,
             "trayCall" to Voice.Copy.TRAY_CALL,
             "trayMute" to Voice.Copy.TRAY_MUTE,
             "traySettings" to Voice.Copy.TRAY_SETTINGS,

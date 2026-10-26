@@ -547,8 +547,9 @@ fn focused_surface(cx: &mut App) -> Option<FocusedSurface> {
 }
 
 /// A shell window to land a click in: the active one when it is a shell,
-/// else any window with a navigation entry.
-fn shell_window(cx: &App) -> Option<AnyWindowHandle> {
+/// else any window with a navigation entry (never a dialog or an undocked
+/// terminal).
+pub(crate) fn shell_window(cx: &App) -> Option<AnyWindowHandle> {
     let is_shell =
         |window: &AnyWindowHandle| navigation::nav_for_window_id(window.window_id(), cx).is_some();
     if let Some(window) = cx.active_window().filter(is_shell) {
