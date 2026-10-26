@@ -452,8 +452,8 @@
         "file": "shots/chat/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 14626,
-        "sha256": "f351818d63d6ae2a7c101edd78a4f2fc4994068c71f124977e5a53927daa25e0"
+        "bytes": 17858,
+        "sha256": "96c0023a39c0beb16d27756badd45755074e18bfaddac3fb9586ae7825489a22"
       },
       "web": {
         "file": "shots/chat/web.webp",
@@ -542,8 +542,8 @@
         "file": "shots/chat-list/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 43446,
-        "sha256": "e7d7b6a5ce8775820d316584de457ea85a6ed2b4f4eb0edec18d7eea8a6d0f8e"
+        "bytes": 40634,
+        "sha256": "381871cbd1447ac82103d8505de353a8b56cc255f2e5ca061cc2d878235d3a48"
       },
       "web": {
         "file": "shots/chat-list/web.webp",
@@ -579,8 +579,8 @@
         "file": "shots/chat-menus/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 23508,
-        "sha256": "30d8b147297a42de45c6859d9b473dd099314ef3769b7ac38e0aa52f593cf3fe"
+        "bytes": 22362,
+        "sha256": "3f6b27185ccd221cd8003ea8abc83475be5c2401192eb21fbcdc9e2340e58e70"
       },
       "web": {
         "file": "shots/chat-menus/web.webp",
@@ -616,8 +616,8 @@
         "file": "shots/chat-transcript/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 49744,
-        "sha256": "90515b9a15dafc0162cee5537fd8614f3d803093cacfad1bcd57a0d05e437741"
+        "bytes": 38630,
+        "sha256": "7f61c8d6bb5edc77559ef704784d8f858a765eac5e0b4c8071292ed65fec00c5"
       },
       "web": {
         "file": "shots/chat-transcript/web.webp",
@@ -3341,8 +3341,8 @@
         "file": "shots/getting-started/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 26614,
-        "sha256": "ddcff25a4cdeb26288fe174df650d163999ac333b0eaabde612c99374fc29e3a"
+        "bytes": 27734,
+        "sha256": "e9f0b7a47c24845feb83701a0c762610a18bf5d26a88bd2c35c18f52824039af"
       },
       "web": {
         "file": "shots/getting-started/web.webp",
@@ -3371,8 +3371,8 @@
         "file": "shots/guide/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 72980,
-        "sha256": "b9fc0d9be9fc58a8ceb1d208ce1841d1b7dfc2addb87afbd379e033af1d79a48"
+        "bytes": 76036,
+        "sha256": "2ac49a8d5e22c7acaafeb220cba0ff4ac8950a7d201f49201da4da7e576b1f00"
       },
       "web": {
         "file": "shots/guide/web.webp",
@@ -4011,8 +4011,8 @@
         "file": "shots/plan-card/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 19082,
-        "sha256": "57ac7ce6585d329ac8ffebf02c12942d2d98d4a2a556f9adf7de50165f8af149"
+        "bytes": 21616,
+        "sha256": "a9eed89d981a8d69a6a9202a9e17e777975508052fe76563390b83a08faf515a"
       },
       "web": {
         "file": "shots/plan-card/web.webp",
@@ -4228,15 +4228,15 @@
         "file": "shots/session/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 76684,
-        "sha256": "4ef52afe4da71b3647e8ee5f4c9a53bf99c7d9acbf093ce43631493d7baba151"
+        "bytes": 76082,
+        "sha256": "5ccf1bd2b65c503910837cf6b440be8633bcce29b36219a1776a6b2100663f53"
       },
       "web": {
         "file": "shots/session/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 81942,
-        "sha256": "478ae339a6260f75a4396bea239507ce9c8e9c69d3cf377e5590d311b19897c1"
+        "bytes": 78738,
+        "sha256": "4544a566cdedc60f398f763fa82fdb91e2834125f4f07f5c43d2823323239ad0"
       },
       "web-mobile": {
         "file": "shots/session/web-mobile.webp",
@@ -4258,8 +4258,8 @@
         "file": "shots/session-row/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 53298,
-        "sha256": "e868472d2049b14a31c3ea30d4943e2fa9796b0dfe90925a0f2bf1ecba1242c0"
+        "bytes": 78682,
+        "sha256": "651a3c305e689e8704634caef77565dbf839b317e6fde52d9ac5f36a40fb54b3"
       }
     },
     "session-slash-menu": {
@@ -4642,8 +4642,8 @@
         "file": "shots/settings-prompts/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 41584,
-        "sha256": "b7124517bc8f392472e0637ac915f0b84f7620edfce92d9145d8f6fe3865a833"
+        "bytes": 15802,
+        "sha256": "f8452973ba708ef36633749b8756df4da58d3c35d347d7ba75195dcf4f293fb6"
       },
       "web": {
         "file": "shots/settings-prompts/web.webp",
