@@ -4607,26 +4607,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ksni"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bcc1cb43797140f74b711f1c4a49f48a7a7429f211c5fb78264e7bcd1e99caf"
-dependencies = [
- "arc-swap",
- "async-executor",
- "async-io",
- "async-lock",
- "crossbeam-queue",
- "futures-channel",
- "futures-lite",
- "futures-util",
- "pastey 0.2.3",
- "serde",
- "task-local",
- "zbus",
-]
-
-[[package]]
 name = "kurbo"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8455,15 +8435,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "task-local"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2972044a9e5e448a506a7ff6f0d03b566d8ef4cd6918a58fc59835a0f8666626"
-dependencies = [
- "pin-project-lite",
-]
-
-[[package]]
 name = "tauri-winrt-notification"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9447,7 +9418,6 @@ dependencies = [
  "iana-time-zone",
  "image",
  "imagesize 0.13.0",
- "ksni",
  "libc",
  "log",
  "objc",
@@ -9468,6 +9438,7 @@ dependencies = [
  "url",
  "uuid",
  "x11rb",
+ "zbus",
 ]
 
 [[package]]

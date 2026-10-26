@@ -2,8 +2,9 @@
 //! (`fixtures/voice.json` `trayMenu`).
 //!
 //! The tray shows ONLY while this IDE is the member's voice device. Its menu
-//! is OS-native: a StatusNotifierItem through `ksni` on Linux (pure Rust over
-//! D-Bus, no GTK; GNOME without the AppIndicator extension shows nothing),
+//! is OS-native: on Linux our own StatusNotifierItem + dbusmenu over zbus
+//! ([`linux`]; no GTK, and not `ksni`, whose Unlicense is off deny.toml's
+//! allow-list; GNOME without the AppIndicator extension shows nothing),
 //! `tray-icon` + `muda` on macOS and Windows (created on gpui's main thread).
 //! The rows come from [`domain::voice::tray_menu`]; a toggle writes
 //! `voice.update` optimistically like Settings → Voice (the menu flips at
@@ -18,7 +19,7 @@ use api::voice::VoiceUpdate;
 use domain::voice::{tray_menu, TrayContext, TrayItem, TrayItemId, VoiceSettings};
 
 /// The app icon (the one `desktop_integration` installs on Linux).
-const ICON_SVG: &[u8] = include_bytes!("../../../assets/icons/logo-white.svg");
+const ICON_SVG: &[u8] = include_bytes!("../../../../assets/icons/logo-white.svg");
 
 /// The tray's title / tooltip.
 const TITLE: &str = "Exponential";
@@ -52,6 +53,15 @@ fn icon_frames(sizes: &[u32]) -> Vec<IconFrame> {
             Some(IconFrame { width: size, height: size, rgba })
         })
         .collect()
+}
+
+/// What the OS reports back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TrayEvent {
+    /// A menu entry was clicked.
+    Item(TrayItemId),
+    /// The icon itself was clicked (Linux `Activate`): bring the IDE up.
+    Activate,
 }
 
 /// A menu entry's stable id across the OS boundary.
@@ -106,7 +116,7 @@ impl Global for VoiceTrayGlobal {}
 pub fn install(cx: &mut App) {
     let Some(speaker) = crate::speak_replies::entity(cx) else { return };
     let device_id = steer::persistent_device_id(&crate::session::AuthContext::global(cx).data_dir);
-    let (tx, rx) = flume::unbounded::<TrayItemId>();
+    let (tx, rx) = flume::unbounded::<TrayEvent>();
     let entity = cx.new(|cx: &mut Context<VoiceTray>| {
         cx.observe(&speaker, |this: &mut VoiceTray, _, cx| this.sync(cx)).detach();
         // The agent's name labels Call and the wake phrase's placeholder.
@@ -118,9 +128,12 @@ pub fn install(cx: &mut App) {
     cx.set_global(VoiceTrayGlobal(entity.clone()));
     let weak = entity.downgrade();
     cx.spawn(async move |cx| {
-        while let Ok(id) = rx.recv_async().await {
+        while let Ok(event) = rx.recv_async().await {
             let Some(entity) = weak.upgrade() else { break };
-            cx.update(|cx| entity.update(cx, |this, cx| this.on_click(id, cx)));
+            cx.update(|cx| match event {
+                TrayEvent::Item(id) => entity.update(cx, |this, cx| this.on_click(id, cx)),
+                TrayEvent::Activate => open_ide(cx),
+            });
         }
     })
     .detach();
@@ -142,6 +155,17 @@ pub(crate) fn keeps_running(cx: &App) -> bool {
 #[allow(dead_code)]
 pub(crate) fn muted(cx: &App) -> bool {
     global(cx).is_some_and(|entity| entity.read(cx).muted)
+}
+
+/// Bring a shell window forward, or open one when every window is closed.
+fn open_ide(cx: &mut App) {
+    cx.activate(true);
+    let window = cx.active_window().or_else(|| cx.windows().into_iter().next());
+    if let Some(window) = window {
+        let _ = window.update(cx, |_, window, _| window.activate_window());
+        return;
+    }
+    crate::window_hooks::request_shell_window(cx);
 }
 
 /// The voice agent's label as Settings → Voice shows it.
@@ -247,148 +271,16 @@ impl VoiceTray {
     }
 }
 
-/// Linux: a StatusNotifierItem on its own thread (D-Bus calls block).
+/// Linux: our own StatusNotifierItem + dbusmenu over zbus.
 #[cfg(target_os = "linux")]
-mod backend {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
-
-    use domain::voice::{TrayItem, TrayItemId};
-    use ksni::blocking::TrayMethods as _;
-
-    pub(super) struct Backend {
-        tx: flume::Sender<Option<Vec<TrayItem>>>,
-        registered: Arc<AtomicBool>,
-    }
-
-    impl Backend {
-        pub(super) fn new(clicks: flume::Sender<TrayItemId>) -> Self {
-            let (tx, rx) = flume::unbounded();
-            let registered = Arc::new(AtomicBool::new(false));
-            let flag = registered.clone();
-            if let Err(err) = std::thread::Builder::new().name("voice-tray".into()).spawn(move || run(rx, clicks, flag)) {
-                log::warn!("[ui] voice tray: thread failed to start: {err}");
-            }
-            Self { tx, registered }
-        }
-
-        pub(super) fn set(&mut self, menu: Option<Vec<TrayItem>>) {
-            let _ = self.tx.send(menu);
-        }
-
-        pub(super) fn registered(&self) -> bool {
-            self.registered.load(Ordering::SeqCst)
-        }
-    }
-
-    fn run(rx: flume::Receiver<Option<Vec<TrayItem>>>, clicks: flume::Sender<TrayItemId>, registered: Arc<AtomicBool>) {
-        // ARGB32 in network byte order.
-        let icon: Vec<ksni::Icon> = super::icon_frames(&[22, 32, 48, 64])
-            .into_iter()
-            .map(|frame| ksni::Icon {
-                width: frame.width as i32,
-                height: frame.height as i32,
-                data: frame.rgba.chunks_exact(4).flat_map(|p| [p[3], p[0], p[1], p[2]]).collect(),
-            })
-            .collect();
-        let mut handle: Option<ksni::blocking::Handle<SniTray>> = None;
-        while let Ok(mut menu) = rx.recv() {
-            // Only the newest menu matters.
-            while let Ok(newer) = rx.try_recv() {
-                menu = newer;
-            }
-            match menu {
-                Some(menu) => match handle.as_ref().filter(|handle| !handle.is_closed()) {
-                    Some(handle) => {
-                        handle.update(|tray| tray.menu = menu);
-                    }
-                    None => match (SniTray { menu, icon: icon.clone(), clicks: clicks.clone() }).spawn() {
-                        Ok(spawned) => {
-                            handle = Some(spawned);
-                            registered.store(true, Ordering::SeqCst);
-                        }
-                        Err(err) => {
-                            // No StatusNotifierWatcher (GNOME without the
-                            // AppIndicator extension): no tray, and closing
-                            // the last window quits as before.
-                            log::info!("[ui] voice tray: no tray host: {err}");
-                            registered.store(false, Ordering::SeqCst);
-                        }
-                    },
-                },
-                None => {
-                    if let Some(handle) = handle.take() {
-                        handle.shutdown().wait();
-                    }
-                    registered.store(false, Ordering::SeqCst);
-                }
-            }
-        }
-    }
-
-    struct SniTray {
-        menu: Vec<TrayItem>,
-        icon: Vec<ksni::Icon>,
-        clicks: flume::Sender<TrayItemId>,
-    }
-
-    /// dbusmenu reads `_` as a mnemonic marker.
-    fn label(text: &str) -> String {
-        text.replace('_', "__")
-    }
-
-    fn click(id: TrayItemId) -> Box<dyn Fn(&mut SniTray) + Send> {
-        Box::new(move |tray: &mut SniTray| {
-            let _ = tray.clicks.send(id);
-        })
-    }
-
-    impl ksni::Tray for SniTray {
-        // A left click opens the menu, as on macOS and Windows.
-        const MENU_ON_ACTIVATE: bool = true;
-
-        fn id(&self) -> String {
-            "exponential-voice".into()
-        }
-
-        fn title(&self) -> String {
-            super::TITLE.into()
-        }
-
-        fn icon_pixmap(&self) -> Vec<ksni::Icon> {
-            self.icon.clone()
-        }
-
-        fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
-            self.menu
-                .iter()
-                .map(|item| match item {
-                    TrayItem::Separator => ksni::MenuItem::Separator,
-                    TrayItem::Action { id, label: text, enabled } => ksni::menu::StandardItem {
-                        label: label(text),
-                        enabled: *enabled,
-                        activate: click(*id),
-                        ..Default::default()
-                    }
-                    .into(),
-                    TrayItem::Check { id, label: text, checked, enabled } => ksni::menu::CheckmarkItem {
-                        label: label(text),
-                        enabled: *enabled,
-                        checked: *checked,
-                        activate: click(*id),
-                        ..Default::default()
-                    }
-                    .into(),
-                })
-                .collect()
-        }
-    }
-}
+mod linux;
+#[cfg(target_os = "linux")]
+use linux as backend;
 
 /// macOS and Windows: the native tray, on gpui's main thread.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod backend {
-    use domain::voice::{TrayItem, TrayItemId};
+    use domain::voice::TrayItem;
     use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
     use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
@@ -397,10 +289,10 @@ mod backend {
     }
 
     impl Backend {
-        pub(super) fn new(clicks: flume::Sender<TrayItemId>) -> Self {
+        pub(super) fn new(clicks: flume::Sender<super::TrayEvent>) -> Self {
             MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
                 if let Some(id) = super::item_of(event.id.0.as_str()) {
-                    let _ = clicks.send(id);
+                    let _ = clicks.send(super::TrayEvent::Item(id));
                 }
             }));
             Self { tray: None }
@@ -470,12 +362,12 @@ mod backend {
 /// Elsewhere: no tray.
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 mod backend {
-    use domain::voice::{TrayItem, TrayItemId};
+    use domain::voice::TrayItem;
 
     pub(super) struct Backend;
 
     impl Backend {
-        pub(super) fn new(_clicks: flume::Sender<TrayItemId>) -> Self {
+        pub(super) fn new(_clicks: flume::Sender<super::TrayEvent>) -> Self {
             Self
         }
 
