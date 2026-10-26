@@ -23,7 +23,7 @@ export const entry: StyleguideEntry = {
     desktop: {
       state: `ok`,
       symbol: `MarkdownView (RefResolver.member_name)`,
-      file: `apps/desktop/crates/ui/src/markdown/mod.rs`,
+      file: `apps/desktop/crates/ui/src/markdown/editor.rs`,
     },
     ios: {
       state: `ok`,

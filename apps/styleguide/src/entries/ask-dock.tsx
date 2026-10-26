@@ -34,9 +34,9 @@ export const entry: StyleguideEntry = {
     },
     android: {
       state: `ok`,
-      symbol: `ThreadDock / SessionDockCards`,
+      symbol: `DockCards / DockSheet`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/components/Dock.kt`,
-      note: `the sheets = PlanAskCard(sheet) + PlanSheetFooter (ui/thread/PlanCardView.kt); model: domain/AskDock.kt + Dock.kt`,
+      note: `hosts: ThreadDock (thread/ThreadParts.kt), SessionDockCards; sheets = PlanAskCard + PlanSheetFooter`,
     },
   },
   island: () => <AskDockSpecimen />,

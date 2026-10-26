@@ -3,6 +3,7 @@
    fixtures/voice.json (shortcuts, shortcutSupportCases, pttCopy). */
 import type { ReactNode } from "react"
 import { DocsCallout, DocsCode, DocsLayout, DocsSection } from "@exp/site-shell"
+import { DocShot } from "../../../src/components/DocShot"
 import { DocsTable, IcArrow } from "../components/Content"
 import type { PageProps } from "../lib/routes"
 import { TALK_DOCS_NAV, TALK_GUIDES, talkGuidePath } from "./nav"
@@ -36,8 +37,7 @@ const GUIDE_SECTIONS: Record<string, Section[]> = {
       label: `Consent first`,
       body: (
         <p>
-          Use your own voice, or a voice whose owner agreed. Do not clone anyone without consent. Qwen&apos;s use policy forbids
-          impersonation and deception, and so do we.
+          Use your own voice, or a voice whose owner agreed. Do not clone anyone without consent.
         </p>
       ),
     },
@@ -47,9 +47,7 @@ const GUIDE_SECTIONS: Record<string, Section[]> = {
       body: (
         <ul>
           <li>8 to 15 seconds of one speaker, speaking calmly in the language you picked.</li>
-          <li>No music, no background noise, no laughter, no reverb.</li>
-          <li>Whole sentences at a normal pace. A neutral tone clones better than an excited or whispered one.</li>
-          <li>A decent microphone 15 to 30 cm away, or a clean stretch of an existing recording.</li>
+          <li>Clean speech: no music, no background noise.</li>
         </ul>
       ),
     },
@@ -63,7 +61,6 @@ const GUIDE_SECTIONS: Record<string, Section[]> = {
 ffmpeg -ss 12.5 -t 10 -i recording.m4a -ac 1 -ar 24000 -c:a pcm_s16le ~/voice/ref.wav`}</DocsCode>
           <ul>
             <li>Mono, 24 kHz, 16-bit PCM, like the built-in clips.</li>
-            <li>Start and end on silence, about 0.2 s at each end.</li>
             <li>Listen to it once, all the way through.</li>
           </ul>
         </>
@@ -74,8 +71,7 @@ ffmpeg -ss 12.5 -t 10 -i recording.m4a -ac 1 -ar 24000 -c:a pcm_s16le ~/voice/re
       label: `Write the transcript`,
       body: (
         <p>
-          Type exactly what the clip says, word for word, with normal punctuation. A transcript that doesn&apos;t match the audio is
-          the most common reason a clone sounds off.
+          Type exactly what the clip says, word for word, with normal punctuation.
         </p>
       ),
     },
@@ -85,6 +81,7 @@ ffmpeg -ss 12.5 -t 10 -i recording.m4a -ac 1 -ar 24000 -c:a pcm_s16le ~/voice/re
       body: (
         <>
           <p>In Settings → Voice, with your desktop as the voice device:</p>
+          <DocShot view="settings-voice" platform="web" caption="Settings → Voice on the web: Language, Voice file and Transcript in the first group." />
           <DocsTable
             head={[`Row`, `Value`]}
             rows={[
@@ -174,8 +171,8 @@ ffmpeg -ss 12.5 -t 10 -i recording.m4a -ac 1 -ar 24000 -c:a pcm_s16le ~/voice/re
       label: `Holding it`,
       body: (
         <p>
-          Holding the key stops any reply being spoken. Mute microphone in the tray keeps it closed; the overlay then reads
-          Microphone muted. A key held for 120 s ends as if you let go.
+          Holding the key stops any reply being spoken, unless the microphone is muted. Mute microphone in the tray keeps it closed;
+          the overlay then reads Microphone muted, Unmute in the tray to talk, with an Unmute pill. A key held for 120 s ends as if you let go.
         </p>
       ),
     },

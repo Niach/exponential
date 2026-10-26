@@ -82,10 +82,10 @@ export function AppsDocsPage() {
               The sidebar mirrors the web app: the team switcher,{` `}
               <strong>Search</strong> and <strong>New issue</strong> at the
               top, then <strong>Agent</strong>, Inbox,{` `}
-              <strong>Threads</strong>, Devices and Drafts (while you have
+              <strong>Chats</strong>, Devices and Drafts (while you have
               any), the team&apos;s <strong>Agents</strong>, its{` `}
               <strong>Apps</strong>, the <strong>Boards</strong>, and your{` `}
-              <strong>Active</strong> threads. At the bottom sit the{` `}
+              <strong>Active</strong> chats. At the bottom sit the{` `}
               <strong>What&apos;s new</strong> card,{` `}
               <strong>Getting started</strong> and your account, whose menu
               holds What&apos;s new, About and Sign out. On its right, the
@@ -102,7 +102,7 @@ export function AppsDocsPage() {
             <p>
               The working area is a rounded card on a darker ground, the same
               cutout layout the web app uses. Work opens as tabs along its
-              top: an issue, or a <strong>thread</strong> with its own strip
+              top: an issue, or a <strong>chat</strong> with its own strip
               (Conversation, the issue chips, the session chips, the Guide)
               under the title. Terminals fill the card instead, and open
               terminals get a bar of tabs under it — a bar that is not there
@@ -112,7 +112,7 @@ export function AppsDocsPage() {
             <DocShot
               view="steering"
               platform="desktop"
-              caption="A session in the desktop IDE: the thread's tab along the top, its strip, and the sidebar beside it"
+              caption="A session in the desktop IDE: the chat's tab along the top, its strip, and the sidebar beside it"
             />
             <h3>System notifications</h3>
             <p>
@@ -123,6 +123,27 @@ export function AppsDocsPage() {
               <strong>Settings → Notifications → Desktop notifications</strong>
               , with the per-type switches below it applying to those too.
             </p>
+            <h3>Voice</h3>
+            <p>
+              <strong>Settings → Voice</strong> picks your{` `}
+              <strong>Voice device</strong> (one of your desktops) and the{` `}
+              <strong>Agent</strong> you talk to, with{` `}
+              <strong>Speak replies</strong>, the <strong>Language</strong>,
+              and a <strong>Voice file</strong> with its{` `}
+              <strong>Transcript</strong>. While a voice device is picked, a
+              second group, <strong>On &lt;device&gt; (tray)</strong>, holds{` `}
+              <strong>Push to talk</strong>, its <strong>Shortcut</strong>,{` `}
+              <strong>Wake word</strong> and <strong>Wake phrase</strong>, and
+              the IDE on that desktop sits in the system tray. Push to talk
+              and spoken replies in English and German are in beta; calling
+              from the phone and the wake word are coming. More on{` `}
+              <a href="/talk/">Exponential Talk</a>.
+            </p>
+            <DocShot
+              view="settings-voice"
+              platform="desktop"
+              caption="Settings → Voice: the voice device, the agent, Speak replies and Language, and the tray group"
+            />
           </DocsSection>
 
           {/* ── 02 Mobile ── */}
@@ -131,36 +152,50 @@ export function AppsDocsPage() {
             <p>
               Native <a href={LINKS.downloads.ios}>iOS</a> and{` `}
               <a href={LINKS.downloads.android}>Android</a> apps with
-              everything synced in real time. Four tabs:
+              everything synced in real time, for one team at a time. The
+              bar along the bottom has four tabs (the mobile web has the
+              same):
             </p>
             <ul>
               <li>
-                <strong>Issues</strong>: your boards. Triage, edit,
-                comment.
+                <strong>Board</strong>, named after the board you are on:
+                its issues, with <strong>All issues</strong>,{` `}
+                <strong>My issues</strong> and <strong>Drafts</strong>{` `}
+                (while you have any) as chips under the title. Tap the tab
+                again on the board and the bar turns into a menu of the
+                team&apos;s boards, with <strong>New board</strong> at the
+                end.
               </li>
               <li>
-                <strong>Inbox</strong>: your notifications,{` `}
-                <strong>My issues</strong> and your{` `}
-                <strong>Drafts</strong>, as three tabs, with{` `}
-                <strong>Mark all read</strong> on top.
+                <strong>Chats</strong>: the team&apos;s{` `}
+                <a href="/docs/actions/#triggers">agents</a> as bubbles on
+                top, the <strong>All</strong>, <strong>Needs you</strong>,{` `}
+                <strong>Running</strong> and <strong>Unread</strong> chips,
+                then one row per chat with its last message, its time and
+                its unread count.
               </li>
               <li>
+                <strong>Apps</strong>: the team&apos;s{` `}
+                <a href="#team-apps">apps</a>.
+              </li>
+              <li>
+                <strong>Team</strong>, named after the active team: your
+                teams (a tap switches), then the team&apos;s settings, each
+                row its own page (General for owners, Members, Labels,
+                Boards, Agents, Repositories, Prompts and{` `}
                 <strong>Devices</strong>: your machines, the team&apos;s
-                shared ones, and the agent accounts they hold.
-              </li>
-              <li>
-                <strong>Threads</strong>: the team&apos;s{` `}
-                <a href="/docs/actions/#triggers">agents</a> on top, then
-                every thread under Needs you, Running and Recent. The button
-                in its header opens the team&apos;s{` `}
-                <a href="#team-apps">Apps</a>.
+                shared ones and the agent accounts they hold), then your
+                account.
               </li>
             </ul>
             <p>
-              The round chat button beside the tab pill opens the{` `}
+              Every page has the same big title with round search and inbox
+              buttons; the inbox is a page of its own, with{` `}
+              <strong>Mark all read</strong>, and search looks in the active
+              team. Beside the bar, the round chat button opens the{` `}
               <a href="/docs/coding/#start-coding">Agent page</a>: the one
               composer, where the app opens. <strong>New issue</strong> sits
-              beside it. Search sits in the board header. Select
+              beside it. Select
               issues and the bulk bar takes the tab bar&apos;s place, with
               status, priority, assignee, labels and delete on it. Full
               onboarding runs on mobile too: create boards, connect GitHub,
@@ -201,8 +236,8 @@ export function AppsDocsPage() {
             <h2>Steer from anywhere</h2>
             <p>
               A coding session started on your desktop doesn&apos;t chain you
-              to the desk. <strong>Threads</strong>, on the phone and on the
-              web, lists every thread with a{` `}
+              to the desk. <strong>Chats</strong>, on the phone and on the
+              web, lists every chat with a{` `}
               <strong>live activity feed</strong> one tap away. Watch the
               agent work in real time, and{` `}
               <strong>send steer messages</strong> mid-session: answer its
@@ -218,17 +253,20 @@ export function AppsDocsPage() {
               the prompts and commands, <code>@</code> for a teammate,{` `}
               <code>#</code> for an issue and <code>:</code> for an emoji —
               are the same on the phone as on the desktop. On the phone,{` `}
-              <strong>Stop</strong> sits in a session&apos;s top bar, and the
-              context ring beside the composer opens{` `}
+              <strong>Stop</strong> in a chat&apos;s top bar ends the chat,
+              the composer&apos;s stop button interrupts only the turn, and
+              the context ring beside the composer opens{` `}
               <strong>Usage</strong> (how much of the agent&apos;s limits this
-              session and this week have spent). A thread is one screen
+              session and this week have spent). Long-press a chat in the
+              list to <strong>Stop</strong> it, <strong>Stop and delete</strong>{` `}
+              it, or <strong>Delete</strong> an ended one. A chat is one screen
               paged by its strip: the <strong>Conversation</strong>, each
               linked issue, each session&apos;s work, and the{` `}
               <strong>Guide</strong>, swiped or tapped, with the composer
               floating over whichever page is up. The Guide carries the{` `}
               <strong>Merge</strong> capsule while the pull request is open
               (<strong>Merge stack</strong> for a stacked one), so a PR the
-              thread opened merges from the phone too.
+              chat opened merges from the phone too.
             </p>
             <p>
               The full flow (starting sessions, plan mode, several issues at
@@ -285,7 +323,7 @@ export function AppsDocsPage() {
               Besides its own records, an app binds the team&apos;s data
               through <code>exp:</code> sources: the issues of a board (filtered
               by status, assignee, priority or a search), the boards, the
-              members, the threads and agent chats, an issue&apos;s comments and
+              members, the chats and agent chats, an issue&apos;s comments and
               its files, and the devices. Every client resolves them the same
               way, live, from the rows it already syncs, so an app never waits
               on a request.
@@ -297,7 +335,11 @@ export function AppsDocsPage() {
               what it uses, and the app&apos;s settings page shows those as{` `}
               <strong>Tools</strong> with a switch each. A switched-on tool runs
               as you without asking; anything else asks every time, worded for
-              the operation and with the arguments shown.
+              the operation and with the arguments shown. Only a team owner
+              flips the switches, and an operation that deletes, merges,
+              closes, ends, removes or trashes can never be switched on: it
+              reads <strong>Always asks</strong>. A new version from a member
+              who is not an owner starts with nothing switched on.
             </p>
             <h3>Share an app as a file</h3>
             <p>
@@ -326,8 +368,10 @@ export function AppsDocsPage() {
             <p>
               <strong>Settings → Apps</strong> lists them too; each app&apos;s
               settings page holds its name, icon, colour and description,{` `}
-              <strong>Open in the editor</strong>, the record count, and delete. On the phones,
-              {` `}Apps opens from the Threads tab&apos;s header. Agents and MCP
+              <strong>Open in the editor</strong>, the record count, the{` `}
+              <strong>Tools</strong> group, <strong>Export</strong> and
+              delete; it is on the web and the desktop. On the phones, Apps
+              is its own tab. Agents and MCP
               clients can build apps too, through the{` `}
               <a href="/docs/mcp/#tools"><code>exponential_apps</code></a>{` `}
               tool.

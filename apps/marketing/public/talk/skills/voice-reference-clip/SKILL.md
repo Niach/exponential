@@ -23,18 +23,13 @@ Human version: https://exponential.at/talk/guides/your-voice/
 ## Consent first
 
 Use your own voice, or a voice whose owner agreed to this use. Do not clone
-anyone without consent. The voice model's use policy (Qwen) forbids
-impersonation and deception, and so do we.
+anyone without consent.
 
 ## 1. Pick the take
 
 - 8 to 15 seconds of ONE speaker, speaking calmly in the language picked in
   Settings → Voice.
-- No music, no background noise, no laughter, no effort sounds, no reverb.
-- Whole sentences at a normal pace. A neutral tone clones better than an
-  excited or whispered one.
-- Record with a decent microphone 15 to 30 cm away, or pick a clean stretch
-  from an existing recording.
+- Clean speech: no music, no background noise.
 
 ## 2. Cut it to a WAV
 
@@ -46,15 +41,13 @@ ffmpeg -ss 12.5 -t 10 -i recording.m4a -ac 1 -ar 24000 -c:a pcm_s16le ~/voice/re
 ```
 
 - Mono, 24 kHz, 16-bit PCM (the built-in clips' format).
-- Start and end on silence, not mid-word. Leave about 0.2 s of silence at
-  each end.
+- Start and end on silence, not mid-word.
 - Listen to the result once, all the way through.
 
 ## 3. Write the transcript
 
 Type exactly what the clip says, word for word, with normal punctuation. Leave
-out filler you can't hear clearly. A transcript that doesn't match the audio
-is the most common reason a cloned voice sounds off.
+out filler you can't hear clearly.
 
 ## 4. Enter it in Exponential
 

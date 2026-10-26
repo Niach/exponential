@@ -23,20 +23,12 @@ export const entry: StyleguideEntry = {
     },
     desktop: {
       state: `ok`,
-      symbol: `steer_viewer::render_status_row`,
+      symbol: `steer_viewer::session_status_row`,
       file: `apps/desktop/crates/ui/src/steer_viewer.rs`,
       note: `styleguide/entries/run_status_row.rs`,
     },
-    ios: {
-      state: `ok`,
-      symbol: `RunStatusRow`,
-      file: `apps/ios/Exponential/UI/Session/RunStatusRow.swift`,
-    },
-    android: {
-      state: `ok`,
-      symbol: `RunStatusRow`,
-      file: `apps/android/app/src/main/java/com/exponential/app/ui/session/RunStatusRow.kt`,
-    },
+    ios: { state: `n/a`, note: `EXP-1291 removed RunStatusRow.swift; the session header's AgentRunMark carries the state` },
+    android: { state: `n/a`, note: `N-11: no status row over the feed; the session header's AgentRunMark carries the state` },
   },
   island: () => (
     <div className="flex flex-col divide-y divide-border">

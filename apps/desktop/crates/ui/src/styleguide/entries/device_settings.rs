@@ -144,7 +144,6 @@ impl DeviceSettingsDemo {
         }
     }
 
-
     /// The dialog's readiness block: the fixture's "computer use on" case,
     /// the switch live, the Computer use model row as the band's last row
     /// while it is on (`device_settings::computer_use_model_row`'s twin).

@@ -3,7 +3,8 @@ import { createContext, useContext } from "react"
 import type { Change, Commit, FeedRow, Question } from "./data"
 
 /* The rail destination the main view shows while no top tab is active
-   (navigation.rs `Screen`): Home ("Agent"), the Inbox, the Threads page, a
+   (navigation.rs `Screen`): Home ("Agent"), the Inbox, the Chats page
+   (`Screen::Threads`, the rail's Chats entry), a
    board's list, and the footer Computer menu's Files / Source Control. */
 export type Tool = `agent` | `inbox` | `threads` | `board` | `files` | `source-control`
 
@@ -66,7 +67,12 @@ export type IdeApi = {
   thread: ThreadView | null
   threadKey: string
   openThread: () => void
+  /* chats.json STOP: the header's Stop pill = `sessions.end` on the root
+     (the whole chat ends; a later message resumes it). */
   stopThread: () => void
+  /* The composer's round Stop while a turn runs = `sessions.stop`, the
+     TURN interrupt (the session stays and waits). */
+  stopTurn: () => void
   answer: (text: string) => void
   steer: (text: string) => void
 }

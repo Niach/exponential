@@ -21,10 +21,10 @@
 - **Issues** with statuses, priorities, labels, estimates, due dates, sub-issues and relations, markdown, @mentions and #issue references, full-text search, drafts that follow you across devices. Realtime sync on every client via [ElectricSQL](https://electric-sql.com). Moving from Linear? Settings → Import brings your issues over.
 - **Boards backed by a GitHub repo**: a session's branch and PR are tracked on every issue it works; several issues started together share one branch and one PR. The PR opening moves the issue to In Review, the merge to Done.
 - **Start**: hand an issue to Claude Code or Codex from any client, on any of your machines. It codes in a worktree and opens the PR.
-- **Threads**: one thread per piece of work, with its conversation, its issues, every session it runs and a Guide to the PR. Watch the transcript, answer the agent's questions and approve its plans, read the diff and the screenshots it publishes, from your phone or the desktop.
+- **Chats**: one chat per piece of work, with its conversation, its issues, every session it runs and a Guide to the PR. Watch the transcript, answer the agent's questions and approve its plans, read the diff and the screenshots it publishes, from your phone or the desktop.
 - **Your machines, your logins**: every desktop and server lists its agent accounts with plan, usage and reset times; switch a session to another account when one hits its limit.
 - **Prompts and agents**: saved team prompts run from the composer's `/` menu; team agents wake on a schedule or an issue event and run on your own machines.
-- **Apps**: describe a dashboard or a checklist and an agent session builds it as a team app, with a live preview and versions.
+- **Apps**: describe a dashboard or a checklist and an agent session builds it as a team app, with a live preview and versions. Apps keep their own records, read the team's boards, issues and chats, act as you through the tools an owner grants, and travel as one file.
 - **Headless CLI**: `exponential` turns any Linux or macOS box into an always-on agent machine your team starts sessions on.
 - **Feedback widget**: a script tag for your site; reports with annotated screenshots land as issues, and the reporter keeps a conversation with your team through an emailed link.
 - **MCP server** at `/api/mcp` (16 tools) for Claude Code, Codex, ChatGPT, Cursor, or any MCP client.

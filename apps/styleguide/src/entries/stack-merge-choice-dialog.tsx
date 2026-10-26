@@ -66,15 +66,15 @@ export const entry: StyleguideEntry = {
     },
     ios: {
       state: `ok`,
-      symbol: `WorkMergePill.stackMergeConfirmAlert`,
+      symbol: `WorkMergePill.confirmCard`,
       file: `apps/ios/Exponential/UI/Work/WorkMergePill.swift`,
-      note: `copy = ExpCore PrStack.stackMergeConfirm`,
+      note: `copy = ExpCore PullRequestStack.stackConfirm`,
     },
     android: {
       state: `ok`,
       symbol: `StackMergeDialog`,
-      file: `apps/android/app/src/main/java/com/exponential/app/ui/work/StackMergeDialog.kt`,
-      note: `copy = domain PrStack.stackMergeConfirm`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/work/PullRequestStack.kt`,
+      note: `copy = PullRequestStack.stackConfirm`,
     },
   },
   island: () => (

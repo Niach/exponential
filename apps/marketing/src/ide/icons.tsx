@@ -18,6 +18,7 @@ import {
   CircleCheck,
   CircleDashed,
   CircleQuestionMark,
+  CircleStop,
   CircleUser,
   CircleX,
   ClipboardList,
@@ -167,6 +168,7 @@ export const IcAssistant = wrap(Sparkles) // coding-assistant
 export const IcQuestion = wrap(CircleQuestionMark) // ui-help
 export const IcPlan = wrap(ClipboardList) // coding-plan
 export const IcSubmit = wrap(CircleArrowUp) // ui-submit
+export const IcStop = wrap(CircleStop) // ui-stop (the composer's Stop)
 export const IcHourglass = wrap(Hourglass) // notification-session-blocked
 export const IcIssueRef = wrap(Hash) // editor-issue-ref (Implement issue)
 export const IcAgentsGlyph = wrap(Bot) // settings-agents (Message an agent)

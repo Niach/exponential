@@ -882,7 +882,7 @@ docker compose pull && docker compose up -d
               By default (<code>IMAGE_TAG</code> unset ⇒ <code>latest</code>)
               this tracks upstream <code>master</code>. To move deliberately
               instead, pin a release in <code>.env</code> (e.g.{` `}
-              <code>IMAGE_TAG=0.18.97</code> from the{` `}
+              <code>IMAGE_TAG=0.18.99</code> from the{` `}
               <a href={`${LINKS.github.repo}/tags`}>release tags</a>, or{` `}
               <code>IMAGE_TAG=0.18</code> to follow that minor&apos;s latest
               patch) and bump it when you choose; the same tag applies to the steer relay

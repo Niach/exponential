@@ -6,7 +6,8 @@
    wash). The card shows the active tab (an issue or a thread), else the
    rail destination's screen. Flow (EXP-1294): Start on an issue opens Home
    with the issue as the subject; the send starts ONE thread, opened as a
-   tab; its turn ends on a question that waits in the Dock. ─── */
+   tab; its turn ends on a question that waits inline in the transcript
+   and in the Dock. ─── */
 import { useEffect, useMemo, useState } from "react"
 import {
   CHANGES,
@@ -31,7 +32,7 @@ import {
 } from "./state"
 import { Topbar } from "./Topbar"
 import { Rail } from "./Rail"
-import { InboxDetail, InboxScreen, ThreadsScreen } from "./Sidebar"
+import { ChatsScreen, InboxDetail, InboxScreen } from "./Sidebar"
 import { BoardPanel } from "./Board"
 import { IssueDetail } from "./IssueDetail"
 import { FilesPanel, FileTab } from "./Files"
@@ -92,7 +93,7 @@ function MainView() {
     case `threads`:
       return (
         <div className="ide-center">
-          <ThreadsScreen />
+          <ChatsScreen />
         </div>
       )
     case `files`:
@@ -282,6 +283,9 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
     threadKey: THREAD_KEY,
     openThread,
     stopThread: () => {
+      if (threadState !== `ended`) setThreadState(`ended`)
+    },
+    stopTurn: () => {
       if (threadState === `working`) setThreadState(`waiting`)
     },
     answer: (text) => {
@@ -303,8 +307,10 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
         return
       }
       /* A message to the idle session: its bubble, then the agent's reply.
+         A message to an ended chat resumes it (chats.json STOP, FEED-134).
          (While a turn runs the demo's field is read-only.) */
-      if (threadState !== `waiting`) return
+      if (threadState !== `waiting` && threadState !== `ended`) return
+      if (threadState === `ended`) setThreadState(`waiting`)
       setExtraRows((prev) => [
         ...prev,
         { kind: `user`, text: body },

@@ -123,7 +123,7 @@ export function HomePage() {
         <Feature
           id={`agents`}
           title={`Agents work your boards`}
-          text={`They run Claude Code or Codex on your own machine and subscription. Give one a job, message it like a teammate, review its pull request. Reports from the feedback widget on your site land on its board.`}
+          text={`They run Claude Code or Codex on your own machine and subscription. Give one a job, message it like a teammate, review its pull request. Reports from the feedback widget on your site land on a board, and an agent can pick them up.`}
           link={{ href: LINKS.downloadPage, label: `Get the apps` }}
         >
           <Shot view={`agent-channel`} platform={`desktop`} className={`aw-shot aw-shot-desktop`} />
@@ -153,7 +153,7 @@ export function HomePage() {
         <section id={`pricing`} className={`home-price-line`}>
           <motion.div className={`shell`} {...sectionReveal}>
             <h2 className={`section-title`}>Free for teams of three</h2>
-            <p className={`section-sub`}>€12 per seat after that. Free to self-host.</p>
+            <p className={`section-sub`}>€12 per seat a month after that, billed yearly. Free to self-host.</p>
             <div className={`home-pricing-links`}>
               <a className={`btn btn-primary`} href={LINKS.app.login}>
                 Get started free <IcArrow size={12} />

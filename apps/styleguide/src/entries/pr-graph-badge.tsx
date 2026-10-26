@@ -60,18 +60,8 @@ export const entry: StyleguideEntry = {
       file: `apps/desktop/crates/ui/src/pr_graph.rs`,
       note: `icon button per domain pr_graph::badge_shape + badge_chip count; Related work dialog: the relations card's three bands`,
     },
-    ios: {
-      state: `ok`,
-      symbol: `PrGraphBadge`,
-      file: `apps/ios/Exponential/UI/Work/PrGraphBadge.swift`,
-      note: `icon button per ExpCore PrGraph.badgeShape + badgeChip count; Related work sheet: the relations card's three bands`,
-    },
-    android: {
-      state: `ok`,
-      symbol: `PrGraphBadge`,
-      file: `apps/android/app/src/main/java/com/exponential/app/ui/work/PrGraphBadge.kt`,
-      note: `icon button per domain PrGraph.badgeShape + badgeChip count; Related work sheet: the relations card's three bands`,
-    },
+    ios: { state: `n/a`, note: `EXP-1291 removed the phone badge (PrGraphBadge.swift); the issue's relations section remains` },
+    android: { state: `n/a`, note: `EXP-1291 removed the phone badge (PrGraphBadge.kt); the issue's relations section remains` },
   },
   island: () => (
     <div className="flex flex-wrap items-center gap-6 p-2">

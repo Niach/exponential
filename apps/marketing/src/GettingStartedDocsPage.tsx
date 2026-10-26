@@ -276,7 +276,7 @@ export function GettingStartedDocsPage() {
               <strong>Getting started</strong>. It shows under an empty board,
               on the Agent page while the team has no board yet, and behind
               the <strong>Getting started</strong> entry at the bottom of the
-              sidebar (on the phones, a row in Settings). It walks the same
+              sidebar (on the phones, a row on the Team tab). It walks the same
               ground — <strong>Create a board</strong>,{` `}
               <strong>Connect GitHub</strong>, <strong>Add a device</strong>,
               {` `}<strong>Start a session</strong>,{` `}

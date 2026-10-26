@@ -17,11 +17,11 @@ const FETCHED = `your machine downloads it`
 
 const ROWS: [string, string, string][] = [
   [`Talk's crates (talk, voice, crispasr)`, `Apache-2.0`, SHIPPED],
-  [`Built-in voice clips (our own Qwen3-TTS output)`, `Apache-2.0`, SHIPPED],
-  [`cpal (audio, macOS and Windows)`, `Apache-2.0`, SHIPPED],
+    [`cpal (audio, macOS and Windows)`, `Apache-2.0`, SHIPPED],
   [`global-hotkey (shortcut, macOS and Windows)`, `MIT or Apache-2.0`, SHIPPED],
   [`tray-icon (tray, macOS and Windows)`, `MIT or Apache-2.0`, SHIPPED],
-  [`ashpd, zbus (shortcut portal and tray, Linux)`, `MIT`, SHIPPED],
+  [`ashpd (shortcut portal, Linux)`, `MIT`, SHIPPED],
+  [`zbus (shortcut portal and tray, Linux)`, `MIT or Apache-2.0`, SHIPPED],
   [`CrispASR 0.8.45 runtime and ggml, macOS`, `MIT`, SHIPPED],
   [`CrispASR 0.8.45 runtime and ggml, Linux and Windows (GPU and CPU-only builds)`, `MIT`, FETCHED],
   [`NVIDIA CUDA runtime and cuBLAS, Linux`, `NVIDIA CUDA Toolkit EULA`, FETCHED],

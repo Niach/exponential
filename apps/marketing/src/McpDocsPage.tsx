@@ -40,15 +40,15 @@ const TOOL_GROUPS: {
       { name: `exponential_boards`, desc: `op list, get, create, update, delete (the 48-hour trash), set_repository.` },
       { name: `exponential_people`, desc: `op list and add members; invites_list, invites_create, invites_revoke.` },
       { name: `exponential_team_config`, desc: `op labels_list/get/create/update/delete, statuses_list/create/update/delete, prompts_list/get/create/update/delete, agents_list, mcp_servers_list/add/remove, repositories_list/add.` },
-      { name: `exponential_apps`, desc: `op list, get (the head or a version's package), upsert (publishes a new version; a new slug creates the app), delete, catalog (the components, bindings and functions a package may use).` },
+      { name: `exponential_apps`, desc: `op list, get (the head or a version's package), upsert (publishes a new version; a new slug creates the app), delete, catalog (the components, bindings, functions and records a package may use), records_list, records_upsert, records_delete (an app's own data).` },
     ],
   },
   {
     heading: `Sessions and agents`,
     tools: [
-      { name: `exponential_sessions_send`, desc: `THE session verb, no op: sessionId messages a session (answer answers its open question or plan; stop: true interrupts its turn; issueIds forwards issues; deviceId moves it), agentId messages a team agent (your own conversation with it), parentId starts a child, neither starts a thread (text, issueIds, promptId, repositoryId; deviceId required). Every transition of a session comes back as a message.` },
+      { name: `exponential_sessions_send`, desc: `THE session verb, no op: sessionId messages a session (answer answers its open question or plan; stop: true interrupts its turn; issueIds forwards issues; account switches its login; deviceId moves it), agentId messages a team agent (your own conversation with it), appId your app editor session, parentId starts a child, neither starts a thread (text, issueIds, promptId, repositoryId; deviceId required). Every transition of a session comes back as a message.` },
       { name: `exponential_sessions`, desc: `op get (a session tree: title, issues, PRs, Guide, children, latest messages; no id = your own), list, link, unlink, end.` },
-      { name: `exponential_session_self`, desc: `Inside a session only: op ask (one rich question card), plan (plan mode's card), suggest (one-tap replies or follow-up tasks), compact (ask the host to compact your context), report_bug (when Exponential itself misbehaves; cloud only).` },
+      { name: `exponential_session_self`, desc: `Inside a session only: op ask (one rich question card), plan (plan mode's card), suggest (one-tap replies or follow-up tasks), show (an inline Exponential UI preview in the chat), compact (ask the host to compact your context), report_bug (when Exponential itself misbehaves; cloud only).` },
       { name: `exponential_guide_write`, desc: `The thread's one Guide, the body of every PR in it: per topic 2-3 sentences plus the files it touched; label mints a picture upload; remove drops a picture, a text or a topic.` },
       { name: `exponential_devices`, desc: `op list (the machines running sessions, their agents and logins), account_login.` },
       { name: `exponential_events`, desc: `op emit (a named event with a payload; every agent with a trigger on that name wakes), list.` },

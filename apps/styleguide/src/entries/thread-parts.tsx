@@ -428,9 +428,9 @@ export const entry: StyleguideEntry = {
   status: {
     web: {
       state: `ok`,
-      symbol: `ThreadTabs / ThreadsList / SessionCard`,
+      symbol: `ThreadTabs / SessionCard`,
       file: `packages/ui/src/session-thread-view.tsx`,
-      note: `pages: apps/web/src/routes/t/$teamSlug/threads/; card: packages/ui/src/work-card.tsx`,
+      note: `ThreadsList: packages/ui/src/threads-list.tsx; card: packages/ui/src/work-card.tsx; pages: apps/web/src/routes/t/$teamSlug/threads/`,
     },
     desktop: {
       state: `ok`,

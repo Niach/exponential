@@ -1,9 +1,13 @@
-/* NEW-15: the push-to-talk overlay (#NEW-54) as the home page and /voice/
+/* NEW-15: the push-to-talk overlay (#NEW-54) as the home page and /talk/
    show it: THE capsule (the bulk bar's, as the IDE's `voice_overlay::capsule`
    and the styleguide `voice-call-overlay` entry draw it) holding `VoiceWave`
    (md, the brand mark as its child), the state, the muted line and one pill.
    The rows are the fixture's `overlaySpecimens`, copied here because
-   marketing does not declare @exp/domain-contract. */
+   marketing does not declare @exp/domain-contract. Geometry = `glass_bar`
+   (exponential-ui-gpui controls/rows.rs: gap 4, padding 8/10, radius xl3,
+   1px stroke-strong, the opaque popover fill, NO shadow) with the IDE's
+   `value` (px 4, 14px semibold) and `item` (32px tall, px 8, 14px muted,
+   the one that grows and ellipsizes). */
 import { ExponentialLogo, Pill, VoiceWave, type VoiceWaveActivity } from "@exp/ui"
 
 export interface OverlayRow {
@@ -24,12 +28,12 @@ export const OVERLAY_ROWS: OverlayRow[] = [
 
 export function VoiceCapsule({ row }: { row: OverlayRow }) {
   return (
-    <div className="inline-flex max-w-full items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2 shadow-lg shadow-black/40">
+    <div className="inline-flex max-w-full items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2">
       <VoiceWave activity={row.activity} level={row.level} bands={row.bands} size="md" label="Voice">
         <ExponentialLogo variant="light" />
       </VoiceWave>
       <span className="shrink-0 px-1 text-sm font-semibold whitespace-nowrap text-foreground">{row.state}</span>
-      <span className="min-w-0 truncate px-2 text-sm text-muted-foreground">{row.line}</span>
+      <span className="block h-8 min-w-0 flex-1 truncate px-2 text-sm leading-8 text-muted-foreground">{row.line}</span>
       <Pill size="sm" mode="action" primary={row.primary}>
         {row.pill}
       </Pill>

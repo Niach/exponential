@@ -1,5 +1,6 @@
 /* NEW-15: /talk/install/, turning Talk on (Settings → Voice, fixtures/voice.json). */
 import { DocsCallout, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
+import { DocShot } from "../../../src/components/DocShot"
 import { DocsTable } from "../components/Content"
 import type { PageProps } from "../lib/routes"
 import { TALK_DOCS_NAV, talkGuidePath } from "./nav"
@@ -28,6 +29,7 @@ export default function Install({ path }: PageProps) {
             Talk is part of the Exponential desktop app. There is nothing else to install. Open Settings → Voice on the web, the
             desktop app or your phone. The settings are yours, not your team&apos;s.
           </p>
+          <DocShot view="settings-voice" platform="desktop" caption="Settings → Voice in the desktop app, with a voice device picked." />
           <DocsTable
             head={[`Row`, `What it does`]}
             rows={[
@@ -35,7 +37,7 @@ export default function Install({ path }: PageProps) {
               [<strong key="r">Agent</strong>, `The agent you talk to. Your words go into your chat with it.`],
               [<strong key="r">Speak replies</strong>, `Read the agent's replies aloud on the voice device.`],
               [<strong key="r">Language</strong>, `English or Deutsch. Replies are spoken, and speech is heard, in this language.`],
-              [<strong key="r">Voice file, Transcript</strong>, <>A clip of your voice and what it says. Empty = a built-in voice. See <a href={talkGuidePath(`your-voice`)}>Your voice</a>.</>],
+              [<strong key="r">Voice file, Transcript</strong>, <>Shown once a voice device is picked. A clip of your voice and what it says. Empty = a built-in voice. See <a href={talkGuidePath(`your-voice`)}>Your voice</a>.</>],
             ]}
           />
           <p>Every switch stays off until both a voice device and an agent are picked.</p>
@@ -44,7 +46,8 @@ export default function Install({ path }: PageProps) {
           <h2>The download</h2>
           <p>
             Turn on Speak replies and the voice device downloads the voice. The row shows the progress. Every file is pinned and
-            checked against its sha256 before it is loaded. A failed download retries later on its own.
+            checked against its sha256 before it is loaded. A failed download shows &ldquo;Couldn&apos;t download the voice&rdquo; and is
+            tried again on the next request, after a wait that starts at a minute and doubles up to an hour.
           </p>
           <DocsTable
             head={[``, `Linux`, `macOS`, `Windows`]}
@@ -104,10 +107,25 @@ export default function Install({ path }: PageProps) {
         <DocsSection id="tray" num="06" label="The tray">
           <h2>The tray</h2>
           <p>
-            On the voice device the desktop app adds a tray icon. Its menu has Speak replies, Push to talk, Mute microphone and Voice
-            settings. With the tray there, closing the last window keeps the app running, so the voice stays loaded.
+            On the voice device the desktop app adds a tray icon. Its menu, top to bottom:
           </p>
-          <p>On GNOME the tray needs the AppIndicator extension.</p>
+          <DocsTable
+            head={[`Item`, `Does`]}
+            rows={[
+              [<strong key="i">Open Exponential</strong>, `Brings a window up, a new one when none is open.`],
+              [<strong key="i">Speak replies</strong>, `The same switch as in Settings → Voice.`],
+              [<strong key="i">Push to talk · Ctrl + Space</strong>, `The switch, with the shortcut you picked. Reads {shortcut} unavailable when the desktop won't let the app grab it.`],
+              [<strong key="i">Wake word · Hey Triage</strong>, `The switch, with the wake phrase. Nothing listens for it yet.`],
+              [<strong key="i">Mute microphone</strong>, `Shown while push to talk listens on this desktop. Keeps the microphone closed.`],
+              [<strong key="i">Voice settings…</strong>, `Opens Settings → Voice.`],
+              [<strong key="i">Quit</strong>, `Quits the app.`],
+            ]}
+          />
+          <p>
+            The three switches are off and disabled until both a voice device and an agent are picked. While the tray is there,
+            closing the last window keeps the app running, so the voice stays loaded; macOS always keeps it running.
+          </p>
+          <p>On GNOME the tray needs the AppIndicator extension. Without it there is no tray, and closing the last window quits.</p>
         </DocsSection>
       </DocsLayout>
     </>

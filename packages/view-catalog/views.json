@@ -1451,7 +1451,7 @@
       "id": "settings-boards",
       "group": "settings",
       "title": "Settings · Board",
-      "blurb": "One board up close: icon, colour and name in one row, then prefix, repository and default branch, with Archive and Move to trash below. Since EXP-862 the settings nav IS the board list on web as well as desktop, and the bare /settings/boards forwards to the first board. Owner-only.",
+      "blurb": "One board up close: icon, colour and name in one row, then prefix, repository and default branch, with Archive and Move to trash below. Since EXP-1383 the bare /settings/boards lists the boards, each row opening its own page; the capture opens the first row. Owner-only.",
       "order": 6,
       "web": {
         "route": "/t/$teamSlug/settings/boards",
@@ -1459,6 +1459,7 @@
           "text": "Archive board",
           "timeoutMs": 20000
         },
+        "recipe": "openFirstBoardSettings",
         "settleMs": 600
       },
       "webMobile": "inherit",
@@ -5415,12 +5416,12 @@
       "id": "threads",
       "group": "coding",
       "title": "Chats",
-      "blurb": "Every thread of the team (EXP-1293, threads-list.json): Needs you · Running · Recent bands, one row per root session with its glyph (a merged thread = the violet pr-merged glyph), title, ONE quiet right word (question, ready to merge, stack) and the root's device glyph; no lock, no merged word (EXP-1339). Phones show the team's Agents band on top.",
+      "blurb": "Every chat of the team (chats.json, EXP-1373): the agent bubbles, the filter chips (All · Needs you · Running · Unread) and one flat row per root chat with its lead disc, title, time, two-line preview, ONE quiet right word (question, ready to merge, stack) and the unread badge.",
       "order": 18,
       "web": {
         "route": "/t/$teamSlug/threads",
         "anchor": {
-          "testId": "threads-list",
+          "testId": "chat-list",
           "timeoutMs": 30000
         },
         "settleMs": 1200

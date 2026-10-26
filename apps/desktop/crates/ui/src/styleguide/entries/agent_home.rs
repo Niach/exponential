@@ -44,10 +44,10 @@ fn options_line(cx: &App) -> Div {
 }
 
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
+    // EXP-1314: the dawn stands ON the card, no gap (`render_page`).
     let home = v_flex()
         .w(px(640.))
         .items_center()
-        .gap_6()
         .child(crate::chat_screen::dawn(cx))
         .child(v_flex().w_full().gap_2().child(card("sg-agent-home", cx)).child(options_line(cx)));
     let starting = v_flex().w(px(640.)).gap_2().child(card("sg-agent-home-starting", cx)).child(

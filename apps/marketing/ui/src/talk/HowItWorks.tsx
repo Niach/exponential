@@ -65,7 +65,7 @@ export default function HowItWorks({ path }: PageProps) {
         <DocsSection id="coming" num="05" label="Coming">
           <h2>Coming</h2>
           <p>
-            Calling your agent from your phone or the web, and a wake word. The wake word switch is already in Settings → Voice;
+            Calling your agent from your phone, and a wake word. The wake word switch is already in Settings → Voice;
             nothing listens for it yet.
           </p>
         </DocsSection>
