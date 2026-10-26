@@ -167,12 +167,13 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
   { name: `sessions_send`, blurb: ``, verb: `sessions_send`, alwaysLoad: true },
   {
     name: `sessions`,
-    blurb: `Sessions (threads, agents, children): get a tree (no id = yours), list, link/unlink issues, end one.`,
+    blurb: `Sessions (threads, agents, children): get a tree (no id = yours), list, link/unlink issues, configure (model, account, effort; no message), end one.`,
     ops: {
       get: `sessions_get`,
       list: `sessions_list`,
       link: `sessions_link`,
       unlink: `sessions_unlink`,
+      configure: `sessions_configure`,
       end: `sessions_end`,
     },
   },

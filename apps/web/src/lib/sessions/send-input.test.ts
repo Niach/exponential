@@ -20,11 +20,20 @@ describe(`sessionsSendInputSchema — a message`, () => {
     expect(parsed.success).toBe(true)
   })
 
+  // EXP-1376: a model (or any runner pick) alone configures the session.
+  it(`takes a model or another runner pick alone`, () => {
+    for (const pick of [{ model: `opus` }, { effort: `high` }, { planMode: false }, { account: `0a1b2c3d`, model: `opus` }]) {
+      expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, ...pick }).success).toBe(true)
+    }
+    // A stale client's blank model is no pick.
+    expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, model: `` }).success).toBe(false)
+  })
+
   it(`refuses a message with neither text, attachments, an answer nor an account`, () => {
     const parsed = sessionsSendInputSchema.safeParse({ sessionId: SESSION, text: `   ` })
     expect(parsed.success).toBe(false)
     expect(parsed.error?.issues[0]?.message).toBe(
-      `a message needs text, attachments, issues, an answer, an account or a device`
+      `a message needs text, attachments, issues, an answer, an account, a runner pick or a device`
     )
   })
 
