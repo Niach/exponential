@@ -92,8 +92,6 @@ struct VoiceSettingsPage: View {
                 .accessibilityIdentifier(Voice.TestIds.agent)
                 toggle(.speakReplies, on: armed && settings.speakReplies, enabled: armed)
                 .accessibilityIdentifier(Voice.TestIds.speakReplies)
-            } header: {
-                GlassSectionHeader(Voice.Copy.group)
             }
             .listRowBackground(glassFormRowFill)
 

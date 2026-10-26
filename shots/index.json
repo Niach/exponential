@@ -4784,6 +4784,29 @@
         "sha256": "afadc0692c7f4309087a86078bfc32c18415c46b2b0157ad09fd42734fec5009"
       }
     },
+    "settings-voice": {
+      "desktop": {
+        "file": "shots/settings-voice/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 30102,
+        "sha256": "6842b8ac4cbc040622c571867851ab0d5c932b1670bc6ef17a5ff5cfef92f067"
+      },
+      "web": {
+        "file": "shots/settings-voice/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 39674,
+        "sha256": "c4ee08247008756bcacacdfb0f84ec4aaf2498986dd0ae0b21cc816778746388"
+      },
+      "web-mobile": {
+        "file": "shots/settings-voice/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 25172,
+        "sha256": "b43da215a58208f921f35c09d82cfb8320c9fd7542d9959b3c93acb0b4d04b32"
+      }
+    },
     "settings-widget": {
       "web": {
         "file": "shots/settings-widget/web.webp",

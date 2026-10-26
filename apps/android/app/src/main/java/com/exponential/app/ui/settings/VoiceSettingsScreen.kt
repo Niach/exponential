@@ -275,7 +275,6 @@ private fun VoiceSettingsForm(
             .verticalScroll(rememberScrollState())
             .padding(vertical = 8.dp),
     ) {
-        SectionHeader(Voice.Copy.GROUP, modifier = Modifier.padding(horizontal = 16.dp))
         OptionGroup {
             OptionPickerRow(
                 label = Voice.Copy.VOICE_DEVICE,

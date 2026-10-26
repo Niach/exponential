@@ -414,7 +414,7 @@ impl VoicePrefsPane {
 impl Render for VoicePrefsPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_loaded(cx);
-        let mut body = section(cx).child(crate::surface::glass_section_header(VOICE.copy.group.clone(), None, cx));
+        let mut body = section(cx);
         match &self.load {
             Load::Idle | Load::Loading => {
                 body = body.child(settings_skeleton("voice-prefs-skeleton", cx));

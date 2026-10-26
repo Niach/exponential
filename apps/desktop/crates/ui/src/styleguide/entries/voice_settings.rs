@@ -43,7 +43,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> gpui::Div {
         state
     });
     let wake = surface::glass_row_input(glass_input(&input, window, cx)).into_any_element();
-    let mut body = v_flex().w_full().gap_2().child(surface::glass_section_header(domain::voice::VOICE.copy.group.clone(), None, cx));
+    let mut body = v_flex().w_full().gap_2();
     for row in voice_rows(&settings, &devices, &agents, wake, None, cx) {
         body = body.child(row);
     }
