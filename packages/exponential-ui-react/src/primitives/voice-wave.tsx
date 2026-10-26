@@ -1,10 +1,11 @@
-import { useEffect, useRef, type ReactNode } from "react"
-import { voiceWave, voiceWavePath } from "@exponential_app/ui"
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react"
+import { voiceWave, voiceWaveChildBox, voiceWavePath } from "@exponential_app/ui"
 import {
   VOICE_WAVE_CLASSES,
   VOICE_WAVE_SIZE_PX,
   voiceWaveAnimates,
   voiceWaveClock,
+  voiceWaveFitChild,
   voiceWaveName,
   voiceWaveQuiet,
   type VoiceWaveActivity,
@@ -26,7 +27,8 @@ export interface VoiceWaveProps {
   /** The accessible name (the activity is appended); none = decorative. */
   label?: string
   className?: string
-  /** The centre (not painted at `sm`). */
+  /** The centre, at its own size, drawn scaled down to the wave's child
+   *  box (never up; kept but not painted at `sm`). */
   children?: ReactNode
 }
 
@@ -55,6 +57,9 @@ export function VoiceWave({ activity = `idle`, level = 0, bands, size = `md`, la
       voiceWave({ ...latest.current, elapsed: t }).rings.forEach((ring, k) => paths.current[k]?.setAttribute(`d`, voiceWavePath(ring)))
     })
   }, [animates])
+  const childEl = useRef<HTMLSpanElement | null>(null)
+  const present = hasChild(children)
+  useLayoutEffect(() => (present && childEl.current ? voiceWaveFitChild(childEl.current, (c) => voiceWaveChildBox(px, c).scale) : undefined), [present, px])
   const wave = voiceWave({ ...input, elapsed: elapsed.current })
   const quiet = voiceWaveQuiet(activity)
   const name = voiceWaveName(label, activity)
@@ -88,11 +93,12 @@ export function VoiceWave({ activity = `idle`, level = 0, bands, size = `md`, la
           />
         ))}
       </svg>
-      {hasChild(children) && wave.childSize > 0 ? (
+      {present ? (
         <span
+          ref={childEl}
           data-slot="voice-wave-child"
-          className={cn(VOICE_WAVE_CLASSES.child, activity === `muted` && VOICE_WAVE_CLASSES.childMuted)}
-          style={{ width: wave.childSize, height: wave.childSize }}
+          aria-hidden={wave.childSize > 0 ? undefined : true}
+          className={cn(VOICE_WAVE_CLASSES.child, activity === `muted` && VOICE_WAVE_CLASSES.childMuted, wave.childSize > 0 ? undefined : VOICE_WAVE_CLASSES.childHidden)}
         >
           {children}
         </span>

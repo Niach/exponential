@@ -3258,8 +3258,8 @@
         "file": "shots/exponential-ui-voice-wave/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 20204,
-        "sha256": "f8e417796d5021f180b6a857e8ea33292aa8fdd411ba1acb2ce17712db8c870a"
+        "bytes": 19824,
+        "sha256": "c58329c252028b0a9fc3d570b3f1258abfcf34d448c6d559c56227e5eca2fe7c"
       },
       "ios": {
         "file": "shots/exponential-ui-voice-wave/ios.webp",
@@ -3272,8 +3272,8 @@
         "file": "shots/exponential-ui-voice-wave/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 14350,
-        "sha256": "4232470d678c853cb272b13d160be5bdd0fa9ce619898daddca0424989e54f16"
+        "bytes": 14126,
+        "sha256": "85e84c81599c1323d5359d3cdbf8ad27db83840974a7c48ac3ed17ab9e02a085"
       }
     },
     "feedback-states": {

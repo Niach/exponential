@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
@@ -17,6 +20,7 @@ import at.exponential.ui.theme.Mode
 import at.exponential.ui.theme.ThemeHandle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -44,11 +48,12 @@ class ControlPaintTest {
     @get:Rule
     val compose = createComposeRule()
 
-    private fun render(json: String, theme: String = "exponential"): SurfaceModel {
+    private fun render(json: String, theme: String = "exponential", hook: ((SurfaceModel) -> Unit)? = null): SurfaceModel {
         val density = RuntimeEnvironment.getApplication().resources.displayMetrics.density
         val shaper = robolectricShaper(FontResolver { null }, density)
         val m = SurfaceModel("paint", SurfaceOptions(theme = ThemeHandle.builtin(theme), mode = Mode.Dark), RecordingHost(), CoroutineScope(Dispatchers.Unconfined)) { shaper }
         m.setNested(json)
+        hook?.invoke(m)
         compose.setContent { Box(Modifier.testTag("shot").fillMaxWidth().background(m.color("background") ?: Color.Black)) { ExponentialSurface(m) } }
         compose.waitForIdle()
         return m
@@ -106,5 +111,50 @@ class ControlPaintTest {
         val image = semantics.first().boundsInRoot
         assertTrue("the image is the wave's 160 dp box", kotlin.math.abs(image.width / d - 160f) < 1f)
     }
-}
 
+    /**
+     * NEW-77 THE CHILD RULE, measured (`Round2Suites.voiceWaveChild`): each
+     * fixture child case as a VoiceWave of the case's edge around a solid
+     * child of the case's own size; the child's DRAWN bounds (after the
+     * painter's scale about the centre) within 0.5 px of the fixture's
+     * `child` box, and its colour at the centre exactly when the rule
+     * paints it (never at `sm`).
+     */
+    @Test
+    fun voiceWaveChildrenAreDrawnAtTheFixturesChildBox() {
+        val cases = Round2Suites.voiceWaveChildCases()
+        assertTrue("the fixture has child cases", cases.size >= 4)
+        val sizes = mapOf(32f to "sm", 56f to "md", 160f to "lg", 200f to "xl")
+        val waves = cases.mapIndexed { i, c ->
+            val size = sizes[c.size] ?: error("no VoiceWave size is ${c.size} px")
+            """{"id": "w$i", "component": "VoiceWave", "props": {"activity": "${c.activity}", "size": "$size"}, "children": [{"id": "w$i.c", "component": "Box", "style": {"width": ${c.width}, "height": ${c.height}, "backgroundColor": "${'$'}color.destructive"}}]}"""
+        }
+        val bounds = HashMap<String, Rect>()
+        val m = render("""{"id": "root", "component": "Stack", "props": {"gap": "sm"}, "children": [${waves.joinToString(",")}]}""") { m ->
+            m.nodeModifier = { index ->
+                val id = m.node(index)?.id
+                if (id != null && id.startsWith("w")) Modifier.onGloballyPositioned {
+                    // The corners through every layer (unclipped: a scale-0 child is a point).
+                    bounds[id] = Rect(it.localToRoot(Offset.Zero), it.localToRoot(Offset(it.size.width.toFloat(), it.size.height.toFloat())))
+                } else null
+            }
+        }
+        val d = RuntimeEnvironment.getApplication().resources.displayMetrics.density
+        val pixels = capture("voice-wave-children")
+        val red = m.color("destructive")!!.toArgb()
+        fun near(a: Int, b: Int) = listOf(16, 8, 0).all { kotlin.math.abs((a shr it and 255) - (b shr it and 255)) <= 6 }
+        fun index(c: Round2Suites.VoiceWaveChildCase) = cases.indexOfFirst { it.name == c.name }
+        val failed = Round2Suites.voiceWaveChild(
+            drawn = { c ->
+                val wave = bounds["w${index(c)}"]
+                val child = bounds["w${index(c)}.c"]
+                if (wave == null || child == null) null else Rect((child.left - wave.left) / d, (child.top - wave.top) / d, (child.right - wave.left) / d, (child.bottom - wave.top) / d)
+            },
+            painted = { c ->
+                val f = m.frame(m.indexOf("w${index(c)}")!!)
+                near(pixels.getPixel((f.center.x * d).roundToInt(), (f.center.y * d).roundToInt()), red)
+            },
+        ).filter { it.second != null }.map { "${it.first}: ${it.second}" }
+        assertEquals(emptyList<String>(), failed)
+    }
+}

@@ -73,7 +73,7 @@ const ICON_SIZES = [`icon`, `icon-sm`, `icon-xs`] as const
 const PICTURE = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 10'%3E%3Crect width='16' height='10' fill='%2360a5fa'/%3E%3C/svg%3E`
 const SOURCE = `import { tokenizeCode } from "@exponential_app/ui"\n\nconst lines = tokenizeCode(source, \`ts\`)\nexport default lines.length\n`
 const noop = () => {}
-const DOT = { display: `block`, width: `100%`, height: `100%`, borderRadius: 9999, background: `#2563eb` }
+const DOT = { display: `block`, borderRadius: 9999, background: `#2563eb` }
 
 export const SPECIMENS: Record<string, () => JSX.Element> = {
   "plain/button": () => (
@@ -244,18 +244,33 @@ export const SPECIMENS: Record<string, () => JSX.Element> = {
       <ContextRing percent={null} />
     </div>
   ),
+  // The first four = fixtures/voice-wave.json's `child` cases (in order;
+  // browser/voice-wave-child.test.ts measures their drawn child).
   "plain/voice-wave": () => (
     <div style={css(ROW)}>
-      <VoiceWave activity="idle" size="sm" />
-      <VoiceWave activity="listening" level={0.6} bands={[0.9, 0.6, 1, 0.5]} label="Voice">
-        <span style={css(DOT)} />
-      </VoiceWave>
-      <VoiceWave activity="thinking" size="lg">
-        <span style={css(DOT)} />
-      </VoiceWave>
+      <span data-voice-case="0">
+        <VoiceWave activity="listening" level={0.5} size="md" label="Voice">
+          <span data-voice-child="" style={css({ ...DOT, width: 24, height: 24 })} />
+        </VoiceWave>
+      </span>
+      <span data-voice-case="1">
+        <VoiceWave activity="speaking" level={0.3} size="lg">
+          <span data-voice-child="" style={css({ ...DOT, width: 24, height: 24 })} />
+        </VoiceWave>
+      </span>
+      <span data-voice-case="2">
+        <VoiceWave activity="thinking" size="xl">
+          <span data-voice-child="" style={css({ ...DOT, width: 120, height: 20 })} />
+        </VoiceWave>
+      </span>
+      <span data-voice-case="3">
+        <VoiceWave activity="idle" size="sm">
+          <span data-voice-child="" style={css({ ...DOT, width: 24, height: 24 })} />
+        </VoiceWave>
+      </span>
       <VoiceWave activity="speaking" level={0.4} bands={[0.7, 1, 0.5, 0.8]} size="lg" label="Voice" />
-      <VoiceWave activity="muted" size="xl">
-        <span style={css(DOT)} />
+      <VoiceWave activity="muted" size="md">
+        <span style={css({ ...DOT, width: 24, height: 24 })} />
       </VoiceWave>
     </div>
   ),

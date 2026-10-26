@@ -3,9 +3,9 @@
 // recipes (`resolveRecipe`), exactly as React reads them.
 
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
-import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWavePath, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/ui"
+import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveChildBox, voiceWavePath, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/ui"
 import type { VoiceWaveActivity } from "@exponential_app/ui"
-import { voiceWaveAnimates, voiceWaveClock, voiceWaveName } from "@exponential_app/ui/web/primitives/voice-wave"
+import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/ui/web/primitives/voice-wave"
 import type { Component } from "solid-js"
 import { useSurfaceContext, type SurfaceContextValue } from "../context"
 import { CHROME, PaintIcon } from "../icons"
@@ -167,8 +167,9 @@ export function TreeGuidesNative(props: NativeProps): JSX.Element {
 /** NEW-77: VoiceWave (React's `VoiceWaveNative`): one SVG of three closed
  *  waves, the core's `voiceWave` per frame, each ring in its part's recipe
  *  colour at the ring's alphas; the root recipe sizes the box and sets the
- *  opacity (CSS); the ONE child sits centred in a `child` box of
- *  `childSize` px (none at `sm`). While listening, thinking or speaking (and
+ *  opacity (CSS); the ONE child sits centred at its own size, drawn scaled
+ *  about the centre by `voiceWaveChildBox` (never up; at `sm` kept but
+ *  unpainted). While listening, thinking or speaking (and
  *  not under reduced motion) a frame clock drives the phase; the elapsed
  *  seconds count from the moment the wave started moving. */
 export function VoiceWaveNative(props: NativeProps): JSX.Element {
@@ -219,8 +220,17 @@ export function VoiceWaveNative(props: NativeProps): JSX.Element {
           )}
         </Index>
       </svg>
-      <Show when={props.node.children.length > 0 && wave().childSize > 0}>
-        <span {...part(`child`)} style={css({ width: wave().childSize, height: wave().childSize, color: colour(`child`) })}>
+      <Show when={props.node.children.length > 0}>
+        <span
+          ref={(el) => createEffect(() => {
+            const px = size()
+            onCleanup(voiceWaveFitChild(el, (c) => voiceWaveChildBox(px, c).scale))
+          })}
+          {...part(`child`)}
+          data-hidden={wave().childSize > 0 ? undefined : `true`}
+          aria-hidden={wave().childSize > 0 ? undefined : `true`}
+          style={css({ color: colour(`child`) })}
+        >
           {props.children}
         </span>
       </Show>

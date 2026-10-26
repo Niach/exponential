@@ -1,9 +1,9 @@
 // VAPP-87: Ring, Spinner, Skeleton, TreeGuides, VoiceWave (Chart: chart.tsx).
 
-import { useEffect, useRef } from "react"
-import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWavePath, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/ui"
+import { useEffect, useLayoutEffect, useRef } from "react"
+import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveChildBox, voiceWavePath, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/ui"
 import type { VoiceWaveActivity } from "@exponential_app/ui"
-import { voiceWaveAnimates, voiceWaveClock, voiceWaveName } from "@exponential_app/ui/web/primitives/voice-wave"
+import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/ui/web/primitives/voice-wave"
 import { useSurfaceContext } from "../context"
 import { CHROME } from "../icons"
 import type { NativeProps } from "../node-view"
@@ -147,7 +147,8 @@ export function TreeGuidesNative({ node, props, rootProps }: NativeProps) {
  *  closed waves, the core's `voiceWave` per frame, each ring filled and
  *  stroked in its part's recipe colour at the ring's alphas; the root
  *  recipe sizes the box and sets the opacity (CSS); the ONE child sits
- *  centred in a `child` box of `childSize` px (none at `sm`). While
+ *  centred at its own size, drawn scaled about the centre by
+ *  `voiceWaveChildBox` (never up; at `sm` kept but unpainted). While
  *  listening, thinking or speaking (and not under reduced motion) the
  *  frames write the paths' `d` directly, never a re-render; the elapsed
  *  seconds count from the moment the wave started moving. */
@@ -172,6 +173,9 @@ export function VoiceWaveNative({ node, props, rootProps, children }: NativeProp
       voiceWave({ ...latest.current, elapsed: t }).rings.forEach((ring, k) => paths.current[k]?.setAttribute(`d`, voiceWavePath(ring)))
     })
   }, [animates])
+  const childEl = useRef<HTMLSpanElement | null>(null)
+  const hasChild = node.children.length > 0
+  useLayoutEffect(() => (hasChild && childEl.current ? voiceWaveFitChild(childEl.current, (c) => voiceWaveChildBox(size, c).scale) : undefined), [hasChild, size])
   const wave = voiceWave({ ...input, elapsed: elapsed.current })
   const recipeProps = nativeRecipeProps(`VoiceWave`, props)
   const colour = (name: string) => String(resolveRecipe(ctx.theme, { component: `VoiceWave`, part: name, props: recipeProps }, ctx.mode).color ?? `currentColor`)
@@ -197,8 +201,8 @@ export function VoiceWaveNative({ node, props, rootProps, children }: NativeProp
           />
         ))}
       </svg>
-      {node.children.length > 0 && wave.childSize > 0 ? (
-        <span {...(part(`child`) as Record<string, string>)} style={{ width: wave.childSize, height: wave.childSize, color: colour(`child`) }}>
+      {hasChild ? (
+        <span ref={childEl} {...(part(`child`) as Record<string, string>)} data-hidden={wave.childSize > 0 ? undefined : `true`} aria-hidden={wave.childSize > 0 ? undefined : `true`} style={{ color: colour(`child`) }}>
           {children}
         </span>
       ) : null}

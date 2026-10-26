@@ -1394,7 +1394,7 @@ impl SurfaceView {
             );
         }
         if let Some(&main) = self.order.first() {
-            if let Some(el) = self.paint_node(main, paint::Place { origin: (0.0, 0.0), abs: (0.0, 0.0), clip: None }, window, cx) {
+            if let Some(el) = self.paint_node(main, paint::Place::at((0.0, 0.0), (0.0, 0.0), None), window, cx) {
                 root = root.child(el);
             }
         }

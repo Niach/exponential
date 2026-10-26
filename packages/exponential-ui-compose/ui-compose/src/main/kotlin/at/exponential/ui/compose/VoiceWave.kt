@@ -11,11 +11,10 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import at.exponential.ui.ffi.voiceWaveJson
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.Props
@@ -26,6 +25,7 @@ import at.exponential.ui.model.NodeInfo
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.primitives.VoiceWaveRing
 import at.exponential.ui.primitives.drawVoiceWave
+import at.exponential.ui.primitives.voiceWaveChild
 import kotlin.math.min
 
 /** One ring of the core's answer: its recipe part and its points (dp). */
@@ -38,29 +38,44 @@ internal class VoiceWaveRingSpec(
 )
 
 /**
+ * THE CHILD RULE's box from the core (`voiceWaveChildBox`): where the child
+ * is drawn in the wave's box (dp from its top-left) and the scale about
+ * the box centre (min(1, childSize / its longer edge); 0 = kept, not painted).
+ */
+internal data class VoiceWaveChildBox(val x: Float, val y: Float, val width: Float, val height: Float, val scale: Float)
+
+/**
  * NEW-77: one frame of the `VoiceWave` native from the core
  * (`voiceWaveJson`, catalog/style.json `voiceWave`): three closed waves,
- * the centre child's edge (0 = not painted) and the phase.
+ * the centre child's edge (0 = not painted), the phase and, when the input
+ * gave the child's size, its [child] box.
  */
-internal class VoiceWaveSpec(val rings: List<VoiceWaveRingSpec>, val childSize: Float, val phase: Float) {
+internal class VoiceWaveSpec(val rings: List<VoiceWaveRingSpec>, val childSize: Float, val phase: Float, val child: VoiceWaveChildBox? = null) {
     companion object {
         val ACTIVITIES = setOf("idle", "listening", "thinking", "speaking", "muted")
 
         /** Does [activity] move (the phase advances with time)? */
         fun animates(activity: String): Boolean = activity == "listening" || activity == "thinking" || activity == "speaking"
 
-        /** The facade's input: `{size, activity, level, bands, elapsed, reducedMotion}`. */
-        fun input(size: Float, activity: String, level: Double, bands: List<Double>, elapsed: Double, reducedMotion: Boolean): String =
+        /** The facade's input: `{size, activity, level, bands, elapsed, reducedMotion, child?}` ([child] = the child's own laid-out size, dp). */
+        fun input(size: Float, activity: String, level: Double, bands: List<Double>, elapsed: Double, reducedMotion: Boolean, child: Size? = null): String =
             JsonValue.Obj(
-                linkedMapOf(
+                linkedMapOf<String, JsonValue>(
                     "size" to JsonValue.Num(size.toDouble()),
                     "activity" to JsonValue.Str(activity),
                     "level" to JsonValue.Num(level),
                     "bands" to JsonValue.Arr(bands.map { JsonValue.Num(it) }),
                     "elapsed" to JsonValue.Num(elapsed),
                     "reducedMotion" to JsonValue.Bool(reducedMotion),
-                ),
+                ).apply {
+                    if (child != null) {
+                        put("child", JsonValue.Obj(linkedMapOf("width" to JsonValue.Num(child.width.toDouble()), "height" to JsonValue.Num(child.height.toDouble()))))
+                    }
+                },
             ).orderedJson
+
+        /** The core's child box for a child of [child] dp in a wave of edge [size] (null when the core refuses). */
+        fun childBox(size: Float, child: Size): VoiceWaveChildBox? = of(input(size, "idle", 0.0, emptyList(), 0.0, true, child))?.child
 
         /** The frame for [inputJson]; null when the core refuses it. */
         fun of(inputJson: String): VoiceWaveSpec? = try {
@@ -90,6 +105,10 @@ internal class VoiceWaveSpec(val rings: List<VoiceWaveRingSpec>, val childSize: 
                 },
                 childSize = (v["childSize"]?.number ?: 0.0).toFloat(),
                 phase = (v["phase"]?.number ?: 0.0).toFloat(),
+                child = v["child"]?.let { c ->
+                    fun n(k: String) = (c[k]?.number ?: 0.0).toFloat()
+                    VoiceWaveChildBox(n("x"), n("y"), n("width"), n("height"), n("scale"))
+                },
             )
         }
     }
@@ -115,8 +134,12 @@ internal data class VoiceWaveProps(val activity: String, val size: String, val l
  * edge of the root recipe, each filled / stroked in its part colour
  * (`VoiceWave/outer|mid|inner`), animated (elapsed seconds, one core frame
  * per display frame) while listening, thinking or speaking unless reduced
- * motion; the root recipe's opacity is the box's (`paintedBox`). The ONE
- * child sits centred in a `childSize` square (not painted at `sm`).
+ * motion; the root recipe's opacity is the box's (`paintedBox`). THE
+ * CHILD RULE: the core lays the one child out centred at its own size; it
+ * is drawn at that frame scaled about the wave box's centre by the core's
+ * `child.scale` (min(1, childSize / its longer edge), never up) and at
+ * `sm` (scale 0) stays composed but paints nothing, takes no input and is
+ * hidden from assistive tech ([voiceWaveChild]).
  */
 @Composable
 internal fun VoiceWaveContent(index: Int, node: NodeInfo, model: SurfaceModel, size: Size) {
@@ -155,19 +178,30 @@ internal fun VoiceWaveContent(index: Int, node: NodeInfo, model: SurfaceModel, s
         val rings = spec.rings.map { r -> VoiceWaveRing(r.points, colors[r.part] ?: Color.Unspecified, r.fillAlpha, r.strokeAlpha, r.strokeWidth) }
         drawVoiceWave(rings, Offset(origin.x * density, origin.y * density))
     }
-    // At `sm` (childSize 0) the child is composed at an empty box: nothing
-    // shows, yet the surface's tree stays whole (catalog suite: every
-    // visible node painted).
-    val child = rest.childSize.coerceAtLeast(0f)
     val kids = (model.children.getOrNull(index) ?: emptyList()).filter { model.node(it)?.hidden == false }
     if (kids.isEmpty()) return
-    val box = Rect(Offset((size.width - child) / 2f, (size.height - child) / 2f), Size(child, child))
+    // The core's frames (relative to the wave), each child's box from the
+    // core for its own size: the scale, pivoted on the wave box's centre.
+    val nodeOrigin = model.frame(index).topLeft
+    val frames = kids.associateWith { model.frame(it).translate(-nodeOrigin.x, -nodeOrigin.y) }
+    val centre = Offset(size.width / 2f, size.height / 2f)
     val ink = model.ink(index)
     val childInk = model.part("VoiceWave", "child", p.recipeProps).color
     CompositionLocalProvider(LocalInkSwap provides childInk?.let { ink to it }) {
-        FrameLayout(size = size, frames = kids.associateWith { box }) {
+        FrameLayout(size = size, frames = frames) {
             for (k in kids) {
-                key(k) { NodeView(k, if (child > 0f) Modifier.frameIndex(k) else Modifier.frameIndex(k).clipToBounds()) }
+                key(k) {
+                    val f = frames.getValue(k)
+                    val box = remember(edge, f.width, f.height) { VoiceWaveSpec.childBox(edge, Size(f.width, f.height)) }
+                    val scale = box?.scale ?: if (rest.childSize > 0f) 1f else 0f
+                    val pivot = TransformOrigin(
+                        if (f.width > 0f) (centre.x - f.left) / f.width else 0.5f,
+                        if (f.height > 0f) (centre.y - f.top) / f.height else 0.5f,
+                    )
+                    CompositionLocalProvider(LocalInvisible provides (LocalInvisible.current || scale <= 0f)) {
+                        NodeView(k, Modifier.frameIndex(k).voiceWaveChild(scale, pivot))
+                    }
+                }
             }
         }
     }

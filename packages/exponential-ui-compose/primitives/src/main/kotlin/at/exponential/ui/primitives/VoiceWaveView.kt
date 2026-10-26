@@ -1,10 +1,15 @@
 package at.exponential.ui.primitives
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -55,8 +60,41 @@ fun DrawScope.drawVoiceWave(rings: List<VoiceWaveRing>, origin: Offset = Offset.
     }
 }
 
+/**
+ * THE CHILD RULE (catalog/style.json `voiceWave`) on a child laid out at
+ * its own size: drawn scaled by [scale] (the core's `child.scale` =
+ * min(1, childSize / its longer edge), never up) about [pivot] (the wave
+ * box's centre in the child's own fractions; the centre for a centred
+ * child). At scale 0 (`sm`) it stays composed but paints nothing, takes no
+ * pointer (a zero-size layer) and is hidden from assistive tech.
+ */
+fun Modifier.voiceWaveChild(scale: Float, pivot: TransformOrigin = TransformOrigin.Center): Modifier {
+    val s = scale.coerceIn(0f, 1f)
+    if (s == 1f) return this
+    val layer = graphicsLayer {
+        scaleX = s
+        scaleY = s
+        transformOrigin = pivot
+        if (s == 0f) alpha = 0f
+    }
+    return if (s == 0f) layer.clearAndSetSemantics { } else layer
+}
+
 /** A voice wave of [size] dp: the [rings] the core computed for one frame. */
 @Composable
 fun VoiceWaveView(rings: List<VoiceWaveRing>, size: Dp, modifier: Modifier = Modifier) {
     Canvas(modifier.size(size)) { drawVoiceWave(rings) }
+}
+
+/**
+ * A voice wave of [size] dp with its ONE [child] centred at its own size
+ * and drawn at [childScale] about the centre (the core's `child.scale` for
+ * the child's size, [voiceWaveChild]).
+ */
+@Composable
+fun VoiceWaveView(rings: List<VoiceWaveRing>, size: Dp, childScale: Float, modifier: Modifier = Modifier, child: @Composable () -> Unit) {
+    Box(modifier.size(size), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(size)) { drawVoiceWave(rings) }
+        Box(Modifier.voiceWaveChild(childScale)) { child() }
+    }
 }

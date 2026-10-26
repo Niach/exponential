@@ -25,7 +25,7 @@ const CAPSULES: Capsule[] = [
   { activity: `muted`, state: `Microphone muted`, line: `Unmute in the tray to talk`, pill: `Unmute` },
 ]
 
-const CAPSULE = `flex w-[26.25rem] items-center gap-3 rounded-full border border-glass-stroke-card bg-glass-card py-2 pr-3.5 pl-2 shadow-lg`
+const CAPSULE = `flex w-[26.25rem] items-center gap-3 rounded-full border border-glass-stroke-strong bg-popover py-2 pr-3.5 pl-2 shadow-lg`
 const CARD = `flex flex-col items-center gap-4 rounded-xl border border-glass-stroke-card bg-glass-card px-6 py-6`
 
 function VoiceCapsule({ capsule }: { capsule: Capsule }) {

@@ -52,6 +52,32 @@ export function voiceWaveClock(onFrame: (elapsed: number) => void): () => void {
   return () => cancelAnimationFrame(id)
 }
 
+/** THE CHILD RULE's painter half (catalog/style.json `voiceWave`): the child
+ *  is laid out centred at its own size; this measures its own (untransformed)
+ *  border box and draws it scaled about its centre (= the box centre) by
+ *  `scaleOf(its size)` (the core's `voiceWaveChildBox(size, child).scale`:
+ *  min(1, childSize / its longer edge), 0 at `sm`). Re-measures on every
+ *  resize (ResizeObserver: before the first paint); without one (SSR,
+ *  jsdom) it measures once. Returns the stop. */
+export function voiceWaveFitChild(el: HTMLElement, scaleOf: (child: { width: number; height: number }) => number): () => void {
+  const apply = (width: number, height: number) => {
+    const s = scaleOf({ width, height })
+    el.style.transform = s === 1 ? `` : `scale(${s})`
+  }
+  if (typeof ResizeObserver !== `function`) {
+    apply(el.offsetWidth, el.offsetHeight)
+    return () => {}
+  }
+  const ro = new ResizeObserver((entries) => {
+    const e = entries[entries.length - 1]!
+    const b = e.borderBoxSize?.[0]
+    if (b) apply(b.inlineSize, b.blockSize)
+    else apply(el.offsetWidth, el.offsetHeight)
+  })
+  ro.observe(el, { box: `border-box` })
+  return () => ro.disconnect()
+}
+
 export const VOICE_WAVE_CLASSES = {
   root: `relative inline-flex shrink-0 items-center justify-center`,
   quiet: `opacity-35`,
@@ -59,6 +85,8 @@ export const VOICE_WAVE_CLASSES = {
   svg: `pointer-events-none absolute inset-0 size-full overflow-visible`,
   ring: { outer: `text-blue-500`, mid: `text-primary`, inner: `text-primary` } satisfies Record<VoiceWaveRingName, string>,
   ringQuiet: `text-muted-foreground`,
-  child: `relative flex items-center justify-center text-foreground [&>svg]:size-full [&>img]:size-full`,
+  child: `relative flex shrink-0 items-center justify-center text-foreground`,
+  /** At `sm` (childSize 0): kept, painted nothing, no hit target. */
+  childHidden: `invisible pointer-events-none`,
   childMuted: `text-muted-foreground`,
 } as const

@@ -129,8 +129,8 @@ object Round2Suites {
     /**
      * NEW-77: every `fixtures/voice-wave.json` case through the painter's
      * input builder, the facade's `voiceWaveJson` and its parse: the parts in
-     * order, every point within 0.5 px, the alphas, stroke widths, child edge
-     * and phase.
+     * order, every point within 0.5 px, the alphas, stroke widths, child edge,
+     * phase and (a case with `input.child`) the core's child box.
      */
     fun voiceWave(): List<Pair<String, String?>> = list(json("voice-wave.json"), "cases").map { c ->
         case(s(c, "name")) {
@@ -142,6 +142,7 @@ object Round2Suites {
                 bands = list(i, "bands").mapNotNull { it.number },
                 elapsed = i["elapsed"]?.number ?: 0.0,
                 reducedMotion = i["reducedMotion"]?.bool ?: false,
+                child = i["child"]?.let { androidx.compose.ui.geometry.Size((it["width"]?.number ?: 0.0).toFloat(), (it["height"]?.number ?: 0.0).toFloat()) },
             )
             val got = at.exponential.ui.compose.VoiceWaveSpec.of(input) ?: return@case "the core refused $input"
             val want = c["expected"]!!
@@ -162,7 +163,47 @@ object Round2Suites {
             }
             if (abs(got.childSize - (want["childSize"]?.number ?: Double.NaN)) > 1e-3) return@case "childSize ${got.childSize} / ${want["childSize"]?.json}"
             if (abs(got.phase - (want["phase"]?.number ?: Double.NaN)) > 1e-3) return@case "phase ${got.phase} / ${want["phase"]?.json}"
+            val wc = want["child"]
+            val gc = got.child
+            if ((wc == null) != (gc == null)) return@case "child ${gc} / ${wc?.json}"
+            if (wc != null && gc != null) {
+                for ((k, v) in listOf("x" to gc.x, "y" to gc.y, "width" to gc.width, "height" to gc.height, "scale" to gc.scale)) {
+                    if (abs(v - (wc[k]?.number ?: Double.NaN)) > 1e-3) return@case "child $k $v / ${wc[k]?.json}"
+                }
+            }
             null
+        }
+    }
+
+    /** A `fixtures/voice-wave.json` case with a child: the wave's edge, activity and the child's own size. */
+    class VoiceWaveChildCase(val name: String, val size: Float, val activity: String, val width: Float, val height: Float, val expected: JsonValue)
+
+    fun voiceWaveChildCases(): List<VoiceWaveChildCase> = list(json("voice-wave.json"), "cases").mapNotNull { c ->
+        val i = c["input"]!!
+        val child = i["child"] ?: return@mapNotNull null
+        VoiceWaveChildCase(
+            s(c, "name"),
+            (i["size"]?.number ?: 0.0).toFloat(),
+            s(i, "activity"),
+            (child["width"]?.number ?: 0.0).toFloat(),
+            (child["height"]?.number ?: 0.0).toFloat(),
+            c["expected"]!!["child"]!!,
+        )
+    }
+
+    /**
+     * NEW-77 THE CHILD RULE, measured: every child case's DRAWN child bounds
+     * ([drawn]: dp from the wave box's top-left, after the painter's scale;
+     * null = not found) within 0.5 px of the fixture's `child` box, and a
+     * child the rule does not paint (scale 0) [painted] false.
+     */
+    fun voiceWaveChild(drawn: (VoiceWaveChildCase) -> androidx.compose.ui.geometry.Rect?, painted: (VoiceWaveChildCase) -> Boolean): List<Pair<String, String?>> = voiceWaveChildCases().map { c ->
+        case(c.name) {
+            val r = drawn(c) ?: return@case "no drawn child"
+            val want = listOf("x", "y", "width", "height").map { c.expected[it]?.number ?: Double.NaN }
+            near(listOf(r.left, r.top, r.width, r.height).map { it.toDouble() }, want, 0.5)?.let { return@case "drawn $it" }
+            val visible = (c.expected["scale"]?.number ?: 0.0) > 0.0
+            if (painted(c) != visible) "painted ${painted(c)} / $visible" else null
         }
     }
 

@@ -1,10 +1,11 @@
 import { Index, Show, children as resolveChildren, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
-import { voiceWave, voiceWavePath } from "@exponential_app/ui"
+import { voiceWave, voiceWaveChildBox, voiceWavePath } from "@exponential_app/ui"
 import {
   VOICE_WAVE_CLASSES,
   VOICE_WAVE_SIZE_PX,
   voiceWaveAnimates,
   voiceWaveClock,
+  voiceWaveFitChild,
   voiceWaveName,
   voiceWaveQuiet,
   type VoiceWaveActivity,
@@ -26,7 +27,8 @@ export interface VoiceWaveProps {
   /** The accessible name (the activity is appended); none = decorative. */
   label?: string
   class?: string
-  /** The centre (not painted at `sm`). */
+  /** The centre, at its own size, drawn scaled down to the wave's child
+   *  box (never up; kept but not painted at `sm`). */
   children?: JSX.Element
 }
 
@@ -84,8 +86,18 @@ export function VoiceWave(props: VoiceWaveProps) {
           )}
         </Index>
       </svg>
-      <Show when={hasChild() && wave().childSize > 0}>
-        <span data-slot="voice-wave-child" class={cn(VOICE_WAVE_CLASSES.child, activity() === `muted` && VOICE_WAVE_CLASSES.childMuted)} style={{ width: `${wave().childSize}px`, height: `${wave().childSize}px` }}>
+      <Show when={hasChild()}>
+        <span
+          ref={(el) =>
+            createEffect(() => {
+              const edge = px()
+              onCleanup(voiceWaveFitChild(el, (c) => voiceWaveChildBox(edge, c).scale))
+            })
+          }
+          data-slot="voice-wave-child"
+          aria-hidden={wave().childSize > 0 ? undefined : `true`}
+          class={cn(VOICE_WAVE_CLASSES.child, activity() === `muted` && VOICE_WAVE_CLASSES.childMuted, wave().childSize > 0 ? undefined : VOICE_WAVE_CLASSES.childHidden)}
+        >
           {child()}
         </span>
       </Show>
