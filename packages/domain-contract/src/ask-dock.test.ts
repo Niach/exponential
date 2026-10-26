@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/ask-dock.json" with { type: "json" }
-import { askDockTitle, planDecisionLabel, threadPendingAsks, threadSessionNames } from "./ask-dock"
+import { anchorSessionCards, askDockTitle, planDecisionLabel, sessionCards, threadPendingAsks, threadSessionNames } from "./ask-dock"
 
 describe(`askDockTitle`, () => {
   for (const entry of fixture.titleCases) {
@@ -34,6 +34,25 @@ describe(`threadSessionNames`, () => {
     test(entry.name, () => {
       const name = threadSessionNames(entry.tabs as never)
       for (const [id, expected] of Object.entries(entry.lookups)) expect(name(id)).toBe(expected)
+    })
+  }
+})
+
+describe(`sessionCards`, () => {
+  for (const entry of fixture.sessionCardsCases) {
+    test(entry.name, () => {
+      expect(sessionCards(entry.messages as never)).toEqual(entry.expected as never)
+    })
+  }
+})
+
+describe(`anchorSessionCards`, () => {
+  for (const entry of fixture.anchorCases) {
+    test(entry.name, () => {
+      const { anchors, unanchored } = anchorSessionCards(entry.feed, entry.cards as never)
+      expect({ anchors: Object.fromEntries([...anchors].map(([id, cards]) => [String(id), cards])), unanchored }).toEqual(
+        entry.expected
+      )
     })
   }
 })

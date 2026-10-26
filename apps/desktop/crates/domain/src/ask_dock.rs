@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use std::collections::HashMap;
 
+use crate::rows::MessageRow;
 use crate::session_tree::{SessionThreadRow, ThreadTab};
 
 const ASK_DOCK_JSON: &str = include_str!("../../../../../packages/domain-contract/fixtures/ask-dock.json");
@@ -196,6 +197,92 @@ pub fn thread_session_names(tabs: &[ThreadTab]) -> impl Fn(&str) -> Option<Strin
     move |session_id: &str| names.get(session_id).cloned()
 }
 
+// ── EXP-1398: THE session view's cards (`sessionCardsCases`, `anchorCases`) ──
+
+/// A session view card's kind: what it draws as and which call posts it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionCardKind {
+    Plan,
+    Question,
+    Surface,
+}
+
+impl SessionCardKind {
+    pub fn wire(self) -> &'static str {
+        match self {
+            Self::Plan => "plan",
+            Self::Question => "question",
+            Self::Surface => "surface",
+        }
+    }
+
+    /// The `session_self_*` display row of the call that posts this kind.
+    pub fn posting_call(self) -> &'static str {
+        match self {
+            Self::Plan => "session_self_plan",
+            Self::Question => "session_self_ask",
+            Self::Surface => "session_self_show",
+        }
+    }
+}
+
+/// One card of a session's own conversation; `waiting` = a plan with no
+/// decision / an unanswered question (it also docks).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionCard {
+    pub id: String,
+    pub kind: SessionCardKind,
+    pub waiting: bool,
+}
+
+/// The session view's cards, oldest first (createdAt, then id): every
+/// `plan` / `question` card a TOOL posted (no `questionId`) and every
+/// `surface` card. Each draws inline; a waiting one also docks.
+pub fn session_cards(messages: &[MessageRow]) -> Vec<SessionCard> {
+    let mut cards: Vec<(i64, &str, SessionCard)> = messages
+        .iter()
+        .filter_map(|message| {
+            let card = message.card.as_ref()?;
+            let engine = card.get("questionId").is_some_and(|id| !id.is_null());
+            let (kind, waiting) = match card.get("kind").and_then(serde_json::Value::as_str)? {
+                "plan" if !engine => (SessionCardKind::Plan, card.get("decision").is_none_or(serde_json::Value::is_null)),
+                "question" if !engine => (SessionCardKind::Question, message.answered_at.is_none()),
+                "surface" => (SessionCardKind::Surface, false),
+                _ => return None,
+            };
+            let at = message.created_at.as_deref().and_then(crate::voice::parse_instant).unwrap_or(0);
+            Some((at, message.id.as_str(), SessionCard { id: message.id.clone(), kind, waiting }))
+        })
+        .collect();
+    cards.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(b.1)));
+    cards.into_iter().map(|(_, _, card)| card).collect()
+}
+
+/// Where each session card draws: right after the SETTLED, unfailed call
+/// that posted it, paired newest back PER KIND; a card with no call left is
+/// unanchored (card order, the transcript's head). `calls` = the feed's
+/// settled, unfailed Exponential calls in feed order: (feed item id, display
+/// row). Returns card INDICES into `kinds`.
+pub fn anchor_session_cards(
+    calls: &[(u64, &str)],
+    kinds: &[SessionCardKind],
+) -> (HashMap<u64, Vec<usize>>, Vec<usize>) {
+    let mut anchors: HashMap<u64, Vec<usize>> = HashMap::new();
+    let mut unanchored = Vec::new();
+    let mut used: HashMap<&str, usize> = HashMap::new();
+    for (index, kind) in kinds.iter().enumerate().rev() {
+        let row = kind.posting_call();
+        let skip = used.entry(row).or_default();
+        let call = calls.iter().rev().filter(|(_, name)| *name == row).nth(*skip);
+        *skip += 1;
+        match call {
+            Some((id, _)) => anchors.entry(*id).or_default().insert(0, index),
+            None => unanchored.insert(0, index),
+        }
+    }
+    (anchors, unanchored)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,6 +408,72 @@ mod tests {
             for (id, expected) in case["lookups"].as_object().unwrap() {
                 assert_eq!(name(id).as_deref(), expected.as_str(), "{} {id}", case["name"]);
             }
+        }
+    }
+
+    /// The contract's tool-name rule (steer `exp_tool_row`, which depends on
+    /// this crate), for the replay only.
+    fn exp_tool_row(name: &str) -> Option<&'static str> {
+        let name = name.trim();
+        crate::contract::EXP_TOOL_NAMES.iter().copied().find(|row| {
+            name.len() > row.len()
+                && name.ends_with(row)
+                && name[..name.len() - row.len()].ends_with(crate::contract::EXP_TOOL_PREFIX)
+        })
+    }
+
+    fn kind_of(wire: &str) -> SessionCardKind {
+        [SessionCardKind::Plan, SessionCardKind::Question, SessionCardKind::Surface]
+            .into_iter()
+            .find(|kind| kind.wire() == wire)
+            .unwrap()
+    }
+
+    #[test]
+    fn session_cards_match_the_fixture() {
+        let fixture = fixture();
+        for case in fixture["sessionCardsCases"].as_array().unwrap() {
+            let messages: Vec<MessageRow> = case["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| MessageRow {
+                    id: m["id"].as_str().unwrap().into(),
+                    card: Some(m["card"].clone()).filter(|card| !card.is_null()),
+                    answered_at: m["answeredAt"].as_str().map(str::to_string),
+                    created_at: m["createdAt"].as_str().map(str::to_string),
+                    ..Default::default()
+                })
+                .collect();
+            let actual: Vec<Value> = session_cards(&messages)
+                .into_iter()
+                .map(|card| serde_json::json!({"id": card.id, "kind": card.kind.wire(), "waiting": card.waiting}))
+                .collect();
+            assert_eq!(Value::Array(actual), case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn anchor_session_cards_match_the_fixture() {
+        let fixture = fixture();
+        for case in fixture["anchorCases"].as_array().unwrap() {
+            let calls: Vec<(u64, &str)> = case["feed"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| item["kind"] == "tool" && item["settled"] == true && item["failed"] != true)
+                .filter_map(|item| Some((item["id"].as_u64()?, exp_tool_row(item["name"].as_str()?)?)))
+                .collect();
+            let cards = case["cards"].as_array().unwrap();
+            let kinds: Vec<SessionCardKind> = cards.iter().map(|card| kind_of(card["kind"].as_str().unwrap())).collect();
+            let (anchors, unanchored) = anchor_session_cards(&calls, &kinds);
+            let id = |index: &usize| cards[*index]["id"].clone();
+            let anchors: serde_json::Map<String, Value> = anchors
+                .iter()
+                .map(|(call, indices)| (call.to_string(), Value::Array(indices.iter().map(id).collect())))
+                .collect();
+            let actual = serde_json::json!({"anchors": anchors, "unanchored": unanchored.iter().map(id).collect::<Vec<_>>()});
+            assert_eq!(actual, case["expected"], "{}", case["name"]);
         }
     }
 }

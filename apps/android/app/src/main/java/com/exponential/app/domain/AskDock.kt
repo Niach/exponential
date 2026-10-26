@@ -128,4 +128,81 @@ object AskDock {
         }.toMap()
         return { id -> names[id] }
     }
+
+    // ── EXP-1398: THE session view's cards (ask-dock.json `sessionCardsCases`,
+    // `anchorCases`) ────────────────────────────────────────────────────────
+
+    enum class SessionCardKind(val wire: String, val postingCall: String) {
+        Plan("plan", "session_self_plan"),
+        Question("question", "session_self_ask"),
+        Surface("surface", "session_self_show"),
+    }
+
+    /** One card of a session's own conversation: [waiting] = a plan with no
+     *  decision / an unanswered question (it also docks). */
+    data class SessionCard(val id: String, val kind: SessionCardKind, val waiting: Boolean)
+
+    /** The session view's cards, oldest first (createdAt, then id): every
+     *  `plan` / `question` card a TOOL posted (no `questionId`) and every
+     *  `surface` card. Each draws inline; a waiting one also docks. */
+    fun sessionCards(messages: List<SessionTree.Message>): List<SessionCard> = messages
+        .mapNotNull { message ->
+            val card = message.card ?: return@mapNotNull null
+            val kind = (card["kind"] as? kotlinx.serialization.json.JsonPrimitive)
+                ?.takeIf { it.isString }?.content
+            val engine = card["questionId"].let { it != null && it !is kotlinx.serialization.json.JsonNull }
+            when {
+                kind == DomainContract.messageCardKindPlan && !engine -> {
+                    val decision = card["decision"]
+                    val waiting = decision == null || decision is kotlinx.serialization.json.JsonNull
+                    message to SessionCard(message.id, SessionCardKind.Plan, waiting)
+                }
+                kind == DomainContract.messageCardKindQuestion && !engine ->
+                    message to SessionCard(message.id, SessionCardKind.Question, message.answeredAt == null)
+                kind == DomainContract.messageCardKindSurface ->
+                    message to SessionCard(message.id, SessionCardKind.Surface, waiting = false)
+                else -> null
+            }
+        }
+        .sortedWith(
+            compareBy<Pair<SessionTree.Message, SessionCard>>(
+                { WireTimestamps.parseEpochMs(it.first.createdAt) ?: 0L },
+                { it.first.id },
+            ),
+        )
+        .map { it.second }
+
+    /** A settled feed call as the anchoring reads it. */
+    data class FeedCall(val id: Long, val name: String?, val settled: Boolean, val failed: Boolean)
+
+    /** Where each session card draws: right after the SETTLED, unfailed call
+     *  that posted it, paired newest back PER KIND; a card with no call left =
+     *  [Anchors.unanchored] (card order, the transcript's head). */
+    data class Anchors(val after: Map<Long, List<String>>, val unanchored: List<String>)
+
+    fun anchorSessionCards(calls: List<FeedCall>, cards: List<SessionCard>): Anchors {
+        val byRow = HashMap<String, MutableList<Long>>()
+        for (call in calls) {
+            if (!call.settled || call.failed) continue
+            val row = ExpToolDisplay.row(call.name) ?: continue
+            byRow.getOrPut(row) { mutableListOf() }.add(call.id)
+        }
+        val used = HashMap<String, Int>()
+        val after = LinkedHashMap<Long, MutableList<String>>()
+        val unanchored = ArrayList<String>()
+        for (card in cards.asReversed()) {
+            val row = card.kind.postingCall
+            val skip = used[row] ?: 0
+            used[row] = skip + 1
+            val ids = byRow[row].orEmpty()
+            val call = ids.getOrNull(ids.size - 1 - skip)
+            if (call == null) unanchored.add(0, card.id) else after.getOrPut(call) { mutableListOf() }.add(0, card.id)
+        }
+        return Anchors(after, unanchored)
+    }
+
+    /** The feed's tool calls, as [anchorSessionCards] reads them. */
+    fun feedCalls(feed: List<AgentFeedItem>): List<FeedCall> = feed.mapNotNull { item ->
+        (item as? AgentFeedItem.Tool)?.let { FeedCall(it.id, it.name, it.settled, it.failed) }
+    }
 }

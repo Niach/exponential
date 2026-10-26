@@ -46,6 +46,7 @@ import com.exponential.app.domain.HistoryState
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.QueuedMessage
+import com.exponential.app.domain.AskDock
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.SessionAccountOption
 import com.exponential.app.domain.SessionAccountSwitch
@@ -1232,14 +1233,22 @@ class AgentSessionViewModel @AssistedInject constructor(
     }
 
     /**
-     * EXP-1280: a card a TOOL posted on this session (`exponential_plan_propose`
-     * / `exponential_sessions_ask`) has no open relay ask: the dock answers it
-     * through `sessions.answer` (the picks + the surface's data model) and
-     * the device delivers the answer as the next turn.
+     * EXP-1280 / EXP-1398 (ask-dock.json `sessionCardsCases`): this session's
+     * own cards a TOOL posted (`session_self` plan / ask / show), oldest
+     * first. Each draws inline after the call that posted it; a waiting plan
+     * or question also docks. A plan / question has no open relay ask: it
+     * answers through `sessions.answer` (the picks + the surface's data
+     * model) and the device delivers the answer as the next turn.
      */
-    val toolAsks: StateFlow<List<SessionTree.ThreadRow>> = dbFlow
+    val sessionCards: StateFlow<List<Pair<AskDock.SessionCard, SessionTree.ThreadRow>>> = dbFlow
         .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
-        .map { rows -> SessionTree.toolPostedAsks(rows.map { SessionTree.message(it, codingSessionId) }) }
+        .map { rows -> SessionTree.sessionCardRows(rows.map { SessionTree.message(it, codingSessionId) }) }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The plan / question rows of [sessionCards] (the dock's sources). */
+    val toolAsks: StateFlow<List<SessionTree.ThreadRow>> = sessionCards
+        .map { cards -> cards.filter { it.first.kind != AskDock.SessionCardKind.Surface }.map { it.second } }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

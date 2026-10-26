@@ -142,7 +142,7 @@ import {
   type TranscriptGapToken,
   type WorkflowState,
 } from "@/lib/agent-feed"
-import { anchorToolCards, isToolPostedCard } from "@/lib/agent-feed"
+import { anchorSessionCards, sessionCards } from "@exp/domain-contract/ask-dock"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
 import { useSessionMessages } from "@/hooks/use-session-tree"
@@ -447,18 +447,16 @@ export function AgentSessionView({
     }
     return sessionDock.renderSheet(row, close)
   }
-  const toolCardAnchors = useMemo(
-    () => anchorToolCards(feed, toolCards.map((row) => row.id)),
-    [feed, toolCards]
-  )
   const { answer: answerCard, pending: cardsPending } = useAnswerMessage()
   // Thread 58cb32df (chats.json SURFACE CARD): an agent's inline preview
   // (`session_self_show`) sits right after the call that posted it, like a
   // tool-posted card; a `reply` press sends its text as the next message.
   const surfaceCards = useMemo(() => surfaceCardRows(session, sessionMessages), [session, sessionMessages])
-  const surfaceAnchors = useMemo(
-    () => anchorShowCards(feed, surfaceCards.map((row) => row.id)),
-    [feed, surfaceCards]
+  // EXP-1398 (ask-dock.json `anchorCases`): every card after the call that
+  // posted it, paired per kind; the rest at the head.
+  const cardAnchors = useMemo(
+    () => anchorSessionCards(feed, sessionCards(sessionMessages.map(toTreeMessage))),
+    [feed, sessionMessages]
   )
   const surfaceArrived = useLiveArrivals(surfaceCards.map((row) => row.id))
   const replyFromSurface = (text: string) => {
@@ -970,15 +968,12 @@ export function AgentSessionView({
                 style={{ paddingBottom: dockHeight + DOCK_GAP }}
               >
                 {canLoadEarlier ? <LoadEarlierButton onClick={loadEarlier} /> : null}
-                {renderToolCards([...toolCardAnchors.unanchored, ...surfaceAnchors.unanchored], `head`)}
+                {renderToolCards(cardAnchors.unanchored, `head`)}
                 {rows.map((row, index) => (
                   <Fragment key={row.kind === `single` ? `row-${row.item.id}` : `row-${row.id}`}>
                     {renderTranscriptRow(row, index, rows)}
                     {renderToolCards(
-                      rowItemIds(row).flatMap((id) => [
-                        ...(toolCardAnchors.anchors.get(id) ?? []),
-                        ...(surfaceAnchors.anchors.get(id) ?? []),
-                      ]),
+                      rowItemIds(row).flatMap((id) => cardAnchors.anchors.get(id) ?? []),
                       `after`
                     )}
                   </Fragment>
@@ -1076,10 +1071,15 @@ function cardWaiting(row: ThreadRow): boolean {
   return row.type === `question` && !row.answered
 }
 
-/** EXP-1280: this session's TOOL-posted cards (`isToolPostedCard`) in THE
- *  thread row form, oldest first. */
+/** EXP-1280: this session's TOOL-posted cards (ask-dock.json
+ *  `sessionCards`) in THE thread row form, oldest first. */
 function toolCardRows(session: SessionRow, messages: readonly MessageRowLike[]): ThreadRow[] {
-  const cards = messages.filter((message) => isToolPostedCard(message.card))
+  const ids = new Set(
+    sessionCards(messages.map(toTreeMessage))
+      .filter((card) => card.kind !== `surface`)
+      .map((card) => card.id)
+  )
+  const cards = messages.filter((message) => ids.has(message.id))
   if (cards.length === 0) return []
   return buildSessionThread({
     root: toTreeSession(session),
@@ -1107,33 +1107,6 @@ function surfaceCardRows(session: SessionRow, messages: readonly MessageRowLike[
     pullRequests: [],
     now: new Date().toISOString(),
   }).rows.filter((row) => row.type === `surface`)
-}
-
-/** The settled `show` calls a surface card follows, paired newest back
- *  (the `anchorToolCards` rule for `session_self_show`). */
-function anchorShowCards(
-  feed: readonly { id: number; kind: string; name?: string; settled?: boolean; failed?: boolean }[],
-  cardIds: readonly string[]
-): { anchors: Map<number, string[]>; unanchored: string[] } {
-  const calls = feed.filter(
-    (item) =>
-      item.kind === `tool` &&
-      item.settled === true &&
-      item.failed !== true &&
-      expToolDisplay(item.name ?? ``)?.name === `session_self_show`
-  )
-  const anchors = new Map<number, string[]>()
-  const unanchored: string[] = []
-  for (let k = 0; k < cardIds.length; k++) {
-    const card = cardIds[cardIds.length - 1 - k]!
-    const call = calls[calls.length - 1 - k]
-    if (!call) {
-      unanchored.unshift(card)
-      continue
-    }
-    anchors.set(call.id, [...(anchors.get(call.id) ?? []), card])
-  }
-  return { anchors, unanchored }
 }
 
 /** The feed item ids a transcript row draws. */
