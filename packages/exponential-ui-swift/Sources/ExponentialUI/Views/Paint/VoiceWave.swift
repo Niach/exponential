@@ -33,6 +33,13 @@ public struct VoiceWaveFrame: Equatable, Sendable {
     /// The activities that animate (the phase advances with time).
     static let animated: Set<String> = ["listening", "thinking", "speaking"]
 
+    /// The catalog's activities (`voiceWaveActivity`).
+    static let activities: Set<String> = ["idle", "listening", "thinking", "speaking", "muted"]
+
+    /// The `activity` prop as the core takes it: an unknown or missing
+    /// value falls back to `idle`.
+    static func activity(_ raw: String) -> String { activities.contains(raw) ? raw : "idle" }
+
     /// The frame for a `size` px box at `elapsed` seconds.
     /// `child` = the child's own laid-out size (the core then answers its box).
     public static func compute(size: CGFloat, activity: String, level: Double, bands: [Double]?, elapsed: Double, reducedMotion: Bool, child: CGSize? = nil) -> VoiceWaveFrame? {
@@ -96,7 +103,7 @@ struct VoiceWaveLeaf: View {
     @State private var start = Date()
 
     var body: some View {
-        let activity = cx.props.str("activity").isEmpty ? "idle" : cx.props.str("activity")
+        let activity = VoiceWaveFrame.activity(cx.props.str("activity"))
         let level = cx.props.num("level") ?? 0
         let bands = cx.props["bands"]?.array.map { $0.compactMap { $0.number } }
         let reduced = surfaceReduced || platformReduced
