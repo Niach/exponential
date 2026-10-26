@@ -2207,8 +2207,22 @@ describe(`exponential_sessions_send`, () => {
   it(`applies the sessions.send rules (a message needs text)`, async () => {
     const result = await tool(`exponential_sessions_send`)({ sessionId: SESSION })
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`a message needs text, attachments, issues, an answer, an account or a device`)
+    expect(result.content[0].text).toContain(`a message needs text, attachments, issues, an answer, an account, a runner pick or a device`)
     expect(sessionsCore.sendSession).not.toHaveBeenCalled()
+  })
+
+  // EXP-1376: configure = the send core with the picks alone, no message.
+  it(`configures a session's model and login without a message`, async () => {
+    sessionsCore.sendSession.mockResolvedValue({ sessionId: CHILD, messageId: null, status: `idle`, txid: 1 })
+    const result = await tool(`exponential_sessions_configure`)({ sessionId: CHILD, model: `opus`, account: `15afe98b` })
+    expect(result.isError).toBeFalsy()
+    expect(parseOk(result)).toEqual({ ok: true, sessionId: CHILD, status: `idle` })
+    expect(sessionsCore.sendSession).toHaveBeenCalledWith(
+      expect.objectContaining({ input: { sessionId: CHILD, model: `opus`, account: `15afe98b` }, viaMcp: true })
+    )
+    const nothing = await tool(`exponential_sessions_configure`)({ sessionId: CHILD })
+    expect(nothing.isError).toBe(true)
+    expect(nothing.content[0].text).toContain(`Nothing to configure`)
   })
 
   it(`validates a new agent's facets strictly`, async () => {

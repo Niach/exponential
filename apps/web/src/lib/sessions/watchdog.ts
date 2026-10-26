@@ -50,7 +50,9 @@ function flag(kind: CodingSessionBlocked[`kind`], now: Date): CodingSessionBlock
 export async function clearBlockedInTx(
   tx: Tx,
   sessionIds: readonly string[],
-  kind?: CodingSessionBlocked[`kind`]
+  kind?: CodingSessionBlocked[`kind`],
+  /** EXP-1376: only a wall of this usage window (a lifted MODEL wall). */
+  window?: string
 ): Promise<void> {
   if (sessionIds.length === 0) return
   await tx
@@ -65,7 +67,8 @@ export async function clearBlockedInTx(
     .where(
       and(
         inArray(sessions.id, [...sessionIds]),
-        ...(kind ? [sql`${sessions.blocked} ->> 'kind' = ${kind}`] : [])
+        ...(kind ? [sql`${sessions.blocked} ->> 'kind' = ${kind}`] : []),
+        ...(window ? [sql`${sessions.blocked} ->> 'window' = ${window}`] : [])
       )
     )
 }

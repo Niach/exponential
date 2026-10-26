@@ -32,6 +32,7 @@ import {
   findEditorSession,
   loadAppForUser,
 } from "@/lib/apps/editor-session"
+import { flattenAccounts } from "@/lib/accounts/account-option"
 import { answerSessionCardInTx } from "@/lib/sessions/answer"
 import {
   assertCanSteer,
@@ -40,6 +41,7 @@ import {
   sessionDeviceOwner,
 } from "@/lib/sessions/access"
 import { watchSessions } from "@/lib/sessions/bus"
+import { clearBlockedInTx } from "@/lib/sessions/watchdog"
 import {
   assertIssuesInTeam,
   forwardIssues,
@@ -365,12 +367,115 @@ function runnerFields(input: Partial<SessionsSendInput>, from?: RunnerSource | n
   return {
     cli: input.cli ?? from?.cli ?? null,
     account: input.account ?? from?.account ?? null,
-    model: (input.model || from?.model) || null,
-    effort: (input.effort || from?.effort) || null,
+    model: input.model?.trim() || from?.model || null,
+    effort: input.effort?.trim() || from?.effort || null,
     planMode: input.planMode ?? from?.planMode ?? false,
     computerUse: input.computerUse ?? from?.computerUse ?? false,
     ultracode: input.ultracode ?? from?.ultracode ?? false,
   }
+}
+
+/** EXP-1376: the runner picks a message (or a configure) names for an
+ *  EXISTING session; omitted = unchanged. A blank model is a stale client's
+ *  "CLI default" (ignored), a blank effort the agent's default (NULL). The
+ *  login (`account`) is the switch, handled beside. */
+export interface RunnerPicks {
+  model?: string
+  effort?: string | null
+  planMode?: boolean
+  ultracode?: boolean
+  computerUse?: boolean
+}
+
+export function runnerPicks(input: {
+  model?: string | null
+  effort?: string | null
+  planMode?: boolean
+  ultracode?: boolean
+  computerUse?: boolean
+}): RunnerPicks {
+  const model = input.model?.trim()
+  return {
+    ...(model ? { model } : {}),
+    ...(input.effort !== undefined ? { effort: input.effort?.trim() || null } : {}),
+    ...(input.planMode !== undefined ? { planMode: input.planMode } : {}),
+    ...(input.ultracode !== undefined ? { ultracode: input.ultracode } : {}),
+    ...(input.computerUse !== undefined ? { computerUse: input.computerUse } : {}),
+  }
+}
+
+/** EXP-1376 (FEED-152): a model or login pick on a session behind a usage
+ *  wall must lift it, never succeed silently into the same wall. A login
+ *  switch is the host's to lift (it clears the wall as the run moves and
+ *  puts it back on a refused move); a new model lifts a MODEL wall, which
+ *  the caller then clears at once (`true`) so the queued messages run.
+ *  Anything else naming a model refuses, saying what would lift it. */
+export function modelLiftsWall(
+  target: Pick<Session, `blocked` | `model`>,
+  change: { switching: boolean; model?: string; hasMessage?: boolean }
+): boolean {
+  const wall = target.blocked
+  if (wall?.kind !== `rate_limit` || change.switching || change.model === undefined) return false
+  if (wall.window === `model` && change.model !== target.model) return true
+  // A message naming the model it already runs on is no pick: it queues
+  // behind the wall like any message.
+  if (change.hasMessage && change.model === target.model) return false
+  const until = wall.resetsAt ? ` until ${wall.resetsAt}` : ``
+  throw new TRPCError({
+    code: `BAD_REQUEST`,
+    message:
+      wall.window === `model`
+        ? `This session is blocked by the ${change.model} usage limit${until}: pick another model, or pass account to switch logins.`
+        : `This session is blocked by its login's ${wall.window ?? `usage`} limit${until}, which a model change does not lift: pass account to switch logins.`,
+  })
+}
+
+/** EXP-1376 (review): the row's wall and model under its lock, then the
+ *  verdict on them; a lifted MODEL wall is cleared only while it is still a
+ *  model wall (a session/weekly wall the device reported in between stays). */
+export async function liftWallInTx(
+  tx: Tx,
+  sessionId: string,
+  change: { switching: boolean; model?: string; hasMessage?: boolean }
+): Promise<void> {
+  if (change.model === undefined || change.switching) return
+  const [fresh] = await tx
+    .select({ blocked: sessions.blocked, model: sessions.model })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .for(`update`)
+  if (fresh && modelLiftsWall(fresh, change)) {
+    await clearBlockedInTx(tx, [sessionId], `rate_limit`, `model`)
+  }
+}
+
+/** EXP-1376 (review): an account switch names a login signed in for the
+ *  session's agent on its device. A device that reported no logins at all
+ *  is unknowable here: its own switch check decides (and replies). */
+async function assertSessionAccount(target: Session, account: string, cli: string | null) {
+  const row = await loadDeviceRow(target.deviceId, await sessionDeviceOwner(target))
+  if (!row?.agentAccounts || Object.keys(row.agentAccounts).length === 0) return
+  const agent = cli ?? `claude`
+  if (!flattenAccounts(row).some((option) => option.agent === agent && option.id === account)) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `Account "${account}" is not signed in for ${agent} on this session's device`,
+    })
+  }
+}
+
+/** EXP-1376: an agent's composer `/model <alias>` over MCP is the model
+ *  pick itself (what a person's ModelPicker asks for), never a turn: a
+ *  walled session takes none, so the line would wait forever. */
+const MODEL_COMMAND = /^\/model(?:\s+(\S+))?\s*$/
+
+function agentModelCommand(input: SessionsSendInput): SessionsSendInput {
+  const match = input.attachmentIds?.length ? null : MODEL_COMMAND.exec(input.text?.trim() ?? ``)
+  if (!match) return input
+  if (!match[1] && !input.model) {
+    throw new TRPCError({ code: `BAD_REQUEST`, message: `/model needs a model: pass model, e.g. "/model opus"` })
+  }
+  return { ...input, text: undefined, model: input.model || match[1] }
 }
 
 /** Refuses a child the follow-up caps forbid: depth below the root, and
@@ -554,16 +659,27 @@ async function applyDirectMove(tx: Tx, session: Session, target: MoveTarget) {
 async function messageSession(
   userId: string,
   uploaderIds: string[],
-  input: SessionsSendInput,
+  sent: SessionsSendInput,
   caller: Session | null,
   extras: SendExtras,
   viaMcp: boolean
 ): Promise<SendOutcome> {
-  const target = await loadSessionForUser(userId, input.sessionId!)
+  const target = await loadSessionForUser(userId, sent.sessionId!)
   await assertCanSteer(userId, target)
-  if (input.teamId && input.teamId !== target.teamId) {
+  if (sent.teamId && sent.teamId !== target.teamId) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `The session is in another team` })
   }
+  const input = viaMcp ? agentModelCommand(sent) : sent
+  // EXP-1376: the runner picks apply to the session (never dropped), in the
+  // vocabulary of the agent it runs.
+  const cli = await effectiveCli(target)
+  assertRunnerVocabulary({
+    cli: cli ?? undefined,
+    model: input.model,
+    effort: input.effort,
+    ultracode: input.ultracode,
+  })
+  const picks = runnerPicks(input)
 
   const hasMessage = !!input.text?.trim() || !!input.attachmentIds?.length
   const move = await planMove(target, input)
@@ -623,18 +739,33 @@ async function messageSession(
     // With a move `account` is the login to use on the TARGET.
     const switching =
       move.kind === `none` && input.account !== undefined && input.account !== target.account
-    if (switching && (await effectiveCli(target)) === `codex`) {
+    if (switching && cli === `codex`) {
       throw new TRPCError({
         code: `BAD_REQUEST`,
         message: `Only claude can switch accounts during a session.`,
       })
     }
+    if (switching) await assertSessionAccount(target, input.account!, cli)
+    // EXP-1376: the pickers move WITH the login in one write (the host
+    // resumes on both), a blocked session included.
+    const wallChange = { switching, model: picks.model, hasMessage }
     return db.transaction(async (tx) => {
       const txid = await generateTxId(tx)
-      if (switching) {
+      // Under the row lock: the verdict reads the wall as it is now.
+      await liftWallInTx(tx, target.id, wallChange)
+      const mcpServerIds =
+        input.mcpServerIds === undefined
+          ? undefined
+          : await assertMcpServersInTeam(tx, target.teamId, input.mcpServerIds)
+      if (switching || Object.keys(picks).length > 0 || mcpServerIds !== undefined) {
         await tx
           .update(sessions)
-          .set({ account: input.account, updatedAt: new Date() })
+          .set({
+            ...(switching ? { account: input.account } : {}),
+            ...picks,
+            ...(mcpServerIds !== undefined ? { mcpServerIds } : {}),
+            updatedAt: new Date(),
+          })
           .where(eq(sessions.id, target.id))
       }
       let queued: SendOutcome[`queued`] = null
@@ -686,6 +817,9 @@ async function messageSession(
           })
         : null
     const deviceId = moveTarget?.deviceId ?? target.deviceId
+    if (!moveTarget && input.account !== undefined && input.account !== target.account) {
+      await assertSessionAccount(target, input.account, cli)
+    }
     const device = await resolveSessionDevice(userId, target.teamId, deviceId)
     return db.transaction(async (tx) => {
       const txid = await generateTxId(tx)
@@ -708,6 +842,9 @@ async function messageSession(
   // An ended CHILD continues: a new session on its device (or the named
   // one), same pickers and branch, its first message = this one.
   const deviceId = input.deviceId ?? target.deviceId
+  if (deviceId === target.deviceId && input.account !== undefined && input.account !== target.account) {
+    await assertSessionAccount(target, input.account, cli)
+  }
   const device = await resolveSessionDevice(userId, target.teamId, deviceId)
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
@@ -850,6 +987,10 @@ async function reviveRoot(
       blocked: null,
       deviceId: args.device.deviceId,
       account: moveTarget ? moveTarget.account : (input.account ?? root.account),
+      ...runnerPicks(input),
+      ...(input.mcpServerIds !== undefined
+        ? { mcpServerIds: await assertMcpServersInTeam(tx, root.teamId, input.mcpServerIds) }
+        : {}),
       updatedAt: now,
     })
     .where(and(eq(sessions.id, root.id), eq(sessions.status, `ended`)))
@@ -925,8 +1066,13 @@ async function continueSession(
     title: ended.title,
     userId,
     deviceId: args.device.deviceId,
-    ...runnerFields({ account: input.account }, ended),
-    mcpServerIds: ended.mcpServerIds,
+    // EXP-1376: the message's pickers win over the ended row's (its agent
+    // stays).
+    ...runnerFields({ ...input, cli: undefined }, ended),
+    mcpServerIds:
+      input.mcpServerIds !== undefined
+        ? await assertMcpServersInTeam(tx, root.teamId, input.mcpServerIds)
+        : ended.mcpServerIds,
     repositoryId: ended.repositoryId ?? root.repositoryId,
     status: `queued`,
     shared: root.shared,

@@ -621,6 +621,143 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     expect(await row(root.sessionId)).toMatchObject({ account: `eeee5555`, status: `idle`, endedAt: null })
   })
 
+  // EXP-1376 (FEED-152): a message's pickers apply to the session, a
+  // blocked one included; a pick that cannot lift the wall refuses.
+  it(`a message's model and pickers apply to an existing session, through a usage wall`, async () => {
+    const w = await world()
+    const start = (text: string) =>
+      sendSession({
+        userId: w.owner,
+        input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, account: `aaaa1111`, model: `fable`, text },
+      })
+    const wall = (window: string) => ({
+      kind: `rate_limit`,
+      agent: `claude`,
+      window,
+      resetsAt: `2026-10-29T00:00:00.000Z`,
+      since: `2026-10-26T00:00:00.000Z`,
+    })
+    const walled = async (id: string, window: string) =>
+      db.update(sessions).set({ status: `idle`, blocked: wall(window), needsInput: true }).where(eq(sessions.id, id))
+
+    // A live session: model + effort land with no message, never dropped.
+    const live = await start(`live`)
+    const alone = await sendSession({
+      userId: w.owner,
+      input: { sessionId: live.sessionId, model: `opus`, effort: `high` },
+    })
+    expect(alone.messageId).toBeNull()
+    expect(await row(live.sessionId)).toMatchObject({ model: `opus`, effort: `high`, account: `aaaa1111` })
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: live.sessionId, model: `gpt-5` } })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+
+    // The release-coordinator case: a session wall, account + model in one
+    // call. Both move; the host lifts the wall as it switches logins.
+    const coord = await start(`coordinate`)
+    await walled(coord.sessionId, `session`)
+    const both = await sendSession({
+      userId: w.owner,
+      input: { sessionId: coord.sessionId, account: `bbbb2222`, model: `opus`, text: `carry on` },
+    })
+    expect(both.messageId).not.toBeNull()
+    expect(await row(coord.sessionId)).toMatchObject({ account: `bbbb2222`, model: `opus` })
+    expect((await row(coord.sessionId)).blocked).toMatchObject({ window: `session` })
+
+    // A model alone cannot lift a login's wall: refused, nothing moves.
+    const login = await start(`login wall`)
+    await walled(login.sessionId, `weekly`)
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: login.sessionId, model: `opus` } })
+    ).rejects.toThrow(/a model change does not lift: pass account/)
+    expect(await row(login.sessionId)).toMatchObject({ model: `fable`, blocked: wall(`weekly`) })
+    // A non-model pick (effort) still applies behind the wall.
+    await sendSession({ userId: w.owner, input: { sessionId: login.sessionId, effort: `low` } })
+    expect(await row(login.sessionId)).toMatchObject({ effort: `low`, blocked: wall(`weekly`) })
+
+    // A MODEL wall: the same model refuses, another lifts it at once (the
+    // queued messages run on it).
+    const model = await start(`model wall`)
+    await walled(model.sessionId, `model`)
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: model.sessionId, model: `fable` } })
+    ).rejects.toThrow(/fable usage limit/)
+    await sendSession({ userId: w.owner, input: { sessionId: model.sessionId, model: `opus` } })
+    expect(await row(model.sessionId)).toMatchObject({ model: `opus`, blocked: null, needsInput: false })
+
+    // An agent's `/model <alias>` over MCP is the pick, never a turn.
+    const child = await sendSession({ userId: w.owner, input: { parentId: live.sessionId, text: `kid` } })
+    const viaAgent = await start(`agent model`)
+    await walled(viaAgent.sessionId, `model`)
+    const sent = await sendSession({
+      userId: w.owner,
+      callerSessionId: child.sessionId,
+      viaMcp: true,
+      input: { sessionId: viaAgent.sessionId, text: `/model sonnet` },
+    })
+    expect(sent.messageId).toBeNull()
+    expect(await row(viaAgent.sessionId)).toMatchObject({ model: `sonnet`, blocked: null })
+    await expect(
+      sendSession({
+        userId: w.owner,
+        callerSessionId: child.sessionId,
+        viaMcp: true,
+        input: { sessionId: viaAgent.sessionId, text: `/model gpt-5` },
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    // A person's `/model` over tRPC stays their message (the run's own switch).
+    const person = await sendSession({ userId: w.owner, input: { sessionId: viaAgent.sessionId, text: `/model haiku` } })
+    expect(person.messageId).not.toBeNull()
+
+    // An ended child continues on the message's pickers.
+    await endSession({ userId: w.owner, sessionId: child.sessionId, summary: `Done.` })
+    const cont = await sendSession({
+      userId: w.owner,
+      input: { sessionId: child.sessionId, model: `haiku`, effort: `max`, text: `again` },
+    })
+    expect(cont.sessionId).not.toBe(child.sessionId)
+    expect(await row(cont.sessionId)).toMatchObject({ model: `haiku`, effort: `max` })
+
+    // Review: text with the model it already runs on queues behind a login
+    // wall (no pick, no refusal).
+    const queuedBehind = await sendSession({
+      userId: w.owner,
+      input: { sessionId: login.sessionId, model: `fable`, text: `when it resets` },
+    })
+    expect(queuedBehind.messageId).not.toBeNull()
+    expect((await row(login.sessionId)).blocked).toEqual(wall(`weekly`))
+
+    // Review: the clear lifts only a MODEL wall (a session/weekly wall the
+    // device reported in between is never wiped).
+    const { clearBlockedInTx } = await import(`@/lib/sessions/watchdog`)
+    await db.transaction((tx) => clearBlockedInTx(tx, [login.sessionId], `rate_limit`, `model`))
+    expect((await row(login.sessionId)).blocked).toEqual(wall(`weekly`))
+
+    // Review: a switch names a login signed in for the agent on the device.
+    await db
+      .update(devices)
+      .set({
+        agentAccounts: {
+          claude: {
+            signedIn: true,
+            email: `a@x.test`,
+            health: `ok`,
+            profiles: [
+              { id: `aaaa1111`, signedIn: true, active: true, email: `a@x.test`, health: `ok` },
+              { id: `cccc3333`, signedIn: true, email: `c@x.test`, health: `ok` },
+            ],
+          },
+        },
+      })
+      .where(eq(devices.deviceId, w.deviceId))
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: live.sessionId, account: `zzzz9999`, model: `opus` } })
+    ).rejects.toThrow(/Account "zzzz9999" is not signed in for claude on this session's device/)
+    expect((await row(live.sessionId)).account).toBe(`aaaa1111`)
+    await sendSession({ userId: w.owner, input: { sessionId: live.sessionId, account: `cccc3333` } })
+    expect((await row(live.sessionId)).account).toBe(`cccc3333`)
+  })
+
   it(`ending a root ends its whole tree; an agent refuses End`, async () => {
     const w = await world()
     const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })

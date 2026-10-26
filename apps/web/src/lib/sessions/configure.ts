@@ -5,7 +5,7 @@ import { db } from "@/db/connection"
 import { mcpServers, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { assertCanSteer, loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
-import { assertRunnerVocabulary, effectiveCli } from "@/lib/sessions/send"
+import { assertRunnerVocabulary, effectiveCli, liftWallInTx, runnerPicks } from "@/lib/sessions/send"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 
 // EXP-1334 — `sessions.configure`: a live session's launch options change
@@ -41,15 +41,13 @@ export async function configureSession(
   const mcpServerIds =
     input.mcpServerIds === undefined ? undefined : await assertMcpServers(target.teamId, input.mcpServerIds)
 
-  const picks = {
-    ...(input.model !== undefined ? { model: input.model } : {}),
-    ...(input.planMode !== undefined ? { planMode: input.planMode } : {}),
-    ...(effort !== undefined ? { effort } : {}),
-    ...(input.ultracode !== undefined ? { ultracode: input.ultracode } : {}),
-    ...(input.computerUse !== undefined ? { computerUse: input.computerUse } : {}),
-  }
+  const picks = runnerPicks(input)
   const result = await db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
+    // EXP-1376: a model pick on a walled session lifts a model wall at once
+    // (the queued messages run on it) or refuses, never a silent success;
+    // read under the row lock.
+    await liftWallInTx(tx, target.id, { switching: false, model: picks.model })
     const set: Partial<typeof sessions.$inferInsert> = picks
     if (mcpServerIds !== undefined) set.mcpServerIds = mcpServerIds
     await tx

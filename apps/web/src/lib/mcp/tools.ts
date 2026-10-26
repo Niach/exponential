@@ -2300,7 +2300,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_send`,
     {
-      description: `THE one call for sessions. sessionId = message it (idle resumes; an ended thread resumes the same row, an ended child continues as a sibling; answer = answer its open question/plan {answer|answers|decision}, first wins; issueIds = forward; account = switch login; deviceId = move; stop = interrupt its turn). agentId = message a team agent (your conversation with it); appId = your app editor session. parentId = start a child. Neither = a new thread (text, issueIds, promptId = a saved prompt's body first, repositoryId); its transitions wake you, as do wakeOn sessions. New threads need deviceId; teamId defaults to yours. Never resend, never wait.`,
+      description: `THE one call for sessions. sessionId = message it (idle resumes; an ended thread resumes the row, an ended child continues as a sibling; answer = answer its open question/plan {answer|answers|decision}, first wins; issueIds = forward; account/model/effort = set; deviceId = move; stop = interrupt its turn). agentId = message a team agent (your conversation with it); appId = your app editor session. parentId = start a child. Neither = a new thread (text, issueIds, promptId = a saved prompt's body first, repositoryId); its transitions wake you, as do wakeOn sessions. New threads need deviceId; teamId defaults to yours. Never resend, never wait.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
@@ -2481,6 +2481,45 @@ export function registerExponentialTools(
         }
         await endSession({ userId: user.id, sessionId: target, summary: summary ?? null })
         return ok({ ok: true, id: target })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // EXP-1376: a session's pickers (and login) without a message: the same
+  // core as a `sessions_send` carrying them alone, a blocked session
+  // included (a pick that cannot lift its wall refuses).
+  server.registerTool(
+    `exponential_sessions_configure`,
+    {
+      description: `Change a session's model, account (its login), effort, plan mode, computer use or ultracode, no message (sessionId omitted = your own). Applies on a blocked session too: a new account, or a new model on a model wall, unblocks it and runs its queued messages; a pick that cannot lift the wall errors.`,
+      inputSchema: strictInput({
+        sessionId: uuidString.optional(),
+        model: z.string().min(1).max(64).optional(),
+        account: z.string().min(1).max(64).optional(),
+        effort: z.string().max(32).optional(),
+        planMode: z.boolean().optional(),
+        computerUse: z.boolean().optional(),
+        ultracode: z.boolean().optional(),
+      }),
+    },
+    async ({ sessionId: sessionIdArg, ...picks }) => {
+      try {
+        const own = await loadCallerSession()
+        const target = sessionIdArg ?? own?.id
+        if (!target) throw new Error(noSessionMessage(`exponential_sessions_configure`, `sessionId`))
+        if (!access.full) await loadGrantedSession(target)
+        if (Object.values(picks).every((value) => value === undefined)) {
+          throw new Error(`Nothing to configure: pass model, account, effort, planMode, computerUse or ultracode.`)
+        }
+        const { sessionId, status } = await sendSession({
+          userId: user.id,
+          input: sessionsSendInputSchema.parse({ sessionId: target, ...picks }),
+          callerSessionId: own?.id ?? null,
+          viaMcp: true,
+        })
+        return ok({ ok: true, sessionId, status })
       } catch (e) {
         return err(e)
       }

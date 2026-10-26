@@ -1414,10 +1414,11 @@ export const sessionsSendInputSchema = z
     teamId: sendUuid.optional(),
     sessionId: sendUuid.optional(),
     parentId: sendUuid.optional(),
-    // Runner pickers (new sessions only), except `account`: on a message
-    // (`sessionId`) it SWITCHES the session's login (EXP-849, claude only;
-    // the host device resumes the same row on it between turns) and may be
-    // sent alone, with no text. EXP-1252: `deviceId` on a message = MOVE the
+    // Runner pickers. On a message (`sessionId`) they CONFIGURE the session
+    // (EXP-1376, like `sessions.configure`; `cli` stays the session's) and
+    // `account` SWITCHES its login (EXP-849, claude only; the host device
+    // resumes the same row on it between turns); either may be sent alone,
+    // with no text. EXP-1252: `deviceId` on a message = MOVE the
     // session to that device after its turn (its current device = cancel a
     // pending move); may be sent alone, `account` = the login to use there.
     deviceId: z.string().min(1).max(128).optional(),
@@ -1490,9 +1491,16 @@ export const sessionsSendInputSchema = z
         !input.issueIds &&
         !input.deviceId &&
         !input.answer &&
-        !input.wakeOn
+        !input.wakeOn &&
+        // EXP-1376: a runner pick alone configures the session.
+        !input.model?.trim() &&
+        input.effort === undefined &&
+        input.planMode === undefined &&
+        input.computerUse === undefined &&
+        input.ultracode === undefined &&
+        input.mcpServerIds === undefined
       )
-        issue(`a message needs text, attachments, issues, an answer, an account or a device`)
+        issue(`a message needs text, attachments, issues, an answer, an account, a runner pick or a device`)
       return
     }
     if (input.answer) issue(`an answer goes to a session (sessionId)`)
