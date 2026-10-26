@@ -557,7 +557,7 @@ describe(`devices.setShared — toggle form`, () => {
     expect(h.endForeignHostedSessions).toHaveBeenCalledWith(
       `actor`,
       TEAM_B,
-      `dev-1`
+      [`dev-1`]
     )
   })
 
@@ -587,8 +587,8 @@ describe(`devices.setShared — toggle form`, () => {
     await caller.setShared({ deviceId: `dev-1`, teamId: null, shared: false })
     expect(h.state.updates[0]?.set).toMatchObject({ sharedTeamIds: [] })
     expect(h.endForeignHostedSessions).toHaveBeenCalledTimes(2)
-    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_A, `dev-1`)
-    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_B, `dev-1`)
+    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_A, [`dev-1`])
+    expect(h.endForeignHostedSessions).toHaveBeenCalledWith(`actor`, TEAM_B, [`dev-1`])
   })
 })
 
@@ -679,7 +679,7 @@ describe(`devices.setShared — kill fan-out`, () => {
     expect(h.endForeignHostedSessions).toHaveBeenCalledWith(
       `actor`,
       TEAM_A,
-      `dev-1`
+      [`dev-1`]
     )
     expect(updatesWhenKilled).toBe(1)
     expect(pausesWhenKilled).toBe(1)
@@ -695,7 +695,7 @@ describe(`devices.setShared — kill fan-out`, () => {
     expect(h.endForeignHostedSessions).toHaveBeenCalledWith(
       `actor`,
       TEAM_A,
-      `dev-1`
+      [`dev-1`]
     )
   })
 

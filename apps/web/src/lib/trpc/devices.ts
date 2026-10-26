@@ -65,6 +65,7 @@ import { assertTeamMember, getTeamMember } from "@/lib/team-membership"
 import { voiceSettingsOf } from "@/lib/trpc/voice"
 import { versionPayload } from "@/lib/client-version"
 import { endForeignHostedSessions, pauseDeviceAgents } from "@/lib/sessions/lifecycle"
+import { firstSharerTeams, lockDeviceShares, shareContested } from "@/lib/sessions/host"
 import {
   agentEffortValues,
   agentModelValues,
@@ -669,7 +670,10 @@ export const devicesRouter = router({
         // (flagged `stuck`), a listed one is alive (FEED-145: never `stuck`
         // for a long turn); absent = no claim. FEED-146: a malformed entry
         // is dropped (`cleanLiveSessionIds`), never a failed beat.
-        liveSessionIds: z.array(z.unknown()).max(1000).optional(),
+        // FEED-148: each entry is capped at 128 characters again (the
+        // relay's id bound): a longer one, like any non-string, is null
+        // here and dropped below, never a failed beat.
+        liveSessionIds: z.array(z.string().max(128).nullable().catch(null)).max(1000).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1392,12 +1396,26 @@ export const devicesRouter = router({
       }
       const txid = await ctx.db.transaction(async (tx) => {
         const id = await generateTxId(tx)
+        // FEED-148: a machine id is unique per account only, so anyone can
+        // register a box's id. One sharing row per (machine, team): a
+        // second account's share into a team the box is already shared
+        // with is refused (it would compete for the host of teammates'
+        // starts), and only the row that IS the host disarms the team's
+        // agents on revoke (a decoy's unshare pauses nothing).
+        await lockDeviceShares(tx, input.deviceId)
+        if (await shareContested(tx, ctx.session.user.id, input.deviceId, added)) {
+          throw new TRPCError({
+            code: `CONFLICT`,
+            message: `Another account already shares this machine with that team`,
+          })
+        }
+        const pause = await firstSharerTeams(tx, { id: row.id, deviceId: input.deviceId }, disarm)
         await tx
           .update(devices)
           .set({ sharedTeamIds: next, updatedAt: new Date() })
           .where(eq(devices.id, row.id))
-        if (disarm.length > 0) {
-          await pauseDeviceAgents(tx, disarm, input.deviceId)
+        if (pause.length > 0) {
+          await pauseDeviceAgents(tx, pause, input.deviceId)
         }
         return id
       })
@@ -1410,11 +1428,9 @@ export const devicesRouter = router({
       // (EXP-560): only THIS machine's foreign runs die — the owner's other
       // same-team shares keep theirs.
       for (const teamId of revoked) {
-        await endForeignHostedSessions(
-          ctx.session.user.id,
-          teamId,
-          input.deviceId
-        )
+        await endForeignHostedSessions(ctx.session.user.id, teamId, [
+          input.deviceId,
+        ])
       }
       return { ok: true, txid }
     }),

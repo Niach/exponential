@@ -6,7 +6,7 @@ import { devices, messages, sessions } from "@/db/schema"
 import { fireScheduledTriggers } from "@/lib/agents/triggers"
 import { pruneEvents } from "@/lib/events"
 import { BUS_COPY, busLine } from "@/lib/sessions/bus"
-import { hostDeviceCondition, hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
+import { hostRowCondition, hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
 import { pendingInput } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
@@ -152,8 +152,9 @@ async function flagStuck(now: Date): Promise<number> {
           eq(sessions.busy, true),
           isNull(sessions.blocked),
           lt(sessions.updatedAt, cutoff),
-          // `hostDeviceCondition` names the devices table itself: no alias.
-          sql`NOT EXISTS (SELECT 1 FROM ${devices} WHERE ${hostDeviceCondition(sessions, devices)} AND ${devices.lastSeenAt} >= ${online} AND ${sessions.id}::text = ANY(${devices.liveSessionIds}))`
+          // FEED-148: the resolved host's row only (`hostRowCondition`): a
+          // decoy row naming the machine never vouches for a session.
+          sql`NOT EXISTS (SELECT 1 FROM ${devices} h WHERE ${hostRowCondition(`h`)} AND h.last_seen_at >= ${online} AND ${sessions.id}::text = ANY(h.live_session_ids))`
         )
       )
       .for(`update`, { skipLocked: true })
@@ -180,8 +181,9 @@ async function flagOffline(now: Date): Promise<number> {
         and(
           inArray(sessions.status, [...LIVE]),
           isNull(sessions.blocked),
-          // `hostDeviceCondition` names the devices table itself: no alias.
-          sql`NOT EXISTS (SELECT 1 FROM ${devices} WHERE ${hostDeviceCondition(sessions, devices)} AND ${devices.lastSeenAt} >= ${cutoff})`
+          // FEED-148: the resolved host's row only: a decoy row online
+          // never keeps a dead host's sessions live.
+          sql`NOT EXISTS (SELECT 1 FROM ${devices} h WHERE ${hostRowCondition(`h`)} AND h.last_seen_at >= ${cutoff})`
         )
       )
       .for(`update`, { skipLocked: true })
@@ -239,7 +241,11 @@ async function clearExpiredWalls(now: Date): Promise<number> {
 /** FEED-146: the heartbeat's `liveSessionIds` is a free list from the
  *  device: only distinct uuids (lower-cased, as Postgres prints them) can
  *  name a session row; anything else is dropped, never cast in SQL (one bad
- *  id would fail every beat). */
+ *  id would fail every beat). FEED-148: a list of nothing but junk cleans
+ *  to `[]`, which is still a claim ("I run nothing"): every busy session
+ *  the sender hosts there reads dead. Accepted on purpose: only the host's
+ *  own device can send it, and a broken client fails loudly, not silently
+ *  keeps dead sessions busy. */
 export function cleanLiveSessionIds(ids: readonly unknown[]): { ids: string[]; dropped: number } {
   const valid = ids.filter((id): id is string => typeof id === `string` && UUID.test(id))
   return { ids: [...new Set(valid.map((id) => id.toLowerCase()))], dropped: ids.length - valid.length }
