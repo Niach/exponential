@@ -69,7 +69,7 @@ export function DockCardSpecimen() {
   return (
     <div data-testid="dock-card-specimen">
 
-      <div className="grid max-w-2xl gap-3">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <Caption>One card: the label, the caption, the meta, the title, the chevron</Caption>
         <DockCard row={QUESTION} onOpen={noop} />
         <Caption>A banner: never opens; its action word trails</Caption>
