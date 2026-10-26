@@ -80,6 +80,27 @@ pub struct VoiceWaveInput {
     pub elapsed: Option<f64>,
     #[serde(default)]
     pub reduced_motion: Option<bool>,
+    /// The one child's own laid-out size (the core centres it at that size).
+    #[serde(default)]
+    pub child: Option<ChildSize>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct ChildSize {
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Where a painter draws the child: its own box scaled about the wave's
+/// centre by `scale` = min(1, child_size / its longer edge), never up;
+/// 0 = kept in the tree but not painted (`sm`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ChildBox {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub scale: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -100,6 +121,8 @@ pub struct VoiceWave {
     /// The centre child's edge in px; 0 = not painted (`sm`).
     pub child_size: f64,
     pub phase: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child: Option<ChildBox>,
 }
 
 fn clamp01(n: f64) -> f64 {
@@ -128,6 +151,22 @@ pub fn child_size(size: f64) -> f64 {
         return 0.0;
     }
     round2(size * if size >= 100.0 { v.child_scale_large } else { v.child_scale })
+}
+
+/// The child's painted box in a wave of edge `size` (see [`ChildBox`]).
+pub fn child_box(size: f64, child: ChildSize) -> ChildBox {
+    let edge = child_size(size);
+    let (w, h) = (child.width.max(0.0), child.height.max(0.0));
+    let longer = w.max(h);
+    let scale = if edge == 0.0 {
+        0.0
+    } else if longer <= edge || longer == 0.0 {
+        1.0
+    } else {
+        (edge / longer * 10000.0).round() / 10000.0
+    };
+    let (width, height) = (round2(w * scale), round2(h * scale));
+    ChildBox { x: round2((size - width) / 2.0), y: round2((size - height) / 2.0), width, height, scale }
 }
 
 /// The three rings for one frame (coordinates rounded to 0.01 px).
@@ -169,6 +208,6 @@ pub fn voice_wave(input: &VoiceWaveInput) -> VoiceWave {
             }
         })
         .collect();
-    VoiceWave { rings, child_size: child_size(size), phase: round2(ph) }
+    VoiceWave { rings, child_size: child_size(size), phase: round2(ph), child: input.child.map(|c| child_box(size, c)) }
 }
 

@@ -218,6 +218,7 @@ fn voice_wave_every_case_matches_the_reference() {
         let name = c["name"].as_str().unwrap();
         assert_eq!(got.child_size, expected.child_size, "{name}");
         assert_eq!(got.phase, expected.phase, "{name}");
+        assert_eq!(got.child, expected.child, "{name}");
         assert_eq!(got.rings.len(), expected.rings.len(), "{name}");
         for (g, e) in got.rings.iter().zip(&expected.rings) {
             assert_eq!((g.part.as_str(), g.fill_alpha, g.stroke_alpha, g.stroke_width), (e.part.as_str(), e.fill_alpha, e.stroke_alpha, e.stroke_width), "{name}");

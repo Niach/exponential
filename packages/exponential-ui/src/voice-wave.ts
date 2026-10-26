@@ -24,6 +24,19 @@ export interface VoiceWaveInput {
   /** Seconds since the wave started animating (ignored when idle or muted). */
   elapsed?: number
   reducedMotion?: boolean
+  /** The one child's own laid-out size (the core centres it at that size). */
+  child?: { width: number; height: number }
+}
+
+/** Where the painter draws the child: its own box scaled about the wave's
+ *  centre by `scale` = min(1, childSize / its longer edge), never up; 0 =
+ *  kept in the tree but not painted (`sm`). */
+export interface VoiceWaveChildBox {
+  x: number
+  y: number
+  width: number
+  height: number
+  scale: number
 }
 
 export interface VoiceWaveRing {
@@ -42,6 +55,8 @@ export interface VoiceWave {
   childSize: number
   /** The phase the rings were drawn at (radians). */
   phase: number
+  /** Present when the input gave the child's size. */
+  child?: VoiceWaveChildBox
 }
 
 const clamp01 = (n: number) => (Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0)
@@ -58,6 +73,18 @@ export function voiceWaveChildSize(size: number): number {
   const v = VOICE_WAVE
   if (size < 40) return 0
   return round2(size * (size >= 100 ? v.childScaleLarge : v.childScale))
+}
+
+/** The child's painted box in a wave of edge `size` (see VoiceWaveChildBox). */
+export function voiceWaveChildBox(size: number, child: { width: number; height: number }): VoiceWaveChildBox {
+  const edge = voiceWaveChildSize(size)
+  const w = Math.max(0, child.width)
+  const h = Math.max(0, child.height)
+  const longer = Math.max(w, h)
+  const scale = edge === 0 ? 0 : longer <= edge || longer === 0 ? 1 : Math.round((edge / longer) * 10000) / 10000
+  const width = round2(w * scale)
+  const height = round2(h * scale)
+  return { x: round2((size - width) / 2), y: round2((size - height) / 2), width, height, scale }
 }
 
 /** The three rings for one frame. Coordinates are rounded to 0.01 px. */
@@ -96,7 +123,9 @@ export function voiceWave(input: VoiceWaveInput): VoiceWave {
       strokeWidth: round2(Math.max(1, (v.strokeWidth[k]! * size) / 200)),
     }
   })
-  return { rings, childSize: voiceWaveChildSize(size), phase: round2(phase) }
+  const out: VoiceWave = { rings, childSize: voiceWaveChildSize(size), phase: round2(phase) }
+  if (input.child) out.child = voiceWaveChildBox(size, input.child)
+  return out
 }
 
 /** An SVG path (`M … L … Z`) for a ring: what the web painters set as `d`. */
