@@ -494,6 +494,54 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     expect(await row(offline)).toMatchObject({ blocked: null })
   })
 
+  it(`FEED-148: a teammate's online decoy row listing the box's sessions keeps none of them from being flagged stuck`, async () => {
+    const w = await world({ shared: true })
+    const hosted = await w.root(`hosted`, w.mate)
+    await w.host.claim({ sessionId: hosted, deviceId: w.deviceId })
+    await w.host.report({ sessionId: hosted, busy: true })
+    // The host is online but runs nothing; a teammate's later sharing row
+    // for the same machine id (from before the one-sharer rule) is online
+    // and lists the session.
+    await db.update(devices).set({ liveSessionIds: [] }).where(and(eq(devices.deviceId, w.deviceId), eq(devices.userId, w.owner)))
+    await backdateDevice(w.deviceId, NOW)
+    const decoy = await user()
+    await db.insert(teamMembers).values({ teamId: w.teamId, userId: decoy, role: `member` })
+    await db.insert(devices).values({
+      userId: decoy,
+      deviceId: w.deviceId,
+      label: `decoy`,
+      kind: `server`,
+      sharedTeamIds: [w.teamId],
+      lastSeenAt: NOW,
+      liveSessionIds: [hosted],
+    })
+    await backdateSession(hosted, `updated_at`, ago((watchdog.stuckMinutes + 1) * MIN))
+
+    await runWatchdog(NOW)
+    expect(await row(hosted)).toMatchObject({ busy: true, needsInput: true, blocked: { kind: `stuck` } })
+  })
+
+  it(`FEED-148: a teammate's online decoy row keeps none of an offline host's sessions live`, async () => {
+    const w = await world({ shared: true })
+    const hosted = await w.root(`hosted`, w.mate)
+    await w.host.claim({ sessionId: hosted, deviceId: w.deviceId })
+    await w.host.report({ sessionId: hosted, busy: true })
+    await backdateDevice(w.deviceId, ago((contract.device.onlineWindowSeconds + 1) * 1000))
+    const decoy = await user()
+    await db.insert(teamMembers).values({ teamId: w.teamId, userId: decoy, role: `member` })
+    await db.insert(devices).values({
+      userId: decoy,
+      deviceId: w.deviceId,
+      label: `decoy`,
+      kind: `server`,
+      sharedTeamIds: [w.teamId],
+      lastSeenAt: NOW,
+    })
+
+    await runWatchdog(NOW)
+    expect(await row(hosted)).toMatchObject({ status: `idle`, busy: false, blocked: { kind: `device_offline` } })
+  })
+
   it(`FEED-146: malformed liveSessionIds are dropped before the save and the dead-process check; the beat never fails`, async () => {
     const w = await world()
     const rootId = await w.root()

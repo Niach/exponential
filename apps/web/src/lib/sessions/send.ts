@@ -62,6 +62,7 @@ import {
   resolveMoveTarget,
   type MoveTarget,
 } from "@/lib/sessions/move"
+import { SHARING_ORDER } from "@/lib/sessions/host"
 import type { Tx } from "@/lib/sessions/tx"
 import { buildAttachmentUrl, isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
@@ -182,9 +183,11 @@ export async function resolveSessionDevice(
     .select({ userId: devices.userId, sharedTeamIds: devices.sharedTeamIds })
     .from(devices)
     .where(eq(devices.deviceId, deviceId))
+    .orderBy(...SHARING_ORDER)
   const own = rows.find((row) => row.userId === userId)
   if (own) return { shared: (own.sharedTeamIds ?? []).includes(teamId), ownerId: userId }
-  for (const row of rows.sort((a, b) => (a.userId < b.userId ? -1 : 1))) {
+  // FEED-148: the first sharing row (`SHARING_ORDER`), as every host read.
+  for (const row of rows) {
     if (!(row.sharedTeamIds ?? []).includes(teamId)) continue
     // Sharing is the owner's consent while they are still a member.
     if (!(await getTeamMember(row.userId, teamId))) continue

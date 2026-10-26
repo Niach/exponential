@@ -213,11 +213,12 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
   it(`ends the ex-member's foreign-hosted sessions when a share was cleared (EXP-481)`, async () => {
     selectQueue.push([targetRow(`member`)], [targetRow(`member`)])
     // The devices share-clear update reports one cleared row.
-    updateReturningQueue.push([{ id: `device-row-1` }])
+    updateReturningQueue.push([{ deviceId: `box-1` }])
 
     await callerFor(`user-a`).remove({ memberId: MEMBER_ID })
 
-    expect(endForeignHostedSessions).toHaveBeenCalledWith(`user-b`, WS)
+    // FEED-148: scoped to the machines whose share was cleared.
+    expect(endForeignHostedSessions).toHaveBeenCalledWith(`user-b`, WS, [`box-1`])
   })
 
   it(`self-leave: same cleanup, without requiring owner rights`, async () => {
