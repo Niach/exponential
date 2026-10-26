@@ -1,10 +1,6 @@
-- As apps guardam os seus próprios registos e leem a equipa: quadros, membros, chats, comentários e ficheiros
-- As apps agem em seu nome: cada ação pergunta primeiro, a menos que um proprietário da equipa a tenha autorizado na página de definições da app
-- Exporte uma app como um único ficheiro e importe-a em New app colando-a ou escolhendo o ficheiro
-- Barra inferior: Board, Chats, Apps e Team; deslize um dedo sobre ela para escolher um separador
-- O separador Board abre um menu com os quadros da equipa, com New board no fim
-- Todas as páginas têm o mesmo título grande com pesquisa e Inbox; cada definição abre a sua própria página
-- A pesquisa procura apenas na equipa ativa e acompanha o que escreve
-- Os chats longos abrem instantaneamente
-- Os agentes podem receber issues e aparecem com o seu próprio nome; as menções aparecem como etiquetas
-- New board num quadro vazio cria o quadro na equipa que está a ver
+- Push to talk (beta): mantenha o atalho premido no seu dispositivo de voz, fale e solte; o que disse vai para o seu agente e a resposta é lida em voz alta
+- Leitura das respostas (beta, inglês e alemão): escolha o seu dispositivo de voz em "Settings > Voice" e deixe o IDE ler em voz alta as respostas do seu agente, com uma voz integrada ou uma clonada a partir do seu próprio clipe
+- "Settings > Voice" é seu em todos os dispositivos: dispositivo de voz, agente, leitura das respostas, push to talk e o seu atalho, a frase de ativação, idioma (English ou Deutsch), um ficheiro de voz e a sua transcrição; os mesmos interruptores estão na bandeja do sistema do seu dispositivo de voz
+- Em breve: ligar ao seu agente a partir do telemóvel, e a palavra de ativação
+- Os interruptores de voz ficam desligados depois de o seu agente ser apagado
+- Um turno longo já não mostra "needs input" por engano, e as sessões numa máquina partilhada aparecem sob o host certo

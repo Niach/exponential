@@ -1,10 +1,6 @@
-- Az appoknak saját rekordjaik vannak, és olvassák a csapatot: boardok, tagok, chatek, megjegyzések és fájlok
-- Az appok a nevedben cselekszenek: minden művelet előbb rákérdez, hacsak egy csapattulajdonos nem engedélyezte az app beállítási oldalán
-- Exportálj egy appot egyetlen fájlként, és importáld a New app alatt beillesztéssel vagy a fájl kiválasztásával
-- Alsó sáv: Board, Chats, Apps és Team; húzd végig rajta az ujjad egy fül kiválasztásához
-- A Board fül a csapat boardjainak menüjét nyitja meg, a végén a New board elemmel
-- Minden oldalon ugyanaz a nagy cím van kereséssel és Inboxszal; minden beállítás saját oldalon nyílik meg
-- A keresés csak az aktív csapatban keres, és lépést tart a gépeléseddel
-- A hosszú chatek azonnal megnyílnak
-- Az agenteknek issue-k oszthatók ki, és saját nevükön jelennek meg; az említések címkeként jelennek meg
-- A New board egy üres boardon abban a csapatban hozza létre a boardot, amelyet éppen nézel
+- Push to talk (béta): tartsd lenyomva a gyorsbillentyűt a hangeszközödön, beszélj, majd engedd el; amit mondtál, az ügynöködhöz kerül, a válasz pedig felolvasásra kerül
+- Válaszok felolvasása (béta, angolul és németül): válaszd ki a hangeszközödet a "Settings > Voice" alatt, és az IDE felolvassa az ügynököd válaszait beépített hanggal vagy a saját felvételedből klónozott hanggal
+- A "Settings > Voice" minden eszközödön a tiéd: hangeszköz, ügynök, válaszok felolvasása, push to talk és a gyorsbillentyűje, az ébresztő kifejezés, nyelv (English vagy Deutsch), egy hangfájl és annak átirata; ugyanezek a kapcsolók a hangeszközöd tálcáján is ott vannak
+- Hamarosan: az ügynököd hívása telefonról, és az ébresztőszó
+- A hangkapcsolók kikapcsolva maradnak, miután az ügynöküket törölték
+- Egy hosszú kör már nem mutat tévesen "needs input" állapotot, és a megosztott gépen futó munkamenetek a megfelelő gazda alatt jelennek meg

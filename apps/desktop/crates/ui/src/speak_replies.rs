@@ -510,7 +510,8 @@ impl SpeakReplies {
                     self.speaking = None;
                 }
             }
-            talk::Event::Failed { id, .. } => {
+            talk::Event::Failed { id, error } => {
+                log::warn!("[ui] speak replies: the reply was not spoken: {error}");
                 if self.speaking.as_ref().is_some_and(|speaking| speaking.message_id == id) {
                     self.speaking = None;
                 }

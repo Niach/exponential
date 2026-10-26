@@ -50,7 +50,7 @@ const CARDS: Card[] = [
   {
     file: `og-home.png`,
     title: `The next generation dev platform for teams and agents`,
-    subtitle: `Agents plan the work, write the code, build your apps and answer when you talk to them.`,
+    subtitle: `Agents plan the work, write the code, build your apps and answer when you talk to them (beta).`,
   },
   {
     file: `og-pricing.png`,
@@ -70,7 +70,7 @@ const CARDS: Card[] = [
   {
     file: `og-talk.png`,
     title: `Exponential Talk`,
-    subtitle: `Talk to your agents. Speech in and out on your own GPU, in English and German.`,
+    subtitle: `Talk to your agents. Speech in and out (beta) on your own GPU, in English and German.`,
   },
   {
     file: `og-default.png`,

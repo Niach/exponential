@@ -1,10 +1,6 @@
-- Aplikace mají vlastní záznamy a čtou tým: boardy, členy, chaty, komentáře a soubory
-- Aplikace jednají vaším jménem: každá akce se nejdřív zeptá, pokud ji vlastník týmu nepovolil na stránce nastavení aplikace
-- Exportujte aplikaci jako jeden soubor a importujte ji v New app vložením nebo výběrem souboru
-- Spodní lišta: Board, Chats, Apps a Team; přejetím prstu po ní vyberete kartu
-- Karta Board otevře menu s boardy týmu, na konci s New board
-- Každá stránka má stejný velký nadpis s hledáním a Inboxem; každé nastavení se otevře na vlastní stránce
-- Hledání prohledává jen aktivní tým a drží krok s vaším psaním
-- Dlouhé chaty se otevřou okamžitě
-- Agentům lze přiřazovat issues a zobrazují se pod vlastním jménem; zmínky se zobrazují jako štítky
-- New board na prázdném boardu vytvoří board v týmu, který si právě prohlížíte
+- Push to talk (beta): podržte zkratku na svém hlasovém zařízení, mluvte a pusťte; co jste řekli, jde vašemu agentovi a odpověď se přečte nahlas
+- Předčítání odpovědí (beta, anglicky a německy): vyberte v "Settings > Voice" své hlasové zařízení a nechte IDE číst odpovědi agenta nahlas, vestavěným hlasem nebo hlasem naklonovaným z vaší vlastní nahrávky
+- "Settings > Voice" platí pro vás na všech zařízeních: hlasové zařízení, agent, předčítání odpovědí, push to talk a jeho zkratka, probouzecí fráze, jazyk (English nebo Deutsch), hlasový soubor a jeho přepis; stejné přepínače najdete v systémové liště hlasového zařízení
+- Připravujeme: volání agentovi z telefonu a probouzecí slovo
+- Hlasové přepínače zůstanou vypnuté po smazání jejich agenta
+- Dlouhý tah už omylem neukazuje "needs input" a relace na sdíleném počítači se zobrazují pod správným hostitelem

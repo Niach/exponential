@@ -93,7 +93,7 @@ export const PAGES: PageSeo[] = [
       `src/styles/home.css`,
     ],
     title: `Exponential · The next generation dev platform for teams and agents`,
-    description: `The next generation dev platform for teams and agents. Agents plan the work, write the code, build your apps and answer when you talk to them. Web, desktop, iOS and Android. Open source, free to self-host.`,
+    description: `The next generation dev platform for teams and agents. Agents plan the work, write the code, build your apps and answer when you talk to them (beta). Web, desktop, iOS and Android. Open source, free to self-host.`,
     ogImage: `/og/og-home.png`,
     jsonLd: [organization, softwareApplication],
   },

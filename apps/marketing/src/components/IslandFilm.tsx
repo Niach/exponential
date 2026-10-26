@@ -57,7 +57,7 @@ export function IslandFilm({ id, load, holdMs }: { id: string; load: () => Promi
   }, [load, holdMs])
 
   return (
-    <div ref={root}>
+    <div ref={root} inert>
       <UiDemo id={id} />
     </div>
   )

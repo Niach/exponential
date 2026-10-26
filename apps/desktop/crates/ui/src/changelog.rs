@@ -120,11 +120,10 @@ const PREVIOUS_86: ChangelogEntry = ChangelogEntry {
     id: "2026-10-25-speak-replies",
     date: "2026-10-25",
     title: "Speak replies: your assistant answers out loud in the IDE",
-    summary: "Pick one of your agents as your Assistant in Device settings and switch on Speak replies: the IDE reads its replies aloud with a natural English voice that runs on your machine.",
-    body: r#"- **Voice in Device settings**: a new Voice group on web, the IDE, iPhone and Android picks your Assistant (one of your agents) and switches Speak replies on for that device.
-- **Spoken in the IDE**: each final reply of your Assistant conversation is read aloud on the desktop, with a Speaking banner and Stop above the composer; code blocks and links are skipped, issue numbers are said the way people say them.
-- **Local voice**: the voice (Kokoro, English) downloads once on first use, about 350 MB, and runs on your machine; nothing you hear leaves it.
-- **English first**: German and listening come later."#,
+    summary: "Pick the agent that speaks for you and switch on Speak replies in Settings → Voice: the IDE reads its replies aloud with a voice that runs on your machine.",
+    body: r#"- **Settings → Voice**: pick your voice device (the desktop that speaks) and the agent you talk to, then switch on Speak replies; the same page on web, the IDE, iPhone and Android.
+- **Spoken in the IDE**: each final reply of that agent is read aloud on your voice device, with a Speaking banner and Stop above the composer; code blocks and links are skipped, issue numbers are said the way people say them.
+- **Local voice**: the voice (English or German) downloads once on first use, about 2.2 to 3 GB, and runs on your desktop's GPU; nothing you hear leaves your machine."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

@@ -235,8 +235,8 @@ pub fn windows_local_disk_path(path: &str) -> Result<(), String> {
 /// #1238 review: where the audio tools (`pw-record`, `parec`, `pactl`,
 /// `pw-play`, `paplay`) are run from: the system directories, never the
 /// inherited `PATH`, so a planted binary earlier on it never gets the
-/// microphone.
-pub const SYSTEM_BIN_DIRS: [&str; 3] = ["/usr/bin", "/bin", "/usr/local/bin"];
+/// microphone. NixOS keeps its system profile under `/run/current-system`.
+pub const SYSTEM_BIN_DIRS: [&str; 4] = ["/usr/bin", "/bin", "/usr/local/bin", "/run/current-system/sw/bin"];
 
 /// `name` in [`SYSTEM_BIN_DIRS`] (the first that has it), absolute.
 pub fn system_binary(name: &str) -> Option<PathBuf> {

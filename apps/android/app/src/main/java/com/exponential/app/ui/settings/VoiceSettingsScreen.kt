@@ -56,11 +56,16 @@ import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
 import com.exponential.app.ui.components.picker.PickerMode
+import com.exponential.app.ui.components.picker.DevicePickerDevice
+import com.exponential.app.ui.components.picker.devicePickerItems
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -101,15 +106,26 @@ class VoiceSettingsViewModel @Inject constructor(
     /** The wake phrase as typed; saved a beat after typing stops. */
     var wakePhrase by mutableStateOf("")
         private set
-    private var wakePhraseSave: Job? = null
 
     /** #NEW-73: the voice file and its transcript as typed, saved the same way. */
     var voiceFile by mutableStateOf("")
         private set
-    private var voiceFileSave: Job? = null
     var voiceTranscript by mutableStateOf("")
         private set
-    private var voiceTranscriptSave: Job? = null
+
+    /**
+     * The one-line text rows (web `TEXT_FIELDS`): typed locally, saved
+     * debounced, on Done or on focus loss, each reverting only ITSELF.
+     */
+    private enum class TextField(val display: String) {
+        WakePhrase("the wake phrase"),
+        VoiceFile("the voice file"),
+        VoiceTranscript("the transcript"),
+    }
+    private val textTimers = mutableMapOf<TextField, Job>()
+    private val textSeq = mutableMapOf<TextField, Int>()
+    /** Last write wins: only the newest `save` may settle or revert the row. */
+    private var saveSeq = 0
 
     /** FEED-79: a refused save, raised once as a toast. */
     var failure by mutableStateOf<FailedAction?>(null)
@@ -124,6 +140,8 @@ class VoiceSettingsViewModel @Inject constructor(
     /** The page's vocabulary: picker options + the names the copy needs. */
     data class Vocabulary(
         val deviceOptions: List<Voice.Option> = Voice.voiceDeviceOptions(emptyList()),
+        /** The non-None device options with their glyphs (web `devicePickerItems`). */
+        val deviceRows: List<DevicePickerDevice> = emptyList(),
         val agentOptions: List<Voice.Option> = Voice.agentOptions(emptyList()),
         val deviceNames: Map<String, String> = emptyMap(),
         val agentNames: Map<String, String> = emptyMap(),
@@ -133,11 +151,18 @@ class VoiceSettingsViewModel @Inject constructor(
         // The member's OWN devices; `voiceDeviceOptions` keeps the desktops.
         val userId = auth.accounts.value.firstOrNull { it.id == accountId }?.userId
         val teamNames = teams.associate { it.id to it.name }
+        val own = devices.filter { it.userId == userId }
+        val deviceOptions = Voice.voiceDeviceOptions(
+            own.map { Voice.DeviceLike(deviceId = it.deviceId, name = it.label, kind = it.kind) },
+        )
+        val byId = own.associateBy { it.deviceId }
         Vocabulary(
-            deviceOptions = Voice.voiceDeviceOptions(
-                devices.filter { it.userId == userId }
-                    .map { Voice.DeviceLike(deviceId = it.deviceId, name = it.label, kind = it.kind) },
-            ),
+            deviceOptions = deviceOptions,
+            deviceRows = deviceOptions.mapNotNull { option ->
+                val id = option.id ?: return@mapNotNull null
+                val device = byId[id]
+                DevicePickerDevice(id = id, name = option.label, icon = device?.icon, isServer = device?.kind == "server")
+            },
             agentOptions = Voice.agentOptions(
                 agents.map { Voice.AgentLike(id = it.id, name = it.name, team = teamNames[it.teamId].orEmpty()) },
             ),
@@ -167,82 +192,145 @@ class VoiceSettingsViewModel @Inject constructor(
 
     /**
      * Optimistic: the page reads `clearOnNone(change)` at once, takes the
-     * server's row on success and reverts + toasts on a refusal.
+     * server's row on success and reverts + toasts on a refusal. Only the
+     * newest save settles or reverts the row (web `seqRef`), and the text
+     * rows settle through their own saves, never through here.
      */
     fun save(change: Voice.Change) {
         val previous = settings ?: return
         val next = Voice.clearOnNone(previous, change)
         if (next == previous) return
         settings = next
+        val seq = ++saveSeq
         viewModelScope.launch {
             try {
                 val stored = voiceApi.update(accountId, change)
-                if (settings == next) settings = stored
+                if (seq == saveSeq) settings = keepText(stored)
             } catch (e: Exception) {
-                settings = previous
-                wakePhrase = previous.wakePhrase
-                voiceFile = previous.voiceFile
-                voiceTranscript = previous.voiceTranscript
+                if (seq == saveSeq) settings = keepText(previous)
                 failure = FailedAction("save", "the voice settings", trpcErrorMessage(e, ""))
             }
         }
     }
 
-    fun onWakePhraseChange(text: String) {
-        wakePhrase = text
-        wakePhraseSave?.cancel()
-        wakePhraseSave = viewModelScope.launch {
-            delay(WAKE_PHRASE_DEBOUNCE_MS)
-            saveWakePhrase()
-        }
+    /** [base] with the text rows as the row currently holds them. */
+    private fun keepText(base: Voice.Settings): Voice.Settings {
+        val current = settings ?: return base
+        return base.copy(
+            wakePhrase = current.wakePhrase,
+            voiceFile = current.voiceFile,
+            voiceTranscript = current.voiceTranscript,
+        )
     }
 
-    /** Done on the keyboard saves at once, like Return on iOS. */
-    fun saveWakePhrase() {
-        wakePhraseSave?.cancel()
-        val trimmed = wakePhrase.trim()
-        if (trimmed == settings?.wakePhrase) return
-        save(Voice.Change(wakePhrase = trimmed))
-    }
+    /** One line, no control characters, at most `limits.wakePhrase`. */
+    fun onWakePhraseChange(text: String) = editText(TextField.WakePhrase, text, Voice.Limits.WAKE_PHRASE)
+
+    /** Done on the keyboard (or leaving the field) saves at once, like Return on iOS. */
+    fun saveWakePhrase() = saveText(TextField.WakePhrase)
 
     /** One line, no control characters, at most `limits.voiceFile`. */
-    fun onVoiceFileChange(text: String) {
-        voiceFile = text.filterNot { it.isISOControl() }.take(Voice.Limits.VOICE_FILE)
-        voiceFileSave?.cancel()
-        voiceFileSave = viewModelScope.launch {
-            delay(WAKE_PHRASE_DEBOUNCE_MS)
-            saveVoiceFile()
-        }
-    }
+    fun onVoiceFileChange(text: String) = editText(TextField.VoiceFile, text, Voice.Limits.VOICE_FILE)
 
-    fun saveVoiceFile() {
-        voiceFileSave?.cancel()
-        val trimmed = voiceFile.trim()
-        if (trimmed == settings?.voiceFile) return
-        save(Voice.Change(voiceFile = trimmed))
-    }
+    fun saveVoiceFile() = saveText(TextField.VoiceFile)
 
     /** One line, no control characters, at most `limits.voiceTranscript`. */
-    fun onVoiceTranscriptChange(text: String) {
-        voiceTranscript = text.filterNot { it.isISOControl() }.take(Voice.Limits.VOICE_TRANSCRIPT)
-        voiceTranscriptSave?.cancel()
-        voiceTranscriptSave = viewModelScope.launch {
-            delay(WAKE_PHRASE_DEBOUNCE_MS)
-            saveVoiceTranscript()
+    fun onVoiceTranscriptChange(text: String) = editText(TextField.VoiceTranscript, text, Voice.Limits.VOICE_TRANSCRIPT)
+
+    fun saveVoiceTranscript() = saveText(TextField.VoiceTranscript)
+
+    private fun typed(field: TextField): String = when (field) {
+        TextField.WakePhrase -> wakePhrase
+        TextField.VoiceFile -> voiceFile
+        TextField.VoiceTranscript -> voiceTranscript
+    }
+
+    private fun setTyped(field: TextField, value: String) {
+        when (field) {
+            TextField.WakePhrase -> wakePhrase = value
+            TextField.VoiceFile -> voiceFile = value
+            TextField.VoiceTranscript -> voiceTranscript = value
         }
     }
 
-    fun saveVoiceTranscript() {
-        voiceTranscriptSave?.cancel()
-        val trimmed = voiceTranscript.trim()
-        if (trimmed == settings?.voiceTranscript) return
-        save(Voice.Change(voiceTranscript = trimmed))
+    private fun stored(settings: Voice.Settings, field: TextField): String = when (field) {
+        TextField.WakePhrase -> settings.wakePhrase
+        TextField.VoiceFile -> settings.voiceFile
+        TextField.VoiceTranscript -> settings.voiceTranscript
+    }
+
+    private fun withText(settings: Voice.Settings, field: TextField, value: String): Voice.Settings = when (field) {
+        TextField.WakePhrase -> settings.copy(wakePhrase = value)
+        TextField.VoiceFile -> settings.copy(voiceFile = value)
+        TextField.VoiceTranscript -> settings.copy(voiceTranscript = value)
+    }
+
+    private fun changeOf(field: TextField, value: String): Voice.Change = when (field) {
+        TextField.WakePhrase -> Voice.Change(wakePhrase = value)
+        TextField.VoiceFile -> Voice.Change(voiceFile = value)
+        TextField.VoiceTranscript -> Voice.Change(voiceTranscript = value)
+    }
+
+    private fun editText(field: TextField, text: String, limit: Int) {
+        setTyped(field, text.filterNot { it.isISOControl() }.take(limit))
+        textTimers[field]?.cancel()
+        textTimers[field] = viewModelScope.launch {
+            delay(TEXT_DEBOUNCE_MS)
+            saveText(field)
+        }
+    }
+
+    /**
+     * Saves ONE text row (web `saveText`): trimmed, skipped while unchanged;
+     * a refusal reverts that row alone, and only when no newer save of the
+     * same row is in flight.
+     */
+    private fun saveText(field: TextField) {
+        textTimers.remove(field)?.cancel()
+        val current = settings ?: return
+        val trimmed = typed(field).trim()
+        val previous = stored(current, field)
+        if (trimmed == previous) return
+        settings = withText(current, field, trimmed)
+        val seq = (textSeq[field] ?: 0) + 1
+        textSeq[field] = seq
+        viewModelScope.launch {
+            try {
+                voiceApi.update(accountId, changeOf(field, trimmed))
+            } catch (e: Exception) {
+                if (textSeq[field] == seq) {
+                    settings?.let { settings = withText(it, field, previous) }
+                    setTyped(field, previous)
+                }
+                failure = FailedAction("save", field.display, trpcErrorMessage(e, ""))
+            }
+        }
+    }
+
+    /**
+     * Back within the debounce must not lose an edit: viewModelScope is
+     * already closed here, so a pending text save goes out on its own scope.
+     */
+    override fun onCleared() {
+        for (field in TextField.entries) {
+            textTimers.remove(field)?.cancel()
+            val current = settings ?: continue
+            val trimmed = typed(field).trim()
+            if (trimmed == stored(current, field)) continue
+            voiceSettingsFlushScope.launch { runCatching { voiceApi.update(accountId, changeOf(field, trimmed)) } }
+        }
+        super.onCleared()
     }
 
     private companion object {
-        const val WAKE_PHRASE_DEBOUNCE_MS = 600L
+        const val TEXT_DEBOUNCE_MS = 600L
     }
 }
+
+// A text save fired while the page is closing must outlive the ViewModel:
+// viewModelScope is cancelled when navigation clears it. Process-lifetime,
+// mirroring deviceSettingsFlushScope.
+private val voiceSettingsFlushScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 /** The pickers carry a String value; None rides as the empty string. */
 private const val NONE = ""
@@ -335,6 +423,11 @@ private fun VoiceSettingsForm(
             .padding(vertical = 8.dp),
     ) {
         OptionGroup {
+            // THE device picker's rows (glyph + name), None first.
+            val deviceItems = remember(vocabulary.deviceRows) {
+                listOf(PickerItem(value = NONE, label = Voice.Copy.VOICE_DEVICE_NONE)) +
+                    devicePickerItems(vocabulary.deviceRows)
+            }
             OptionPickerRow(
                 label = Voice.Copy.VOICE_DEVICE,
                 options = vocabulary.deviceOptions,
@@ -342,6 +435,7 @@ private fun VoiceSettingsForm(
                 noneLabel = Voice.Copy.VOICE_DEVICE_NONE,
                 onSelect = { onChange(Voice.Change(voiceDeviceId = Voice.Pick(it))) },
                 testTag = Voice.TestIds.VOICE_DEVICE,
+                items = deviceItems,
             )
             GroupDivider()
             OptionPickerRow(
@@ -380,6 +474,7 @@ private fun VoiceSettingsForm(
                     placeholder = Voice.Copy.VOICE_FILE_PLACEHOLDER,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { onVoiceFileDone() }),
+                    onFocusLost = onVoiceFileDone,
                     modifier = Modifier.testTag(Voice.TestIds.VOICE_FILE),
                 )
                 GroupDivider()
@@ -390,6 +485,7 @@ private fun VoiceSettingsForm(
                     placeholder = Voice.Copy.VOICE_TRANSCRIPT_PLACEHOLDER,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { onVoiceTranscriptDone() }),
+                    onFocusLost = onVoiceTranscriptDone,
                     modifier = Modifier.testTag(Voice.TestIds.VOICE_TRANSCRIPT),
                 )
             }
@@ -429,14 +525,15 @@ private fun VoiceSettingsForm(
                 )
                 GroupDivider()
                 // The input row (label + trailing field, the board form's
-                // Prefix row): saved a beat after typing stops, or on Done.
+                // Prefix row): saved a beat after typing stops, on Done or on leaving it.
                 TextFieldRow(
                     label = Voice.Copy.WAKE_PHRASE,
                     value = wakePhrase,
                     onValueChange = onWakePhraseChange,
-                    placeholder = Voice.wakePhrasePlaceholder(vocabulary.agentNames[settings.agentId].orEmpty()),
+                    placeholder = Voice.wakePhrasePlaceholder(vocabulary.agentNames[settings.agentId] ?: Voice.Copy.AGENT),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { onWakePhraseDone() }),
+                    onFocusLost = onWakePhraseDone,
                     modifier = Modifier.testTag(Voice.TestIds.WAKE_PHRASE),
                 )
             }
@@ -456,8 +553,9 @@ private fun OptionPickerRow(
     noneLabel: String,
     onSelect: (String?) -> Unit,
     testTag: String,
+    /** The sheet's rows when they carry more than a label (the device glyphs). */
+    items: List<PickerItem<String>> = remember(options) { options.map { PickerItem(value = it.id ?: NONE, label = it.label) } },
 ) {
-    val items = remember(options) { options.map { PickerItem(value = it.id ?: NONE, label = it.label) } }
     val value = options.firstOrNull { it.id == selected }?.label ?: noneLabel
     Picker(
         items = items,

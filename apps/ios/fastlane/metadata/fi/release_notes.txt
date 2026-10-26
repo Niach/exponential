@@ -1,10 +1,6 @@
-- Sovelluksilla on omat tietueensa ja ne lukevat tiimiä: boardit, jäsenet, chatit, kommentit ja tiedostot
-- Sovellukset toimivat sinun nimissäsi: jokainen toiminto kysyy ensin, ellei tiimin omistaja ole sallinut sitä sovelluksen asetussivulla
-- Vie sovellus yhtenä tiedostona ja tuo se New app -näkymässä liittämällä tai valitsemalla tiedosto
-- Alapalkki: Board, Chats, Apps ja Team; liu'uta sormea sen yli valitaksesi välilehden
-- Board-välilehti avaa valikon tiimin boardeista, ja lopussa on New board
-- Jokaisella sivulla on sama iso otsikko haun ja Inboxin kanssa; jokainen asetus avautuu omalle sivulleen
-- Haku etsii vain aktiivisesta tiimistä ja pysyy kirjoituksesi tahdissa
-- Pitkät chatit avautuvat heti
-- Agenteille voi osoittaa issueita ja ne näkyvät omalla nimellään; maininnat näkyvät tunnisteina
-- New board tyhjällä boardilla luo boardin siihen tiimiin, jota katselet
+- Push to talk (beta): pidä pikanäppäintä pohjassa äänilaitteellasi, puhu ja päästä irti; sanomasi menee agentillesi ja vastaus luetaan ääneen
+- Vastausten lukeminen ääneen (beta, englanti ja saksa): valitse äänilaitteesi kohdassa "Settings > Voice" ja anna IDE:n lukea agenttisi vastaukset ääneen, sisäänrakennetulla äänellä tai omasta äänitteestäsi kloonatulla
+- "Settings > Voice" on sinun kaikilla laitteillasi: äänilaite, agentti, vastausten lukeminen, push to talk ja sen pikanäppäin, herätyslause, kieli (English tai Deutsch), äänitiedosto ja sen litterointi; samat kytkimet ovat äänilaitteesi ilmaisinalueella
+- Tulossa: soitto agentillesi puhelimesta, ja herätyssana
+- Äänikytkimet pysyvät pois päältä, kun niiden agentti on poistettu
+- Pitkä vuoro ei enää näytä virheellisesti "needs input", ja jaetun koneen istunnot näkyvät oikean isännän alla

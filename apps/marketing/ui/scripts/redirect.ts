@@ -10,14 +10,23 @@ const ORIGIN = `https://exponential.at`
 const ROOT_FILES = /^\/(llms\.txt|sitemap\.xml|robots\.txt|favicon\.ico|logo-(light|dark)\.svg|apple-touch-icon\.png|icon-\d+\.png|(og|shots|fonts)\/.*)$/
 
 export function redirectTarget(url: string): string {
-  const { pathname, search } = new URL(url)
-  if (ROOT_FILES.test(pathname) || pathname === `/ui` || pathname.startsWith(`/ui/`)) return `${ORIGIN}${pathname}${search}`
+  let pathname: string
+  let search: string
+  try {
+    ;({ pathname, search } = new URL(url))
+  } catch {
+    /* A malformed Host header: still a 301 home, never Bun's 500 page. */
+    return `${ORIGIN}/ui/`
+  }
+  if (ROOT_FILES.test(pathname) || pathname.startsWith(`/ui/`)) return `${ORIGIN}${pathname}${search}`
+  if (pathname === `/ui`) return `${ORIGIN}/ui/${search}`
   return `${ORIGIN}/ui${pathname}${search}`
 }
 
 if (import.meta.main) {
   Bun.serve({
     port: Number(process.env.PORT ?? 80),
+    development: false,
     fetch: (req) => Response.redirect(redirectTarget(req.url), 301),
   })
 }

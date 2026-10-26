@@ -1,10 +1,6 @@
-- Aplikacje mają własne rekordy i czytają zespół: tablice, członków, czaty, komentarze i pliki
-- Aplikacje działają w Twoim imieniu: każda akcja najpierw pyta, chyba że właściciel zespołu zezwolił na nią na stronie ustawień aplikacji
-- Wyeksportuj aplikację jako jeden plik i zaimportuj ją w New app, wklejając ją lub wybierając plik
-- Dolny pasek: Board, Chats, Apps i Team; przesuń po nim palcem, aby wybrać kartę
-- Karta Board otwiera menu tablic zespołu, z New board na końcu
-- Każda strona ma ten sam duży tytuł z wyszukiwaniem i Inbox; każde ustawienie otwiera własną stronę
-- Wyszukiwanie przeszukuje tylko aktywny zespół i nadąża za pisaniem
-- Długie czaty otwierają się natychmiast
-- Agentom można przypisywać issues i są widoczni pod własną nazwą; wzmianki wyświetlają się jako etykiety
-- New board na pustej tablicy tworzy tablicę w zespole, który właśnie oglądasz
+- Push to talk (beta): przytrzymaj skrót na swoim urządzeniu głosowym, mów i puść; to, co powiedziałeś, trafia do twojego agenta, a odpowiedź jest czytana na głos
+- Czytanie odpowiedzi (beta, angielski i niemiecki): wybierz swoje urządzenie głosowe w "Settings > Voice" i pozwól IDE czytać na głos odpowiedzi twojego agenta, wbudowanym głosem lub głosem sklonowanym z twojego własnego nagrania
+- "Settings > Voice" obowiązuje dla ciebie na wszystkich urządzeniach: urządzenie głosowe, agent, czytanie odpowiedzi, push to talk i jego skrót, fraza wybudzająca, język (English lub Deutsch), plik głosu i jego transkrypcja; te same przełączniki są w zasobniku systemowym twojego urządzenia głosowego
+- Wkrótce: dzwonienie do agenta z telefonu, oraz słowo wybudzające
+- Przełączniki głosowe pozostają wyłączone po usunięciu ich agenta
+- Długa tura nie pokazuje już błędnie "needs input", a sesje na współdzielonej maszynie są wyświetlane pod właściwym hostem

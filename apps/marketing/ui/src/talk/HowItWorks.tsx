@@ -50,7 +50,7 @@ export default function HowItWorks({ path }: PageProps) {
         <DocsSection id="out" num="03" label="Speech out">
           <h2>Speech out</h2>
           <p>
-            Qwen3-TTS reads the agent&apos;s replies in English or German, in your voice: give it an 8–15 s clip and what it
+            Beta. Qwen3-TTS reads the agent&apos;s replies in English or German, in your voice: give it an 8–15 s clip and what it
             says, or leave it empty for a built-in voice. No training, no upload. It needs a GPU with at least 4 GB; without one,
             replies are shown, not spoken.
           </p>

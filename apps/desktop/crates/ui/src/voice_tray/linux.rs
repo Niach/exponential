@@ -78,7 +78,11 @@ fn watch(tx: flume::Sender<Command>) {
             .and_then(|rule| rule.member("NameOwnerChanged"))
             .and_then(|rule| rule.add_arg(WATCHER))
             .map(|rule| rule.build()),
-        zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).interface(WATCHER).map(|rule| rule.build()),
+        zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .interface(WATCHER)
+            .and_then(|rule| rule.member("StatusNotifierHostRegistered"))
+            .map(|rule| rule.build()),
     ];
     for rule in rules {
         let tx = tx.clone();

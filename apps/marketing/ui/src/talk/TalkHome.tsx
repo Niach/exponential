@@ -8,8 +8,8 @@ import type { PageProps } from "../lib/routes"
 import { talkGuidePath } from "./nav"
 
 const PARTS: { part: string; what: string; status: Status; label: string }[] = [
-  { part: `Speech in`, what: `Silero VAD and Parakeet through CrispASR`, status: `shipped`, label: `shipped` },
-  { part: `Speech out`, what: `Qwen3-TTS, cloned from a clip of your voice`, status: `shipped`, label: `shipped` },
+  { part: `Speech in`, what: `Silero VAD and Parakeet through CrispASR`, status: `in-progress`, label: `beta` },
+  { part: `Speech out`, what: `Qwen3-TTS, cloned from a clip of your voice`, status: `in-progress`, label: `beta` },
   { part: `Push to talk`, what: `A global shortcut on your desktop`, status: `in-progress`, label: `beta` },
   { part: `Call your agent`, what: `From your phone or the web`, status: `planned`, label: `coming` },
   { part: `Wake word`, what: `“Hey Triage”`, status: `planned`, label: `coming` },
