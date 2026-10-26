@@ -17,7 +17,7 @@ import org.junit.Test
  * NEW-67: Settings → Voice, locked ×4 (TS `voice.ts`, desktop
  * `domain::voice`, iOS `VoiceTests`) against `fixtures/voice.json`: every
  * `copy` key, the `testIds`, `shortcuts`, `languages`, `limits`, `defaults` and every case list but
- * the speech ones (shouldSpeak / spokenText / numbers are desktop-only).
+ * the speech and tray ones (shouldSpeak / spokenText / numbers / trayMenu are desktop-only).
  */
 class VoiceTest {
 
@@ -56,6 +56,10 @@ class VoiceTest {
             "wakeWord" to Voice.Copy.WAKE_WORD,
             "wakePhrase" to Voice.Copy.WAKE_PHRASE,
             "wakePhrasePlaceholder" to Voice.Copy.WAKE_PHRASE_PLACEHOLDER,
+            "trayCall" to Voice.Copy.TRAY_CALL,
+            "trayMute" to Voice.Copy.TRAY_MUTE,
+            "traySettings" to Voice.Copy.TRAY_SETTINGS,
+            "trayQuit" to Voice.Copy.TRAY_QUIT,
             "downloading" to Voice.Copy.DOWNLOADING,
             "downloadFailed" to Voice.Copy.DOWNLOAD_FAILED,
             "unavailable" to Voice.Copy.UNAVAILABLE,

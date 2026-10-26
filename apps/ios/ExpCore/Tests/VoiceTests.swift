@@ -5,7 +5,7 @@ import XCTest
 // NEW-67: Settings → Voice, locked ×4 (TS `voice.ts`, desktop
 // `domain::voice`, Android `VoiceTest`) against fixtures/voice.json: every
 // `copy` key, the `testIds`, `shortcuts`, `languages`, `limits`, `defaults` and every case list but
-// the speech ones (shouldSpeak / spokenText / numbers are desktop-only).
+// the speech and tray ones (shouldSpeak / spokenText / numbers / trayMenu are desktop-only).
 final class VoiceTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
@@ -46,6 +46,10 @@ final class VoiceTests: XCTestCase {
             "wakeWord": Voice.Copy.wakeWord,
             "wakePhrase": Voice.Copy.wakePhrase,
             "wakePhrasePlaceholder": Voice.Copy.wakePhrasePlaceholder,
+            "trayCall": Voice.Copy.trayCall,
+            "trayMute": Voice.Copy.trayMute,
+            "traySettings": Voice.Copy.traySettings,
+            "trayQuit": Voice.Copy.trayQuit,
             "downloading": Voice.Copy.downloading,
             "downloadFailed": Voice.Copy.downloadFailed,
             "unavailable": Voice.Copy.unavailable,

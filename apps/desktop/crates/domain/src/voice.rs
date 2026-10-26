@@ -30,6 +30,10 @@ pub struct VoiceCopy {
     pub wake_word: String,
     pub wake_phrase: String,
     pub wake_phrase_placeholder: String,
+    pub tray_call: String,
+    pub tray_mute: String,
+    pub tray_settings: String,
+    pub tray_quit: String,
     pub downloading: String,
     pub download_failed: String,
     pub unavailable: String,
@@ -155,6 +159,77 @@ pub fn tray_header(device_name: &str) -> String {
 /// The wake phrase's placeholder (and its value when empty).
 pub fn wake_phrase_placeholder(agent_name: &str) -> String {
     VOICE.copy.wake_phrase_placeholder.replace("{agent}", agent_name)
+}
+
+/// #NEW-68: one tray menu entry's identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrayItemId {
+    Call,
+    SpeakReplies,
+    PushToTalk,
+    WakeWord,
+    Mute,
+    Settings,
+    Quit,
+}
+
+/// #NEW-68: one entry of the tray's OS-native menu.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TrayItem {
+    Separator,
+    Action { id: TrayItemId, label: String, enabled: bool },
+    Check { id: TrayItemId, label: String, checked: bool, enabled: bool },
+}
+
+/// #NEW-68: what the tray menu reads besides the settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TrayContext<'a> {
+    /// The voice agent's name (None = no agent).
+    pub agent: Option<&'a str>,
+    /// Mute microphone (IDE-local, never stored).
+    pub muted: bool,
+    /// A call can start (V4; false until then).
+    pub call_available: bool,
+    /// THIS device is the member's voice device.
+    pub device_is_voice_device: bool,
+}
+
+/// #NEW-68: the tray's OS-native menu; None = no tray on this device.
+pub fn tray_menu(settings: &VoiceSettings, context: &TrayContext<'_>) -> Option<Vec<TrayItem>> {
+    if !context.device_is_voice_device {
+        return None;
+    }
+    let copy = &VOICE.copy;
+    let agent = context.agent.unwrap_or("…");
+    let ready = settings.voice_device_id.is_some() && settings.agent_id.is_some();
+    let shortcut = VOICE
+        .shortcuts
+        .iter()
+        .find(|entry| entry.value == settings.ptt_shortcut)
+        .map(|entry| entry.label.clone())
+        .unwrap_or_else(|| settings.ptt_shortcut.clone());
+    let phrase = match settings.wake_phrase.trim() {
+        "" => wake_phrase_placeholder(agent),
+        phrase => phrase.to_string(),
+    };
+    let check = |id, label: String, on: bool| TrayItem::Check { id, label, checked: on && ready, enabled: ready };
+    let mut menu = Vec::new();
+    if context.call_available {
+        menu.push(TrayItem::Action { id: TrayItemId::Call, label: copy.tray_call.replace("{agent}", agent), enabled: ready });
+        menu.push(TrayItem::Separator);
+    }
+    menu.extend([
+        check(TrayItemId::SpeakReplies, copy.speak_replies.clone(), settings.speak_replies),
+        check(TrayItemId::PushToTalk, format!("{} · {shortcut}", copy.push_to_talk), settings.push_to_talk),
+        check(TrayItemId::WakeWord, format!("{} · {phrase}", copy.wake_word), settings.wake_word),
+        TrayItem::Check { id: TrayItemId::Mute, label: copy.tray_mute.clone(), checked: context.muted, enabled: true },
+        TrayItem::Separator,
+        TrayItem::Action { id: TrayItemId::Settings, label: copy.tray_settings.clone(), enabled: true },
+        TrayItem::Action { id: TrayItemId::Quit, label: copy.tray_quit.clone(), enabled: true },
+    ]);
+    Some(menu)
 }
 
 /// `fixtures/voice.json` minus its cases.
@@ -678,5 +753,25 @@ mod tests {
         assert_eq!(first_sentence("Done. The PR is open."), "Done.");
         assert_eq!(first_sentence("No stop here"), "No stop here");
         assert_eq!(first_sentence("Version 1.5 shipped. Next."), "Version 1.5 shipped.");
+    }
+
+    #[test]
+    fn tray_menu_matches_the_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(VOICE_JSON).unwrap();
+        for case in fixture["trayMenuCases"].as_array().unwrap() {
+            let settings: VoiceSettings = serde_json::from_value(case["settings"].clone()).unwrap();
+            let context = &case["context"];
+            let menu = tray_menu(
+                &settings,
+                &TrayContext {
+                    agent: context["agent"].as_str(),
+                    muted: context["muted"].as_bool().unwrap(),
+                    call_available: context["callAvailable"].as_bool().unwrap(),
+                    device_is_voice_device: context["deviceIsVoiceDevice"].as_bool().unwrap(),
+                },
+            );
+            let expected: Option<Vec<TrayItem>> = serde_json::from_value(case["menu"].clone()).unwrap();
+            assert_eq!(menu, expected, "{}", case["name"]);
+        }
     }
 }
