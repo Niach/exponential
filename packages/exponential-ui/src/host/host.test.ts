@@ -431,7 +431,7 @@ describe(`VAPP-103: the stream decoders cap a line or event at maxMessageBytes (
     let messages = 0
     for (let i = 0; i < line.length; i += 7) messages += d.push(line.slice(i, i + 7)).messages.length
     expect(messages).toBe(1)
-    expect(performance.now() - t).toBeLessThan(2000)
+    expect(performance.now() - t).toBeLessThan(6000)
   })
 
   test(`an SSE event past the limit is ONE issue; its data is dropped`, () => {

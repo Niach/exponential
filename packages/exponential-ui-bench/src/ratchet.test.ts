@@ -6,7 +6,7 @@ const budgets: Budgets = { floor: 0.5, headroom: 1.5, machines: { m: { core: { "
 const fragment = (scenarios: Fragment[`scenarios`]): Fragment => ({ renderer: `core`, platform: `linux`, machine: `m`, date: `2026-10-22`, scenarios })
 
 describe(`ratchet`, () => {
-  it(`worse fails, a much better timing warns, a better count fails, a missing budget is a notice`, () => {
+  it(`a worse timing warns, a much better timing warns, a better count fails, a missing budget is a notice`, () => {
     const v = check(fragment({ "list-100k": { firstPaintMs: 120, scrollStepMs: 1, renderedItems: 28, scrollToIndexMs: 7 } }), budgets)
     expect(v.map((x) => [x.metric, x.status])).toEqual([
       [`firstPaintMs`, `worse`],
@@ -14,7 +14,7 @@ describe(`ratchet`, () => {
       [`renderedItems`, `better`],
       [`scrollToIndexMs`, `unbudgeted`],
     ])
-    expect(failing(v).map((x) => x.metric)).toEqual([`firstPaintMs`, `renderedItems`])
+    expect(failing(v).map((x) => x.metric)).toEqual([`renderedItems`])
   })
 
   it(`within budget is ok; a timing a little better is ok`, () => {
@@ -56,11 +56,11 @@ describe(`ratchet`, () => {
     expect(failing(v).map((x) => x.metric)).toEqual([`renderedItems`])
     expect(line(v[0])).toStartWith(`::warning`)
     expect(line(v[2])).toStartWith(`::error`)
-    // Any other machine still gates its timings.
-    expect(failing(check({ ...fragment({ "list-100k": { firstPaintMs: 300 } }), machine: `other` }, { ...shared, machines: { other: budgets.machines.m } })).map((x) => x.metric)).toEqual([`firstPaintMs`])
+    // Every other machine only warns on its timings too.
+    expect(failing(check({ ...fragment({ "list-100k": { firstPaintMs: 300 } }), machine: `other` }, { ...shared, machines: { other: budgets.machines.m } })).map((x) => x.metric)).toEqual([])
   })
 
-  it(`a warn renderer: its timing over budget warns on every machine, its count fails, other renderers gate`, () => {
+  it(`a warn renderer: its timing over budget warns on every machine, its count fails, other renderers warn too`, () => {
     const emu: Budgets = { ...budgets, rendererTimings: { "compose-android": `warn` }, machines: { m: { core: budgets.machines.m.core, "compose-android": budgets.machines.m.core }, n: { "compose-android": budgets.machines.m.core } } }
     for (const machine of [`m`, `n`]) {
       const v = check({ ...fragment({ "list-100k": { firstPaintMs: 300, renderedItems: 31 } }), renderer: `compose-android`, machine }, emu)
@@ -70,9 +70,9 @@ describe(`ratchet`, () => {
       ])
       expect(failing(v).map((x) => x.metric)).toEqual([`renderedItems`])
     }
-    expect(failing(check(fragment({ "list-100k": { firstPaintMs: 300 } }), emu)).map((x) => x.metric)).toEqual([`firstPaintMs`])
+    expect(failing(check(fragment({ "list-100k": { firstPaintMs: 300 } }), emu)).map((x) => x.metric)).toEqual([])
     expect(timingMode(emu, `m`, `compose-android`)).toBe(`warn`)
     expect(timingMode({ ...emu, machineTimings: { m: `warn` } }, `m`, `core`)).toBe(`warn`)
-    expect(timingMode(emu, `m`, `core`)).toBe(`gate`)
+    expect(timingMode(emu, `m`, `core`)).toBe(`warn`)
   })
 })

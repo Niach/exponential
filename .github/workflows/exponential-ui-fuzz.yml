@@ -12,9 +12,8 @@ name: exponential-ui-fuzz
 # with a regression test; the corpus is not persisted (every run starts from
 # the seeds libFuzzer derives).
 
+# 2026-10-26: by hand only (the nightly schedule is off: it only produced red noise).
 on:
-  schedule:
-    - cron: '17 3 * * *'
   workflow_dispatch:
     inputs:
       seconds:

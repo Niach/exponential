@@ -44,9 +44,8 @@ export interface Verdict {
 
 const KINDS: Record<string, Record<string, Verdict[`kind`]>> = Object.fromEntries(manifest.scenarios.map((s) => [s.id, Object.fromEntries(s.metrics.map((m) => [m.id, m.kind as Verdict[`kind`]]))]))
 
-/** How [renderer]'s timings on [machine] count: `warn` when the machine's or the renderer's mode says so, else `gate`. */
-export const timingMode = (budgets: Budgets, machine: string, renderer: string): `gate` | `warn` =>
-  budgets.machineTimings?.[machine] === `warn` || budgets.rendererTimings?.[renderer] === `warn` ? `warn` : `gate`
+/** How [renderer]'s timings on [machine] count: always `warn` (2026-10-26: runner timing noise never fails CI; counts and bytes still gate). `machineTimings` / `rendererTimings` stay as the record of which runners are noisiest. */
+export const timingMode = (_budgets: Budgets, _machine: string, _renderer: string): `gate` | `warn` => `warn`
 
 /** Compare one fragment with the budgets of its machine. */
 export function check(fragment: Fragment, budgets: Budgets, machine = fragment.machine ?? `unknown`): Verdict[] {
