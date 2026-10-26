@@ -13,6 +13,7 @@ describe(`renderPrBody`, () => {
     max?: number
     prUrl?: string | null
     sessionIds?: string[]
+    mergedAt?: number
     expected: string | null
   }>) {
     it(c.name, () => {
@@ -21,6 +22,7 @@ describe(`renderPrBody`, () => {
         ...(c.max ? { max: c.max } : {}),
         ...(`prUrl` in c ? { prUrl: c.prUrl } : {}),
         ...(c.sessionIds ? { sessionIds: c.sessionIds } : {}),
+        ...(c.mergedAt ? { mergedAt: c.mergedAt } : {}),
       })
       expect(body).toBe(c.expected)
       if (body && c.max) expect(body.length).toBeLessThanOrEqual(c.max)

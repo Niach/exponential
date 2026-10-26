@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, inArray } from "drizzle-orm"
+import { and, asc, eq, inArray, max } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   boards,
@@ -18,7 +18,7 @@ import { boardVisible } from "@/lib/board-visibility"
 import { loadSessionForUser } from "@/lib/sessions/access"
 import { appBaseUrl, buildSessionDeepLinkPath } from "@/lib/notification-email-policy"
 import { NOT_RUN_TOPIC, PR_BODY_MAX, prBodyFromGuide } from "@/lib/pr-body"
-import { writeGuide } from "@/lib/sessions/guide"
+import { tagGuideForPullRequest, writeGuide } from "@/lib/sessions/guide"
 import { prDefaultIssueIds } from "@/lib/sessions/pr-issues"
 import {
   compareChangedPaths,
@@ -155,6 +155,16 @@ async function loadRoot(rootId: string): Promise<{ id: string; teamId: string; g
     .where(eq(sessions.id, rootId))
     .limit(1)
   return row ?? null
+}
+
+/** EXP-1397: the thread's latest PR merge (ms), or null: untagged Guide
+ *  words from before it went out with that PR and leave later bodies. */
+async function threadMergedAt(rootId: string): Promise<number | null> {
+  const [row] = await db
+    .select({ at: max(pullRequests.mergedAt) })
+    .from(pullRequests)
+    .where(and(eq(pullRequests.rootSessionId, rootId), eq(pullRequests.state, `merged`)))
+  return row?.at ? new Date(row.at).getTime() : null
 }
 
 /** The footer link of every PR body: the thread (root session) Guide. */
@@ -338,6 +348,7 @@ export async function openPullRequest(args: {
     guide = (await loadRoot(root.id))?.guide ?? null
   }
   const guideUrl = root ? await guideUrlFor(repo.teamId, root.id) : null
+  const mergedAt = root ? await threadMergedAt(root.id) : null
   const actor = {
     actorUserId: args.userId,
     actorViaAgent: Boolean(caller),
@@ -364,7 +375,7 @@ export async function openPullRequest(args: {
   if (existing) {
     const body =
       args.body ??
-      prBodyFromGuide(guide, { prUrl: existing.url, guideUrl }) ??
+      prBodyFromGuide(guide, { prUrl: existing.url, guideUrl, mergedAt }) ??
       undefined
     await patchPullDescription({
       repoFullName: repo.fullName,
@@ -397,7 +408,7 @@ export async function openPullRequest(args: {
         stopBranches: stackStopBranches(defaults),
       })
     ).base
-  const body = args.body ?? prBodyFromGuide(guide, { prUrl: null, guideUrl }) ?? ``
+  const body = args.body ?? prBodyFromGuide(guide, { prUrl: null, guideUrl, mergedAt }) ?? ``
   if (root) await assertUiPictures({ repo: repo.fullName, base, head: head!, token, guide, notRun })
 
   // EXP-494: the initiator is claimed BEFORE the GitHub call, so the
@@ -423,6 +434,13 @@ export async function openPullRequest(args: {
 
   const recorded = await record({ url: created.url, number: created.number, base: created.base, title: args.title })
   await joinGithubStack({ pr: recorded.pullRequest, repoFullName: repo.fullName, token })
+  // EXP-1397: the opener's untagged topics are this PR's now, so a later PR
+  // of the thread never claims them.
+  if (caller && root) {
+    if (await tagGuideForPullRequest({ sessionId: caller.id, prUrl: created.url })) {
+      void syncPullRequestBodies(root.id)
+    }
+  }
   return {
     pullRequestId: recorded.pullRequest.id,
     url: created.url,
@@ -910,10 +928,11 @@ async function syncPullRequestBodiesNow(rootId: string): Promise<void> {
     const prs = await livePullRequestsOfRoot(rootId)
     if (prs.length === 0) return
     const guideUrl = await guideUrlFor(root.teamId, root.id)
+    const mergedAt = await threadMergedAt(root.id)
     const tokens = new Map<string, Promise<string | null>>()
     for (const pr of prs) {
       try {
-        const body = prBodyFromGuide(root.guide, { prUrl: pr.url, guideUrl })
+        const body = prBodyFromGuide(root.guide, { prUrl: pr.url, guideUrl, mergedAt })
         if (!body) continue
         if (!tokens.has(pr.repositoryId)) {
           tokens.set(

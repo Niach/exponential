@@ -28,13 +28,44 @@ export function ownedBy(sessionId: string): GuideEntryFilter {
   return (row) => !row?.sessionId || row.sessionId === sessionId
 }
 
+/** EXP-1397: the writer's rule over its LOGICAL session — its own row and
+ *  the ended rows it continues ([`logicalSessionIds`]). */
+export function ownedByAny(sessionIds: readonly string[]): GuideEntryFilter {
+  const ids = new Set(sessionIds)
+  return (row) => !row?.sessionId || ids.has(row.sessionId)
+}
+
+/** EXP-1397: a session row as the Guide's ownership reads the tree. */
+export interface GuideTreeRow {
+  id: string
+  parentId: string | null
+  branch?: string | null
+  status?: string | null
+}
+
+/** EXP-1397: the ids of `sessionId`'s logical session: itself and every
+ *  ENDED row of the tree it continues — a continuation (an ended child's
+ *  sibling, a moved session) keeps the branch, and so the worktree. */
+export function logicalSessionIds(sessionId: string, tree: readonly GuideTreeRow[]): string[] {
+  const self = tree.find((row) => row.id === sessionId)
+  const branch = self?.branch?.trim()
+  if (!branch) return [sessionId]
+  return [
+    sessionId,
+    ...tree
+      .filter((row) => row.id !== sessionId && row.status === `ended` && row.branch?.trim() === branch)
+      .map((row) => row.id),
+  ]
+}
+
 /** EXP-1351: a REMOVE reaches the caller's whole subtree, so the root can
- *  clear what an ended child filed; never a sibling's or an ancestor's. */
+ *  clear what an ended child filed; never a sibling's or an ancestor's.
+ *  EXP-1397: so does an edit; `sessionId` may be a logical session's ids. */
 export function ownedBySubtree(
-  sessionId: string,
+  sessionId: string | readonly string[],
   tree: readonly { id: string; parentId: string | null }[]
 ): GuideEntryFilter {
-  const ids = new Set([sessionId])
+  const ids = new Set(typeof sessionId === `string` ? [sessionId] : sessionId)
   for (let grew = true; grew; ) {
     grew = false
     for (const row of tree) {
@@ -99,11 +130,13 @@ export function upsertGuideText(
   topic: string,
   text: string,
   files: readonly string[] | undefined,
-  meta: { at: number; sessionId: string; prUrl?: string | null }
+  meta: { at: number; sessionId: string; prUrl?: string | null },
+  /** Whose entries the write replaces and is capped by (EXP-1397: a
+   *  logical session's); default = `meta.sessionId`'s. */
+  owned: GuideEntryFilter = ownedBy(meta.sessionId)
 ): GuideEntry[] | null {
   const before = current ?? []
   const results = [...before]
-  const owned = ownedBy(meta.sessionId)
   const index = results.findIndex(
     (row) => isTextEntry(row) && row.topic === topic && owned(row)
   )

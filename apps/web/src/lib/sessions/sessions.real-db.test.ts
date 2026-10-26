@@ -12,6 +12,8 @@ import {
   mcpServers,
   messages,
   prompts,
+  pullRequests,
+  repositories,
   sessionIssues,
   sessions,
   teamMembers,
@@ -826,6 +828,70 @@ describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, (
       writeGuide({ userId: w.owner, sessionId: root.sessionId, topic: `UI`, label: `gone`, remove: true })
     ).rejects.toMatchObject({ code: `NOT_FOUND`, message: expect.stringContaining(`label "gone"`) })
     expect((await row(root.sessionId)).guide).toEqual(before)
+  })
+
+  // EXP-1397 (FEED-150/151): ownership across the thread.
+  it(`EXP-1397: a writer's open PR tags its topics, a parent tags a child's, a continuation owns its predecessor's`, async () => {
+    const w = await world()
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
+    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c` } })
+    await db.update(sessions).set({ branch: `exp/session-child` }).where(eq(sessions.id, child.sessionId))
+    const [repo] = await db
+      .insert(repositories)
+      .values({ teamId: w.teamId, fullName: `o/r` })
+      .returning({ id: repositories.id })
+    const pr = async (number: number, sessionId: string, state: `open` | `merged` = `open`) => {
+      const url = `https://github.com/o/r/pull/${number}`
+      await db.insert(pullRequests).values({
+        teamId: w.teamId,
+        rootSessionId: root.sessionId,
+        sessionId,
+        repositoryId: repo!.id,
+        number,
+        url,
+        head: `exp/h-${number}`,
+        base: `master`,
+        state,
+      })
+      return url
+    }
+    const entry = (topic: string) =>
+      (async () => (await row(root.sessionId)).guide!.find((e) => e.topic === topic && !e.attachmentId))()
+
+    // No PR yet: untagged. Once the child has an open PR, a new topic is
+    // that PR's, and a rewrite of an untagged one takes the tag too.
+    await writeGuide({ userId: w.owner, sessionId: child.sessionId, topic: `Before`, text: `Untagged.`, files: [`a.ts`] })
+    expect((await entry(`Before`))?.prUrl).toBeUndefined()
+    const url = await pr(41, child.sessionId)
+    await writeGuide({ userId: w.owner, sessionId: child.sessionId, topic: `After`, text: `Tagged.` })
+    expect(await entry(`After`)).toMatchObject({ prUrl: url, sessionId: child.sessionId })
+
+    // The parent tags the child's topic (prUrl only): in place, the child
+    // keeps it, its files stay.
+    await db.update(sessions).set({ status: `ended` }).where(eq(sessions.id, child.sessionId))
+    await writeGuide({ userId: w.owner, sessionId: root.sessionId, topic: `Before`, prUrl: url })
+    expect(await entry(`Before`)).toMatchObject({ prUrl: url, sessionId: child.sessionId, files: [`a.ts`], text: `Untagged.` })
+    expect((await row(root.sessionId)).guide!.filter((e) => e.topic === `Before`)).toHaveLength(1)
+    // A tag of a topic nobody in the subtree filed fails loudly.
+    await expect(
+      writeGuide({ userId: w.owner, sessionId: root.sessionId, topic: `Nowhere`, prUrl: url })
+    ).rejects.toThrow(/Nothing in this thread's Guide matched topic "Nowhere"/)
+    // A text write never takes a child's topic over: the parent files its own.
+    await writeGuide({ userId: w.owner, sessionId: root.sessionId, topic: `After`, text: `The root's words.` })
+    expect((await row(root.sessionId)).guide!.filter((e) => e.topic === `After`)).toHaveLength(2)
+
+    // The ended child continues as a sibling on the same branch: it owns
+    // its predecessor's rows (edit and remove).
+    const cont = await sendSession({ userId: w.owner, input: { sessionId: child.sessionId, text: `again` } })
+    expect(cont.sessionId).not.toBe(child.sessionId)
+    expect((await row(cont.sessionId)).branch).toBe(`exp/session-child`)
+    await writeGuide({ userId: w.owner, sessionId: cont.sessionId, topic: `Before`, text: `Rewritten.` })
+    expect(await entry(`Before`)).toMatchObject({ text: `Rewritten.`, sessionId: cont.sessionId, prUrl: url })
+    expect((await row(root.sessionId)).guide!.filter((e) => e.topic === `Before`)).toHaveLength(1)
+    await writeGuide({ userId: w.owner, sessionId: cont.sessionId, topic: `After`, remove: true })
+    expect((await row(root.sessionId)).guide!.filter((e) => e.topic === `After`).map((e) => e.sessionId)).toEqual([
+      root.sessionId,
+    ])
   })
 })
 

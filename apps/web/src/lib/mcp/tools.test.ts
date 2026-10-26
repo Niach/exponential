@@ -2487,10 +2487,23 @@ describe(`exponential_guide_write`, () => {
       topic: `Summary`,
       text: `Fixed it.`,
       files: [`src/a.ts`],
-      prUrl: null,
       remove: false,
       label: `Before`,
     })
+  })
+
+  // EXP-1397: an omitted files/prUrl is KEPT (a prUrl-only tag never wipes
+  // the topic's files; a rewrite never drops its PR).
+  it(`passes omitted files and prUrl through as omitted`, async () => {
+    dbRows.current = [callerRow()]
+    sessionsCore.writeGuide.mockResolvedValue({ topic: `Summary`, results: [] })
+    await collectTools(USER, SESSION).get(`exponential_guide_write`)!({
+      topic: `Summary`,
+      prUrl: `https://github.com/acme/app/pull/7`,
+    })
+    const args = sessionsCore.writeGuide.mock.calls.at(-1)![0]
+    expect(args).toMatchObject({ prUrl: `https://github.com/acme/app/pull/7`, text: null })
+    expect(`files` in args).toBe(false)
   })
 
   it(`registers only inside a session`, () => {

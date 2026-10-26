@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1154: the PR body = a TEXT projection of the run's Guide (EXP-1251, formerly Results) (apps/web lib/pr-body-from-results.ts). Text sections only (non-blank text, first text per topic, first-seen order, files cleaned like session-results.json files); null without one (the caller keeps its fallback). The first Summary (trimmed, case-insensitive) leads with no heading; every other topic = '### <topic>' (whitespace runs collapsed to one space; a trailing ' #' run's last '#' escaped as '\\\\#'), a blank line, its text; a section's files follow as '- `path`' bullets after a blank line (newlines stripped; the fence one backtick longer than the longest backtick run in the path, padded with a space when the path starts or ends with a backtick); sections join with a blank line; resultsUrl adds '\\n\\n---\\n\\n[Guide and screenshots in Exponential](<url>)'. Over max (default 60000) the sections cut at the last newline that fits and end in a '\\n…' line; the footer is always kept. Pictures are never embedded. EXP-1251 prUrl: a case may carry prUrl (the PR the body is for): a topic whose first text entry is tagged with ANOTHER prUrl is left out (untagged topics stay); prUrl null = untagged topics only; absent = no filter. EXP-1284 sessionIds: a case may carry sessionIds (the session the body is for + its resume chain): an entry stamped (sessionId) with another session is left out unless tagged with this prUrl; unstamped entries stay but yield their topic to a kept stamped entry; absent = no session filter (first text per topic, as before). EXP-1315 notRun: pr_open's notRun ('<platform>: <screen>' the agent could not run) is filed into the Guide as the text topic 'Not run' (pr_open writes it through guide_write's path, replacing the caller session's previous one); the body renders it as a normal topic placed LAST (after every other topic, before the footer; matched trimmed, whitespace collapsed, case-insensitive).",
+  "$comment": "EXP-1154: the PR body = a TEXT projection of the run's Guide (EXP-1251, formerly Results) (apps/web lib/pr-body-from-results.ts). Text sections only (non-blank text, first text per topic, first-seen order, files cleaned like session-results.json files); null without one (the caller keeps its fallback). The first Summary (trimmed, case-insensitive) leads with no heading; every other topic = '### <topic>' (whitespace runs collapsed to one space; a trailing ' #' run's last '#' escaped as '\\\\#'), a blank line, its text; a section's files follow as '- `path`' bullets after a blank line (newlines stripped; the fence one backtick longer than the longest backtick run in the path, padded with a space when the path starts or ends with a backtick); sections join with a blank line; resultsUrl adds '\\n\\n---\\n\\n[Guide and screenshots in Exponential](<url>)'. Over max (default 60000) the sections cut at the last newline that fits and end in a '\\n…' line; the footer is always kept. Pictures are never embedded. EXP-1251 prUrl: a case may carry prUrl (the PR the body is for): a topic whose first text entry is tagged with ANOTHER prUrl is left out (untagged topics stay); prUrl null = untagged topics only; absent = no filter. EXP-1284 sessionIds: a case may carry sessionIds (the session the body is for + its resume chain): an entry stamped (sessionId) with another session is left out unless tagged with this prUrl; unstamped entries stay but yield their topic to a kept stamped entry; absent = no session filter (first text per topic, as before). EXP-1315 notRun: pr_open's notRun ('<platform>: <screen>' the agent could not run) is filed into the Guide as the text topic 'Not run' (pr_open writes it through guide_write's path, replacing the caller session's previous one); the body renders it as a normal topic placed LAST (after every other topic, before the footer; matched trimmed, whitespace collapsed, case-insensitive). EXP-1397 mergedAt: a case may carry mergedAt (ms, the thread's latest PR merge): an UNTAGGED text entry whose 'at' (ms; absent = 0) is before it is left out before the first-text-per-topic pick (a later untagged rewrite of the topic takes its place); tagged entries are never touched by it; absent = no cut.",
   "cases": [
     {
       "name": "null blob",
@@ -626,6 +626,98 @@
       ],
       "resultsUrl": null,
       "expected": "### not RUN\n\nandroid: settings"
+    },
+    {
+      "name": "an untagged topic written before the thread's last merge leaves the body",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Old words.",
+          "at": 100
+        },
+        {
+          "topic": "nav",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Earlier PR.",
+          "at": 150
+        },
+        {
+          "topic": "Fresh",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "After the merge.",
+          "at": 300
+        }
+      ],
+      "resultsUrl": null,
+      "prUrl": "https://github.com/o/r/pull/2",
+      "mergedAt": 200,
+      "expected": "### Fresh\n\nAfter the merge."
+    },
+    {
+      "name": "a rewrite after the merge takes the retired entry's place; tagged entries stay",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Before.",
+          "at": 100,
+          "sessionId": "s-1"
+        },
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Rewritten.",
+          "at": 250,
+          "sessionId": "s-2"
+        },
+        {
+          "topic": "Mine",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Tagged long ago.",
+          "at": 50,
+          "prUrl": "https://github.com/o/r/pull/2"
+        }
+      ],
+      "resultsUrl": null,
+      "prUrl": "https://github.com/o/r/pull/2",
+      "mergedAt": 200,
+      "expected": "Rewritten.\n\n### Mine\n\nTagged long ago."
+    },
+    {
+      "name": "every untagged entry retired = no body",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Gone."
+        }
+      ],
+      "resultsUrl": "https://exp.example/g",
+      "prUrl": null,
+      "mergedAt": 1,
+      "expected": null
     }
   ]
 }

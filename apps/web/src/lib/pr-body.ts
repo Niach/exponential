@@ -16,6 +16,8 @@ import type { GuideEntry } from "@exp/db-schema/domain"
 // FIRST text per topic, first-seen order, `files` cleaned the same way the
 // readers clean them. `sessionIds` (EXP-1284, still fixture-locked) narrows
 // to one session's entries; the thread-wide body never passes it.
+// `mergedAt` (EXP-1397) = the thread's latest PR merge: an untagged entry
+// written before it belonged to a PR already landed and leaves later bodies.
 
 /** The `pr_open` / `pr_update` body limit. */
 export const PR_BODY_MAX = 60_000
@@ -55,7 +57,8 @@ function cleanFiles(raw: unknown): string[] {
 
 function parseReportSections(
   raw: unknown,
-  keep?: (section: ReportSection) => boolean
+  keep?: (section: ReportSection) => boolean,
+  mergedAt?: number | null
 ): ReportSection[] {
   let list: unknown = raw
   if (typeof list === `string`) {
@@ -79,6 +82,10 @@ function parseReportSections(
     const prUrl = typeof entry.prUrl === `string` ? entry.prUrl.trim() || null : null
     const sessionId =
       typeof entry.sessionId === `string` ? entry.sessionId.trim() || null : null
+    // EXP-1397: untagged words from before the thread's last merge went
+    // out with that PR (a rewrite since stamps a newer `at`).
+    const at = typeof entry.at === `number` ? entry.at : 0
+    if (mergedAt != null && !prUrl && at < mergedAt) continue
     const section = { topic: entry.topic, text, files: cleanFiles(entry.files), prUrl, sessionId }
     if (!keep || keep(section)) candidates.push(section)
   }
@@ -144,6 +151,9 @@ function renderSection(section: ReportSection, heading: boolean): string {
  * chain: an entry stamped with ANOTHER session is left out unless it is
  * tagged with this `prUrl`; unstamped entries stay but yield their topic to a
  * kept stamped one. Absent = no session filter.
+ *
+ * `mergedAt` (EXP-1397, ms) = the thread's latest PR merge: an untagged
+ * entry written (`at`) before it is left out. Absent = no cut.
  */
 export function renderPrBody(
   raw: unknown,
@@ -152,6 +162,7 @@ export function renderPrBody(
     max?: number
     prUrl?: string | null
     sessionIds?: readonly string[]
+    mergedAt?: number | null
   }
 ): string | null {
   const want = opts.prUrl === undefined ? undefined : opts.prUrl?.trim() || null
@@ -163,7 +174,8 @@ export function renderPrBody(
           !section.sessionId ||
           sessionIds.includes(section.sessionId) ||
           (!!want && section.prUrl === want)
-      : undefined
+      : undefined,
+    opts.mergedAt
   ).filter(
     (section) => want === undefined || section.prUrl === null || section.prUrl === want
   )
@@ -196,15 +208,17 @@ export function renderPrBody(
 /**
  * EXP-1291: the body of one PR of a thread, off the thread's Guide. `prUrl`
  * = the PR it is for (null = a PR not opened yet: untagged topics only;
- * absent = every topic); `guideUrl` = the footer link. Null without any text
+ * absent = every topic); `guideUrl` = the footer link; `mergedAt` = the
+ * thread's latest PR merge (EXP-1397). Null without any text
  * section (the caller keeps its fallback).
  */
 export function prBodyFromGuide(
   guide: GuideEntry[] | null,
-  opts: { prUrl?: string | null; guideUrl?: string | null } = {}
+  opts: { prUrl?: string | null; guideUrl?: string | null; mergedAt?: number | null } = {}
 ): string | null {
   return renderPrBody(guide, {
     resultsUrl: opts.guideUrl ?? null,
+    ...(opts.mergedAt != null ? { mergedAt: opts.mergedAt } : {}),
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
   })
 }
