@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -130,6 +131,7 @@ internal fun TextFieldRow(
     placeholder: String? = null,
     enabled: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
     textStyle: TextStyle = LocalTextStyle.current,
     trailing: (@Composable () -> Unit)? = null,
 ) {
@@ -152,6 +154,7 @@ internal fun TextFieldRow(
             singleLine = true,
             bordered = false,
             keyboardOptions = keyboardOptions,
+            keyboardActions = keyboardActions,
             textStyle = textStyle,
             containerColor = Color.Transparent,
             modifier = Modifier.weight(1f),

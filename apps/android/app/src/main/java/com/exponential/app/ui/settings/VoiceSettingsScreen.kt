@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -183,7 +184,8 @@ class VoiceSettingsViewModel @Inject constructor(
         }
     }
 
-    private fun saveWakePhrase() {
+    /** Done on the keyboard saves at once, like Return on iOS. */
+    fun saveWakePhrase() {
         wakePhraseSave?.cancel()
         val trimmed = wakePhrase.trim()
         if (trimmed == settings?.wakePhrase) return
@@ -225,6 +227,7 @@ fun VoiceSettingsScreen(
                 wakePhrase = viewModel.wakePhrase,
                 onChange = viewModel::save,
                 onWakePhraseChange = viewModel::onWakePhraseChange,
+                onWakePhraseDone = viewModel::saveWakePhrase,
                 modifier = Modifier.padding(padding),
             )
             viewModel.loadFailed -> Box(
@@ -260,6 +263,7 @@ private fun VoiceSettingsForm(
     wakePhrase: String,
     onChange: (Voice.Change) -> Unit,
     onWakePhraseChange: (String) -> Unit,
+    onWakePhraseDone: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // voice.json: every switch is off and disabled while either is None.
@@ -334,13 +338,14 @@ private fun VoiceSettingsForm(
                 )
                 GroupDivider()
                 // The input row (label + trailing field, the board form's
-                // Prefix row): saved a beat after typing stops.
+                // Prefix row): saved a beat after typing stops, or on Done.
                 TextFieldRow(
                     label = Voice.Copy.WAKE_PHRASE,
                     value = wakePhrase,
                     onValueChange = onWakePhraseChange,
                     placeholder = Voice.wakePhrasePlaceholder(vocabulary.agentNames[settings.agentId].orEmpty()),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onWakePhraseDone() }),
                     modifier = Modifier.testTag(Voice.TestIds.WAKE_PHRASE),
                 )
             }
