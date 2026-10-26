@@ -13,7 +13,7 @@
 // EXP-432 bends the per-user rule exactly once: a server device may be SHARED
 // with teams (`shared_team_ids`, owner-toggled via `setShared`; FEED-33 made
 // it a set) so their members can remote-start on it.
-import { flagDeadSessionsInTx, restoreDeviceSessionsInTx } from "@/lib/sessions/watchdog"
+import { clearLiveStuckInTx, flagDeadSessionsInTx, restoreDeviceSessionsInTx } from "@/lib/sessions/watchdog"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import {
@@ -661,7 +661,8 @@ export const devicesRouter = router({
         doctor: deviceDoctorSchema.nullish(),
         // NEW-5: the session ids this host process runs right now. Present =
         // a busy session on this device missing from it has a dead process
-        // (flagged `stuck`); absent = no claim.
+        // (flagged `stuck`), a listed one is alive (FEED-145: never `stuck`
+        // for a long turn); absent = no claim.
         liveSessionIds: z.array(z.string().min(1).max(128)).max(1000).optional(),
       })
     )
@@ -673,6 +674,9 @@ export const devicesRouter = router({
           lastSeenAt: now,
           updatedAt: now,
           activeSessions: input.activeSessions,
+          // FEED-145: the listed sessions are vouched for (no `stuck` flag
+          // for a long turn); absent = the last claim stands.
+          ...(input.liveSessionIds ? { liveSessionIds: [...new Set(input.liveSessionIds)] } : {}),
           ...(input.agentAccounts
             ? { agentAccounts: clampAgentAccounts(input.agentAccounts) }
             : {}),
@@ -707,6 +711,12 @@ export const devicesRouter = router({
         await restoreDeviceSessionsInTx(tx, { deviceId: input.deviceId, userId: ctx.session.user.id })
         if (liveSessionIds) {
           await flagDeadSessionsInTx(tx, { deviceId: input.deviceId, liveSessionIds }, now)
+          // FEED-145: a listed session is alive: a `stuck` flag on it goes.
+          await clearLiveStuckInTx(tx, {
+            deviceId: input.deviceId,
+            userId: ctx.session.user.id,
+            liveSessionIds,
+          })
         }
       })
 
