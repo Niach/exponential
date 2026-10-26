@@ -10,6 +10,7 @@ import {
   strokeWidthFor,
 } from "../annotate/shapes"
 import { drawShape, drawShapes } from "../annotate/draw"
+import { widgetMessages, type WidgetMessages } from "../i18n"
 
 // The editor's tool set is the persisted annotation tools plus `crop`, which
 // is NOT a drawn shape but a separate rect baked into the image at flatten.
@@ -25,13 +26,13 @@ const cropOffIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 
 const tools: Array<{
   tool: EditorTool
-  label: string
+  label: `toolRect` | `toolPen` | `toolArrow` | `toolCrop`
   icon: string
 }> = [
-  { tool: `rect`, label: `Rectangle`, icon: rectIconSvg },
-  { tool: `pen`, label: `Free line`, icon: penIconSvg },
-  { tool: `arrow`, label: `Arrow`, icon: arrowIconSvg },
-  { tool: `crop`, label: `Crop`, icon: cropIconSvg },
+  { tool: `rect`, label: `toolRect`, icon: rectIconSvg },
+  { tool: `pen`, label: `toolPen`, icon: penIconSvg },
+  { tool: `arrow`, label: `toolArrow`, icon: arrowIconSvg },
+  { tool: `crop`, label: `toolCrop`, icon: cropIconSvg },
 ]
 
 // Minimum crop drag (image px) below which a click is ignored rather than
@@ -73,7 +74,10 @@ export function Annotator(props: {
   initialCrop: NormalizedRect | null
   onCancel(): void
   onSave(shapes: AnnotationShape[], crop: NormalizedRect | null): void
+  // The resolved message table (FEED-113); absent = English.
+  messages?: WidgetMessages
 }) {
+  const t = props.messages ?? widgetMessages.en
   const [tool, setTool] = useState<EditorTool>(`rect`)
   const [shapes, setShapes] = useState<AnnotationShape[]>([
     ...props.initialShapes,
@@ -259,7 +263,7 @@ export function Annotator(props: {
       className="exp-annotator"
       role="dialog"
       aria-modal="true"
-      aria-label="Annotate screenshot"
+      aria-label={t.annotatorAriaLabel}
       tabIndex={-1}
       onKeyDown={onKeyDown}
     >
@@ -269,8 +273,8 @@ export function Annotator(props: {
             key={entry.tool}
             type="button"
             className="exp-tool"
-            aria-label={entry.label}
-            title={entry.label}
+            aria-label={t[entry.label]}
+            title={t[entry.label]}
             aria-pressed={tool === entry.tool}
             onClick={() => setTool(entry.tool)}
             dangerouslySetInnerHTML={{ __html: entry.icon }}
@@ -280,8 +284,8 @@ export function Annotator(props: {
         <button
           type="button"
           className="exp-tool"
-          aria-label="Undo"
-          title="Undo"
+          aria-label={t.undo}
+          title={t.undo}
           disabled={shapes.length === 0}
           onClick={undo}
           dangerouslySetInnerHTML={{ __html: undoIconSvg }}
@@ -289,8 +293,8 @@ export function Annotator(props: {
         <button
           type="button"
           className="exp-tool"
-          aria-label="Clear annotations"
-          title="Clear annotations"
+          aria-label={t.clearAnnotations}
+          title={t.clearAnnotations}
           disabled={shapes.length === 0}
           onClick={() => setShapes([])}
           dangerouslySetInnerHTML={{ __html: trashIconSvg }}
@@ -298,8 +302,8 @@ export function Annotator(props: {
         <button
           type="button"
           className="exp-tool"
-          aria-label="Remove crop"
-          title="Remove crop"
+          aria-label={t.removeCrop}
+          title={t.removeCrop}
           disabled={!crop}
           onClick={() => setCrop(null)}
           dangerouslySetInnerHTML={{ __html: cropOffIconSvg }}
@@ -310,14 +314,14 @@ export function Annotator(props: {
           className="exp-ann-cancel"
           onClick={props.onCancel}
         >
-          Cancel
+          {t.cancel}
         </button>
         <button
           type="button"
           className="exp-ann-save"
           onClick={() => props.onSave(shapesRef.current, cropRef.current)}
         >
-          Done
+          {t.done}
         </button>
       </div>
 

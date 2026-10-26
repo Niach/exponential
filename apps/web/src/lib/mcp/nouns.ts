@@ -61,7 +61,7 @@ const PREFIX = `exponential_`
 export const NOUN_TOOLS: readonly NounSpec[] = [
   {
     name: `issues`,
-    blurb: `Issues (id = UUID or identifier like EXP-12; list = open only unless includeClosed or a status filter).`,
+    blurb: `Issues (id = UUID or identifier like EXP-12; list = open only unless includeClosed or a status filter; widget = reporter data).`,
     alwaysLoad: true,
     ops: {
       list: `issues_list`,
@@ -82,7 +82,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
   },
   {
     name: `comments`,
-    blurb: `Comments on an issue (plain GFM; threads one level deep; audience reporter emails a widget reporter).`,
+    blurb: `Comments on an issue (plain GFM; threads one level deep; audience reporter emails a widget reporter; a report's reporter sees only that thread).`,
     alwaysLoad: true,
     ops: { list: `comments_list`, create: `comments_create`, update: `comments_update`, delete: `comments_delete` },
   },

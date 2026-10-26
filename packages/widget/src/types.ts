@@ -1,6 +1,10 @@
 // Public TypeScript surface of the embeddable widget. The web app imports
 // these types for its dogfood mount; embedders can copy them from the docs.
 
+import type { WidgetLocalePreference } from "./i18n"
+
+export type { WidgetLocale, WidgetLocalePreference } from "./i18n"
+
 // Panel + launcher theme (EXP-435). `auto` follows the visitor's
 // prefers-color-scheme; absent = the widget config's theme, else dark.
 export type ExponentialWidgetTheme = `dark` | `light` | `auto`
@@ -44,6 +48,10 @@ export interface ExponentialWidgetInitOptions {
   zIndex?: number
   // Overrides the widget config's theme; setTheme() overrides both.
   theme?: ExponentialWidgetTheme
+  // Widget language (FEED-113). `auto` (default) = the page's <html lang>,
+  // then navigator.language; anything starting with `de` is German, the
+  // rest English. setLocale() overrides it.
+  locale?: WidgetLocalePreference
 }
 
 export interface ExponentialWidgetIdentity {
@@ -107,6 +115,9 @@ export interface ExponentialWidgetApi {
   // dark/light toggle; launcher and panel update live. Wins over both the
   // init option and the widget config.
   setTheme(theme: ExponentialWidgetTheme): void
+  // Runtime language override (FEED-113), like setTheme: launcher and panel
+  // re-render in place. Wins over the init option.
+  setLocale(locale: WidgetLocalePreference): void
   // Hide/show the launcher at runtime (EXP-642) — for hosts whose own UI
   // occasionally covers the launcher's corner (a bottom sheet, a mobile
   // action bar). Only the button goes away: an open panel keeps rendering,
@@ -217,6 +228,23 @@ export interface WidgetRuntimeState {
   // undefined (falsy) and simply keeps showing the launcher, so the
   // protocol number stays 1.
   launcherHidden?: boolean
+  // setLocale() runtime override (FEED-113); optional for the same reason.
+  localeOverride?: WidgetLocalePreference | null
+  // Set when /api/widget/config answered 403/404 (origin not allowed,
+  // unknown key, disabled): the widget is misconfigured for this page, so
+  // `disabled` is set too and no launcher renders. Transient failures
+  // (network, 429, 5xx) leave it null and behave as before.
+  configFailure?: WidgetConfigFailure | null
+}
+
+export type WidgetConfigFailureCode =
+  | `origin_not_allowed`
+  | `unknown_key`
+  | `widget_disabled`
+
+export interface WidgetConfigFailure {
+  code: WidgetConfigFailureCode
+  status: number
 }
 
 declare global {

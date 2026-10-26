@@ -211,7 +211,7 @@ When a user asks to add Exponential feedback collection to their site:
      (function (w, d, u) {
        if (w.ExponentialWidget) return;
        var q = [], api = { q: q };
-       ["init","identify","setCustomData","setTheme","setLauncherHidden","open","close","submit"].forEach(function (m) {
+       ["init","identify","setCustomData","setTheme","setLocale","setLauncherHidden","open","close","submit"].forEach(function (m) {
          api[m] = function () { q.push([m, [].slice.call(arguments)]); };
        });
        w.ExponentialWidget = api;
@@ -230,6 +230,9 @@ When a user asks to add Exponential feedback collection to their site:
      to stamp context onto every submission.
    - `ExponentialWidget.setTheme("dark" | "light" | "auto")` to follow the
      site's theme toggle.
+   - `ExponentialWidget.setLocale("en" | "de" | "auto")` (or `init({ key,
+     locale })`) picks the widget language; `auto` (default) follows
+     `<html lang>`, then the browser.
    - `ExponentialWidget.setLauncherHidden(true)` to hide just the button
      while the site's own UI covers its corner; the panel and
      `open()`/`close()`/`submit()` keep working.

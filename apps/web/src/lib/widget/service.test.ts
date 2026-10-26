@@ -31,6 +31,14 @@ const h = vi.hoisted(() => ({
   // Rows the in-tx / db label selects resolve (EXP-435 reporter labels).
   labelSelectRows: [] as Array<Record<string, unknown>>,
   txShouldFail: false,
+  // NEW-19: the submit handler's gates.
+  ip: `203.0.113.7`,
+  configRows: [] as Array<Record<string, unknown>>,
+  submitTryTake: vi.fn(
+    async (): Promise<{ ok: true } | { ok: false; retryAfterSeconds: number }> => ({
+      ok: true,
+    })
+  ),
 }))
 
 const tx = {
@@ -76,14 +84,16 @@ vi.mock(`@/db/connection`, () => ({
         }
       },
     }),
-    // resolveWidgetConfigLabels' ordered lookup (EXP-435).
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          orderBy: () => Promise.resolve(h.labelSelectRows),
-        }),
-      }),
-    }),
+    // resolveWidgetConfigLabels' ordered lookup (EXP-435), and the
+    // loadWidgetConfigByKey join (NEW-19 handler tests).
+    select: () => {
+      const where = () => ({
+        orderBy: () => Promise.resolve(h.labelSelectRows),
+        limit: () => Promise.resolve(h.configRows),
+      })
+      const joined = { innerJoin: () => joined, where }
+      return { from: () => joined }
+    },
   },
 }))
 
@@ -143,9 +153,15 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetNewIssueNotify: h.fireAndForgetNewIssueNotify,
   fireAndForgetAssignmentNotify: h.fireAndForgetAssignmentNotify,
 }))
-vi.mock(`@/lib/widget/rate-limit`, () => ({
-  clientIpFromRequest: () => `203.0.113.7`,
+// The submit policy buckets stay REAL (reset before every test); only the
+// client IP and the config-read bucket are stubbed.
+vi.mock(`@/lib/widget/rate-limit`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/widget/rate-limit")>()),
+  clientIpFromRequest: () => h.ip,
   getWidgetConfigIpLimiter: () => ({ tryTake: h.configIpTryTake }),
+}))
+vi.mock(`@/lib/widget/submit-limit`, () => ({
+  takeWidgetSubmitToken: h.submitTryTake,
 }))
 
 import {
@@ -157,10 +173,12 @@ import {
   widgetSubmissions,
 } from "@/db/schema"
 import { uploadObject, deleteObject } from "@/lib/storage"
+import { resetWidgetRateLimitersForTest } from "@/lib/widget/rate-limit"
 import {
   createWidgetSubmission,
   defaultWidgetLauncher,
   handleWidgetConfig,
+  handleWidgetSubmit,
   normalizedWidgetFormToggles,
   resolveWidgetConfigLabels,
   sanitizeWidgetCustomFields,
@@ -187,6 +205,10 @@ const config = {
   teamSlug: `acme`,
   teamName: `Acme`,
 } as unknown as WidgetConfigWithBoard
+
+beforeEach(() => {
+  resetWidgetRateLimitersForTest()
+})
 
 function submitForm(): FormData {
   const form = new FormData()
@@ -1198,5 +1220,261 @@ describe(`widget label selection on submit`, () => {
         userAgent: null,
       })
     ).rejects.toMatchObject({ status: 400, message: `Invalid labels` })
+  })
+})
+
+// NEW-19 (FEED-99/115): every response of both public endpoints carries CORS
+// headers — including every error — so the widget can read status + body,
+// and every error body names a `code`.
+describe(`widget endpoints: CORS + codes on every response`, () => {
+  const key = `expw_${`a`.repeat(32)}`
+  const allowedOrigin = `https://example.com`
+  const strangerOrigin = `https://stranger.dev`
+  const row = (patch: Record<string, unknown> = {}) => ({
+    config: { ...config, publicKey: key, ...patch },
+    boardSlug: `board`,
+    boardName: `Board`,
+    boardDeletedAt: null,
+    boardArchivedAt: null,
+    teamSlug: `acme`,
+    teamName: `Acme`,
+  })
+
+  beforeEach(() => {
+    h.inserts.length = 0
+    h.dbInserts.length = 0
+    h.txShouldFail = false
+    h.emailEnabled.value = true
+    h.ip = `203.0.113.7`
+    h.configRows = [row()]
+    h.configIpTryTake.mockReset()
+    h.configIpTryTake.mockReturnValue({ ok: true })
+    h.submitTryTake.mockReset()
+    h.submitTryTake.mockResolvedValue({ ok: true })
+    h.sendReporterConfirmationEmail.mockClear()
+    h.getSoleHumanMemberId.mockResolvedValue(null)
+  })
+
+  const submitRequest = (
+    fields: Record<string, string> = {},
+    opts: { origin?: string; headers?: Record<string, string> } = {}
+  ) => {
+    const form = new FormData()
+    form.set(`key`, key)
+    form.set(`message`, `Button broken`)
+    for (const [name, value] of Object.entries(fields)) form.set(name, value)
+    return new Request(`https://app.test/api/widget/submit`, {
+      method: `POST`,
+      body: form,
+      headers: { origin: opts.origin ?? allowedOrigin, ...opts.headers },
+    })
+  }
+
+  const expectCors = (res: Response, origin: string) => {
+    expect(res.headers.get(`Access-Control-Allow-Origin`)).toBe(origin)
+    expect(res.headers.get(`Access-Control-Expose-Headers`)).toBe(`Retry-After`)
+    expect(res.headers.get(`Access-Control-Allow-Credentials`)).toBeNull()
+  }
+
+  describe(`POST /api/widget/submit`, () => {
+    it(`201 on success`, async () => {
+      const res = await handleWidgetSubmit(submitRequest())
+      expect(res.status).toBe(201)
+      expectCors(res, allowedOrigin)
+    })
+
+    it(`413 too_large before the body is read`, async () => {
+      const res = await handleWidgetSubmit(
+        new Request(`https://app.test/api/widget/submit`, {
+          method: `POST`,
+          body: `x`,
+          headers: {
+            origin: strangerOrigin,
+            "content-length": String(1024 * 1024 * 1024),
+          },
+        })
+      )
+      expect(res.status).toBe(413)
+      expectCors(res, strangerOrigin)
+      expect(await res.json()).toMatchObject({ code: `too_large` })
+    })
+
+    it(`400 bad_request on a non-multipart body`, async () => {
+      const res = await handleWidgetSubmit(
+        new Request(`https://app.test/api/widget/submit`, {
+          method: `POST`,
+          body: `not a form`,
+          headers: { origin: allowedOrigin, "content-type": `text/plain` },
+        })
+      )
+      expect(res.status).toBe(400)
+      expectCors(res, allowedOrigin)
+      expect(await res.json()).toMatchObject({ code: `bad_request` })
+    })
+
+    it(`404 unknown_key`, async () => {
+      h.configRows = []
+      const res = await handleWidgetSubmit(submitRequest({}, { origin: strangerOrigin }))
+      expect(res.status).toBe(404)
+      expectCors(res, strangerOrigin)
+      expect(await res.json()).toMatchObject({ code: `unknown_key` })
+    })
+
+    it(`403 origin_not_allowed names the rejected origin`, async () => {
+      const res = await handleWidgetSubmit(submitRequest({}, { origin: strangerOrigin }))
+      expect(res.status).toBe(403)
+      expectCors(res, strangerOrigin)
+      expect(await res.json()).toEqual({
+        error: `Origin not allowed`,
+        code: `origin_not_allowed`,
+        origin: strangerOrigin,
+      })
+    })
+
+    it(`403 origin_not_allowed on a key with no allowed domains`, async () => {
+      h.configRows = [row({ allowedDomains: [] })]
+      const res = await handleWidgetSubmit(submitRequest())
+      expect(res.status).toBe(403)
+      expectCors(res, allowedOrigin)
+      expect(await res.json()).toMatchObject({ code: `origin_not_allowed` })
+    })
+
+    it(`403 widget_disabled`, async () => {
+      h.configRows = [row({ enabled: false })]
+      const res = await handleWidgetSubmit(submitRequest())
+      expect(res.status).toBe(403)
+      expectCors(res, allowedOrigin)
+      expect(await res.json()).toMatchObject({ code: `widget_disabled` })
+    })
+
+    it(`400 keeps the validation code (email_required)`, async () => {
+      h.configRows = [row({ formConfig: { emailRequired: true } })]
+      const res = await handleWidgetSubmit(submitRequest())
+      expect(res.status).toBe(400)
+      expectCors(res, allowedOrigin)
+      expect(await res.json()).toMatchObject({ code: `email_required` })
+    })
+
+    it(`500 internal`, async () => {
+      h.txShouldFail = true
+      const res = await handleWidgetSubmit(submitRequest())
+      expect(res.status).toBe(500)
+      expectCors(res, allowedOrigin)
+      expect(await res.json()).toEqual({ error: `Internal error`, code: `internal` })
+    })
+
+    it(`500 internal when the key lookup throws`, async () => {
+      h.configRows = null as never
+      const res = await handleWidgetSubmit(submitRequest())
+      expect(res.status).toBe(500)
+      expectCors(res, allowedOrigin)
+    })
+
+    it(`one IP files 20 in a row, the 21st is 429 rate_limited`, async () => {
+      for (let index = 0; index < 20; index += 1) {
+        // Identified or anonymous: every report counts per IP.
+        const fields: Record<string, string> =
+          index % 2 === 0 ? { email: `tester${index}@matflow.io` } : {}
+        const res = await handleWidgetSubmit(submitRequest(fields))
+        expect(res.status).toBe(201)
+      }
+      const res = await handleWidgetSubmit(
+        submitRequest({ email: `fresh@matflow.io` })
+      )
+      expect(res.status).toBe(429)
+      expectCors(res, allowedOrigin)
+      const retryAfter = Number(res.headers.get(`Retry-After`))
+      expect(retryAfter).toBeGreaterThan(0)
+      expect(await res.json()).toEqual({
+        error: `Too many submissions, try again later`,
+        code: `rate_limited`,
+        retryAfterSeconds: retryAfter,
+      })
+      // The rejected request never reached the shared per-key bucket.
+      expect(h.submitTryTake).toHaveBeenCalledTimes(20)
+      // Another IP is unaffected.
+      h.ip = `198.51.100.1`
+      expect((await handleWidgetSubmit(submitRequest())).status).toBe(201)
+    })
+
+    it(`429 from the per-key/plan bucket carries the code too`, async () => {
+      h.submitTryTake.mockResolvedValue({ ok: false, retryAfterSeconds: 77 })
+      const res = await handleWidgetSubmit(submitRequest())
+      expect(res.status).toBe(429)
+      expect(res.headers.get(`Retry-After`)).toBe(`77`)
+      expectCors(res, allowedOrigin)
+      expect(await res.json()).toMatchObject({
+        code: `rate_limited`,
+        retryAfterSeconds: 77,
+      })
+    })
+
+    it(`past the mail limit the issue is still filed, only the mail is skipped`, async () => {
+      const results = []
+      for (let index = 0; index < 4; index += 1) {
+        const res = await handleWidgetSubmit(submitRequest({ email: `tester@matflow.io` }))
+        expect(res.status).toBe(201)
+        results.push(await res.json())
+      }
+      expect(results.map((result) => result.emailDelivered)).toEqual([
+        true,
+        true,
+        true,
+        false,
+      ])
+      expect(h.sendReporterConfirmationEmail).toHaveBeenCalledTimes(3)
+      expect(h.inserts.filter((i) => i.table === issues)).toHaveLength(4)
+    })
+  })
+
+  describe(`GET /api/widget/config`, () => {
+    const configRequest = (origin: string, requestKey = key) =>
+      new Request(`https://app.test/api/widget/config?key=${requestKey}`, {
+        headers: { origin },
+      })
+
+    it(`200 with CORS for an allowed origin`, async () => {
+      const res = await handleWidgetConfig(configRequest(allowedOrigin))
+      expect(res.status).toBe(200)
+      expectCors(res, allowedOrigin)
+    })
+
+    it(`404 unknown_key`, async () => {
+      h.configRows = []
+      const res = await handleWidgetConfig(configRequest(strangerOrigin))
+      expect(res.status).toBe(404)
+      expectCors(res, strangerOrigin)
+      expect(await res.json()).toMatchObject({ code: `unknown_key` })
+    })
+
+    it(`403 origin_not_allowed names the rejected origin`, async () => {
+      const res = await handleWidgetConfig(configRequest(strangerOrigin))
+      expect(res.status).toBe(403)
+      expectCors(res, strangerOrigin)
+      expect(await res.json()).toMatchObject({
+        code: `origin_not_allowed`,
+        origin: strangerOrigin,
+      })
+    })
+
+    it(`429 rate_limited`, async () => {
+      h.configIpTryTake.mockReturnValue({ ok: false, retryAfterSeconds: 9 })
+      const res = await handleWidgetConfig(configRequest(strangerOrigin))
+      expect(res.status).toBe(429)
+      expectCors(res, strangerOrigin)
+      expect(res.headers.get(`Retry-After`)).toBe(`9`)
+      expect(await res.json()).toMatchObject({
+        code: `rate_limited`,
+        retryAfterSeconds: 9,
+      })
+    })
+
+    it(`500 internal`, async () => {
+      h.configRows = null as never
+      const res = await handleWidgetConfig(configRequest(strangerOrigin))
+      expect(res.status).toBe(500)
+      expectCors(res, strangerOrigin)
+      expect(await res.json()).toMatchObject({ code: `internal` })
+    })
   })
 })

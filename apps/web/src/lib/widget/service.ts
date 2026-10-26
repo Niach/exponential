@@ -46,8 +46,19 @@ import { fireAndForgetNewIssueNotify } from "@/lib/integrations/notifications"
 import { buildWidgetDescription } from "./metadata"
 import { isWidgetKeyFormat } from "./key"
 import { isOriginAllowed } from "./origin"
-import { corsHeaders, jsonResponse } from "./cors"
-import { clientIpFromRequest, getWidgetConfigIpLimiter } from "./rate-limit"
+import {
+  corsHeaders,
+  jsonResponse,
+  widgetErrorResponse,
+  type WidgetErrorCode,
+} from "./cors"
+import {
+  clientIpFromRequest,
+  getWidgetConfigIpLimiter,
+  takeWidgetConfirmationMailToken,
+  takeWidgetIpToken,
+} from "./rate-limit"
+import { takeWidgetSubmitToken } from "./submit-limit"
 
 // Screenshots are widget-generated (canvas encodes), so the accepted set is a
 // deliberate subset of acceptedImageContentTypes — no gif/avif uploads here.
@@ -74,7 +85,8 @@ export class WidgetRequestError extends Error {
     // Additive structured hint for the client. Email codes drive the panel's
     // email-recovery flow; `name_required` only maps to a friendlier form
     // error (names have no format validation, so no recovery machinery).
-    readonly code?: `invalid_email` | `email_required` | `name_required`
+    // `widget_disabled` marks a trashed/archived target board.
+    readonly code?: WidgetErrorCode
   ) {
     super(message)
   }
@@ -436,8 +448,8 @@ export interface WidgetSubmitResult {
   emailDelivered: boolean | null
 }
 
-// The whole submit pipeline past key/origin/rate gating (which the route owns
-// because those decide the CORS headers on the response).
+// The whole submit pipeline past key/origin/rate gating (handleWidgetSubmit
+// owns those because they decide the CORS headers on the response).
 export async function createWidgetSubmission(args: {
   config: WidgetConfigWithBoard
   formData: FormData
@@ -449,7 +461,11 @@ export async function createWidgetSubmission(args: {
   // unarchiving brings a hidden board back automatically.
   const boardId = config.boardId
   if (!widgetBoardAvailable(config)) {
-    throw new WidgetRequestError(403, `This feedback board is unavailable`)
+    throw new WidgetRequestError(
+      403,
+      `This feedback board is unavailable`,
+      `widget_disabled`
+    )
   }
 
   const fields = submitFieldsSchema.safeParse({
@@ -804,15 +820,24 @@ export async function createWidgetSubmission(args: {
     // invisible either (REV2-10): `emailDelivered` rides the submit response
     // so the panel can stop promising an email that never left. The ledger
     // row stores no URL — the token is never persisted, only recomputed per
-    // email.
-    const emailDelivered = fields.data.email
-      ? await sendReporterConfirmation({
+    // email. Past the per-address mail bucket (NEW-19, rate-limit.ts) the
+    // report still lands; only the mail is skipped.
+    let emailDelivered: boolean | null = null
+    if (fields.data.email) {
+      if (takeWidgetConfirmationMailToken(fields.data.email)) {
+        emailDelivered = await sendReporterConfirmation({
           to: fields.data.email,
           teamName: config.teamName,
           issueId: result.issueId,
           issueTitle: title,
         })
-      : null
+      } else {
+        console.warn(
+          `[widget] confirmation mail limit reached — ${result.identifier} filed without a mail`
+        )
+        emailDelivered = false
+      }
+    }
 
     return { ...result, url: null, emailDelivered }
   } catch (error) {
@@ -878,13 +903,10 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
     `ip:${clientIpFromRequest(request)}`
   )
   if (!ipLimit.ok) {
-    return jsonResponse(
-      429,
-      { error: `Too many requests, try again later` },
-      {
-        ...corsHeaders(request.headers.get(`origin`)),
-        "Retry-After": String(ipLimit.retryAfterSeconds),
-      }
+    return rateLimitedResponse(
+      request,
+      `Too many requests, try again later`,
+      ipLimit.retryAfterSeconds
     )
   }
 
@@ -894,11 +916,7 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
   try {
     config = await loadWidgetConfigByKey(key)
   } catch (error) {
-    if (error instanceof WidgetRequestError) {
-      return jsonResponse(error.status, { error: error.message })
-    }
-    console.error(`widget config error`, error)
-    return jsonResponse(500, { error: `Internal error` })
+    return widgetRequestErrorResponse(request, error, `widget config error`)
   }
 
   const origin = isOriginAllowed(
@@ -906,10 +924,7 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
     request.headers.get(`referer`),
     config.allowedDomains
   )
-  if (!origin.allowed) {
-    // No ACAO header: the browser blocks the response either way.
-    return jsonResponse(403, { error: `Origin not allowed` })
-  }
+  if (!origin.allowed) return originNotAllowedResponse(request)
 
   const cors = corsHeaders(origin.echoOrigin)
   // Disabled, or its board is trashed/archived: nothing is servable.
@@ -917,6 +932,17 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
     return jsonResponse(200, { enabled: false }, cors)
   }
 
+  try {
+    return await servedWidgetConfig(config, cors)
+  } catch (error) {
+    return widgetRequestErrorResponse(request, error, `widget config error`, cors)
+  }
+}
+
+async function servedWidgetConfig(
+  config: WidgetConfigWithBoard,
+  cors: Record<string, string>
+): Promise<Response> {
   const form = config.formConfig ?? {}
   // EXP-244 toggles — the same normalized view the submit paths enforce
   // (required always implies collect, a hidden name is never required), so
@@ -965,4 +991,176 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
     },
     { ...cors, "Cache-Control": `public, max-age=300` }
   )
+}
+
+// ── Shared error responses (NEW-19) ─────────────────────────────────────────
+// Every error of both public endpoints carries CORS headers and a `code`
+// (widgetErrorResponse in cors.ts).
+
+function rateLimitedResponse(
+  request: Request,
+  message: string,
+  retryAfterSeconds: number,
+  cors?: Record<string, string>
+): Response {
+  return widgetErrorResponse(
+    request,
+    429,
+    { error: message, code: `rate_limited` },
+    { cors, retryAfterSeconds }
+  )
+}
+
+// `origin` = the rejected origin, so the owner sees exactly which domain to
+// add to the allowlist (a fresh key with none rejects everything — FEED-99).
+function originNotAllowedResponse(request: Request): Response {
+  const raw = request.headers.get(`origin`) ?? request.headers.get(`referer`)
+  let rejected: string | null = null
+  try {
+    rejected = raw ? new URL(raw).origin : null
+  } catch {
+    rejected = null
+  }
+  return widgetErrorResponse(request, 403, {
+    error: `Origin not allowed`,
+    code: `origin_not_allowed`,
+    origin: rejected,
+  })
+}
+
+function codeForStatus(status: number): WidgetErrorCode | undefined {
+  if (status === 404) return `unknown_key`
+  if (status === 413) return `too_large`
+  if (status === 400) return `bad_request`
+  return undefined
+}
+
+// A WidgetRequestError keeps its own `code` (falling back to one derived from
+// its status); anything else is logged and becomes a generic 500.
+function widgetRequestErrorResponse(
+  request: Request,
+  error: unknown,
+  logLabel: string,
+  cors?: Record<string, string>
+): Response {
+  if (error instanceof WidgetRequestError) {
+    const code = error.code ?? codeForStatus(error.status)
+    return widgetErrorResponse(
+      request,
+      error.status,
+      { error: error.message, ...(code ? { code } : {}) },
+      { cors }
+    )
+  }
+  console.error(logLabel, error)
+  return widgetErrorResponse(
+    request,
+    500,
+    { error: `Internal error`, code: `internal` },
+    { cors }
+  )
+}
+
+// The whole POST /api/widget/submit pipeline (the route file only wires it,
+// keeping its imports identical to config.ts — see handleWidgetConfig).
+export async function handleWidgetSubmit(request: Request): Promise<Response> {
+  // Reject oversized bodies before buffering the multipart payload.
+  const contentLength = Number.parseInt(
+    request.headers.get(`content-length`) ?? ``,
+    10
+  )
+  if (Number.isFinite(contentLength) && contentLength > maxSubmitRequestBytes) {
+    return widgetErrorResponse(request, 413, {
+      error: `Request too large`,
+      code: `too_large`,
+    })
+  }
+
+  let formData: FormData
+  try {
+    formData = await request.formData()
+  } catch {
+    return widgetErrorResponse(request, 400, {
+      error: `Expected multipart form data`,
+      code: `bad_request`,
+    })
+  }
+
+  const key = formData.get(`key`)
+  let config
+  try {
+    config = await loadWidgetConfigByKey(typeof key === `string` ? key : ``)
+  } catch (error) {
+    return widgetRequestErrorResponse(request, error, `widget submit error`)
+  }
+
+  const origin = isOriginAllowed(
+    request.headers.get(`origin`),
+    request.headers.get(`referer`),
+    config.allowedDomains
+  )
+  if (!origin.allowed) return originNotAllowedResponse(request)
+  const cors = corsHeaders(origin.echoOrigin)
+
+  if (!config.enabled) {
+    return widgetErrorResponse(
+      request,
+      403,
+      { error: `Widget is disabled`, code: `widget_disabled` },
+      { cors }
+    )
+  }
+
+  try {
+    // Per-IP bucket first, short-circuiting: a request already throttled by
+    // its own IP must not keep draining the shared per-key/per-team bucket —
+    // otherwise one hostile IP 429s every legitimate reporter of that widget.
+    // The policy itself is documented in rate-limit.ts.
+    const ipLimit = takeWidgetIpToken(clientIpFromRequest(request))
+    if (!ipLimit.ok) {
+      return rateLimitedResponse(
+        request,
+        `Too many submissions, try again later`,
+        ipLimit.retryAfterSeconds,
+        cors
+      )
+    }
+    // Self-hosted: the env-tunable per-key bucket. Cloud: a per-team bucket
+    // sized by the team's plan (paid = unlimited). The body stays generic —
+    // reporters must not learn the team's plan.
+    const submitLimit = await takeWidgetSubmitToken(config)
+    if (!submitLimit.ok) {
+      return rateLimitedResponse(
+        request,
+        `Too many submissions, try again later`,
+        submitLimit.retryAfterSeconds,
+        cors
+      )
+    }
+
+    // Honeypot: the real widget never fills this hidden field. Pretend
+    // success so bots don't adapt; nothing is created. Logged (public key
+    // only — never the field value or any reporter detail) because the reply
+    // is indistinguishable from a real submission: without this line a widget
+    // that starts tripping its own honeypot silently drops every report with
+    // nothing to see anywhere.
+    const honeypot = formData.get(`website`)
+    if (typeof honeypot === `string` && honeypot.length > 0) {
+      console.warn(
+        `[widget] honeypot tripped for key ${config.publicKey} — submission dropped`
+      )
+      return jsonResponse(201, { ok: true }, cors)
+    }
+
+    // SLOP-4: ONE path — every submission is an issue (a cached pre-SLOP-4
+    // bundle's `mode` field is ignored).
+    const result = await createWidgetSubmission({
+      config,
+      formData,
+      userAgent: request.headers.get(`user-agent`),
+    })
+    return jsonResponse(201, { ok: true, ...result }, cors)
+  } catch (error) {
+    return widgetRequestErrorResponse(request, error, `widget submit error`, cors)
+  }
 }

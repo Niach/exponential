@@ -7,12 +7,13 @@ import type {
 import { acceptedUploadImageTypes, maxUploadedImages } from "../uploads"
 import { ownCustomValue } from "./custom-values"
 import type { Screenshot, UploadedImage } from "./App"
+import { widgetMessages, type WidgetMessages } from "../i18n"
 
 const closeIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>`
 
 // Same growth loop as the public board's powered-by footer: every embedded
 // widget signposts back to the product.
-function PoweredBy() {
+function PoweredBy({ prefix }: { prefix: string }) {
   return (
     <div className="exp-powered">
       <a
@@ -20,7 +21,7 @@ function PoweredBy() {
         target="_blank"
         rel="noopener noreferrer"
       >
-        Powered by <strong>Exponential</strong>
+        {prefix} <strong>Exponential</strong>
       </a>
     </div>
   )
@@ -35,13 +36,13 @@ const timerIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 export type CaptureDelay = 0 | 3 | 5
 export const captureDelayCycle: CaptureDelay[] = [0, 3, 5]
 
-function captureDelayLabel(delay: CaptureDelay): string {
-  return delay === 0 ? `Off` : `${delay}s`
+function captureDelayLabel(delay: CaptureDelay, t: WidgetMessages): string {
+  return delay === 0 ? t.delayOff : t.delaySeconds(delay)
 }
 
-// SLOP-4: ONE form. Everything a visitor sends becomes an issue on the
-// widget's board; the title comes from the message's first line.
-const panelTitle = `Send feedback`
+// SLOP-4: ONE form (titled t.panelTitle). Everything a visitor sends becomes
+// an issue on the widget's board; the title comes from the message's first
+// line.
 
 export function Panel(props: {
   phase: `open` | `submitting` | `success`
@@ -83,6 +84,8 @@ export function Panel(props: {
   customFields: WidgetCustomField[]
   // Owner-exposed labels the reporter can toggle (EXP-435); empty = no field.
   labels: WidgetRemoteLabel[]
+  // The resolved message table (FEED-113); absent = English.
+  messages?: WidgetMessages
   onClose(): void
   // Capture from scratch (empty state) — lands in the annotator on success.
   // The engine (native display capture vs snapDOM raster) is the caller's
@@ -107,6 +110,7 @@ export function Panel(props: {
     website: string
   }): Promise<string | null>
 }) {
+  const t = props.messages ?? widgetMessages.en
   const [message, setMessage] = useState(``)
   const [email, setEmail] = useState(``)
   const [name, setName] = useState(``)
@@ -205,7 +209,7 @@ export function Panel(props: {
   // Advisory only, like the email gate — the server re-enforces.
   const requireTypedName = () => {
     if (props.nameRequired && nameFieldVisible && !name.trim()) {
-      setError(`Your name is required.`)
+      setError(t.nameRequired)
       return false
     }
     return true
@@ -217,18 +221,18 @@ export function Panel(props: {
     setError(null)
     const trimmedMessage = message.trim()
     if (!trimmedMessage) {
-      setError(`Tell us what happened.`)
+      setError(t.messageRequired)
       messageRef.current?.focus()
       return
     }
     if (!requireTypedName()) return
     if (props.emailRequired && !props.identityEmail && !email.trim()) {
-      setError(`Your email is required.`)
+      setError(t.emailRequired)
       return
     }
     for (const field of props.customFields) {
       if (field.required && !ownCustomValue(customValues, field.key).trim()) {
-        setError(`Please fill in "${field.label}".`)
+        setError(t.fieldRequired(field.label))
         return
       }
     }
@@ -255,13 +259,13 @@ export function Panel(props: {
     nameFieldVisible ? (
       <div className="exp-field">
         <label htmlFor={`${idPrefix}-name`}>
-          {props.nameRequired ? `Name` : `Name (optional)`}
+          {props.nameRequired ? t.nameLabel : t.optional(t.nameLabel)}
         </label>
         <input
           id={`${idPrefix}-name`}
           className="exp-input"
           type="text"
-          placeholder="Your name"
+          placeholder={t.namePlaceholder}
           maxLength={255}
           value={name}
           onInput={(event) =>
@@ -317,20 +321,20 @@ export function Panel(props: {
         className={panelClass}
         role="dialog"
         aria-modal="true"
-        aria-label="Feedback sent"
+        aria-label={t.sentAriaLabel}
       >
         <div className="exp-success">
           <div
             className="exp-success-icon"
             dangerouslySetInnerHTML={{ __html: checkIconSvg }}
           />
-          <div className="exp-success-title">Thanks, your report is in.</div>
+          <div className="exp-success-title">{t.successTitle}</div>
           {(props.successIdentifier || props.successEmailDelivered !== null) && (
             <div className="exp-success-sub">
               {props.successIdentifier &&
                 (props.successUrl ? (
                   <>
-                    Filed as{` `}
+                    {t.filedAs}{` `}
                     <a
                       className="exp-success-link"
                       href={props.successUrl}
@@ -342,19 +346,19 @@ export function Panel(props: {
                     .
                   </>
                 ) : (
-                  `Filed as ${props.successIdentifier}.`
+                  `${t.filedAs} ${props.successIdentifier}.`
                 ))}
               {props.successIdentifier &&
                 props.successEmailDelivered !== null &&
                 ` `}
               {props.successEmailDelivered === true &&
-                `We emailed you a link to follow the conversation.`}
+                t.emailSent}
               {props.successEmailDelivered === false &&
-                `We could not send the follow-up email; your report still reached the team.`}
+                t.emailNotSent}
             </div>
           )}
         </div>
-        <PoweredBy />
+        <PoweredBy prefix={t.poweredByPrefix} />
       </div>
     )
   }
@@ -366,15 +370,15 @@ export function Panel(props: {
       style={props.hidden ? { display: `none` } : undefined}
       role="dialog"
       aria-modal="true"
-      aria-label={panelTitle}
+      aria-label={t.panelTitle}
     >
       <div className="exp-header">
         <div className="exp-header-lead">
-          <h2>{panelTitle}</h2>
+          <h2>{t.panelTitle}</h2>
         </div>
         <button
           className="exp-close"
-          aria-label="Close"
+          aria-label={t.close}
           onClick={props.onClose}
           dangerouslySetInnerHTML={{ __html: closeIconSvg }}
         />
@@ -401,7 +405,7 @@ export function Panel(props: {
             <>
               <img
                 src={props.screenshot.objectUrl}
-                alt="Screenshot of this page"
+                alt={t.screenshotAlt}
               />
               <div className="exp-shot-actions">
                 <button
@@ -409,21 +413,21 @@ export function Panel(props: {
                   className="exp-chip"
                   onClick={props.onAnnotate}
                 >
-                  Annotate
+                  {t.annotate}
                 </button>
                 <button
                   type="button"
                   className="exp-chip"
                   onClick={props.onRetake}
                 >
-                  Retake
+                  {t.retake}
                 </button>
                 <button
                   type="button"
                   className="exp-chip"
                   onClick={props.onRemoveScreenshot}
                 >
-                  Remove
+                  {t.remove}
                 </button>
               </div>
             </>
@@ -431,8 +435,8 @@ export function Panel(props: {
             <div className="exp-shot-empty">
               <span>
                 {props.captureFailed
-                  ? `Screenshot couldn't be captured.`
-                  : `Attach a screenshot of this page.`}
+                  ? t.screenshotFailed
+                  : t.screenshotPrompt}
               </span>
               <div className="exp-shot-empty-actions">
                 <div className="exp-chip-group">
@@ -441,14 +445,16 @@ export function Panel(props: {
                     className="exp-chip"
                     onClick={props.onCapture}
                   >
-                    {props.captureFailed ? `Try again` : `Take screenshot`}
+                    {props.captureFailed ? t.tryAgain : t.takeScreenshot}
                   </button>
                   <button
                     type="button"
                     className="exp-chip exp-chip-delay"
                     aria-pressed={props.captureDelay > 0}
-                    aria-label={`Screenshot delay: ${captureDelayLabel(props.captureDelay)}`}
-                    title="Delay the capture to catch menus and popups"
+                    aria-label={t.delayAriaLabel(
+                      captureDelayLabel(props.captureDelay, t)
+                    )}
+                    title={t.delayTitle}
                     onClick={props.onCycleCaptureDelay}
                   >
                     <span
@@ -456,7 +462,7 @@ export function Panel(props: {
                       // eslint-disable-next-line react/no-danger
                       dangerouslySetInnerHTML={{ __html: timerIconSvg }}
                     />
-                    {captureDelayLabel(props.captureDelay)}
+                    {captureDelayLabel(props.captureDelay, t)}
                   </button>
                 </div>
               </div>
@@ -471,7 +477,7 @@ export function Panel(props: {
               <button
                 type="button"
                 className="exp-thumb-remove"
-                aria-label={`Remove ${upload.filename}`}
+                aria-label={t.removeImage(upload.filename)}
                 onClick={() => props.onRemoveUpload(upload.id)}
               >
                 ×
@@ -482,10 +488,10 @@ export function Panel(props: {
             <button
               type="button"
               className="exp-add-image"
-              title="Attach pictures — you can also drop or paste them"
+              title={t.addImageTitle}
               onClick={() => fileInputRef.current?.click()}
             >
-              Add image
+              {t.addImage}
             </button>
           )}
           <input
@@ -507,12 +513,12 @@ export function Panel(props: {
         )}
 
         <div className="exp-field">
-          <label htmlFor="exp-message">What happened?</label>
+          <label htmlFor="exp-message">{t.messageLabel}</label>
           <textarea
             id="exp-message"
             ref={messageRef}
             className="exp-textarea"
-            placeholder="Describe what you saw, or what you'd like to see."
+            placeholder={t.messagePlaceholder}
             maxLength={10_000}
             value={message}
             onInput={(event) =>
@@ -523,7 +529,7 @@ export function Panel(props: {
 
         {props.labels.length > 0 && (
           <div className="exp-field">
-            <label id="exp-labels-label">What is this about?</label>
+            <label id="exp-labels-label">{t.labelsLabel}</label>
             <div
               className="exp-labels"
               role="group"
@@ -551,7 +557,7 @@ export function Panel(props: {
         {props.customFields.map((field) => (
           <div className="exp-field" key={field.key}>
             <label htmlFor={`exp-custom-${field.key}`}>
-              {field.required ? field.label : `${field.label} (optional)`}
+              {field.required ? field.label : t.optional(field.label)}
             </label>
             <input
               id={`exp-custom-${field.key}`}
@@ -575,13 +581,13 @@ export function Panel(props: {
         {props.collectEmail && !props.identityEmail && (
           <div className="exp-field">
             <label htmlFor="exp-email">
-              {props.emailRequired ? `Email` : `Email (optional)`}
+              {props.emailRequired ? t.emailLabel : t.optional(t.emailLabel)}
             </label>
             <input
               id="exp-email"
               className="exp-input"
               type="email"
-              placeholder="you@example.com"
+              placeholder={t.emailPlaceholder}
               maxLength={320}
               value={email}
               onInput={(event) =>
@@ -600,14 +606,14 @@ export function Panel(props: {
             disabled={props.phase === `submitting` || props.flattening}
           >
             {props.phase === `submitting`
-              ? `Sending…`
+              ? t.sending
               : props.flattening
-                ? `Preparing screenshot…`
-                : `Send feedback`}
+                ? t.preparingScreenshot
+                : t.submit}
           </button>
         </div>
       </form>
-      <PoweredBy />
+      <PoweredBy prefix={t.poweredByPrefix} />
     </div>
   )
 }

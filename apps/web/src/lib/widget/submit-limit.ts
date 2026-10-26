@@ -50,7 +50,9 @@ export async function takeWidgetSubmitToken(
   if (limits.widgetSubmissionsPerHour === Infinity) return { ok: true }
 
   freeTeamLimiter ??= new TokenBucketLimiter({
-    capacity: 10,
+    // Same burst as the per-IP bucket (NEW-19): the shared team bucket must
+    // not cut one reporter's run of 20 short.
+    capacity: 20,
     refillPerHour: getPlanLimits(`free`).widgetSubmissionsPerHour,
   })
   return freeTeamLimiter.tryTake(`team:${config.teamId}`, nowMs)

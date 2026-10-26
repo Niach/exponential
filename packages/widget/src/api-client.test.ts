@@ -293,6 +293,7 @@ describe(`submit error status + code parsing`, () => {
       message: `Invalid submission fields`,
       status: 400,
       code: `invalid_email`,
+      serverMessage: `Invalid submission fields`,
     })
   })
 
@@ -303,6 +304,7 @@ describe(`submit error status + code parsing`, () => {
       message: `Invalid meta`,
       status: 400,
       code: null,
+      serverMessage: `Invalid meta`,
     })
   })
 
@@ -320,4 +322,181 @@ describe(`submit error status + code parsing`, () => {
     })
   })
 
+  it(`keeps its own text on a network error`, async () => {
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn(async () => {
+        throw new Error(`offline`)
+      })
+    )
+    expect(await submit(makeState())).toMatchObject({
+      message: `Network error. Please try again.`,
+    })
+  })
+})
+
+// NEW-19 (FEED-99/115/117): error responses map to reporter-facing copy in
+// the widget's language; misconfiguration also tells the integrator why.
+describe(`submit error wording`, () => {
+  const mockFetchErrorWithHeaders = (
+    status: number,
+    body: unknown,
+    headers: Record<string, string> = {}
+  ) => {
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn(async () => ({
+        ok: false,
+        status,
+        headers: new Headers(headers),
+        json: async () => body,
+      }))
+    )
+  }
+  const german = (): WidgetRuntimeState => ({
+    ...makeState(),
+    options: { key: `expw_test`, locale: `de` },
+  })
+
+  it(`origin_not_allowed explains the allowlist and warns with the page origin`, async () => {
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => undefined)
+    mockFetchErrorWithHeaders(403, {
+      error: `Origin not allowed`,
+      code: `origin_not_allowed`,
+      origin: `https://x.example`,
+    })
+    expect(await submit(makeState())).toMatchObject({
+      ok: false,
+      status: 403,
+      code: `origin_not_allowed`,
+      message: `This site isn't allowed to send feedback. The site owner can add it under the widget's allowed domains.`,
+    })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0][0])).toContain(window.location.origin)
+    expect(String(warn.mock.calls[0][0])).toContain(`allowed domains`)
+    warn.mockRestore()
+  })
+
+  it(`matches an older server's code-less 403 by its text`, async () => {
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => undefined)
+    mockFetchErrorWithHeaders(403, { error: `Origin not allowed` })
+    expect(await submit(makeState())).toMatchObject({
+      code: `origin_not_allowed`,
+      message: expect.stringContaining(`isn't allowed to send feedback`),
+    })
+    mockFetchErrorWithHeaders(403, { error: `Widget is disabled` })
+    expect(await submit(makeState())).toMatchObject({
+      code: `widget_disabled`,
+      message: `This widget is currently disabled.`,
+    })
+    warn.mockRestore()
+  })
+
+  it(`unknown_key and widget_disabled get their own copy and a console warning`, async () => {
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => undefined)
+    mockFetchErrorWithHeaders(404, {
+      error: `Unknown widget key`,
+      code: `unknown_key`,
+    })
+    expect(await submit(makeState())).toMatchObject({
+      code: `unknown_key`,
+      message: expect.stringContaining(`widget key`),
+    })
+    mockFetchErrorWithHeaders(403, {
+      error: `Widget is disabled`,
+      code: `widget_disabled`,
+    })
+    expect(await submit(makeState())).toMatchObject({
+      code: `widget_disabled`,
+      message: `This widget is currently disabled.`,
+    })
+    expect(warn).toHaveBeenCalledTimes(2)
+    warn.mockRestore()
+  })
+
+  it.each([
+    [`30`, `Try again in 30 seconds.`],
+    [`1`, `Try again in 1 second.`],
+    [`60`, `Try again in 1 minute.`],
+    [`61`, `Try again in 2 minutes.`],
+    [`450`, `Try again in 8 minutes.`],
+    [`3600`, `Try again in 1 hour.`],
+    [`5000`, `Try again in 2 hours.`],
+  ])(`429 with Retry-After %s reads "%s"`, async (header, tail) => {
+    mockFetchErrorWithHeaders(
+      429,
+      {
+        error: `Too many submissions, try again later`,
+        code: `rate_limited`,
+        retryAfterSeconds: Number(header),
+      },
+      { "Retry-After": header }
+    )
+    expect(await submit(makeState())).toMatchObject({
+      ok: false,
+      status: 429,
+      code: `rate_limited`,
+      message: `Too many reports right now. ${tail}`,
+    })
+  })
+
+  it(`429 without Retry-After says try again later`, async () => {
+    mockFetchErrorWithHeaders(429, {
+      error: `Too many submissions, try again later`,
+    })
+    const result = await submit(makeState())
+    expect(result).toMatchObject({
+      status: 429,
+      code: null,
+      message: `Too many reports right now. Try again later.`,
+    })
+    expect(JSON.stringify(result)).not.toContain(`in a minute`)
+  })
+
+  it(`429 falls back to the body's retryAfterSeconds`, async () => {
+    mockFetchErrorWithHeaders(429, {
+      error: `Too many submissions, try again later`,
+      code: `rate_limited`,
+      retryAfterSeconds: 120,
+    })
+    expect(await submit(makeState())).toMatchObject({
+      message: `Too many reports right now. Try again in 2 minutes.`,
+    })
+  })
+
+  it(`speaks German when the widget does`, async () => {
+    mockFetchErrorWithHeaders(
+      429,
+      { error: `Too many submissions, try again later`, code: `rate_limited` },
+      { "Retry-After": `450` }
+    )
+    expect(await submit(german())).toMatchObject({
+      message: `Gerade gehen zu viele Meldungen ein. Versuchen Sie es in 8 Minuten erneut.`,
+    })
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => undefined)
+    mockFetchErrorWithHeaders(403, {
+      error: `Origin not allowed`,
+      code: `origin_not_allowed`,
+    })
+    expect(await submit(german())).toMatchObject({
+      message: expect.stringContaining(`Diese Website darf kein Feedback senden`),
+    })
+    warn.mockRestore()
+    // An unmapped server error falls back to the German generic line, but
+    // keeps the server's own text for code-less matching.
+    mockFetchErrorWithHeaders(400, { error: `Invalid meta` })
+    expect(await submit(german())).toMatchObject({
+      message: `Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.`,
+      serverMessage: `Invalid meta`,
+    })
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn(async () => {
+        throw new Error(`offline`)
+      })
+    )
+    expect(await submit(german())).toMatchObject({
+      message: `Netzwerkfehler. Bitte versuchen Sie es erneut.`,
+    })
+  })
 })

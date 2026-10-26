@@ -156,8 +156,18 @@ const h = vi.hoisted(() => {
     pullRequestFiles: vi.fn(),
   }
 
+  // NEW-19: the widget submission read and the reporter fallback.
+  const reporter = {
+    loadWidgetSubmissions: vi.fn(async () => [] as unknown[]),
+    findIssueForReporter: vi.fn(async () => null as unknown),
+    postReporterReply: vi.fn(),
+    listReporterComments: vi.fn(),
+    reporterIssueView: vi.fn(),
+  }
+
   return {
     caller,
+    reporter,
     sessionsCore,
     prs,
     dbRows,
@@ -240,6 +250,22 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
 }))
 vi.mock(`@/lib/widget/agent-report`, () => ({
   createAgentBugReport: h.createAgentBugReport,
+}))
+vi.mock(`@/lib/widget/submission`, async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  loadWidgetSubmissions: h.reporter.loadWidgetSubmissions,
+}))
+vi.mock(`@/lib/reporter/service`, async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  findIssueForReporter: h.reporter.findIssueForReporter,
+}))
+vi.mock(`@/lib/reporter/reply`, async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  postReporterReply: h.reporter.postReporterReply,
+}))
+vi.mock(`@/lib/mcp/handlers/reporter-view`, () => ({
+  listReporterComments: h.reporter.listReporterComments,
+  reporterIssueView: h.reporter.reporterIssueView,
 }))
 vi.mock(`@/lib/trpc/repositories`, () => ({
   loadRepositoryForTeam: vi.fn(),
@@ -448,6 +474,8 @@ beforeEach(() => {
   vi.mocked(getSteerRelayConfig).mockReturnValue(null)
   sessionsCore.assertCanSteer.mockResolvedValue(undefined)
   db.transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(db))
+  h.reporter.loadWidgetSubmissions.mockResolvedValue([])
+  h.reporter.findIssueForReporter.mockResolvedValue(null)
 })
 
 // ── Caller-backed tools (delegate → ok/err) ──────────────────────────────────
@@ -1697,9 +1725,12 @@ describe(`exponential_report_bug`, () => {
         title: `Sync loop stuck`,
         description: `Steps: …`,
       })
+      // NEW-19: the reporter's way back — the magic-link page and the
+      // MCP reads that open the issue to them.
       expect(parseOk(result)).toEqual({
         issueId: `bug-issue-1`,
         identifier: `EXP-1`,
+        next: expect.stringContaining(`EXP-1`),
       })
       expect(h.createAgentBugReport).toHaveBeenCalledWith({
         widgetKey: expect.stringMatching(/^expw_/),
@@ -2976,5 +3007,243 @@ describe(`exponential_surface_show (Chats)`, () => {
     const result = await collectTools(USER, null).get(`exponential_surface_show`)!({ surface })
     expect(result.isError).toBe(true)
     expect(result.content[0]!.text).toContain(`No session`)
+  })
+})
+
+// ── NEW-19: widget metadata (FEED-116) + the reporter's view (FEED-144) ─────
+
+describe(`widget metadata on issues get/list (NEW-19)`, () => {
+  const submission = {
+    id: `ws-row-1`,
+    issueId: UUID,
+    reporterName: `Emma Fischer`,
+    reporterEmail: `emma@example.com`,
+    reporterExternalId: `cust-42`,
+    pageUrl: `https://app.example.com/settings`,
+    userAgent: `Mozilla/5.0`,
+    viewportWidth: 1440,
+    viewportHeight: 900,
+    screenWidth: 2560,
+    screenHeight: 1440,
+    devicePixelRatio: 2,
+    customData: { plan: `pro` },
+    lastReporterSeenAt: null,
+    createdAt: new Date(`2026-10-01T10:00:00Z`),
+  }
+
+  it(`get carries the whole "Reported via widget" card`, async () => {
+    h.reporter.loadWidgetSubmissions.mockResolvedValue([submission])
+    const out = parseOk(
+      await tool(`exponential_issues_get`)({ id: UUID })
+    ) as { widget: unknown }
+    expect(h.reporter.loadWidgetSubmissions).toHaveBeenCalledWith([UUID])
+    expect(out.widget).toEqual({
+      reporter: {
+        name: `Emma Fischer`,
+        email: `emma@example.com`,
+        externalId: `cust-42`,
+      },
+      customData: { plan: `pro` },
+      pageUrl: `https://app.example.com/settings`,
+      viewport: { width: 1440, height: 900, devicePixelRatio: 2 },
+      screen: { width: 2560, height: 1440 },
+      userAgent: `Mozilla/5.0`,
+      lastReporterSeenAt: null,
+      submittedAt: `2026-10-01T10:00:00.000Z`,
+    })
+  })
+
+  it(`get omits widget on a member-created issue`, async () => {
+    const out = parseOk(
+      await tool(`exponential_issues_get`)({ id: UUID })
+    ) as Record<string, unknown>
+    expect(out).not.toHaveProperty(`widget`)
+  })
+
+  it(`list batches ONE submission read and carries the short form`, async () => {
+    dbRows.current = [
+      { id: UUID, identifier: `FEED-1`, description: null },
+      { id: PROJ, identifier: `FEED-2`, description: null },
+    ]
+    h.reporter.loadWidgetSubmissions.mockResolvedValue([submission])
+    const rows = parseOk(
+      await tool(`exponential_issues_list`)({
+        boardId: PROJ,
+        sort: `-createdAt`,
+        limit: 50,
+        offset: 0,
+      })
+    ) as Array<Record<string, unknown>>
+    expect(h.reporter.loadWidgetSubmissions).toHaveBeenCalledTimes(1)
+    expect(h.reporter.loadWidgetSubmissions).toHaveBeenCalledWith([UUID, PROJ])
+    expect(rows[0].widget).toEqual({
+      reporter: { name: `Emma Fischer`, email: `emma@example.com` },
+      customData: { plan: `pro` },
+    })
+    expect(rows[1]).not.toHaveProperty(`widget`)
+  })
+})
+
+describe(`the reporter's view over MCP (NEW-19)`, () => {
+  const notMember = () =>
+    new TRPCError({ code: `FORBIDDEN`, message: `Not a member of this team` })
+  const resolved = {
+    issue: {
+      id: UUID,
+      identifier: `FEED-144`,
+      teamId: `vendor-team`,
+      boardId: `vendor-board`,
+      status: `backlog`,
+    },
+    submission: { id: `ws-row-1`, reporterName: `User One` },
+    teamName: `Exponential`,
+    statusCategory: `backlog`,
+  }
+
+  it(`a non-member non-reporter keeps "Issue not found" (identifier)`, async () => {
+    membership.getUserTeamIds.mockResolvedValue([`ws-1`])
+    dbRows.current = []
+    const result = await tool(`exponential_issues_get`)({ id: `FEED-144` })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toBe(`Issue not found: FEED-144`)
+    expect(h.reporter.findIssueForReporter).toHaveBeenCalledWith(
+      USER,
+      `FEED-144`
+    )
+    expect(h.reporter.reporterIssueView).not.toHaveBeenCalled()
+  })
+
+  it(`a non-member non-reporter keeps "Not a member of this team" (UUID)`, async () => {
+    membership.resolveTeamAccess.mockRejectedValue(notMember())
+    for (const [name, args] of [
+      [`exponential_issues_get`, { id: UUID }],
+      [`exponential_comments_list`, { issueId: UUID, limit: 100, offset: 0 }],
+      [`exponential_comments_create`, { issueId: UUID, body: `hi` }],
+    ] as const) {
+      const result = await tool(name)(args)
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toBe(`Not a member of this team`)
+    }
+    expect(caller.comments.create).not.toHaveBeenCalled()
+    expect(h.reporter.postReporterReply).not.toHaveBeenCalled()
+  })
+
+  it(`the reporter gets the reporter view from issues get`, async () => {
+    dbRows.current = []
+    h.reporter.findIssueForReporter.mockResolvedValue(resolved)
+    h.reporter.reporterIssueView.mockResolvedValue({
+      identifier: `FEED-144`,
+      access: `reporter`,
+    })
+    const out = parseOk(
+      await tool(`exponential_issues_get`)({ id: `FEED-144`, commentsLimit: 5 })
+    )
+    expect(out).toEqual({ identifier: `FEED-144`, access: `reporter` })
+    expect(h.reporter.reporterIssueView).toHaveBeenCalledWith(resolved, 5)
+    expect(h.reporter.loadWidgetSubmissions).not.toHaveBeenCalled()
+  })
+
+  it(`the reporter lists only the reporter conversation`, async () => {
+    membership.resolveTeamAccess.mockRejectedValue(notMember())
+    h.reporter.findIssueForReporter.mockResolvedValue(resolved)
+    h.reporter.listReporterComments.mockResolvedValue([
+      { id: `c1`, author: `Support Person`, fromReporter: false, body: `On it` },
+    ])
+    const out = parseOk(
+      await tool(`exponential_comments_list`)({
+        issueId: UUID,
+        limit: 20,
+        offset: 0,
+      })
+    )
+    expect(out).toEqual([
+      { id: `c1`, author: `Support Person`, fromReporter: false, body: `On it` },
+    ])
+    expect(h.reporter.listReporterComments).toHaveBeenCalledWith(resolved, {
+      limit: 20,
+      offset: 0,
+    })
+  })
+
+  it(`the reporter's comment lands through the shared reporter reply`, async () => {
+    membership.resolveTeamAccess.mockRejectedValue(notMember())
+    h.reporter.findIssueForReporter.mockResolvedValue(resolved)
+    h.reporter.postReporterReply.mockResolvedValue({
+      ok: true,
+      message: { id: `c9`, createdAt: new Date(`2026-10-26T12:00:00Z`) },
+    })
+    const out = parseOk(
+      await tool(`exponential_comments_create`)({
+        issueId: `FEED-144`,
+        body: `  Still broken on 0.14.79  `,
+      })
+    )
+    expect(h.reporter.postReporterReply).toHaveBeenCalledWith(
+      resolved,
+      `Still broken on 0.14.79`
+    )
+    expect(caller.comments.create).not.toHaveBeenCalled()
+    expect(out).toEqual({
+      id: `c9`,
+      issueId: UUID,
+      issueIdentifier: `FEED-144`,
+      source: `reporter`,
+      audience: `reporter`,
+      createdAt: `2026-10-26T12:00:00.000Z`,
+    })
+  })
+
+  it(`refuses threads, attachments and team audience for the reporter`, async () => {
+    membership.resolveTeamAccess.mockRejectedValue(notMember())
+    h.reporter.findIssueForReporter.mockResolvedValue(resolved)
+    for (const extra of [
+      { parentId: UUID },
+      { attachmentIds: [UUID] },
+      { audience: `team` },
+    ]) {
+      const result = await tool(`exponential_comments_create`)({
+        issueId: UUID,
+        body: `x`,
+        ...extra,
+      })
+      expect(result.isError).toBe(true)
+    }
+    expect(h.reporter.postReporterReply).not.toHaveBeenCalled()
+  })
+
+  it(`answers the per-issue reply bucket`, async () => {
+    membership.resolveTeamAccess.mockRejectedValue(notMember())
+    h.reporter.findIssueForReporter.mockResolvedValue(resolved)
+    h.reporter.postReporterReply.mockResolvedValue({
+      ok: false,
+      retryAfterSeconds: 120,
+    })
+    const result = await tool(`exponential_comments_create`)({
+      issueId: UUID,
+      body: `again`,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`120s`)
+  })
+
+  it(`a member never reaches the reporter fallback`, async () => {
+    caller.comments.create.mockResolvedValue({
+      comment: { id: UUID },
+      reporterEmailed: null,
+    })
+    await tool(`exponential_comments_create`)({ issueId: UUID, body: `team` })
+    expect(caller.comments.create).toHaveBeenCalled()
+    expect(h.reporter.findIssueForReporter).not.toHaveBeenCalled()
+  })
+
+  it(`other ops stay member-only`, async () => {
+    membership.resolveTeamAccess.mockRejectedValue(notMember())
+    h.reporter.findIssueForReporter.mockResolvedValue(resolved)
+    const result = await tool(`exponential_issues_activity`)({
+      issueId: UUID,
+      limit: 10,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toBe(`Not a member of this team`)
   })
 })

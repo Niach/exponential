@@ -181,6 +181,167 @@ describe(`loader`, () => {
     expect(window.__expWidget!.themeOverride).toBe(`light`)
   })
 
+  // FEED-113: the setTheme twin — restyles the standalone launcher in the new
+  // language and nudges the bundle.
+  const launcherButton = () =>
+    document
+      .querySelector<HTMLElement>(`[data-exponential-widget]`)
+      ?.shadowRoot?.querySelector(`button`) ?? null
+
+  it(`renders the launcher in the init locale`, async () => {
+    installSnippetStub()
+    window.ExponentialWidget!.init({
+      key: `expw_${`a`.repeat(32)}`,
+      locale: `de`,
+    })
+    await importLoader()
+    expect(launcherButton()!.getAttribute(`aria-label`)).toBe(
+      `Feedback senden`
+    )
+  })
+
+  it(`auto-detects German from <html lang>`, async () => {
+    document.documentElement.lang = `de-DE`
+    try {
+      installSnippetStub()
+      window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+      await importLoader()
+      expect(launcherButton()!.getAttribute(`aria-label`)).toBe(
+        `Feedback senden`
+      )
+    } finally {
+      document.documentElement.lang = ``
+    }
+  })
+
+  it(`setLocale relabels the launcher and notifies the bundle`, async () => {
+    installSnippetStub()
+    window.ExponentialWidget!.init({
+      key: `expw_${`a`.repeat(32)}`,
+      locale: `en`,
+    })
+    await importLoader()
+    expect(launcherButton()!.getAttribute(`aria-label`)).toBe(`Send feedback`)
+
+    const stateChanged = vi.fn()
+    window.__expWidget!.bundle = {
+      open: vi.fn(),
+      close: vi.fn(),
+      stateChanged,
+    }
+    window.ExponentialWidget!.setLocale(`de`)
+    expect(window.__expWidget!.localeOverride).toBe(`de`)
+    expect(launcherButton()!.getAttribute(`aria-label`)).toBe(
+      `Feedback senden`
+    )
+    expect(stateChanged).toHaveBeenCalledTimes(1)
+  })
+
+  it(`setLocale rejects junk values with a warning`, async () => {
+    installSnippetStub()
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    await importLoader()
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => undefined)
+    window.ExponentialWidget!.setLocale(`fr` as never)
+    expect(window.__expWidget!.localeOverride).toBeNull()
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it(`replays a setLocale queued before the loader ran`, async () => {
+    installSnippetStub()
+    const stub = window.ExponentialWidget as unknown as { q: unknown[] }
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    stub.q.push([`setLocale`, [`de`]])
+    await importLoader()
+    expect(window.__expWidget!.localeOverride).toBe(`de`)
+  })
+
+  // NEW-19: a config 403/404 is a misconfiguration this page can never
+  // submit through — no launcher, and the console says why.
+  const configFails = (status: number, body: unknown) =>
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn(async () => ({
+        ok: false,
+        status,
+        headers: new Headers(),
+        json: async () => body,
+      }))
+    )
+  const settle = async () => {
+    await window.__expWidget!.configPromise
+    for (let i = 0; i < 4; i += 1) await new Promise((r) => setTimeout(r, 0))
+  }
+
+  it(`hides the launcher and warns with the page origin on a config 403`, async () => {
+    configFails(403, {
+      error: `Origin not allowed`,
+      code: `origin_not_allowed`,
+      origin: window.location.origin,
+    })
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => undefined)
+    installSnippetStub()
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    await importLoader()
+    await settle()
+
+    expect(document.querySelector(`[data-exponential-widget]`)).toBeNull()
+    expect(window.__expWidget!.disabled).toBe(true)
+    expect(window.__expWidget!.configFailure).toEqual({
+      code: `origin_not_allowed`,
+      status: 403,
+    })
+    const logged = warn.mock.calls.map((call) => String(call[0])).join(`\n`)
+    expect(logged).toContain(window.location.origin)
+    expect(logged).toContain(`allowed domains`)
+
+    // open() stays a no-op; headless submit names the reason.
+    window.ExponentialWidget!.open()
+    expect(document.querySelector(`script[src$="widget.js"]`)).toBeNull()
+    const result = await window.ExponentialWidget!.submit({ message: `hi` })
+    expect(result).toMatchObject({ ok: false, code: `origin_not_allowed` })
+  })
+
+  it(`hides the launcher on a config 404 (unknown key)`, async () => {
+    configFails(404, { error: `Unknown widget key` })
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => undefined)
+    installSnippetStub()
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    await importLoader()
+    await settle()
+    expect(document.querySelector(`[data-exponential-widget]`)).toBeNull()
+    expect(window.__expWidget!.configFailure?.code).toBe(`unknown_key`)
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it.each([500, 429])(
+    `keeps the launcher on a transient config %s`,
+    async (status) => {
+      configFails(status, { error: `Internal error` })
+      installSnippetStub()
+      window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+      await importLoader()
+      await settle()
+      expect(launcherButton()).not.toBeNull()
+      expect(window.__expWidget!.disabled).toBe(false)
+      expect(window.__expWidget!.configFailure).toBeNull()
+    }
+  )
+
+  it(`keeps the launcher when the config fetch throws`, async () => {
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn(async () => {
+        throw new TypeError(`Failed to fetch`)
+      })
+    )
+    installSnippetStub()
+    window.ExponentialWidget!.init({ key: `expw_${`a`.repeat(32)}` })
+    await importLoader()
+    await settle()
+    expect(launcherButton()).not.toBeNull()
+  })
+
   // EXP-642: hosts whose own UI covers the launcher's corner toggle it off
   // and back on; the standalone host is removed and re-rendered identically.
   it(`setLauncherHidden removes and restores the standalone launcher`, async () => {

@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest"
-import { clientIpFromRequest, TokenBucketLimiter } from "./rate-limit"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import {
+  clientIpFromRequest,
+  resetWidgetRateLimitersForTest,
+  takeWidgetConfirmationMailToken,
+  takeWidgetIpToken,
+  TokenBucketLimiter,
+  WIDGET_SUBMIT_LIMITS,
+} from "./rate-limit"
 
 describe(`TokenBucketLimiter`, () => {
   it(`allows up to capacity as a burst, then rejects`, () => {
@@ -83,5 +90,59 @@ describe(`clientIpFromRequest`, () => {
   it(`falls back to "unknown" without the header`, () => {
     expect(clientIpFromRequest(withForwarded(null))).toBe(`unknown`)
     expect(clientIpFromRequest(withForwarded(``))).toBe(`unknown`)
+  })
+})
+
+// NEW-19: the submit policy documented in rate-limit.ts, at its defaults.
+describe(`widget submit policy`, () => {
+  const envNames = Object.values(WIDGET_SUBMIT_LIMITS).flatMap((limit) => [
+    limit.burstEnv,
+    limit.hourlyEnv,
+  ])
+
+  const clearEnv = () => {
+    for (const name of envNames) delete process.env[name]
+    resetWidgetRateLimitersForTest()
+  }
+  beforeEach(clearEnv)
+  afterEach(clearEnv)
+
+  const now = 1_000_000
+
+  it(`one IP files 20 in a row, the 21st is limited, then 2 a minute`, () => {
+    for (let index = 0; index < 20; index += 1) {
+      expect(takeWidgetIpToken(`1.1.1.1`, now).ok).toBe(true)
+    }
+    const denied = takeWidgetIpToken(`1.1.1.1`, now)
+    expect(denied.ok).toBe(false)
+    if (!denied.ok) {
+      // 120/hour = one token every 30 s.
+      expect(denied.retryAfterSeconds).toBeGreaterThan(0)
+      expect(denied.retryAfterSeconds).toBeLessThanOrEqual(30)
+    }
+    // Another IP is unaffected.
+    expect(takeWidgetIpToken(`2.2.2.2`, now).ok).toBe(true)
+    // A minute later: two more.
+    expect(takeWidgetIpToken(`1.1.1.1`, now + 60_000).ok).toBe(true)
+    expect(takeWidgetIpToken(`1.1.1.1`, now + 60_000).ok).toBe(true)
+    expect(takeWidgetIpToken(`1.1.1.1`, now + 60_000).ok).toBe(false)
+  })
+
+  it(`the confirmation mail allows a burst of 3 per address`, () => {
+    expect(takeWidgetConfirmationMailToken(`t@x.io`, now)).toBe(true)
+    expect(takeWidgetConfirmationMailToken(`t@x.io`, now)).toBe(true)
+    expect(takeWidgetConfirmationMailToken(`t@x.io`, now)).toBe(true)
+    expect(takeWidgetConfirmationMailToken(`t@x.io`, now)).toBe(false)
+    // Keyed on the lowercased address.
+    expect(takeWidgetConfirmationMailToken(` T@X.io`, now)).toBe(false)
+    expect(takeWidgetConfirmationMailToken(`u@x.io`, now)).toBe(true)
+  })
+
+  it(`every bucket is env-tunable`, () => {
+    process.env.WIDGET_RATE_LIMIT_IP_BURST = `2`
+    resetWidgetRateLimitersForTest()
+    expect(takeWidgetIpToken(`5`, now).ok).toBe(true)
+    expect(takeWidgetIpToken(`5`, now).ok).toBe(true)
+    expect(takeWidgetIpToken(`5`, now).ok).toBe(false)
   })
 })
