@@ -60,6 +60,18 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_92: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-26-small-fixes",
+    date: "2026-10-26",
+    title: "Mention pills in chats, and fixes",
+    summary: "People and agents you mention in a chat show as pills on every platform; the computer-use banner shows its whole label, and the voice switches stay off after their agent is deleted.",
+    body: r#"- **Mention pills**: an @mention in a chat message shows as a pill with the person's or agent's name on web, the IDE, iPhone and Android.
+- **Computer-use banner**: the banner window is exactly the size of its bar, so a long label is no longer cut off.
+- **Voice**: if your voice agent is deleted, Speak replies, Push to talk and Wake word stay off until you pick another agent; a wake phrase with control characters is refused."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_91: ChangelogEntry = ChangelogEntry {
     id: "2026-10-26-push-to-talk",
     date: "2026-10-26",
