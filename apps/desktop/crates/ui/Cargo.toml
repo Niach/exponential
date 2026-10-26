@@ -48,6 +48,9 @@ url = "2.5"
 # editor images so gpui's `img` never letterboxes them (already in the tree
 # transitively via gpui).
 imagesize = "0.13"
+# NEW-68 voice_tray: the app icon rasterized for the tray (gpui's own SVG
+# renderer at its version, already in the tree on every platform).
+resvg = { version = "0.45", default-features = false }
 # EXP-1128: decode a picture over the GPU texture cap (a >16k px full-page
 # screenshot) and cut it into strips — see tall_image.rs. Already in the tree
 # via gpui; default features stay off, only the accepted formats.
@@ -119,3 +122,13 @@ raw-window-handle = "0.6"
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = "0.13"
 raw-window-handle = "0.6"
+# NEW-68 voice_tray/linux.rs: our own StatusNotifierItem + dbusmenu over
+# D-Bus, no GTK. zbus 5 on async-io is already in the tree (ashpd, accesskit);
+# not `ksni`, whose Unlicense is deliberately off deny.toml's allow-list.
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+
+# NEW-68 voice_tray: the native tray on macOS and Windows (muda = its menus).
+# No default features: those only pull libappindicator/GTK on Linux, which
+# has its own StatusNotifierItem over zbus above (voice_tray/linux.rs).
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+tray-icon = { version = "0.26", default-features = false }

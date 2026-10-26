@@ -62,6 +62,9 @@ pub enum Instance {
 /// Become the primary instance, or forward our `exponential://` args to the
 /// one that already is. Best-effort: any socket error degrades to a plain
 /// (non-single) launch rather than blocking startup.
+/// NEW-68: what a plain second launch sends (see `single_instance`).
+const OPEN_WINDOW: &str = "exponential-desktop:open-window";
+
 pub fn acquire(url_tx: Sender<Vec<String>>) -> Instance {
     let port_path = port_file();
     let args = deep_link_args();
@@ -73,6 +76,10 @@ pub fn acquire(url_tx: Sender<Vec<String>>) -> Instance {
             if let Ok(mut stream) =
                 TcpStream::connect_timeout(&addr.into(), Duration::from_millis(500))
             {
+                // NEW-68: no deep link = ask the live instance for a window.
+                if args.is_empty() {
+                    let _ = writeln!(stream, "{OPEN_WINDOW}");
+                }
                 for url in &args {
                     let _ = writeln!(stream, "{url}");
                 }
@@ -109,6 +116,11 @@ pub fn acquire(url_tx: Sender<Vec<String>>) -> Instance {
                             let reader = BufReader::new(stream);
                             for line in reader.lines().map_while(Result::ok) {
                                 let url = line.trim().to_string();
+                                // An empty batch = "open a window".
+                                if url == OPEN_WINDOW {
+                                    let _ = tx.send(Vec::new());
+                                    continue;
+                                }
                                 // Only ever forward our own scheme — the port is
                                 // world-connectable on loopback.
                                 if url.starts_with(&prefix) {

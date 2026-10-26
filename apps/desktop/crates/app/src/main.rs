@@ -211,6 +211,8 @@ fn main() {
         // NEW-53: Speak replies (after the store + AuthContext, like the
         // notifier above).
         ui::speak_replies::install(cx);
+        // NEW-68: the voice tray (follows the settings speak replies holds).
+        ui::voice_tray::install(cx);
 
         // Session bootstrap: the EXP_DEV_SERVER/EXP_DEV_TOKEN dev override
         // (headless verification, dev-only) or a warm-start resume of the
@@ -228,7 +230,14 @@ fn main() {
         // `ui::handle_open_urls` (parse locally, validate, sign in, sync).
         cx.spawn(async move |cx| {
             while let Ok(urls) = url_rx.recv_async().await {
-                cx.update(|cx| ui::handle_open_urls(urls, cx));
+                // NEW-68: an empty batch is a plain second launch: bring a
+                // window up (the voice tray may keep the IDE running with
+                // every window closed).
+                if urls.is_empty() {
+                    cx.update(ui::voice_tray::open_ide);
+                } else {
+                    cx.update(|cx| ui::handle_open_urls(urls, cx));
+                }
             }
         })
         .detach();

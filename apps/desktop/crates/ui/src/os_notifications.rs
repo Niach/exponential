@@ -182,6 +182,8 @@ enum Route {
     /// message, the duplicate-agent warning) — opens the screen that session
     /// is ([`navigation::session_screen_for`]).
     Session { session_id: String },
+    /// #NEW-68: a Settings section (the voice tray's Voice settings…).
+    Settings { section: crate::settings::SettingsSection },
 }
 
 fn route_for(row: &Notification) -> Route {
@@ -545,8 +547,9 @@ fn focused_surface(cx: &mut App) -> Option<FocusedSurface> {
 }
 
 /// A shell window to land a click in: the active one when it is a shell,
-/// else any window with a navigation entry.
-fn shell_window(cx: &App) -> Option<AnyWindowHandle> {
+/// else any window with a navigation entry (never a dialog or an undocked
+/// terminal).
+pub(crate) fn shell_window(cx: &App) -> Option<AnyWindowHandle> {
     let is_shell =
         |window: &AnyWindowHandle| navigation::nav_for_window_id(window.window_id(), cx).is_some();
     if let Some(window) = cx.active_window().filter(is_shell) {
@@ -596,6 +599,12 @@ fn route_to(route: Route, cx: &mut App) {
 /// another team opens WITHOUT switching the window's team (the Inbox rule).
 /// EXP-1212: on a New issue page the landing is ONE held move
 /// (`navigation::leave_held`).
+/// #NEW-68: open a Settings section in a shell window (a new one when every
+/// shell window is closed), like a toast click.
+pub(crate) fn open_settings(section: crate::settings::SettingsSection, cx: &mut App) {
+    route_to(Route::Settings { section }, cx);
+}
+
 fn land(route: Route, window: &mut Window, cx: &mut App) {
     navigation::leave_held(window, cx, None, move |window, cx| land_now(route, window, cx));
 }
@@ -604,6 +613,10 @@ fn land_now(route: Route, window: &mut Window, cx: &mut App) {
     match route {
         Route::Issue { issue_id } => land_issue(issue_id, window, cx),
         Route::Inbox => sidebar::open_inbox_tab(window, cx, InboxTab::Inbox),
+        Route::Settings { section } => {
+            navigation::navigate(window, cx, Screen::Settings);
+            sidebar::select_settings_section(window, cx, section);
+        }
         // EXP-1294: beside the Inbox, like an issue the toast opens.
         Route::Session { session_id } => {
             let screen = navigation::session_screen_for(&session_id, cx);

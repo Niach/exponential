@@ -11,6 +11,7 @@ import {
   shouldSpeak,
   spokenText,
   trayHeader,
+  trayMenu,
   voiceDeviceOptions,
   wakePhrasePlaceholder,
 } from "./voice"
@@ -62,5 +63,8 @@ describe(`voice.json`, () => {
   }
   for (const c of fixture.wakePhrasePlaceholderCases) {
     it(`wakePhrasePlaceholder ${c.agent}`, () => expect(wakePhrasePlaceholder(c.agent)).toBe(c.placeholder))
+  }
+  for (const c of fixture.trayMenuCases) {
+    it(`trayMenu: ${c.name}`, () => expect(trayMenu(c.settings, c.context)).toEqual(c.menu))
   }
 })

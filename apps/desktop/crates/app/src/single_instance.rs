@@ -43,6 +43,11 @@ fn deep_link_args() -> Vec<String> {
         .collect()
 }
 
+/// NEW-68: what a plain second launch (no deep link) sends: bring a window
+/// up. Without it a relaunch of an IDE kept running by the voice tray with
+/// every window closed would exit and show nothing.
+pub(crate) const OPEN_WINDOW: &str = "exponential-desktop:open-window";
+
 /// Result of the single-instance guard.
 pub enum Instance {
     /// We own the socket; deep links now flow into `url_tx`. Continue booting.
@@ -63,7 +68,11 @@ pub fn acquire(url_tx: Sender<Vec<String>>) -> Instance {
     if let Ok(sock) = UnixDatagram::unbound() {
         match sock.connect(&sock_path) {
             Ok(()) => {
-                // Live instance — hand off our URLs and bow out.
+                // Live instance — hand off our URLs (or, with none, ask it
+                // for a window) and bow out.
+                if args.is_empty() {
+                    let _ = sock.send(OPEN_WINDOW.as_bytes());
+                }
                 for url in &args {
                     let _ = sock.send(url.as_bytes());
                 }
@@ -92,7 +101,9 @@ pub fn acquire(url_tx: Sender<Vec<String>>) -> Instance {
                 let mut buf = [0u8; 4096];
                 while let Ok(len) = listener.recv(&mut buf) {
                     let url = String::from_utf8_lossy(&buf[..len]).into_owned();
-                    if tx.send(vec![url]).is_err() {
+                    // An empty batch = "open a window" (see `OPEN_WINDOW`).
+                    let batch = if url == OPEN_WINDOW { Vec::new() } else { vec![url] };
+                    if tx.send(batch).is_err() {
                         break; // app is shutting down.
                     }
                 }

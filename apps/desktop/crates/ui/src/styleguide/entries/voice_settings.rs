@@ -5,6 +5,14 @@
 //! the tray group with Ctrl + Space and the wake phrase "Hey Ops". The rows
 //! are inert here (no `on_change`); the pane wires the same rows to
 //! `voice.update`.
+//!
+//! NEW-68: the voice device's IDE also shows a system tray item
+//! (`crate::voice_tray`) whose menu is OS-native, not a styleguide
+//! component: Open Exponential first (Call {agent} after it once calls
+//! land, V4), then Speak replies, Push to talk · {shortcut} and Wake word ·
+//! {phrase} as check items (disabled while the device or the agent is None,
+//! as on this page; Mute microphone joins once the IDE listens, V3), then
+//! Voice settings… (opens this page) and Quit.
 
 use gpui::{div, px, App, IntoElement, ParentElement as _, Styled as _, Window};
 use gpui_component::{input::InputState, v_flex};

@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-26-voice-tray`,
+    date: `2026-10-26`,
+    title: `The IDE in your system tray`,
+    summary: `The desktop you picked as your voice device now sits in the system tray: open the IDE and switch Speak replies, push to talk and the wake word from there, even with every window closed.`,
+    body: `- **Tray menu**: Open Exponential, Speak replies, Push to talk (with its shortcut) and Wake word (with its phrase), plus Voice settings… and Quit. Mute microphone joins once the IDE listens.
+- **Only on your voice device**: the tray shows on the desktop picked in Settings → Voice and disappears when you pick another.
+- **Stays running**: on Linux and Windows, closing the last window keeps the IDE in the tray so replies keep being spoken; clicking the tray icon or launching the IDE again brings a window back, and Quit in the tray menu ends it.
+- **Linux**: the tray uses StatusNotifierItem, shown by KDE, most other desktops and GNOME with the AppIndicator extension.`,
+  },
+  {
     id: `2026-10-26-voice-language`,
     date: `2026-10-26`,
     title: `Settings → Voice: German and your own voice`,

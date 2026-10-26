@@ -261,3 +261,64 @@ export function languageLabel(language: string, deviceName: string | null): stri
   const note = languageNote(language, deviceName)
   return note === null ? label : `${label} · ${note}`
 }
+
+export interface TrayContext {
+  /** The voice agent's name (null = no agent). */
+  agent: string | null
+  /** Mute microphone (IDE-local, never stored). */
+  muted: boolean
+  /** A call can start (V4; false until then). */
+  callAvailable: boolean
+  /** The microphone listens (V3; false until then): Mute shows. */
+  micAvailable: boolean
+  /** THIS device is the member's voice device. */
+  deviceIsVoiceDevice: boolean
+}
+
+export type TrayItemId = `open` | `call` | `speakReplies` | `pushToTalk` | `wakeWord` | `mute` | `settings` | `quit`
+
+export type TrayItem =
+  | { kind: `separator` }
+  | { kind: `action`; id: TrayItemId; label: string; enabled: boolean }
+  | { kind: `check`; id: TrayItemId; label: string; checked: boolean; enabled: boolean }
+
+export interface TraySettings extends VoiceSwitches {
+  pttShortcut: string
+  wakePhrase: string
+}
+
+/** #NEW-68: the tray's OS-native menu; null = no tray on this device. */
+export function trayMenu(settings: TraySettings, context: TrayContext): TrayItem[] | null {
+  if (!context.deviceIsVoiceDevice) return null
+  const copy = fixture.copy
+  const agent = context.agent ?? `…`
+  const ready = settings.voiceDeviceId !== null && settings.agentId !== null
+  const shortcut = fixture.shortcuts.find((entry) => entry.value === settings.pttShortcut)?.label ?? settings.pttShortcut
+  const phrase = settings.wakePhrase.trim() || wakePhrasePlaceholder(agent)
+  const check = (id: TrayItemId, label: string, on: boolean): TrayItem => ({
+    kind: `check`,
+    id,
+    label,
+    checked: on && ready,
+    enabled: ready,
+  })
+  const menu: TrayItem[] = [{ kind: `action`, id: `open`, label: copy.trayOpen, enabled: true }]
+  if (context.callAvailable) {
+    menu.push({ kind: `action`, id: `call`, label: copy.trayCall.replace(`{agent}`, agent), enabled: ready })
+  }
+  menu.push(
+    { kind: `separator` },
+    check(`speakReplies`, copy.speakReplies, settings.speakReplies),
+    check(`pushToTalk`, `${copy.pushToTalk} · ${shortcut}`, settings.pushToTalk),
+    check(`wakeWord`, `${copy.wakeWord} · ${phrase}`, settings.wakeWord)
+  )
+  if (context.micAvailable) {
+    menu.push({ kind: `check`, id: `mute`, label: copy.trayMute, checked: context.muted, enabled: true })
+  }
+  menu.push(
+    { kind: `separator` },
+    { kind: `action`, id: `settings`, label: copy.traySettings, enabled: true },
+    { kind: `action`, id: `quit`, label: copy.trayQuit, enabled: true }
+  )
+  return menu
+}

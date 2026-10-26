@@ -188,6 +188,17 @@ fn global(cx: &App) -> Option<Entity<SpeakReplies>> {
     cx.try_global::<SpeakRepliesGlobal>().map(|global| global.0.clone())
 }
 
+/// The watcher itself (the voice tray observes it).
+pub(crate) fn entity(cx: &App) -> Option<Entity<SpeakReplies>> {
+    global(cx)
+}
+
+/// #NEW-68: the member's voice settings as the last heartbeat (or this
+/// device's own save) delivered them.
+pub(crate) fn settings(cx: &App) -> domain::voice::VoiceSettings {
+    global(cx).map(|entity| entity.read(cx).settings.clone()).unwrap_or_default()
+}
+
 /// The reply being spoken, if any.
 pub(crate) fn speaking(cx: &App) -> Option<Speaking> {
     global(cx).and_then(|entity| entity.read(cx).speaking.clone())
@@ -221,6 +232,8 @@ pub(crate) fn set_settings(settings: domain::voice::VoiceSettings, cx: &mut App)
         }
         this.settings = settings;
         this.on_settings(cx);
+        // The voice tray follows the settings.
+        cx.notify();
     });
 }
 
