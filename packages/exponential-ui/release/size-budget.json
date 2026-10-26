@@ -61,7 +61,7 @@
     "gzip": 6144
   },
   "@exponential_app/ui-element/standalone.js": {
-    "bytes": 675840,
+    "bytes": 676965,
     "gzip": 189440
   },
   "android/arm64-v8a": {
