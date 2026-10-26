@@ -7,11 +7,8 @@
 @import "@exp/site-shell/styles/site.css";
 @import "@exp/site-shell/styles/site-footer.css";
 @import "./styles/ide.css";
-@import "./styles/webui.css";
-@import "./styles/loop.css";
 @import "./styles/agents.css";
-@import "./styles/collab.css";
-@import "./styles/actions.css";
+@import "./styles/home.css";
 @import "./styles/pricing.css";
 @import "./styles/contact.css";
 @import "./styles/download.css";

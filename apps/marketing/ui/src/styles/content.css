@@ -555,3 +555,13 @@ section.home-dogfood {
     color: var(--fg-dim);
   }
 }
+
+/* NEW-15: the Talk front page's overlay island. */
+.talk-demo {
+  display: flex;
+  justify-content: center;
+  margin-top: 40px;
+}
+.talk-demo .ui-demo {
+  margin: 0;
+}

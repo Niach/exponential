@@ -17,6 +17,15 @@ const PAGES: [RegExp, () => Promise<PageModule>][] = [
   [/^\/ui\/conformance\/$/, () => import("../pages/Conformance")],
   [/^\/ui\/eval\/$/, () => import("../pages/Eval")],
   [/^\/ui\/numbers\/$/, () => import("../pages/Numbers")],
+  /* NEW-15: the Talk section (src/talk) rides the same app. */
+  [/^\/talk\/$/, () => import("../talk/TalkHome")],
+  [/^\/talk\/how-it-works\/$/, () => import("../talk/HowItWorks")],
+  [/^\/talk\/install\/$/, () => import("../talk/Install")],
+  [/^\/talk\/guides\/$/, () => import("../talk/Guides")],
+  [/^\/talk\/guides\/[a-z0-9-]+\/$/, () => import("../talk/Guide")],
+  [/^\/talk\/api\/$/, () => import("../talk/Api")],
+  [/^\/talk\/numbers\/$/, () => import("../talk/Numbers")],
+  [/^\/talk\/licences\/$/, () => import("../talk/Licences")],
 ]
 
 export function pageLoaderFor(path: string): (() => Promise<PageModule>) | undefined {

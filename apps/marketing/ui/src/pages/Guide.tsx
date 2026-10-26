@@ -742,7 +742,7 @@ exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-
             a host stores it. The rows come back through a binding source the host resolves (Exponential's hosts:{` `}
             <code>exp:records?kind=…</code>, with filters, a sort, a sum and a month view), and the app writes them
             through host functions (<code>harness.records.upsert</code> / <code>delete</code>). This is the Working
-            hours app, the example beside Devices: a month of entries, a target, and a switcher that re-follows the
+            hours app: a month of entries, a target, and a switcher that re-follows the
             binding with the built-in <code>bind</code> action, whose <code>params</code> are appended to the source
             as its query:
           </p>
@@ -769,7 +769,7 @@ exponential-ui-gpui = { git = "https://github.com/Niach/exponential", tag = "ui-
           </p>
           <p>
             Exponential's team-made apps work this way: packages of templates that its web app and desktop IDE
-            both render. The SDK keeps a sample Devices package as a benchmark.
+            both render. The SDK keeps a sample package as a benchmark.
           </p>
         </>
       ),
@@ -1007,7 +1007,7 @@ const DEFINE_SECTIONS: Section[] = [
           an app template. Ids are assigned top-down (<code>root</code>, then <code>row-1</code>, <code>row-2</code>…)
           unless you name a node.
         </p>
-        <DocsCode language="ts">{`const surface = defineSurface(tree, { surfaceId: "devices", data: { "/devices": rows } })
+        <DocsCode language="ts">{`const surface = defineSurface(tree, { surfaceId: "working-hours", data: { "/entries": rows } })
 if (surface.issues.length) throw new Error(surface.issues.map((i) => i.id + ": " + i.message).join("\n"))
 host.receive(surface.messages) // or: transport.send(surface.jsonl)`}</DocsCode>
       </>

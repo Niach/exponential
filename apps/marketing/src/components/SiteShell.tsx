@@ -1,19 +1,22 @@
 import { useEffect, type ReactNode } from "react"
 import { GitHubStarsButton, SiteFooterBar, SiteHeaderBar } from "@exp/site-shell"
 import { UI_SECTION } from "../../ui/src/lib/nav"
+import { TALK_SECTION } from "../../ui/src/talk/nav"
 import { initAttributionForwarding } from "../lib/attribution"
 import { LINKS } from "../lib/links"
 import { DownloadIconRow } from "./DownloadSection"
 import { IcArrow } from "./icons"
 import { WidgetEmbed } from "./WidgetEmbed"
 
-/* The main menu; the UI SDK link steps into its own level (UI_SECTION). */
+/* The main menu; UI SDK and Talk open their sections, whose pages wear
+   their own level (UI_SECTION, TALK_SECTION). */
 const NAV = [
   { label: `Product`, href: `/#product` },
   { label: `Pricing`, href: `/pricing/` },
   { label: `Docs`, href: `/docs/` },
   { label: `Blog`, href: `/blog/` },
   { label: `UI SDK`, href: LINKS.ui },
+  { label: `Talk`, href: `/talk/` },
   { label: `Download`, href: LINKS.downloadPage },
 ]
 
@@ -35,7 +38,7 @@ export function SiteHeader({ currentPath, extra }: { currentPath?: string; extra
         brand="Exponential"
         currentPath={currentPath}
         nav={NAV}
-        sections={[UI_SECTION]}
+        sections={[UI_SECTION, TALK_SECTION]}
         right={
           <>
             {extra}
@@ -91,6 +94,7 @@ export function SiteFooter() {
             { label: `Blog`, href: `/blog/` },
             { label: `Self-host`, href: `/docs/self-host/` },
             { label: `UI SDK`, href: LINKS.ui },
+            { label: `Talk`, href: `/talk/` },
           ],
         },
         {

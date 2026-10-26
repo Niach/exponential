@@ -8,6 +8,7 @@ import { breadcrumb, type PageSeo } from "@exp/site-shell/seo"
 import { COMPONENT_DOCS, componentPath, componentSlug, componentSummary } from "./catalog"
 import { GUIDES, guidePath } from "./guides"
 import { SITE_NAME, SITE_ORIGIN, UI_HOME } from "./site"
+import { TALK_ROUTES } from "../talk/routes"
 
 export type PageProps = { path: string }
 export type PageModule = { default: ComponentType<PageProps> }
@@ -47,7 +48,7 @@ const componentDescription = (sentence: string) => {
 
 const CATALOG_SOURCES = [`../../packages/exponential-ui/catalog`, `../../packages/exponential-ui/docs`]
 
-export const ROUTES: readonly Route[] = [
+const UI_ROUTES: readonly Route[] = [
   route(
     UI_HOME,
     () => import("../pages/Home"),
@@ -160,6 +161,9 @@ export const ROUTES: readonly Route[] = [
     crumbs({ name: `Numbers`, path: `/ui/numbers/` })
   ),
 ]
+
+/* NEW-15: the Talk section rides the same app and manifest. */
+export const ROUTES: readonly Route[] = [...UI_ROUTES, ...TALK_ROUTES]
 
 export const routeFor = (path: string): Route | undefined => {
   const normalized = path.endsWith(`/`) ? path : `${path}/`
