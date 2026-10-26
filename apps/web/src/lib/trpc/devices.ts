@@ -61,11 +61,11 @@ import {
   type DeviceLaunchDefaults,
   type DeviceUsageWindow,
 } from "@/db/schema"
-import { assertTeamMember, getTeamMember } from "@/lib/team-membership"
+import { assertTeamMember, assertTeamOwner, getTeamMember } from "@/lib/team-membership"
 import { voiceSettingsOf } from "@/lib/trpc/voice"
 import { versionPayload } from "@/lib/client-version"
-import { endForeignHostedSessions, pauseDeviceAgents } from "@/lib/sessions/lifecycle"
-import { firstSharerTeams, lockDeviceShares, shareContested } from "@/lib/sessions/host"
+import { endHostedSessions, foreignHostedSessionIds, pauseDeviceAgents } from "@/lib/sessions/lifecycle"
+import { firstSharerTeams, lockDeviceShares, otherShareRows } from "@/lib/sessions/host"
 import {
   agentEffortValues,
   agentModelValues,
@@ -522,6 +522,30 @@ export function nextSharedTeamIds(
       : []
   }
   return [...new Set(next)].sort()
+}
+
+/** FEED-149: the CONFLICT of a share another account already holds. A team
+ *  owner reads who holds it (they can drop that share, `devices.dropShare`);
+ *  anyone else gets no name. */
+async function shareConflict(
+  tx: Pick<Context[`db`], `select`>,
+  userId: string,
+  teamId: string,
+  holderId: string
+): Promise<TRPCError> {
+  const generic = `Another account already shares this machine with that team`
+  const member = await getTeamMember(userId, teamId)
+  if (member?.role !== `owner`) return new TRPCError({ code: `CONFLICT`, message: generic })
+  const [holder] = await tx
+    .select({ name: users.name, email: users.email })
+    .from(users)
+    .where(eq(users.id, holderId))
+    .limit(1)
+  const name = holder?.name || holder?.email
+  return new TRPCError({
+    code: `CONFLICT`,
+    message: name ? `${name} already shares this machine with that team` : generic,
+  })
 }
 
 export const devicesRouter = router({
@@ -1394,7 +1418,7 @@ export const devicesRouter = router({
         const member = await getTeamMember(ctx.session.user.id, teamId)
         if (member?.role !== `owner`) disarm.push(teamId)
       }
-      const txid = await ctx.db.transaction(async (tx) => {
+      const { txid, ending } = await ctx.db.transaction(async (tx) => {
         const id = await generateTxId(tx)
         // FEED-148: a machine id is unique per account only, so anyone can
         // register a box's id. One sharing row per (machine, team): a
@@ -1403,11 +1427,35 @@ export const devicesRouter = router({
         // starts), and only the row that IS the host disarms the team's
         // agents on revoke (a decoy's unshare pauses nothing).
         await lockDeviceShares(tx, input.deviceId)
-        if (await shareContested(tx, ctx.session.user.id, input.deviceId, added)) {
-          throw new TRPCError({
-            code: `CONFLICT`,
-            message: `Another account already shares this machine with that team`,
-          })
+        const self = { id: row.id, userId: ctx.session.user.id, deviceId: input.deviceId }
+        const others = await otherShareRows(tx, self, added)
+        const holder = others.find((other) => other.older)
+        if (holder) {
+          const teamId = added.find((entry) => holder.sharedTeamIds?.includes(entry))!
+          throw await shareConflict(tx, ctx.session.user.id, teamId, holder.userId)
+        }
+        // EXP-445: withdrawing a share ends the runs it was the consent for
+        // (else a teammate's agent keeps working on this machine with no
+        // client able to reach it). FEED-149: the set is read HERE, under
+        // the machine's lock and before the write, so another account's
+        // share cannot change who hosts them in between; it ends after
+        // commit. Device-scoped (EXP-560): the owner's other same-team
+        // shares keep theirs.
+        const ending: string[] = []
+        // FEED-149 (squatting): a YOUNGER account's share of this box into
+        // an added team is displaced (`otherShareRows`), with the runs it
+        // hosted.
+        for (const other of others) {
+          for (const teamId of added.filter((entry) => other.sharedTeamIds?.includes(entry))) {
+            ending.push(...(await foreignHostedSessionIds(tx, other.userId, teamId, [input.deviceId])))
+            await tx
+              .update(devices)
+              .set({ sharedTeamIds: sql`array_remove(${devices.sharedTeamIds}, ${teamId}::uuid)`, updatedAt: new Date() })
+              .where(eq(devices.id, other.id))
+          }
+        }
+        for (const teamId of revoked) {
+          ending.push(...(await foreignHostedSessionIds(tx, ctx.session.user.id, teamId, [input.deviceId])))
         }
         const pause = await firstSharerTeams(tx, { id: row.id, deviceId: input.deviceId }, disarm)
         await tx
@@ -1417,21 +1465,47 @@ export const devicesRouter = router({
         if (pause.length > 0) {
           await pauseDeviceAgents(tx, pause, input.deviceId)
         }
-        return id
+        return { txid: id, ending }
       })
-      // EXP-445: withdrawing a share must end the runs it was the consent
-      // for — otherwise a teammate's agent keeps working on this machine
-      // with no client able to reach it. Ordered AFTER the column write on
-      // purpose: once shared_team_ids has moved, resolveStartAttribution
-      // refuses new foreign attributions, so nothing can slip in behind the
-      // fan-out. Adding a team and a no-op toggle end nothing. Device-scoped
-      // (EXP-560): only THIS machine's foreign runs die — the owner's other
-      // same-team shares keep theirs.
-      for (const teamId of revoked) {
-        await endForeignHostedSessions(ctx.session.user.id, teamId, [
-          input.deviceId,
-        ])
-      }
+      await endHostedSessions(ending)
+      return { ok: true, txid }
+    }),
+
+  // FEED-149: a team OWNER drops one member's share of a machine from the
+  // team: a duplicate row left from before FEED-148, a squat, or a box the
+  // team should not run on. Same consequences as the member's own unshare:
+  // the runs it hosted for teammates end and, when it was the machine's
+  // first sharer, the team's agents on it are disarmed.
+  dropShare: authedProcedure
+    .input(z.object({ id: z.string().uuid(), teamId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertTeamOwner(ctx.session.user.id, input.teamId)
+      const { txid, ending } = await ctx.db.transaction(async (tx) => {
+        const id = await generateTxId(tx)
+        const [target] = await tx
+          .select({ id: devices.id, userId: devices.userId, deviceId: devices.deviceId })
+          .from(devices)
+          .where(and(eq(devices.id, input.id), arrayContains(devices.sharedTeamIds, [input.teamId])))
+          .limit(1)
+        if (!target) {
+          throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
+        }
+        await lockDeviceShares(tx, target.deviceId)
+        const ending = await foreignHostedSessionIds(tx, target.userId, input.teamId, [target.deviceId])
+        const pause = await firstSharerTeams(tx, target, [input.teamId])
+        await tx
+          .update(devices)
+          .set({
+            sharedTeamIds: sql`array_remove(${devices.sharedTeamIds}, ${input.teamId}::uuid)`,
+            updatedAt: new Date(),
+          })
+          .where(eq(devices.id, target.id))
+        if (pause.length > 0) {
+          await pauseDeviceAgents(tx, pause, target.deviceId)
+        }
+        return { txid: id, ending }
+      })
+      await endHostedSessions(ending)
       return { ok: true, txid }
     }),
 

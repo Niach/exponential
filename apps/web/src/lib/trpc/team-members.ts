@@ -14,7 +14,8 @@ import { and, arrayContains, eq, sql } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { assertTeamMember } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
-import { endForeignHostedSessions } from "@/lib/sessions/lifecycle"
+import { endHostedSessions, foreignHostedSessionIds } from "@/lib/sessions/lifecycle"
+import { lockDeviceShares } from "@/lib/sessions/host"
 import {
   addPlaceholderToRoster,
   deletePlaceholderIfOrphaned,
@@ -285,7 +286,7 @@ export const teamMembersRouter = router({
       // state the write side refuses to create (assertAssigneeInTeam). No
       // assignee_changed events: this is bulk offboarding hygiene, not an
       // editorial change by the remover.
-      let clearedDeviceIds: string[] = []
+      let ending: string[] = []
       await ctx.db.transaction(async (tx) => {
         await lockTeamMembers(tx, target.teamId)
         // Prevent removing the last owner — inside the team-locked
@@ -355,8 +356,23 @@ export const teamMembersRouter = router({
         // other teams keep theirs; trigger #13 heals the worktree mirrors)
         // makes the membership boundary hold; resolveTargetDevice and the MCP
         // device list keep their joins as belt-and-braces for pre-existing
-        // rows.
-        const cleared = await tx
+        // rows. FEED-149: under each machine's share lock (sorted, so two
+        // leaves never deadlock), with the runs the share hosted read
+        // before the write and ended after commit (EXP-445, the same order
+        // as devices.setShared).
+        const sharing = await tx
+          .selectDistinct({ deviceId: devices.deviceId })
+          .from(devices)
+          .where(
+            and(
+              eq(devices.userId, target.userId),
+              arrayContains(devices.sharedTeamIds, [target.teamId])
+            )
+          )
+        const deviceIds = sharing.map((row) => row.deviceId).sort()
+        for (const deviceId of deviceIds) await lockDeviceShares(tx, deviceId)
+        ending = await foreignHostedSessionIds(tx, target.userId, target.teamId, deviceIds)
+        await tx
           .update(devices)
           .set({
             sharedTeamIds: sql`array_remove(${devices.sharedTeamIds}, ${target.teamId}::uuid)`,
@@ -368,8 +384,6 @@ export const teamMembersRouter = router({
               arrayContains(devices.sharedTeamIds, [target.teamId])
             )
           )
-          .returning({ deviceId: devices.deviceId })
-        clearedDeviceIds = cleared.map((row) => row.deviceId)
         // EXP-630: an unclaimed placeholder nothing references any more has
         // no reason to exist once it is off its last roster (its invites
         // cascade with it). A referenced one stays, like any former member.
@@ -379,11 +393,8 @@ export const teamMembersRouter = router({
       // repopulate the cache with pre-commit membership).
       invalidateMembershipCaches()
       // The share was the consent that let teammates run sessions on the
-      // ex-member's box — end any still-live foreign-hosted runs (EXP-445
-      // semantics, same post-write ordering as devices.setShared).
-      if (clearedDeviceIds.length > 0) {
-        await endForeignHostedSessions(target.userId, target.teamId, clearedDeviceIds)
-      }
+      // ex-member's box — end the still-live foreign-hosted runs read above.
+      await endHostedSessions(ending)
 
       return { ok: true }
     }),
