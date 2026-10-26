@@ -3,6 +3,10 @@
 All notable changes to this package. The SDK packages share one version and
 release together from a `ui-v<version>` tag (`packages/exponential-ui/release/README.md`).
 
+## Unreleased
+
+- NEW-77: `VoiceWave` paints through the Solid painter.
+
 ## 0.1.1 (2026-10-23)
 
 - Renamed from `@exponential-at/ui-element` to `@exponential_app/ui-element` (the npm scope is the `exponential_app` org); the standalone bundle and the dependency on `@exponential_app/ui` follow. No code change.
