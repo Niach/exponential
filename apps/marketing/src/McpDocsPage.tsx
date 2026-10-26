@@ -39,7 +39,7 @@ const TOOL_GROUPS: {
       { name: `exponential_teams`, desc: `op list, get, create, update.` },
       { name: `exponential_boards`, desc: `op list, get, create, update, delete (the 48-hour trash), set_repository.` },
       { name: `exponential_people`, desc: `op list and add members; invites_list, invites_create, invites_revoke.` },
-      { name: `exponential_team_config`, desc: `op labels_list/get/create/update/delete, statuses_list/create/update/delete, prompts_list/get, agents_list, mcp_servers_list/add/remove, repositories_list/add.` },
+      { name: `exponential_team_config`, desc: `op labels_list/get/create/update/delete, statuses_list/create/update/delete, prompts_list/get/create/update/delete, agents_list, mcp_servers_list/add/remove, repositories_list/add.` },
       { name: `exponential_apps`, desc: `op list, get (the head or a version's package), upsert (publishes a new version; a new slug creates the app), delete, catalog (the components, bindings and functions a package may use).` },
     ],
   },

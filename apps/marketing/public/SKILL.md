@@ -89,8 +89,8 @@ their parameters, so read it instead of a static list.
   `create`, `update`, `delete` = the 48-hour trash, `set_repository`),
   **people** (`list`, `add`, `invites_list`, `invites_create`,
   `invites_revoke`), **team_config** (`labels_*`, `statuses_*` — builtins
-  are locked, deleting one in use needs `reassignToId` —, `prompts_list`,
-  `prompts_get`, `agents_list`, `mcp_servers_list`/`add`/`remove`,
+  are locked, deleting one in use needs `reassignToId` —, `prompts_*`
+  (`list`, `get`; `create`/`update`/`delete` are owner-only), `agents_list`, `mcp_servers_list`/`add`/`remove`,
   `repositories_list`/`add`).
 - **apps**: a team's Exponential apps (declarative Exponential UI packages
   rendered in every client): `list`, `get` (the head or a `version`'s
