@@ -6,8 +6,11 @@
 //! only the files named in `keep` are written (regular files at exactly
 //! that path; no symlinks, no `..`, nothing else of the archive). Each kept
 //! file's own sha256 goes into the artifact's manifest
-//! (`.<id>.sha256`), and [`verify`] re-hashes them before a library is
-//! loaded, so a file changed on disk since is never opened.
+//! (`.<id>.sha256`), and [`verify`] re-hashes EVERY kept file (libraries and
+//! models alike) before it is loaded or parsed, so a file changed on disk
+//! since is never opened. Measured on mint (SHA-NI, release build): the
+//! 1.83 GB model in 0.95 s warm / 1.76 s cold, the codec in 0.2 s; paid once
+//! per worker start, on the worker's own thread.
 
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
@@ -71,9 +74,20 @@ fn hex(digest: impl AsRef<[u8]>) -> String {
     digest.as_ref().iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// The sha256 of a file on disk.
+/// The sha256 of a regular file on disk; a symlink is refused (unix:
+/// `O_NOFOLLOW`, and everywhere the metadata check first).
 pub fn file_sha256(path: &Path) -> io::Result<String> {
-    let mut file = File::open(path)?;
+    if !fs::symlink_metadata(path)?.file_type().is_file() {
+        return Err(io::Error::other(format!("{} is not a regular file", path.display())));
+    }
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = options.open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 1024 * 1024];
     loop {
@@ -96,6 +110,11 @@ fn read_manifest(dir: &Path, artifact: &Artifact) -> Option<Vec<(String, String)
     let files: Vec<(String, String)> = lines
         .filter_map(|line| line.split_once("  ").map(|(sha, name)| (sha.to_string(), name.to_string())))
         .collect();
+    // Only names the artifact keeps: a manifest naming anything else is not
+    // ours, and `verify` must never delete a name it read from disk.
+    if files.iter().any(|(_, name)| !artifact.keep.iter().any(|(_, kept)| kept == name)) {
+        return None;
+    }
     let complete = artifact.keep.iter().all(|(_, name)| files.iter().any(|(_, file)| file == name));
     complete.then_some(files)
 }
@@ -107,15 +126,26 @@ pub fn is_ready(dir: &Path, artifact: &Artifact) -> bool {
 }
 
 /// Re-hash every kept file of `artifact` against its manifest. Run before
-/// a library is loaded; a mismatch deletes the manifest (the next
-/// [`ensure`] fetches it again).
+/// a library is loaded or a model is parsed; a mismatch (or a symlink)
+/// deletes that file and the manifest (the next [`ensure`] fetches it
+/// again). Only names in `artifact.keep` are ever deleted.
 pub fn verify(dir: &Path, artifact: &Artifact) -> Result<(), Error> {
     let files = read_manifest(dir, artifact).ok_or_else(|| Error::Io(format!("{} is not downloaded", artifact.id)))?;
     for (sha, name) in files {
-        let actual = file_sha256(&dir.join(&name)).map_err(|err| io_error(format!("read {name}"), err))?;
+        let Some((_, kept)) = artifact.keep.iter().find(|(_, kept)| *kept == name) else {
+            return Err(Error::Io(format!("{} lists an unknown file", artifact.id)));
+        };
+        let path = dir.join(kept);
+        let actual = match file_sha256(&path) {
+            Ok(actual) => actual,
+            Err(err) => {
+                let _ = fs::remove_file(manifest_path(dir, artifact));
+                return Err(io_error(format!("read {kept}"), err));
+            }
+        };
         if actual != sha {
             let _ = fs::remove_file(manifest_path(dir, artifact));
-            let _ = fs::remove_file(dir.join(&name));
+            let _ = fs::remove_file(&path);
             return Err(Error::Mismatch { id: artifact.id, actual });
         }
     }
@@ -174,9 +204,14 @@ fn download(artifact: &Artifact, part: &Path, progress: &mut impl FnMut(u64)) ->
         if read == 0 {
             break;
         }
+        received += read as u64;
+        if received > artifact.size {
+            drop(file);
+            let _ = fs::remove_file(part);
+            return Err(Error::Io(format!("{} is larger than its pinned {} bytes", artifact.id, artifact.size)));
+        }
         hasher.update(&buffer[..read]);
         file.write_all(&buffer[..read]).map_err(|err| io_error(format!("write {}", part.display()), err))?;
-        received += read as u64;
         if received - reported >= 8 * 1024 * 1024 {
             reported = received;
             progress(received);
@@ -382,6 +417,37 @@ mod tests {
         assert_eq!(fs::read(dir.join("liby.so.12")).unwrap(), b"elf");
         assert!(!dir.join("libz.so.12").exists());
         verify(&dir, &wheel).unwrap();
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_symlinked_kept_file_fails_verification() {
+        let dir = temp_dir("symlink");
+        let part = dir.join("lib.part");
+        fs::write(&part, tar_gz(&[("pkg/lib/libx.so.0.1", b"elf"), ("pkg/LICENSE", b"mit")], None)).unwrap();
+        install(&dir, &LIB, &part).unwrap();
+        #[cfg(unix)]
+        {
+            fs::write(dir.join("elsewhere"), b"elf").unwrap();
+            fs::remove_file(dir.join("libx.so.0")).unwrap();
+            std::os::unix::fs::symlink(dir.join("elsewhere"), dir.join("libx.so.0")).unwrap();
+            assert!(verify(&dir, &LIB).is_err(), "same bytes behind a symlink are still refused");
+            assert!(!is_ready(&dir, &LIB));
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_manifest_naming_a_foreign_file_is_not_trusted_or_acted_on() {
+        let dir = temp_dir("foreign");
+        fs::write(dir.join("libx.so.0"), b"elf").unwrap();
+        fs::write(dir.join("LICENSE"), b"mit").unwrap();
+        fs::write(dir.join("precious"), b"keep me").unwrap();
+        fs::write(manifest_path(&dir, &LIB), format!("unused\n{}  libx.so.0\n{}  LICENSE\nbad  precious\n", sha(b"elf"), sha(b"mit")))
+            .unwrap();
+        assert!(!is_ready(&dir, &LIB));
+        assert!(verify(&dir, &LIB).is_err());
+        assert_eq!(fs::read(dir.join("precious")).unwrap(), b"keep me", "verify never deletes a name it read");
         let _ = fs::remove_dir_all(&dir);
     }
 

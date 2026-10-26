@@ -75,6 +75,11 @@ const GGML_DEVICE_GPU: c_int = 1;
 const GGML_DEVICE_IGPU: c_int = 2;
 
 fn open_library(path: &Path) -> Result<libloading::Library, String> {
+    // Right after `artifact::verify`: still the regular file it hashed, never
+    // a symlink swapped in since.
+    if !std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_file()) {
+        return Err(format!("{} is not a regular file", path.display()));
+    }
     #[cfg(windows)]
     let library = {
         // The DLL's own directory resolves its dependencies (ggml*.dll).

@@ -141,8 +141,11 @@ mod imp {
 
     /// A Vulkan driver is installed (the loader library loads).
     pub fn gpu_driver_present() -> bool {
+        // System32 only, never the DLL search path (a planted vulkan-1.dll
+        // next to the app or in the working directory is not loaded).
+        use libloading::os::windows::{Library, LOAD_LIBRARY_SEARCH_SYSTEM32};
         // SAFETY: loading the Vulkan loader runs its initialisers only.
-        unsafe { libloading::Library::new("vulkan-1.dll") }.is_ok()
+        unsafe { Library::load_with_flags("vulkan-1.dll", LOAD_LIBRARY_SEARCH_SYSTEM32) }.is_ok()
     }
 
     pub fn bundled_dir() -> Option<std::path::PathBuf> {
