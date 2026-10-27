@@ -342,7 +342,7 @@ struct PlanCardField: View {
 
 /// THE option row of the rich card. Open: the label over its description in
 /// a glass row, a single choice's pick = a TRAILING check, a multiple
-/// choice's = the LEADING selected / unselected glyph (no check). Closed: no
+/// choice's = the LEADING square checkbox (`ExpCheckbox`). Closed: no
 /// fill, a leading emerald check on the picks, the rest muted at
 /// `inertOpacity`.
 struct PlanCardOptionRow: View {
@@ -370,8 +370,7 @@ struct PlanCardOptionRow: View {
         let shape = RoundedRectangle(cornerRadius: PlanCard.Card.rowRadius)
         return HStack(alignment: .center, spacing: 6) {
             if multi {
-                AppIcon(picked ? AppIcons.uiSelected : AppIcons.uiUnselected, size: Self.glyph)
-                    .foregroundStyle(.white.opacity(picked ? TextOpacity.primary : TextOpacity.tertiary))
+                ExpCheckbox(checked: picked)
             }
             VStack(alignment: .leading, spacing: PlanCard.Card.blockInnerGap) {
                 Text(option.label)

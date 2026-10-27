@@ -17,6 +17,10 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.components.ExpCheckState
+import com.exponential.app.ui.components.ExpCheckboxDefaults
+import com.exponential.app.ui.components.drawExpCheckbox
+import com.exponential.app.ui.components.rememberExpCheckboxPaint
 import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.ListType
 import com.exponential.app.ui.markdown.model.ParagraphAttrs
@@ -79,6 +83,8 @@ internal fun Modifier.drawRunDecorations(
     val indentBase = with(density) { MdStyle.listIndentBase.toPx() }
     val indentPerDepth = with(density) { MdStyle.listIndentPerDepth.toPx() }
     val corner = with(density) { 4.dp.toPx() }
+    val checkboxSize = with(density) { ExpCheckboxDefaults.Size.toPx() }
+    val checkboxPaint = rememberExpCheckboxPaint()
     return this.drawBehind {
         val result = layout() ?: return@drawBehind
         val length = result.layoutInput.text.length
@@ -125,7 +131,7 @@ internal fun Modifier.drawRunDecorations(
             val a = band.attrs
             if (a.kind != BlockKind.ListItem) continue
             val glyph = when (a.listType) {
-                ListType.Checklist -> if (a.checked) "☑" else "☐"
+                ListType.Checklist -> null
                 ListType.Ordered -> "${a.orderedIndex}."
                 ListType.Bullet, null -> "•"
             }
@@ -133,6 +139,18 @@ internal fun Modifier.drawRunDecorations(
                 val line = lineOf(band.displayStart)
                 val top = result.getLineTop(line)
                 val bottom = result.getLineBottom(line)
+                if (glyph == null) {
+                    // THE square checkbox in the glyph margin, centred on the line.
+                    drawExpCheckbox(
+                        Offset(
+                            indentBase + indentPerDepth * a.listDepth.coerceAtLeast(0),
+                            top + (bottom - top - checkboxSize) / 2f,
+                        ),
+                        if (a.checked) ExpCheckState.Checked else ExpCheckState.Unchecked,
+                        checkboxPaint,
+                    )
+                    return@runCatching
+                }
                 val measured = textMeasurer.measure(glyph, MdStyle.body)
                 drawText(
                     measured,

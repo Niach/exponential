@@ -4399,8 +4399,8 @@ pub(crate) fn ask_option_button(
 
 /// EXP-1280 — a CHOICE row of the plan / question card (plan-card.json
 /// `card`): THE option row; single = the foreground check glyph at its
-/// right end when picked, multi = a leading selected / unselected glyph
-/// and no trailing check (a choice toggles; it never answers by itself, so
+/// right end when picked, multi = a leading checkbox (THE square,
+/// `controls::checkbox`) and no trailing check (a choice toggles; it never answers by itself, so
 /// it carries no number key).
 pub(crate) fn ask_choice_button(
     id: impl Into<gpui::ElementId>,
@@ -4410,13 +4410,9 @@ pub(crate) fn ask_choice_button(
     multi: bool,
     cx: &App,
 ) -> Button {
+    // THE checkbox (the button's click toggles it; the box only paints).
     let leading = multi.then(|| {
-        let (glyph, color) = if picked {
-            (registry::UI_SELECTED, cx.theme().foreground)
-        } else {
-            (registry::UI_UNSELECTED, cx.theme().muted_foreground)
-        };
-        Icon::new(glyph).xsmall().flex_shrink_0().text_color(color).into_any_element()
+        crate::controls::checkbox("choice-check", picked.into(), false, cx).into_any_element()
     });
     let check = (picked && !multi)
         .then(|| Icon::new(registry::UI_CHECK).xsmall().flex_shrink_0().text_color(cx.theme().foreground).into_any_element());

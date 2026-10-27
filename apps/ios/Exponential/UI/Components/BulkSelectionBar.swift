@@ -71,14 +71,14 @@ struct BulkBarIconButton: View {
     }
 }
 
-/// The multi-select glyph cell a row leads with while selecting (EXP-239):
-/// `ui-selected` in the primary colour, `ui-unselected` muted.
+/// The multi-select cell a row leads with while selecting (EXP-239): THE
+/// square checkbox (`ExpCheckbox`, 16pt) centred in the medium icon cell.
 struct SelectionGlyph: View {
     let selected: Bool
 
     var body: some View {
-        AppIcon(selected ? AppIcons.uiSelected : AppIcons.uiUnselected, size: AppIcon.Size.medium)
-            .foregroundStyle(selected ? DesignTokens.Palette.primary : .white.opacity(TextOpacity.tertiary))
+        ExpCheckbox(checked: selected)
+            .frame(width: AppIcon.Size.medium, height: AppIcon.Size.medium)
     }
 }
 

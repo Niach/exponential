@@ -3,6 +3,7 @@ package com.exponential.app.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -155,20 +156,13 @@ fun SelectionBarIconButton(
     }
 }
 
-/** THE selection glyph cell a row leads with while selecting (the issue
- *  list's: ui-selected in the primary colour / ui-unselected muted, 20dp,
- *  10dp before the row's own lead). */
+/** THE selection cell a row leads with while selecting (the issue list's and
+ *  the Chats rows'): the square [ExpCheckbox] (16dp) centred in the 20dp
+ *  cell, 10dp before the row's own lead. */
 @Composable
 fun SelectionGlyph(selected: Boolean, modifier: Modifier = Modifier) {
-    Icon(
-        if (selected) ExpIcons.uiSelected else ExpIcons.uiUnselected,
-        contentDescription = if (selected) "Selected" else "Not selected",
-        modifier = modifier.size(20.dp),
-        tint = if (selected) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-        },
-    )
+    Box(modifier.size(20.dp), contentAlignment = Alignment.Center) {
+        ExpCheckbox(selected, contentDescription = if (selected) "Selected" else "Not selected")
+    }
     Spacer(Modifier.width(10.dp))
 }

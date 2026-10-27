@@ -2714,7 +2714,13 @@ impl Render for Block {
                                     .justify_center()
                                     .rounded(px(d.task_checkbox_radius))
                                     .border(px(d.task_checkbox_border_width))
-                                    .border_color(c.task_checkbox_border)
+                                    // A checked box is one filled square: its
+                                    // stroke takes the fill (the host checkbox).
+                                    .border_color(if checked {
+                                        c.task_checkbox_checked_bg
+                                    } else {
+                                        c.task_checkbox_border
+                                    })
                                     .bg(if checked {
                                         c.task_checkbox_checked_bg
                                     } else {
@@ -2731,10 +2737,15 @@ impl Render for Block {
                                         MouseButton::Left,
                                         cx.listener(Self::on_task_checkbox_mouse_up),
                                     )
-                                    .child(if checked {
-                                        SharedString::new(TASK_CHECKMARK)
-                                    } else {
-                                        SharedString::new("")
+                                    .when(checked, |square| match &theme.task_check_icon {
+                                        Some(path) => square.child(
+                                            gpui::svg()
+                                                .path(SharedString::from(path.clone()))
+                                                .size(px(d.task_checkbox_check_size))
+                                                .flex_shrink_0()
+                                                .text_color(c.task_checkbox_check),
+                                        ),
+                                        None => square.child(SharedString::new(TASK_CHECKMARK)),
                                     }),
                             ),
                         if showing_rendered_image {

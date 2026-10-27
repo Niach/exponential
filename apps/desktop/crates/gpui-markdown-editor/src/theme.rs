@@ -1179,6 +1179,11 @@ pub struct Theme {
     /// EXP-261 vendoring addition; absent in serialized theme packs.
     #[serde(default)]
     pub fonts: ThemeFonts,
+    /// Vendoring addition: the host's check glyph (an svg asset path) for a
+    /// CHECKED task box, so it paints the host checkbox's own tick instead of
+    /// the `✓` text fallback. Absent in serialized theme packs.
+    #[serde(default)]
+    pub task_check_icon: Option<String>,
 }
 
 #[allow(unused)]
@@ -1436,6 +1441,7 @@ impl Theme {
                 empty_editing: String::new(),
             },
             fonts: ThemeFonts::default(),
+            task_check_icon: None,
         }
     }
 
@@ -1548,6 +1554,7 @@ impl Theme {
             typography: base.typography,
             placeholders: base.placeholders,
             fonts: base.fonts,
+            task_check_icon: base.task_check_icon,
         }
     }
 

@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.CircleShape
 import com.exponential.app.data.api.AnswerInput
 import com.exponential.app.ui.components.TranscriptLoadEarlierButton
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.ExpCheckbox
 import com.exponential.app.domain.EmptyStateCopy
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -3876,12 +3877,8 @@ internal fun QuestionOptionButton(
                 }
             }
         } else if (checked != null) {
-            Icon(
-                if (checked) ExpIcons.uiSelected else ExpIcons.uiUnselected,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = if (checked) content else content.copy(alpha = TextEmphasis.Tertiary),
-            )
+            // Multi-select: THE square checkbox (web `CheckboxMark`).
+            ExpCheckbox(checked)
         }
         Column(
             modifier = Modifier.weight(1f),

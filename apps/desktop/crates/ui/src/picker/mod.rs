@@ -1453,7 +1453,6 @@ fn row_glyph(multi: bool, selected: bool, cx: &App) -> Option<Icon> {
         return None;
     }
     selection_glyph(
-        false,
         if selected {
             SelectionState::Selected
         } else {

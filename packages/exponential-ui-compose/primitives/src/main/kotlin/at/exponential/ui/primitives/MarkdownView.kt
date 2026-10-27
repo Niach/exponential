@@ -5,6 +5,9 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -58,7 +61,7 @@ import kotlin.math.roundToInt
 data class MarkdownColors(
     /** Body text. */
     val ink: Color,
-    /** List markers, quote text, unchecked task boxes. */
+    /** List markers, quote text. */
     val muted: Color,
     /** Link text (underlined). */
     val link: Color,
@@ -70,6 +73,14 @@ data class MarkdownColors(
     val codeBlockBackground: Color,
     /** The quote bar. */
     val quoteBorder: Color,
+    /** A GFM task box = THE Checkbox box: the unchecked fill and hairline. */
+    val taskFill: Color = Color.Transparent,
+    /** Unspecified = [border]. */
+    val taskBorder: Color = Color.Unspecified,
+    /** The checked fill + hairline (Unspecified = [link]). */
+    val taskChecked: Color = Color.Unspecified,
+    /** The check on [taskChecked]. */
+    val taskCheck: Color = Color.White,
 ) {
     /** Factories over the tokens. */
     companion object {
@@ -82,6 +93,10 @@ data class MarkdownColors(
             codeBackground = tokens.muted,
             codeBlockBackground = tokens.muted,
             quoteBorder = tokens.border,
+            taskFill = tokens.card,
+            taskBorder = tokens.input,
+            taskChecked = tokens.primary,
+            taskCheck = tokens.primaryForeground,
         )
     }
 }
@@ -284,7 +299,7 @@ private fun MarkdownBlockView(
             Box(Modifier.width(styles.listIndent.dp).height(spec.lineHeight.dp), contentAlignment = Alignment.CenterStart) {
                 val task = kind.task
                 if (task != null) {
-                    TaskBox(task, (spec.size * 0.9f).dp, if (task) colors.ink else colors.muted)
+                    TaskBox(task, minOf(TASK_BOX, spec.lineHeight).dp, colors)
                 } else {
                     BasicText(kind.marker, style = shaper.style(spec, colors.muted))
                 }
@@ -347,26 +362,47 @@ fun MarkdownImageAlt(alt: String, style: TextStyle) {
     BasicText(alt, style = style, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
 }
 
-/** A GFM task box: a rounded square outline, ticked when [checked]. */
+/** THE Checkbox box (control-geometry.json: 16 square, 1 hairline, 4 corner). */
+private const val TASK_BOX = 16f
+
+/**
+ * A GFM task box drawn as THE checkbox: unchecked = [MarkdownColors.taskFill]
+ * under the [MarkdownColors.taskBorder] hairline; checked = the
+ * [MarkdownColors.taskChecked] square with the check (14/16 of the box).
+ */
 @Composable
-private fun TaskBox(checked: Boolean, size: Dp, color: Color) {
+private fun TaskBox(checked: Boolean, size: Dp, colors: MarkdownColors) {
     Canvas(Modifier.size(size)) {
         val s = this.size.minDimension
-        val stroke = s / 10f
-        drawRoundRect(
-            color,
-            topLeft = Offset(stroke / 2f, stroke / 2f),
-            size = Size(s - stroke, s - stroke),
-            cornerRadius = CornerRadius(s / 5f, s / 5f),
-            style = Stroke(width = stroke),
-        )
+        val unit = s / TASK_BOX
+        val corner = CornerRadius(4f * unit, 4f * unit)
         if (checked) {
+            val fill = colors.taskChecked.takeOrElse { colors.link }
+            drawRoundRect(fill, size = Size(s, s), cornerRadius = corner)
+            // The `check` glyph (lucide, 24 grid: 20,6 → 9,17 → 4,12) at 14.
+            val g = 14f * unit
+            val o = (s - g) / 2f
+            fun pt(x: Float, y: Float) = Offset(o + x / 24f * g, o + y / 24f * g)
             val path = Path().apply {
-                moveTo(s * 0.27f, s * 0.52f)
-                lineTo(s * 0.44f, s * 0.68f)
-                lineTo(s * 0.74f, s * 0.34f)
+                pt(20f, 6f).let { moveTo(it.x, it.y) }
+                pt(9f, 17f).let { lineTo(it.x, it.y) }
+                pt(4f, 12f).let { lineTo(it.x, it.y) }
             }
-            drawPath(path, color, style = Stroke(width = stroke * 1.4f))
+            drawPath(
+                path,
+                colors.taskCheck,
+                style = Stroke(width = 2f / 24f * g, cap = StrokeCap.Round, join = StrokeJoin.Round),
+            )
+        } else {
+            drawRoundRect(colors.taskFill, size = Size(s, s), cornerRadius = corner)
+            val hair = unit
+            drawRoundRect(
+                colors.taskBorder.takeOrElse { colors.border },
+                topLeft = Offset(hair / 2f, hair / 2f),
+                size = Size(s - hair, s - hair),
+                cornerRadius = CornerRadius(corner.x - hair / 2f, corner.y - hair / 2f),
+                style = Stroke(width = hair),
+            )
         }
     }
 }

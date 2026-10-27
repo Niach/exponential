@@ -1044,6 +1044,7 @@ impl SurfaceView {
             units: (!self.ghosting.get()).then(|| self.md_pending.clone()),
             selection: self.md_selection,
             selection_bg: lcx.theme_color("ring").or_else(|| lcx.theme_color("primary")).unwrap_or(gpui::blue()).opacity(0.3),
+            task_box: natives::task_box_painter(lcx, self.host.clone()),
         };
         // Units commit once painted (their text layouts can hit-test then).
         let (pending, committed) = (self.md_pending.clone(), self.md_units.clone());

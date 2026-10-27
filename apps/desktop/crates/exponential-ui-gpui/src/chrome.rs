@@ -88,7 +88,7 @@ pub struct Chrome {
     pub stroke_strong: Hsla,
     /// A focused field, a selected segment / pill (`glass.strokeActive`).
     pub stroke_active: Hsla,
-    /// `radius.sm` (8): checkbox, typeahead row.
+    /// `radius.sm` (8): typeahead row (the checkbox keeps its 4px corner).
     pub radius_sm: f32,
     /// `radius.md` (10): rows, bands, alerts, ghost icon buttons.
     pub radius_md: f32,
