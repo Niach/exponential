@@ -39,11 +39,11 @@
       "claude-cli": 30
     },
     "validatorClean": 15,
-    "issuesTotal": 24,
+    "issuesTotal": 23,
     "issueKinds": [
       {
         "message": "props.icon: not an icons.json name",
-        "count": 9
+        "count": 8
       },
       {
         "message": "no component with this id",
@@ -1536,10 +1536,6 @@
       "issues": [
         {
           "id": "s6",
-          "message": "props.icon: not an icons.json name"
-        },
-        {
-          "id": "stop",
           "message": "props.icon: not an icons.json name"
         }
       ],
