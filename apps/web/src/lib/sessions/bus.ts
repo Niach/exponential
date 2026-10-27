@@ -6,6 +6,9 @@ import {
   ASK_PRIVATE_PLAN_LEAD,
   ASK_PRIVATE_QUESTION_LEAD,
   ASK_QUESTION_LEAD,
+  PRIVATE_PR_LEAD,
+  PRIVATE_REPLY_LEAD,
+  PRIVATE_REPORT_LEAD,
 } from "@exp/domain-contract/chats"
 import { messages, sessions, type Session } from "@/db/schema"
 import { insertMessage } from "@/lib/sessions/messages"
@@ -34,6 +37,13 @@ import type { Tx } from "@/lib/sessions/tx"
 //
 // With nobody listening (a root without watchers) a line lands on S
 // itself, pre-consumed, so a person still sees it.
+//
+// #EXP-1408: a listener whose readers may not see S (`askHidden`: S is
+// private and the listener shared, or another member's) never gets S's
+// TEXT: its reply, its report and its PR line become a NEUTRAL line naming
+// the session id only (`privateText`), which its agent reads with its own
+// auth; the ask mirror likewise (`askHiddenText`). Every other event body
+// is the server's own copy (`BUS_COPY`) and carries nothing of S.
 
 export type BusSession = Pick<
   Session,
@@ -80,35 +90,41 @@ export async function busListeners(
   return parent ? [parent, ...rest] : rest
 }
 
+type Line = { body: string; card: MessageCard | null }
+
 async function deliver(
   tx: Tx,
   child: Pick<Session, `id` | `parentId`>,
   message: {
     authorKind: `agent` | `system`
-    /** #EXP-1399 review: per listener (an ask never shows a private card's
-     *  text where others read it). */
-    body: string | ((listener: Listener) => string)
+    body: string
     card: MessageCard | null
+    /** #EXP-1399 review / #EXP-1408: the line a listener whose readers may
+     *  not see the child gets instead (`askHidden`); absent = the line
+     *  carries nothing of the child. */
+    hidden?: Line
     waking: boolean
     /** With no listener: post on the child itself (pre-consumed). */
     fallbackToSelf?: boolean
   }
 ): Promise<string[]> {
   const listeners = await busListeners(tx, child)
+  const origin = message.hidden && listeners.length > 0 ? await busOrigin(tx, child.id) : null
   const now = new Date()
   const ids: string[] = []
   for (const listener of listeners) {
+    const line = message.hidden && (!origin || askHidden(listener, origin)) ? message.hidden : message
     ids.push(
       await insertMessage(tx, listener, {
         authorKind: message.authorKind,
         authorSessionId: child.id,
-        body: typeof message.body === `string` ? message.body : message.body(listener),
-        card: message.card,
+        body: line.body,
+        card: line.card,
         consumedAt: message.waking && listener.status !== `ended` ? null : now,
       })
     )
   }
-  if (listeners.length === 0 && message.fallbackToSelf && typeof message.body === `string`) {
+  if (listeners.length === 0 && message.fallbackToSelf) {
     ids.push(
       await insertMessage(tx, child.id, {
         authorKind: message.authorKind,
@@ -121,6 +137,24 @@ async function deliver(
   return ids
 }
 
+/** Who may read `child` (the visibility `askHidden` compares). Gone =
+ *  null: every listener gets the hidden line. */
+async function busOrigin(tx: Tx, childId: string): Promise<Pick<Session, `shared` | `userId`> | null> {
+  const [row] = await tx
+    .select({ shared: sessions.shared, userId: sessions.userId })
+    .from(sessions)
+    .where(eq(sessions.id, childId))
+    .limit(1)
+  return row ?? null
+}
+
+/** #EXP-1408: the NEUTRAL line for a private chat's reply / report / PR
+ *  (`askHidden`): the lead and the session id only; the agent reads the
+ *  text itself if its account may see it. */
+export function privateText(child: Pick<Session, `id`>, lead: string): string {
+  return `${lead}\nRead it with exponential_sessions({op: "get", id: "${child.id}"}) if your account may see it.`
+}
+
 /** A turn of `child` ended with a reply: the reply reaches its listeners
  *  as the child's own message. Blank = nothing. */
 export async function busRelayTurn(
@@ -130,7 +164,13 @@ export async function busRelayTurn(
 ): Promise<string[]> {
   const text = body.trim()
   if (!text) return []
-  return deliver(tx, child, { authorKind: `agent`, body: text, card: null, waking: true })
+  return deliver(tx, child, {
+    authorKind: `agent`,
+    body: text,
+    card: null,
+    hidden: { body: privateText(child, PRIVATE_REPLY_LEAD), card: null },
+    waking: true,
+  })
 }
 
 const ASK_PLAN_MAX = 2000
@@ -206,10 +246,12 @@ export async function busAsk(
   messageId: string,
   card: Extract<MessageCard, { kind: `question` | `plan` }>
 ): Promise<string[]> {
+  const mirror: MessageCard = { kind: `ask`, sessionId: child.id, messageId }
   return deliver(tx, child, {
     authorKind: `agent`,
-    body: (listener) => (askHidden(listener, child) ? askHiddenText(child, card) : askText(child, card)),
-    card: { kind: `ask`, sessionId: child.id, messageId },
+    body: askText(child, card),
+    card: mirror,
+    hidden: { body: askHiddenText(child, card), card: mirror },
     waking: true,
   })
 }
@@ -298,15 +340,14 @@ export async function busLine(
   body: string,
   opts: { waking: boolean; pullRequestId?: string | null; selfFallback?: boolean }
 ): Promise<string[]> {
+  const card: MessageCard = { kind: `event`, event, sessionId: child.id }
   return deliver(tx, child, {
     authorKind: `system`,
     body,
-    card: {
-      kind: `event`,
-      event,
-      sessionId: child.id,
-      ...(opts.pullRequestId ? { pullRequestId: opts.pullRequestId } : {}),
-    },
+    card: opts.pullRequestId ? { ...card, pullRequestId: opts.pullRequestId } : card,
+    // #EXP-1408: a PR line names the PR; hidden, it names the session only
+    // (no pullRequestId: the client draws no `Opened PR` line for it).
+    ...(event === `pr_opened` ? { hidden: { body: privateText(child, PRIVATE_PR_LEAD), card } } : {}),
     waking: opts.waking,
     fallbackToSelf: opts.selfFallback !== false,
   })
@@ -353,6 +394,10 @@ export async function busReport(
     authorKind: `agent`,
     body: text,
     card: { kind: `report`, sessionId: child.id, summary: text, final: true },
+    hidden: {
+      body: privateText(child, PRIVATE_REPORT_LEAD),
+      card: { kind: `report`, sessionId: child.id, summary: PRIVATE_REPORT_LEAD, final: true },
+    },
     waking: true,
   })
   await forgetWatched(tx, [child.id])
