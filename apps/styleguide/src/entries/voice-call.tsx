@@ -1,5 +1,5 @@
 import call from "@exp/domain-contract/fixtures/voice-call.json"
-import { ExponentialLogo, Pill, VoiceWave, type VoiceWaveActivity } from "@exp/ui"
+import { VoiceCallCard, type VoiceWaveActivity } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
@@ -9,7 +9,8 @@ import type { StyleguideEntry } from "./types.ts"
 // queue, or what is said), then End call as the ONE primary pill and Mute
 // beside it. The words and rows are `fixtures/voice-call.json`
 // (`surfaceSpecimens`, `copy`); the desktop shows the same states in THE
-// capsule (`voice-call-overlay`).
+// capsule (`voice-call-overlay`). NEW-70: the card is `@exp/ui`'s
+// `VoiceCallCard`, the one web's call draws.
 
 interface Specimen {
   activity: VoiceWaveActivity
@@ -21,29 +22,6 @@ interface Specimen {
 }
 
 const SPECIMENS = call.surfaceSpecimens as Specimen[]
-const SURFACE = `flex w-[22rem] flex-col items-center gap-4 rounded-xl border border-glass-stroke-card bg-glass-card px-6 py-6`
-
-function Surface({ s }: { s: Specimen }) {
-  return (
-    <div className={SURFACE} data-slot="voice-call" data-testid={call.testIds.surface}>
-      <VoiceWave activity={s.activity} level={s.level} bands={s.bands} size="xl" label="Voice">
-        <ExponentialLogo variant="light" size={56} />
-      </VoiceWave>
-      <div className="flex flex-col items-center gap-1 text-center">
-        <span className="text-sm font-medium text-foreground">{s.state}</span>
-        <span className="text-sm text-muted-foreground">{s.line}</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <Pill size="md" mode="action" primary data-testid={call.testIds.end}>
-          {call.copy.endCall}
-        </Pill>
-        <Pill size="md" mode="action" data-testid={call.testIds.mute}>
-          {s.mute}
-        </Pill>
-      </div>
-    </div>
-  )
-}
 
 export const entry: StyleguideEntry = {
   id: `voice-call`,
@@ -52,7 +30,7 @@ export const entry: StyleguideEntry = {
   title: `Voice call`,
   blurb: `A call with an agent on a phone (full screen) or on web (a centred card), streamed to the member's voice device: VoiceWave (xl) with the brand mark, the state (Connecting · Listening · Thinking · Speaking · Microphone muted), the line (what was heard, "1 queued · …" while the agent's turn runs, or what is said), then End call as the one primary pill and Mute. It opens from the telephone in the agent chat's header and stays until End call. The desktop shows the same states in the voice capsule (voice-call-overlay).`,
   status: {
-    web: { state: `n/a`, note: `Coming with V6 (#NEW-70): the centred card over the agent chat.` },
+    web: { state: `ok`, symbol: `VoiceCallCard`, file: `packages/ui/src/voice-call-card.tsx` },
     desktop: { state: `n/a`, note: `The voice device draws a call in the capsule (voice-call-overlay); the twin paints this card statically.` },
     ios: { state: `n/a`, note: `Coming with V5 (#NEW-69): full screen.` },
     android: { state: `n/a`, note: `Coming with V5 (#NEW-69): full screen.` },
@@ -60,7 +38,20 @@ export const entry: StyleguideEntry = {
   island: () => (
     <div className="flex flex-wrap items-start gap-4">
       {SPECIMENS.map((s) => (
-        <Surface key={s.state} s={s} />
+        <VoiceCallCard
+          key={s.state}
+          activity={s.activity}
+          level={s.level}
+          bands={s.bands}
+          state={s.state}
+          line={s.line}
+          mute={s.mute}
+          muted={s.activity === `muted`}
+          endLabel={call.copy.endCall}
+          data-testid={call.testIds.surface}
+          endTestId={call.testIds.end}
+          muteTestId={call.testIds.mute}
+        />
       ))}
     </div>
   ),

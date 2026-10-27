@@ -163,6 +163,8 @@ export * from "./user-avatar"
 export * from "./user-message-bubble"
 // NEW-77: the voice level (the Exponential UI VoiceWave native as a primitive).
 export * from "./voice-wave"
+// NEW-70: THE call card (the `voice-call` entry; web's centred call).
+export * from "./voice-call-card"
 export * from "./wave-graph"
 export * from "./work-header"
 // EXP-1275: THE feedback states (Spinner, InlineStatus, useDelayedFlag,
