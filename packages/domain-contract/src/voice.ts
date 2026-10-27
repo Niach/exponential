@@ -321,6 +321,16 @@ export function wakePhrasePlaceholder(agentName: string): string {
   return fixture.copy.wakePhrasePlaceholder.replace(`{agent}`, agentName)
 }
 
+/** #NEW-56: a stored wake phrase needs `limits.wakePhraseMinLetters` letters
+ *  (letters only), so a short word can't fire on every segment; empty =
+ *  the placeholder, valid. The refusal's text, else null. */
+export function wakePhraseError(text: string): string | null {
+  const trimmed = text.trim()
+  if (trimmed === ``) return null
+  const letters = [...trimmed].filter((char) => /\p{L}/u.test(char)).length
+  return letters < fixture.limits.wakePhraseMinLetters ? fixture.copy.wakePhraseTooShort : null
+}
+
 /** #NEW-73: the Language row's trailing detail; every language speaks on
  *  the voice device's GPU only (#NEW-74). Null without a voice device. */
 export function languageNote(_language: string, deviceName: string | null): string | null {
@@ -399,6 +409,21 @@ export function trayMenu(settings: TraySettings, context: TrayContext): TrayItem
     { kind: `action`, id: `quit`, label: copy.trayQuit, enabled: true }
   )
   return menu
+}
+
+/** #NEW-56: what the tray icon's state reads. */
+export interface TrayIconContext {
+  deviceIsVoiceDevice: boolean
+  /** The speech worker reported the wake word's microphone open. */
+  wakeListening: boolean
+  muted: boolean
+}
+
+/** #NEW-56: the tray icon; `listening` = the always-on microphone dot,
+ *  null = no tray on this device. */
+export function trayIcon(context: TrayIconContext): `app` | `listening` | null {
+  if (!context.deviceIsVoiceDevice) return null
+  return context.wakeListening && !context.muted ? `listening` : `app`
 }
 
 const GB = 1_000_000_000

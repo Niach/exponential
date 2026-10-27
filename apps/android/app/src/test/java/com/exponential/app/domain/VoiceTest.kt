@@ -56,6 +56,7 @@ class VoiceTest {
             "wakeWord" to Voice.Copy.WAKE_WORD,
             "wakePhrase" to Voice.Copy.WAKE_PHRASE,
             "wakePhrasePlaceholder" to Voice.Copy.WAKE_PHRASE_PLACEHOLDER,
+            "wakePhraseTooShort" to Voice.Copy.WAKE_PHRASE_TOO_SHORT,
             "trayOpen" to Voice.Copy.TRAY_OPEN,
             "trayCall" to Voice.Copy.TRAY_CALL,
             "trayMute" to Voice.Copy.TRAY_MUTE,
@@ -105,9 +106,10 @@ class VoiceTest {
         }
         assertEquals(languages, Voice.languages)
         val limits = fixture.getValue("limits").jsonObject
-        assertEquals(setOf("voiceFile", "voiceTranscript"), limits.keys)
+        assertEquals(setOf("voiceFile", "voiceTranscript", "wakePhraseMinLetters"), limits.keys)
         assertEquals(limits.getValue("voiceFile").jsonPrimitive.int, Voice.Limits.VOICE_FILE)
         assertEquals(limits.getValue("voiceTranscript").jsonPrimitive.int, Voice.Limits.VOICE_TRANSCRIPT)
+        assertEquals(limits.getValue("wakePhraseMinLetters").jsonPrimitive.int, Voice.Limits.WAKE_PHRASE_MIN_LETTERS)
     }
 
     @Test
@@ -183,6 +185,13 @@ class VoiceTest {
     fun `every wakePhrasePlaceholder case matches the fixture`() {
         for (case in cases("wakePhrasePlaceholderCases")) {
             assertEquals(case.str("placeholder"), Voice.wakePhrasePlaceholder(case.str("agent")!!))
+        }
+    }
+
+    @Test
+    fun `every wakePhraseError case matches the fixture`() {
+        for (case in cases("wakePhraseErrorCases")) {
+            assertEquals(case.str("in"), case.str("error"), Voice.wakePhraseError(case.str("in")!!))
         }
     }
 

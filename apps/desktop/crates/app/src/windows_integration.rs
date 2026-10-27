@@ -59,12 +59,12 @@ pub enum Instance {
     Forwarded,
 }
 
-/// Become the primary instance, or forward our `exponential://` args to the
-/// one that already is. Best-effort: any socket error degrades to a plain
-/// (non-single) launch rather than blocking startup.
 /// NEW-68: what a plain second launch sends (see `single_instance`).
 const OPEN_WINDOW: &str = "exponential-desktop:open-window";
 
+/// Become the primary instance, or forward our `exponential://` args to the
+/// one that already is. Best-effort: any socket error degrades to a plain
+/// (non-single) launch rather than blocking startup.
 pub fn acquire(url_tx: Sender<Vec<String>>) -> Instance {
     let port_path = port_file();
     let args = deep_link_args();

@@ -262,9 +262,9 @@ impl Runtime {
         self.build
     }
 
-    /// Open `backend` on `model` on `device` (the preference is set and the
-    /// session opened under [`Runtime::open_lock`]).
-    fn open(&self, backend: &str, model: &Path, device: Device) -> Result<SessionPtr, String> {
+    /// Open `backend` on `model` on `device` with `threads` CPU threads (the
+    /// preference is set and the session opened under [`Runtime::open_lock`]).
+    fn open(&self, backend: &str, model: &Path, device: Device, threads: c_int) -> Result<SessionPtr, String> {
         let backend_name = CString::new(match device {
             Device::Gpu => platform::GPU_BACKEND,
             Device::Cpu => "cpu",
@@ -272,7 +272,6 @@ impl Runtime {
         .expect("static");
         let model_path = path_c(model)?;
         let backend_c = CString::new(backend).map_err(|err| err.to_string())?;
-        let threads = std::thread::available_parallelism().map(|n| n.get().clamp(1, 8) as c_int).unwrap_or(4);
         let _open = self.open_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         // SAFETY: valid C strings; the session pointer is checked.
         let session = unsafe {
@@ -286,9 +285,13 @@ impl Runtime {
     }
 
     /// NEW-78: open a speech-to-text session: `backend` (e.g. `parakeet`)
-    /// on `model`, on `device`.
+    /// on `model`, on `device`. #NEW-56: on the CPU with [`CPU_ASR_THREADS`].
     pub fn open_asr(&self, backend: &str, model: &Path, device: Device) -> Result<AsrSession<'_>, String> {
-        let session = self.open(backend, model, device)?;
+        let threads = match device {
+            Device::Cpu => CPU_ASR_THREADS,
+            Device::Gpu => default_threads(),
+        };
+        let session = self.open(backend, model, device, threads)?;
         Ok(AsrSession { runtime: self, session })
     }
 
@@ -339,7 +342,7 @@ impl Runtime {
     /// Open a text-to-speech session: `backend` (e.g. `qwen3-tts`) on
     /// `model`, with its `codec` companion, on `device`.
     pub fn open_tts(&self, backend: &str, model: &Path, codec: &Path, device: Device) -> Result<TtsSession<'_>, String> {
-        let session = TtsSession { runtime: self, session: self.open(backend, model, device)? };
+        let session = TtsSession { runtime: self, session: self.open(backend, model, device, default_threads())? };
         let codec_path = path_c(codec)?;
         // SAFETY: a live session and a valid C string.
         if unsafe { (self.fns.set_codec_path)(session.session, codec_path.as_ptr()) } != 0 {
@@ -376,6 +379,17 @@ fn c_text(text: *const c_char) -> String {
 fn path_c(path: &Path) -> Result<CString, String> {
     CString::new(path.to_string_lossy().as_bytes()).map_err(|_| format!("{} is not a valid path", path.display()))
 }
+
+/// The CPU threads a session gets by default: the machine's, at most 8.
+fn default_threads() -> c_int {
+    std::thread::available_parallelism().map(|n| n.get().clamp(1, 8) as c_int).unwrap_or(4)
+}
+
+/// #NEW-56: Parakeet's threads on a CPU-only box. ggml's workers spin, so
+/// 8 threads cost ~0.76 CPU-s per 2 s wake check against ~0.42 on 2 (measured
+/// on mint, 2026-10-27); the wake word checks every speech segment, push to
+/// talk pays ~70 ms more per segment.
+pub const CPU_ASR_THREADS: c_int = 2;
 
 /// One open TTS session (a resident model). Not shared between threads.
 pub struct TtsSession<'a> {

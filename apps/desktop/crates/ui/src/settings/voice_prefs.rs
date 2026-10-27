@@ -25,7 +25,7 @@ use gpui_component::{
 
 use api::voice::VoiceUpdate;
 use domain::voice::{
-    agent_options, language_label, shortcut_label, shortcut_options, shortcut_reason, tray_header, voice_device_options, wake_phrase_placeholder, VoiceAgent, VoiceDevice,
+    agent_options, language_label, shortcut_label, shortcut_options, shortcut_reason, tray_header, voice_device_options, wake_phrase_error, wake_phrase_placeholder, VoiceAgent, VoiceDevice,
     VoiceOption, VoiceSettings, VOICE,
 };
 
@@ -350,6 +350,9 @@ pub struct VoicePrefsPane {
     /// The speaker's settings as last seen: a change there (a heartbeat, a
     /// tray toggle) drops the cache.
     seen: VoiceSettings,
+    /// #NEW-56: a too-short wake phrase, never sent: its line shows under
+    /// the field until the next edit (`wakePhraseError`).
+    wake_phrase_invalid: Option<SharedString>,
 }
 
 /// Which one-line input (`VoicePrefsPane::inputs` index).
@@ -409,6 +412,7 @@ impl VoicePrefsPane {
             write: 0,
             in_flight: 0,
             seen: crate::speak_replies::settings(cx),
+            wake_phrase_invalid: None,
         }
     }
 
@@ -445,6 +449,7 @@ impl VoicePrefsPane {
         self.load = Load::Loading;
         // The input fields are rebuilt from the fresh values.
         self.inputs = [None, None, None];
+        self.wake_phrase_invalid = None;
         self._subscriptions.clear();
         self.generation += 1;
         let generation = self.generation;
@@ -562,12 +567,20 @@ impl VoicePrefsPane {
                     state
                 });
                 self._subscriptions.push(cx.subscribe_in(&input, window, move |this, input, event: &InputEvent, window, cx| {
+                    if matches!(event, InputEvent::Change) && matches!(field, Field::WakePhrase) && this.wake_phrase_invalid.take().is_some() {
+                        cx.notify();
+                    }
                     if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
                         let raw = input.read(cx).value().to_string();
                         let value = field.normalized(&raw);
                         if value != raw {
                             // What is sent is what shows.
                             input.update(cx, |state, cx| state.set_value(value.clone(), window, cx));
+                        }
+                        if let Some(invalid) = matches!(field, Field::WakePhrase).then(|| wake_phrase_error(&value)).flatten() {
+                            this.wake_phrase_invalid = Some(invalid.into());
+                            cx.notify();
+                            return;
                         }
                         this.apply(field.update(value), cx);
                     }
@@ -606,6 +619,10 @@ impl Render for VoicePrefsPane {
                 });
                 for row in voice_rows(&settings, &devices, &agents, inputs, Some(on_change), cx) {
                     body = body.child(row);
+                }
+                // The wake phrase closes the last group: its line goes under it.
+                if let Some(message) = self.wake_phrase_invalid.clone().filter(|_| settings.voice_device_id.is_some()) {
+                    body = body.child(crate::action_error::field_error(message, cx).px_1());
                 }
             }
         }

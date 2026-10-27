@@ -44,6 +44,7 @@ import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.Voice
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.components.FailedActionToast
+import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.OptionGroup
@@ -105,6 +106,13 @@ class VoiceSettingsViewModel @Inject constructor(
 
     /** The wake phrase as typed; saved a beat after typing stops. */
     var wakePhrase by mutableStateOf("")
+        private set
+
+    /**
+     * #NEW-56: the Wake phrase's inline error (`wakePhraseError`), set when
+     * the field is left or submitted with too few letters; cleared on the next edit.
+     */
+    var wakePhraseError by mutableStateOf<String?>(null)
         private set
 
     /** #NEW-73: the voice file and its transcript as typed, saved the same way. */
@@ -224,10 +232,16 @@ class VoiceSettingsViewModel @Inject constructor(
     }
 
     /** One line, no control characters, at most `limits.wakePhrase`. */
-    fun onWakePhraseChange(text: String) = editText(TextField.WakePhrase, text, Voice.Limits.WAKE_PHRASE)
+    fun onWakePhraseChange(text: String) {
+        wakePhraseError = null
+        editText(TextField.WakePhrase, text, Voice.Limits.WAKE_PHRASE)
+    }
 
-    /** Done on the keyboard (or leaving the field) saves at once, like Return on iOS. */
-    fun saveWakePhrase() = saveText(TextField.WakePhrase)
+    /**
+     * Done on the keyboard (or leaving the field) saves at once, like Return
+     * on iOS; a too-short phrase is not sent and shows inline instead.
+     */
+    fun saveWakePhrase() = saveText(TextField.WakePhrase, submitted = true)
 
     /** One line, no control characters, at most `limits.voiceFile`. */
     fun onVoiceFileChange(text: String) = editText(TextField.VoiceFile, text, Voice.Limits.VOICE_FILE)
@@ -276,20 +290,28 @@ class VoiceSettingsViewModel @Inject constructor(
         textTimers[field]?.cancel()
         textTimers[field] = viewModelScope.launch {
             delay(TEXT_DEBOUNCE_MS)
-            saveText(field)
+            saveText(field, submitted = false)
         }
     }
 
     /**
      * Saves ONE text row (web `saveText`): trimmed, skipped while unchanged;
      * a refusal reverts that row alone, and only when no newer save of the
-     * same row is in flight.
+     * same row is in flight. An invalid wake phrase is never sent (the
+     * stored one stays); only a [submitted] save (Done / focus loss) shows it.
      */
-    private fun saveText(field: TextField) {
+    private fun saveText(field: TextField, submitted: Boolean = true) {
         textTimers.remove(field)?.cancel()
         val current = settings ?: return
         val trimmed = typed(field).trim()
         val previous = stored(current, field)
+        if (field == TextField.WakePhrase) {
+            val error = Voice.wakePhraseError(trimmed)
+            if (error != null) {
+                if (submitted) wakePhraseError = error
+                return
+            }
+        }
         if (trimmed == previous) return
         settings = withText(current, field, trimmed)
         val seq = (textSeq[field] ?: 0) + 1
@@ -317,6 +339,7 @@ class VoiceSettingsViewModel @Inject constructor(
             val current = settings ?: continue
             val trimmed = typed(field).trim()
             if (trimmed == stored(current, field)) continue
+            if (field == TextField.WakePhrase && Voice.wakePhraseError(trimmed) != null) continue
             voiceSettingsFlushScope.launch { runCatching { voiceApi.update(accountId, changeOf(field, trimmed)) } }
         }
         super.onCleared()
@@ -360,6 +383,7 @@ fun VoiceSettingsScreen(
                 settings = settings,
                 vocabulary = vocabulary,
                 wakePhrase = viewModel.wakePhrase,
+                wakePhraseError = viewModel.wakePhraseError,
                 onChange = viewModel::save,
                 onWakePhraseChange = viewModel::onWakePhraseChange,
                 onWakePhraseDone = viewModel::saveWakePhrase,
@@ -402,6 +426,7 @@ private fun VoiceSettingsForm(
     settings: Voice.Settings,
     vocabulary: VoiceSettingsViewModel.Vocabulary,
     wakePhrase: String,
+    wakePhraseError: String?,
     onChange: (Voice.Change) -> Unit,
     onWakePhraseChange: (String) -> Unit,
     onWakePhraseDone: () -> Unit,
@@ -537,6 +562,8 @@ private fun VoiceSettingsForm(
                     modifier = Modifier.testTag(Voice.TestIds.WAKE_PHRASE),
                 )
             }
+            // #NEW-56: invalid input, inline under the field (never a toast).
+            FieldError(wakePhraseError, modifier = Modifier.padding(start = 20.dp, top = 6.dp))
         }
     }
 }

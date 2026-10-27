@@ -171,6 +171,19 @@ describe(`Settings → Voice (NEW-67)`, () => {
     expect(update).toHaveBeenCalledWith({ wakePhrase: `Hey Studio` }, expect.anything())
   })
 
+  it(`#NEW-56: a too-short wake phrase is never sent; its line shows inline until the next edit`, async () => {
+    renderCard({ voiceDeviceId: `d-mint`, agentId: AGENT })
+    const phrase = screen.getByTestId(VOICE_TEST_IDS.wakePhrase)
+    fireEvent.change(phrase, { target: { value: `Ok` } })
+    fireEvent.blur(phrase)
+    await flush()
+    expect(update).not.toHaveBeenCalled()
+    expect(screen.getByRole(`alert`).textContent).toBe(VOICE_COPY.wakePhraseTooShort)
+    expect(phrase.getAttribute(`aria-invalid`)).toBe(`true`)
+    fireEvent.change(phrase, { target: { value: `Okay computer` } })
+    expect(screen.queryByRole(`alert`)).toBeNull()
+  })
+
   it(`#NEW-73: Language follows Speak replies; the voice file + transcript wait for a voice device`, () => {
     renderCard()
     expect(trigger(VOICE_COPY.language).textContent).toContain(`English`)

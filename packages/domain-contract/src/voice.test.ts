@@ -18,10 +18,12 @@ import {
   shouldSpeak,
   spokenText,
   trayHeader,
+  trayIcon,
   trayMenu,
   utteranceInput,
   voiceDeviceOptions,
   wakePhrasePlaceholder,
+  wakePhraseError,
 } from "./voice"
 
 describe(`voice.json`, () => {
@@ -78,8 +80,14 @@ describe(`voice.json`, () => {
   for (const c of fixture.wakePhrasePlaceholderCases) {
     it(`wakePhrasePlaceholder ${c.agent}`, () => expect(wakePhrasePlaceholder(c.agent)).toBe(c.placeholder))
   }
+  for (const c of fixture.wakePhraseErrorCases) {
+    it(`wakePhraseError ${JSON.stringify(c.in)}`, () => expect(wakePhraseError(c.in)).toBe(c.error))
+  }
   for (const c of fixture.trayMenuCases) {
     it(`trayMenu: ${c.name}`, () => expect(trayMenu(c.settings, c.context)).toEqual(c.menu))
+  }
+  for (const c of fixture.trayIconCases) {
+    it(`trayIcon: ${c.name}`, () => expect(trayIcon(c.context)).toBe(c.icon as `app` | `listening` | null))
   }
   for (const c of fixture.shortcutSupportCases) {
     it(`shortcutSupport ${c.os} ${c.session} ${c.shortcut} portal=${c.portal}`, () =>

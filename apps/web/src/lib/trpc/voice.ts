@@ -14,7 +14,7 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray } from "drizzle-orm"
 
-import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUTS } from "@exp/domain-contract/voice"
+import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUTS, wakePhraseError } from "@exp/domain-contract/voice"
 import { callAvailability } from "@exp/domain-contract/voice-call"
 
 import type { db as Database } from "@/db/connection"
@@ -132,6 +132,9 @@ export const voiceRouter = router({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       const db = ctx.db
+      // #NEW-56: a short wake phrase would fire on every segment.
+      const tooShort = input.wakePhrase === undefined ? null : wakePhraseError(input.wakePhrase)
+      if (tooShort) throw new TRPCError({ code: `BAD_REQUEST`, message: tooShort })
       const before = await voiceSettingsOf(db, userId)
       // The voice device: one of the member's OWN desktops (phones and
       // servers never run the voice; `voice.json` voiceDeviceOptions).

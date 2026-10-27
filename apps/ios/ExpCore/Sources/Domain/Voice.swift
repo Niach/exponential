@@ -27,6 +27,7 @@ public enum Voice {
         public static let wakeWord = "Wake word"
         public static let wakePhrase = "Wake phrase"
         public static let wakePhrasePlaceholder = "Hey {agent}"
+        public static let wakePhraseTooShort = "The wake phrase needs at least 6 letters"
         public static let trayOpen = "Open Exponential"
         public static let trayCall = "Call {agent}"
         public static let trayMute = "Mute microphone"
@@ -94,10 +95,12 @@ public enum Voice {
         Language(value: "de", label: "Deutsch"),
     ]
 
-    /// The most characters the two voice-clip inputs store (`limits`).
+    /// The most characters the two voice-clip inputs store, and the fewest
+    /// letters a non-empty wake phrase needs (`limits`).
     public enum Limits {
         public static let voiceFile = 512
         public static let voiceTranscript = 500
+        public static let wakePhraseMinLetters = 6
     }
 
     /// The member's ONE settings row (`voice.get`, `voice.update`'s result).
@@ -327,6 +330,16 @@ public enum Voice {
     /// The wake phrase's placeholder (and its value when empty).
     public static func wakePhrasePlaceholder(_ agentName: String) -> String {
         Copy.wakePhrasePlaceholder.replacingOccurrences(of: "{agent}", with: agentName)
+    }
+
+    /// #NEW-56: a non-empty wake phrase needs `Limits.wakePhraseMinLetters`
+    /// letters (spaces, digits and punctuation don't count); nil = valid. An
+    /// empty phrase is valid (it means `wakePhrasePlaceholder`).
+    public static func wakePhraseError(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let letters = trimmed.filter(\.isLetter).count
+        return letters < Limits.wakePhraseMinLetters ? Copy.wakePhraseTooShort : nil
     }
 
     /// #NEW-73: the Language row's trailing detail; every language speaks on

@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-27-wake-word`,
+    date: `2026-10-27`,
+    title: `Wake word on your voice device`,
+    summary: `Turn on Wake word in the tray or in Settings → Voice and say your phrase (Hey and your agent's name, unless you set your own) to talk without a shortcut. The tray icon shows a dot while the microphone listens; Mute turns it off.`,
+    body: `- **Wake word**: on the desktop you picked as your voice device, say the phrase from Settings → Voice (Hey and your agent's name when you leave it empty) and what follows; the capsule opens like push to talk and the message goes to your agent when you stop talking. It runs on the speech recognition push to talk already uses, so there is no extra download.
+- **Tray**: the icon carries a dot while the microphone listens for the wake word, and Mute microphone turns it off too.
+- **Tray fixes**: a double-click on the Windows tray icon opens one window, and on Linux the tray watches for a panel only while this computer is your voice device.`,
+  },
+  {
     id: `2026-10-27-voice-proposal-cards`,
     date: `2026-10-27`,
     title: `Voice: your agent asks before it changes things`,

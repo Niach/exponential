@@ -33,6 +33,10 @@
 //! `Finished { stopped: true }` goes out first) and only then is
 //! `SpeechStarted` emitted. The first clause of a reply is synthesized on
 //! its own ([`first_clause`]) for a faster first audio (target < 400 ms).
+//!
+//! #NEW-56: `Wake` keeps the microphone open for the wake word between
+//! Listens ([`wake`], no model of its own); a heard phrase silences the voice
+//! like a Listen and starts a turn the listener ends itself.
 
 pub mod builtin;
 pub mod capture;
@@ -41,6 +45,7 @@ pub mod listen;
 pub mod listener;
 pub mod runtime;
 pub mod sink;
+pub mod wake;
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -169,6 +174,10 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
         barge: Arc::new(move || barge(&barging)),
         far: shared.far.clone(),
         emit: emitter,
+        speaking: {
+            let shared = shared.clone();
+            Arc::new(move || shared.speaking().is_some())
+        },
     };
     let (listen, listener) = listener::spawn(hearing, links);
 
@@ -202,8 +211,13 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
                 silence(&shared);
             }
             Request::Listen { id, language } => {
+                // A call owns the microphone until Hangup: refused, nothing
+                // heard, its reply keeps playing.
+                if !listening.begin(&id) {
+                    (shared.emit)(&Event::Empty { id });
+                    continue;
+                }
                 // Barge-in: the person talks over the reply.
-                listening.begin(&id);
                 shared.generation.fetch_add(1, Ordering::SeqCst);
                 silence(&shared);
                 let _ = listen.send(listener::Job::Start { id, language });
@@ -233,6 +247,9 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
                 // Replies play locally again at once.
                 listening.end(&id);
                 let _ = listen.send(listener::Job::Hangup { id });
+            }
+            Request::Wake { phrase, language } => {
+                let _ = listen.send(listener::Job::Wake { phrase, language });
             }
         }
     }

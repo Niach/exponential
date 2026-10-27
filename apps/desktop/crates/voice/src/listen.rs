@@ -273,6 +273,16 @@ impl Segmenter {
         self.close(start, speech_end)
     }
 
+    /// Frames scored so far.
+    pub fn frames(&self) -> usize {
+        self.frame
+    }
+
+    /// #NEW-56: frames since the last segment ended (0 while one is open).
+    pub fn quiet(&self) -> usize {
+        if self.speech_start.is_some() { 0 } else { self.frame - self.floor }
+    }
+
     /// The open segment's padded start, while one is open.
     pub fn open_start(&self) -> Option<usize> {
         self.speech_start.map(|start| start.saturating_sub(frames(PAD_MS)).max(self.floor))
@@ -321,6 +331,9 @@ pub struct Utterance {
     /// `audio.len()` at the last partial decode.
     partial_at: usize,
     last_partial: String,
+    /// #NEW-56: a wake turn: this phrase opens what was heard and is
+    /// stripped from it.
+    wake: Option<String>,
 }
 
 impl Utterance {
@@ -335,6 +348,53 @@ impl Utterance {
             heard: Vec::new(),
             partial_at: 0,
             last_partial: String::new(),
+            wake: None,
+        }
+    }
+
+    /// #NEW-56: a wake turn, seeded with the segment the phrase opened
+    /// (`audio` from its padded start, `scores` its whole frames' speech
+    /// probabilities): what it hears loses the phrase.
+    pub fn woken(
+        id: impl Into<String>,
+        language: impl Into<String>,
+        phrase: impl Into<String>,
+        audio: &[f32],
+        scores: &[f32],
+        transcriber: &mut dyn Transcriber,
+    ) -> Result<Self, (ListenFailure, String)> {
+        let mut utterance = Utterance::new(id, language);
+        utterance.wake = Some(phrase.into());
+        // The seed's levels and partials are history: the capsule starts now.
+        utterance.feed_scored(audio, scores, transcriber, &mut |_| {})?;
+        Ok(utterance)
+    }
+
+    /// #NEW-56: a segment is open (the person is still talking).
+    pub fn open(&self) -> bool {
+        self.segmenter.open_start().is_some()
+    }
+
+    /// #NEW-56: milliseconds since the last segment ended.
+    pub fn quiet_ms(&self) -> usize {
+        self.segmenter.quiet() * FRAME * 1000 / RATE
+    }
+
+    /// #NEW-56: something besides the wake phrase was heard.
+    pub fn has_command(&self) -> bool {
+        !self.text().is_empty()
+    }
+
+    /// What was heard so far (the wake phrase stripped).
+    fn text(&self) -> String {
+        self.text_with(None)
+    }
+
+    fn text_with(&self, open: Option<&str>) -> String {
+        let joined = join_transcripts(self.heard.iter().map(String::as_str).chain(open));
+        match self.wake.as_deref() {
+            Some(phrase) => crate::wake::wake_match(phrase, &joined).unwrap_or(joined),
+            None => joined,
         }
     }
 
@@ -355,14 +415,26 @@ impl Utterance {
         transcriber: &mut dyn Transcriber,
         emit: &mut dyn FnMut(Event),
     ) -> Result<(), (ListenFailure, String)> {
+        let probabilities = vad.push(samples).map_err(|err| (ListenFailure::Failed, err))?;
+        self.feed_scored(samples, &probabilities, transcriber, emit)
+    }
+
+    /// [`Self::feed`] with the samples already scored (#NEW-56: the wake
+    /// word's VAD stream runs on into its turn).
+    pub fn feed_scored(
+        &mut self,
+        samples: &[f32],
+        probabilities: &[f32],
+        transcriber: &mut dyn Transcriber,
+        emit: &mut dyn FnMut(Event),
+    ) -> Result<(), (ListenFailure, String)> {
         self.audio.extend_from_slice(samples);
         while self.metered + FRAME <= self.audio.len() {
             let (level, bands) = self.meter.frame(&self.audio[self.metered..self.metered + FRAME]);
             self.metered += FRAME;
             emit(Event::Level { id: self.id.clone(), level, bands });
         }
-        let probabilities = vad.push(samples).map_err(|err| (ListenFailure::Failed, err))?;
-        for probability in probabilities {
+        for &probability in probabilities {
             if let Some(segment) = self.segmenter.push(probability) {
                 self.transcribe(segment, transcriber)?;
             }
@@ -372,7 +444,7 @@ impl Utterance {
                 self.partial_at = self.audio.len();
                 let open = &self.audio[(start * FRAME).min(self.audio.len())..];
                 let current = transcriber.transcribe(open, &self.language).map_err(|err| (ListenFailure::Failed, err))?;
-                let text = join_transcripts(self.heard.iter().map(String::as_str).chain([current.as_str()]));
+                let text = self.text_with(Some(&current));
                 if !text.is_empty() && text != self.last_partial {
                     self.last_partial = text.clone();
                     emit(Event::Partial { id: self.id.clone(), text });
@@ -388,7 +460,7 @@ impl Utterance {
         if let Some(segment) = self.segmenter.finish() {
             self.transcribe(segment, transcriber)?;
         }
-        let text = join_transcripts(self.heard.iter().map(String::as_str));
+        let text = self.text();
         emit(if text.is_empty() { Event::Empty { id: self.id } } else { Event::Heard { id: self.id, text } });
         Ok(())
     }

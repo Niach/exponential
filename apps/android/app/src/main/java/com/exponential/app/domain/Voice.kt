@@ -40,6 +40,7 @@ object Voice {
         const val WAKE_WORD = "Wake word"
         const val WAKE_PHRASE = "Wake phrase"
         const val WAKE_PHRASE_PLACEHOLDER = "Hey {agent}"
+        const val WAKE_PHRASE_TOO_SHORT = "The wake phrase needs at least 6 letters"
         const val TRAY_OPEN = "Open Exponential"
         const val TRAY_CALL = "Call {agent}"
         const val TRAY_MUTE = "Mute microphone"
@@ -97,6 +98,8 @@ object Voice {
         const val VOICE_TRANSCRIPT = 500
         /** The wake phrase's cap (`voice.update` takes `oneLine(64)`; not in the fixture's `limits`). */
         const val WAKE_PHRASE = 64
+        /** #NEW-56: a stored wake phrase's minimum LETTER count (`limits.wakePhraseMinLetters`). */
+        const val WAKE_PHRASE_MIN_LETTERS = 6
     }
 
     /** The member's ONE settings row (`voice.get`, `voice.update`'s result). */
@@ -222,6 +225,17 @@ object Voice {
     /** The wake phrase's placeholder (and its value when empty). */
     fun wakePhrasePlaceholder(agentName: String): String =
         Copy.WAKE_PHRASE_PLACEHOLDER.replace("{agent}", agentName)
+
+    /**
+     * #NEW-56: the Wake phrase field's inline error: a trimmed, non-empty
+     * phrase with fewer than [Limits.WAKE_PHRASE_MIN_LETTERS] letters (spaces,
+     * digits and punctuation don't count). Empty stays valid (the placeholder).
+     */
+    fun wakePhraseError(text: String): String? {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return null
+        return if (trimmed.count { it.isLetter() } < Limits.WAKE_PHRASE_MIN_LETTERS) Copy.WAKE_PHRASE_TOO_SHORT else null
+    }
 
     /**
      * #NEW-73: the Language row's trailing detail; every language speaks on
