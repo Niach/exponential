@@ -111,6 +111,8 @@ internal fun dockIcon(concept: String): ImageVector = when (concept) {
     // EXP-1374: the session's own state cards (session-card.json `icons`).
     "run-pause" -> ExpIcons.runPause
     "trace-background" -> ExpIcons.traceBackground
+    // #EXP-1405: a queued session waiting for its device.
+    "ui-clock" -> ExpIcons.uiClock
     else -> ExpIcons.uiInfo
 }
 
