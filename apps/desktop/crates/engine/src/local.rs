@@ -182,6 +182,13 @@ pub const TOOL_DETAIL_META_KEY: &str = "exponentialToolDetail";
 /// is running.
 pub const BACKGROUND_TASKS_META_KEY: &str = "exponentialBackgroundTasks";
 
+/// #NEW-79: the `_meta` key (same no-op carrier) an adapter stamps when it
+/// WITHDRAWS a card it asked through `elicitation/create` (a voice proposal
+/// card that expired or that a newer card for the same target replaced).
+/// Value: the ask id (the elicitation's tool call id). The host dismisses
+/// the card and answers the parked request `Cancelled`.
+pub const ASK_WITHDRAWN_META_KEY: &str = "exponentialAskWithdrawn";
+
 /// EXP-850 §3: the `_meta` key ONE workflow card rides on (same carrier).
 /// Value: the whole `workflow` payload minus its `kind` tag — the adapter
 /// always sends the complete state, never a delta.

@@ -17,6 +17,7 @@ import { assertCanSteer, loadSessionForUser } from "@/lib/sessions/access"
 import { answeredCard } from "@/lib/sessions/card-answer"
 import type { Db, Tx } from "@/lib/sessions/tx"
 import { closeAskMirrors } from "@/lib/sessions/bus"
+import { isVoiceConversation } from "@/lib/sessions/brief"
 
 // EXP-1280/NEW-1: answering a question/plan card. ONE write path for the
 // thread card (`sessions.answer`, a person), the device's write-back
@@ -27,6 +28,9 @@ import { closeAskMirrors } from "@/lib/sessions/bus"
 // the agent off the messages shape; no person message is posted.
 
 const uuid = z.string().uuid()
+
+/** #NEW-79: the refusal when anyone but its member answers a voice card. */
+export const VOICE_CARD_OWNER_ONLY = `Only the member whose voice conversation this is can answer its cards`
 
 export const cardAnswerInput = z.object({
   messageId: uuid,
@@ -75,6 +79,11 @@ export async function loadCardForAnswer(
   if (!message) throw new TRPCError({ code: `NOT_FOUND`, message: `Message not found` })
   const session = await loadSessionForUser(userId, message.sessionId)
   await assertCanSteer(userId, session)
+  // #NEW-79: a voice conversation's proposal cards approve calls made in
+  // its member's name: only that member answers them.
+  if (session.userId !== userId && (await isVoiceConversation(session, database))) {
+    throw new TRPCError({ code: `FORBIDDEN`, message: VOICE_CARD_OWNER_ONLY })
+  }
   const legacyPlanApproval = !!request && clientAtOrBelow(request, PLAN_ANSWERS_LEGACY_CLIENTS)
   const answered = answeredCard(message.card as MessageCard | null, {
     ...input,
@@ -149,9 +158,14 @@ export async function stampAnsweredCard(
  */
 export async function answerSessionCardInTx(
   tx: Tx,
-  target: Pick<Session, `id`>,
+  target: Pick<Session, `id` | `rootId` | `agentId` | `userId`>,
   input: SessionAnswerInput
 ): Promise<{ messageId: string }> {
+  // #NEW-79: a session never answers a voice conversation's proposal card
+  // (an agent would approve its own calls); its member does, in person.
+  if (await isVoiceConversation(target, tx)) {
+    throw new TRPCError({ code: `FORBIDDEN`, message: VOICE_CARD_OWNER_ONLY })
+  }
   const [message] = await tx
     .select({ id: messages.id, card: messages.card, answeredAt: messages.answeredAt })
     .from(messages)

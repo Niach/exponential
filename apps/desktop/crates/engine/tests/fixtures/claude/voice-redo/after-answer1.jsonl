@@ -1,0 +1,1 @@
+{"type":"control_request","request_id":"voice-req-2","request":{"subtype":"can_use_tool","tool_name":"mcp__exponential__exponential_issues","display_name":"issues","input":{"op":"delete","id":"NEW-12"},"tool_use_id":"toolu_voice_2"}}

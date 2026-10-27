@@ -13,6 +13,8 @@
 #   control_request <other>     -> a bare success (set_permission_mode, …)
 #   user message                -> the next turn's frames (turn1, turn2, …)
 #   control_response            -> the frames recorded AFTER that answer
+#                                  (the n-th: `after-answer<n>.jsonl` when
+#                                  the scenario has one)
 #
 # Env:
 #   EXP_FAKE_CLAUDE_DIR    the scenario directory (required)
@@ -110,7 +112,13 @@ while IFS= read -r line; do
             ;;
         *'"type":"control_response"'*)
             answers=$((answers + 1))
-            replay "$dir/after-answer.jsonl"
+            # A scenario with several calls answers each in turn
+            # (`after-answer<n>.jsonl`), else every answer replays one file.
+            if [ -f "$dir/after-answer$answers.jsonl" ]; then
+                play "$dir/after-answer$answers.jsonl"
+            else
+                replay "$dir/after-answer.jsonl"
+            fi
             ;;
         *'"type":"user"'*)
             turn=$((turn + 1))

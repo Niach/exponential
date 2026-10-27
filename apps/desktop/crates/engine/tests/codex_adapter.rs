@@ -350,6 +350,7 @@ fn spec() -> engine::adapters::AdapterSpec {
         context_layers: coding::ContextLayers::default(),
         name_conversation: false,
         confine_to: None,
+        voice_policy: false,
         aside: false,
         exit: engine::ChildExitLink::new(),
     }

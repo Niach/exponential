@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-27-voice-proposal-cards`,
+    date: `2026-10-27`,
+    title: `Voice: your agent asks before it changes things`,
+    summary: `In your voice conversation the agent now proposes every change as a card in the Dock instead of making it. Reads run at once; you answer a card by tapping it or by voice ("take two", "reject one", "accept all", "two, but priority high"), and deletes, merges and messages to others are read back and need a spoken yes.`,
+    body: `- **Proposal cards**: when you talk to your voice agent, creating or updating an issue, commenting, adding a label or a relation, or starting a subagent shows a card with what would change and what you said. Allow runs it, Deny (or "no") drops it, and a typed or spoken change ("yes, but priority high") is applied in one go, for that same change only. A card waits 15 minutes; a newer card for the same issue replaces the older one.
+- **Say yes for the big ones**: deleting, merging or closing a pull request, messaging another session, running a command or editing a file is read aloud and needs an explicit yes. Team settings, people, device sign-ins and scripts are never run from a voice conversation, and only you can answer its cards.
+- **Answer by voice**: with push to talk, "take two", "reject one", "accept all", "yes" or "no" answer the waiting cards instead of being sent as a message.
+- **Only your voice agent**: every other session, thread and agent conversation works exactly as before.
+- **Update the voice device**: the cards need desktop app 0.14.80 or later; an older desktop keeps running your voice conversation without asking.`,
+  },
+  {
     id: `2026-10-27-voice-calls-phones`,
     date: `2026-10-27`,
     title: `Call your agent from your phone (beta)`,

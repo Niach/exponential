@@ -143,6 +143,12 @@ pub struct AdapterSpec {
     /// app-server's `workspaceWrite` sandbox rooted here (network on), and
     /// falls back to full access when the app-server rejects it.
     pub confine_to: Option<PathBuf>,
+    /// #NEW-79: the member's conversation with their voice agent. Claude
+    /// launches with `--permission-mode default` (never the bypass) and
+    /// `can_use_tool` applies `fixtures/voice-policy.json`: auto allows,
+    /// deny denies, confirm / confirm-strong park a proposal card in THE
+    /// Dock ask. Codex ignores it (the voice agent runs claude).
+    pub voice_policy: bool,
     /// Where a stdio adapter reports its child's exit (`ChildLines::forward_exit`),
     /// so the run's bye is `exit:<code>`. An adapter that owns no child of
     /// ours never records, and the run ends as `ended`.

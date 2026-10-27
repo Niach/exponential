@@ -188,6 +188,7 @@ impl EngineSession {
             aside: false,
             // A replay never runs a tool.
             confine_to: None,
+            voice_policy: false,
             exit: child_exit.clone(),
         })?;
 
@@ -537,6 +538,8 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
         aside: is_aside_run(&start.data_dir, &start.prepared.session_id),
         // N-5 / NEW-5: a repo-less run is confined to its scratch dir.
         confine_to: acp.confine_to.clone(),
+        // #NEW-79: the voice conversation runs under the voice tool policy.
+        voice_policy: acp.voice_policy,
         exit: child_exit.clone(),
     })?;
     start_with(

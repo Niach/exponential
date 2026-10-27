@@ -1094,6 +1094,32 @@ impl Mapper {
         }
     }
 
+    /// #NEW-79: the agent WITHDREW the elicitation `ask_id` (a voice proposal
+    /// card that expired or was replaced): the card is dismissed like a
+    /// cancel's. Returns the responder key to answer `Cancelled`, `None` when
+    /// no such card is waiting.
+    pub fn withdraw_ask(&mut self, ask_id: &str, out: &mut MapOut) -> Option<String> {
+        let ask = self.elicitations.get_mut(ask_id).filter(|ask| !ask.answered)?;
+        ask.answered = true;
+        let id = elicit_step_id(ask_id, ask.current, ask.steps.len());
+        self.retire_ask(RetiredAsk::Elicitation(ask_id.to_string()));
+        emit(
+            out,
+            ActivityEvent::QuestionResolved {
+                id: Some(id),
+                ask_id: Some(ask_id.to_string()),
+                answers: None,
+                dismissed: Some(true),
+                at: None,
+            },
+            None,
+        );
+        if self.pending_asks() == 0 {
+            out.needs_input = Some(false);
+        }
+        Some(ask_id.to_string())
+    }
+
     /// `session/cancel`: the ACP contract REQUIRES answering every pending
     /// permission with `Cancelled`, and every open card is dismissed.
     pub fn on_cancel(&mut self, out: &mut MapOut) {
@@ -7116,6 +7142,41 @@ mod conversation_tests {
         let fallback = keys(json!({"answer": "Lint, Docs"})).expect("the joined legacy answer");
         assert_eq!(fallback.keys, vec!["lint".to_string(), "docs".to_string()]);
         assert_eq!(fallback.text, None);
+    }
+
+    /// #NEW-79: a withdrawn card (expired, replaced) is dismissed once and
+    /// its responder handed back; an unknown or answered one is not.
+    #[test]
+    fn a_withdrawn_elicitation_is_dismissed_once() {
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        let request = CreateElicitationRequest::new(
+            ElicitationFormMode::new(
+                ElicitationSessionScope::new(SessionId::new("acp-1")),
+                ElicitationSchema::new().property(
+                    "decision",
+                    ElicitationPropertySchema::String(
+                        StringPropertySchema::new()
+                            .title("Allow this?")
+                            .enum_values(vec!["Allow".into(), "Deny".into()]),
+                    ),
+                    false,
+                ),
+            ),
+            "Issue · update NEW-12 — priority: high.",
+        );
+        mapper.on_elicitation("toolu_9", &request, &mut out);
+        assert_eq!(mapper.pending_asks(), 1);
+        let mut withdrawn = MapOut::default();
+        assert_eq!(mapper.withdraw_ask("toolu_9", &mut withdrawn).as_deref(), Some("toolu_9"));
+        assert_eq!(mapper.pending_asks(), 0);
+        assert_eq!(withdrawn.needs_input, Some(false));
+        assert!(withdrawn.wire.iter().any(|event| matches!(
+            event,
+            ActivityEvent::QuestionResolved { id: Some(id), dismissed: Some(true), .. } if id == "toolu_9#0"
+        )));
+        assert_eq!(mapper.withdraw_ask("toolu_9", &mut MapOut::default()), None);
+        assert_eq!(mapper.withdraw_ask("nope", &mut MapOut::default()), None);
     }
 
     #[test]

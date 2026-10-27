@@ -95,6 +95,8 @@ pub use crate::local::{
     BACKGROUND_TASKS_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY, TURN_META_KEY,
     TURN_TOKENS_META_KEY, WORKFLOW_META_KEY,
 };
+use crate::local::ASK_WITHDRAWN_META_KEY;
+use domain::voice_policy::{self as voice_policy, CardAnswer, Tier, Verdict, VoiceLedger, VOICE_POLICY};
 
 /// The subagents the CLI ships. They are spawned by the model, never picked
 /// for the main thread, so the `agent` option offers only what the user (or a
@@ -605,6 +607,15 @@ struct State {
     /// frame and compaction changes the occupancy, not what the run started
     /// with.
     context_layout_published: bool,
+    /// #NEW-79: the person message the current turn came from (the voice
+    /// card's transcript snippet).
+    voice_snippet: String,
+    /// #NEW-79: the waiting voice cards by replace key and the redo a
+    /// change pre-approved (tool + op + target, `confirm` only).
+    voice_ledger: VoiceLedger,
+    /// #NEW-79: a waiting voice card's withdraw signal (by tool use id),
+    /// which answers it with a reason.
+    voice_withdraw: HashMap<String, flume::Sender<String>>,
     /// EXP-1051: the base a PREVIOUS run of this conversation measured,
     /// carried over `runs.json` by a native resume. Used only while the model
     /// is unchanged, and dropped by a `/clear`.
@@ -1374,9 +1385,15 @@ impl ClaudeSession {
             // user's own settings default and an `auto` machine never asks.
             // EXP-1280: always `bypassPermissions` — plan mode is
             // Exponential's ([`State::mode`] is our flag, never the CLI's).
-            permission_mode: Some(wire::argv_permission_mode(super::BUILD_MODE_ID)),
-            // EXP-772: ALWAYS. Permissions are bypassed in every mode.
-            allow_dangerous: true,
+            // #NEW-79: the voice conversation runs `default`, so every call
+            // reaches `can_use_tool` and the voice policy.
+            permission_mode: Some(if self.spec.voice_policy {
+                VOICE_PERMISSION_MODE
+            } else {
+                wire::argv_permission_mode(super::BUILD_MODE_ID)
+            }),
+            // EXP-772: ALWAYS, except the voice conversation (#NEW-79).
+            allow_dangerous: !self.spec.voice_policy,
             session_id: Some(pin.as_str()),
             resume: resume.as_deref(),
             // EXP-1330: a `/btw` aside forks the parent's conversation, so
@@ -1545,6 +1562,9 @@ impl ClaudeSession {
         epoch: u64,
     ) -> Result<PromptResponse, Error> {
         let text = prompt_text(&request.prompt);
+        if self.spec.voice_policy {
+            self.lock().voice_snippet = text.clone();
+        }
         // A child spawned lazily here is the `session/load` → prompt path: a
         // replay that the user decided to continue. EXP-758: `/usage` takes
         // the SAME handle. Spawning it fresh with a new `--session-id` forked
@@ -4080,6 +4100,8 @@ impl ClaudeSession {
             wire::permission_deny(&tool_use_id, &message, false)
         } else if request.is_ask_user_question() {
             self.ask_user_question(cx, &request, &tool_use_id).await
+        } else if self.spec.voice_policy {
+            self.voice_policy_answer(cx, &request, &tool_use_id).await
         } else {
             // EXP-772: permissions are bypassed in EVERY mode, so the only
             // dialog left is a question the model asked (EXP-1280: plan mode
@@ -4107,6 +4129,81 @@ impl ClaudeSession {
         match self.send(wire::control_response_success(&request_id, answer)) {
             Ok(()) => log::debug!("engine: answered claude control request {request_id}"),
             Err(error) => log::warn!("engine: claude control response {request_id} failed: {error}"),
+        }
+    }
+
+    /// #NEW-79: the voice conversation's `can_use_tool`, decided by
+    /// `fixtures/voice-policy.json` on the launcher side: auto allows, deny
+    /// denies (the model reads the error), confirm / confirm-strong park a
+    /// proposal card in THE Dock ask (an elicitation: Allow / Deny + a typed
+    /// change) until it is answered, replaced or expires.
+    async fn voice_policy_answer(
+        self: &Arc<Self>,
+        cx: &ConnectionTo<Client>,
+        request: &wire::ControlReq,
+        tool_use_id: &str,
+    ) -> Value {
+        let tier = voice_policy::tier(&request.tool_name, &request.input);
+        match tier {
+            Tier::Auto => return wire::permission_allow(tool_use_id, request.input.clone()),
+            Tier::Deny => {
+                log::info!("engine: claude voice policy denied {}", request.tool_name);
+                return wire::permission_deny(tool_use_id, &VOICE_POLICY.copy.denied, false);
+            }
+            Tier::Confirm | Tier::ConfirmStrong => {}
+        }
+        let snippet = self.lock().voice_snippet.clone();
+        let card = voice_policy::card(&request.tool_name, &request.input, tier, &snippet);
+        let (withdraw, withdrawn) = flume::bounded::<String>(1);
+        {
+            let mut state = self.lock();
+            if state.voice_ledger.take_approval(&card, voice_clock_ms()) {
+                log::info!("engine: claude voice policy ran the changed {} (pre-approved)", request.tool_name);
+                return wire::permission_allow(tool_use_id, request.input.clone());
+            }
+            if !state.client_supports_form_elicitation {
+                return wire::permission_deny(tool_use_id, &VOICE_POLICY.copy.denied, false);
+            }
+            if let Some(older) = state.voice_ledger.park(&card, tool_use_id) {
+                if let Some(older) = state.voice_withdraw.remove(&older) {
+                    let _ = older.try_send(VOICE_POLICY.copy.replaced.clone());
+                }
+            }
+            state.voice_withdraw.insert(tool_use_id.to_string(), withdraw);
+        }
+        let asked = cx.send_request(voice_card_elicitation(&self.session_id, tool_use_id, &card)).block_task();
+        let expiry = Duration::from_millis(VOICE_POLICY.expires_after_ms);
+        let outcome = tokio::select! {
+            response = asked => Ok(response),
+            reason = withdrawn.recv_async() => Err(reason.unwrap_or_else(|_| VOICE_POLICY.copy.replaced.clone())),
+            () = tokio::time::sleep(expiry) => Err(VOICE_POLICY.copy.expired.clone()),
+        };
+        {
+            let mut state = self.lock();
+            state.voice_ledger.unpark(&card, tool_use_id);
+            state.voice_withdraw.remove(tool_use_id);
+        }
+        let answer = match outcome {
+            Ok(Ok(response)) => match response.action {
+                ElicitationAction::Accept(accepted) => voice_card_answer(&accepted.content.unwrap_or_default()),
+                _ => CardAnswer::Deny,
+            },
+            Ok(Err(error)) => {
+                log::warn!("engine: claude voice card failed: {error}");
+                CardAnswer::Deny
+            }
+            Err(reason) => {
+                // Expired or replaced: the Dock drops the card and the parked
+                // request is answered `Cancelled`.
+                let mut meta = Map::new();
+                meta.insert(ASK_WITHDRAWN_META_KEY.to_string(), json!(tool_use_id));
+                self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
+                return wire::permission_deny(tool_use_id, &reason, false);
+            }
+        };
+        match self.lock().voice_ledger.answered(&card, &answer, voice_clock_ms()) {
+            Verdict::Allow => wire::permission_allow(tool_use_id, request.input.clone()),
+            Verdict::Deny(message) => wire::permission_deny(tool_use_id, &message, false),
         }
     }
 
@@ -5137,6 +5234,66 @@ fn ask_questions(input: &Value) -> Vec<AskQuestion> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// #NEW-79: the claude CLI's permission mode for the voice conversation.
+const VOICE_PERMISSION_MODE: &str = "default";
+
+/// #NEW-79: the voice ledger's clock (monotonic milliseconds).
+fn voice_clock_ms() -> u64 {
+    static START: std::sync::LazyLock<Instant> = std::sync::LazyLock::new(Instant::now);
+    u64::try_from(START.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+/// #NEW-79: the voice card's choice field; its `_custom` sibling (the folded
+/// free-text row) carries a change.
+const VOICE_CARD_FIELD: &str = "decision";
+
+/// #NEW-79: a proposal card as ONE elicitation step: the card's question as
+/// the message, Allow / Deny under the card's header, and a typed change.
+fn voice_card_elicitation(
+    session_id: &SessionId,
+    tool_use_id: &str,
+    card: &voice_policy::Card,
+) -> CreateElicitationRequest {
+    let options = [&VOICE_POLICY.options.allow, &VOICE_POLICY.options.deny]
+        .into_iter()
+        .map(|label| EnumOption::new(label.clone(), label.clone()))
+        .collect::<Vec<_>>();
+    let schema = ElicitationSchema::new()
+        .property(
+            VOICE_CARD_FIELD.to_string(),
+            ElicitationPropertySchema::String(
+                StringPropertySchema::new().title(Some(card.header.clone())).one_of(options),
+            ),
+            false,
+        )
+        .property(
+            format!("{VOICE_CARD_FIELD}_custom"),
+            ElicitationPropertySchema::String(StringPropertySchema::new().title("Change".to_string())),
+            false,
+        );
+    CreateElicitationRequest::new(
+        ElicitationFormMode::new(
+            ElicitationSessionScope::new(session_id.clone()).tool_call_id(ToolCallId::new(tool_use_id)),
+            schema,
+        ),
+        card.question.clone(),
+    )
+}
+
+/// #NEW-79: an accepted voice card's content: a typed change wins over the
+/// choice (as for the agent's own questions); nothing chosen declines.
+fn voice_card_answer(content: &BTreeMap<String, ElicitationContentValue>) -> CardAnswer {
+    let text = |key: &str| match content.get(key) {
+        Some(ElicitationContentValue::String(value)) => value.trim().to_string(),
+        _ => String::new(),
+    };
+    let custom = text(&format!("{VOICE_CARD_FIELD}_custom"));
+    if !custom.is_empty() {
+        return voice_policy::read_answer(&custom);
+    }
+    voice_policy::read_answer(&text(VOICE_CARD_FIELD))
 }
 
 fn question_field(index: usize) -> String {
@@ -6457,6 +6614,36 @@ mod tests {
         );
         let answers = ask_answers(&questions, &content);
         assert_eq!(answers.get("Tabs or spaces?"), Some(&json!("two spaces")));
+    }
+
+    /// #NEW-79: the voice card is ONE elicitation step (Allow / Deny + the
+    /// folded change row) and a typed change wins over the choice.
+    #[test]
+    fn a_voice_card_is_one_step_and_a_change_wins() {
+        let input = json!({ "op": "update", "id": "NEW-12", "priority": "high" });
+        let tool = "mcp__exponential__exponential_issues";
+        let card = voice_policy::card(tool, &input, voice_policy::tier(tool, &input), "set twelve to high");
+        let request = voice_card_elicitation(&SessionId::new("s1"), "toolu_7", &card);
+        assert_eq!(request.message, card.question);
+        let schema = match &request.mode {
+            agent_client_protocol::schema::v1::ElicitationMode::Form(form) => &form.requested_schema,
+            other => panic!("expected a form, got {other:?}"),
+        };
+        assert!(schema.properties.contains_key(VOICE_CARD_FIELD));
+        assert!(schema.properties.contains_key(&format!("{VOICE_CARD_FIELD}_custom")));
+
+        let mut content = BTreeMap::new();
+        assert_eq!(voice_card_answer(&content), CardAnswer::Deny);
+        content.insert(VOICE_CARD_FIELD.to_string(), ElicitationContentValue::String("Allow".to_string()));
+        assert_eq!(voice_card_answer(&content), CardAnswer::Allow);
+        content.insert(
+            format!("{VOICE_CARD_FIELD}_custom"),
+            ElicitationContentValue::String(" Yes, but priority urgent ".to_string()),
+        );
+        assert_eq!(voice_card_answer(&content), CardAnswer::Change("Yes, but priority urgent".to_string()));
+        // A typed refusal is a refusal, never a change that pre-approves.
+        content.insert(format!("{VOICE_CARD_FIELD}_custom"), ElicitationContentValue::String("don't delete it".to_string()));
+        assert_eq!(voice_card_answer(&content), CardAnswer::Deny);
     }
 
     #[test]
