@@ -139,6 +139,17 @@ struct VoiceSettingsPage: View {
                     textRow(.wakePhrase)
                 } header: {
                     GlassSectionHeader(Voice.trayHeader(deviceName(deviceId)))
+                } footer: {
+                    // #NEW-56: the wake phrase's invalid-input line (FEED-79,
+                    // 13pt rose) under the group, like web's and Android's
+                    // FieldError; the bare field itself draws no border.
+                    if let wakePhraseError {
+                        Text(wakePhraseError)
+                            .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                            .foregroundStyle(DesignTokens.Semantic.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("\(Voice.TestIds.wakePhrase)-error")
+                    }
                 }
                 .listRowBackground(glassFormRowFill)
             }
@@ -278,63 +289,45 @@ struct VoiceSettingsPage: View {
 
     /// The input row (label + trailing field, the board form's Prefix row):
     /// saved a beat after typing stops, and at once on submit or leave. The
-    /// wake phrase's invalid-input line (FEED-79: red field border + 13pt
-    /// rose line) sits under its field.
+    /// wake phrase's invalid-input line is the tray section's footer.
     private func textRow(_ input: TextInput) -> some View {
-        let error = input == .wakePhrase ? wakePhraseError : nil
-        return VStack(alignment: .trailing, spacing: 4) {
-            HStack(spacing: 8) {
-                Text(input.title)
-                    .foregroundStyle(.white.opacity(TextOpacity.primary))
-                Spacer(minLength: 8)
-                GlassTextField(
-                    placeholder(input),
-                    text: Binding(
-                        get: { draft(input) },
-                        set: { next in
-                            // One line (a pasted line break or tab reads as a
-                            // space), no control characters (Cc only: a format
-                            // character such as an emoji's ZWJ stays), at most
-                            // `limits` UTF-16 units, the server's count.
-                            let oneLine = next.replacingOccurrences(of: "\r\n", with: " ")
-                            let clean = Self.clipped(
-                                String(String.UnicodeScalarView(oneLine.unicodeScalars.compactMap { scalar in
-                                    if scalar == "\n" || scalar == "\r" || scalar == "\t" { return " " }
-                                    return scalar.properties.generalCategory == .control ? nil : scalar
-                                })),
-                                utf16Limit: input.limit
-                            )
-                            if input == .wakePhrase, clean != wakePhrase { wakePhraseError = nil }
-                            setDraft(input, clean)
-                            scheduleTextSave(input)
-                        }
-                    ),
-                    bordered: false,
-                    accessibilityIdentifier: input.testId
-                )
-                .multilineTextAlignment(.trailing)
-                .autocorrectionDisabled()
-                .submitLabel(.done)
-                .focused($focusedInput, equals: input)
-                .onSubmit { saveText(input, committed: true) }
-                .onChange(of: focusedInput) { old, new in
-                    if old == input, new != input { saveText(input, committed: true) }
-                }
-                .overlay { invalidBorder(error != nil) }
+        HStack(spacing: 8) {
+            Text(input.title)
+                .foregroundStyle(.white.opacity(TextOpacity.primary))
+            Spacer(minLength: 8)
+            GlassTextField(
+                placeholder(input),
+                text: Binding(
+                    get: { draft(input) },
+                    set: { next in
+                        // One line (a pasted line break or tab reads as a
+                        // space), no control characters (Cc only: a format
+                        // character such as an emoji's ZWJ stays), at most
+                        // `limits` UTF-16 units, the server's count.
+                        let oneLine = next.replacingOccurrences(of: "\r\n", with: " ")
+                        let clean = Self.clipped(
+                            String(String.UnicodeScalarView(oneLine.unicodeScalars.compactMap { scalar in
+                                if scalar == "\n" || scalar == "\r" || scalar == "\t" { return " " }
+                                return scalar.properties.generalCategory == .control ? nil : scalar
+                            })),
+                            utf16Limit: input.limit
+                        )
+                        if input == .wakePhrase, clean != wakePhrase { wakePhraseError = nil }
+                        setDraft(input, clean)
+                        scheduleTextSave(input)
+                    }
+                ),
+                bordered: false,
+                accessibilityIdentifier: input.testId
+            )
+            .multilineTextAlignment(.trailing)
+            .autocorrectionDisabled()
+            .submitLabel(.done)
+            .focused($focusedInput, equals: input)
+            .onSubmit { saveText(input, committed: true) }
+            .onChange(of: focusedInput) { old, new in
+                if old == input, new != input { saveText(input, committed: true) }
             }
-            if let error {
-                Text(error)
-                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
-                    .foregroundStyle(DesignTokens.Semantic.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    @ViewBuilder private func invalidBorder(_ invalid: Bool) -> some View {
-        if invalid {
-            RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
-                .strokeBorder(DesignTokens.Semantic.red, lineWidth: 1)
         }
     }
 
