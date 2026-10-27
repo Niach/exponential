@@ -1,9 +1,10 @@
 // @vitest-environment node
+import { readFileSync } from "node:fs"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { agents, boards, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
-import { probeRealDb } from "@/test/real-db"
+import { agents, boards, conversations, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
+import { inRollback, probeRealDb } from "@/test/real-db"
 
 // #EXP-1399: ESCALATED cards against the REAL migrated Postgres (copied
 // harness from bus.real-db.test.ts). NEW-1 recap: THE server bus. Every
@@ -45,7 +46,7 @@ const { escalateCard } = await import(`@/lib/sessions/escalate`)
 const { buildPlanCard, buildQuestionCard, postAskCard } = await import(`@/lib/sessions/plan`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
 const { chatPreview } = await import(`@exp/domain-contract/chats`)
-const { watchSessions } = await import(`@/lib/sessions/bus`)
+const { askHiddenText, watchSessions } = await import(`@/lib/sessions/bus`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -382,5 +383,44 @@ describe.skipIf(!ready.ok)(`escalate review: a private card never reaches reader
     await caller(w.owner).delete({ sessionId: w.thread })
     const left = (await asks(w.conversation)).find((m) => (m.card as { messageId: string }).messageId === own.messageId)
     expect(left!.answeredAt).not.toBeNull()
+  })
+})
+
+describe.skipIf(!ready.ok)(`0198 migration: ask mirrors from before the review lose their plaintext`, () => {
+  // The scrub = 0198's first statement: every `ask` mirror's body becomes
+  // `askHiddenText`, whatever the reader may see (clients draw the origin).
+  const scrub = readFileSync(
+    new URL(`../../db/out/0198_exp1399_ask_mirror_unique.sql`, import.meta.url),
+    `utf8`
+  ).split(`--> statement-breakpoint`)[0]!
+
+  it(`a plaintext question and plan mirror become the neutral text; the digest drops the card text`, async () => {
+    const w = await managed()
+    const question = buildQuestionCard({ question: `Which secret port?`, options: [{ label: `54398` }] })
+    const plan = buildPlanCard({ plan: `Rotate the secret key` })
+    const asked = await postAskCard({ userId: w.owner, sessionId: w.childId, card: question })
+    const planned = await postAskCard({ userId: w.owner, sessionId: w.childId, card: plan })
+    // What master's busAsk wrote: the card text, in plaintext.
+    const before = await asks(w.thread)
+    expect(before.map((m) => m.body).join(`\n`)).toContain(`Which secret port?`)
+    expect(before.map((m) => m.body).join(`\n`)).toContain(`Rotate the secret key`)
+    await inRollback(async (tx) => {
+      await tx.execute(sql.raw(scrub))
+      const after = await tx
+        .select()
+        .from(messages)
+        .where(and(eq(messages.sessionId, w.thread), sql`${messages.card}->>'kind' = 'ask'`))
+      const byOrigin = new Map(after.map((m) => [(m.card as { messageId: string }).messageId, m.body]))
+      expect(byOrigin.get(asked.messageId)).toBe(askHiddenText({ id: w.childId }, question))
+      expect(byOrigin.get(planned.messageId)).toBe(askHiddenText({ id: w.childId }, plan))
+      const [conv] = await tx
+        .select({ digest: conversations.digest })
+        .from(conversations)
+        .where(eq(conversations.id, after[0]!.conversationId!))
+      expect(JSON.stringify(conv!.digest)).not.toMatch(/secret/)
+      // Idempotent: a second run rewrites nothing.
+      const again = await tx.execute(sql.raw(scrub))
+      expect((again as unknown as { rowCount: number }).rowCount).toBe(0)
+    })
   })
 })
