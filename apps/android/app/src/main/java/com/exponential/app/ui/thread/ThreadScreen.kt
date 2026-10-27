@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.exponential.app.ui.session.AgentSessionViewModel
@@ -711,11 +712,21 @@ fun ThreadContent(
             onSelect = { onSelectKey(threadTabKey(it)) },
             key = { threadTabKey(it) },
             modifier = Modifier.fillMaxSize(),
-            // EXP-1343: only the shown page is composed at rest (a drag
-            // composes its neighbour), and each page owns its view models:
-            // they die with the page instead of piling up per swipe.
-            beyondViewportPageCount = 0,
+            // EXP-1343: each page owns its view models: they die with the
+            // page instead of piling up per swipe. #EXP-1387: the neighbours
+            // stay composed, an issue or session page as cheap skeleton rows
+            // until it settles (session-thread.json: only the visible page
+            // holds live models), so a swipe's first frame never builds one.
+            beyondViewportPageCount = 1,
             pageViewModels = true,
+            neighbour = { tab ->
+                when (tab) {
+                    is SessionTree.ThreadTab.IssueTab, is SessionTree.ThreadTab.SessionTab -> {
+                        { ThreadPageSkeleton(topInset) }
+                    }
+                    else -> null
+                }
+            },
         ) { tab ->
             when (tab) {
                 SessionTree.ThreadTab.Conversation -> {
@@ -779,6 +790,15 @@ fun ThreadContent(
                 SessionTree.ThreadTab.Add -> Unit
             }
         }
+    }
+}
+
+/** #EXP-1387: an issue or session page while it is a neighbour (the iOS
+ *  thread pager's stand-in): skeleton rows under the header band. */
+@Composable
+private fun ThreadPageSkeleton(topInset: Dp) {
+    Box(Modifier.fillMaxSize().padding(top = topInset)) {
+        SkeletonRows(modifier = Modifier.align(Alignment.TopCenter).padding(16.dp).testTag("thread-page-skeleton"))
     }
 }
 

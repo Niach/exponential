@@ -8,6 +8,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +35,13 @@ import androidx.compose.ui.platform.LocalFocusManager
  * names the wrong page. A page change clears focus (the neighbours stay
  * composed, so an off-screen field would keep the keyboard). [key] must be
  * Bundle-saveable (a String). [content] is called per PAGE, filling it.
+ *
+ * #EXP-1387: a page for which [neighbour] returns a stub runs [content]
+ * (and its [PageViewModelStore]) only while it is the SETTLED page; composed
+ * as a neighbour (or passed by a tab tap's animation) it draws the stub, so a
+ * drag never builds a whole screen and its view models on its first frame.
+ * The settled page alone feeds the detail haze, flipping when a swipe
+ * settles, never half-way through a drag.
  */
 @Composable
 fun <T> TabPager(
@@ -46,6 +54,9 @@ fun <T> TabPager(
     /** EXP-1343: each page gets its own [PageViewModelStore] (its view
      *  models die with the page instead of piling up on the screen's entry). */
     pageViewModels: Boolean = false,
+    /** #EXP-1387: a page's cheap stand-in while it is not the settled page;
+     *  null (for the page, or no lambda) = that page always runs [content]. */
+    neighbour: ((T) -> (@Composable () -> Unit)?)? = null,
     content: @Composable (T) -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = pages.indexOf(selected).coerceAtLeast(0)) { pages.size }
@@ -100,12 +111,19 @@ fun <T> TabPager(
         flingBehavior = PagerDefaults.flingBehavior(pagerState),
     ) { index ->
         val page = pages.getOrNull(index) ?: return@HorizontalPager
-        val hazeActive = outerHazeActive && index == pagerState.currentPage
+        // #EXP-1387: read through derivedStateOf, so a page recomposes only
+        // when ITS settled-ness flips, never on every page change mid-drag.
+        val settled by remember(index) { derivedStateOf { pagerState.settledPage == index } }
         // EXP-1343: only the settled page feeds the ONE detail haze; a
         // neighbour composed for a drag never registers a second source.
-        CompositionLocalProvider(LocalDetailHazeSourceActive provides hazeActive) {
+        CompositionLocalProvider(LocalDetailHazeSourceActive provides (outerHazeActive && settled)) {
             Box(modifier = Modifier.fillMaxSize()) {
-                if (pageViewModels) PageViewModelStore { content(page) } else content(page)
+                val stub = if (settled) null else neighbour?.invoke(page)
+                when {
+                    stub != null -> stub()
+                    pageViewModels -> PageViewModelStore { content(page) }
+                    else -> content(page)
+                }
             }
         }
     }

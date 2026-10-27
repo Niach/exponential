@@ -7,10 +7,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.HiltViewModelFactory
 import androidx.lifecycle.HasDefaultViewModelProviderFactory
+import androidx.lifecycle.VIEW_MODEL_STORE_OWNER_KEY
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.CreationExtras
+import androidx.lifecycle.viewmodel.MutableCreationExtras
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.navigation.NavBackStackEntry
 
@@ -22,6 +24,14 @@ import androidx.navigation.NavBackStackEntry
  * flows, a relay connection — and none ever died. The owner delegates its
  * factory (Hilt, through the parent nav entry) and creation extras to the
  * parent, so `hiltViewModel` works inside [content] unchanged.
+ *
+ * #EXP-1387: the extras name THIS owner as the VIEW_MODEL_STORE_OWNER (the
+ * [com.exponential.app.ui.apps.SessionArgsStore] rule), so each page view
+ * model's SavedStateHandle lives and dies with the page. Left on the nav
+ * entry, every page ever shown kept a handle there, a page's view model
+ * shared one with the screen's own of the same key (`session:<root>`), and
+ * a page composed while the chat was being left reached into the popped
+ * entry's store.
  */
 @Composable
 fun PageViewModelStore(content: @Composable () -> Unit) {
@@ -33,9 +43,10 @@ fun PageViewModelStore(content: @Composable () -> Unit) {
             is HasDefaultViewModelProviderFactory -> parent.defaultViewModelProviderFactory
             else -> ViewModelProvider.NewInstanceFactory()
         }
-        val extras = (parent as? HasDefaultViewModelProviderFactory)?.defaultViewModelCreationExtras
+        val base = (parent as? HasDefaultViewModelProviderFactory)?.defaultViewModelCreationExtras
             ?: CreationExtras.Empty
-        PageOwner(factory, extras)
+        val extras = MutableCreationExtras(base)
+        PageOwner(factory, extras).also { owner -> extras[VIEW_MODEL_STORE_OWNER_KEY] = owner }
     }
     DisposableEffect(owner) {
         onDispose { owner.viewModelStore.clear() }
